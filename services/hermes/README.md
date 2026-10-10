@@ -37,7 +37,7 @@ Key facts:
 |---|---|---|
 | OpenAI-compatible API (direct) | `http://localhost:${HERMES_API_PORT}` (default 63072) | Bearer token: `${HERMES_API_KEY}`. Same surface as OpenAI's `/v1/chat/completions`. |
 | Dashboard (direct) | `http://localhost:${HERMES_DASHBOARD_PORT}` (default 63073) | Web admin UI for skills, sessions, model config. |
-| Dashboard (Kong) | `http://hermes.localhost:63000` | Requires `./start.sh --setup-hosts`. Kong asks for the dashboard credential (`DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD`); the dashboard itself has no login. |
+| Dashboard (Kong) | `http://hermes.localhost:${KONG_HTTP_PORT}` (default 63000) | Requires `./start.sh --setup-hosts`. Kong asks for the dashboard credential (`DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD`); the dashboard itself has no login. |
 | Internal DNS (other containers) | `http://hermes:8642` | Reachable from LiteLLM, n8n, jupyterhub; Backend and OpenClaw get the endpoint but do not call it yet (see §6). |
 
 See the canonical port table at [Ports and Routes](../../docs/reference/ports-routes.md).
@@ -168,18 +168,11 @@ model. n8n and JupyterHub also get `HERMES_ENDPOINT` for direct calls. Backend
 and OpenClaw receive `HERMES_ENDPOINT` and `HERMES_API_KEY` but do not call
 Hermes yet.
 
-## 7. References
-
-- Upstream repo — <https://github.com/NousResearch/hermes-agent>
-- Official docs — <https://hermes-agent.nousresearch.com/docs/>
-- Open WebUI integration guide — <https://hermes-agent.nousresearch.com/docs/user-guide/messaging/open-webui>
-- Docker / bridged-network compose form — <https://hermes-agent.nousresearch.com/docs/user-guide/docker>
-
-## 8. RAG capability via LightRAG
+## 7. RAG capability via LightRAG
 
 Hermes has no direct LightRAG tool. This release cannot declare an HTTP tool in `config.yaml`; its `tools:` section holds only built-in tool settings. LightRAG is reachable as the `lightrag` model through LiteLLM. `LIGHTRAG_INTERNAL_URL` and `LIGHTRAG_API_KEY` reach hermes-init for a future MCP or skill integration.
 
-## 9. Hermes → Airflow integration
+## 8. Hermes → Airflow integration
 
 Hermes can trigger Airflow DAG runs through the Airflow REST API. Airflow
 3.x's public `/api/v2/` uses JWT bearer tokens, not HTTP basic auth.
@@ -204,6 +197,13 @@ curl -fsS -X POST \
 In this pattern, Hermes decides that a request needs a long-running pipeline
 and triggers an Airflow DAG. See the [Airflow README](../airflow/README.md)
 for the example DAG.
+
+## 9. References
+
+- Upstream repo — <https://github.com/NousResearch/hermes-agent>
+- Official docs — <https://hermes-agent.nousresearch.com/docs/>
+- Open WebUI integration guide — <https://hermes-agent.nousresearch.com/docs/user-guide/messaging/open-webui>
+- Docker / bridged-network compose form — <https://hermes-agent.nousresearch.com/docs/user-guide/docker>
 
 ## 10. Dependencies & Integrations
 

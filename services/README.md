@@ -6,8 +6,7 @@ eight `supabase-*` containers; `n8n/` owns `n8n` + `n8n-worker` + `n8n-init`;
 `open-webui/` owns `open-web-ui` + `open-webui-init`.
 
 The root `docker-compose.yml` is a thin `include:` shell that merges every
-fragment under `services/<name>/compose.yml`. The per-service manifests
-replace the retired `bootstrapper/service-configs.yml`. See
+fragment under `services/<name>/compose.yml`. See
 `docs/CONTRIBUTING-services.md` for the full architecture rationale.
 
 ## 1. Layout
@@ -62,8 +61,10 @@ duplicate those changing totals.
    committed file and the assembler's output. Never edit `.env.example`
    by hand.
 5. New service? Add the fragment's path to the `include:` list in the root
-   `docker-compose.yml`. Service order is now derived automatically from
-   `depends_on:` topology (see `bootstrapper/services/topology.py`).
+   `docker-compose.yml`. Service order comes from the `depends_on:`
+   topology (see `bootstrapper/services/topology.py`). The full checklist,
+   including CLI registration, tracks and the test fixtures, is in
+   [Adding a service](../docs/CONTRIBUTING-services.md#1-tldr--the-60-second-checklist).
 
 ## 3. Folder-name rules
 
@@ -90,7 +91,7 @@ validation.
 
 When a service brings its own source code, init scripts, build context, or
 config files, those live under a named subdirectory inside the service
-folder. The full convention (`app/`, `build/`, `init/`, `catalog-init/`,
+folder. The full convention (`app/`, `build/`, `init/`,
 `pull/`, `config/`, `db/`, `provider/`, `extras/`, `workflows-stage/`) is
 documented in
 [`docs/CONTRIBUTING-services.md`](../docs/CONTRIBUTING-services.md#15-subdirectory-naming-convention).

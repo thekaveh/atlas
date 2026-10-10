@@ -11,7 +11,7 @@ The Atlas Spark image includes the Kafka Structured Streaming jars. Spark Connec
 | Surface | URL / endpoint | Notes |
 | --- | --- | --- |
 | Kafka API, in-network | `redpanda:9092` | Use from Spark, Airflow tasks, notebooks, and other containers. |
-| Kafka API, host | `localhost:${REDPANDA_KAFKA_PORT}` | Direct Kafka client access. |
+| Kafka API, host | `localhost:${REDPANDA_KAFKA_PORT}` | Direct Kafka client access, with no authentication. Loopback-only by default (`HOST_BIND_IP=127.0.0.1:`). |
 | Redpanda Console, direct | `http://localhost:${REDPANDA_CONSOLE_PORT}` | Direct host port for local development. Not gated by Redpanda. Loopback-only by default (`HOST_BIND_IP=127.0.0.1:`); keep that value on shared hosts. |
 | Redpanda Console, Kong | `http://redpanda.localhost:${KONG_HTTP_PORT}` | Routed through Kong with dashboard basic auth. |
 
@@ -23,11 +23,11 @@ The Atlas Spark image includes the Kafka Structured Streaming jars. Spark Connec
 ./start.sh --track data-eng --redpanda-source container
 ```
 
-The init container creates the comma-separated topics in `REDPANDA_DEMO_TOPICS`; the default is `REDPANDA_DEMO_TOPICS=atlas_stream_events`. Leave it blank or remove topics from the list when you want a broker with no Atlas-created demo topics.
+The init container creates the comma-separated topics in `REDPANDA_DEMO_TOPICS`; the default is `REDPANDA_DEMO_TOPICS=atlas_stream_events`. Leave it blank or remove topics from the list when you want a broker with no Atlas-created demo topics. The init container only creates topics. A topic that already exists in the volume stays until you delete it, for example with `rpk topic delete` or the Console.
 
 To create project topics before a Spark job subscribes, set them in `.env`, for example `REDPANDA_DEMO_TOPICS=events,online_retail_cdc`. Redpanda runs in `dev-container` mode, so producer-first flows can create a topic on first write. Readers that expect a topic to exist should pre-seed it.
 
-The same mode turns on `--unsafe-bypass-fsync` and write caching. An acknowledged record is not yet on disk, so a host or Docker VM crash can lose the most recent writes. Treat the broker as a development stream, not a system of record, and replay from the source after a crash.
+Broker data persists in the `${PROJECT_NAME}-redpanda-data` volume; `./stop.sh --cold` removes it. The `dev-container` mode also turns on `--unsafe-bypass-fsync` and write caching. An acknowledged record is not yet on disk, so a host or Docker VM crash can lose the most recent writes. Treat the broker as a development stream, not a system of record, and replay from the source after a crash.
 
 When Redpanda is enabled, Atlas sets in-network bootstrap values in `.env`:
 

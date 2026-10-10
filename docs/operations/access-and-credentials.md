@@ -2,7 +2,7 @@
 
 Supabase is Atlas's shared infrastructure: the Postgres database about twenty services store their data in, object storage, and an authentication API. It is **not** a shared login. Supabase identity opens only the Backend API's user-scoped routes and Supabase's own APIs. Every bundled dashboard keeps its own login, and there is no single sign-on. Open WebUI lists OIDC / SSO via Supabase Auth as future work (see its [service guide](../../services/open-webui/README.md)).
 
-The table below says which credential opens each surface. Each row was checked against the service README and the generated Kong routes (`bootstrapper/utils/kong_config_generator.py`). The dashboard at `http://localhost:${KONG_HTTP_PORT}` shows the same Kong gate on each card.
+The table below says which credential opens each surface. The Kong gates come from the generated routes (`bootstrapper/utils/kong_config_generator.py`). The dashboard at `http://localhost:${KONG_HTTP_PORT}` shows the same Kong gate on each card.
 
 ## 1. Credential kinds
 

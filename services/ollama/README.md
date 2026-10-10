@@ -8,7 +8,9 @@ For `ollama-localhost`, Ollama must already listen on the host at `OLLAMA_LOCALH
 
 ## 1. Overview
 
-Ollama is the local LLM engine behind the always-on **LiteLLM gateway**. Consumers do **not** call Ollama directly: Backend, Open WebUI, n8n, JupyterHub, Local Deep Researcher, OpenClaw, [Hermes Agent](../hermes/README.md) and Weaviate vectorization. They read `LITELLM_BASE_URL` + `LITELLM_API_KEY`, and LiteLLM routes each request to the configured Ollama upstream. See [LiteLLM Gateway](../litellm/README.md) for the consumer-facing surface.
+Ollama is the local LLM engine behind the always-on **LiteLLM gateway**. The default consumers do **not** call Ollama directly: Backend, Open WebUI, n8n, JupyterHub, Local Deep Researcher, OpenClaw, [Hermes Agent](../hermes/README.md) and Weaviate vectorization. They read `LITELLM_BASE_URL` + `LITELLM_API_KEY`, and LiteLLM routes each request to the configured Ollama upstream. See [LiteLLM Gateway](../litellm/README.md) for the consumer-facing surface.
+
+An operator can point a [LightRAG](../lightrag/README.md) role binding at Ollama directly. That role then bypasses LiteLLM and its catalog request defaults.
 
 `LLM_PROVIDER_SOURCE` is a single-select choice for the Ollama upstream:
 
@@ -60,7 +62,7 @@ Two levers, and they are different things:
 - `OLLAMA_MAX_LOADED_MODELS` — how many models fit resident at once. Set it to the number of distinct models one run touches.
 - `OLLAMA_KEEP_ALIVE` — how long each stays after its last use. Ollama's default is 5m, so even with enough slots a slow pipeline can still evict between calls. `-1` means forever.
 
-For `ollama-localhost`, Atlas cannot set either; the host daemon owns them. Declare `OLLAMA_MODELS_RESIDENT_MIN`, and `./start.sh doctor` reads the daemon's configuration and warns before a long run.
+For `ollama-localhost`, Atlas cannot set either; the host daemon owns them. Declare `OLLAMA_MODELS_RESIDENT_MIN`, and `./start.sh doctor` reads the daemon's configuration and reports a failure when it allows fewer resident models.
 
 **`OLLAMA_KEEP_ALIVE=-1` keeps every loaded model in memory until you revert it and restart Ollama.** On a large model set, that is tens of GB. Set it only for the duration of a run (see [reusing Atlas](../../docs/operations/reusing-atlas.md)).
 
@@ -72,16 +74,17 @@ LiteLLM resolves the upstream URL from `LITELLM_OLLAMA_UPSTREAM` (set automatica
 
 ## 4. Integration notes
 
-The Ollama service participates in the Docker Compose network and is consumed exclusively by:
+Inside the stack, these callers use Ollama:
 
 - **LiteLLM** — for chat completions and embeddings via the OpenAI-compatible proxy.
-- **`ollama-pull`** — init container that pulls each active model through the native (non-OpenAI) `/api/pull`. The active set comes from `OLLAMA_USER_MODELS` and `OLLAMA_CUSTOM_MODELS`, resolved by `model_resolver` from the YAML catalogs and env; the call bypasses LiteLLM. Each pull is tried up to 3 times with linear backoff. A model that still fails logs a non-fatal ERROR, and the other models are still pulled. `ollama-pull` runs only for `ollama-container-*`; for `ollama-localhost` the bootstrapper pulls on the host (§5).
+- **`ollama-pull`** — init container that pulls each model in `OLLAMA_USER_MODELS` ∪ `OLLAMA_CUSTOM_MODELS` through the native (non-OpenAI) `/api/pull`. The call bypasses LiteLLM. Each pull is tried up to 3 times with linear backoff. A download that stays below 1 KiB/s for `OLLAMA_PULL_STALL_TIMEOUT_SECONDS` (default 120) is aborted and retried. A model that still fails logs a non-fatal ERROR, and the other models are still pulled. `ollama-pull` runs only for `ollama-container-*`; for `ollama-localhost` the bootstrapper pulls on the host (§5).
+- **Kong** — the `ollama.localhost` alias (§2), for Ollama-native calls from the host. It has no Atlas authentication.
 
 If `LLM_PROVIDER_SOURCE=none`, the stack starts only when vLLM Metal is `managed-localhost` or at least one of `CLOUD_OPENAI_SOURCE`, `CLOUD_ANTHROPIC_SOURCE` or `CLOUD_OPENROUTER_SOURCE` is `enabled`. Otherwise the bootstrapper refuses to start.
 
 ## 5. Models — single unified picker, source-aware
 
-The interactive wizard surfaces **one** Ollama model multi-select (and a free-text "additional to pull" step for container sources). The option list is source-aware so the user never sees two near-duplicate pages:
+The interactive wizard shows **one** Ollama model multi-select, and a free-text "additional models to pull" step for container sources. The option list depends on the source:
 
 - **`ollama-container-*`** — the multi-select shows the live `https://ollama.com/library` scrape (~230 entries; exact count depends on the upstream catalog at fetch time). Nothing is pulled yet — the in-stack container is launched after wizard exit — so the library is the only meaningful discovery surface. The `ollama-pull` init container fetches checked entries on first start.
 - **`ollama-localhost`** — the multi-select **merges** `/api/tags` (models already pulled on your upstream) with the library scrape. Each row has a status badge:
@@ -115,9 +118,9 @@ Only a missing `OLLAMA_USER_MODELS` key falls back to the baseline in the bootst
 
 When adding an **embedding** model to `services/ollama/models.yaml`, declare its output vector dimension with `dim:` (e.g. `dim: 768` for `nomic-embed-text`). The wizard's embedding-default step lists models with `dim: 768` first, so one of them is the default pick. The selected model's `dim` sets `LANGMEM_EMBEDDING_DIM` (default 768); for a model with no `dim`, the wizard asks for the dimension. See the header comments in `services/ollama/models.yaml`.
 
-The third step — **Ollama  ·  additional models to pull** — is a free-text comma-separated list. It is shown only for `ollama-container-*` sources and persists as `OLLAMA_CUSTOM_MODELS`. `model_resolver` adds these entries to the active model set for every Ollama source.
+The **Ollama  ·  additional models to pull** step takes a free-text comma-separated list. It is shown only for `ollama-container-*` sources and persists as `OLLAMA_CUSTOM_MODELS`. `model_resolver` adds these entries to the active model set for every Ollama source.
 
-**Pulling the active set.** For `ollama-container-*`, `ollama-pull` pulls `OLLAMA_USER_MODELS` ∪ `OLLAMA_CUSTOM_MODELS` (as resolved by `model_resolver`). For `ollama-localhost`, the bootstrapper pulls the same set onto the host daemon at every `./start.sh`:
+**Pulling the active set.** For `ollama-container-*`, `ollama-pull` pulls `OLLAMA_USER_MODELS` ∪ `OLLAMA_CUSTOM_MODELS`. For `ollama-localhost`, the bootstrapper pulls the same set onto the host daemon at every `./start.sh`:
 
 - Tags already present (per `/api/tags`) are skipped.
 - Missing tags stream through `POST /api/pull`. Ollama verifies layers, so re-runs and interrupted pulls converge.
@@ -128,7 +131,7 @@ The `unpullable-models` doctor check names any declared tag that is missing.
 
 | Variable | Set by | Consumed by |
 |---|---|---|
-| `OLLAMA_USER_MODELS` | Single unified Ollama models multi-select. | `model_resolver` (active set computation from YAML catalogs + env, used by `litellm-init` and `ollama-pull`); `ollama-pull` for container sources; the bootstrapper's host pull for `ollama-localhost`. |
+| `OLLAMA_USER_MODELS` | Single unified Ollama models multi-select. | `model_resolver` (active set from YAML catalogs + env, used by `litellm-init`); `ollama-pull` for container sources; the bootstrapper's host pull for `ollama-localhost`. |
 | `OLLAMA_CUSTOM_MODELS` | Wizard "additional models to pull" text step. | `model_resolver` (merged into active set); `ollama-pull` for container sources; the bootstrapper's host pull for `ollama-localhost`. |
 
 ## 6. Dependencies & Integrations
@@ -179,8 +182,10 @@ docker compose ps ollama
 # Check Ollama logs
 docker compose logs -f ollama
 
-# Verify LiteLLM can reach Ollama (from inside the network)
-docker exec ${PROJECT_NAME}-litellm curl -s http://ollama:11434/api/tags
+# Verify LiteLLM can reach Ollama (from inside the network). The LiteLLM image has
+# no curl. For ollama-localhost, use the LITELLM_OLLAMA_UPSTREAM URL from .env.
+docker exec ${PROJECT_NAME}-litellm python -c \
+  "import urllib.request; print(urllib.request.urlopen('http://ollama:11434/api/tags', timeout=5).read().decode())"
 ```
 
 For general startup and routing issues, see [Troubleshooting](../../docs/quick-start/troubleshooting.md). For LiteLLM-specific debugging (model registration, virtual keys, spend logs), see [LiteLLM Gateway](../litellm/README.md).

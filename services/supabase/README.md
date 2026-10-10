@@ -43,7 +43,7 @@ Host connections require SCRAM passwords:
 
 Error: `password authentication failed for user "supabase_admin"`.
 
-Cause: Postgres sets the `supabase_admin` password once, when the `supabase-db-data` volume is created, and never re-syncs it. `SUPABASE_DB_PASSWORD` ships as the placeholder `password`, and the first `./start.sh` replaces it with a random value. If `.env` later gets a new password while the volume stays, clients send the new value and the role still holds the old one. For example, `.env` is regenerated from `.env.example` and `./stop.sh` ran without `--cold`.
+Cause: Postgres sets the `supabase_admin` password once, when the `supabase-db-data` volume is created, and never re-syncs it. `SUPABASE_DB_PASSWORD` ships as the placeholder `password`, and the first `./start.sh` replaces it with a random value. If `.env` later gets a new password while the volume stays, clients send the new value and the role still holds the old one. This happens, for example, when `.env` is regenerated from `.env.example` after a `./stop.sh` without `--cold`.
 
 `./start.sh` does not rotate the password when the `<project>_supabase-db-data` volume exists. It warns instead.
 
@@ -59,25 +59,26 @@ To recover, do one of these:
 - Executes the `.sql` files from `./services/supabase/db/scripts/` in alphabetical order
 - Then runs `05-scoped-roles.sh`, which creates the scoped per-service logins and grants
 - Then executes optional downstream-owned `.sql` files from `./services/supabase/db/_user/` in alphabetical order
-- Custom scripts handle project-specific setup.
 
-The seeding layout has two tiers. Core scaffolding lives in the `0x`-prefixed files. Per-service "vertical slice" files (`10` and up) each own one service's tables, migrations and seeds. `db-init-runner.sh` runs them in alphabetical order. A slice can reference a table from a lower-numbered slice, for example `public.users` in `10` from slices `13`, `14` and `17`.
+The seeding layout has two tiers. Core scaffolding lives in the `0x`-prefixed files. Per-service "vertical slice" files (`10` and up) each own one service's tables, migrations and seeds. `db-init-runner.sh` runs them in alphabetical order. A slice can reference a table from a lower-numbered slice, for example `public.users` in `10` from slices `13` and `14`.
 
-  - Enabling extensions: `vector`, `postgis`, `pgcrypto` (`01-extensions.sql`)
-  - Ensuring schemas `auth` and `storage` exist (`02-schemas.sql`)
-  - Creating custom types for Supabase Auth / GoTrue (`03-auth-types.sql`)
-  - GoTrue migration sync shim (`03b-gotrue-migration-sync.sql`)
-  - Setting up storage schema and tables (`04-storage.sql`)
-  - Creating the scoped per-service logins, databases and grants (`05-scoped-roles.sh`; run after the SQL pass, before the `_user` scripts)
-  - Granting appropriate permissions to standard roles (`06-permissions.sql`)
-  - Creating shared functions like `public.health` and `update_updated_at_column()` (`07-functions.sql`)
-  - **`10-users.sql`** — `public.users` table (shared user identity, referenced by downstream slices)
-  - **`12-comfyui.sql`** — `public.comfyui_workflows` and `public.comfyui_generations` tables (runtime app state), their indexes, and the default workflow seed rows. The guarded drop of the retired `public.comfyui_models` table is in `16-decommission-comfyui-models.sql`.
-  - **`13-backend-research.sql`** — `research` schema and research tables (`public.research_sessions`, `public.research_results`, `public.research_sources`, `public.research_logs`) (owned by backend / local-deep-researcher)
-  - **`14-backend-memory.sql`** — LangMem memory tables (`public.memory_facts`, `public.memory_sessions`, `public.memory_consolidation_log`) and the embedding-schema state (owned by Backend / LangMem). When `LANGMEM_EMBEDDING_DIM` changes, Backend re-embeds every mismatched row before the dimension constraint is validated. The dimension limit is 4,000. The legacy `user_id` VARCHAR→UUID migration is guarded per table. A table with a non-UUID `user_id` keeps its legacy shape and logs a `WARNING`; DB init continues.
-  - **`15-decommission-llms.sql`** — drops the retired `public.llms` catalog table on existing volumes (idempotent `DROP TABLE IF EXISTS`). Fresh installs never create it. The LLM model catalogs are `services/ollama/models.yaml` and `services/litellm/models.yaml`, resolved by `bootstrapper/utils/model_resolver.py`.
-  - **`16-decommission-comfyui-models.sql`** — drops the retired `public.comfyui_models` catalog table on existing volumes (idempotent `DROP TABLE IF EXISTS`). The ComfyUI model catalog is `services/comfyui/models.yaml` plus the `custom-models.yaml` sidecar, resolved by `bootstrapper/utils/comfyui_resolver.py` at start. `public.comfyui_workflows` and `public.comfyui_generations` are runtime app state and are not affected.
-  - **`17-backend-media-ledger.sql`** — `public.media_spend_ledger` (Backend media spend and recovery ledger, with row-level security)
+The Atlas-owned scripts do this work:
+
+- Enabling extensions: `vector`, `postgis`, `pgcrypto` (`01-extensions.sql`)
+- Ensuring schemas `auth` and `storage` exist (`02-schemas.sql`)
+- Creating custom types for Supabase Auth / GoTrue (`03-auth-types.sql`)
+- GoTrue migration sync shim (`03b-gotrue-migration-sync.sql`)
+- Setting up storage schema and tables (`04-storage.sql`)
+- Creating the scoped per-service logins, databases and grants (`05-scoped-roles.sh`; run after the SQL pass, before the `_user` scripts)
+- Granting appropriate permissions to standard roles (`06-permissions.sql`)
+- Creating shared functions like `public.health` and `update_updated_at_column()` (`07-functions.sql`)
+- **`10-users.sql`** — `public.users` table (shared user identity, referenced by downstream slices)
+- **`12-comfyui.sql`** — `public.comfyui_workflows` and `public.comfyui_generations` tables (runtime app state), their indexes, and the default workflow seed rows. The guarded drop of the retired `public.comfyui_models` table is in `16-decommission-comfyui-models.sql`.
+- **`13-backend-research.sql`** — `research` schema and research tables (`public.research_sessions`, `public.research_results`, `public.research_sources`, `public.research_logs`) (owned by backend / local-deep-researcher)
+- **`14-backend-memory.sql`** — LangMem memory tables (`public.memory_facts`, `public.memory_sessions`, `public.memory_consolidation_log`) and the embedding-schema state (owned by Backend / LangMem). When `LANGMEM_EMBEDDING_DIM` changes, Backend re-embeds every mismatched row before the dimension constraint is validated. The dimension limit is 4,000. The legacy `user_id` VARCHAR→UUID migration is guarded per table. A table with a non-UUID `user_id` keeps its legacy shape and logs a `WARNING`; DB init continues.
+- **`15-decommission-llms.sql`** — drops the retired `public.llms` catalog table on existing volumes (idempotent `DROP TABLE IF EXISTS`). Fresh installs never create it. The LLM model catalogs are `services/ollama/models.yaml` and `services/litellm/models.yaml`, resolved by `bootstrapper/utils/model_resolver.py`.
+- **`16-decommission-comfyui-models.sql`** — drops the retired `public.comfyui_models` catalog table on existing volumes (idempotent `DROP TABLE IF EXISTS`). The ComfyUI model catalog is `services/comfyui/models.yaml` plus the `custom-models.yaml` sidecar, resolved by `bootstrapper/utils/comfyui_resolver.py` at start. `public.comfyui_workflows` and `public.comfyui_generations` are runtime app state and are not affected.
+- **`17-backend-media-ledger.sql`** — `public.media_spend_ledger` (Backend media spend and recovery ledger, with row-level security)
 
 Two helper scripts in the same directory are not part of the SQL pass:
 
@@ -190,9 +191,9 @@ execute privilege is revoked from public API roles despite its required
 - **Access**: through Kong at `/auth/v1` only. GoTrue is not published on the host, because it answers any browser origin. With sign-up and auto-confirm on, any web page open in your browser could create an account and read its token. `SUPABASE_AUTH_PORT` stays reserved but is not bound.
 - **Purpose**: User registration, login, password recovery, email confirmation
 - **Features**: JWT authentication, user management, password policies
-  - **Port**: GoTrue listens on 9999 (`GOTRUE_API_PORT`; its own default is 8081). Kong's `/auth/v1` routes and Storage's `GOTRUE_URL` point there, and the container healthcheck probes `/health` there.
-  - **Token claims**: `GOTRUE_JWT_AUD` and `GOTRUE_JWT_DEFAULT_GROUP_NAME` are `authenticated`, so user tokens carry the `aud` and `role` the backend and PostgREST require. Users stored with an empty `aud` and `role` are repaired on the next start.
-  - **Profile sync**: the `auth.users` → `public.users` sync runs as the no-login role `atlas_auth_sync`. Init statements that write another role's table run as that role, so code planted by that role never runs as the init superuser.
+- **Port**: GoTrue listens on 9999 (`GOTRUE_API_PORT`; its own default is 8081). Kong's `/auth/v1` routes and Storage's `GOTRUE_URL` point there, and the container healthcheck probes `/health` there.
+- **Token claims**: `GOTRUE_JWT_AUD` and `GOTRUE_JWT_DEFAULT_GROUP_NAME` are `authenticated`, so user tokens carry the `aud` and `role` the backend and PostgREST require. Users stored with an empty `aud` and `role` are repaired on the next start.
+- **Profile sync**: the `auth.users` → `public.users` sync runs as the no-login role `atlas_auth_sync`. Init statements that write another role's table run as that role, so code planted by that role never runs as the init superuser.
 - **Limits**: GoTrue's `SITE_URL` (`http://supabase-studio:3000`) and `API_EXTERNAL_URL` (`http://supabase-auth:9999`) are container-internal. SMTP points at a local relay that does not exist. Email confirmation, recovery, magic-link and OAuth redirect links therefore do not work from a browser; the stock defaults auto-confirm sign-ups instead.
 
 ### 4.3. Storage Service

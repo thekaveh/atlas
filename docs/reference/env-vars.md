@@ -698,7 +698,7 @@
 | OLLAMA_KV_CACHE_TYPE | ollama | q8_0 | KV cache quantization: f16 (full precision, Ollama's default), q8_0 (about half the memory, negligible quality cost) or q4_0 (about a quarter, measurable cost). Needs OLLAMA_FLASH_ATTENTION active. Container-* sources only; ollama-localhost uses the host daemon's setting. |
 | OLLAMA_FLASH_ATTENTION | ollama | 1 | Enables Ollama's flash-attention path. Current Ollama enables it automatically where supported. Atlas pins it because OLLAMA_KV_CACHE_TYPE quantization has no effect without it. Set 0 to force it off. |
 | OLLAMA_KEEP_ALIVE | ollama |  | Time Ollama keeps a model loaded after its last use (5m, 1h, or -1 for forever); empty uses Ollama's 5m default. Container-* sources only. -1 keeps every loaded model in RAM until reverted and the daemon restarts. |
-| OLLAMA_MODELS_RESIDENT_MIN | ollama |  | Advisory, ollama-localhost only: how many models a workload needs resident at once. ./start.sh doctor warns when the daemon's OLLAMA_MAX_LOADED_MODELS is lower. Empty declares no expectation. A LightRAG run with separate extract, embed and keyword models needs 3. |
+| OLLAMA_MODELS_RESIDENT_MIN | ollama |  | Advisory, ollama-localhost only: how many models a workload needs resident at once. ./start.sh doctor reports a failure when the daemon's OLLAMA_MAX_LOADED_MODELS is lower. Empty declares no expectation. A LightRAG run with separate extract, embed and keyword models needs 3. |
 | OLLAMA_PARALLEL_MIN | ollama |  | Advisory, ollama-localhost only: the concurrent-request floor a consumer needs. ./start.sh doctor warns when the daemon's OLLAMA_NUM_PARALLEL is lower. Empty declares no expectation. Ollama's default of 1 slot silently serializes a multi-agent consumer. |
 | LLM_PROVIDER_IMAGE | ollama | ollama/ollama:0.30.11 | Container image for `ollama`. |
 | OLLAMA_PULL_IMAGE | ollama | alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6 | Container image for `ollama-pull`. |
@@ -1005,7 +1005,7 @@
 | WEAVIATE_PORT | weaviate | 63030 | Host port for the Weaviate REST API (in-container 8080), bound to HOST_BIND_IP (loopback by default). |
 | WEAVIATE_GRPC_PORT | weaviate | 63031 | Host port for the Weaviate gRPC API (in-container 50051), bound to HOST_BIND_IP (loopback by default). |
 | WEAVIATE_INIT_SOURCE | weaviate | container | Auto-managed by weaviate. Container/disabled. |
-| MULTI2VEC_CLIP_SOURCE | weaviate | container-cpu | Options: container-cpu, container-gpu, disabled. (Effects driven by hook.) |
+| MULTI2VEC_CLIP_SOURCE | weaviate | container-cpu | Options: container-cpu, container-gpu, disabled. container-gpu sets ENABLE_CUDA=1, but Compose reserves no GPU device yet. The CLIP container then fails to start; use container-cpu. |
 | WEAVIATE_ENABLE_MODULES | weaviate | text2vec-openai,text2vec-ollama,multi2vec-clip,generative-openai,generative-ollama,backup-filesystem | Weaviate module list (ENABLE_MODULES). ./start.sh adds or removes multi2vec-clip to match MULTI2VEC_CLIP_SOURCE and keeps any other modules you list. |
 | CLIP_INFERENCE_API | weaviate | http://multi2vec-clip:8080 | URL Weaviate uses for the multi2vec-clip module. ./start.sh empties it when MULTI2VEC_CLIP_SOURCE=disabled. |
 | MULTI2VEC_CLIP_SIGLIP2_IMAGE | weaviate | semitechnologies/multi2vec-clip:google-siglip2-so400m-patch16-512-1.5.1 | Opt-in SigLIP 2 image reference for MULTI2VEC_CLIP_IMAGE. Produces 1152-d vectors; revectorize or create new Weaviate collections before switching. |

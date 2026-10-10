@@ -66,7 +66,7 @@ Replace `tests/test_readiness.py` with the test file for the route or service yo
 ```bash
 make docs-check
 uv run --project bootstrapper python scripts/check_doc_links.py
-uv run --project bootstrapper python -m bootstrapper.docs.regen --all --check
+PYTHONPATH=bootstrapper uv run --project bootstrapper python -m bootstrapper.docs.regen --all --check
 ```
 
 Documentation is published to three surfaces (this repository, the documentation site and the wiki) from the same Markdown. `make docs-check` builds all three and fails on drift. Per-service READMEs carry generated blocks: regenerate them with `regen --all` instead of editing them by hand.

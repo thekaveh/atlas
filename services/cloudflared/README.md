@@ -23,7 +23,7 @@ Image: `cloudflare/cloudflared:2026.6.1` (pin a dated tag; bump deliberately).
 Define public hostnames and routing rules in the Cloudflare Zero Trust dashboard, not in this repository. Kong selects routes by Host (`api.localhost`, `chat.localhost`, `n8n.localhost` and the other aliases in [Ports and Routes](../../docs/reference/ports-routes.md)), so:
 
 - Set each hostname's Origin HTTP Host Header (`httpHostHeader` in an ingress rule) to the exact Kong alias. Without it, the public Host matches no alias and Kong returns 404.
-- Supabase path routes (`/rest/v1`, `/auth/v1`, `/storage/v1`, `/graphql/v1`, `/realtime/v1`, `/pg/`) answer only on `localhost`, `127.0.0.1`, `kong-api-gateway` and `host.docker.internal`. A rule with the Host override therefore never reaches Supabase.
+- Supabase path routes (`/rest/v1`, `/auth/v1`, `/storage/v1`, `/graphql/v1`, `/realtime/v1`, `/pg/`) answer only on `localhost`, `127.0.0.1`, `kong-api-gateway`, `<PROJECT_NAME>-kong-api-gateway` and `host.docker.internal`. A rule with the Host override therefore never reaches Supabase.
 - To expose Supabase, use a rule *without* the Host override and add the hostname, in lowercase, to `KONG_SUPABASE_EXTRA_HOSTS` (Kong matches Host case-sensitively). The anon key alone then opens it, and the dashboard password alone opens `/pg/`, so put Cloudflare Access in front. Set the override on every other rule.
 - Add an origin to `KONG_CORS_EXTRA_ORIGINS` when a page on one public hostname calls another.
 - The n8n editor's live connection fails through a tunnel: n8n checks the WebSocket `Origin` against the `n8n.localhost` host Kong forwards (see the n8n README). Its webhooks work.

@@ -37,7 +37,13 @@ SPARK_MASTER_UI_PORT=              # auto-assigned by topology (data band)
 SPARK_HISTORY_PORT=                # auto-assigned
 SPARK_WORKER_COUNT=2               # 1-8; also --spark-workers
 SPARK_CONNECT_CORES_MAX=1          # max standalone cores held by Spark Connect
+SPARK_MASTER_MEMORY_LIMIT=2g       # container limits (deploy.resources.limits)
+SPARK_MASTER_CPU_LIMIT=1.0
+SPARK_WORKER_MEMORY_LIMIT=4g       # per worker replica
+SPARK_WORKER_CPU_LIMIT=2.0
 ```
+
+`SPARK_SOURCE=container` requires `MINIO_SOURCE` other than `disabled`: `spark-init` waits on `minio-init`, so the bootstrapper refuses that combination.
 
 ## 4. Integration with the stack
 
@@ -49,6 +55,10 @@ SPARK_CONNECT_CORES_MAX=1          # max standalone cores held by Spark Connect
 - **Airflow** — Airflow's `spark_default` Connection is seeded by `airflow-init` when `SPARK_SOURCE=container`. The `example_etl_with_llm.py` DAG uses `PythonOperator` and Spark Connect (`sc://spark-connect:15002`). `SparkSubmitOperator` (from the bundled `apache-airflow-providers-apache-spark`) is used by the manual `lakehouse_spark_submit_smoke` DAG and is available for user DAGs. Atlas enables the standalone master REST status API at `spark-master:6066` so cluster-mode `SparkSubmitOperator` can poll driver status after submission. The endpoint is backend-network-only and intentionally has no host port or Kong route. See `services/airflow/README.md`.
 - **Redpanda** — with Redpanda enabled, every Spark role receives `SPARK_KAFKA_BOOTSTRAP_SERVERS`. Use it as `kafka.bootstrap.servers` for `format("kafka")`.
 - **Prometheus + Grafana** — not wired. Spark exports no JMX metrics to Prometheus, and no Spark dashboard ships. Use the cAdvisor container metrics in Grafana.
+
+### 4.1. Spark Connect sessions
+
+The `spark-connect` sidecar publishes no host port, so `sc://spark-connect:15002` resolves only inside the Docker `backend-network`. JupyterHub is the in-stack notebook client; host IDEs cannot reach it unless you publish the port yourself. For a managed remote endpoint, see §4.3.
 
 Spark Connect is a long-lived application. `SPARK_CONNECT_CORES_MAX=1` (`spark.cores.max`) leaves worker cores for standalone workloads such as Airflow cluster-mode drivers. Zeppelin is capped the same way by `ZEPPELIN_SPARK_CORES_MAX`; each start re-seeds it, so change it in `.env`. Raise either value (for example, for more Spark Connect parallelism) only when `SPARK_WORKER_COUNT` and the worker CPU limits leave free cores. Otherwise other applications stay `PENDING`.
 
@@ -73,7 +83,7 @@ spark.sql("CREATE TABLE IF NOT EXISTS lakehouse.bronze.t (id BIGINT, note STRING
 spark.sql("SHOW NAMESPACES IN lakehouse").show()
 ```
 
-Advanced Iceberg smoke:
+### 4.2. Advanced Iceberg smoke
 
 ```bash
 scripts/smoke-iceberg-advanced-sql.sh spark-connect
@@ -89,7 +99,7 @@ The advanced smoke is an opt-in check for the `data-eng` and `all` tracks. It ad
 See
 [`docs/operations/iceberg-advanced-smoke.md`](../../docs/operations/iceberg-advanced-smoke.md).
 
-### 4.1. Cloud burst: Amazon EMR Serverless (optional)
+### 4.3. Cloud burst: Amazon EMR Serverless (optional)
 
 A notebook or tool can use a **managed** Spark Connect endpoint instead of the in-stack sidecar, for example [EMR Serverless interactive sessions](https://docs.aws.amazon.com/emr/latest/EMR-Serverless-UserGuide/spark-connect.html).
 A reference helper ships at `services/spark/examples/emr_serverless_connect.py`.
@@ -142,8 +152,7 @@ _No high-confidence opportunities identified._
 - **Standalone jobs stay `PENDING` while Spark Connect is running**. Check the master JSON (`docker exec ${PROJECT_NAME}-spark-master curl -fsS http://localhost:8080/json/`) and compare `coresused` with the active app list. If `Spark Connect server` is consuming too much of the cluster, lower `SPARK_CONNECT_CORES_MAX` or increase `SPARK_WORKER_COUNT` / worker CPU capacity. Do this before you run Airflow or Zeppelin standalone jobs.
 - **Workers don't appear in the master UI** — Compose's `depends_on: spark-master: condition: service_healthy` should serialize this. If a worker stays "lost", check `docker logs ${PROJECT_NAME}-spark-worker-1`.
 - **OOM in a worker** — Compose caps the worker container at `SPARK_WORKER_MEMORY_LIMIT` (default `4g`). `SPARK_WORKER_MEMORY` is unset, so Spark sizes worker memory without regard to that cap, and the container can be OOM-killed. Setting `SPARK_WORKER_MEMORY` or `SPARK_WORKER_CORES` in `.env` has no effect, because compose does not pass them. Add them to the `spark-worker` `environment:` block (or a compose override), below the cap, or keep executor memory requests under the cap.
-- **Spark Connect refused** — the gRPC server runs on the `spark-connect` sidecar (NOT spark-master); clients must use `sc://spark-connect:15002`. The port is backend-network-only — don't expose 15002 to the host.
-- **Checking Spark Connect readiness** — the sidecar publishes a Docker health signal (`starting` → `healthy`) once `15002` accepts sessions: `docker inspect --format '{{.State.Health.Status}}' ${PROJECT_NAME}-spark-connect`.
+- **Spark Connect refused** — the gRPC server runs on the `spark-connect` sidecar, not on `spark-master`. Clients must use `sc://spark-connect:15002` from the backend network; the port is not published to the host. Check readiness with the `docker inspect` command in §4.1: the status must be `healthy`.
 
 ## 7. Capabilities & limitations
 

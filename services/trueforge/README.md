@@ -70,7 +70,7 @@ Settings writes replace by name, so re-runs converge. Each HTTP call has a per-r
 
 ### 4.3. Security posture
 
-- No OIDC (fixed admin identity): the same network-trusted tier as the other Atlas UIs. Two mitigations apply. The Kong route has the dashboard-user basic-auth/ACL guard. The model provider holds a scoped LiteLLM virtual key, not raw provider credentials. Wire the `OIDC_*` triple to an external IdP before any exposure beyond a trusted host.
+- No OIDC (fixed admin identity): the same network-trusted tier as the other Atlas UIs. Two mitigations apply. The Kong route has the dashboard-user basic-auth/ACL guard. The model provider normally holds a scoped LiteLLM virtual key, not raw provider credentials. If key minting fails, init uses the LiteLLM master key until the next start (§4.2). Wire the `OIDC_*` triple to an external IdP before any exposure beyond a trusted host.
 - Skills and sandbox execution are **off**: no skill sources and no sandbox provider are configured (upstream supports Daytona only). TrueForge rejects agent specs that request either at session creation, so the boundary is explicit.
 
 ### 4.4. Observability
@@ -122,7 +122,7 @@ _No high-confidence opportunities identified._
   - an unprovisioned database: check that `supabase-db-init` completed;
   - an empty `TRUEFORGE_API_KEY`: run `./start.sh` once so the bootstrapper generates it. Do not hand-write `.env` from scratch.
 - **No models in the UI**: `trueforge-init` seeds the provider from LiteLLM's live catalog; check `docker logs ${PROJECT_NAME}-trueforge-init`. An empty gateway catalog (e.g. `LLM_PROVIDER_SOURCE=none` with no cloud keys) fails the seed on purpose rather than registering a dead provider.
-- **Agent creation rejected with a skills/sandbox error**: expected — v1 configures neither (§4.3). Remove the skills/sandbox blocks from the agent spec.
+- **Agent creation rejected with a skills/sandbox error**: expected: Atlas configures neither (§4.3). Remove the skills/sandbox blocks from the agent spec.
 - **Schedules never fire**: the controller is a separate container. Check `docker logs ${PROJECT_NAME}-trueforge-controller`. Check that `TRUEFORGE_API_KEY` is the same for server and controller; it is, unless `.env` was edited by hand.
 - **Slow first boot on Apple Silicon**: the amd64 image runs emulated; allow extra start-up time before the healthcheck settles (the compose healthcheck budgets for this).
 

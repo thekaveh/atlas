@@ -66,7 +66,7 @@ Active aliases (every `*-localhost` source also routes through `host.docker.inte
 
 "Kong dashboard basic-auth/ACL" is the shared `DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD` pair from `.env`. It gates only the `*.localhost` alias; a direct port bypasses it. Which credential opens each surface is tabulated in [Access and Credentials](access-and-credentials.md).
 
-The Kong gateway listens on `KONG_HTTP_PORT` (default `63000` under topology v1, i.e. `BASE_PORT + 0`). All aliases above resolve to `http://<alias>:${KONG_HTTP_PORT}`.
+The Kong gateway listens on `KONG_HTTP_PORT`, which is `BASE_PORT + 0` (`63000` by default). All aliases above resolve to `http://<alias>:${KONG_HTTP_PORT}`.
 
 ## 3. Per-engine port quirks
 

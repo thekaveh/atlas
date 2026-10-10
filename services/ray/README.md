@@ -32,7 +32,11 @@ and the existing `GET`/`DELETE .../{job_id}` routes reconcile or stop it.
 | `RAY_WORKER_COUNT` | `2` | when source ∈ {cpu, gpu} | Number of `ray-worker` containers. Use `0` for head-only single-node mode. The wizard and `--ray-worker-count` accept 0-64. |
 | `RAY_DASHBOARD_PORT`, `RAY_GCS_PORT`, `RAY_CLIENT_PORT` | auto-assigned | always | Topology-allocated in the infra block and published only on `127.0.0.1`. |
 | `RAY_JOB_API_TOKEN` | auto-generated | always | Required as `Authorization: Bearer <token>` on every Backend `/api/ray` route. Stored in `.env` and injected only into Backend. |
-| `RAY_IMAGE`, `RAY_GPU_IMAGE`, `RAY_HEAD_SCALE`, `RAY_WORKER_SCALE`, `RAY_ADDRESS` | auto-managed | always | Resolved by `_generate_ray_config()` from RAY_SOURCE + RAY_WORKER_COUNT. Don't edit by hand. |
+| `RAY_DASHBOARD_URL` | empty | optional | Dashboard URL for the Backend job client. Empty derives `http://ray-head:8265` from `RAY_ADDRESS`. |
+| `RAY_HEAD_MEMORY_LIMIT`, `RAY_WORKER_MEMORY_LIMIT` | `4g` | when source ∈ {cpu, gpu} | Memory limit per head or worker container. The `/dev/shm` object store counts against this limit. |
+| `RAY_HEAD_CPU_LIMIT`, `RAY_WORKER_CPU_LIMIT` | `2.0` | when source ∈ {cpu, gpu} | CPU limit per head or worker container. |
+| `RAY_IMAGE`, `RAY_GPU_IMAGE` | `rayproject/ray:2.56.0`, `rayproject/ray:2.56.0-gpu` | always | Image pins. For `ray-container-gpu`, `_generate_ray_config()` writes the `RAY_GPU_IMAGE` value into `RAY_IMAGE`. |
+| `RAY_HEAD_SCALE`, `RAY_WORKER_SCALE`, `RAY_ADDRESS` | auto-managed | always | Resolved by `_generate_ray_config()` from `RAY_SOURCE` and `RAY_WORKER_COUNT`. `RAY_ADDRESS` is `ray://ray-head:10001` for container sources and empty for `disabled`. Do not edit by hand. |
 
 **Wizard:** after you pick a Ray container source, the wizard asks for `RAY_WORKER_COUNT` (default 2) on the same step. CLI: `--ray-worker-count`.
 
@@ -50,7 +54,7 @@ and the existing `GET`/`DELETE .../{job_id}` routes reconcile or stop it.
 
 **Consumers in the stack:**
 - **Backend** — exposes `POST /api/ray/jobs/submit`, `GET`/`DELETE /api/ray/jobs/{job_id}`, and `GET /api/ray/cluster/status`. It adapts via `RAY_ADDRESS` set by `_generate_ray_config()` and requires `RAY_JOB_API_TOKEN` as a bearer token on every route.
-- **JupyterHub** — `RAY_ADDRESS` is injected, and `07_ray_cluster.ipynb` calls `ray.init()`. That call currently fails: the kernel runs Python 3.13 and the Ray image runs 3.10 (§6, #1374). Until then, submit work from a notebook through the Ray Jobs REST API at `http://ray-head:8265/api/jobs/`; the job runs on the cluster's Python. The notebook is at `services/jupyterhub/build/notebooks/07_ray_cluster.ipynb`.
+- **JupyterHub** — receives `RAY_ADDRESS`, and `services/jupyterhub/build/notebooks/07_ray_cluster.ipynb` calls `ray.init()`. That call fails because the kernel runs Python 3.13 and the Ray image runs Python 3.10 (open issue #1374). Until that issue is resolved, submit notebook work through the Ray Jobs REST API at `http://ray-head:8265/api/jobs/`. §6 has an example.
 - **Hermes** — no Ray submission integration is wired today. A future integration must receive `RAY_JOB_API_TOKEN` through a scoped client contract before it can call Backend's protected Ray routes.
 
 ## 5. Dependencies & Integrations

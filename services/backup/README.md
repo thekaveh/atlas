@@ -9,14 +9,14 @@ On-demand backup runner for the Atlas stack. The host orchestrator captures four
 
 It uploads them to an S3-compatible bucket with deployment-authenticated manifests. PostgreSQL restore stages the dump and keeps a rollback database. Neo4j and Weaviate restore through their exact pinned database contracts.
 
-The container is **never long-running** (`BACKUP_SCALE=0`). It is in Compose to share the stack network, env vars and volume mounts. It does work only when you invoke it:
+The container is **never long-running** (`BACKUP_SCALE=0`). It is in Compose to share the stack network, env vars and volume mounts. It does work only when you invoke it. Before the first backup, set `BACKUP_MANIFEST_HMAC_KEY` and `BACKUP_DEPLOYMENT_ID` (§3).
 
 ```bash
-# Run a full consistency-safe backup
-services/backup/run-consistent-backup.sh
-
 # Persist the enabled SOURCE through the Atlas CLI
 ./start.sh --backup-source container --detach
+
+# Run a full consistency-safe backup
+services/backup/run-consistent-backup.sh
 
 # Restore the latest backup after quiescing every database writer
 docker compose run --rm \
@@ -63,7 +63,7 @@ Run `docker compose run --rm backup` directly only with `BACKUP_DATABASES=false`
 
 ## 2. Access
 
-The backup runner has no published port and no Kong route. It is invoked directly via `docker compose run`.
+The backup runner has no published port and no Kong route. You start it through the host scripts or `docker compose run`.
 
 | Path | URL | Notes |
 |---|---|---|
@@ -195,6 +195,8 @@ Its EXIT and signal path tries that restart once and reports a visible failure i
 
 ### 3.2. Restore maintenance and rollback
 
+This section covers the Neo4j and Weaviate restore. The PostgreSQL restore is in §3.3.
+
 **Maintenance mode.** The database restore command refuses to start unless `BACKUP_RESTORE_MAINTENANCE_MODE=confirmed` is set. This is an operator acknowledgement, not an automatic maintenance switch. First stop or scale down every service and external client that writes to Neo4j or Weaviate. `localhost` sources fail before any database is touched; `disabled` sources are skipped. Keep writers quiesced until you have checked the restored databases and made the rollback decision.
 
 **Accepted versions.** New backups always record Neo4j 5.26.31 and Weaviate 1.38.17.
@@ -220,6 +222,8 @@ Its EXIT and signal path tries that restart once and reports a visible failure i
 - With the default of 1, a second restore prunes the first restore's rollback volume. That volume holds the pre-incident data, which may exist nowhere else. Raise the count before you restore again.
 - A restore whose cutover changed live data but could not prove recovery poisons the lock. It keeps the rollback and stage volumes and prints their names. Copy or rename them before you clear the lock, because the next restore prunes older rollback volumes.
 - Volumes are selected only through repository-scope and role labels. Retention never prunes S3 objects.
+
+### 3.3. PostgreSQL backup and restore
 
 **Backup layout.** Each completed backup contains `postgres.dump`, `postgres.manifest`, `postgres.tables` and `postgres.objects` under an immutable random 128-bit backup-ID subprefix. A timestamp-level `postgres.complete` publication marker points to it.
 
@@ -248,7 +252,7 @@ Manifest format 3 binds:
 
 **Snapshot consistency.** `pg_dump` and the table inventory import the same exported repeatable-read snapshot. The object inventory is derived from the completed archive. Concurrent DDL therefore falls wholly before or after the authenticated logical backup. The dump stays executable PostgreSQL input: `pg_restore` can create functions and other code-bearing objects. Restore only backups that the deployment key authenticates and that come from the expected bucket and prefix.
 
-The script runs four explicit phases:
+`restore-postgres.sh` runs four explicit phases:
 
 1. **Preflight**:
     - rejects impossible calendar timestamps;
@@ -305,7 +309,7 @@ Arbitrary authenticated archives generally require superuser-equivalent restore 
 **What is not captured.**
 
 - Postgres data lives in `supabase-db-data`, but the runner captures it with `pg_dump`, not a volume tar, so the dump is logically consistent.
-- Only `SUPABASE_DB_NAME` is dumped. The per-service databases on the same server are not: `litellm`, `airflow`, `langfuse`, `trueforge`, `mlflow`, `label_studio`, `iceberg` and `supavisor`.
+- Only `SUPABASE_DB_NAME` is dumped. The per-service databases on the same server are not. Their default names are `litellm`, `airflow`, `langfuse`, `trueforge`, `mlflow`, `label_studio`, `iceberg` and `supavisor`.
 - LightRAG's full documents, chunks, LLM cache and document status live in Redis db 2, which is not backed up. A restored LightRAG has its Neo4j graph and Postgres vectors but not the content they point to. Re-ingesting duplicates graph content.
 - In local mode the artifacts live in this project's MinIO volume, which `./stop.sh --cold` deletes. Copy them off the host, or use external mode, before a reset.
 

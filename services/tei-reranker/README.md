@@ -8,7 +8,7 @@
 
 Hugging Face `text-embeddings-inference` (TEI) running `mixedbread-ai/mxbai-rerank-base-v1`, a cross-encoder that scores `(query, passage)` pairs. Use it to reorder results from any first-stage retriever (vector, BM25 or hybrid). The image exposes `/rerank` and a `/health` probe.
 
-**Why this model:** mxbai-rerank-base-v1 ships ONNX weights, which the amd64 ORT backend in `cpu-1.9` needs. It is also small enough (~184 M params) for the arm64 Candle backend in `cpu-arm64-latest` to finish warmup on Apple Silicon.
+**Why this model:** mxbai-rerank-base-v1 ships ONNX weights, which the amd64 ORT backend in `cpu-1.9` needs. It is also small enough for the arm64 Candle backend in `cpu-arm64-latest` to finish warmup on Apple Silicon.
 
 Any consumer that sends TEI's body shape (`query` plus `texts`) can call it. LightRAG's built-in Jina/Cohere clients send `query` plus `documents`, which TEI rejects, so Atlas never wires LightRAG directly to TEI. LightRAG uses the backend rerank adapter (`POST /lightrag/rerank`), which translates between the two shapes. Enable it with `LIGHTRAG_RERANK_ADAPTER_ENABLED=true` (see the [backend README §5.1](../backend/README.md)).
 
@@ -120,7 +120,7 @@ Container `start_period` is 300 s, because the first run downloads the model bef
 ## 7. Troubleshooting
 
 - **First boot logs optional HuggingFace artifact 404s** — expected for some reranker models. TEI probes optional Sentence Transformers files, logs 404 warnings when they are absent, then continues with the model artifacts it needs.
-- **Out of memory on CPU variant** — raise `TEI_RERANKER_MEMORY_LIMIT`. mxbai-rerank-base-v1 needs about 1.5 GB on CPU.
+- **Out of memory on CPU variant** — raise `TEI_RERANKER_MEMORY_LIMIT` (default `4g`) or lower `TEI_RERANKER_MAX_CLIENT_BATCH_SIZE`.
 - **Slow inference** — CPU is the only working container variant until GPU device requests are wired ([#1373](https://github.com/thekaveh/atlas/issues/1373)). Lower `TEI_RERANKER_MAX_CLIENT_BATCH_SIZE`, or use the `localhost` source with a host TEI that has a GPU.
 - **Model not found** — verify `TEI_RERANKER_MODEL_ID` matches a public HF repo. Private repos need an `HF_TOKEN` env var (not wired by default; hand-add to the compose env block).
 

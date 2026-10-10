@@ -188,10 +188,11 @@ docker compose logs --tail=100 supabase-db-init
 # about credentials or a specific database)
 docker compose exec supabase-db pg_isready
 
-# Run a real query through the Backend's own configured connection.
-# This proves the backend's credentials authenticate against supabase-db
-# and a read-only query returns — nothing more (not migrations, not app
-# routes). Bounded to 5 seconds per step; never prints the DSN.
+# Run a real query through the Backend's own configured connection
+# (direct to supabase-db, or through Supavisor when it is enabled).
+# This proves the backend's credentials authenticate and a read-only
+# query returns — nothing more (not migrations, not app routes).
+# Bounded to 5 seconds per step; never prints the DSN.
 docker compose exec backend python -c "
 import asyncio, os, asyncpg
 async def main():
@@ -202,7 +203,7 @@ async def main():
 asyncio.run(main())"
 ```
 
-**`password authentication failed for user "supabase_admin"`:** `.env` holds a different `SUPABASE_DB_PASSWORD` than the one the `supabase-db-data` volume was created with. Set it back to that value and restart, or run `./stop.sh --cold && ./start.sh`, which deletes all of this project's volumes. Cause and details: [Supabase §2.2](../../services/supabase/README.md#22-supabase_admin-password-drift).
+**`password authentication failed for user "supabase_admin"`:** `.env` holds a different `SUPABASE_DB_PASSWORD` than the one the `supabase-db-data` volume was created with. Set it back to that value and restart. Only if you do not need the stored data, run `./stop.sh --cold && ./start.sh` instead; it deletes all of this project's volumes (§10.1). Cause and details: [Supabase §2.2](../../services/supabase/README.md#22-supabase_admin-password-drift).
 
 ### 4.5. Kong Gateway Issues
 
@@ -381,8 +382,8 @@ grep -E '^[A-Z_]+_SOURCE=' .env
 # List all available CLI flags (Click-generated help is the source of truth)
 ./start.sh --help
 
-# Inspect the dynamic Kong configuration generator (kong.yml is rebuilt
-# on every startup — don't edit by hand; instead trace the inputs):
+# Inspect the dynamic Kong configuration generator (volumes/api/kong-dynamic.yml
+# is rebuilt on every startup — don't edit by hand; instead trace the inputs):
 cat bootstrapper/utils/kong_config_generator.py | head -80
 
 # Inspect the KONG_* values the generator consumes

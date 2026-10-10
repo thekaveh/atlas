@@ -2,7 +2,7 @@
 
 ## 1. Environment Files
 
-`.env.example` is generated from service manifests and topology defaults. `.env` stores the local runtime choices.
+`.env.example` is generated from service manifests and topology defaults. `.env` stores the local runtime choices. The first `./start.sh` creates `.env` from `.env.example`. Later starts keep your values and add keys that are new in `.env.example`; `./start.sh env backfill` does the same without a start.
 
 ## 2. SOURCE Overrides
 

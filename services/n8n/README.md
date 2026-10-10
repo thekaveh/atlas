@@ -1,14 +1,16 @@
 # 5.2.35. n8n
 
-Workflow automation engine, run in **queue mode** by default: an `n8n` web/API container and an `n8n-worker` container that takes jobs from Redis. The one-shot `n8n-init` installs the pinned community nodes (ComfyUI image-to-image). It does not import workflow templates (`services/n8n/init/config/`) or PostgreSQL credentials. Import them manually (§4). n8n workflows connect LLM (LiteLLM), media (ComfyUI, STT, TTS, Docling, SearXNG) and data (Supabase, Weaviate, MinIO) services without code.
-
-n8n (event-driven, visual: cron triggers, webhooks, manual runs) and Hermes (conversational, skill-driven) complement each other. Workflows call Hermes through `HERMES_ENDPOINT`. Hermes → n8n is not wired (see §4).
-
 ## 1. Overview
 
-Image: `n8nio/n8n:2.28.2`. The web/API container serves HTTP and the UI; the worker runs executions. Both share state through Supabase Postgres (workflow definitions, execution history, credentials) and Redis (queue and execution coordination). `n8n-init` runs first, installs the community nodes and exits. The web/API and worker containers start only after it succeeds. The launcher fails if `n8n-init` exits nonzero.
+Workflow automation engine, run in **queue mode** by default: an `n8n` web/API container and an `n8n-worker` container that takes jobs from Redis. Its workflows connect LLM (LiteLLM), media (ComfyUI, STT, TTS, Docling, SearXNG) and data (Supabase, Weaviate) services without code.
+
+Image: `n8nio/n8n:2.28.2`. The web/API container serves HTTP and the UI; the worker runs executions. Both share state through Supabase Postgres (workflow definitions, execution history, credentials) and Redis (queue and execution coordination).
+
+The one-shot `n8n-init` runs first, installs the pinned ComfyUI community nodes and exits. The web/API and worker containers start only after it succeeds, and the launcher fails if it exits nonzero. It does not import workflow templates (`services/n8n/init/config/`) or PostgreSQL credentials; import them manually (§4).
 
 Track placement: n8n is in `all`, `gen-ai-rag` and `gen-ai-eng`. In the RAG track it orchestrates document ingestion, search-to-extraction flows, vector-store operations and human-reviewed automation. n8n requires Weaviate (§3), and `gen-ai-eng` does not include Weaviate. On that track, pass `--weaviate-source container`, or n8n is auto-disabled at start.
+
+n8n (event-driven, visual: cron triggers, webhooks, manual runs) and Hermes (conversational, skill-driven) complement each other. Workflows call Hermes through `HERMES_ENDPOINT`. Hermes → n8n is not wired (see §4).
 
 ## 2. Access
 
@@ -107,9 +109,9 @@ Secure every webhook before activation. The legacy bundled POST `/research` fixt
 
 Through Kong (`n8n.localhost`, the `WEBHOOK_URL` that callers use), a webhook can hold its response open for up to 300 s. The research and ComfyUI fixtures need this. `langmem-consolidation` runs only while the memory service reports `enabled` and `status: healthy`.
 
-**Consumer workflow seeding.** A downstream consumer can declare `n8n_workflows` in `atlas.consumer.yml` (see [Consumer Manifest Reference §10](../../docs/reference/consumer-manifest.md#10-n8n_workflows)). After n8n is healthy, an `n8n-seed` container validates, namespaces (`atlas-consumer-<id>`), imports and activates each workflow. Seeding is idempotent and best-effort per workflow, so one bad workflow cannot stop startup.
+**Consumer workflow seeding.** A downstream consumer can declare `n8n_workflows` in `atlas.consumer.yml` (see §10 of the [Consumer Manifest Reference](../../docs/reference/consumer-manifest.md)). After n8n is healthy, an `n8n-seed` container validates, namespaces (`atlas-consumer-<id>`), imports and activates each workflow. Seeding is idempotent and best-effort per workflow, so one bad workflow cannot stop startup.
 
-With `N8N_API_KEY` set, workflows removed from the manifest are deactivated and deleted. This includes removing the last one; the seed then runs with an empty plan on every start. The full spec is in [Consumer Manifest Reference §10](../../docs/reference/consumer-manifest.md#10-n8n_workflows). The code is `bootstrapper/core/consumer_manifest.py` and `services/n8n/init/scripts/seed-workflows.js`.
+With `N8N_API_KEY` set, workflows removed from the manifest are deactivated and deleted. This includes removing the last one; the seed then runs with an empty plan on every start. The full spec is in §10 of the [Consumer Manifest Reference](../../docs/reference/consumer-manifest.md). The code is `bootstrapper/core/consumer_manifest.py` and `services/n8n/init/scripts/seed-workflows.js`.
 
 ## 5. Calling LightRAG from n8n
 
@@ -178,9 +180,9 @@ When `LIGHTRAG_SOURCE != disabled`, n8n containers receive `LIGHTRAG_ENDPOINT` a
 
 ## 7. Troubleshooting
 
-**`Command start not found` restart loop.** The usual cause is a corrupt `n8n-data` volume after a partial cold start. Run `docker volume rm <project>-n8n-data` (not `./stop.sh --cold`). The next `./start.sh` re-initializes n8n from scratch.
+**`Command start not found` restart loop.** The usual cause is a corrupt `n8n-data` volume after a partial cold start. Stop the n8n containers first: Docker refuses to remove a volume in use. Then run `docker volume rm <project>-n8n-data` (not `./stop.sh --cold`). The next `./start.sh` recreates the volume and reinstalls the community nodes. Workflows and credentials stay, because they live in Postgres (schema `n8n`) and `N8N_ENCRYPTION_KEY` comes from `.env`.
 
-**Init container exits with `EACCES` writing nodes.** The community-package install needs a writable node-modules directory. Check `docker logs <project>-n8n-init`. The cause is usually a remnant of an earlier failed run; `docker volume rm <project>-n8n-data` clears it.
+**Init container exits with `EACCES` writing nodes.** The community-package install needs a writable node-modules directory. Check `docker logs <project>-n8n-init`. The cause is usually a remnant of an earlier failed run. Stop the n8n containers, then run `docker volume rm <project>-n8n-data` to clear it.
 
 **Workflows enqueued but never execute.** Queue mode needs both the web and worker containers. Check that `docker compose ps | grep n8n` shows two healthy n8n rows and that both reach Redis.
 

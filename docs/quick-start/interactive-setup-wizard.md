@@ -8,6 +8,8 @@ The interactive Textual wizard configures every service step by step. It opens w
 ./start.sh
 ```
 
+Sections 2–7 describe the questions: their order (§2), prompt kinds (§3), the LLM, ComfyUI and numeric steps (§4–§6) and the stack-level options (§7). Sections 8–11 cover the launch: the summary, the log screen, stop actions, every key (§10) and progress. Sections 12–18 are reference material.
+
 ### 1.1. Terminal size and compact layout
 
 The wizard needs a terminal of at least **60 columns × 20 rows**. Below 30 rows it uses a compact layout. The logo shrinks to a one-line strip, and the stack overview is hidden while a question is open. The prompt, its choices, the command summary and the `move`, `mark`, `next` and `back` actions get the rows. The overview returns on the Setup tab after launch.
@@ -48,7 +50,9 @@ first  Track (skipped when --track is passed)
          LLM defaults  ·  chat model      (single-select)
          LLM defaults  ·  embedding model (single-select, dimension-sensitive)
          LLM defaults  ·  vision model    (single-select, skippable)
-…      Remaining service-source steps
+…      Remaining service-source steps, including:
+         ComfyUI  ·  models               (multiselect, after the ComfyUI source step)
+         FAL Cloud Media  ·  API key      (secret, after ComfyUI; in tracks that include FAL)
 near-end  Cold start
 near-end  Hosts setup · /etc/hosts
 last   Confirm — Launch the stack with this configuration?
@@ -97,7 +101,7 @@ A model is saved either as its bare name (pulls `:latest`) or as tags (`qwen3:8b
 
 **Saved selection.** The selection is saved as `OLLAMA_USER_MODELS`. `.env.example` seeds it with the default baseline, so a fresh clone opens with the baseline checked. If the key is missing, the wizard pre-checks the baseline. Later visits restore the saved value. Saved models that are not in the list (for example `hf.co/...`) appear as `saved` rows and stay checked.
 
-Unchecking everything writes `OLLAMA_USER_MODELS=`. Nothing is pulled and no Ollama model is registered, except host models auto-imported for `ollama-localhost`.
+Unchecking everything writes `OLLAMA_USER_MODELS=`. Nothing is pulled and no Ollama model is registered. The exception is `ollama-localhost` with `OLLAMA_AUTO_IMPORT_LOCAL_MODELS=true` (the default): models already pulled on the host are still registered.
 
 ### 4.3. Ollama  ·  additional models to pull (text)
 
@@ -227,18 +231,16 @@ The input appears on the source step itself, so you pick the source and the
 number in one step. A value outside the listed range is refused, not clamped
 (§7.2).
 
-To add a manifest-driven inline input like Prometheus's, add a
-`secondary_number` block to the `rows[]` entry in `service.yml`
-(`docs/CONTRIBUTING-services.md` documents the field). The Ray and Spark
-worker-count inputs are wired in `bootstrapper/ui/textual/integration.py`.
+Contributors declare a new inline input with a manifest `secondary_number` block; the [service runbook](../CONTRIBUTING-services.md) documents the field.
 
 ## 7. Stack Options
 
-The wizard also asks these stack-level questions. Track and profile come first, then **base port**, before any service source. Cold start and hosts come last.
+The wizard also asks these stack-level questions. Track and profile come first, then **base port** and **project name**, before any service source. Cold start and hosts come last.
 
 - **Track.** Every track asks about the LLM Engine, Prometheus, Grafana and the cloud-provider keys. Being asked is not the same as running: Prometheus and Grafana ship **disabled**, and a blank key leaves its provider off. The always-running core (Supabase, Kong, Redis, LiteLLM, Backend) is never asked. Picking a track dims the service rows it excludes.
 - **Profile.** Both shipped profiles bind published ports to `127.0.0.1:`. `prod` adds log rotation, turns Prometheus and Grafana on, and hides localhost sources. Under `prod`, the Prometheus and Grafana steps default to `container`; choosing `disabled` there wins. A source that your consumer manifest or `.env.user` sets keeps its value as the default, as under `--no-tui`. The CLI-flag launch overview applies the same rule. Per-service resource limits come from `.env`, not from the profile.
-- **Base port** for all services (default: 63000). Every later port display uses it.
+- **Base port** for all services. Enter keeps the displayed default: the `BASE_PORT` in `.env` (63000 in `.env.example`), or `auto` when `BASE_PORT` is unset or `auto`. `auto` selects a free port block at launch. Every later port display uses the confirmed value.
+- **Project name** prefixes every container, volume and the network, and is saved as `PROJECT_NAME`. Enter keeps the current name. Give a submodule consumer its own name so that it does not collide with another Atlas stack.
 - **Cold start** defaults to **No**. Press **Ctrl+R** to read every consequence first (§7.1). **Yes** removes this project's containers and Compose-managed volumes, with the database records, object files, workflow and chat history, models and caches stored there. It re-creates `.env` and regenerates keys and passwords. Bind-mounted files and external volumes remain. Back up needed data and configuration first.
 
   Answers you kept with Enter are carried into the new `.env`. These are each cloud API key with its state and model list, the fal.ai key and state, and the Ollama and ComfyUI model lists. Answer `remove` to drop a key.
@@ -505,7 +507,7 @@ The wizard discovers every configurable service from its `services/<name>/servic
 
 ### 16.1. Cloud LLM providers (not auto-discovered)
 
-OpenAI, Anthropic, and OpenRouter are **not** regular services — they don't run as containers (`scale: 0` in the `services/cloud-providers/service.yml` virtual manifest). Instead, the wizard injects them via `bootstrapper/wizard/llm_steps.py:build_cloud_steps` as bespoke (secret + multiselect) pairs spliced after the LLM Engine step:
+OpenAI, Anthropic and OpenRouter are **not** regular services: they run no container (`services/cloud-providers/service.yml` is a virtual manifest). The wizard asks for each as a key and model pair, right after the LLM Engine step:
 
 | API | Key var | Wizard step |
 |---|---|---|
@@ -515,7 +517,7 @@ OpenAI, Anthropic, and OpenRouter are **not** regular services — they don't ru
 
 Source toggles are persisted as `CLOUD_OPENAI_SOURCE` / `CLOUD_ANTHROPIC_SOURCE` / `CLOUD_OPENROUTER_SOURCE` (`enabled` / `disabled`). They render in the **Cloud APIs** sub-section of the stack overview, separate from the services grid.
 
-New services added under `services/<name>/` with a `service.yml` manifest (and included in `docker-compose.yml`'s `include:` list) are automatically picked up by the wizard.
+A new service appears in the wizard only after it completes the registration steps in the [service runbook](../CONTRIBUTING-services.md), including its CLI key in `source_mapping`.
 
 ## 17. Dependency Validation
 

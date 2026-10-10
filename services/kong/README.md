@@ -99,6 +99,11 @@ Kong applies one of three schemes per route:
 
 On a Basic-auth route Kong reads the dashboard credential from `Authorization` or `Proxy-Authorization`. Some clients need `Authorization` for the service's own token: Crawl4AI's `Bearer`, Label Studio's `Token`, and Langfuse's public-API `Basic pk:sk`. They send the dashboard credential as `Proxy-Authorization: Basic …` alongside it. Trino's route strips the credential before forwarding (`hide_credentials`), because Trino rejects any password over plain HTTP.
 
+**Blocked paths.** Two routes answer `403` at the gateway and never reach the upstream. Use the internal network for these paths:
+
+- `s3.minio.localhost`: the MinIO metrics paths (`/minio/v2/metrics`, `/minio/metrics/v3`, `/minio/prometheus/metrics`).
+- `prometheus.localhost`: `/-/quit` and `/-/reload`.
+
 ### 5.1. Forwarded headers
 
 Kong runs with `KONG_PORT_MAPS=${KONG_HTTP_PORT}:8000,${KONG_HTTPS_PORT}:8443`. `X-Forwarded-Port` therefore carries the published port, so upstreams that build absolute URLs from it (Trino redirects and `nextUri`) point back at Kong.
@@ -170,7 +175,7 @@ docker logs ${PROJECT_NAME}-kong-api-gateway -f
 
 # Test Kong routing end-to-end (proxies SearXNG's /healthz through Kong;
 # the bare-localhost root serves the generated Atlas dashboard)
-curl -H 'Host: search.localhost' http://localhost:63000/healthz
+curl -H 'Host: search.localhost' http://localhost:${KONG_HTTP_PORT}/healthz
 ```
 
 ### 10.2. Verify Routes
@@ -181,29 +186,29 @@ docker exec ${PROJECT_NAME}-kong-api-gateway kong config parse /home/kong/kong.y
 grep -nE '^\s+(hosts|paths):' -A2 volumes/api/kong-dynamic.yml
 
 # Test specific routes
-curl -H "Host: comfyui.localhost" http://localhost:63000/
-curl -H "Host: n8n.localhost" http://localhost:63000/
-curl -H "Host: jupyter.localhost" http://localhost:63000/
-curl -H "Host: openclaw.localhost" http://localhost:63000/
-curl -H "Host: hermes.localhost" http://localhost:63000/
-curl -H "Host: api.localhost" http://localhost:63000/health
+curl -H "Host: comfyui.localhost" http://localhost:${KONG_HTTP_PORT}/
+curl -H "Host: n8n.localhost" http://localhost:${KONG_HTTP_PORT}/
+curl -H "Host: jupyter.localhost" http://localhost:${KONG_HTTP_PORT}/
+curl -H "Host: openclaw.localhost" http://localhost:${KONG_HTTP_PORT}/
+curl -H "Host: hermes.localhost" http://localhost:${KONG_HTTP_PORT}/
+curl -H "Host: api.localhost" http://localhost:${KONG_HTTP_PORT}/health
 # If BACKEND_KONG_AUTH=key-auth:
-curl -H "Host: api.localhost" -H "apikey: ${BACKEND_KONG_API_KEY}" http://localhost:63000/health
-curl -H "Host: litellm.localhost" http://localhost:63000/ui/
-curl -H "Host: minio.localhost" http://localhost:63000/
-curl -H "Host: spark.localhost" http://localhost:63000/
-curl -H "Host: spark-history.localhost" http://localhost:63000/
-curl -u "${DASHBOARD_USERNAME}:${DASHBOARD_PASSWORD}" -H "Host: trino.localhost" http://localhost:63000/
-curl -u "${DASHBOARD_USERNAME}:${DASHBOARD_PASSWORD}" -H "Host: redpanda.localhost" http://localhost:63000/
-curl -H "Host: airflow.localhost" http://localhost:63000/
+curl -H "Host: api.localhost" -H "apikey: ${BACKEND_KONG_API_KEY}" http://localhost:${KONG_HTTP_PORT}/health
+curl -H "Host: litellm.localhost" http://localhost:${KONG_HTTP_PORT}/ui/
+curl -H "Host: minio.localhost" http://localhost:${KONG_HTTP_PORT}/
+curl -H "Host: spark.localhost" http://localhost:${KONG_HTTP_PORT}/
+curl -H "Host: spark-history.localhost" http://localhost:${KONG_HTTP_PORT}/
+curl -u "${DASHBOARD_USERNAME}:${DASHBOARD_PASSWORD}" -H "Host: trino.localhost" http://localhost:${KONG_HTTP_PORT}/
+curl -u "${DASHBOARD_USERNAME}:${DASHBOARD_PASSWORD}" -H "Host: redpanda.localhost" http://localhost:${KONG_HTTP_PORT}/
+curl -H "Host: airflow.localhost" http://localhost:${KONG_HTTP_PORT}/
 # Airflow REST API (same alias). 3.x is JWT-only — exchange password
 # for a token via /auth/token, then call /api/v2/ with Bearer auth:
 TOKEN=$(curl -fsS -X POST -H "Host: airflow.localhost" \
   -H 'Content-Type: application/json' \
   -d "{\"username\":\"admin\",\"password\":\"${AIRFLOW_ADMIN_PASSWORD}\"}" \
-  http://localhost:63000/auth/token | jq -r .access_token)
+  http://localhost:${KONG_HTTP_PORT}/auth/token | jq -r .access_token)
 curl -H "Host: airflow.localhost" -H "Authorization: Bearer $TOKEN" \
-  http://localhost:63000/api/v2/dags
+  http://localhost:${KONG_HTTP_PORT}/api/v2/dags
 ```
 
 ## 11. Advanced Configuration

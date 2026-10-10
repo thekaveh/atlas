@@ -6,7 +6,7 @@ Asset Baker is Atlas' containerized **Blender headless HP→LP bake worker**. It
 
 It is a **separate service from the [Asset Worker](../asset-worker/README.md)**. Asset Worker (Node, glTF-Transform) welds, simplifies and compresses. It *cannot* voxel-remesh, regenerate UVs or bake textures and normals; those steps need Blender. Both use the same content-addressed MinIO artifact schema. Asset Baker serves its own `asset-baker.localhost` route; the Backend gateway has no bake route. The intended chain is `generate → image→3D → bake (this) → optimize (asset-worker)`.
 
-It is **disabled by default** (`ASSET_BAKER_SOURCE=disabled`); the supported enabled mode is `container-cpu`. Cycles bakes on **CPU** for determinism and portability (CI, Linux), and Docker on macOS cannot pass Metal into a container. A bake takes 30–200 s per asset at 2k textures. GPU (`container-gpu`) and managed `localhost` wait for separate lifecycle and performance evidence. The image is ~1.5–2.5 GB, so only the `gen-ai-creative` track offers it.
+It is **disabled by default** (`ASSET_BAKER_SOURCE=disabled`); the supported enabled mode is `container-cpu`. Cycles bakes on **CPU** for determinism and portability (CI, Linux), and Docker on macOS cannot pass Metal into a container. A bake takes 30–200 s per asset at 2k textures. GPU (`container-gpu`) and managed `localhost` wait for separate lifecycle and performance evidence. The image is ~1.5–2.5 GB, so the wizard offers it only in the `gen-ai-creative` and `all` tracks.
 
 There is **no MCP surface, by design**: this is a deterministic batch stage driven by job parameters. The `blender-mcp` add-on also refuses to start under `blender -b`. For agent-driven Blender, use [Blender MCP](../blender-mcp/README.md).
 

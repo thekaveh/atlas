@@ -5,8 +5,8 @@ Speaches is an STT and TTS engine. One container serves
 and Piper voices). Select it with `STT_PROVIDER_SOURCE=speaches-*` or
 `TTS_PROVIDER_SOURCE=speaches-*`. When both select it, one container serves both.
 
-Speaches downloads no model by default, so requests return `404` until you
-download one (issue #799, open). See
+Atlas preloads no model, and Speaches does not download a model on request.
+Requests return `404` until you download the model (issue #799). See
 [the STT Provider README](../stt-provider/README.md) for STT and
 [the TTS Provider README](../tts-provider/README.md) for TTS.
 

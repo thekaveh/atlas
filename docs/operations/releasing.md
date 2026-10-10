@@ -33,9 +33,10 @@ Pin to a fixed point, not to the moving `main` branch, so each infra upgrade is
 an explicit, reviewable commit in your project. Use a tag when one covers the
 features you need, or a commit SHA between tags.
 
-The only tag is `v0.1.0` (June 2026). It predates the consumer manifest
-(`atlas.consumer.yml`, `--consumer`, `doctor`, `endpoints`). Until a newer tag
-is cut, pin a reviewed `main` commit.
+The only release tag is `v0.1.0` (June 2026); the repository's other tags are
+not releases. `v0.1.0` predates the consumer manifest (`atlas.consumer.yml`,
+`--consumer`, `doctor`, `endpoints`). Until a newer tag is cut, pin a reviewed
+`main` commit.
 
 ## 3. Cutting a release (maintainer)
 

@@ -37,7 +37,7 @@ Langfuse self-hosting needs a web container, a worker container, Postgres, Click
 When enabled, the family starts:
 
 - `langfuse-init`: after `minio-init` provisions the bucket and service account, checks the Langfuse Postgres database. `supabase-db-init` creates that database (`services/supabase/db/scripts/05-scoped-roles.sh`).
-- `langfuse-clickhouse`: stores traces, observations, and scores. A compose `configs:` entry mounted into `config.d` keeps ClickHouse's own system log tables (`metric_log`, `text_log`, `trace_log` and others) for 7 days. It also sets logging to `warning` level, 3 × 100 MB. Without it they grow about 126 MB a day while idle. On a volume created before this, ClickHouse renames a changed system table to `<name>_0`; drop those once to reclaim the space.
+- `langfuse-clickhouse`: stores traces, observations, and scores. A compose `configs:` entry mounted into `config.d` keeps ClickHouse's own system log tables (`metric_log`, `text_log`, `trace_log` and others) for 7 days. It also sets logging to `warning` level, 3 × 100 MB. Without it they grow about 126 MB a day while idle. On a volume that an Atlas release without this file created, ClickHouse renames each changed system table to `<name>_0`. Drop those tables once to reclaim the space.
 - `langfuse-web`: serves the UI and ingestion APIs.
 - `langfuse-worker`: processes queued ingestion work.
 
@@ -103,7 +103,7 @@ _No high-confidence opportunities identified._
 
 - **No traces appear and nothing errors.** The SDK fails silently. Check in this order:
   1. `LANGFUSE_SOURCE=container`, and the regenerated LiteLLM config has the `langfuse` callback.
-  2. `docker exec <project>-litellm printenv LANGFUSE_HOST` prints your local endpoint. If it is empty, the SDK sends traces to `https://cloud.langfuse.com`. That host rejects your keys and drops the data without a log line.
+  2. `docker exec <project>-litellm printenv LANGFUSE_HOST` prints your local endpoint (`http://langfuse-web:3000`). If the variable is missing, the SDK sends traces to `https://cloud.langfuse.com`. That host rejects your keys and drops the data without a log line. An empty value also keeps traces from local Langfuse.
   3. `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` match the initial project keys.
   4. The call went through LiteLLM (§4.2). A LightRAG role bound to a native provider never reaches it.
 

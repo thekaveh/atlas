@@ -1,12 +1,14 @@
 # 3. Core Concepts
 
+Sections 1–5 explain how Atlas selects and configures services. Sections 6–8 describe shared Backend APIs for application developers.
+
 ## 1. SOURCE Values
 
-Each configurable service has a SOURCE variable. It selects one mode: run in Docker, connect to a localhost instance, disable, or a service-specific mode.
+Each configurable service has a SOURCE variable. It selects one mode: run in Docker, connect to a localhost instance, disable, or a service-specific mode. [SOURCE Configuration](operations/source-configuration.md) lists the values for each service.
 
 ## 2. Tracks
 
-Tracks select the subset of services needed for a workflow and force-disable out-of-track services unless the user explicitly overrides them.
+Tracks select the subset of services needed for a workflow and force-disable out-of-track services. An explicit `--<svc>-source` flag or a SOURCE value in a consumer manifest's `env.values` overrides the track for that service. [Tracks](tracks.md) lists the services in each track.
 
 ## 3. Manifests
 

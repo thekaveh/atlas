@@ -1,12 +1,14 @@
 # 9.1. Development
 
-For a first change (setup, one safe test per area, the branch target and the required checks), start with the [contributing guide](../CONTRIBUTING.md). This page covers service admission, the parent-repo consumer layout and the documentation checks.
+For a first change (setup, one safe test per area, the branch target and the required checks), start with the [contributing guide](../CONTRIBUTING.md). This page covers service admission, the parent-repo consumer layout, the documentation checks, the repository layout and the review-ticket lint.
 
 ## 1. Service Admission
 
 To add a service, follow [Adding a service](CONTRIBUTING-services.md): manifest, compose fragment when applicable, topology row, docs regeneration, route checks and CI validation.
 
 ## 2. Parent-Repo Consumer Layout
+
+This section summarizes the layout for contributors. The operator guides are [Reusing Atlas](operations/reusing-atlas.md) and [Submodule Usage](operations/submodule-usage.md).
 
 Submodule consumers keep project-owned overlays, branding, wrapper scripts and secret references in the parent repository. `infra/` stays a pinned Atlas checkout. The recommended shape is:
 
@@ -53,7 +55,7 @@ The contract's `external_references` list records community destinations, such a
 `scripts/check_doc_links.py` checks targets against the repository tree. It covers relative Markdown links (including empty-label links and reference-style definitions) and raw HTML `<a href>` / `<img src>`. Canonical pages must therefore link files GitHub can open (`quick-start/index.md`, never the site's `quick-start/`). The generated surfaces translate those targets themselves.
 
 ```bash
-uv run --project bootstrapper python -m bootstrapper.docs.regen --all --check
+PYTHONPATH=bootstrapper uv run --project bootstrapper python -m bootstrapper.docs.regen --all --check
 uv run --project bootstrapper python scripts/check_doc_links.py
 uv run --project bootstrapper python scripts/check-docs-drift.py
 make docs-check
@@ -109,7 +111,7 @@ atlas/
 ├── bootstrapper/              # Python startup, SOURCE parsing, port/Kong generation, wizard
 │   ├── services/              # Manifest loader, validator, env_assembler, hooks, sc_synthesizer
 │   ├── schemas/               # JSON Schemas for service.yml manifests
-│   ├── tests/                 # 6,000+ tests (loader, validator, byte-equiv, source-permutation, hooks)
+│   ├── tests/                 # 7,000+ tests (loader, validator, byte-equiv, source-permutation, hooks)
 │   ├── tools/                 # validate_fragments manifest lint, generate_readme_topology
 │   └── start.py / stop.py     # Entry points
 ├── services/                  # 58 service.yml manifests + 3 doc-only folders (representative subset shown below; see services/ for the full list)
@@ -159,7 +161,7 @@ atlas/
 ├── docs/                      # User, service, operations, diagram, and planning docs
 │   ├── CONTRIBUTING-services.md  # How to add a new service to the modular layout
 │   └── …
-├── scripts/                   # Top-level utility scripts (e.g. migration helpers)
+├── scripts/                   # Audit, docs-build, lock and release-notes tooling
 ├── docker-compose.yml         # ~90-line thin shell — include: list pulling each fragment
 ├── .env.example               # Configuration template (auto-generated from manifests via env_assembler; byte-equivalence enforced by tests)
 ├── start.sh / stop.sh         # Entry points

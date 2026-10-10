@@ -17,13 +17,13 @@ Notebooks log experiments and artifacts through `MLFLOW_TRACKING_URI`; model pro
 ## 3. Configuration
 
 ```dotenv
-MLFLOW_SOURCE=disabled
-MLFLOW_PORT=
-MLFLOW_ENDPOINT=
-MLFLOW_TRACKING_URI=
+MLFLOW_SOURCE=disabled            # container | disabled
+MLFLOW_PORT=                      # auto-assigned by topology
+MLFLOW_ENDPOINT=                  # set by ./start.sh: http://mlflow:5000, or empty when disabled
+MLFLOW_TRACKING_URI=              # set by ./start.sh: same value; injected into JupyterHub
 MLFLOW_DB_NAME=mlflow
 MLFLOW_DB_USER=mlflow
-MLFLOW_DB_PASSWORD=
+MLFLOW_DB_PASSWORD=               # auto-generated
 MINIO_BUCKET_MLFLOW=mlflow
 ```
 
@@ -37,7 +37,7 @@ When MLflow is enabled, `supabase-db-init` creates its Postgres database and rol
 - proxied artifacts under `s3://${MINIO_BUCKET_MLFLOW}`;
 - S3-compatible access through MinIO at `http://minio:9000`.
 
-JupyterHub receives `MLFLOW_TRACKING_URI=http://mlflow:5000` when MLflow is enabled and includes the MLflow Python client.
+JupyterHub receives `MLFLOW_TRACKING_URI=http://mlflow:5000` when MLflow is enabled, and its image includes the MLflow Python client (`mlflow==3.16.0`). `11_financial_research_kit.ipynb` logs to MLflow when this variable is set.
 
 Minimal notebook smoke:
 

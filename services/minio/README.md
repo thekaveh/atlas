@@ -7,7 +7,7 @@ S3-compatible object storage for the artifact tier of the stack. It complements 
 - Supabase Storage is the app-tier surface: row-level-security uploads, signed URLs, files up to 50 MB.
 - MinIO is the artifact-tier surface for high-throughput, large-blob workloads.
 
-The container runs [Silo](https://github.com/pgsty/silo) (`pgsty/silo` and `pgsty/mc`), the Pigsty-maintained fork of the archived MinIO community server. MinIO no longer publishes community images, and `quay.io/minio` refuses anonymous pulls. Silo keeps MinIO's S3 API, `MINIO_*` environment, `/minio/*` routes and `mc admin` surface, so everything below applies. The long-term server choice is tracked in #1277.
+The container runs [Silo](https://github.com/pgsty/silo) (`pgsty/silo` and `pgsty/mc`), the Pigsty-maintained fork of the archived MinIO community server. MinIO no longer publishes community images, and `quay.io/minio` refuses anonymous pulls. Silo keeps MinIO's S3 API, `MINIO_*` environment, `/minio/*` routes and `mc admin` surface, so everything below applies. The long-term server choice is tracked in [#1277](https://github.com/thekaveh/atlas/issues/1277).
 
 ## 2. Endpoints
 
@@ -98,7 +98,9 @@ Extra consumers in `MINIO_EXTRA_CONSUMERS` get the same idempotent bucket, named
 
 Built-in credentials are auto-generated to `.env` and exposed as `MINIO_<NAME>_ACCESS_KEY` and `MINIO_<NAME>_SECRET_KEY` where `<NAME>` is one of the built-in consumers. Parent-owned extra consumer credentials are supplied by the parent overlay. A cross-bucket access attempt with a consumer credential returns `403 AccessDenied`.
 
-## 6. Consumer integration recipe (for follow-up PRs)
+<a id="6-consumer-integration-recipe-for-follow-up-prs"></a>
+
+## 6. Consumer integration recipe
 
 A consumer connects with any standard S3 SDK or the `mc` CLI, using the endpoint and per-bucket credentials from §2.1 and §5. Examples: boto3 with `Config(s3={"addressing_style": "path"})`, or `mc alias set` against the host port.
 

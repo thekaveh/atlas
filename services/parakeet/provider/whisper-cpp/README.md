@@ -1,131 +1,124 @@
 # 5.3.4. Parakeet whisper.cpp Provider
 
-Run [whisper.cpp](https://github.com/ggml-org/whisper.cpp) natively on your
-host and have the stack reach it via `host.docker.internal`. This is the
-**recommended STT path for Apple Silicon**. Its Metal and Core ML / Apple
-Neural Engine support beats any container-side STT on a Mac.
+Run [whisper.cpp](https://github.com/ggml-org/whisper.cpp) `whisper-server` on
+the host, and Atlas containers reach it through `host.docker.internal`. Select
+it with `STT_PROVIDER_SOURCE=whisper-cpp-localhost`.
 
-It also works on Linux (CPU, CUDA, or Vulkan). It is the lightest STT option:
-a single binary, with no Python deps and no model server framework.
+## 1. When to use it
 
-## 1. Why localhost instead of container
+- **macOS:** Docker Desktop containers cannot use Metal or Core ML. A host
+  build of whisper.cpp can.
+- **Small footprint:** one native binary and a ggml model file, with no
+  Python or PyTorch.
+- **Quantized models:** `q5_0` and similar quantizations reduce memory use.
 
-- **Mac users**: Metal + Core ML / ANE acceleration only works on the host,
-  not through Docker Desktop. The Speaches CPU container will work too, but
-  whisper.cpp natively is ~5–10× faster on Apple Silicon.
-- **Lightweight**: a single static binary, ggml-format models, no PyTorch.
-- **Quantized models**: pull a `q5_0` or `q4_0` quant and run faster-than-realtime
-  on modest CPUs.
+Atlas publishes no speed ranking against the other STT engines. Benchmark
+representative audio on the deployment host.
 
-If you want a container-only setup with no host install, use
-`STT_PROVIDER_SOURCE=speaches-container-cpu` (Speaches container) or
-`parakeet-container-gpu` (NVIDIA-only). See
-[the parakeet provider README](../README.md) for the full STT-source matrix.
+For a container-only setup, use `speaches-container-cpu` or
+`parakeet-container-gpu` (NVIDIA only). The
+[STT Provider README](../../../stt-provider/README.md) lists all sources.
 
-## 2. Install (macOS)
+## 2. Build the server
 
-```bash
-brew install whisper-cpp
-```
-
-This installs the `whisper-cli` and `whisper-server` binaries with Metal +
-Core ML support pre-built.
-
-## 3. Install (Linux)
+The Homebrew `whisper-cpp` formula does not install `whisper-server` (it
+builds with `WHISPER_BUILD_SERVER=OFF`). Build from source on macOS and on
+Linux:
 
 ```bash
 git clone https://github.com/ggml-org/whisper.cpp
 cd whisper.cpp
-make -j server         # CPU only
-# or:
-GGML_CUDA=1 make -j server   # NVIDIA CUDA
-GGML_VULKAN=1 make -j server # AMD / Intel via Vulkan
+cmake -B build
+cmake --build build -j --config Release
 ```
 
-## 4. Download a model
+The binary is `./build/bin/whisper-server`. On Apple Silicon, the default
+build runs inference on the GPU through Metal. For other accelerators, add
+one flag to the first `cmake` command:
+
+| Flag | Accelerator |
+|---|---|
+| `-DGGML_CUDA=1` | NVIDIA CUDA |
+| `-DGGML_VULKAN=1` | AMD or Intel through Vulkan |
+| `-DWHISPER_COREML=1` | Apple Neural Engine. Also generate the Core ML encoder with `./models/generate-coreml-model.sh <model>`; see the upstream Core ML section. |
+
+## 3. Download a model
+
+Run these commands in the `whisper.cpp` checkout:
 
 ```bash
-# 142 MB, good balance for English-only
-bash ./models/download-ggml-model.sh base.en
+# English only, 142 MiB
+sh ./models/download-ggml-model.sh base.en
 
-# 1.5 GB, multilingual SOTA
-bash ./models/download-ggml-model.sh large-v3
+# Multilingual, 2.9 GiB
+sh ./models/download-ggml-model.sh large-v3
 
-# 466 MB, multilingual + distilled (fast)
-bash ./models/download-ggml-model.sh distil-large-v3
+# Multilingual, quantized: smaller and less memory
+sh ./models/download-ggml-model.sh large-v3-q5_0
 ```
 
-On macOS the Homebrew install puts models at
-`~/Library/Application Support/whisper-cpp/models/` by default; check
-`whisper-cli --help` for the path on your version.
+The script writes `models/ggml-<model>.bin`. Run the script without
+arguments to list the other models, for example `large-v3-turbo`.
 
-## 5. Run the server (OpenAI-compatible)
+## 4. Run the server
 
 ```bash
-# Default port matches WHISPER_CPP_LOCALHOST_PORT in .env (63042).
-whisper-server \
+# The port matches WHISPER_CPP_LOCALHOST_PORT in .env (default 63042).
+./build/bin/whisper-server \
   --host 0.0.0.0 \
   --port 63042 \
-  --model ~/path/to/ggml-large-v3.bin \
+  --model models/ggml-large-v3.bin \
   --inference-path /v1/audio/transcriptions \
   --convert
 ```
 
-`--convert` lets the server accept formats beyond WAV, MP3 and FLAC, such as
-OGG/Opus voice notes a client sends without transcoding. It needs `ffmpeg` on
-the `PATH`, for example `brew install ffmpeg`. Open WebUI already transcodes
-browser microphone recordings to MP3 before sending them.
+`--inference-path` serves the OpenAI-compatible
+`/v1/audio/transcriptions` route that Atlas calls. `--convert` converts
+formats other than WAV, MP3 and FLAC, for example OGG/Opus voice notes. It
+needs `ffmpeg` on the `PATH`.
 
-The `/v1/audio/transcriptions` path makes the server drop-in compatible with
-the OpenAI Whisper API surface (which is what Open WebUI / Speaches /
-Parakeet also expose).
+`whisper-server` has no authentication. `--host 0.0.0.0` makes it reachable
+from the local network as well as from Docker. Use the host firewall when the
+network is not trusted.
 
-## 6. Wire the stack
+## 5. Connect Atlas
 
 ```bash
 ./start.sh --stt-provider-source whisper-cpp-localhost
 ```
 
-If you used a port other than 63042, update `.env` (URL is derived inline
-as `http://host.docker.internal:${WHISPER_CPP_LOCALHOST_PORT:-63042}`):
+If the server uses a port other than 63042, set it in `.env`. Atlas derives
+the URL `http://host.docker.internal:${WHISPER_CPP_LOCALHOST_PORT:-63042}`:
 
 ```bash
 WHISPER_CPP_LOCALHOST_PORT=18143
 ```
 
-## 7. Verify
+## 6. Verify
 
 ```bash
-# Record or grab a sample WAV/MP3/M4A
 curl -X POST http://localhost:63042/v1/audio/transcriptions \
-  -H "Content-Type: multipart/form-data" \
   -F file=@sample.wav \
   -F model=whisper-1
 # expect JSON: {"text":"..."}
 ```
 
-## 8. Performance reference (English, 10s audio)
+whisper.cpp ignores `model` and uses the loaded file.
 
-| Hardware + model | Wall time |
-|---|---|
-| M2 Pro, `base.en`, Metal+ANE | ~0.6 s |
-| M2 Pro, `large-v3-distil`, Metal+ANE | ~1.0 s |
-| Intel i7-12700, `base.en`, CPU only | ~3.0 s |
-| RTX 4090, `large-v3`, CUDA | ~0.3 s |
+## 7. Troubleshooting
 
-## 9. Troubleshooting
+**`Address already in use`:** start the server on another port, then set
+`WHISPER_CPP_LOCALHOST_PORT` in `.env`.
 
-**`Address already in use`** — pick another port (then update `.env`).
+**Slow on a Mac:** check that the server log reports the Metal backend. A
+build without Metal runs on the CPU.
 
-**Slow on Mac** — make sure you used Homebrew (Metal-enabled by default).
-If you built from source, pass `-DGGML_METAL=ON` and `-DWHISPER_COREML=ON`
-to CMake.
+**Model load runs out of memory:** use a quantized or smaller model, for
+example `large-v3-q5_0` or `base.en`.
 
-**Model load OOMs** — pick a smaller quant: `ggml-large-v3-q5_0.bin` is
-~1 GB vs ~3 GB unquantized, with negligible WER difference.
-
-## 10. References
+## 8. References
 
 - [whisper.cpp upstream](https://github.com/ggml-org/whisper.cpp)
-- [Apple Core ML / ANE setup notes](https://github.com/ggml-org/whisper.cpp#core-ml-support)
-- [ggml model registry](https://huggingface.co/ggerganov/whisper.cpp)
+- [whisper-server options](https://github.com/ggml-org/whisper.cpp/tree/master/examples/server)
+- [Core ML support](https://github.com/ggml-org/whisper.cpp#core-ml-support)
+- [ggml model files](https://huggingface.co/ggerganov/whisper.cpp)

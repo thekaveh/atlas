@@ -2,7 +2,7 @@
 
 This page indexes the Atlas documentation. Start from the path that matches your role:
 
-- **New to Atlas (run it locally):** [Documentation home](index.md) → [Quick Start](quick-start/index.md) → [Core Concepts](core-concepts.md) → [Tracks](tracks.md) → [Quick Start Troubleshooting](quick-start/troubleshooting.md).
+- **New to Atlas (run it locally):** [Documentation home](index.md) → [Quick Start](quick-start/index.md) → [Interactive Setup Wizard](quick-start/interactive-setup-wizard.md) → [Core Concepts](core-concepts.md) → [Tracks](tracks.md) → [Quick Start Troubleshooting](quick-start/troubleshooting.md).
 - **Building on Atlas (application developer):** [Service catalog](services.md) → [Configuration](configuration.md) → [Reusing Atlas as Infrastructure](operations/reusing-atlas.md) → [Endpoint contract export](operations/index.md#5-endpoint-contract-export) → [Backend plugin manifest](operations/index.md#6-backend-plugin-manifest).
 - **Operating or contributing:** [Operations](operations/index.md) → [Architecture](architecture/index.md) → [Development](development.md) → [Contributing guide](../CONTRIBUTING.md) → [Reference](reference/index.md) → [Releasing](operations/releasing.md) → [Security policy](../SECURITY.md).
 
@@ -53,6 +53,7 @@ This page indexes the Atlas documentation. Start from the path that matches your
 - [Adding a service runbook](CONTRIBUTING-services.md) — six-decision walkthrough + the regen + lint chain
 - [Security policy](../SECURITY.md) — project posture, operational tiers, reachability triage, public-edge requirements, automated scanning gates, and the private-advisory reporting route
 - `docs/superpowers/` (repository only, not published) — point-in-time feature-track plans and specs
+- `docs/research/`, `docs/strategy/` and `docs/maintenance/` (repository only, not published) — integration research, strategy notes and the external dependency contract ledger
 
 ## 2. Related documentation
 
@@ -74,4 +75,4 @@ If you can't find what you're looking for:
 
 - Found a typo or error? Open a PR against `develop`; the [contributing guide](../CONTRIBUTING.md) has the steps.
 - Missing information? Open an issue.
-- Before submitting documentation changes, run the single root-safe gate: `make docs-check`.
+- Before you submit documentation changes, run `make docs-check` from the repository root. It validates all documentation surfaces.

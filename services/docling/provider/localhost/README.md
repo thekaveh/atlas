@@ -1,6 +1,8 @@
 # 5.3.1. Docling Localhost Provider
 
-Run IBM Docling document processing natively on your host machine (any platform with Python).
+Run the Atlas Docling provider natively on the host. Atlas containers reach it
+through `host.docker.internal` when `DOC_PROCESSOR_SOURCE=docling-localhost`.
+It needs Python 3.10 or later and [uv](https://docs.astral.sh/uv/).
 
 ## 1. Quick Start
 
@@ -11,17 +13,10 @@ cd services/docling/provider/localhost
 uv sync
 ```
 
-This installs all required dependencies (docling, fastapi, uvicorn, pydantic, etc.)
-
-**For GPU acceleration (NVIDIA CUDA):**
-```bash
-uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
-```
-
-**For Apple Silicon (MPS):**
-```bash
-uv pip install torch torchvision
-```
+This installs the locked dependencies, including `docling==2.102.1` and
+`torch==2.13.0`. The PyPI torch wheel supports CUDA on Linux x86_64 and MPS on
+Apple Silicon, so no separate torch install is needed. Do not install another
+torch with `uv pip install`: `uv run` restores the locked version.
 
 ### 1.2. Generate the Atlas Credential
 
@@ -34,8 +29,8 @@ cd ../../../..
 ./start.sh --doc-processor-source docling-localhost
 ```
 
-Starting the provider first leaves the already-running process without the
-generated token; restart it after Atlas creates `.env` if you did so.
+The provider reads `.env` once, when it starts. If you started it before Atlas
+created the token, restart it.
 
 ### 1.3. Start the Server
 
@@ -45,12 +40,12 @@ cd services/docling/provider/localhost
 uv run server.py
 ```
 
-The server loads the repository `.env` at process import and starts on
-`http://127.0.0.1:18159` by default (using `DOCLING_LOCALHOST_PORT` and
-`DOCLING_API_TOKEN`).
+The server loads the repository `.env` (four levels up), then listens on
+`http://127.0.0.1:18159` by default (`DOCLING_LOCALHOST_BIND_HOST` and
+`DOCLING_LOCALHOST_PORT`). Variables exported in the shell override `.env`.
 
-**First run:** Downloads AI models (~500MB - DocLayNet + TableFormer). Please be patient (5-10 minutes).
-**Subsequent runs:** Instant startup.
+The first conversion downloads Docling's layout and table models from Hugging
+Face, so it takes longer. Later runs reuse the cache.
 
 ### 1.4. Test the API
 
@@ -68,30 +63,32 @@ curl -X POST http://localhost:18159/v1/document/convert \
 
 ### 2.1. Environment Variables
 
-Set before running server:
+The server reads these from the shell or from the repository `.env`:
 
 ```bash
 export DOCLING_LOCALHOST_PORT=18159      # Server port (default: 18159)
-export DOCLING_LOCALHOST_BIND_HOST=127.0.0.1  # Linux: containers reach the host via the docker bridge, not loopback; bind the bridge IP (or 0.0.0.0 with DOCLING_AUTH_MODE=required)
+export DOCLING_LOCALHOST_BIND_HOST=127.0.0.1  # Listen address (see below)
 export DOCLING_API_TOKEN="$(sed -n 's/^DOCLING_API_TOKEN=//p' ../../../../.env)"
 export DOCLING_AUTH_MODE=required
 export DOCLING_MAX_FILE_SIZE=52428800
 export DOCLING_UPLOAD_TIMEOUT_SECONDS=120
 export DOCLING_INFERENCE_TIMEOUT_SECONDS=900
-export DOCLING_DEVICE=cpu                # Device: cpu, cuda, mps
+export DOCLING_DEVICE=cpu                # Device: cpu (default), cuda, mps
 export DOCLING_OUTPUT_FORMAT=markdown    # Format: markdown, html, json, doctags
 export DOCLING_USE_OCR=auto              # OCR: auto, always, never
 export DOCLING_TABLE_MODE=accurate       # Table mode: accurate, fast
 export DOCLING_ENABLE_FORMULAS=true      # Formula enrichment: true, false
 export DOCLING_ENABLE_CODE_BLOCKS=true   # Code enrichment: true, false
-export HF_TOKEN=your_token_here          # HuggingFace token (if needed)
+export HF_TOKEN=your_token_here          # Hugging Face token (if needed)
 ```
 
+On Linux, containers reach the host through the Docker bridge, not loopback.
+Bind the bridge IP, or `0.0.0.0` with `DOCLING_AUTH_MODE=required`.
+
 The request's `use_ocr` and `table_mode` values override their environment
-defaults. Device, formula enrichment, and code enrichment are applied through
-Docling's pinned `PdfPipelineOptions` API. Unsupported output formats are
-rejected during request validation; they are never silently returned as
-Markdown.
+defaults. Device, formula enrichment and code enrichment are applied through
+Docling's pinned `PdfPipelineOptions` API. Request validation rejects an
+unsupported output format; the server never returns Markdown in its place.
 
 ### 2.2. Custom Port
 
@@ -100,24 +97,23 @@ export DOCLING_LOCALHOST_PORT=55021
 uv run server.py
 ```
 
-Or read from project .env:
-```bash
-# .env lives at the repo root, four levels up from this README
-export DOCLING_LOCALHOST_PORT=$(grep '^DOCLING_LOCALHOST_PORT' ../../../../.env | cut -d'=' -f2)
-uv run server.py
-```
+Set the same `DOCLING_LOCALHOST_PORT` in the repository `.env`, so Atlas
+containers use that port.
 
 ## 3. Supported Formats
 
 ### 3.1. Input Formats
-- **Documents**: PDF, DOCX, DOC, PPTX, PPT, XLSX, HTML
-- **Images**: PNG, JPG, JPEG, TIFF, TIF
+
+The provider uses Docling's default converter: PDF, DOCX, PPTX, XLSX, HTML and
+images (PNG, JPEG, TIFF). Docling does not convert legacy Office files (`.doc`,
+`.xls`, `.ppt`). The Atlas backend sends those to Tika; see the
+[Document Processor README](../../../doc-processor/README.md).
 
 ### 3.2. Output Formats
-- **markdown** - Clean markdown (default)
-- **html** - Semantic HTML
-- **json** - Structured JSON with metadata
-- **doctags** - IBM Docling native format
+- **markdown** - Markdown (default)
+- **html** - HTML
+- **json** - Docling document as JSON
+- **doctags** - Docling's native DocTags format
 
 ## 4. API Examples
 
@@ -157,19 +153,18 @@ curl -X POST http://localhost:18159/v1/document/convert \
 ## 5. Features
 
 ### 5.1. Table Extraction
-- **Accurate Mode**: Uses TableFormer AI model (slow, high quality)
-- **Fast Mode**: Rule-based extraction (10x faster, lower quality)
+- **accurate**: the accurate TableFormer model (default).
+- **fast**: the fast TableFormer model; quicker, with lower table quality.
 
 ### 5.2. OCR Support
-- **Auto**: Only uses OCR when needed (scanned PDFs, images)
-- **Always**: Forces OCR on all documents
-- **Never**: Disables OCR completely
+- **auto**: OCR only where the document needs it, for example scanned pages.
+- **always**: full-page OCR on every page.
+- **never**: no OCR.
 
 ### 5.3. Advanced Extraction
-- Mathematical formulas (LaTeX format)
-- Code blocks with syntax preservation
-- Images and figures
-- Document structure (headings, paragraphs, lists)
+- Mathematical formulas (`DOCLING_ENABLE_FORMULAS`)
+- Code blocks (`DOCLING_ENABLE_CODE_BLOCKS`)
+- Document structure: headings, paragraphs, lists and tables
 
 ## 6. Integration with Atlas
 
@@ -193,9 +188,7 @@ the native provider.
 # Terminal 1, repository root: start Atlas first
 ./start.sh --base-port 55000 --doc-processor-source docling-localhost
 
-# Terminal 2, repository root: export the generated provider settings
-export DOCLING_LOCALHOST_PORT="$(sed -n 's/^DOCLING_LOCALHOST_PORT=//p' .env)"
-export DOCLING_API_TOKEN="$(sed -n 's/^DOCLING_API_TOKEN=//p' .env)"
+# Terminal 2, repository root: the provider reads the port and token from .env
 cd services/docling/provider/localhost
 uv run server.py
 ```
@@ -217,53 +210,44 @@ cd services/docling/provider/localhost
 uv run server.py
 ```
 
+For long-lived use, run the provider under a service manager (systemd or
+launchd) with restart-on-failure. After a conversion timeout the provider
+exits with status 70, and a bare `uv run server.py` stays stopped.
+
 ## 7. Performance
 
-### 7.1. CPU (Any Platform)
-- Simple PDFs: ~2-5 seconds/page
-- PDFs with tables: ~10-30 seconds/page
-- Memory: ~2GB RAM
-
-### 7.2. GPU (NVIDIA CUDA)
-- Simple PDFs: ~1-2 seconds/page
-- PDFs with tables: ~2-7 seconds/page (4.3x faster than CPU)
-- Memory: ~2GB VRAM
-
-### 7.3. Apple Silicon (MPS)
-- Simple PDFs: ~1-3 seconds/page
-- PDFs with tables: ~5-15 seconds/page
-- Memory: ~2GB RAM
-
-*Performance varies based on document complexity and table count*
+Conversion time and memory depend on the device, the page count, tables, OCR
+and `table_mode`. Atlas publishes no per-page figures. Benchmark
+representative documents on the host before capacity planning.
 
 ## 8. Troubleshooting
 
 ### 8.1. Port Already in Use
 
 ```bash
-# Use different port
+# Use a different port, then set the same value in the repository .env
 export DOCLING_LOCALHOST_PORT=18160
 uv run server.py
 ```
 
-### 8.2. GPU Not Detected (NVIDIA)
+### 8.2. GPU Not Used
+
+`DOCLING_DEVICE` defaults to `cpu`; the server does not detect a GPU. Set
+`DOCLING_DEVICE=cuda` or `DOCLING_DEVICE=mps`, then check that torch can see
+the device:
 
 ```bash
-# Install CUDA-enabled PyTorch
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
-
-# Verify CUDA
-python -c "import torch; print(torch.cuda.is_available())"
+uv run python -c "import torch; print(torch.cuda.is_available(), torch.backends.mps.is_available())"
 ```
 
 ### 8.3. Model Download Fails
 
 ```bash
-# Set HuggingFace token if accessing gated models
+# Set a Hugging Face token if the download needs one
 export HF_TOKEN=your_token_here
 uv run server.py
 
-# Check disk space (need ~1GB free)
+# Check free disk space for the Hugging Face cache
 df -h
 ```
 
@@ -280,42 +264,21 @@ uv sync
 
 ### 8.5. Slow Processing
 
-**Problem**: Document processing takes too long
-
-**Solutions**:
-- Use `table_mode=fast` for faster (less accurate) table extraction
-- Reduce file size (compress images in PDF)
-- Use GPU if available (4.3x speedup for tables)
-- Disable OCR if not needed: `use_ocr=never`
+- Use `table_mode=fast` for faster, less accurate table extraction.
+- Use `use_ocr=never` when the documents have a text layer.
+- Set `DOCLING_DEVICE` to an available GPU device (§8.2).
 
 ## 9. Technical Details
 
 ### 9.1. Model Downloads
 
-Models are downloaded on first run and cached in:
-- **Linux/Mac**: `~/.cache/huggingface/`
-- **Windows**: `%USERPROFILE%\.cache\huggingface\`
-
-Downloaded models:
-- **DocLayNet**: ~200MB (layout analysis)
-- **TableFormer**: ~300MB (table structure recognition)
+Docling downloads its layout and table models on first use and caches them in
+the Hugging Face cache (`~/.cache/huggingface/` by default).
 
 ### 9.2. Device Selection
 
-```python
-# Auto-detected based on availability:
-# 1. CUDA (NVIDIA GPU) if available
-# 2. MPS (Apple Silicon) if available
-# 3. CPU as fallback
-```
-
-Override with `DOCLING_DEVICE` environment variable.
-
-### 9.3. Memory Requirements
-
-- **Minimum**: 2GB RAM
-- **Recommended**: 4GB RAM
-- **GPU**: 2GB VRAM (for table extraction acceleration)
+The device comes from `DOCLING_DEVICE` only: `cpu` (default), `cuda` or
+`mps`. An invalid device makes `/health` report `unavailable`.
 
 ## 10. Advanced Usage
 
@@ -347,19 +310,18 @@ print(f"Found {result['metadata']['tables']} tables")
 ### 10.2. Batch Processing
 
 ```bash
-# Process multiple files
+# Process multiple files; the response is JSON with the text in "content"
 for file in *.pdf; do
   curl -X POST http://localhost:18159/v1/document/convert \
     -H "Authorization: Bearer ${DOCLING_API_TOKEN}" \
     -F "file=@$file" \
     -F "output_format=markdown" \
-    > "${file%.pdf}.md"
+    > "${file%.pdf}.json"
 done
 ```
 
 ## 11. References
 
 - [Docling Documentation](https://docling-project.github.io/docling/)
-- [Docling GitHub](https://github.com/DS4SD/docling)
-- [DocLayNet Dataset](https://github.com/DS4SD/DocLayNet)
+- [Docling GitHub](https://github.com/docling-project/docling)
 - [TableFormer Paper](https://arxiv.org/abs/2203.01017)

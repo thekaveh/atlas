@@ -45,7 +45,7 @@ FAL still appears in the services grid as a media service. Its row shows the res
 | `FAL_MODEL` | `fal-ai/flux/dev` | Default FAL model endpoint used by the media gateway for text-to-image generation. |
 | `FAL_IMAGE_TO_3D_MODEL` | `fal-ai/trellis` | Default endpoint id for the `image_to_3d` modality. Must resolve to a curated registry entry (see below); TRELLIS is the MIT-licensed default. |
 | `FAL_MODEL_LICENSE` | `fal/provider-terms` | License or terms marker returned in normalized media operation responses when provider-specific model licensing is not more specific. For `image_to_3d`, the per-model registry license overrides this. |
-| `BACKEND_MEDIA_INPUT_BUCKET` | `default` | Atlas storage bucket the gateway hosts `image_to_3d` inputs in (under the `media-inputs/` prefix) when a provider rejects data-URI inputs. Declared on the backend service. |
+| `BACKEND_MEDIA_INPUT_BUCKET` | `default` | Supabase Storage bucket the gateway hosts `image_to_3d` inputs in (under the `media-inputs/` prefix) when a provider rejects data-URI inputs. Declared on the backend service. |
 | `BACKEND_MEDIA_INPUT_PUBLIC_BASE_URL` | empty | Optional public base URL for hosted inputs (`<base>/<bucket>/<key>`), so the provider's cloud can fetch them through a reachable ingress. Empty uses the storage client's public URL. Declared on the backend service. |
 | `FAL_TIMEOUT_SECONDS` | `120` | Backend timeout for FAL media submit/poll operations and the compatibility route. Greater than zero, at most 3,600 seconds. |
 | `FAL_OUTPUT_FORMAT` | `jpeg` | Requested image format for compatible models. |

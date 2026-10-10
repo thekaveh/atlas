@@ -9,21 +9,20 @@ them interchangeably. The backend receives `TTS_ENDPOINT` but does not use it.
 | `TTS_PROVIDER_SOURCE` | Engine | License | Runs on |
 |---|---|---|---|
 | `speaches-container-cpu` | Speaches (Kokoro + Piper) | MIT | Linux + macOS Docker, CPU |
-| `speaches-container-gpu` | Speaches (CUDA build) | MIT | NVIDIA |
-| `chatterbox-container-gpu` | Resemble AI Chatterbox | MIT | NVIDIA (≥8 GB) |
-| `chatterbox-localhost` | Chatterbox natively | MIT | macOS MPS / Linux (any) |
+| `speaches-container-gpu` | Speaches (CUDA build) | MIT | Not usable yet: no GPU device is attached (#1373) |
+| `chatterbox-container-gpu` | Resemble AI Chatterbox | AGPL-3.0 (API server); model MIT | NVIDIA (≥8 GB) |
+| `chatterbox-localhost` | Chatterbox natively | AGPL-3.0 (API server); model MIT | macOS MPS / Linux (any) |
 | `disabled` | none | — | — |
 
-The default for fresh installs is **`speaches-container-cpu`** — works on
-every platform with no localhost setup. **Important:** Speaches ships with no preloaded
-models and does NOT auto-download them. In speaches v0.9.0-rc.3, `/v1/audio/*`
-does a cache-only lookup and returns 404 for a missing model. Preload Kokoro
-before the first synthesis (see the quick start below).
+The default for fresh installs is **`speaches-container-cpu`**. It works on
+every platform with no host setup. Speaches ships with no preloaded models and
+does not download them itself. In speaches v0.9.0-rc.3, `/v1/audio/*` looks
+only in the cache and returns 404 for a missing model. Download Kokoro before
+the first synthesis (see the quick start below).
 
-For voice cloning (5-second zero-shot), pick a Chatterbox variant. For pure
-container-only setups on NVIDIA, `chatterbox-container-gpu`. For Apple
-Silicon where MPS gives ~10× speedup over the Docker CPU path, install
-Chatterbox natively and use `chatterbox-localhost` — see
+For zero-shot voice cloning, pick a Chatterbox variant: `chatterbox-container-gpu`
+for a container on NVIDIA, or `chatterbox-localhost` for a host install. On
+Apple Silicon, only the host install can use MPS; see
 [localhost/README.md](localhost/README.md).
 
 ## 2. Quick start

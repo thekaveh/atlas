@@ -625,7 +625,7 @@ a pull request cancels that pull request's superseded run; runs on `main` and
 
 **Manifest lint + unit tests** aggregates these four jobs:
 
-- *Bootstrapper and Backend suites (with containers)*: `validate_fragments`, ShellCheck, and the pull-request title and changelog checks. It also runs the 6,000+ bootstrapper tests (with the container-backed backup/restore tests and the coverage floor) and the backend suite (`services/backend/app/app/tests/`).
+- *Bootstrapper and Backend suites (with containers)*: `validate_fragments`, ShellCheck, and the pull-request title and changelog checks. It also runs the 7,000+ bootstrapper tests (with the container-backed backup/restore tests and the coverage floor) and the backend suite (`services/backend/app/app/tests/`).
 - *Bootstrapper suite without Docker (fast)*: the whole suite with no Docker daemon, so a failing unit test turns red first.
 - *Bootstrapper suite on Python 3.10*: the full suite on the supported floor.
 - *MCP and asset API tests*: those isolated suites.
@@ -667,7 +667,7 @@ uv run --project bootstrapper python -m tools.validate_fragments                
 docker compose --env-file .env.example -f docker-compose.yml config -q            # job 2 merge check
 make docs-check                                                                    # job 3 three-surface contracts + strict build
 uv run --project bootstrapper python scripts/check_doc_links.py                   # job 3 link check
-uv run --project bootstrapper python -m bootstrapper.docs.regen --all --check     # job 3 docs drift
+PYTHONPATH=bootstrapper uv run --project bootstrapper python -m bootstrapper.docs.regen --all --check  # job 3 docs drift
 uv run --project bootstrapper python scripts/check-docs-drift.py                  # job 3 docs structural audit
 uv run --project bootstrapper python scripts/check-compose-source-deps.py         # job 3 deps audit
 uv run --project bootstrapper python scripts/check-kong-routes.py                 # job 3 kong audit

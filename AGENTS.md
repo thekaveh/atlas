@@ -53,7 +53,9 @@ For TUI/CLI visual work: after each change, describe exactly what changed visual
 - `Docs drift + audit scripts`
 - `Build-validation (Dockerfile + requirements.txt installability)`
 
-Build validation is enabled on every workflow run and is a required check in the live `gitflow` ruleset.
+Build validation runs on every workflow run and is a required check in the live `gitflow` ruleset. Despite its name, it builds no local Dockerfile. It verifies the pinned remote build contexts against their reviewed base-image digests and scans changed remote images. Local Dockerfile and requirements breakage shows in `Final-image scan (local Compose and init images)`, which is not a required check.
+
+When an upstream floating tag (`nginx:alpine`, `node:20`, `python:3.12-slim`) is republished, build validation fails on every pull request. It passes again after you refresh the reviewed digest in three places: `.container-scan-exclusions.yml`, the `test_container_security.py` fixture and the row in `docs/maintenance/external-contract-ledger.md`.
 
 `Manifest lint + unit tests` is an aggregate gate (job `required-lint`, `if: always()`). It succeeds only when four parallel jobs all succeed:
 
@@ -281,7 +283,7 @@ All ports are calculated as offsets from `BASE_PORT` (default 63000). Service po
 
 ## Testing
 
-`bootstrapper/tests/` holds 6,000+ pytest tests. They cover manifest validation, env-example consistency, the docs-drift gate, the diagram renderer, the deps section writer, Kong config generation and bootstrapper-internal data flow. Many of the backup, restore, and database-role suites drive real containers, so a full pass needs a working Docker daemon and dominates the runtime. Run from the repo root:
+`bootstrapper/tests/` holds more than 7,000 pytest tests. They cover manifest validation, env-example consistency, the docs-drift gate, the diagram renderer, the deps section writer, Kong config generation and bootstrapper-internal data flow. Many of the backup, restore, and database-role suites drive real containers, so a full pass needs a working Docker daemon and dominates the runtime. Run from the repo root:
 
 ```bash
 uv run --project bootstrapper pytest bootstrapper/tests -q                          # full suite (~40 min)
@@ -318,7 +320,7 @@ Operational lint scripts that run outside pytest:
 make docs-check                                                               # three-surface contracts + strict build + wiki dry run
 uv run --project bootstrapper python -m scripts.notebook_reproducibility      # notebook source cleanliness
 uv run --project bootstrapper python scripts/check_doc_links.py                # internal markdown link validator (incl. empty-label and [ref]: links)
-uv run --project bootstrapper python -m bootstrapper.docs.regen --all --check  # docs drift gate (exit 2 on drift)
+PYTHONPATH=bootstrapper uv run --project bootstrapper python -m bootstrapper.docs.regen --all --check  # docs drift gate (exit 2 on drift)
 uv run --project bootstrapper python scripts/check-docs-drift.py               # docs structure audit
 uv run --project bootstrapper python scripts/check-compose-source-deps.py      # compose depends_on lint (.env.example only; edges into SOURCE-replaceable families)
 uv run --project bootstrapper python scripts/check-kong-routes.py              # Kong route audit (hosts + every route's paths, strip_path, preserve_host, plugins)
@@ -331,6 +333,18 @@ uv run --project bootstrapper python scripts/refresh-local-deep-researcher-lock.
 uv run --project bootstrapper python -m scripts.check_runtime_locks            # compiled service runtime locks
 uv tool install pip-audit==2.10.0                                               # pinned vulnerability-audit tool
 uv run --project bootstrapper python -m scripts.audit_runtime_locks            # runtime vulnerability audit
+uv run --project bootstrapper python -m scripts.check_test_locks               # Backend test lock matches the runtime lock
+uv run --project bootstrapper python scripts/compile_comfyui_custom_node_locks.py --check  # ComfyUI custom-node locks
+uv run --project bootstrapper python scripts/check_comfyui_custom_node_overlays.py         # ComfyUI custom-node overlays
+uv run --project bootstrapper python -m scripts.container_security            # container-scan policy and image inventory
+```
+
+CI also runs these gates, which are not `scripts/` audits:
+
+```bash
+(cd bootstrapper && uv run python -m tools.validate_fragments)   # "Lint manifests": every service.yml and the README TOPOLOGY block
+git ls-files -z '*.sh' | xargs -0 shellcheck -x                  # shell lint over every tracked script
+(cd bootstrapper && uv run pytest tests/test_fragment_equivalence.py tests/test_source_permutations.py)  # needs docker compose
 ```
 
 ## Linting / Type-checking

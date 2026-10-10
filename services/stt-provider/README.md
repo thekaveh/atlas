@@ -10,8 +10,8 @@ Pluggable speech-to-text layer. All backends speak the OpenAI
 | `speaches-container-cpu` (default) | Speaches → Faster-Whisper | `ghcr.io/speaches-ai/speaches:0.9.0-rc.3-cpu` | MIT | Linux + macOS Docker, CPU |
 | `speaches-container-gpu` | Speaches → Faster-Whisper | `ghcr.io/speaches-ai/speaches:0.9.0-rc.3-cuda` | MIT | Not usable yet: CUDA image, but no GPU device is attached (#1373) |
 | `parakeet-container-gpu` | NVIDIA Parakeet-TDT (NeMo) | (built from `services/parakeet/provider/gpu/Dockerfile` on `nvcr.io/nvidia/pytorch`) | Model CC-BY-4.0; container base NVIDIA-DLC | NVIDIA |
-| `parakeet-localhost` | Parakeet-MLX (Mac) or native Parakeet | — | Model CC-BY-4.0 | macOS MLX / Linux |
-| `whisper-cpp-localhost` | whisper.cpp | — (`brew install whisper-cpp`) | MIT | macOS Metal+ANE / Linux |
+| `parakeet-localhost` | Parakeet-MLX (Mac) or another operator-run Parakeet server | — | Model CC-BY-4.0 | macOS MLX / Linux |
+| `whisper-cpp-localhost` | whisper.cpp | — (host build of `whisper-server`) | MIT | macOS Metal (Core ML optional) / Linux |
 | `disabled` | — | — | — | — |
 
 When STT and TTS both select Speaches, one container serves both endpoints.
@@ -26,23 +26,36 @@ wins and the bootstrapper prints a notice.
 ## 2. Engine comparison
 
 Speaches is the portable container option. Parakeet has NVIDIA and Apple
-Silicon implementations. whisper.cpp is a native Metal/Core ML path.
+Silicon implementations. whisper.cpp is a native host build with Metal on
+Apple Silicon.
 Language coverage, accuracy, throughput and memory depend on the model, the
 audio, the options and the hardware. Atlas publishes no hardware-independent
 ranking; benchmark representative inputs on the deployment host.
 
 ## 3. Quick start
 
-The default container starts, but it has no model:
+The default Speaches container starts without a model:
 
 ```bash
 ./start.sh
 curl http://localhost:63060/health
 ```
 
-This checks container health only. Transcription returns `404` until you
-download the `whisper-1` model (see the note in §4; issue #799, open). Then
-the direct endpoint is `http://localhost:63060/v1/audio/transcriptions`.
+`/health` reports process liveness only. Speaches does not download models
+itself (verified against `speaches @ v0.9.0-rc.3`), and the compose file sets
+`PRELOAD_MODELS: '[]'`. Until a model is installed,
+`/v1/audio/transcriptions` returns HTTP 404 ("Model is not installed
+locally"); issue #799 tracks this.
+
+Download the `whisper-1` target once:
+
+```bash
+curl -X POST http://localhost:63060/v1/models/Systran/faster-whisper-large-v3
+```
+
+The model persists in the `speaches-cache` volume. As an alternative, add the
+ID to the JSON array in `PRELOAD_MODELS` in `services/speaches/compose.yml`.
+The direct endpoint is then `http://localhost:63060/v1/audio/transcriptions`.
 
 NVIDIA Parakeet (run from the repository root, which holds `.env`):
 
@@ -56,14 +69,14 @@ curl -X POST http://localhost:63055/v1/audio/transcriptions \
 macOS native acceleration:
 
 ```bash
-# Option A: whisper.cpp (Metal + Core ML / ANE)
-brew install whisper-cpp ffmpeg
-# Download a ggml model first: see the whisper-cpp README §4.
-whisper-server --host 0.0.0.0 --port 63042 \
-  --model /path/to/ggml-large-v3.bin \
+# Option A: whisper.cpp (Metal). Build whisper-server and download a model
+# first: see the whisper-cpp README. Run this in the whisper.cpp checkout.
+./build/bin/whisper-server --host 0.0.0.0 --port 63042 \
+  --model models/ggml-large-v3.bin \
   --inference-path /v1/audio/transcriptions \
   --convert &
 
+# From the Atlas repository root:
 ./start.sh --stt-provider-source whisper-cpp-localhost
 
 # Option B: Parakeet-MLX (MLX-native), from the repository root
@@ -78,7 +91,7 @@ cd services/parakeet/provider && python -m mlx.api_server &
 ```
 
 See [the whisper-cpp README](../parakeet/provider/whisper-cpp/README.md)
-for the whisper.cpp walkthrough and Linux build instructions, or
+for the whisper.cpp build, models and options, or
 [the MLX README](../parakeet/provider/mlx/README.md) for Parakeet-MLX.
 
 ## 4. Environment variables
@@ -90,28 +103,23 @@ for the whisper.cpp walkthrough and Linux build instructions, or
 | `STT_ENDPOINT` | (auto) | Internal URL containers reach STT on. |
 | `STT_PROVIDER_SCALE` | (auto) | 1 when any container variant is active. |
 | `SPEACHES_STT_MODEL` | `Systran/faster-distil-whisper-large-v3` | Inert: `PRELOAD_MODELS` is hard-coded in the Speaches compose file (#799). Open WebUI always sends `whisper-1`, which Speaches maps to `Systran/faster-whisper-large-v3`, not the distil build. |
-| `PARAKEET_MODEL` | `nvidia/parakeet-tdt-0.6b-v3` | Or `…-v2` for English-only (slightly faster). |
+| `PARAKEET_MODEL` | `nvidia/parakeet-tdt-0.6b-v3` | NeMo model ID for the Parakeet GPU container. `nvidia/parakeet-tdt-0.6b-v2` is English-only. |
+| `PARAKEET_GPU_DEVICE` | `cuda` | Torch device for the Parakeet GPU container. |
 | `PARAKEET_GPU_IMAGE` | `nvcr.io/nvidia/pytorch:26.06-py3` | Base for the Parakeet GPU Dockerfile. |
 | `PARAKEET_MAX_UPLOAD_BYTES` | `104857600` | Maximum upload size in bytes for the Parakeet GPU and localhost APIs. The body is capped before parsing (plus 1 MiB framing). Larger requests return `413`. An invalid value stops startup. |
-| `PARAKEET_UPLOAD_TIMEOUT_SECONDS` | `120` | Positive total seconds allowed to receive an upload body before `408` releases provider admission capacity. |
+| `PARAKEET_UPLOAD_TIMEOUT_SECONDS` | `120` | Total seconds (1-3600) allowed to receive an upload body before `408` releases provider admission capacity. |
 | `PARAKEET_CONCURRENCY` | `1` | Maximum concurrent inference calls per Parakeet provider process. |
 | `PARAKEET_API_TOKEN` | generated | Auto-generated bearer required by Atlas-managed Parakeet routes except `/health`. |
 | `PARAKEET_AUTH_MODE` | `required` | Set `disabled` only for an explicit emergency/local rollback. |
 | `PARAKEET_CORS_ORIGINS` | (empty) | Comma-separated browser origin allowlist; wildcard is invalid with required authentication. |
-| `PARAKEET_INFERENCE_TIMEOUT_SECONDS` | `900` | Model-load and inference deadline; timeout returns `504` and terminates the process for restart. |
+| `PARAKEET_INFERENCE_TIMEOUT_SECONDS` | `900` | Model-load and inference deadline in seconds (1-3600); timeout returns `504` and terminates the process for restart. |
 | `PARAKEET_LOCALHOST_BIND_HOST` | `127.0.0.1` | Native Parakeet listen address. |
 | `PARAKEET_LOCALHOST_PORT` | `63042` | Host port where a host-side Parakeet server listens. URL is derived as `http://host.docker.internal:63042`. |
 | `WHISPER_CPP_LOCALHOST_PORT` | `63042` | Host port where a host-side whisper.cpp server listens. It shares the Parakeet slot because the two modes are mutually exclusive. URL is derived as `http://host.docker.internal:63042`. |
 | `HUGGING_FACE_HUB_TOKEN` | (empty) | For gated models. |
 
-> **Important:** Speaches does not download models itself (verified against
-> `speaches @ v0.9.0-rc.3`). The compose default is `PRELOAD_MODELS: '[]'`, so
-> `/v1/audio/transcriptions` returns HTTP 404 ("Model is not installed locally").
-> Download the `whisper-1` target once:
-> `curl -X POST http://localhost:63060/v1/models/Systran/faster-whisper-large-v3`.
-> Or add it to the JSON array in `PRELOAD_MODELS` in `services/speaches/compose.yml`.
-> The model persists in the `speaches-cache` volume. Parakeet and whisper.cpp
-> load their model directly.
+Parakeet and whisper.cpp load their model at startup. Speaches needs the model
+download in §3.
 
 ## 5. OpenAI-compatible API
 
@@ -129,8 +137,7 @@ response_format=json      (optional: json, text, verbose_json)
 
 Parakeet and whisper.cpp ignore `model` and use the loaded checkpoint.
 Speaches resolves `model` and returns HTTP 404 if it is not downloaded (see
-§4). Send `whisper-1`: Speaches maps it to `Systran/faster-whisper-large-v3`,
-and the OpenAI client library uses it by default.
+§3). Send `whisper-1`: Speaches maps it to `Systran/faster-whisper-large-v3`.
 
 Both Atlas-managed Parakeet providers:
 
@@ -160,7 +167,7 @@ to `.env`. The Open WebUI compose file maps them to `AUDIO_STT_ENGINE`,
 When the microphone button works depends on the engine:
 
 - Parakeet and whisper.cpp: once the service is healthy.
-- Speaches: only after `Systran/faster-whisper-large-v3` (the `whisper-1` target) is downloaded (see §4).
+- Speaches: only after `Systran/faster-whisper-large-v3` (the `whisper-1` target) is downloaded (see §3).
 
 `OPEN_WEB_UI_STT_API_KEY` is the Parakeet provider token for a Parakeet source.
 It is `sk-unused` for other STT engines, and empty when STT is disabled. The
@@ -223,16 +230,15 @@ _No upstream calls._
 ### 9.6. Future — Unused features in this service
 
 - **Streaming / Realtime SSE+WebSocket** — *Why pursue:* Speaches ships SSE-streamed transcription and a WebSocket realtime API; we only expose the batch `/v1/audio/transcriptions`. Enables live captions in open-webui and live agent voice loops in Hermes. *Effort:* medium.
-- **Translation endpoint** — *Why pursue:* Speaches/Faster-Whisper support speech translation; we never expose `/v1/audio/translations`. Cheap multilingual UX gain. *Effort:* small.
+- **Translation endpoint** — *Why pursue:* Speaches serves `/v1/audio/translations`, but no Atlas consumer calls it. Cheap multilingual UX gain. *Effort:* small.
 - **Per-engine model hot-swap** — *Why pursue:* Speaches loads/unloads models on demand; we hard-pin one model per engine. Lets users A/B `distil-large-v3` vs `large-v3` without restarting. *Effort:* small.
 - **Word/segment timestamps in API responses** — *Why pursue:* Parakeet and Speaches both expose them; open-webui wiring requests plain `json` and discards them. Needed for click-to-seek UX and for Weaviate chunking by utterance. *Effort:* small.
-- **Diarization** — *Why pursue:* no in-stack engine does it; prerequisite for meeting-grade transcripts (covered by WhisperX candidate). *Effort:* medium.
-- **Sentiment / emotional-tone analysis** — *Why pursue:* upstream Speaches advertises this; feeds n8n/backend dashboards without a separate NLP service. *Effort:* small.
+- **Diarization** — *Why pursue:* Speaches 0.9.0-rc.3 serves `/v1/audio/diarization`, but Atlas preloads no diarization model and no consumer calls it. It is a prerequisite for meeting-grade transcripts (see also the WhisperX candidate). *Effort:* medium.
 
 ## 10. Troubleshooting
 
 **Speaches returns 404 "Model is not installed locally"** — download the model
-(see the note in §4). The healthcheck passes as soon as Uvicorn is up; it does
+(see §3). The healthcheck passes as soon as Uvicorn is up; it does
 not wait for a model.
 
 **Open WebUI mic button does nothing** — check the env vars:

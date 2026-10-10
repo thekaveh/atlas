@@ -58,7 +58,7 @@ Or use CLI override:
 
 **Step 3: Access the dashboard**
 
-Open `http://localhost:${OPENCLAW_GATEWAY_PORT}` (default 63076) or `http://openclaw.localhost:63000` (via Kong).
+Open `http://localhost:${OPENCLAW_GATEWAY_PORT}` (default 63076) or `http://openclaw.localhost:${KONG_HTTP_PORT}` (via Kong; default port 63000).
 
 **Step 4: Run onboarding** (from the repository root)
 ```bash
@@ -159,7 +159,7 @@ OpenClaw gets LLM access from the always-on LiteLLM gateway (variables in §4.2�
 The OpenClaw gateway includes a built-in web dashboard for administration:
 
 - **Direct access**: `http://localhost:${OPENCLAW_GATEWAY_PORT}` (default 63076)
-- **Via Kong**: `http://openclaw.localhost:63000`
+- **Via Kong**: `http://openclaw.localhost:${KONG_HTTP_PORT}` (default port 63000)
 
 The dashboard provides:
 - Chat interface for interacting with the agent
@@ -321,9 +321,9 @@ See §5.
 **Problem**: OpenClaw doesn't see any models
 
 **Solution**:
-1. Verify LiteLLM is healthy: `curl http://localhost:63040/health/liveliness`
+1. Verify LiteLLM is healthy: `curl http://localhost:63040/health/liveliness` (63040 is the default `LITELLM_PORT`)
 2. List the models LiteLLM serves: `curl -H "Authorization: Bearer $(grep '^LITELLM_MASTER_KEY=' .env | cut -d= -f2-)" http://localhost:63040/v1/models`
-3. Check the provider config (`baseUrl` must be `http://litellm:4000`): `docker exec ${PROJECT_NAME}-openclaw-gateway openclaw config get models.providers.litellm`. Check `models.providers.openai` only if you repurposed it (§7).
+3. Check the provider config (`baseUrl` must be `http://litellm:4000`; set `PROJECT_NAME` as in §7): `docker exec ${PROJECT_NAME}-openclaw-gateway openclaw config get models.providers.litellm`. Check `models.providers.openai` only if you repurposed it (§7).
 4. Confirm that `LITELLM_API_KEY` is set in the OpenClaw container environment
 5. For Ollama models, set `LLM_PROVIDER_SOURCE` to an `ollama-*` value (not `none`), so LiteLLM has an Ollama upstream
 

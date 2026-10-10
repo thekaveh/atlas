@@ -1,4 +1,4 @@
-# 7.7. Using atlas as a Git Submodule
+# 7.7. Using Atlas as a Git Submodule
 
 This guide covers Atlas as a git submodule of your project: submodule mechanics, the legacy `services/_user/` layout, environment files, integration patterns and troubleshooting.
 
@@ -21,7 +21,7 @@ This guide covers Atlas as a git submodule of your project: submodule mechanics,
 
 ## 2. Quick Start
 
-### 2.1. Add atlas as a Submodule
+### 2.1. Add Atlas as a Submodule
 
 In your project root, add Atlas as a submodule in `infra/` and pin it:
 
@@ -454,15 +454,18 @@ const jupyterUrl = "http://jupyter.localhost:63000";
 
 ### 6.3. Pattern 3: Direct Port Access
 
-Access services directly via their exposed ports:
+Access services directly via their published host ports. Read the host
+endpoints from `./infra/start.sh endpoints export --format env`. Do not use
+`LITELLM_BASE_URL` from `infra/.env` on the host: it is the in-network URL
+`http://litellm:4000`.
 
 ```python
 import os
 
-# Development configuration
-LITELLM_BASE_URL = os.getenv("LITELLM_BASE_URL", "http://localhost:63040")
-LITELLM_API_KEY = os.getenv("LITELLM_API_KEY")  # equals LITELLM_MASTER_KEY
-SUPABASE_URL = os.getenv("SUPABASE_URL", "http://localhost:63000")  # Kong gateway; clients add /rest/v1
+# Host-side endpoints from `endpoints export`; the defaults are for BASE_PORT=63000
+LITELLM_BASE_URL = os.getenv("ATLAS_LITELLM_HOST_ENDPOINT", "http://localhost:63040")
+LITELLM_API_KEY = os.getenv("LITELLM_MASTER_KEY")  # from infra/.env
+SUPABASE_URL = os.getenv("ATLAS_KONG_GATEWAY", "http://localhost:63000")  # Kong gateway; clients add /rest/v1
 # Redis always requires a password. Atlas's own REDIS_URL uses the in-network
 # host `redis`, so build the host URL from REDIS_PASSWORD and REDIS_PORT.
 REDIS_URL = f"redis://:{os.getenv('REDIS_PASSWORD')}@localhost:{os.getenv('REDIS_PORT', '63025')}/0"
@@ -730,7 +733,7 @@ For every service and value, see [Source Configuration](source-configuration.md)
 
 ## 10. Best Practices
 
-1. **Pin Submodule Versions**: Pin to a tested tag or reviewed `main` commit (§8.3).
+1. **Pin Submodule Versions**: Pin to a tested tag or reviewed `main` commit (§2.1, §8.3).
 
 2. **Document Your Configuration**: Add a README in the parent project that explains the infra setup.
 

@@ -35,7 +35,7 @@ Atlas rejects a manifest that breaks one of these rules:
 
 - A `litellm_models` alias must not shadow a stack-owned model (`hermes-agent`, `lightrag`, `fal-image`, `tei-rerank`) or any catalog model name.
 - n8n workflow ids are namespaced `atlas-consumer-<id>`. The id `plan` is reserved for the seed plan.
-- A storage bucket must not reuse a built-in name. Built-in names are `comfyui`, `backend`, `n8n`, `lakehouse`, `spark-history`, `raw-assets`, `asset-worker`, `asset-baker`, and every other default `MINIO_BUCKET_*` / `ASSET_*_MINIO_BUCKET` in `.env.example`.
+- A storage bucket must not reuse a built-in name. Built-in names include `comfyui`, `backend`, `n8n`, `jupyter`, `mlflow`, `lakehouse`, `spark-history`, `raw-assets`, `asset-worker` and `asset-baker`. Every default `MINIO_BUCKET_*` / `ASSET_*_MINIO_BUCKET` value in `.env.example` is also reserved.
 - A store's generated `MINIO_BUCKET_<KEY>`, `MINIO_<KEY>_ACCESS_KEY` and `MINIO_<KEY>_SECRET_KEY` names must not match a stack variable or another store's. For example, consumer `asset` with store `baker` would alias asset-baker's credentials.
 - A `managed_host_services` name must not match a stack host runtime or an exported service name ([§13](#13-managed_host_services)).
 
@@ -88,7 +88,7 @@ env:
     LLM_PROVIDER_SOURCE: auto   # host Ollama → ollama-localhost; NVIDIA → ollama-container-gpu; else ollama-container-cpu
 ```
 
-- **Durable keep.** `auto` keeps a concrete, valid, non-default value already in `.env`: a prior `auto` result or an explicit `--<svc>-source` override. An override to the service default cannot be told apart from a cold regeneration, so it resolves again. To pin the default, commit the concrete id instead of `auto`.
+- **Durable keep.** `auto` keeps a concrete, valid, non-default value already in `.env`, such as a prior `auto` result or an explicit `--<svc>-source` override. The active profile must offer that value; otherwise `auto` resolves again. An override to the service default cannot be told apart from a cold regeneration, so it resolves again. To pin the default, commit the concrete id instead of `auto`.
 - **Platform-adaptive.** Resolution follows the service manifest's ordered `sources.auto_prefer` list, matched against a host probe (`apple_silicon`, `nvidia_gpu`, `host_ollama`). Only options offered under the active `--profile` count. A service without `auto_prefer` falls back to its default with a warning.
 - **Cold-regen safe.** A regenerated `.env` resolves again for this host. One committed manifest is right on a Metal Mac, an NVIDIA box and Linux CI.
 - `doctor`'s `auto-sources` check reports each result and the capability that matched.
@@ -120,7 +120,7 @@ profile_overrides:
 ```
 
 - With no `--profile` flag, `./start.sh` uses the manifest's `profile:`. `--profile prod` turns on Prometheus and Grafana and sets log rotation.
-- A CLI flag in this run, or a non-empty `*_SOURCE` in the manifest's `env`, beats a profile source.
+- A CLI flag in this run beats a profile source. So does a non-empty `*_SOURCE` in the manifest's `env`, `.env.user` or `ATLAS_ENV_USER_FILE`.
 - A profile's `env` cannot set a `*_SOURCE` key; use `sources`.
 - `doctor`'s `profile` check shows the active bundle and where each value comes from.
 
@@ -238,7 +238,7 @@ env:
 - **Inventory.** `GET /plugins` lists each mounted plugin. It shows name, route prefix, health and docs paths, auth mode, timeouts, buffering flags (`kong_route`) and declared env. It also shows load status (`loaded` / `skipped` / `error`). Secret values show as `***`; variable names and flags are visible. `/plugins` needs a Backend service token (for example `BACKEND_INTERNAL_API_TOKEN`), whatever `BACKEND_KONG_AUTH` is.
 - **Validation.** The seam validates declared env at boot, and `./start.sh doctor` checks it again before launch. Both report missing required variables and enum or type mismatches by plugin and variable name. Secret values are never printed.
 - **Malformed manifest.** A malformed `plugin.yml` does not fall back to manifest-less loading. That plugin is not loaded (status `error`, with the validation message). The other plugins stay healthy.
-- **Conflicts.** Atlas rejects duplicate plugin names, overlapping prefixes, and prefixes that shadow a reserved built-in route name, before mounting. The schema lists the reserved names. A manifest-less plugin cannot mount a path under another plugin's prefix, and a manifest cannot declare a prefix over such a path. A path parameter such as `/up/{name}` counts from its literal start.
+- **Conflicts.** Atlas rejects duplicate plugin names, overlapping prefixes, and prefixes that shadow a reserved built-in route name, before mounting. It skips a plugin whose router has a path outside its declared `route_prefix`. The schema lists the reserved names. A manifest-less plugin cannot mount a path under another plugin's prefix, and a manifest cannot declare a prefix over such a path. A path parameter such as `/up/{name}` counts from its literal start.
 - **Route types.** Unless `auth` is `open`, a plugin router may hold only FastAPI routes (`@router.get`, `@router.websocket`, …). Atlas refuses a Starlette `router.add_route` or `add_websocket_route` handler, because the auth dependency cannot apply to it.
 - **Auth.** `auth: key-auth` puts Kong key-auth on the plugin's `route_prefix`, and FastAPI checks the same `BACKEND_KONG_API_KEY`, so the direct port cannot bypass it. `auth: open` is an explicit public opt-out. `auth: inherit`, and plugins without a manifest, use the Backend identity boundary. Distinct per-prefix credentials are not supported yet.
 - **Path safety.** Atlas rejects a `route_prefix` or `health_path` with a `.` or `..` segment or a trailing newline. Kong normalizes paths on load, so `/x/../api` would become an open `/api`.
@@ -255,7 +255,7 @@ curl -H "apikey: ${BACKEND_KONG_API_KEY}" \
 
 Browser WebSocket APIs cannot set headers, so those clients may send `apikey` as a query parameter in the handshake. URL-encode the value. Atlas redacts that value from Uvicorn HTTP and WebSocket logs, and Kong's access log omits query strings. Do not record full WebSocket URLs in your own client logs or telemetry.
 
-`plugin_manifest_version` is a fixed contract version. A manifest with a version this backend does not understand is skipped, not misread. The canonical schema is `bootstrapper/schemas/plugin.schema.json`.
+`plugin_manifest_version` is a fixed contract version, currently `1`. A manifest with another version is not loaded (status `error`), not misread. The canonical schema is `bootstrapper/schemas/plugin.schema.json`.
 
 ---
 
@@ -315,7 +315,7 @@ n8n_workflows:
         - path: /webhook/adaptive-rag
           method: GET
           expect_status: 200
-          probe: true                         # GET/HEAD probes are safe; POST needs explicit probe: true
+          probe: true                         # call this webhook after import; default false
 ```
 
 On `./start.sh`, the bootstrapper normalizes each workflow JSON. It sets the activation policy and strips the runtime-state fields `staticData` and `pinData`. It writes the gitignored `volumes/n8n/consumer-workflows/` and a `plan.json`, and adds an overlay that runs an Atlas-owned `n8n-seed` container. After n8n is healthy, the seed imports each workflow with `n8n import:workflow`.
@@ -324,7 +324,8 @@ On `./start.sh`, the bootstrapper normalizes each workflow JSON. It sets the act
 - **Removal.** A removed manifest or workflow drops only its own generated JSON on the next start. With `N8N_API_KEY` set, the seed also deactivates and deletes an undeclared `atlas-consumer-*` workflow, so no live webhook is orphaned. After the last workflow is removed, every start runs the seed with an empty plan. This continues until you declare a workflow again or delete `volumes/n8n/consumer-workflows/`.
 - **Credentials** may only be referenced by an `{id, name}` mapping. A raw secret or a credential payload with extra keys is rejected. Generated files and seed logs never hold workflow content.
 - **Validation.** Malformed JSON, an invalid `active` or `version`, a checksum mismatch and duplicate webhook routes are rejected at load.
-- **Probes.** Declared webhooks are probed after import, with `GET`/`HEAD` by default. A `POST` probe needs `probe: true`, because it can trigger side effects. `./start.sh doctor` warns when an active workflow declares webhooks and `N8N_API_KEY` is not set.
+- **Probes.** After import, the seed calls only the webhooks that set `probe: true`. It logs a warning when the status is not `expect_status` (default `200`). Other webhooks are used only to detect duplicate routes. Set `probe: true` on a `POST` webhook only when a call is safe, because it can trigger side effects.
+- **API key warning.** `./start.sh doctor` warns when an active workflow declares webhooks and `N8N_API_KEY` is not set.
 - **Seed bounds.** Each seed HTTP request times out after `N8N_SEED_HTTP_TIMEOUT_MS` (default `10000`). Each n8n CLI command times out after `N8N_SEED_COMMAND_TIMEOUT_MS` (default `120000`). The seed drops an HTTP response larger than `N8N_SEED_MAX_RESPONSE_BYTES` (default `1048576`).
 - **No API key.** n8n Community Edition cannot activate a workflow over its API without a key. Atlas then restarts the n8n container once after seeding, to register the webhook. A failed import or activation is logged per workflow, and the seed container always exits 0.
 
@@ -430,7 +431,7 @@ On `./start.sh`, the bootstrapper validates and normalizes each profile and hash
 
 - **Mode and bounds.** `mode` is required (`local | global | hybrid | mix | naive`). `top_k` and `chunk_top_k` are optional positive integers up to 10,000; `max_total_tokens` goes up to 2,000,000. Precedence is request, then profile, then the `LIGHTRAG_QUERY_*` env default.
 - **Model references.** `query_llm_model` and `embedding_model` are model handles (a LiteLLM alias or `provider/model`), never secrets.
-- **Rerank.** `enable_rerank: true` is rejected unless `LIGHTRAG_RERANK_ADAPTER_ENABLED=true` and `TEI_RERANKER_SOURCE` is enabled. Why LightRAG needs the backend adapter: [Backend API §5.1](../../services/backend/README.md).
+- **Rerank.** `enable_rerank: true` is rejected at load unless `LIGHTRAG_RERANK_ADAPTER_ENABLED=true`, in `.env` or in a manifest's `env`. Reranking also needs `LIGHTRAG_SOURCE` and `TEI_RERANKER_SOURCE` enabled; `doctor`'s `lightrag-rerank-adapter` check warns when one is disabled. Why LightRAG needs the backend adapter: [Backend API §5.1](../../services/backend/README.md).
 - **Ownership.** Profile names are globally unique, and a removed manifest drops only its own profiles. With no profiles, LightRAG keeps its single default. The registry holds only settings and model names, never credentials.
 - **`litellm_alias`** also emits a consumer-owned [`litellm_models`](#9-litellm_models) row, so the flavor is a selectable model. Atlas does not serve that row yet. It points at `http://backend:8000/chat/completions`, which no stack route answers, so the alias returns 404 until a consumer plugin serves that path (#1453).
 

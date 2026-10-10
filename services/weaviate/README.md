@@ -1,19 +1,20 @@
 # 5.2.60. Weaviate
 
-**Port:** 63030 / 63031
+**Port:** `WEAVIATE_PORT` (REST, default 63030) / `WEAVIATE_GRPC_PORT` (gRPC, default 63031)
 **SOURCE variable:** `WEAVIATE_SOURCE`
 **SOURCE options:** container, localhost, disabled
 
 ## 1. Overview
 
-Vector database used for semantic search, RAG, embeddings, n8n workflows, Backend features, and notebooks.
+Vector database used for semantic search, RAG, embeddings, n8n workflows, Backend features, and notebooks. It is enabled by default (`WEAVIATE_SOURCE=container`), together with the `multi2vec-clip` image vectorizer.
 
 ## 2. Access
 
 | Path | URL | Notes |
 |---|---|---|
-| Direct | http://localhost:63030 (REST) / 63031 (gRPC) | Works when the service is enabled in container mode and the port is exposed. |
-| Kong | http://weaviate.localhost:63000 | Requires `./start.sh --setup-hosts`; only available for services with Kong routes. |
+| Direct | `http://localhost:${WEAVIATE_PORT}` (REST) / `localhost:${WEAVIATE_GRPC_PORT}` (gRPC) | Container mode only. |
+| Kong | `http://weaviate.localhost:${KONG_HTTP_PORT}` | Requires `./start.sh --setup-hosts`. |
+| Internal | `http://weaviate:8080` (REST) / `weaviate:50051` (gRPC) | Backend network; consumers read `WEAVIATE_URL`. |
 
 Anonymous access is on, so only the Kong origin may call Weaviate from a browser: `CORS_ALLOW_ORIGIN=http://weaviate.localhost:${KONG_HTTP_PORT}`. Server-side clients are unaffected.
 
@@ -55,6 +56,12 @@ CLIP_INFERENCE_API=
 ```
 
 SigLIP 2 is opt-in. The default ViT-B/32 image emits 512-d vectors; `MULTI2VEC_CLIP_SIGLIP2_IMAGE` emits 1152-d vectors. Do not change `MULTI2VEC_CLIP_IMAGE` for existing collections until you recreate or revectorize them. Keep `CLIP_INFERENCE_API=http://multi2vec-clip:8080`. The SigLIP 2 image is much larger than the default. `MULTI2VEC_CLIP_SOURCE=container-gpu` currently requests no GPU device (open issue #1373), so it runs on CPU.
+
+### 3.3. Persistence, backup and restore
+
+In container mode, collections persist in the `${PROJECT_NAME}-weaviate-data` volume. Native snapshots from the `backup-filesystem` module go to the `${PROJECT_NAME}-weaviate-backups` volume at `/var/lib/weaviate/backups`. `./stop.sh --cold` removes both volumes.
+
+The backup service owns backup and restore. `services/backup/run-consistent-backup.sh` takes a native snapshot while Weaviate stays online. `services/backup/run-database-restore.sh` restores Neo4j and Weaviate together into fresh volumes, validates them, then replaces the live data. It requires `BACKUP_RESTORE_MAINTENANCE_MODE=confirmed` and stopped writers. The [backup README](../backup/README.md) has the full procedure. In `localhost` mode, use the host installation's own backup tools.
 
 ## 4. Integration notes
 
@@ -112,13 +119,20 @@ _No high-confidence opportunities identified._
 
 ## 6. Troubleshooting
 
-```bash
-# Check service status
-docker compose ps
+Run the `docker compose` commands from the repository root. Add `-p "$PROJECT_NAME"` if the checkout directory name differs from `PROJECT_NAME`.
 
-# Check logs; replace SERVICE with the compose service name when needed
-docker compose logs -f SERVICE
+```bash
+# Check the three containers: weaviate-init must exit 0 before weaviate starts
+docker compose ps -a weaviate-init weaviate multi2vec-clip
+docker compose logs weaviate-init weaviate
+
+# Readiness from the host (container mode)
+curl -fsS http://localhost:${WEAVIATE_PORT}/v1/.well-known/ready
 ```
+
+- **Vectorization calls api.openai.com or fails with an OpenAI auth error** — the collection has no `moduleConfig.text2vec-openai.baseURL`. Recreate it with the LiteLLM base URL (§3.1).
+- **n8n is missing after you disable Weaviate** — expected; `WEAVIATE_SOURCE=disabled` also disables n8n and n8n-worker (§4).
+- **`multi2vec-clip` vectors have the wrong dimension** — the CLIP image changed under an existing collection. Recreate or revectorize the collection (§3.2).
 
 For general startup and routing issues, see [Troubleshooting](../../docs/quick-start/troubleshooting.md).
 

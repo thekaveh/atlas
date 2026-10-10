@@ -123,11 +123,11 @@ _No high-confidence opportunities identified._
 
 **`container-gpu` leaves Weaviate not-ready.** `container-gpu` sets `ENABLE_CUDA=1`, but the compose fragment requests no GPU (no `runtime: nvidia`, no device reservation). The CLIP container exits at startup (`Torch not compiled with CUDA enabled` or no visible CUDA device). Weaviate, with `multi2vec-clip` enabled, then waits for it forever. Use `container-cpu` or `disabled`. GPU wiring is tracked in [#1373](https://github.com/thekaveh/atlas/issues/1373).
 
-**Container OOMs on CPU.** ViT-B-32 needs about 1.5 GB RSS at idle, and more under load. A 2 GB Docker memory limit can kill it. Raise the Docker memory budget. `container-gpu` is not usable until GPU device requests are wired.
+**Container OOMs on CPU.** Memory use grows under load and with large batches. Raise the Docker memory budget, or send smaller batches. `container-gpu` is not usable until GPU device requests are wired.
 
 **Weaviate ingest fails with `connection refused to multi2vec-clip:8080`.** `MULTI2VEC_CLIP_SOURCE` is `disabled`, or the container is down. CLIP has no host port, so query `/meta` from a sibling container (commands below). The Weaviate image has `wget` but no `curl`.
 
-**Embeddings look random / clustering broken.** Confirm `/meta` returns the expected model name. A stale image cache after a model change can pin you to the old checkpoint. `docker compose pull multi2vec-clip && docker compose up -d --force-recreate multi2vec-clip`.
+**Embeddings look random / clustering broken.** Confirm that `/meta` returns the configuration of the expected model. A stale image cache after a model change can pin you to the old checkpoint. `docker compose pull multi2vec-clip && docker compose up -d --force-recreate multi2vec-clip`.
 
 **Module not available in Weaviate.** `WEAVIATE_ENABLE_MODULES` must list `multi2vec-clip`. Check `docker exec <project>-weaviate env | grep ENABLE_MODULES`.
 
@@ -144,8 +144,8 @@ For general startup and routing issues, see [Troubleshooting](../../docs/quick-s
 **Smoke-test from a sibling container.**
 
 ```bash
-docker exec <project>-backend curl -s http://multi2vec-clip:8080/meta | jq .
-# → {"model": "sentence-transformers/clip-ViT-B-32", "imageFields": [], "textFields": []}
+docker exec <project>-backend curl -s http://multi2vec-clip:8080/meta | jq 'keys'
+# → ["clip_model", "text_model"]  (the Hugging Face configs of the loaded model)
 ```
 
 **Embed a text + image batch.**

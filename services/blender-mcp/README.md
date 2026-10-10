@@ -5,7 +5,7 @@
 Blender MCP is a disabled-by-default host integration for MCP-assisted 3D scene work. It never runs as a container. There are two host sources:
 
 - `localhost`: you run the Blender GUI, install the add-on and click Connect. Atlas only records the endpoint.
-- **`managed-localhost`**: Atlas installs the pinned add-on and runs **headless** `blender --background` as a managed host process. The lifecycle (preflight, install, start, status, stop) is the same as for ComfyUI MPS.
+- **`managed-localhost`**: Atlas installs the pinned add-on and runs **headless** `blender --background` as a managed host process. Its lifecycle commands follow the same pattern as ComfyUI MPS.
 
 This integration is intentionally conservative. Current Blender MCP workflows depend on a local Blender add-on, an MCP client/server process, and a socket opened by Blender. They can execute generated Python code inside Blender, so Atlas keeps the bridge disabled by default and does not publish it through Kong.
 
@@ -26,7 +26,7 @@ Select a Blender MCP host source with:
 ./start.sh --blender-mcp-source managed-localhost   # Atlas-managed headless
 ```
 
-The profile is hidden/rejected under `--profile prod`.
+Both host sources are development-only: `--profile prod` hides and rejects them.
 
 ## 3. Configuration
 
@@ -35,7 +35,7 @@ The profile is hidden/rejected under `--profile prod`.
 | `BLENDER_MCP_SOURCE` | `disabled` | Enables the host-only Blender MCP profile when set to `localhost` (user-run GUI) or `managed-localhost` (Atlas-managed headless). |
 | `BLENDER_MCP_HOST` | `localhost` | Hostname written into the `BLENDER_MCP_ENDPOINT` hint for MCP clients. It does not change where the socket binds. |
 | `BLENDER_MCP_LOCALHOST_PORT` | `9876` | Host-tool socket port. This is not allocated from Atlas topology because Atlas does not own the Blender process. |
-| `BLENDER_MCP_ENDPOINT` | generated | Runtime endpoint hint for MCP-client integrations (`tcp://…`). Empty when disabled. For both host sources Atlas also exports `ATLAS_BLENDER_MCP_HOST_ENDPOINT=tcp://localhost:<BLENDER_MCP_LOCALHOST_PORT>`; that value always uses `localhost`. |
+| `BLENDER_MCP_ENDPOINT` | generated | Runtime endpoint hint for MCP-client integrations (`tcp://…`). Empty when disabled. For both host sources, `./start.sh endpoints export` also emits `ATLAS_BLENDER_MCP_HOST_ENDPOINT=tcp://localhost:<BLENDER_MCP_LOCALHOST_PORT>`; that value always uses `localhost`. |
 | `BLENDER_MCP_STATE_DIR` | `~/.atlas/blender-mcp` | Managed-source state: pinned add-on, generated headless launcher, pid/log. |
 | `BLENDER_MCP_INSTANCES` | `1` | Managed pool size, 1 to 16 (consumer manifest `blender_mcp.instances`). See the pool note below this table. |
 | `BLENDER_MCP_BIND` | `127.0.0.1` | Managed bridge bind. Loopback-only by default — `execute_code` runs arbitrary Python inside Blender; any other value is refused unless `BLENDER_MCP_ALLOW_REMOTE=true` (a deliberate double opt-in). Loopback does **not** keep stack containers out on Docker Desktop: they reach host loopback through `host.docker.internal`. The bridge has no authentication. While it runs, any container that runs user code (JupyterHub, n8n Code nodes, Open WebUI tools) can execute Python on the host. |
@@ -46,7 +46,7 @@ The profile is hidden/rejected under `--profile prod`.
 
 **Managed pool (`BLENDER_MCP_INSTANCES`).** Instance `i` uses port `BLENDER_MCP_LOCALHOST_PORT + i` and directory `<state dir>/instances/i`; instance 0 uses the state dir itself. All instances reuse instance 0's sha-verified add-on and share one launch lock. A warm start preflights every instance; a busy port or a port above 65535 stops the launch.
 
-`status`/`health` report each instance; `stop`/`remove` act on all. The export adds `ATLAS_BLENDER_MCP_HOST_ENDPOINTS`. A port or bind change restarts the whole pool. Extra instances stop at the next start. `doctor` warns about a stray instance, a pool pid file it cannot verify, and an invalid value.
+`status`/`health` report each instance; `stop`/`remove` act on all. With more than one instance, `./start.sh endpoints export` adds `ATLAS_BLENDER_MCP_HOST_ENDPOINTS`. A port or bind change restarts the whole pool. Instances above the pool size stop at the next start. `./start.sh doctor` warns about an invalid `BLENDER_MCP_INSTANCES` and an instance running above the pool size. It also warns about a pool pid file whose process is gone or unverifiable.
 
 ## 4. Architecture & Wiring
 
@@ -123,12 +123,12 @@ Use this as a postprocess step for exported Blender assets, ComfyUI-assisted 3D 
 ## 8. Troubleshooting
 
 - If the Blender MCP prompt is missing, confirm you selected the `gen-ai-creative` or `all` track, or pass `--blender-mcp-source localhost` explicitly.
-- If `--profile prod` rejects the source, that is expected: Blender MCP localhost mode is development-only.
+- If `--profile prod` rejects the source, that is expected: both Blender MCP host sources are development-only.
 - If a client cannot connect, confirm the Blender add-on is installed, enabled, and listening on `${BLENDER_MCP_HOST}:${BLENDER_MCP_LOCALHOST_PORT}`.
 - If `uvx` is not found by a GUI MCP client, configure the absolute path to `uvx` or the installed Blender MCP command in that client.
 - If `scripts/gltf-transform-postprocess.sh` fails before optimization, inspect the validation output first; invalid GLB input should be fixed at the source.
 - If the managed source warns that its pid file "has no start_utc identity stamp", an older Atlas version wrote it. Atlas does not signal a process it cannot prove it launched. It leaves that Blender running and starts the rest of the stack. Confirm the pid is that Blender. Then run the `kill -TERM <pid>` and `rm -f <pid file>` commands from the warning, and re-run `./start.sh`.
-- If `doctor` warns that the pid file names a pid that "now belongs to a different, younger process", the OS recycled the pid. The record is stale; the next start replaces it and never signals that process.
+- If `./start.sh doctor` warns that the pid file names a pid that "now belongs to a different, younger process", the OS recycled the pid. The record is stale; the next start replaces it and never signals that process.
 
 ## 9. Capabilities & limitations
 

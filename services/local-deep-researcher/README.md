@@ -134,9 +134,9 @@ To upgrade:
 
 **Runs hang at `summarize_sources`.** LiteLLM is unreachable or the model is overloaded. Run `docker logs <project>-litellm -f` and confirm that LiteLLM serves `LITELLM_DEFAULT_MODEL`.
 
-**State lost on restart.** Expected — see the in-memory checkpointer note above. The fix is the Redis-checkpointer integration listed under Future.
+**State lost on restart.** Expected: the dev server uses an in-memory checkpointer (§4).
 
-**Kong route 404 for `research.localhost`.** Kong has the route when `LOCAL_DEEP_RESEARCHER_SOURCE=container`. A 404 usually means the `*.localhost` hosts entries are missing (`./start.sh --setup-hosts`) or the service is disabled.
+**Kong route 404 for `research.localhost`.** Kong has the route only when `LOCAL_DEEP_RESEARCHER_SOURCE=container`. A Kong 404 ("no Route matched") means the service is disabled; set the source and rerun `./start.sh`. If the host name does not resolve at all, run `./start.sh --setup-hosts`.
 
 ```bash
 docker compose ps local-deep-researcher
@@ -177,9 +177,9 @@ Returns `running_summary`, `sources_gathered`, `loop_count`, current node — us
 
 ## 8. Performance notes
 
-- **Cost per run.** About 2 LLM calls per loop plus 1 (about 7 for the default 3 loops), and one SearXNG call per loop. Local Ollama is free and slow (~30-90 s per loop); cloud APIs through LiteLLM are fast and metered.
+- **Cost per run.** About 2 LLM calls per loop plus 1 (about 7 for the default 3 loops), and one SearXNG call per loop. Loop time depends on the model and hardware. Local Ollama models have no per-call cost; cloud models through LiteLLM are metered.
 - **No streaming to clients.** The backend's `research_client.py` reads the `/runs/stream` SSE channel synchronously and does not forward events.
-- **Thread state size.** A 3-loop run produces ~30-60 KB of state (summary + sources). The in-memory checkpointer keeps threads in process without a bound; a restart clears it.
+- **Thread state.** Each run keeps its summary and sources in the in-memory checkpointer. Threads stay in process without a bound until a restart clears them.
 
 ## 9. Capabilities & limitations
 

@@ -1,10 +1,10 @@
 # 5.2.18. Grafana (observability UI + alerting)
 
-Grafana runs as a single container in the stack's `infra` band. It pre-provisions a Prometheus datasource pointing at the in-cluster Prometheus, plus 7 starter dashboards under the **Atlas** folder. Persistence uses SQLite on a named volume — single-replica only.
-
 ## 1. Overview
 
-Image: `grafana/grafana:11.4.3` (AGPL — operational-use safe). The bootstrapper auto-generates `GRAFANA_ADMIN_PASSWORD` on first run via `generate_grafana_admin_password()` (mirrors LiteLLM's master-key pattern). Anonymous access is **off**; admin login is required.
+Grafana runs as a single container in the stack's `infra` band and is disabled by default. It provisions Prometheus, Tempo and Loki datasources, plus 7 starter dashboards under the **Atlas** folder. Persistence uses SQLite on a named volume, so it supports one replica only.
+
+Image: `grafana/grafana:11.4.3` (AGPL — operational-use safe). `./start.sh` generates `GRAFANA_ADMIN_PASSWORD` on first run. Anonymous access and self sign-up are **off**; admin login is required.
 
 Unified alerting is enabled, but no alert rules or contact points are provisioned. Add your own under `provisioning/alerting/`. Its `placeholder.yml` is a no-op that stops Grafana warning about a non-YAML file; replace it.
 
@@ -41,7 +41,7 @@ GRAFANA_ENDPOINT=...                    # not consumed externally; written for s
 GRAFANA_SCALE
 ```
 
-The provisioned datasource reads `${PROMETHEUS_ENDPOINT}`. When Prometheus is `disabled` the value in `.env` is empty, but `compose.yml` passes `${PROMETHEUS_ENDPOINT:-http://prometheus:9090}`, and `:-` also replaces an empty value. The datasource therefore still points at `http://prometheus:9090`, which does not resolve, and Grafana shows "datasource unreachable" until Prometheus is turned on.
+The provisioned datasource reads `${PROMETHEUS_ENDPOINT}`. When Prometheus is `disabled` the value in `.env` is empty, but `compose.yml` passes `${PROMETHEUS_ENDPOINT:-http://prometheus:9090}`, and `:-` also replaces an empty value. The datasource therefore still points at `http://prometheus:9090`, which does not resolve, and Grafana shows "datasource unreachable" until Prometheus is turned on. The Tempo and Loki datasources behave the same way: they fall back to `http://tempo:3200` and `http://loki:3100` and fail until `TEMPO_SOURCE` and `LOKI_SOURCE` are `container`.
 
 ## 4. Dashboards (7 shipped)
 

@@ -1,75 +1,79 @@
 # 5.3.6. TTS Localhost Provider
 
-Run [Resemble AI Chatterbox](https://github.com/resemble-ai/chatterbox) natively
-on your host machine and have the stack reach it via `host.docker.internal`.
+Run [Resemble AI Chatterbox](https://github.com/resemble-ai/chatterbox) on the
+host with the [chatterbox-tts-api](https://github.com/travisvn/chatterbox-tts-api)
+server. Atlas containers reach it through `host.docker.internal`. Select it
+with `TTS_PROVIDER_SOURCE=chatterbox-localhost`.
 
-This is the recommended TTS path for **zero-shot voice cloning** (5-second
-reference audio) without a GPU container. Chatterbox runs on macOS MPS (Apple
-Silicon) and Linux CPU/MPS/CUDA.
+Use this source for zero-shot voice cloning without an NVIDIA container.
+The server runs on macOS (MPS) and on Linux (CPU or CUDA).
 
-## 1. Why localhost instead of container
+## 1. When to use it
 
-- **macOS users**: Chatterbox uses MPS for acceleration; that doesn't work
-  through Docker Desktop. Running natively is ~10× faster.
-- **Limited GPU**: the container variant (`chatterbox-container-gpu`) needs
-  ≥8 GB VRAM. The localhost variant can fall back to CPU if MPS / CUDA isn't
-  available (slow but functional).
-- **Voice management**: keeping voice samples on the host makes them easier
-  to manage than mounting volumes into the container.
+- **macOS:** Docker Desktop containers cannot use MPS. A host install can.
+- **No large GPU:** the `chatterbox-container-gpu` source needs an NVIDIA GPU
+  with at least 8 GB of VRAM. The host server can run on the CPU, but slowly.
+- **Voice samples on the host:** the voice library is a host directory, not a
+  container volume.
 
-For a TTS service that works on any platform with no setup, use
-`TTS_PROVIDER_SOURCE=speaches-container-cpu` instead. Speaches gives you
-Kokoro voices with no localhost setup, but no voice cloning.
+For TTS with no host setup, use `TTS_PROVIDER_SOURCE=speaches-container-cpu`.
+Speaches provides Kokoro voices but no voice cloning.
+
+Atlas publishes no speed figures for Chatterbox. Benchmark representative
+text on the deployment host.
 
 ## 2. Install
 
-Chatterbox-tts-api is NOT published to PyPI — install by cloning the repo.
-Python 3.10+ required.
+The `chatterbox-tts-api` 1.0.0 package on PyPI contains no code, so install
+from the repository. Its `pyproject.toml` requires Python 3.11.
 
 ```bash
 git clone https://github.com/travisvn/chatterbox-tts-api
 cd chatterbox-tts-api
 
-# Recommended (uv handles venv automatically):
+# With uv (creates the virtual environment):
 uv sync
 
-# Or with stock pip:
-python -m venv .venv && source .venv/bin/activate
+# Or with pip:
+python3.11 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-The transitive `chatterbox-tts` dependency (Resemble AI's model library) is
-installed from a git source — first install can take a few minutes. Models
-download from HuggingFace on first /v1/audio/speech request (~2 GB total).
+The `chatterbox-tts` model library installs from a git source, so the first
+install can take a few minutes.
 
 ## 3. Run the server
 
-The repo's `main.py` is the entry point. Default port is `4123`; override
-with the `PORT` env var.
+`main.py` is the entry point. It listens on `PORT` (default `4123`) and `HOST`
+(default `0.0.0.0`).
 
 ```bash
-# Bind on the port the atlas containers reach you on (63044
-# matches the CHATTERBOX_LOCALHOST_PORT default — independent of the
-# container CHATTERBOX_PORT, which is 63059).
+# 63044 is the CHATTERBOX_LOCALHOST_PORT default. It is independent of the
+# container CHATTERBOX_PORT, which is 63059.
 PORT=63044 uv run main.py
-# or, after `source .venv/bin/activate`:
+# or, in an activated virtual environment:
 PORT=63044 python main.py
-# or directly via uvicorn:
-uvicorn app.main:app --host 0.0.0.0 --port 63044
 ```
 
-Apple Silicon users get MPS automatically via Chatterbox's
-`DEVICE=auto`. Set `DEVICE=mps` explicitly if auto-detection fails, or
-`DEVICE=cpu` to force CPU.
+The server starts, then loads the model in the background. The first start
+downloads the weights from Hugging Face (about 2 GB). `GET /health` responds
+during the load and reports the initialization state.
 
-Then in another terminal point the stack at it:
+The server has no authentication. With the default `HOST=0.0.0.0`, it is
+reachable from the local network as well as from Docker. Use the host firewall
+when the network is not trusted.
+
+The device setting `DEVICE=auto` selects MPS on Apple Silicon. Set
+`DEVICE=mps` if detection fails, or `DEVICE=cpu` to force the CPU.
+
+In another terminal, from the Atlas repository root, select the source:
 
 ```bash
 ./start.sh --tts-provider-source chatterbox-localhost
 ```
 
-Optional: change the host port in `.env` if you used a different one (URL
-is derived inline as `http://host.docker.internal:${CHATTERBOX_LOCALHOST_PORT:-63044}`):
+If the server uses another port, set it in `.env`. Atlas derives the URL
+`http://host.docker.internal:${CHATTERBOX_LOCALHOST_PORT:-63044}`:
 
 ```bash
 CHATTERBOX_LOCALHOST_PORT=9000
@@ -78,8 +82,8 @@ CHATTERBOX_LOCALHOST_PORT=9000
 ## 4. Verify
 
 ```bash
-curl http://localhost:63044/health         # expect {"status":"healthy"}
-curl http://localhost:63044/v1/models      # expect chatterbox-tts-1 in list
+curl http://localhost:63044/health         # expect "status": "healthy" once loaded
+curl http://localhost:63044/v1/models      # expect chatterbox-tts-1 in the list
 curl -X POST http://localhost:63044/v1/audio/speech \
   -H 'Content-Type: application/json' \
   -d '{"model":"chatterbox-tts-1","input":"hello world","voice":"alloy"}' \
@@ -89,78 +93,58 @@ file /tmp/test.wav   # expect: RIFF (little-endian) data, WAVE audio
 
 ## 5. Voice cloning
 
-Chatterbox supports two voice-cloning paths — neither uses a
-`reference_audio` JSON field (that was XTTS's convention).
+Chatterbox has two voice-cloning paths. Neither uses a `reference_audio`
+JSON field.
 
-**1) Pre-upload a voice into the server's voice library**, then reference
-it by name:
+**1) Add a voice to the server's voice library**, then use its name:
 
 ```bash
-# Upload once (multipart). Replace ALICE.wav with any 3–30 sec clean clip.
+# Upload once (multipart). Use a short, clean speech clip.
 curl -X POST http://localhost:63044/voices \
-  -F "name=alice" \
-  -F "file=@ALICE.wav"
+  -F "voice_name=alice" \
+  -F "voice_file=@ALICE.wav"
 
-# Then call /v1/audio/speech with the registered name:
+# Use the registered name as the voice:
 curl -X POST http://localhost:63044/v1/audio/speech \
   -H 'Content-Type: application/json' \
   -d '{"model":"chatterbox-tts-1","input":"Synthesize in this voice.","voice":"alice"}' \
   --output cloned.wav
 ```
 
-**2) Inline upload via multipart form** in the speech call itself:
+**2) Upload the reference clip with the request** to the `/upload` route:
 
 ```bash
-curl -X POST http://localhost:63044/v1/audio/speech \
+curl -X POST http://localhost:63044/v1/audio/speech/upload \
   -F "input=Synthesize in this voice." \
-  -F "model=chatterbox-tts-1" \
   -F "voice_file=@ALICE.wav" \
   --output cloned.wav
 ```
 
-See [voice library management](https://github.com/travisvn/chatterbox-tts-api/blob/main/docs/VOICE_LIBRARY_MANAGEMENT.md)
-upstream for the full voice-CRUD surface.
+The upstream [voice library guide](https://github.com/travisvn/chatterbox-tts-api/blob/main/docs/VOICE_LIBRARY_MANAGEMENT.md)
+covers the other voice operations.
 
-Chatterbox is licensed MIT, so the resulting audio is yours to use commercially.
+The Chatterbox model is MIT-licensed. The chatterbox-tts-api server is
+AGPL-3.0.
 
-## 6. Performance reference
+## 6. Troubleshooting
 
-| Hardware | Approx. realtime factor (lower is faster) |
-|---|---|
-| M2 Pro, MPS | 0.4–0.6× (faster than realtime) |
-| M2 Pro, CPU only | 4–6× |
-| NVIDIA RTX 4090 | 0.1× |
+**MPS not detected on macOS:** the server log reports the CPU device. Set
+`DEVICE=mps`. If that fails, reinstall PyTorch with MPS support, for example
+`pip install --upgrade --force-reinstall torch torchaudio`.
 
-## 7. Troubleshooting
-
-**MPS not detected on macOS** — `chatterbox-tts` will print `Using CPU`.
-Reinstall PyTorch with MPS support: `pip install --upgrade --force-reinstall torch torchaudio`.
-
-**Port already in use** — pick a different port:
+**Port already in use:** start on another port, then set it in `.env`:
 
 ```bash
-chatterbox-tts-api --host 0.0.0.0 --port 9000
+PORT=9000 uv run main.py
 # then in .env:
 CHATTERBOX_LOCALHOST_PORT=9000
 ```
 
-**First request times out** — the model downloads on first call (~2 GB).
-Pre-warm by running the curl test above with `--max-time 600`.
+**First requests fail after the first start:** the model is still
+downloading or loading. Wait until `/health` returns `"status": "healthy"`.
 
-## 8. References
+## 7. References
 
 - [Chatterbox upstream](https://github.com/resemble-ai/chatterbox)
 - [chatterbox-tts-api server](https://github.com/travisvn/chatterbox-tts-api)
 - [Chatterbox model card](https://huggingface.co/ResembleAI/chatterbox)
-
-## 9. Historical note
-
-This directory previously hosted a server.py wrapper for openedai-speech /
-XTTS v2. That stack was retired in this release because the upstream image
-(`ghcr.io/matatonic/openedai-speech`) was archived on 2026-01-04 and XTTS-v2
-weights are CPML / non-commercial. The old setup lived at top-level
-`tts-provider/localhost/` before the configuration-modularization refactor
-moved it under `services/tts-provider/provider/localhost/`. To inspect the
-pre-retirement code, use `git log --follow --
-services/tts-provider/provider/localhost/`. For the pre-move history, use `git
-log -- tts-provider/localhost/`.

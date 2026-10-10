@@ -41,13 +41,13 @@ Failed to write Kong configuration: [Errno 13] Permission denied: '.../volumes/a
 find . -uid 0 -not -path './.git/*'
 ```
 
-**Take ownership back:**
+**Take ownership back** of every file that `find` listed. Root-owned files can also be outside `volumes/` and `bootstrapper/`, for example `.env`:
 
 ```bash
-sudo chown -R "$(whoami):staff" volumes bootstrapper
+sudo find . -uid 0 -not -path './.git/*' -exec chown "$(id -u):$(id -g)" {} +
 ```
 
-On Linux, replace `staff` with your primary group (for example `$(id -gn)`).
+Your shell expands `$(id -u):$(id -g)` before `sudo` runs, so the files go to your own user and primary group on macOS and Linux.
 
 **Then delete the broken venv** (uv creates it again on the next run):
 

@@ -1,12 +1,12 @@
 # 5.2.42. Prometheus (metrics scraper + TSDB)
 
-Prometheus runs as three containers in the `infra` band: `prometheus`, `node-exporter` (host metrics) and `cadvisor` (cgroup-level container metrics). `PROMETHEUS_SOURCE` scales all three together.
-
 ## 1. Overview
+
+Prometheus runs as three containers in the `infra` band: `prometheus`, `node-exporter` (host metrics) and `cadvisor` (cgroup-level container metrics). `PROMETHEUS_SOURCE` scales all three together. It is disabled by default.
 
 Image: `prom/prometheus:v2.55.1` (Apache 2.0). The bundled exporters are `prom/node-exporter:v1.11.1` and `gcr.io/cadvisor/cadvisor:v0.55.1`. Default TSDB retention is **7 days**. The wizard asks for it on the Prometheus source step.
 
-The scrape config is static (`services/prometheus/config/prometheus.yml`) and lists every supported target in the stack. Targets of `disabled` services report `UP=0`; the file is not templated per enabled service. Recording / alert rules live under `services/prometheus/config/rules/`; the bundled `stack-recording.yml` is an empty placeholder.
+The scrape config is static (`services/prometheus/config/prometheus.yml`) and lists every supported target in the stack. Targets of `disabled` services report `up == 0`; the file is not templated per enabled service. Recording / alert rules live under `services/prometheus/config/rules/`; the bundled `stack-recording.yml` is an empty placeholder.
 
 ### 1.1. cAdvisor isolation boundary
 
@@ -44,7 +44,7 @@ PROMETHEUS_SCALE / NODE_EXPORTER_SCALE / CADVISOR_SCALE
 POSTGRES_EXPORTER_SCALE / REDIS_EXPORTER_SCALE  # cross-manifest writes
 ```
 
-`_generate_prometheus_config()` sets all five scale vars and `PROMETHEUS_ENDPOINT` from `PROMETHEUS_SOURCE`. The two `*_EXPORTER_SCALE` vars control the sidecars in `services/supabase/` and `services/redis/`.
+`./start.sh` sets all five scale vars and `PROMETHEUS_ENDPOINT` from `PROMETHEUS_SOURCE`. The two `*_EXPORTER_SCALE` vars control the sidecars in `services/supabase/` and `services/redis/`.
 
 ## 4. Scrape targets
 

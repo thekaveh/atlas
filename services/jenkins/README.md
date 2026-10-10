@@ -17,6 +17,8 @@ Atlas provides the Jenkins server, JCasC, Maven, and MinIO publishing seam. Down
 
 `JENKINS_ADMIN_PASSWORD` is auto-generated on first bootstrap and persisted to `.env`.
 
+The direct port binds through `HOST_BIND_IP` (default `127.0.0.1:`, loopback only). The Kong route adds no separate auth layer, so the Jenkins login is the only protection. Use Jenkins only on a local host or a trusted VPN; do not expose it to the public internet.
+
 ## 3. Configuration
 
 ```bash
@@ -25,9 +27,13 @@ JENKINS_IMAGE=jenkins/jenkins:lts-jdk21@sha256:c1e4c349365f6d16d88595b2c5f7e8ff3
 JENKINS_PORT=                      # auto-assigned in the apps band
 JENKINS_ADMIN_USER=admin
 JENKINS_ADMIN_PASSWORD=            # auto-generated
+JENKINS_MEMORY_LIMIT=3g            # controller + Maven builds
+JENKINS_CPU_LIMIT=2.0
 ```
 
-JCasC is loaded from `services/jenkins/casc/jenkins.yaml` via `CASC_JENKINS_CONFIG`. The bundled config disables signup, creates the admin user, and avoids the first-run setup wizard.
+JCasC is loaded from `services/jenkins/casc/jenkins.yaml` via `CASC_JENKINS_CONFIG`. The bundled config disables signup, creates the admin user, and avoids the first-run setup wizard. It gives the controller two executors; Atlas ships no build agents, so builds run on the controller inside the memory and CPU limits above.
+
+`JENKINS_HOME` persists in the `${PROJECT_NAME}-jenkins-home` volume. `./stop.sh --cold` removes it with all jobs and build history.
 
 ## 4. Artifact Publishing
 
@@ -85,9 +91,8 @@ _No high-confidence opportunities identified._
 
 ## 7. Troubleshooting
 
-- **Login rejected** — check `JENKINS_ADMIN_USER` and `JENKINS_ADMIN_PASSWORD` in `.env`; restart Jenkins after changing them so JCasC reloads.
+- **Login rejected** — check `JENKINS_ADMIN_USER` and `JENKINS_ADMIN_PASSWORD` in `.env`. After a change, rerun `./start.sh`: the container must be recreated to receive the new values, and JCasC applies them at startup. A plain `docker restart` keeps the old values.
 - **Artifact upload fails** — verify MinIO is enabled, `minio-init` completed, and `MINIO_ICEBERG_ACCESS_KEY` / `MINIO_ICEBERG_SECRET_KEY` are populated.
-- **Do not expose publicly as-is** — the default auth posture is intended for local/dev or trusted VPN use.
 
 ## 8. Capabilities & limitations
 

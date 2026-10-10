@@ -20,6 +20,8 @@ The Neo4j service provides:
 
 After running `./start.sh --setup-hosts`, the Kong browser alias is `http://graph.localhost:${KONG_HTTP_PORT}` whenever the selected Neo4j source is enabled.
 
+In container mode, the Browser pre-fills the in-network address `neo4j://neo4j-graph-db:7687`. From the host, change it to `bolt://localhost:${GRAPH_DB_PORT}`.
+
 ## 3. Default Credentials
 
 - **Username**: `${GRAPH_DB_USER}` (default: `neo4j`)
@@ -98,9 +100,10 @@ GRAPH_DB_DASHBOARD_PORT=63024  # Browser interface and HTTP API (mapped to 7474)
 
 # Container resources
 NEO4J_MEMORY_LIMIT=2g          # Compose memory limit for the container
+NEO4J_CPU_LIMIT=1.5            # Compose CPU limit for the container
 ```
 
-The compose fragment loads APOC core (`NEO4J_PLUGINS=["apoc"]`, from the image's `labs/` jar, no download) and allows `apoc.*`. LLM Graph Builder needs it. The container accepts only the `neo4j` admin user, so `GRAPH_DB_USER` matters only in `localhost` mode. The Browser pre-fills the in-network address `neo4j://neo4j-graph-db:7687`; change it to `bolt://localhost:${GRAPH_DB_PORT}`.
+The compose fragment loads APOC core (`NEO4J_PLUGINS=["apoc"]`, from the image's `labs/` jar, no download) and allows `apoc.*`. LLM Graph Builder needs it. The container accepts only the `neo4j` admin user, so `GRAPH_DB_USER` matters only in `localhost` mode.
 
 ## 7. Usage Examples
 
@@ -134,7 +137,7 @@ bolt_port = (
 )
 driver = GraphDatabase.driver(
     f"bolt://localhost:{bolt_port}",
-    auth=("neo4j", "your_password")
+    auth=("neo4j", os.environ["GRAPH_DB_PASSWORD"])
 )
 
 with driver.session() as session:
@@ -168,7 +171,7 @@ The backend declares a disabled Graphiti temporal graph memory experiment with `
 
 ## 9. Integration with Other Services
 
-Current Bolt clients are LightRAG (§8), LLM Graph Builder, Airflow, JupyterHub, mcp-servers and the backup orchestrator (§13.2). The Backend receives `NEO4J_*` for planned graph endpoints but opens no Bolt connection (see `docs/maintenance/integration-claims-ledger.md`). n8n has no Neo4j wiring yet (§13.4).
+Current Bolt clients are LightRAG (§8), LLM Graph Builder, JupyterHub, mcp-servers and the backup orchestrator (§13.2). Airflow seeds a `neo4j_default` Connection, and only operator-authored DAGs use it. The Backend receives `NEO4J_*` for planned graph endpoints but opens no Bolt connection (see `docs/maintenance/integration-claims-ledger.md`). n8n has no Neo4j wiring yet (§13.4).
 
 ## 10. Performance Tuning
 
@@ -197,7 +200,7 @@ services:
 docker logs ${PROJECT_NAME}-neo4j-graph-db -f
 
 # Test HTTP endpoint
-curl http://localhost:63024/
+curl http://localhost:${GRAPH_DB_DASHBOARD_PORT}/
 
 # Check Bolt connection (credentials from the container's NEO4J_AUTH)
 docker exec ${PROJECT_NAME}-neo4j-graph-db sh -c \
@@ -304,13 +307,7 @@ docker exec ${PROJECT_NAME}-neo4j-graph-db cat /var/lib/neo4j/conf/neo4j.conf
 
 ### 14.3. Recovery Procedures
 
-If the database is corrupted, restore the newest legacy snapshot offline (§4.2). Coordinated signed backups restore with `services/backup/run-database-restore.sh`.
-
-```bash
-docker compose stop neo4j-graph-db
-docker compose run --rm --no-deps --entrypoint /usr/local/bin/restore.sh neo4j-graph-db
-docker compose start neo4j-graph-db
-```
+If the database is corrupted, restore the newest legacy snapshot offline with the §4.2 commands. Coordinated signed backups restore with `services/backup/run-database-restore.sh`.
 
 If the newest backup is corrupted, reinitialize the database. This deletes all graph data. Automatic restore loads the newest `/snapshot/backup_*.dump` into any empty database, so rename the corrupted dump first. If an older `backup_*.dump` remains, the new database loads that one; rename every dump to start empty.
 
@@ -327,7 +324,7 @@ docker volume rm ${PROJECT_NAME}-graph-db-data
 docker compose up -d neo4j-graph-db
 ```
 
-For more troubleshooting help, see [../quick-start/troubleshooting.md](../../docs/quick-start/troubleshooting.md).
+For more troubleshooting help, see the [troubleshooting guide](../../docs/quick-start/troubleshooting.md).
 
 ## 15. Capabilities & limitations
 

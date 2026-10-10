@@ -18,18 +18,18 @@ Kong creates the `tika.localhost` route when `TIKA_SOURCE=container` or `TIKA_SO
 - `TIKA_IMAGE=apache/tika:3.3.1.0` pins the stable Tika 3.x image.
 - `TIKA_PORT` is assigned by Atlas' media-category port slot allocator.
 - `TIKA_LOCALHOST_PORT=9998` points Kong and in-container consumers at a host-running Tika server.
-- `TIKA_ENDPOINT` is auto-managed for backend and n8n consumers.
-- `TIKA_MAX_FILE_SIZE=52428800` is a required positive integer and limits backend extraction payloads to 50 MiB by default; malformed, zero, and negative values fail Backend startup.
+- `TIKA_ENDPOINT` is auto-managed for backend, Celery and n8n consumers.
+- `TIKA_MAX_FILE_SIZE=52428800` is a required positive integer. It limits every backend extraction payload, Docling or Tika, to 50 MiB by default. Malformed, zero and negative values fail Backend startup.
 - `TIKA_TIMEOUT_SECONDS=30` bounds backend fallback calls; it must be finite, greater than 0, and no greater than 3,600 seconds or Backend startup fails.
 - `TIKA_JAVA_TOOL_OPTIONS=-Xmx768m` caps the container JVM heap.
 
 ## 4. Docling-first fallback policy
-Backend and Celery extraction call Docling first. They send a file straight to Tika when:
+Backend and Celery extraction choose the extractor per file. They send a file straight to Tika, without calling Docling, when:
 
 - its extension is `.doc`, `.xls`, `.ppt`, `.epub`, `.eml`, `.msg`, `.rtf`, `.odt`, `.ods`, `.odp`, `.zip`, `.tar`, `.gz`, `.gzip` or `.bz2`; or
 - its content type is a mail, RTF, OpenDocument or archive type.
 
-Tika is also tried when Docling answers 415 or reports an unsupported format. Atlas's own Docling providers answer such files with 500, so in practice only the list above reaches Tika. If Docling is disabled, other formats fail: Tika does not replace Docling. Tika output is plain text and is marked `degraded`.
+Every other file goes to Docling. Tika is also tried when Docling answers 415 or reports an unsupported format. Atlas's own Docling providers answer such files with 500, so in practice only the list above reaches Tika. If Docling is disabled, other formats fail: Tika does not replace Docling. Tika output is plain text and is marked `degraded`.
 
 ## 5. Guardrails
 - Keep Tika disabled unless long-tail extraction is needed.
@@ -73,7 +73,7 @@ _No high-confidence opportunities identified._
 
 ## 7. Troubleshooting
 - Kong route missing: confirm `TIKA_SOURCE` is `container` or `tika-localhost`, then rerun `./start.sh`.
-- Backend returns unsupported-format: enable Tika and restart so `TIKA_ENDPOINT` is generated.
+- Backend returns `503` "Tika fallback is disabled": set `TIKA_SOURCE` to `container` or `tika-localhost`, then rerun `./start.sh` so `TIKA_ENDPOINT` is generated.
 - Localhost mode cannot connect: ensure the host Tika server listens on `TIKA_LOCALHOST_PORT` and that `host.docker.internal` resolves from containers.
 - Empty or low-quality text: remember Tika is the degraded fallback path. Prefer Docling for formats it supports.
 

@@ -1,6 +1,6 @@
 # 5.2.15. Docling LightRAG Adapter
 
-Logical documentation for the isolated compatibility container owned by `services/docling/compose.yml`.
+Internal protocol adapter that lets the in-stack LightRAG container parse documents with Atlas Docling. It has no user interface or host port. Its container is defined in `services/docling/compose.yml`.
 
 ## 1. Overview
 
@@ -8,7 +8,7 @@ LightRAG v1.5.4 expects an asynchronous submit, poll, and result-download docume
 
 ## 2. Runtime boundary
 
-The adapter runs only when `LIGHTRAG_SOURCE=container` and a Docling source is enabled. It, LightRAG, and `docling-gpu` share the dedicated `docling-lightrag-network`; the adapter has no published host port and does not join the backend network. LightRAG receives only the adapter URL. The adapter alone receives `DOCLING_API_TOKEN` and uses it for the protected upstream bundle request.
+The adapter runs only when `LIGHTRAG_SOURCE=container` and a Docling source is enabled. It, LightRAG, and `docling-gpu` share the dedicated `docling-lightrag-network`; the adapter has no published host port and does not join the backend network. With `docling-localhost`, the adapter reaches the host provider through `host.docker.internal`. LightRAG receives only the adapter URL. The adapter alone receives `DOCLING_API_TOKEN` and uses it for the protected upstream bundle request.
 
 The container is built from the pinned adapter lock, runs as a non-root user, and does not load document models. Container ownership, derived scale, and source permutations remain in the Docling manifest and compose fragment.
 

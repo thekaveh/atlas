@@ -76,7 +76,7 @@ curl -H "Authorization: Bearer ${ASSET_WORKER_API_TOKEN}" \
 | `draco` | no | Enables Draco mesh compression. |
 | `meshopt` | no | Meshopt mesh compression. Default `true`; Draco takes precedence when `draco=true`. Pass `meshopt=false` for an uncompressed mesh, for example to re-import into Blender. |
 | `ktx2` | no | Requests KTX2 texture compression; otherwise WebP is used. KTX2 needs the KTX-Software `ktx` binary, which the stock image does not include, so the request is rejected with `422` there. |
-| `collider_decimation` | no | collider decimation ratio, used as the simplification ratio when `simplify_ratio` is absent (same range). |
+| `collider_decimation` | no | Ratio for collider decimation, used as the simplification ratio when `simplify_ratio` is absent (same range). |
 
 ### 4.2. MinIO Referenced GLB
 
@@ -141,7 +141,7 @@ The worker performs three operations in order. Uploads are copied in chunks to b
 2. Run `gltf-transform inspect`, `gltf-transform validate`, and `gltf-transform optimize` with the requested simplification and compression settings.
 3. Hash the optimized GLB with SHA-256 and write it to MinIO or the local artifact cache under `gltf/<sha256>.glb`.
 
-The service is intentionally separate from the media gateway. Provider-specific image-to-3D tickets should submit raw provider outputs to this worker rather than embedding mesh normalization in each provider adapter.
+The service is intentionally separate from the media gateway. Image-to-3D provider adapters should send raw provider outputs to this worker rather than embed mesh normalization.
 
 ## 6. Dependencies & Integrations
 

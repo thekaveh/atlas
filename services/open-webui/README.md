@@ -6,7 +6,7 @@
 
 ## 1. Overview
 
-Main browser chat UI. It adapts to the configured LLM provider and to the enabled stack services.
+Main browser chat UI. It adapts to the configured LLM provider and to the enabled stack services. Its model list comes from the LiteLLM gateway.
 
 ## 2. Access
 
@@ -15,25 +15,31 @@ Main browser chat UI. It adapts to the configured LLM provider and to the enable
 | Direct | http://localhost:63096 | Container source only. |
 | Kong | http://chat.localhost:63000 | Needs `./start.sh --setup-hosts`. |
 
-See the canonical port table at [Ports and Routes](../../docs/reference/ports-routes.md).
+The URLs show the ports for the default `BASE_PORT=63000`. See the canonical port table at [Ports and Routes](../../docs/reference/ports-routes.md).
+
+Sign in with the admin account that `open-webui-init` creates: `OPEN_WEB_UI_ADMIN_EMAIL` (default `admin@localhost`) and `OPEN_WEB_UI_ADMIN_PASSWORD` from `.env`. The bootstrapper replaces the placeholder password `admin` with a generated one at start.
 
 ## 3. Configuration
 
 `OPEN_WEB_UI_SOURCE=container|disabled`. Other settings are the `OPEN_WEB_UI_*` variables in `.env` (see the [env-vars reference](../../docs/reference/env-vars.md)).
 
+**Saved admin settings override `.env`.** Open WebUI keeps its connection, audio and image settings as persistent config. `ENABLE_PERSISTENT_CONFIG` defaults to true, and Atlas does not change it. The injected env vars only seed the first boot. After an admin saves the Connections, Audio or Images page, the stored value wins. Later STT/TTS source switches, `PARAKEET_API_TOKEN` regenerations and `LITELLM_MASTER_KEY` changes are then ignored. Update the page, or reset the value in Admin Settings.
+
+**Shared Redis database.** Open WebUI's websocket store uses Redis database `OPEN_WEB_UI_REDIS_DB` (default `2`) with the key prefix `openwebui`. LightRAG's KV and doc-status storage also uses database `2`. To keep them apart, set `OPEN_WEB_UI_REDIS_DB` to another database number.
+
 ## 4. Integration notes
 
-Kong is its only downstream caller (browser routing; see §5.2).
+### 4.1. Models and Hermes
 
 When [Hermes Agent](../hermes/README.md) is enabled (`HERMES_SOURCE != disabled`), it appears in the model dropdown as `hermes-agent` through the LiteLLM gateway; no per-WebUI wiring is needed. The model-list cache TTL is 5 minutes (`OPEN_WEB_UI_MODEL_CACHE_TTL=300`), so a newly enabled Hermes can take that long to appear. Set the TTL to `0` during development.
 
-Speech-to-text authentication is source-aware:
+### 4.2. Image generation
 
-- For either Parakeet source, `OPEN_WEB_UI_STT_API_KEY` is derived from the generated `PARAKEET_API_TOKEN`.
-- For other enabled STT engines, it is the compatibility value `sk-unused`.
-- When STT is disabled, it is blank.
+**Built-in image generation does not work out of the box.** When ComfyUI is enabled, the compose fragment sets `ENABLE_IMAGE_GENERATION` with the ComfyUI engine. The bootstrapper sets `OPEN_WEB_UI_ENABLE_IMAGE_GENERATION`, which is `false` when `COMFYUI_SOURCE=disabled`. It sets no `COMFYUI_WORKFLOW`, `COMFYUI_WORKFLOW_NODES` or `IMAGE_GENERATION_MODEL`. Open WebUI then submits its stock workflow (checkpoint `model.safetensors`, no prompt node mapping), which ComfyUI rejects.
 
-The value is injected only into Open WebUI's server process. Do not expose it through browser-side tools or logs.
+To fix it, configure a workflow under Admin Settings → Images (for example from `extras/workflows/default-text-to-image.json`). Alternatively, use the bundled ComfyUI tool, which goes through the Backend. Saved Images settings, kept in Open WebUI's database, override the env value.
+
+### 4.3. Bundled tools and Backend access
 
 **Bundled tools.** Open WebUI offers every `Tools` method whose name does not start with `__` to the model. The bundled tools therefore keep helpers (the Backend header builder, the blocking research runner) outside the `Tools` class. Long research calls run in a worker thread, so they do not stall the server's event loop.
 
@@ -43,15 +49,19 @@ The value is injected only into Open WebUI's server process. Do not expose it th
 
 **Memory extraction** runs after the reply, in two daemon workers with a four-job queue. When the queue is full, the job is skipped with a short diagnostic. A Backend non-success response counts as an extraction failure. Chat replies never wait for extraction.
 
-**Saved admin settings override `.env`.** Open WebUI keeps its connection, audio and image settings as persistent config. `ENABLE_PERSISTENT_CONFIG` defaults to true, and Atlas does not change it. The injected env vars only seed the first boot. After an admin saves the Connections, Audio or Images page, the stored value wins. Later STT/TTS source switches, `PARAKEET_API_TOKEN` regenerations and `LITELLM_MASTER_KEY` changes are then ignored. Update the page, or reset the value in Admin Settings.
+The tool and function folders are mounted read-only; `open-webui-init` registers them through the API.
 
-**Built-in image generation does not work out of the box.** When ComfyUI is enabled, the compose fragment sets `ENABLE_IMAGE_GENERATION` with the ComfyUI engine. The bootstrapper sets `OPEN_WEB_UI_ENABLE_IMAGE_GENERATION`, which is `false` when `COMFYUI_SOURCE=disabled`. It sets no `COMFYUI_WORKFLOW`, `COMFYUI_WORKFLOW_NODES` or `IMAGE_GENERATION_MODEL`. Open WebUI then submits its stock workflow (checkpoint `model.safetensors`, no prompt node mapping), which ComfyUI rejects.
+### 4.4. Speech-to-text authentication
 
-To fix it, configure a workflow under Admin Settings → Images (for example from `extras/workflows/default-text-to-image.json`). Alternatively, use the bundled ComfyUI tool, which goes through the Backend. Saved Images settings, kept in Open WebUI's database, override the env value. The tool and function folders are mounted read-only; `open-webui-init` registers them through the API.
+The STT API key depends on the STT source:
 
-**Shared Redis database.** Open WebUI's websocket store uses Redis database `OPEN_WEB_UI_REDIS_DB` (default `2`) with the key prefix `openwebui`. LightRAG's KV and doc-status storage also uses database `2`. To keep them apart, set `OPEN_WEB_UI_REDIS_DB` to another database number.
+- For either Parakeet source, `OPEN_WEB_UI_STT_API_KEY` is derived from the generated `PARAKEET_API_TOKEN`.
+- For other enabled STT engines, it is the compatibility value `sk-unused`.
+- When STT is disabled, it is blank.
 
-### 4.1. Atlas Safe Prompt Middleware
+The value is injected only into Open WebUI's server process. Do not expose it through browser-side tools or logs.
+
+### 4.5. Atlas Safe Prompt Middleware
 
 `extras/functions/atlas_safe_prompt_middleware.py` is the `Atlas Safe Prompt Middleware` Filter Function. `open-webui-init` registers it at startup, inactive and not global. It runs on a chat only after an admin does all three steps in Open WebUI's Functions settings:
 
@@ -116,10 +126,10 @@ Atlas ships no Open WebUI Pipelines: upstream now marks Pipelines as legacy for 
 
 ```bash
 # Check service status
-docker compose ps open-webui
+docker compose ps open-web-ui
 
 # Check logs
-docker compose logs -f open-webui open-webui-init
+docker compose logs -f open-web-ui open-webui-init
 ```
 
 For general startup and routing issues, see [Troubleshooting](../../docs/quick-start/troubleshooting.md).

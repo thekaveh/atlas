@@ -89,11 +89,11 @@ _No high-confidence opportunities identified._
 
 ## 6. Troubleshooting
 
-- If backend or LiteLLM do not emit traces, confirm `OTEL_COLLECTOR_SOURCE=container` and `TEMPO_SOURCE=container`.
+- If backend, Celery or LiteLLM do not emit traces, confirm `OTEL_COLLECTOR_SOURCE=container` and `TEMPO_SOURCE=container`.
 - If logs do not appear, confirm `LOKI_SOURCE=container`, query the normalized `service_name` label, and inspect Collector retry errors. A Collector restart discards records that Loki had not accepted.
-- If the collector is unhealthy, run the same mounted-config validation shown in the Compose health check and inspect the reported receiver, processor, or exporter error.
+- If the collector is unhealthy, run `docker exec ${PROJECT_NAME}-otel-collector /otelcol-contrib validate --config=/etc/otelcol/config.yaml`. The output names the failing receiver, processor or exporter.
 - If Grafana shows no traces, check the Tempo datasource and the collector logs.
-- Roll back by setting `OTEL_COLLECTOR_SOURCE=disabled`; backend and LiteLLM tracing env collapses to no-op values.
+- Roll back by setting `OTEL_COLLECTOR_SOURCE=disabled`. `./start.sh` then sets `ATLAS_OTEL_ENABLED=false` and empty endpoints, so backend, Celery and LiteLLM stop exporting.
 
 ## 7. Capabilities & limitations
 

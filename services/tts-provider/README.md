@@ -27,20 +27,21 @@ wins and the bootstrapper prints a one-line notice.
 
 | | Speaches (Kokoro) | Speaches (Piper) | Chatterbox |
 |---|---|---|---|
-| Param count | 82 M | ~20 M | ~500 M |
-| Quality | high | good | high + voice cloning |
-| First-request load | ~90 MB | ~30 MB | ~2 GB |
-| Voice cloning | no | no | yes (5-sec zero-shot) |
-| Languages | 8–9 | 30+ | 23 |
-| Realtime factor on CPU | ~1× | ~0.3× | ~4×–6× (slow on CPU) |
+| Model | Kokoro-82M, one model with many voices | one model per voice | Chatterbox, about 0.5 B parameters |
+| Voice cloning | no | no | yes, zero-shot from a short reference clip |
+| GPU in Atlas | no (#1373) | no (#1373) | NVIDIA container, or MPS/CUDA on the host |
 
 The default is Speaches with Kokoro. Pick Chatterbox when you need voice
-cloning.
+cloning. Speed, quality and language coverage depend on the model, the voice
+and the hardware; Atlas publishes no ranking. Benchmark representative text on
+the deployment host.
 
 ## 3. Quick start
 
-`./start.sh` launches Speaches without a model. A TTS request returns `404`
-until you download the Kokoro model (see the note in §4; issue #799, open):
+`./start.sh` launches Speaches without a model. Speaches does not download
+models itself (verified against `speaches @ v0.9.0-rc.3`), and the compose file
+sets `PRELOAD_MODELS: '[]'`. A TTS request returns `404` ("Model is not
+installed locally") until you download the Kokoro model (issue #799):
 
 ```bash
 ./start.sh
@@ -55,20 +56,24 @@ curl http://localhost:63060/v1/audio/speech \
 file /tmp/hello.wav   # expect RIFF / WAVE audio
 ```
 
-To have the model ready at boot instead, set `PRELOAD_MODELS` in
-`services/speaches/compose.yml` (see §4).
+To have models ready at boot instead, set `PRELOAD_MODELS` in
+`services/speaches/compose.yml` to a **JSON array** of valid repo ids, for
+example `'["speaches-ai/Kokoro-82M-v1.0-ONNX","Systran/faster-whisper-large-v3"]'`.
+Atlas has no env var for it. Preload downloads block startup, and a bad id
+stops Speaches.
 
 Voice cloning via Chatterbox (NVIDIA):
 
 ```bash
 ./start.sh --tts-provider-source chatterbox-container-gpu
-# The first request downloads the model weights, so it is slow.
+# The server loads the model in the background; the first start downloads
+# the weights. Requests succeed once /health reports "healthy".
 ```
 
-Voice cloning via Chatterbox (macOS native, MPS):
+Voice cloning via Chatterbox (macOS native, MPS; needs Python 3.11):
 
 ```bash
-# Terminal 1 — no PyPI package, install from git:
+# Terminal 1 — install from git (the PyPI package holds no code):
 git clone https://github.com/travisvn/chatterbox-tts-api
 cd chatterbox-tts-api && uv sync
 PORT=63044 uv run main.py
@@ -97,16 +102,8 @@ for the full Chatterbox-on-host walkthrough.
 | `CHATTERBOX_PORT` | `63059` | Chatterbox container external port. |
 | `CHATTERBOX_LOCALHOST_PORT` | `63044` | Port the stack reaches your host's chatterbox-tts-api on. URL is derived as `http://host.docker.internal:${CHATTERBOX_LOCALHOST_PORT}` at compose-render time. |
 
-> **Important:** Speaches does not download models itself (verified against
-> `speaches @ v0.9.0-rc.3`). The compose default is `PRELOAD_MODELS: '[]'`, and
-> Atlas has no env var for it, so `/v1/audio/*` returns HTTP 404 ("Model is not
-> installed locally"). `POST` each model id to `/v1/models` after boot, as in §3.
->
-> Or set `PRELOAD_MODELS` in `services/speaches/compose.yml` to a **JSON array**
-> of valid repo ids, for example
-> `'["speaches-ai/Kokoro-82M-v1.0-ONNX","Systran/faster-whisper-large-v3"]'`.
-> Preload downloads block startup, and a bad id stops Speaches.
-> Chatterbox downloads its weights itself on the first request.
+Speaches needs the model download in §3. Chatterbox downloads its weights
+itself when the server first starts.
 
 ## 5. OpenAI-compatible API
 
@@ -148,13 +145,13 @@ Content-Type: application/json
 ```
 
 Chatterbox voice cloning uses **multipart upload**, not a JSON
-`reference_audio` field. Either pre-register a voice via `POST /voices`
-and reference it by name, or inline-upload the reference WAV:
+`reference_audio` field. Either register a voice with `POST /voices`
+(fields `voice_name` and `voice_file`) and use its name as `voice`. Or send the
+reference clip with the request to `/v1/audio/speech/upload`:
 
 ```bash
-curl -X POST http://chatterbox:4123/v1/audio/speech \
+curl -X POST http://chatterbox:4123/v1/audio/speech/upload \
   -F "input=Hello in this voice." \
-  -F "model=chatterbox-tts-1" \
   -F "voice_file=@/host/path/to/sample.wav" \
   --output cloned.wav
 ```
@@ -253,7 +250,7 @@ models, so an unhealthy container has a startup error. If you set
 `PRELOAD_MODELS`, the downloads block startup and a bad id stops the process.
 
 **Speaches returns 404 "Model is not installed locally"** — download the model
-(see §3 and §4).
+(see §3).
 
 **Chatterbox container OOMs** — needs ≥8 GB VRAM. Use Speaches instead, or
 the localhost variant.

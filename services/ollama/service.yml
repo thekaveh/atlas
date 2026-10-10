@@ -115,7 +115,7 @@ env:
     description: "Time Ollama keeps a model loaded after its last use (5m, 1h, or -1 for forever); empty uses Ollama's 5m default. Container-* sources only. -1 keeps every loaded model in RAM until reverted and the daemon restarts."
   - name: OLLAMA_MODELS_RESIDENT_MIN
     default: ""
-    description: "Advisory, ollama-localhost only: how many models a workload needs resident at once. ./start.sh doctor warns when the daemon's OLLAMA_MAX_LOADED_MODELS is lower. Empty declares no expectation. A LightRAG run with separate extract, embed and keyword models needs 3."
+    description: "Advisory, ollama-localhost only: how many models a workload needs resident at once. ./start.sh doctor reports a failure when the daemon's OLLAMA_MAX_LOADED_MODELS is lower. Empty declares no expectation. A LightRAG run with separate extract, embed and keyword models needs 3."
   - name: OLLAMA_PARALLEL_MIN
     default: ""
     description: "Advisory, ollama-localhost only: the concurrent-request floor a consumer needs. ./start.sh doctor warns when the daemon's OLLAMA_NUM_PARALLEL is lower. Empty declares no expectation. Ollama's default of 1 slot silently serializes a multi-agent consumer."

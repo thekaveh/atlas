@@ -13,7 +13,7 @@ The page is the overview and decision guide. It covers the choice of method, rea
   - **A — Standalone + shared network.** Use it when one Atlas instance serves several projects. Atlas runs on its own. Your project is a separate Compose project that joins `${PROJECT_NAME}-network` and calls services by Docker DNS name or through Kong.
   - **B — Git submodule.** Use it when your project ships and deploys Atlas with it. Atlas lives in your repo under `infra/` and runs from there.
 - **You do not need a fork.** `PROJECT_NAME`, `BASE_PORT`, `BRAND_*`, `*_SOURCE`, `--track` and the consumer manifest cover the common cases.
-- Status of each capability: [§8 Readiness](#8-readiness). Full operator journey: [§7](#7-consumer-adoption-runbook-the-full-journey).
+- New consumer repo: follow the [§4.1 walkthrough](#41-stand-up-a-consumer-from-scratch-the-ordered-walkthrough). Day-2 operation: [§7](#7-consumer-adoption-runbook-the-full-journey). Status of each capability: [§8 Readiness](#8-readiness).
 
 ---
 
@@ -108,12 +108,6 @@ To avoid depending on service hostnames, send Kong-enabled services through `kon
 
 Vendor Atlas into your repo and run it from a subdirectory. Use this method when your project and its infra ship as one versioned, reproducible unit.
 
-```bash
-git submodule add https://github.com/thekaveh/atlas infra
-cd infra && git checkout <reviewed-main-commit>      # pin a reviewed commit (see §8)
-./start.sh --project myproject --base-port auto     # or commit both in atlas.consumer.yml (§7.2)
-```
-
 Pin the submodule to a reviewed `main` commit, not to a moving branch, so each infra upgrade is an explicit commit. The only release tag, `v0.1.0`, predates the consumer manifest, so do not pin it ([§8](#8-readiness), [Releasing & version tags](releasing.md)). Your app joins `${PROJECT_NAME}-network` as in Method A.
 
 The [submodule guide](submodule-usage.md) covers directory layout, `.gitignore`, the custom env-file location, integration patterns, contributing upstream, CI/CD, multiple stacks and troubleshooting.
@@ -184,11 +178,7 @@ cd infra
 
 `doctor`, `compose validate` and the start read the manifest only when you pass `--consumer` or set `ATLAS_CONSUMER_MANIFEST`. Atlas does not find `atlas.consumer.yml` on its own. A manifest named by `ATLAS_CONSUMER_MANIFEST` is validated before any `.env` write, the same as `--consumer`.
 
-- `env backfill` adds keys that are new in `.env.example`. A new `*_PORT` goes on your `BASE_PORT` block, not the default block.
-- An `export KEY=` line counts as present. Every Atlas `.env` writer rewrites such a line in place and keeps `export`; it does not append a second assignment.
-- `compose validate` finds overlay and manifest errors before containers start. `doctor` reports contract, port and provisioning problems. `--detach` exits after the health checks.
-
-Before the first start, `doctor` and `compose validate` write the manifest values into `.env`. Derived keys and later refreshes: [Consumer Manifest Reference §3.4](../reference/consumer-manifest.md#34-manifest-values-and-derived-keys-in-env).
+`--detach` exits after the health checks. What each preflight command checks, and its exit codes: [§6.1.4](#614-preflight-and-ci-gates).
 
 **5. Consume endpoints.** Host-side code (a devserver, a desktop app) reads the exported contract. In-container plugins use Compose service DNS directly.
 
@@ -215,10 +205,9 @@ If a manifest's overlays cannot load or fail validation, `./start.sh --cold` fai
 
 **9. Common footguns.**
 
-- **Default-port collision.** A non-default project on `BASE_PORT=63000` collides with a bare `atlas` checkout. Set `BASE_PORT: auto` in the manifest (step 3).
 - **Declared models on host sources.** `managed-localhost-mps` downloads the declared ComfyUI set, and `ollama-localhost` pulls declared tags onto the host daemon, at every start. An unmanaged ComfyUI `localhost` install is not provisioned; `doctor` names what is missing.
 - **Host Ollama evicts its own models.** On `ollama-localhost`, a run that uses more models than `OLLAMA_MAX_LOADED_MODELS` reloads them in a loop, with no error. The fix is in [§6.6](#66-host-ollama-sizing-for-multi-model-ingest-ollama-localhost).
-- **Committed-value clobber.** A manifest value applies again on every start and replaces a temporary `.env` edit. Keep human-tuned values (for example model lists) host-local. Commit only identity (`project_name`, `BASE_PORT`). See [§7.2](#72-pin-instance-identity-in-the-manifest-not-just-env).
+- **Committed-value clobber.** A manifest value applies again on every start and replaces a temporary `.env` edit. Keep human-tuned and machine-specific values (for example model lists and host paths) in `.env` or `.env.user`. What to commit: [§7.2](#72-pin-instance-identity-in-the-manifest-not-just-env).
 
 **Complete worked example — a minimal consumer repo:**
 
@@ -270,13 +259,11 @@ Full source and customization matrix: [SOURCE Configuration Guide](source-config
 
 **`PROJECT_NAME` letter case.** If `.env` already names the same project in another letter case, Atlas keeps the stored spelling, for `./stop.sh -p` too. Every Compose command Atlas runs makes `PROJECT_NAME` name the same project as its `-p`. A shell-exported value, or a `--cold --project <new>`, that names a different project is replaced. So `down --volumes` cannot reach another project's volumes. A hand-edited `MyStack` (project `mystack`) keeps its spelling, so existing `MyStack-*` volumes stay in use.
 
-**Overlay syntax.** Overlays use `.env` syntax: `KEY=value`, quoted values and whitespace-prefixed inline comments. Compose expands `$name` and backslash escapes in unquoted and double-quoted values, so `pa$word` reaches containers as `pa`.
+**Overlay syntax.** Overlays use `.env` syntax: `KEY=value`, quoted values and whitespace-prefixed inline comments. An `export KEY=` line counts as present; every Atlas `.env` writer rewrites it in place and keeps `export`. Compose expands `$name` and backslash escapes in unquoted and double-quoted values, so `pa$word` reaches containers as `pa`.
 
 Atlas therefore single-quotes a value it writes when the value has a backslash or a `$` that is not a `${VAR}` reference. A `$$` also stays literal. Atlas refuses a value that also contains a single quote or ends in a backslash. Quote such values the same way in a hand-edited `.env`.
 
 **Merge order.** Atlas merges on every start, including `--cold`. The order is `.env.example` → generated or existing `.env` → `.env.user` → `ATLAS_ENV_USER_FILE` → `atlas.consumer.yml` env values → explicit CLI flags such as `--project` or `--<svc>-source`. It then fills missing keys from `.env.example`.
-
-For the older `services/_user/<name>/compose.yml` symlink layout, see the [parent-repo consumer reference layout](submodule-usage.md#42-parent-repo-consumer-reference-layout). New consumers register through the manifest; to move an existing layout, see [Migrating to atlas.consumer.yml](submodule-usage.md#421-migrating-to-atlasconsumeryml).
 
 Use `ATLAS_ENV_USER_FILE` for parent-owned config that the consuming project tracks or templates:
 
@@ -414,7 +401,7 @@ cd infra
 
 `doctor` and `compose validate` check the manifest only when `ATLAS_CONSUMER_MANIFEST` is set or `--consumer` is passed. Without one, the `consumer-manifests` check validates nothing.
 
-- **`env backfill`** is additive and idempotent. It keeps existing values and fills a blank value only when `.env.example` now has a non-blank default. It prints the keys it added or filled, grouped by section.
+- **`env backfill`** is additive and idempotent. It keeps existing values and fills a blank value only when `.env.example` now has a non-blank default. A new `*_PORT` goes on your `BASE_PORT` block, not the default block. It prints the keys it added or filled, grouped by section.
 - **`compose validate`** runs `docker compose config -q` on the assembled stack, including every `services/_user/<name>/compose.yml`. It rewrites common missing-variable failures into a service and variable summary, then prints Compose's raw stderr.
 - **`doctor`** does not start containers. It checks manifest validity, Compose, `_user` overlay env references, plugin directories, model sidecars, consumer endpoints and tracked-file cleanliness of the Atlas checkout. Docker checks report `skipped` when Docker is unavailable.
 - **`endpoints assert`** fails when a field your code reads is missing ([§6.5](#65-exporting-the-endpoint-contract-endpoints-export)).
@@ -441,7 +428,7 @@ Put project-owned SQL files under `services/supabase/db/_user/`. `supabase-db-in
 
 The FastAPI backend has a **generic plugin seam**: you can mount your own API routes into it without a fork of `services/backend/`.
 
-At startup the backend scans each root in `$BACKEND_PLUGINS_DIR` (default `/app/plugins`). Each subdirectory that is an importable package with a module-level `router` (a FastAPI `APIRouter`) mounts. A plugin that fails to install or import is logged and skipped; one bad plugin never crashes the backend. The seam does nothing when the directory does not exist, so base Atlas is unaffected. Loading, dependency and naming rules: [Consumer Manifest Reference §8.1](../reference/consumer-manifest.md#81-loading-rules).
+At startup the backend mounts each package in `$BACKEND_PLUGINS_DIR` (default `/app/plugins`) that exposes a module-level FastAPI `router`. A plugin that fails is logged and skipped; it never crashes the backend. Loading, dependency and naming rules: [Consumer Manifest Reference §8.1](../reference/consumer-manifest.md#81-loading-rules).
 
 **Apply plugin changes by recreating the backend.** Run `./start.sh --consumer <manifest>` again. A bare `docker compose up -d --force-recreate backend` targets the wrong Compose project and drops the overlay that mounts the plugins. The backend's auto-reloader is off by default, so git churn in a bind-mounted plugin tree does not restart it. Set `BACKEND_DEV_RELOAD=true` only while you edit plugin source.
 
@@ -627,17 +614,22 @@ A Metal or MLX service cannot get the GPU through a Linux container on macOS. If
 
 ## 7. Consumer adoption runbook (the full journey)
 
-Sections 3–6 describe the mechanisms. This runbook puts them in order and adds the operating behaviours that consumers learned from incidents. For a new repo, follow the [§4.1 walkthrough](#41-stand-up-a-consumer-from-scratch-the-ordered-walkthrough); this section is the day-2 reference.
+For a new repo, follow the [§4.1 walkthrough](#41-stand-up-a-consumer-from-scratch-the-ordered-walkthrough) first. This section covers operating a running consumer: what to commit, how to change sources, and how to share a host, upgrade and verify.
 
-### 7.1. The journey in order
+### 7.1. Day-2 checklist
 
-1. **Register** a manifest: [§6.1](#61-registering-a-parent-project-with-atlasconsumeryml).
-2. **Pin identity** (`project_name`, `BASE_PORT: auto`) in the manifest: [§7.2](#72-pin-instance-identity-in-the-manifest-not-just-env).
-3. **Select sources** once, or commit `auto`: [§7.3](#73-select-sources-once-keep-env-as-the-source-of-truth). Gate a paid provider with [`enabled_if_env`](../reference/consumer-manifest.md#32-key-gated-values).
-4. **Validate** headlessly: [§6.1.4](#614-preflight-and-ci-gates). `doctor` also flags a default-`63000` squat and declared models that cannot be pulled under a `*-localhost` source.
-5. **Start** with `./start.sh --consumer …`. LiteLLM models and n8n workflows apply on start; do not script a restart or an admin-API call.
-6. **Export and assert** endpoints: [§6.5](#65-exporting-the-endpoint-contract-endpoints-export).
-7. **Operate**: multiple instances (§7.4), host services (§7.5), upgrades (§7.6), verification (§7.7).
+| When | Do this |
+|---|---|
+| You bump the Atlas pin | Run the [preflight and CI gates](#614-preflight-and-ci-gates). |
+| You add a value to the manifest | Check that it is the same on every machine ([§7.2](#72-pin-instance-identity-in-the-manifest-not-just-env)). |
+| You change a service's source | Edit `.env` or the manifest, not the launch command ([§7.3](#73-select-sources-once-keep-env-as-the-source-of-truth)). |
+| A paid provider must follow its key | Use [`enabled_if_env`](../reference/consumer-manifest.md#32-key-gated-values). |
+| A second stack runs on the host | Give it its own `project_name` and `BASE_PORT` ([§7.4](#74-run-multiple-atlas-instances-on-one-host)). |
+| The host already runs Ollama, ComfyUI or Blender | Use a `localhost` source ([§7.5](#75-coexist-with-host-run-services-localhost-sources)). |
+| You edit a Dockerfile | Rebuild that service only ([§7.6](#76-upgrades-warm-starts-rebuild-stale-local-images)). |
+| The stack is up | Verify it ([§7.7](#77-post-launch-verification)). |
+
+LiteLLM models and n8n workflows apply on every start. Do not script a restart or an admin-API call for them.
 
 ### 7.2. Pin instance identity in the manifest, not just `.env`
 

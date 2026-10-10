@@ -9,7 +9,7 @@ The Document Processor service converts and extracts content from documents. It 
 - **Multiple Backend Support**: Localhost (CPU/GPU) and Docker (NVIDIA GPU)
 - **Advanced Processing**: Tables (DocLayNet + TableFormer), formulas, images, code blocks
 - **GPU Acceleration**: NVIDIA GPU acceleration for layout and table models
-- **Multiple Formats**: PDF, DOCX, PPTX, HTML and images (§6)
+- **Multiple Formats**: PDF, DOCX, PPTX, XLSX, HTML and images (§6)
 - **RAG-Ready**: Structure-aware chunking for retrieval-augmented generation
 - **Hardened Provider Boundary**: bearer authentication, bounded admission, and finite conversion deadlines
 
@@ -158,9 +158,9 @@ Both providers expose `POST /v1/document/convert` and public `GET /health`; the 
 
 ## 6. Supported Formats
 
-Documents: PDF, Word (`.docx`), PowerPoint (`.pptx`) and HTML. Images: PNG, JPEG and TIFF.
+Both providers use Docling's default converter. Documents: PDF, Word (`.docx`), PowerPoint (`.pptx`), Excel (`.xlsx`) and HTML. Images: PNG, JPEG and TIFF.
 
-Docling does not convert legacy Office (`.doc`, `.xls`, `.ppt`), `.epub`, mail, OpenDocument or archive files. Backend and Celery send them to [Tika](../tika/README.md) when `TIKA_SOURCE` is enabled.
+Docling does not convert legacy Office (`.doc`, `.xls`, `.ppt`), `.epub`, mail, RTF, OpenDocument or archive files. Backend and Celery send these by file extension or content type straight to [Tika](../tika/README.md); this needs a Tika source. Tika is not a general fallback: other formats need a Docling source and fail when Docling is disabled or the conversion fails.
 
 ## 7. Output Formats
 
@@ -175,11 +175,11 @@ Docling does not convert legacy Office (`.doc`, `.xls`, `.ppt`), `.epub`, mail, 
 
 ### 8.1. Open WebUI
 
-Open WebUI is **not** auto-wired to the doc processor — it uses its own built-in
-extraction, and `services/open-webui/service.yml` deliberately leaves
-`DOCLING_ENDPOINT` commented out. To route Open WebUI's document extraction
-through Docling, set `CONTENT_EXTRACTION_ENGINE=docling` (and the matching
-Docling endpoint) manually.
+Open WebUI is **not** wired to the Document Processor. It uses its own built-in
+document extraction, and Atlas sets no Open WebUI Docling variable. Open WebUI's
+own `docling` extraction engine expects the docling-serve API. The Atlas
+provider serves a different API (`/v1/document/convert` with a bearer token),
+so pointing that engine at it is not a supported configuration.
 
 ### 8.2. n8n Workflows
 
@@ -196,7 +196,7 @@ JupyterHub notebooks call the same `/v1/document/convert` endpoint with `request
 
 ### 8.4. Backend API
 
-The backend's authenticated `POST /documents/extract` sends uploads to Docling first and to Tika for long-tail formats. It does not proxy the Docling API.
+The backend's authenticated `POST /documents/extract` sends long-tail formats (§6) to Tika and every other upload to Docling. It returns `503` when the selected extractor is disabled. It does not proxy the Docling API.
 
 ## 9. RAG Integration
 
@@ -225,7 +225,7 @@ Connects to Docling running on host machine.
 
 **Best for**: Custom installations, development, CPU-only systems
 
-**Setup**: Run Docling locally on port 18159
+**Setup**: Run the Atlas Docling provider on the host, port 18159 by default (§2.2)
 
 **Advantages**:
 - Works on any platform (Mac, Linux, Windows)
@@ -247,7 +247,7 @@ No service requires the Document Processor. For the services that call it, see �
 ## 12. References
 
 - [Docling Documentation](https://docling-project.github.io/docling/)
-- [Docling GitHub](https://github.com/DS4SD/docling)
+- [Docling GitHub](https://github.com/docling-project/docling)
 - [TableFormer Paper](https://arxiv.org/abs/2203.01017)
 - [DocLayNet Dataset](https://github.com/DS4SD/DocLayNet)
 
@@ -277,7 +277,7 @@ _No upstream calls._
 ### 13.4. Future — Missing pair integrations
 
 - **doc-processor ↔ weaviate** — *Why:* closes the RAG loop — Docling already emits structure-aware chunks; persisting them straight into the stack's vector store removes per-consumer reimplementation. *Mechanism:* post-convert callback writes to `http://weaviate:8080/v1/objects` (upstream ships `rag_weaviate.ipynb` showing the pattern). *Effort:* medium. *Confidence:* high.
-- **doc-processor ↔ minio** — *Why:* convert is slow (1-8s/page) and the same source is frequently re-requested. Caching `(sha256 → DocTags JSON)` in MinIO removes re-processing cost and gives stable S3 URIs that n8n/backend can reference. *Mechanism:* sidecar writes `s3://docling-cache/<sha>.json` via boto3 on convert; subsequent requests short-circuit. *Effort:* medium. *Confidence:* medium.
+- **doc-processor ↔ minio** — *Why:* conversion is slow and the same source is frequently re-requested. Caching `(sha256 → DocTags JSON)` in MinIO removes re-processing cost and gives stable S3 URIs that n8n/backend can reference. *Mechanism:* sidecar writes `s3://docling-cache/<sha>.json` via boto3 on convert; subsequent requests short-circuit. *Effort:* medium. *Confidence:* medium.
 - **doc-processor ↔ n8n** — *Why:* README invites this pattern but no shipped workflow exists. A first-party "PDF → markdown → Weaviate" workflow makes RAG ingest a two-click setup. *Mechanism:* `services/n8n/init/workflows/docling-rag.json` doing HTTP Request → `POST http://docling-gpu:8000/v1/document/convert` → Weaviate node. *Effort:* small. *Confidence:* high.
 - **doc-processor ↔ hermes** — *Why:* Hermes agents lack a "read this document" tool. Docling-MCP exposes convert/extract directly to MCP-capable runtimes. *Mechanism:* run `docling-mcp` as a streamable-HTTP MCP endpoint registered as a Hermes custom provider. *Effort:* medium. *Confidence:* medium.
 - **doc-processor ↔ redis** — *Why:* response-cache the slow conversions in the stack's already-deployed cache. *Mechanism:* keyed on `sha256(file)+options`, TTL 24h, stored at `redis://redis:6379/2` with compressed JSON. *Effort:* small. *Confidence:* medium.

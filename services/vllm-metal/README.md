@@ -60,7 +60,7 @@ All knobs live in `.env` (regenerated from `services/vllm-metal/service.yml`).
 | `VLLM_METAL_PYTHON` | `python3.12` | Interpreter used to build the managed venv (vLLM Metal requires 3.12). |
 | `VLLM_METAL_STATE_DIR` | `~/.atlas/vllm-metal` | Host dir holding the venv + pid/log/status files. A blank value uses the default. `./start.sh vllm-metal remove` refuses a dir that is, or is a parent of, the working directory, the repository, `$HOME` or the `~/.atlas` state root (`ATLAS_MANAGED_HOST_STATE_ROOT`). It compares file identity, so another spelling is refused too. |
 | `VLLM_METAL_MODELS_PATH` | _(blank)_ | Optional Hugging Face cache dir (`HF_HOME`); blank = default HF cache. `./start.sh vllm-metal remove` refuses to delete a state dir that contains this path. |
-| `VLLM_METAL_MIN_MEMORY_GB` | `16` | Unified-memory warning floor. A lower detected value warns and an unreadable value skips the check; neither blocks install/start or guarantees model fit. A value that is not a whole number (for example `15.5`) uses `16`, and install/start stop with an error that names it. |
+| `VLLM_METAL_MIN_MEMORY_GB` | `16` | Unified-memory warning floor. A lower detected value warns and an unreadable value skips the check; neither blocks install/start or guarantees model fit. A value that is not a whole number (for example `15.5`) stops a launch with an error. `stop`, `status` and `remove` then use `16`. |
 | `VLLM_METAL_ENDPOINT` | _(auto-managed)_ | Resolved `http://host.docker.internal:<port>`; consumed by litellm-init. Blank when disabled. |
 | `VLLM_METAL_SCALE` | _(auto-managed)_ | Always `0` — never a container. |
 
@@ -98,9 +98,12 @@ the same framework. vLLM-specific points:
   detected memory warns, and unreadable memory skips the check. These outcomes do not certify
   that the model fits in memory or prevent an out-of-memory failure.
 
-Startup reuses a running managed process without comparing its served model
-with a changed `VLLM_METAL_MODEL`. To change models, stop the existing process before restarting Atlas. Otherwise LiteLLM can advertise the new alias while the host
-process still serves the old model.
+Startup reuses a running managed process when its port and listen address
+match. It does not compare the served model with a changed `VLLM_METAL_MODEL`.
+To change models, stop the existing process before restarting Atlas: run
+`./start.sh vllm-metal stop`, then `./start.sh`.
+Otherwise LiteLLM can advertise the new alias while the host process still
+serves the old model.
 
 For explicit control, or a CI-safe read-only preflight, use the `vllm-metal`
 CLI group:
@@ -119,9 +122,9 @@ CLI group:
 unless the source is selected, and `fail` (with an actionable message) on an
 unsupported host.
 
-Install compares the recorded core and plugin versions and the installed
-distribution metadata on every launch. It rebuilds a stale environment without
-`--update`. Stop and status act on the whole process group, so worker
+Before each new launch, install compares the recorded core and plugin versions
+and the installed distribution metadata. It rebuilds a stale environment
+without `--update`. Stop and status act on the whole process group, so worker
 subprocesses cannot survive their server.
 
 ## 5. Architecture & wiring
@@ -193,9 +196,11 @@ Apple-silicon-only. On Intel Macs, Linux, or Windows, keep
 (`grep VLLM_METAL_ENDPOINT .env`). The litellm-init container registers the row only when
 the source is managed and the endpoint is non-blank.
 
-**First request hangs for a while** — vLLM loads weights lazily; the first
-completion blocks until the model is resident. Watch progress in the log
-(`~/.atlas/vllm-metal/vllm-metal.log`).
+**Start warns `still loading weights`** — `./start.sh` waits up to 120 s for
+`/v1/models`. A first weight download or a large model takes longer; start then
+warns and continues. Requests to the model fail or wait until the server is
+ready. Watch progress in `${VLLM_METAL_STATE_DIR}/vllm-metal.log` (default
+`~/.atlas/vllm-metal/vllm-metal.log`).
 
 **Port already in use** — another process holds
 `VLLM_METAL_LOCALHOST_PORT`. Free it or pick a different port; `start` refuses

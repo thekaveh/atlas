@@ -10,7 +10,7 @@ Set `CELERY_SOURCE=container` (wizard or `--celery-source container`) to run one
 
 ## 1. Overview
 
-The worker runs memory consolidation and RAG ingestion. `POST /memory/consolidate?async_job=true` returns a Celery job id at once. The FastAPI request does not stay open while the LangMem loop reads the database and calls the LLM. When this tier is enabled, RAG ingestion submissions dispatch the phase engine.
+`POST /memory/consolidate?async_job=true` returns a Celery job id at once. The FastAPI request does not stay open while the LangMem loop reads the database and calls the LLM. When this tier is enabled, RAG ingestion submissions dispatch the phase engine.
 
 Use `GET /jobs/{job_id}` to read the state: pending, running, success, retry, failure or revoked. `pending` is ambiguous. Celery reports it for an unknown id and for a result past its expiry (`result_expires`, default one day). A mistyped id, or a job polled more than a day after it finished, reads `pending` indefinitely.
 
@@ -48,12 +48,6 @@ Startup validation (worker and Backend) requires:
 
 Invalid values stop startup; there is no fallback to defaults.
 
-The soft time limit bounds each whole task except `rag_ingestion`. One ingestion includes its LightRAG drain, so it has its own `RAG_INGESTION_TASK_SOFT_TIME_LIMIT_SECONDS` / `RAG_INGESTION_TASK_TIME_LIMIT_SECONDS`. Empty means the larger of 3840 / 3900 s and the global limits.
-
-The worker keeps the visibility timeout at least 300 s above the longest hold. That hold is the RAG hard limit, or the global hard limit + 60 s for a delayed memory retry. A running ingestion is therefore not re-delivered.
-
-The Backend rejects a Celery ingestion whose graph targets' `timeout_seconds` sum to the soft limit or more, and names both values. Parsing, embedding and writing share that limit, so passing this check does not guarantee completion.
-
 The Backend and worker receive the same semantic-chunking and RAG lifecycle
 controls:
 
@@ -90,6 +84,12 @@ Kong   -> flower.localhost -> Flower
 Celery belongs to the `gen-ai-rag`, `gen-ai-eng` and `all` tracks. Its category is `agents`, because it runs asynchronous workflows. The ML and data tracks do not include it, because they have no backend async consumers.
 
 ## 5. Retry, Timeout, And Failure Behavior
+
+**Time limits.** The soft time limit bounds each whole task except `rag_ingestion`. One ingestion includes its LightRAG drain, so it has its own `RAG_INGESTION_TASK_SOFT_TIME_LIMIT_SECONDS` / `RAG_INGESTION_TASK_TIME_LIMIT_SECONDS`. Empty means the larger of 3840 / 3900 s and the global limits.
+
+The worker keeps the visibility timeout at least 300 s above the longest hold. That hold is the RAG hard limit, or the global hard limit + 60 s for a delayed memory retry. A running ingestion is therefore not re-delivered.
+
+The Backend rejects a Celery ingestion whose graph targets' `timeout_seconds` sum to the `rag_ingestion` soft limit or more, and names both values. Parsing, embedding and writing share that limit, so passing this check does not guarantee completion.
 
 The worker uses JSON task and result serialization, with Redis as broker and result backend. Memory consolidation tasks hit a soft time limit before the hard time limit, so the failure is recorded and no request stays open. The public job endpoint reports a Celery failure with the generic `Background job failed` message. Exception types are logged server-side; detailed errors and raw tracebacks remain in worker logs and Flower for operators.
 

@@ -25,7 +25,7 @@ Upstream has discontinued and archived Verba, so it gets no upstream security fi
 | `VERBA_SOURCE` | `disabled` | `container` starts Verba; `disabled` scales it to zero and removes its Kong route. |
 | `VERBA_IMAGE` | `semitechnologies/verba@sha256:0947d289ebff2c9814941c8d4282ee994dc79598e76162ae82e6efda4682b0b7` | Digest-pinned Docker Hub image. Upstream publishes `latest` but no matching `v2.1.3` tag. |
 | `VERBA_PORT` | topology allocated | Host port for the direct UI. |
-| `VERBA_WEAVIATE_URL` | auto-managed | Passed as upstream `WEAVIATE_URL_VERBA`. Verba 2.1.3 reads it only for its `Weaviate` (cloud cluster) deployment. The default `Docker` deployment always dials `weaviate:8080`. With `WEAVIATE_SOURCE=localhost`, choose `Custom` on Verba's connect screen and enter `host.docker.internal` and `WEAVIATE_LOCALHOST_PORT`. `host.docker.internal` resolves on Docker Desktop, but not by default on Linux Engine. |
+| `VERBA_WEAVIATE_URL` | auto-managed | Passed as upstream `WEAVIATE_URL_VERBA`. Verba 2.1.3 reads it only for its `Weaviate` (cloud cluster) deployment. The default `Docker` deployment always dials `weaviate:8080`. With `WEAVIATE_SOURCE=localhost`, choose `Custom` on Verba's connect screen and enter `host.docker.internal` and `WEAVIATE_LOCALHOST_PORT`. The Verba container maps `host.docker.internal` to the host gateway (`HOST_GATEWAY_IP`), so the name also resolves on Linux Engine. |
 | `VERBA_OPENAI_MODEL` | empty | LiteLLM chat model for Verba. Empty uses `LITELLM_DEFAULT_MODEL`. |
 | `VERBA_OPENAI_EMBED_MODEL` | empty | LiteLLM embedding model. Empty uses `LITELLM_EMBEDDING_MODEL`. |
 | `VERBA_DEFAULT_DEPLOYMENT` | `Docker` | Forces Verba toward external Weaviate instead of embedded local Weaviate. |
@@ -36,7 +36,7 @@ Verba receives `OPENAI_API_KEY=${LITELLM_MASTER_KEY}` and `OPENAI_BASE_URL=http:
 
 Verba depends on Weaviate and LiteLLM. It stores data in its own Weaviate classes and does not reuse Atlas backend collections. This keeps Verba's data separate; upstream expects its own data shape, not arbitrary Weaviate data.
 
-Docling is optional: use it to pre-process PDFs and Office files. Atlas has no automated Docling-to-Verba bridge, because Verba does not support its API for external ingestion.
+Docling is optional: use it to pre-process PDFs and Office files. Atlas has no automated Docling-to-Verba bridge, because upstream does not document Verba's API as a supported ingestion interface.
 
 Open WebUI is the primary Atlas chat surface. Verba is a reference RAG UI for inspecting Weaviate and LiteLLM behaviour.
 

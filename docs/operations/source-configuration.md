@@ -1,6 +1,6 @@
 # 6.2. SOURCE Configuration Guide
 
-This guide explains the SOURCE-based configuration system that makes Atlas flexible and modular.
+Each Atlas service has a `*_SOURCE` variable in `.env` that selects how it is deployed. This guide explains how to set these variables and lists the options for each service.
 
 ## 1. Interactive Setup Wizard
 
@@ -167,7 +167,7 @@ Each row lists the options from the service's `service.yml` `sources:` block; **
 | `MCP_SERVERS_SOURCE` | `container`, **`disabled`** | Read-only Postgres, Neo4j and SearXNG tools over Streamable HTTP at `/mcp` (`mcp.localhost`). Requires `NEO4J_GRAPH_DB_SOURCE=container` and `SEARXNG_SOURCE=container`. Tool output is untrusted. | [MCP Servers](../../services/mcp-servers/README.md) |
 | `MINIO_SOURCE` | **`container`**, `disabled` | S3-compatible object storage with scoped per-consumer buckets. See §4.3.3. | [MinIO](../../services/minio/README.md) |
 | `MLFLOW_SOURCE` | `container`, **`disabled`** | Experiment tracking at `mlflow.localhost`; JupyterHub gets `MLFLOW_TRACKING_URI=http://mlflow:5000`. Requires `MINIO_SOURCE=container`. Model promotion and serving are not included. | [MLflow](../../services/mlflow/README.md) |
-| `MULTI2VEC_CLIP_SOURCE` | **`container-cpu`**, `container-gpu`, `disabled` | CLIP vectorizer for Weaviate. See §4.3.2. | [multi2vec-clip](../../services/multi2vec-clip/README.md) |
+| `MULTI2VEC_CLIP_SOURCE` | **`container-cpu`**, `container-gpu`, `disabled` | CLIP vectorizer for Weaviate. `container-gpu` sets `ENABLE_CUDA=1`, but Compose requests no GPU device for it. This variable has no `sources:` block; it is declared in the Weaviate manifest. See §4.3.2. | [multi2vec-clip](../../services/multi2vec-clip/README.md) |
 | `N8N_SOURCE` | **`container`**, `disabled` | Workflow automation. | [n8n](../../services/n8n/README.md) |
 | `NEO4J_GRAPH_DB_SOURCE` | **`container`**, `localhost`†, `disabled` | Graph database. | [Neo4j](../../services/neo4j/README.md) |
 | `OPEN_WEB_UI_SOURCE` | **`container`**, `disabled` | Chat interface. | [Open WebUI](../../services/open-webui/README.md) |
@@ -306,7 +306,7 @@ Best for testing or resource-constrained environments:
 Set `OPENAI_API_KEY` in `.env`, or the key for the `CLOUD_*_SOURCE` you enabled.
 
 ### 5.4. Mixed Setup
-Combine different approaches for optimal performance:
+Combine host and container sources:
 
 ```bash
 # Local LLM, containerized GPU image generation and data services, no search.
@@ -348,7 +348,7 @@ CLI flags are written to `.env`, so they also apply to later runs:
 
 ## 7. Service Dependencies
 
-Understanding which services depend on others:
+This section gives the main runtime dependencies. [Service Dependencies](../reference/service-dependencies.md) lists every declared dependency.
 
 ### 7.1. Core Dependencies
 - **Backend / n8n / JupyterHub / Local Deep Researcher / OpenClaw** → read `LITELLM_BASE_URL` + `LITELLM_API_KEY` for LLM access. **Open WebUI** reaches the same gateway through `OPENAI_API_BASE_URLS` / `OPENAI_API_KEYS`. LiteLLM is always-on; `LLM_PROVIDER_SOURCE` and the `CLOUD_*_SOURCE` toggles select the upstream.

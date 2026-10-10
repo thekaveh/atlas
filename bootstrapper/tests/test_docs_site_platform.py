@@ -902,7 +902,11 @@ def test_canonical_docs_render_cleanly_on_github() -> None:
     ]
     assert leaks == []
 
-    # The styled homepage links keep their targets on every surface.
+
+def test_styled_homepage_links_keep_their_targets_on_every_surface() -> None:
+    """The raw `<a class>` links that replaced the attribute lists (#1493)
+    resolve in the source, keep their classes on the site, and become wiki
+    page links."""
     home = (ROOT / "docs" / "index.md").read_text(encoding="utf-8")
     links = re.findall(r'<a class="(atlas-[\w-]+)" href="([^"]+)">', home)
     assert links

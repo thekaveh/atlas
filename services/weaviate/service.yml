@@ -65,7 +65,7 @@ env:
     description: "Auto-managed by weaviate. Container/disabled."
   - name: MULTI2VEC_CLIP_SOURCE
     default: container-cpu
-    description: "Options: container-cpu, container-gpu, disabled. (Effects driven by hook.)"
+    description: "Options: container-cpu, container-gpu, disabled. container-gpu sets ENABLE_CUDA=1, but Compose reserves no GPU device yet. The CLIP container then fails to start; use container-cpu."
   - name: WEAVIATE_ENABLE_MODULES
     description: "Weaviate module list (ENABLE_MODULES). ./start.sh adds or removes multi2vec-clip to match MULTI2VEC_CLIP_SOURCE and keeps any other modules you list."
     default: "text2vec-openai,text2vec-ollama,multi2vec-clip,generative-openai,generative-ollama,backup-filesystem"

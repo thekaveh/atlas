@@ -75,8 +75,8 @@ on their host.
 
 - `transformers.Trainer` RCE (CVE-2026-1839, medium): **unreachable**.
   We use `transformers` transitively via easyocr for inference only and
-  never instantiate `Trainer`. Dismissed as `tolerable_risk` with this
-  rationale captured in the active remediation report.
+  never instantiate `Trainer`. Dismissed as `tolerable_risk`; the rationale
+  is in the 2026-05-14 remediation report (§8).
 - `urllib3` decompression-bomb (CVE-2026-44431/44432, high): **reachable**.
   The bootstrapper makes outbound HTTPS calls (Docker registry, Hugging Face,
   Ollama catalog). Floor-bumped immediately to clear.

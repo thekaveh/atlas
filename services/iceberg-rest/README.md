@@ -8,7 +8,7 @@ Apache Iceberg REST Catalog provides Atlas' table catalog for the data-engineeri
 
 In-stack clients use `http://iceberg-rest:8181`. Compose also publishes `ICEBERG_REST_PORT` on the host, loopback-only by default (`HOST_BIND_IP=127.0.0.1:`). The Compose-network API is unauthenticated, and the host-published API runs without Atlas authentication.
 
-Loopback does not stop web pages in your browser. Until open issue #1455 is fixed, the catalog accepts cross-site `text/plain` POSTs (table renames, metadata commits) from any origin. Remove the `ports:` entry when no host client needs it. Before you expose the stack on a shared network, firewall the port or remove the entry.
+Loopback does not stop web pages in your browser. Until open issue #1455 is fixed, the catalog accepts cross-site `text/plain` POSTs (table renames, metadata commits) from any origin. Remove the `ports:` entry in `services/iceberg-rest/compose.yml` when no host client needs it. Before you expose the stack on a shared network, firewall the port or remove the entry.
 
 ## 3. Configuration
 
@@ -21,6 +21,10 @@ Loopback does not stop web pages in your browser. Until open issue #1455 is fixe
 ## 4. Architecture & Wiring
 
 `supabase-db-init` creates the `iceberg` database and role (`services/supabase/db/scripts/05-scoped-roles.sh`). `iceberg-rest-init` checks the login before `iceberg-rest` starts. `iceberg-rest` then exposes the Apache Iceberg REST API backed by Supabase JDBC catalog metadata and MinIO object storage.
+
+The catalog warehouse is `s3://${MINIO_BUCKET_ICEBERG_LAKEHOUSE}/` (default `s3://lakehouse/`). The catalog reads and writes it through `S3FileIO` at `http://minio:9000` with the `iceberg` MinIO service account (`MINIO_ICEBERG_ACCESS_KEY`). Spark, Trino, Airflow, JupyterHub and Zeppelin derive their warehouse from the same variable.
+
+To exercise MERGE, time travel, branching, schema evolution, streaming and maintenance procedures against a running catalog, run the opt-in `scripts/smoke-iceberg-advanced-sql.sh`. Its `--help` lists the services it needs.
 
 Atlas builds a small local image from `ICEBERG_REST_IMAGE`. The upstream fixture image has the Iceberg JDBC catalog but not the PostgreSQL JDBC driver that Supabase persistence needs. `ICEBERG_REST_POSTGRES_JDBC_VERSION` pins that driver.
 

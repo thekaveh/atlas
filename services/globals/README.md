@@ -47,7 +47,7 @@ The [environment variable reference](../../docs/reference/env-vars.md) has the f
 
 ## 8. Runtime Integration
 
-Compose fragments bind published ports as `${HOST_BIND_IP-127.0.0.1:}`. An unset variable binds loopback; an explicitly empty value binds all interfaces. Ray, Zeppelin and mcp-servers always bind `127.0.0.1`.
+Compose fragments bind published ports as `${HOST_BIND_IP-127.0.0.1:}`. An unset variable binds loopback; an explicitly empty value binds all interfaces. Exceptions: Ray, Zeppelin and mcp-servers always bind `127.0.0.1`. Supabase DB, Docling and Parakeet use `${HOST_BIND_IP:-127.0.0.1:}`, so an empty value also binds loopback there.
 
 ## 9. Operations
 

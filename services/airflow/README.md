@@ -1,12 +1,14 @@
 # 5.2.1. Apache Airflow (DAG orchestrator)
 
+## 1. Overview
+
+Airflow schedules and runs Python-defined DAGs against the stack's data services: Spark, MinIO, Iceberg, Supabase Postgres and LiteLLM. It is disabled by default. The `data-eng` track prompts for it, or pass `--airflow-source container`.
+
 Airflow runs as four containers in the `agents` band:
 - `airflow-webserver`: Web UI and REST API (`airflow api-server`).
 - `airflow-scheduler`: LocalExecutor task runner. It starts after `airflow-webserver` is healthy, because tasks call the api-server's Execution API.
 - `airflow-dag-processor`: parses DAG files into the metadata DB. Airflow 3 requires it as a separate service.
 - `airflow-init`: runs on every start. It checks the database login, runs `airflow db migrate`, syncs the admin user and seeds Connections.
-
-## 1. Overview
 
 Image: `apache/airflow:3.3.2` (Apache 2.0), extended by `services/airflow/build/Dockerfile` with:
 - nine providers: apache-spark, amazon, postgres, redis, common-sql, weaviate, neo4j, openai, fab;
@@ -50,7 +52,7 @@ Auto-managed (resolved by the bootstrapper from `AIRFLOW_SOURCE`; do not hand-ed
 
 | Connection ID | Type | Target | Gated on |
 |---|---|---|---|
-| `postgres_supabase` | postgres | `supabase-db:5432/${SUPABASE_DB_NAME}` | always (required dep) |
+| `postgres_supabase` | postgres | `supabase-db:5432/${SUPABASE_DB_NAME}` as the scoped reader `${AIRFLOW_ATLAS_DB_USER}` | always (required dep) |
 | `litellm_default` | openai | `http://litellm:4000/v1` with `LITELLM_MASTER_KEY` (the `/v1` lives in conn.host because OpenAIHook ignores `api_base` extras) | always (LiteLLM is locked always-on) |
 | `redis_default` | redis | `redis:6379` with `REDIS_PASSWORD` | always (Redis ships container-only always-on, auth-on by default) |
 | `spark_default` | spark | `spark://spark-master:7077` with `deploy-mode=cluster`, `spark-binary=spark-submit` | `SPARK_SOURCE=container` |
@@ -78,7 +80,7 @@ The same pattern works for `spark_default`. Use direct `airflow.settings.Session
 
 ## 5. Sample DAG
 
-`services/airflow/dags/example_etl_with_llm.py` ships pre-loaded. Three `PythonOperator` steps that smoke-test each Connection:
+`services/airflow/dags/example_etl_with_llm.py` ships pre-loaded. It is scheduled `@daily` with `catchup=False`, and runs three `PythonOperator` steps that smoke-test the stack:
 
 1. `spark_smoke` checks that the Spark cluster answers through Spark Connect at `sc://spark-connect:15002` (`pyspark[connect]`). It does not use the seeded `spark_default` Connection, which points at `spark://spark-master:7077` for `SparkSubmitOperator` DAGs.
 2. `summarize_via_litellm` calls LiteLLM's chat-completions endpoint through `OpenAIHook.get_conn()`. It defaults to `ollama/qwen3.8:latest`. With `--llm-provider-source none` and `CLOUD_OPENAI_SOURCE=enabled`, switch to a cloud model such as `gpt-4o-mini`.
@@ -86,7 +88,7 @@ The same pattern works for `spark_default`. Use direct `airflow.settings.Session
 
 A commented LangChain block at the end of the file shows chain-based LLM steps in a `PythonOperator`. Apache publishes no LangChain provider, so wrap chains in a Python callable.
 
-Use it as a template. Drop your own DAGs into `services/airflow/dags/` — they're bind-mounted into the container.
+Use it as a template. Put your own DAGs in `services/airflow/dags/`. The folder is bind-mounted into the scheduler, DAG processor and API server.
 
 ### 5.1. Lakehouse SparkSubmit smoke
 

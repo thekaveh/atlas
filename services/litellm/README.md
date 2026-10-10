@@ -4,6 +4,8 @@
 
 LiteLLM is the always-on OpenAI-compatible front door for every LLM provider in the stack. The default consumers (Backend, Open WebUI, n8n, JupyterHub, Local Deep Researcher, OpenClaw, Weaviate vectorization) use **one URL** and **one API key**: `LITELLM_BASE_URL` and `LITELLM_API_KEY`. LiteLLM routes each request to the upstream for its model name. Services with a documented native-provider override, such as LightRAG role bindings, can bypass this path.
 
+To open the dashboard or call the API, see §6 Access. To check a running gateway, see §10 Smoke tests.
+
 When [Hermes Agent](../hermes/README.md) is enabled, `services/litellm/init/scripts/init.py` appends a `hermes-agent` row to `model_list`, with `api_base` `${HERMES_ENDPOINT}/v1` and the `os.environ/HERMES_API_KEY` bearer token. The row does not come from the YAML model catalogs, because Hermes is a service, not a model provider. Open WebUI, n8n, backend, jupyterhub and openclaw see `hermes-agent` in their model lists with no per-consumer wiring.
 
 ## 2. Image and ports
@@ -44,7 +46,7 @@ Consumers ──► litellm:4000 ──► Ollama / vLLM Metal / Cloud providers
 
 ## 5. Configuration
 
-The YAML model catalogs are the single source of truth for which models LiteLLM exposes.
+The YAML model catalogs and the wizard selections in `.env` decide which provider models LiteLLM exposes.
 
 ```
 services/ollama/models.yaml  ─┐
@@ -112,6 +114,8 @@ Atlas merges these rows into `model_list` at every start; it does not call the L
 
 ## 6. Access
 
+In the URLs and commands on this page, replace each `${VAR}` with the value of that variable in `.env`.
+
 | Surface | URL | Notes |
 |---|---|---|
 | Admin dashboard (Kong alias) | `http://litellm.localhost:${KONG_HTTP_PORT}/ui/` | **Use this from your browser.** A bare visit to `http://litellm.localhost:${KONG_HTTP_PORT}/` 302-redirects to `/ui/`. Requires `./start.sh --setup-hosts` so `litellm.localhost` resolves. |
@@ -159,7 +163,7 @@ Catalog rows may declare `metadata_version: 1`. Its provider-neutral fields are 
 
 LiteLLM receives the standard `model_info` fields and a namespaced `atlas_model_metadata` block. LightRAG and other consumers use it to assign roles without provider, model-family or hardware assumptions. A cloud model with no catalog row (for example one picked live from OpenAI) gets no top-level `model_info.mode`. LiteLLM's own model map then routes it, so a Responses-only model such as `gpt-5-pro` is not forced onto `/v1/chat/completions`.
 
-These `capabilities` are declarations. `./start.sh models probe` measures tool calling, JSON output, vision and embedding dimension through this gateway, on demand. It reports each declaration that does not hold and does not change model selection (see [Operations](../../docs/operations/index.md#1-runtime-commands)).
+These `capabilities` are declarations. `./start.sh models probe` measures tool calling, JSON output, vision and embedding dimension through this gateway, on demand. It reports each declaration that does not hold and does not change model selection (see [Operations §1.2](../../docs/operations/index.md#12-model-capability-probe)).
 
 Full metadata comes from the authenticated `GET /v1/model/info`. `GET /v1/models` is the compatibility listing and does not return the complete `model_info` payload:
 
@@ -240,8 +244,8 @@ psql -h localhost -p ${SUPABASE_DB_PORT} -U supabase_admin -d litellm -c "SELECT
 
 ## 11. Bypass paths
 
-- **`ollama-pull`** still talks to the Ollama upstream directly (`/api/pull`) — model pulls are not OpenAI-compatible and don't go through LiteLLM. The compose service injects `OLLAMA_HOST_URL` from `LITELLM_OLLAMA_UPSTREAM`. The pull container does not run when `LLM_PROVIDER_SOURCE=none` (`OLLAMA_PULL_SCALE=0`).
-- **Open WebUI's native Ollama UI features** (model pulls in the UI) are disabled — `ENABLE_OLLAMA_API: "false"` is set in compose. Use the `ollama-pull` init container or `docker exec -it $PROJECT_NAME-ollama ollama pull <model>` for direct pulls.
+- **`ollama-pull`** calls the Ollama upstream directly (`/api/pull`), because model pulls are not OpenAI-compatible. Compose sets its `OLLAMA_HOST_URL` from `LITELLM_OLLAMA_UPSTREAM`. It runs only for the `ollama-container-*` sources; for other sources `OLLAMA_PULL_SCALE=0`. For `ollama-localhost`, the bootstrapper pulls onto the host daemon instead ([Ollama §5](../ollama/README.md)).
+- **Open WebUI's native Ollama UI features** (model pulls in the UI) are disabled — `ENABLE_OLLAMA_API: "false"` is set in compose. To pull a model directly on an `ollama-container-*` source, run `docker exec -it $PROJECT_NAME-ollama ollama pull <model>`. On `ollama-localhost`, run `ollama pull <model>` on the host.
 
 ## 12. Backup option
 

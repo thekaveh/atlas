@@ -1,8 +1,23 @@
 # 7.1. Operations
 
+This page is for operators who run an Atlas stack. It lists the start, stop and
+diagnostic commands and explains automation, validation, support bundles and
+managed host processes.
+
+Related operator pages:
+
+- [SOURCE Configuration](source-configuration.md): the deployment mode of each service.
+- [Ports and Routes](ports-and-routes.md): the port block and the Kong hostnames.
+- [Access and Credentials](access-and-credentials.md): login details and secrets.
+- [Expected Startup Warnings](expected-startup-warnings.md): log lines you can ignore.
+- [Reusing Atlas](reusing-atlas.md) and [Submodule Usage](submodule-usage.md): Atlas inside a parent project.
+- [Troubleshooting](../TROUBLESHOOTING.md): recovery steps for failed starts.
+
 ## 1. Runtime Commands
 
-Every line below is a complete, safe-to-run command:
+Each line below is a complete command. None of them deletes data or edits the
+host; §1.1 lists the commands that do. The `--consumer` lines need an
+`atlas.consumer.yml` file in the current directory.
 
 ```bash
 ./start.sh
@@ -23,15 +38,6 @@ Every line below is a complete, safe-to-run command:
 ./start.sh storage inventory
 ./stop.sh
 ```
-
-`./start.sh models probe` measures model capabilities through the running LiteLLM gateway. It does not trust the catalog.
-
-- **What it probes.** Each probe sends one request that has a fixed expected answer. Tool calling: the model must call an offered tool. JSON output: a JSON object that answers 2+2. Vision: name the colour of a red square. Embedding dimension: the same probe that `lightrag-init` uses.
-- **Scope.** By default it probes the configured default chat, vision and embedding models, for the capabilities their catalog entry declares. `--model` and `--kind` narrow it.
-- **Cost guard.** It prints the request count first. It refuses a run over `--max-requests` (default 20, exit 3), because cloud probes are billed.
-- **Verdicts.** Each result is `supported`, `unsupported` or `unavailable`. `unavailable` means the gateway is unreachable or failed, or it answered with an authentication, unknown-model, timeout or rate-limit error. These errors say nothing about the model. A declared capability that measures `unsupported` is a failure, and the command exits 1.
-- **Storage.** Results go to the gitignored `volumes/litellm/capability-probes.json`, keyed by model, provider, gateway alias and catalog revision. A stored `supported` or `unsupported` verdict is reused only for the same key. `unavailable` is measured again, and `--refresh` measures everything again. Every result, new or stored, is printed.
-- **Connection.** It reaches the gateway on `HOST_BIND_IP` (default `127.0.0.1`) and `LITELLM_PORT`. Probes never run during `./start.sh` and never change model selection.
 
 Before a subcommand (`doctor`, `endpoints`, `env`, `compose`, `managed-host`, …) only `--consumer` applies; it is exported for the subcommand. Output-mode flags (`--no-tui`, `--json`, `--no-splash`, `--detach`) are accepted there and ignored. Any other start option there, such as `-p` or `--base-port`, has no effect, and Atlas prints a warning that names it. Subcommands read the project and ports from `.env`.
 
@@ -64,7 +70,16 @@ running containers:
 ./start.sh storage clean        # deletes removable Ollama/ComfyUI model files; selected or routed ones are retained (--yes skips the prompt)
 ```
 
-`--no-tui --detach` also accepts `--json` for machine-readable status (see §2).
+### 1.2. Model capability probe
+
+`./start.sh models probe` measures model capabilities through the running LiteLLM gateway. It does not trust the catalog.
+
+- **What it probes.** Each probe sends one request that has a fixed expected answer. Tool calling: the model must call an offered tool. JSON output: a JSON object that answers 2+2. Vision: name the colour of a red square. Embedding dimension: the same probe that `lightrag-init` uses.
+- **Scope.** By default it probes the configured default chat, vision and embedding models, for the capabilities their catalog entry declares. `--model` and `--kind` narrow it.
+- **Cost guard.** It prints the request count first. It refuses a run over `--max-requests` (default 20, exit 3), because cloud probes are billed.
+- **Verdicts.** Each result is `supported`, `unsupported` or `unavailable`. `unavailable` means the gateway is unreachable or failed, or it answered with an authentication, unknown-model, timeout or rate-limit error. These errors say nothing about the model. A declared capability that measures `unsupported` is a failure, and the command exits 1.
+- **Storage.** Results go to the gitignored `volumes/litellm/capability-probes.json`, keyed by model, provider, gateway alias and catalog revision. A stored `supported` or `unsupported` verdict is reused only for the same key. `unavailable` is measured again, and `--refresh` measures everything again. Every result, new or stored, is printed.
+- **Connection.** It reaches the gateway on `HOST_BIND_IP` (default `127.0.0.1`) and `LITELLM_PORT`. Probes never run during `./start.sh` and never change model selection.
 
 ## 2. Automation
 

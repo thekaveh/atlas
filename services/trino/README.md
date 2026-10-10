@@ -13,23 +13,23 @@ Atlas runs one coordinator, one `lakehouse` catalog and no workers. The catalog 
 | Surface | URL | Notes |
 |---|---|---|
 | Kong | `http://trino.localhost:${KONG_HTTP_PORT}` | Routed only when `TRINO_SOURCE=container`, behind Kong dashboard basic auth. Kong removes the credential before forwarding, because Trino rejects any password over plain HTTP. The coordinator sets `http-server.process-forwarded=true` (in `JAVA_TOOL_OPTIONS`) so it accepts Kong's `X-Forwarded-*` headers instead of answering 406. |
-| Direct | `http://localhost:${TRINO_PORT}` | Coordinator UI and HTTP API. |
+| Direct | `http://localhost:${TRINO_PORT}` | Coordinator UI and HTTP API, with no authentication. Bound through `HOST_BIND_IP` (default `127.0.0.1:`, loopback only). |
 | In-network | `http://trino:8080` | Use from notebooks, Zeppelin JDBC, Airflow tasks, and other containers. |
 
 ## 3. Configuration
 
 ```dotenv
-TRINO_SOURCE=disabled
+TRINO_SOURCE=disabled                # container | disabled
 TRINO_IMAGE=trinodb/trino:482
-TRINO_PORT=
-TRINO_SCALE=
-ICEBERG_REST_SOURCE=disabled
-MINIO_SOURCE=container
+TRINO_PORT=                          # topology-assigned
+TRINO_SCALE=                         # set by ./start.sh from TRINO_SOURCE
 ```
 
-`TRINO_SOURCE=container` requires both `MINIO_SOURCE=container` and `ICEBERG_REST_SOURCE=container`. The bootstrapper fails early if either dependency is disabled.
+`TRINO_SOURCE=container` also needs `MINIO_SOURCE=container` and `ICEBERG_REST_SOURCE=container`. If either is disabled, `./start.sh` reports a dependency violation and scales Trino to 0.
 
 ## 4. Architecture & Wiring
+
+### 4.1. Catalog and authentication
 
 The mounted catalog file at `services/trino/catalog/lakehouse.properties` defines:
 
@@ -41,6 +41,8 @@ The mounted catalog file at `services/trino/catalog/lakehouse.properties` define
 - scoped Iceberg MinIO credentials through `${ENV:MINIO_ICEBERG_ACCESS_KEY}` and `${ENV:MINIO_ICEBERG_SECRET_KEY}`
 
 Atlas runs Trino with no Trino authenticator configured. The example user `atlas` is a convention shared by Atlas notebooks and clients, not an authentication boundary: the local coordinator accepts any user string. Do not use this setup as access control.
+
+### 4.2. Query the lakehouse
 
 Minimal SQL smoke once Spark or another writer has created tables:
 
@@ -102,7 +104,7 @@ SELECT * FROM lakehouse.gold.atlas_trino_ctas_smoke;
 DROP TABLE lakehouse.gold.atlas_trino_ctas_smoke;
 ```
 
-Atlas does not create bronze/silver/gold namespaces at stack startup; data-eng-lab or the operator owns those namespaces. The `CREATE SCHEMA` line is part of the live smoke only.
+Atlas does not create bronze/silver/gold namespaces at stack startup; a downstream project or the operator owns those namespaces. The `CREATE SCHEMA` line is part of the live smoke only.
 
 ## 5. Dependencies & Integrations
 

@@ -27,8 +27,9 @@ The runtime uses the standalone **FastMCP 3** framework (`fastmcp==3.4.4`), pinn
 |---|---:|---|
 | `MCP_SERVERS_SOURCE` | `disabled` | Enables or disables the curated MCP package. |
 | `MCP_SERVERS_PORT` | generated | Host port assigned by Atlas topology. |
+| `MCP_POSTGRES_DB_USER` | `atlas_mcp` | Restricted read-only Postgres login used by the Postgres tool (§6). Its password is generated. |
 | `MCP_POSTGRES_MAX_ROWS` | `50` | Maximum rows returned by the Postgres tool. |
-| `MCP_NEO4J_MAX_ROWS` | `50` (falls back to `MCP_POSTGRES_MAX_ROWS`) | Maximum rows returned by the Neo4j tool. |
+| `MCP_NEO4J_MAX_ROWS` | empty | Maximum rows returned by the Neo4j tool. Empty uses `MCP_POSTGRES_MAX_ROWS`. |
 | `MCP_SEARXNG_MAX_RESULTS` | `5` | Maximum results returned by the SearXNG tool. |
 | `MCP_TOOL_TIMEOUT_SECONDS` | `15` | Upstream call timeout. |
 
@@ -78,7 +79,7 @@ _No high-confidence opportunities identified._
 
 ### 5.5. Future — Candidate new services
 
-_No high-confidence opportunities identified._
+- Docling MCP is the first candidate for a specialist MCP server, because upstream supports remote Docling Serve and Streamable HTTP. It needs its own disabled SOURCE and a decision on document-upload authorization.
 
 ### 5.6. Future — Unused features in this service
 
@@ -86,7 +87,7 @@ _No high-confidence opportunities identified._
 
 ## 6. Security & Guardrails
 
-- Guardrail summary: consent, credential handling, namespace discipline, syntactic query filters, prompt-injection awareness, and bounded result sizes are part of the v1 contract. These controls do not provide tenant isolation or complete side-effect prevention.
+- Guardrail summary: consent, credential handling, namespace discipline, syntactic query filters, prompt-injection awareness, and bounded result sizes are part of the current contract. These controls do not provide tenant isolation or complete side-effect prevention.
 - Consent: MCP clients should expose tools only after an operator intentionally enables `MCP_SERVERS_SOURCE=container` and registers the endpoint.
 - Credential handling: database credentials stay in the container environment; never paste them into client configs. The Postgres tool connects as the scoped read-only `atlas_mcp` role (`MCP_POSTGRES_DB_USER`), not the RLS-bypassing `supabase_admin` owner. The role has no superuser or BYPASSRLS rights. It can SELECT tables in the `public`, `n8n` and `storage` schemas; RLS-enabled Atlas tables return no rows to it.
 - Credential deny list: these tables and columns are revoked from the role:
@@ -108,17 +109,13 @@ _No high-confidence opportunities identified._
 - Host/Origin boundary: see §4. The check defends against DNS rebinding; it is not authentication. All `backend-network` containers bypass Kong's Basic Auth/ACL policy.
 - Framework pinning: `fastmcp==3.4.4` and `mcp==1.28.1` are pinned exactly, because FastMCP permits breaking changes in minor releases. The image build runs `pip check`. Bump both together. Before upgrading, re-run `bootstrapper/tests/test_mcp_servers_framework.py`; it exercises the real FastMCP client, the `/mcp` transport and the Host/Origin guard.
 
-## 7. Docling MCP Follow-Up
-
-Docling MCP is the first candidate for a specialist MCP server, because upstream supports remote Docling Serve and Streamable HTTP. Add it behind its own disabled SOURCE after deciding how document-upload authorization works.
-
-## 8. Troubleshooting
+## 7. Troubleshooting
 
 - If startup fails with a Neo4j or SearXNG dependency error, enable the missing service or keep `MCP_SERVERS_SOURCE=disabled`.
 - If SearXNG search returns 403, confirm the in-stack SearXNG instance has JSON output enabled.
 - If Open WebUI cannot call the Kong URL, configure the MCP server as Streamable HTTP and include the required Kong Basic Auth credentials.
 
-## 9. Capabilities & limitations
+## 8. Capabilities & limitations
 
 Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 

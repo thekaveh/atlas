@@ -14,11 +14,11 @@ In this stack, LightRAG reuses existing infrastructure:
 - **Vector store** → Supabase pgvector (`PGVectorStorage`).
 - **Graph store** → Neo4j (`Neo4JStorage`). `LIGHTRAG_NEO4J_URI` follows `NEO4J_GRAPH_DB_SOURCE`: `bolt://neo4j-graph-db:7687` for the container, `bolt://host.docker.internal:${NEO4J_LOCALHOST_BOLT_PORT}` for a host-run Neo4j.
 - **KV + doc-status** → Redis (`RedisKVStorage`).
-- **Document parsing** → LightRAG's `native` engine for docx/md/textpack, and `legacy` text extraction for everything else, including PDFs. Compose fixes `LIGHTRAG_PARSER=*:native-teP,*:legacy-R`; `.env` cannot change it. When in-stack LightRAG and Docling are both enabled, a file goes to Docling only if its name has the `.[docling].` hint (for example `report.[docling].pdf`). Docling is reached through an isolated adapter (`LIGHTRAG_DOCLING_ENDPOINT`) that holds the Docling credential (§4.3).
+- **Document parsing** → LightRAG's `native` engine for docx/md/textpack, and `legacy` text extraction for everything else, including PDFs. Compose fixes `LIGHTRAG_PARSER=*:native-teP,*:legacy-R`; `.env` cannot change it. When in-stack LightRAG and Docling are both enabled, a file goes to Docling only if its name has the `.[docling].` hint (for example `report.[docling].pdf`). Docling is reached through an isolated adapter (`LIGHTRAG_DOCLING_ENDPOINT`) that holds the Docling credential (§4.3). Without that route, images get text extraction only.
 - **Credentials** → the base and embedding LLM bindings always send `LITELLM_MASTER_KEY`. Point `LIGHTRAG_LLM_BINDING_HOST` and `LIGHTRAG_EMBEDDING_BINDING_HOST` only at LiteLLM. Any other host, native Ollama included, also receives the master key.
-- **Reranking** is off by default. To enable it, set `LIGHTRAG_RERANK_ADAPTER_ENABLED=true` with `TEI_RERANKER_SOURCE` enabled (see §3 and the [backend README §5.1](../backend/README.md)).
+- **Reranking** is off by default. To enable it, set `LIGHTRAG_RERANK_ADAPTER_ENABLED=true` with `TEI_RERANKER_SOURCE` enabled (see §3.6 and the [backend README §5.1](../backend/README.md)).
 
-When Supabase, Neo4j or Redis is disabled, Atlas clears that backend's connection URI but keeps the storage selector. Atlas does not select file-backed storage automatically. For a file-backed mode, set the `LIGHTRAG_*_STORAGE` selector yourself and provide persistence. Images are extracted as text unless the file has the `.[docling].` hint and Docling is enabled.
+When Supabase, Neo4j or Redis is disabled, Atlas clears that backend's connection URI but keeps the storage selector. Atlas does not select file-backed storage automatically. For a file-backed mode, set the `LIGHTRAG_*_STORAGE` selector yourself and provide persistence (§6).
 
 ## 2. Source variants
 
@@ -28,7 +28,11 @@ When Supabase, Neo4j or Redis is disabled, Atlas clears that backend's connectio
 | `localhost` | 0 | `http://host.docker.internal:${LIGHTRAG_LOCALHOST_PORT}` | Host-installed LightRAG |
 | `disabled` | 0 | `""` | LightRAG off; consumers see empty endpoint |
 
+LightRAG is off by default. To enable it, run `./start.sh --lightrag-source container`, or set `LIGHTRAG_SOURCE=container` in `.env`. The `gen-ai-rag` track also prompts for it.
+
 ## 3. Configuration
+
+### 3.1. Storage and model variables
 
 Storage selectors and model bindings can be overridden via `.env`:
 
@@ -52,34 +56,9 @@ LIGHTRAG_EMBEDDING_MODEL=                           # empty = inherit LITELLM_EM
 LIGHTRAG_VLM_PROCESS_ENABLE=true                    # vision LLM for images/figures
 ```
 
+### 3.2. Role models
+
 LightRAG v1.5 has separate LLM settings for three roles: extraction, keyword extraction and query answering. Atlas exposes them as `LIGHTRAG_EXTRACT_*`, `LIGHTRAG_KEYWORD_*` and `LIGHTRAG_QUERY_*`, and maps them to LightRAG's `EXTRACT_*`, `KEYWORD_*` and `QUERY_*`. An empty role value inherits the base `LLM_*` setting. When `LIGHTRAG_LLM_MODEL` is empty, `lightrag-init` resolves the base model.
-
-Role API keys (`LIGHTRAG_EXTRACT_LLM_BINDING_API_KEY`, `LIGHTRAG_KEYWORD_LLM_BINDING_API_KEY`, `LIGHTRAG_QUERY_LLM_BINDING_API_KEY`) are resolved at start by `init/scripts/resolve-role-keys.py`. It follows LightRAG 1.5.4's own host resolution:
-
-- An empty role host means the base `LLM_BINDING_HOST`. An `azure_openai` role on its own binding defaults to `AZURE_OPENAI_ENDPOINT` instead.
-- If the role's effective host is the in-network LiteLLM (`litellm:4000`), an empty key becomes `LITELLM_MASTER_KEY`. LiteLLM-routed roles need no key wiring.
-- If a role has its own binding or host that resolves anywhere else, set its key. Otherwise the container stops at start and names the variable. This keeps the master key inside LiteLLM.
-- A role that only mirrors the base binding and host is left unchanged. A Bedrock role never gets a key; LightRAG signs it with AWS credentials.
-
-> **Observability caveat.** A role whose `*_LLM_BINDING_HOST` points at a native provider (for example Ollama directly) is **off the LiteLLM gateway**. Langfuse tracing in Atlas is gateway-level, so that role's calls produce no traces, and nothing warns. See [Langfuse §4.2](../langfuse/README.md).
-
-**Catalog request defaults across the role boundary.** A model's `request_defaults` in the Ollama catalog (`services/ollama/models.yaml`) reach the model only through LiteLLM. The catalog sets `think: false` on `qwen3.8:latest`. `litellm-init` renders them into the model's `litellm_params`.
-
-A native LightRAG 1.5.4 binding does not send them. The Ollama binding forwards only Ollama's `options` object ([`binding_options.py#L435`](https://github.com/HKUDS/LightRAG/blob/v1.5.4/lightrag/llm/binding_options.py#L435), [`lightrag_server.py#L1739-L1740`](https://github.com/HKUDS/LightRAG/blob/v1.5.4/lightrag/api/lightrag_server.py#L1739-L1740)), and `think` is a top-level field beside it. So `resolve-role-keys.py` reads the catalog (read-only mount) and sets each role's transport at start:
-
-- **A role that would inherit a native base stays on LiteLLM.** Example: `LIGHTRAG_LLM_BINDING` and `LIGHTRAG_LLM_BINDING_HOST` point at `ollama` on `http://host.docker.internal:11434` (`LLM_PROVIDER_SOURCE=ollama-localhost`). Take a role whose model declares catalog `request_defaults` and that sets no binding, host or key. Atlas binds it to `openai` at `http://litellm:4000/v1` with the LiteLLM master key.
-  - LiteLLM applies the defaults, so the role sends the same request it would on the default path.
-  - The cost is one gateway hop for that role, which also brings it back under Langfuse tracing.
-  - The role's model must be one LiteLLM serves. Every Ollama catalog model is while an `ollama-*` `LLM_PROVIDER_SOURCE` is selected.
-  - A routed `EXTRACT` is no longer bound to Ollama, so the `EXTRACT_OLLAMA_LLM_*` caps below do not apply to it.
-- **A role whose model declares none keeps the base binding.** Embedding entries, and chat entries without `request_defaults`, resolve as before. A role on such a model still goes native.
-- **Explicit role settings win.** A role that sets its own `LIGHTRAG_<ROLE>_LLM_BINDING`, `_BINDING_HOST` or `_BINDING_API_KEY` is never re-routed. If those settings put it on a native host, it cannot receive its model's defaults, and the start log and doctor say so.
-- **Where to see it.** At start, the container logs one `lightrag: <ROLE> role: …` line per role, with binding, host, model and request defaults (never a key). `./start.sh doctor` reports the same in its `lightrag-role-transport` check and warns when a role loses its defaults. LightRAG's `/health` shows each role's `binding`, `host` and `model` under `configuration.role_llm_config`, with keys stripped.
-- **End-to-end test.** On a development stack, `scripts/smoke-lightrag-role-models.sh` uploads a document, runs a query, and checks LiteLLM's logs for each role's model. The two role models must differ. `LIGHTRAG_SMOKE_WAIT_SECONDS` (default 30) sets the extraction wait.
-
-Atlas also exposes LightRAG's query defaults: `LIGHTRAG_QUERY_ENABLE_RERANK`, `LIGHTRAG_QUERY_TOP_K`, `LIGHTRAG_QUERY_CHUNK_TOP_K` and `LIGHTRAG_QUERY_MAX_TOTAL_TOKENS`. The numeric values default to integers, because LightRAG v1.5 parses them as integers and rejects empty strings.
-
-**Reranking.** `LIGHTRAG_QUERY_ENABLE_RERANK` defaults to `false`. LightRAG's Jina/Cohere rerank clients send `{query, documents}`, but TEI's `/rerank` expects `{query, texts}`, so Atlas never wires LightRAG directly to TEI. To rerank, set `LIGHTRAG_RERANK_ADAPTER_ENABLED=true` with `TEI_RERANKER_SOURCE` enabled. Atlas then sets `RERANK_BINDING=jina` and `RERANK_BINDING_HOST=http://backend:8000/lightrag/rerank`, and passes the adapter's bearer token as `RERANK_BINDING_API_KEY`. See the [backend README §5.1](../backend/README.md).
 
 For local Ollama graph RAG, use a fast non-reasoning model for `EXTRACT` and `KEYWORD`, and reserve the stronger answer model for `QUERY`:
 
@@ -92,7 +71,36 @@ LIGHTRAG_QUERY_LLM_MODEL=qwen3.8:latest
 
 Atlas does not ship these model names as defaults. Without role variables, LightRAG uses one model for all roles.
 
-**Extract-role generation caps on native Ollama.** To run only the EXTRACT role on native Ollama, set its model, binding, host and key:
+### 3.3. Role API keys
+
+Role API keys (`LIGHTRAG_EXTRACT_LLM_BINDING_API_KEY`, `LIGHTRAG_KEYWORD_LLM_BINDING_API_KEY`, `LIGHTRAG_QUERY_LLM_BINDING_API_KEY`) are resolved at start by `init/scripts/resolve-role-keys.py`. It follows LightRAG 1.5.4's own host resolution:
+
+- An empty role host means the base `LLM_BINDING_HOST`. An `azure_openai` role on its own binding defaults to `AZURE_OPENAI_ENDPOINT` instead.
+- If the role's effective host is the in-network LiteLLM (`litellm:4000`), an empty key becomes `LITELLM_MASTER_KEY`. LiteLLM-routed roles need no key wiring.
+- If a role has its own binding or host that resolves anywhere else, set its key. Otherwise the container stops at start and names the variable. This keeps the master key inside LiteLLM.
+- A role that only mirrors the base binding and host is left unchanged. A Bedrock role never gets a key; LightRAG signs it with AWS credentials.
+
+> **Observability caveat.** A role whose `*_LLM_BINDING_HOST` points at a native provider (for example Ollama directly) is **off the LiteLLM gateway**. Langfuse tracing in Atlas is gateway-level, so that role's calls produce no traces, and nothing warns. See [Langfuse §4.2](../langfuse/README.md).
+
+### 3.4. Catalog request defaults and role transport
+
+A model's `request_defaults` in the Ollama catalog (`services/ollama/models.yaml`) reach the model only through LiteLLM. The catalog sets `think: false` on `qwen3.8:latest`. `litellm-init` renders them into the model's `litellm_params`.
+
+A native LightRAG 1.5.4 binding does not send them. The Ollama binding forwards only Ollama's `options` object ([`binding_options.py#L435`](https://github.com/HKUDS/LightRAG/blob/v1.5.4/lightrag/llm/binding_options.py#L435), [`lightrag_server.py#L1739-L1740`](https://github.com/HKUDS/LightRAG/blob/v1.5.4/lightrag/api/lightrag_server.py#L1739-L1740)), and `think` is a top-level field beside it. So `resolve-role-keys.py` reads the catalog (read-only mount) and sets each role's transport at start:
+
+- **A role that would inherit a native base stays on LiteLLM.** Example: `LIGHTRAG_LLM_BINDING` and `LIGHTRAG_LLM_BINDING_HOST` point at `ollama` on `http://host.docker.internal:11434` (`LLM_PROVIDER_SOURCE=ollama-localhost`). Take a role whose model declares catalog `request_defaults` and that sets no binding, host or key. Atlas binds it to `openai` at `http://litellm:4000/v1` with the LiteLLM master key.
+  - LiteLLM applies the defaults, so the role sends the same request it would on the default path.
+  - The cost is one gateway hop for that role, which also brings it back under Langfuse tracing.
+  - The role's model must be one LiteLLM serves. Every Ollama catalog model is served while an `ollama-*` `LLM_PROVIDER_SOURCE` is selected.
+  - A routed `EXTRACT` is no longer bound to Ollama, so the `EXTRACT_OLLAMA_LLM_*` caps below do not apply to it.
+- **A role whose model declares none keeps the base binding.** Embedding entries, and chat entries without `request_defaults`, resolve as before. A role on such a model still goes native.
+- **Explicit role settings win.** A role that sets its own `LIGHTRAG_<ROLE>_LLM_BINDING`, `_BINDING_HOST` or `_BINDING_API_KEY` is never re-routed. If those settings put it on a native host, it cannot receive its model's defaults, and the start log and doctor say so.
+- **Where to see it.** At start, the container logs one `lightrag: <ROLE> role: …` line per role, with binding, host, model and request defaults (never a key). `./start.sh doctor` reports the same in its `lightrag-role-transport` check and warns when a role loses its defaults. LightRAG's `/health` shows each role's `binding`, `host` and `model` under `configuration.role_llm_config`, with keys stripped.
+- **End-to-end test.** On a development stack, `scripts/smoke-lightrag-role-models.sh` uploads a document, runs a query, and checks LiteLLM's logs for each role's model. The two role models must differ. `LIGHTRAG_SMOKE_WAIT_SECONDS` (default 30) sets the extraction wait.
+
+### 3.5. Extract-role caps on native Ollama
+
+To run only the EXTRACT role on native Ollama, set its model, binding, host and key:
 
 ```env
 LIGHTRAG_EXTRACT_LLM_MODEL=mistral-small3.2:24b          # required for a role on its own binding
@@ -132,6 +140,14 @@ In LightRAG v1.5.4, a role whose binding differs from the base binding (`openai`
   - The drain moves on to the next document ([`pipeline.py#L1998-L2029`](https://github.com/HKUDS/LightRAG/blob/v1.5.4/lightrag/pipeline.py#L1998-L2029)), and the failed one is re-queued on the next processing pass.
   - Skipping just the chunk and keeping a partial graph for that document is not configurable in 1.5.4.
 
+### 3.6. Query defaults and reranking
+
+Atlas exposes LightRAG's query defaults: `LIGHTRAG_QUERY_ENABLE_RERANK`, `LIGHTRAG_QUERY_TOP_K`, `LIGHTRAG_QUERY_CHUNK_TOP_K` and `LIGHTRAG_QUERY_MAX_TOTAL_TOKENS`. The numeric values default to integers, because LightRAG v1.5 parses them as integers and rejects empty strings.
+
+**Reranking.** `LIGHTRAG_QUERY_ENABLE_RERANK` defaults to `false`. LightRAG's Jina/Cohere rerank clients send `{query, documents}`, but TEI's `/rerank` expects `{query, texts}`, so Atlas never wires LightRAG directly to TEI. To rerank, set `LIGHTRAG_RERANK_ADAPTER_ENABLED=true` with `TEI_RERANKER_SOURCE` enabled. Atlas then sets `RERANK_BINDING=jina` and `RERANK_BINDING_HOST=http://backend:8000/lightrag/rerank`, and passes the adapter's bearer token as `RERANK_BINDING_API_KEY`. See the [backend README §5.1](../backend/README.md).
+
+### 3.7. Generated and derived variables
+
 The bootstrapper derives the Docling adapter endpoint; do not set it. It is set only for `LIGHTRAG_SOURCE=container` with Docling enabled. Localhost LightRAG gets an empty endpoint, because the adapter has no host port.
 
 The bootstrapper generates two security variables on first launch and writes them to `.env`:
@@ -148,6 +164,7 @@ LightRAG's default `WHITELIST_PATHS=/health,/api/*` leaves `/health` and the Oll
 - While `/api/*` is open, a blind cross-site POST can still spend model tokens without reading the reply.
 
 Without `LIGHTRAG_TOKEN_SECRET`, LightRAG uses a hardcoded default JWT key, which is a security risk. The bootstrapper generates both values only when they are absent, so values you set are kept. After you rotate `LIGHTRAG_API_KEY`, re-run `litellm-init`: it writes the key into LiteLLM's `lightrag` model.
+
 
 ## 4. Usage
 
@@ -249,7 +266,9 @@ _No high-confidence opportunities identified._
 
 With a cleared URI and the default selector, LightRAG fails at start; the bootstrapper prints a warning that names the selector. To run without that backend, set the `LIGHTRAG_*_STORAGE` selector to a local class.
 
-The stack backup (`services/backup`) does not cover the KV and doc-status data in Redis `db=2`. A restore therefore brings back the graph and vectors without the documents and chunks they reference. `LIGHTRAG_WORKERS` has no effect: the server runs as one uvicorn process.
+The stack backup (`services/backup`) does not cover the KV and doc-status data in Redis `db=2`. A restore therefore brings back the graph and vectors without the documents and chunks they reference.
+
+`LIGHTRAG_WORKERS` has no effect: the server runs as one uvicorn process.
 
 ## 7. Init container
 
@@ -265,9 +284,9 @@ The stack backup (`services/backup`) does not cover the KV and doc-status data i
 - **First boot exceeds health-check timeout** — `start_period` is 300 s. Initial tokenizer, embedding-model, and document-parser setup can take several minutes.
 - **First boot logs missing PostgreSQL tables** — expected on a cold volume. LightRAG probes for its tables, logs relation-missing errors, then creates the tables and indexes before reporting healthy.
 - **`lightrag: LightRAG <ROLE> role uses binding … and has no API key`, then the container restarts**. A role with its own binding or host points away from the in-network LiteLLM, and its key is empty. `init/scripts/resolve-role-keys.py` stops before LightRAG starts, so that host never receives the LiteLLM master key. Set the named `LIGHTRAG_<ROLE>_LLM_BINDING_API_KEY` in `.env`; for native Ollama any value works.
-- **A role shows `openai` at `http://litellm:4000` although `LIGHTRAG_LLM_BINDING` points at native Ollama** — expected for a role whose model declares catalog `request_defaults`, such as `think: false`. A native LightRAG 1.5.4 binding does not send them, so the role stays on LiteLLM. To run it natively and accept the reasoning cost, set its binding, host and key. See [§3](#3-configuration).
+- **A role shows `openai` at `http://litellm:4000` although `LIGHTRAG_LLM_BINDING` points at native Ollama** — expected for a role whose model declares catalog `request_defaults`, such as `think: false`. A native LightRAG 1.5.4 binding does not send them, so the role stays on LiteLLM. To run it natively and accept the reasoning cost, set its binding, host and key. See [§3.4](#34-catalog-request-defaults-and-role-transport).
 - **Empty KG after ingestion** — make sure `LIGHTRAG_LLM_MODEL` is a chat-capable model. Some embedding-only Ollama tags produce empty triples without an error.
-- **Rerank does not run although TEI is enabled** — set `LIGHTRAG_RERANK_ADAPTER_ENABLED=true` (§3). Without it Atlas sets `RERANK_BINDING=null`. `./start.sh doctor` warns if the flag is on but TEI or LightRAG is off.
+- **Rerank does not run although TEI is enabled** — set `LIGHTRAG_RERANK_ADAPTER_ENABLED=true` (§3.6). Without it Atlas sets `RERANK_BINDING=null`. `./start.sh doctor` warns if the flag is on but TEI or LightRAG is off.
 - **Embedding dimension.** Without `LIGHTRAG_EMBEDDING_DIM`, init looks the dimension up in a built-in table:
   - 768: nomic-embed-text.
   - 1024: qwen3-embedding:0.6b, bge-m3, mxbai-embed-large.

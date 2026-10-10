@@ -136,7 +136,7 @@ LANGMEM_EMBEDDING_DIM=768
 - Sustained write churn keeps pgvector latched and reports the reason.
 - The probe and `GET /memory/health` (whose fact count spans every user) accept only service callers: n8n, Open WebUI and the internal token. A user JWT is refused.
 
-**Embedding failures and limits.**
+**Embedding and recall limits.**
 
 - A failed embedding inside Weaviate (its LiteLLM vectorizer call) is not an outage. It shows as a 5xx on writes or GraphQL `errors` on recall.
 - In that case the write lands in pgvector and stays `vector_sync_pending`. Recall uses pgvector for that request, and nothing latches. Weaviate allows 30 s for the embedding call.
@@ -212,7 +212,7 @@ The list comes from `runtime_adaptive.backend.adapts_to` in `services/backend/se
 - The Backend sends `DOCLING_API_TOKEN` on every Docling conversion. It refuses to call a Docling endpoint that has no token. Clients of Backend routes never see the token.
 - Docling's `/health` route is public; its conversion and discovery routes are protected.
 - Docling converts one document at a time by default and answers `429` when busy. The Backend retries with backoff (1, 2, 4 … 10 s).
-- On `/documents/extract` it retries for up to 30 s, then returns `503`. During corpus ingestion it retries for up to 120 s, then falls back to Tika.
+- On `/documents/extract` it retries for up to 30 s, then returns `503`. During corpus ingestion it retries for up to 120 s, then tries the next parser in the profile's `parser_order`, such as Tika.
 - Ingestion asks Docling for markdown only (`enable_chunking=false`), because it re-chunks the text itself. This also keeps long books under Docling's 10,000-chunk limit.
 - `POST /documents/extract` treats Docling and Tika as untrusted. A malformed success payload fails validation instead of being indexed as an empty document. The route returns a stable generic error, so no provider detail or document content leaks. The extraction route's code documents the required response shape.
 
@@ -280,8 +280,6 @@ MEDIA_LEDGER_RECOVERY_MAX_CYCLES=4
 - Only a connection failure returns a retryable `503`. After a prompt is queued, a timeout or a lost history poll returns `504` with its `prompt_id`.
 - `GET /comfyui/health` returns ComfyUI's `system_stats` only to n8n, Open WebUI and service callers. A user token gets the status alone.
 
-The backend's `/docs` (Swagger) endpoint serves the full request and response contract, validation rules, and byte and pixel limits.
-
 **Spend ledger and budgets (`MEDIA_BUDGET_ENABLED`, disabled by default).**
 
 - When enabled, each generation reserves its estimated cost before the provider call. It records an immutable row in `public.media_spend_ledger` (Postgres) and stops over-budget requests before any provider call.
@@ -289,7 +287,8 @@ The backend's `/docs` (Swagger) endpoint serves the full request and response co
 - `GET /media/spend` returns a consumer's committed and reserved totals.
 - A provider in `MEDIA_DISABLED_PROVIDERS` gets `403` on `/media/generate`, `/comfyui/generate` and `/comfyui/workflow`, with or without budgets. The read-only `/comfyui/*` routes are not refused.
 - With or without enforcement, an ambiguous FAL submission creates a recovery row in `MEDIA_BUDGET_STORE`. Keep the default `postgres` store so recovery survives restarts; `memory` is ephemeral.
-- `/docs` serves the ledger schema, concurrency guarantees and reconciliation behavior.
+
+The Backend's `/docs` (Swagger) endpoint serves the full media request and response contract. It also serves the validation rules, byte and pixel limits, ledger schema, concurrency guarantees and reconciliation behavior.
 
 ### 3.7. Chunking and evaluation
 
@@ -406,7 +405,7 @@ A disabled optional service degrades only its feature:
 - **Listing:** `GET /api/rag/ingestions` returns at most 100 jobs by default (maximum 200). Pass `cursor` from `X-Atlas-Next-Cursor` and read `X-Atlas-Page-Limit` to page.
 - **Leases:** an owner-fenced execution lease (`RAG_INGESTION_EXECUTION_LEASE_SECONDS`) protects each phase. Every Celery delivery uses a fresh owner. After an ambiguous Redis response, only an exact compare-and-set against the prior owner can transfer the claim.
 - **Lease loss:** a renewal that errors is retried until the lease would expire. A failed renewal carries the current owner into recovery. A lost lease counts against the same 20-attempt limit as a Redis outage.
-- **Redis failures:** an error reply that will not change (for example `WRONGTYPE`) fails the task without retry. Other failures, including `READONLY` and `OOM` replies during recovery, retry with full-jitter backoff capped at 600 s.
+- **Redis failures:** an error reply that will not change (for example `WRONGTYPE`) fails the task and the job without retry. Other failures, including `READONLY` and `OOM` replies during recovery, retry with full-jitter backoff capped at 600 s.
 - **Retry limit:** at most 20 Redis retries (about an hour on average). They do not use the three-retry budget of the upstream phases. At the limit the job is marked `failed`, unless another live worker holds its lease, so a resubmit starts a fresh job.
 - **Exactly-once:** fencing stops two workers from persisting as the same owner. It does not make external services exactly-once. LightRAG uploads stay safe under retry through deterministic content-and-path identities.
 
