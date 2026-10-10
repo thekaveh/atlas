@@ -20,7 +20,7 @@ capabilities:
   - name: "Broker and Console access control"
     status: partial
     verification: documented
-    note: "The Kong Console route uses Basic authentication and the dashboard_user ACL, but the direct Console and Kafka listener are ungated; set HOST_BIND_IP=127.0.0.1: on shared hosts."
+    note: "The Kong Console route uses Basic authentication and the dashboard_user ACL. The direct Console and Kafka listener are ungated; keep the default HOST_BIND_IP=127.0.0.1: on shared hosts."
 
 containers:
   - redpanda
@@ -48,6 +48,7 @@ sources:
 
 env:
   - name: REDPANDA_SOURCE
+    description: "Redpanda deployment source: container or disabled. Drives the Redpanda, redpanda-init and Console scales plus REDPANDA_BROKERS and SPARK_KAFKA_BOOTSTRAP_SERVERS."
     default: disabled
   - name: REDPANDA_KAFKA_PORT
     description: "Host port for the Redpanda Kafka API external listener (in-container 19092)."
@@ -57,10 +58,13 @@ env:
     default: atlas_stream_events
     description: "Comma-separated Kafka topics created idempotently by redpanda-init."
   - name: REDPANDA_SCALE
+    description: "Set by ./start.sh from REDPANDA_SOURCE; do not edit. 1 runs the redpanda broker, 0 does not."
     auto_managed: true
   - name: REDPANDA_INIT_SCALE
+    description: "Set by ./start.sh from REDPANDA_SOURCE; do not edit. 1 runs the redpanda-init container, 0 does not."
     auto_managed: true
   - name: REDPANDA_CONSOLE_SCALE
+    description: "Set by ./start.sh from REDPANDA_SOURCE; do not edit. 1 runs the redpanda-console container, 0 does not."
     auto_managed: true
   - name: REDPANDA_BROKERS
     auto_managed: true
@@ -144,6 +148,6 @@ data_flow:
 # until a cited cold-start, workflow, and upgrade qualification run promotes it.
 support:
   tier: experimental
-  evidence: "Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet"
+  evidence: "Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet"
   evidence_revision: v0.1.0
   owner: Atlas maintainers

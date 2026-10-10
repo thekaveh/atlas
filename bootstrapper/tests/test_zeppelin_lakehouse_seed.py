@@ -52,7 +52,12 @@ def test_zeppelin_manifest_declares_lakehouse_init_family() -> None:
         "supabase",
         "minio",
         "iceberg-rest",
-        "redpanda",
+        {
+            "target": "redpanda",
+            "status": "optional",
+            "condition": "Kafka jars not bundled (#1376); Atlas passes only SPARK_KAFKA_BOOTSTRAP_SERVERS",
+            "evidence": "services/zeppelin/compose.yml",
+        },
         "trino",
     ]
 

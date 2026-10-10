@@ -1,9 +1,9 @@
 # Cross-service integration research
 
-This directory holds the **Phase B research artifacts** for the cross-service
-deps + diagrams project. The umbrella plans and specs live under
-[`docs/superpowers/`](../superpowers/) (plans + specs from the 2026-05/06
-feature tracks); the original 2026-05-16 design doc is in the git log.
+This directory holds integration research: one opportunity file per service,
+one-pagers for candidate new services and the generated integration matrix.
+The first set was produced in the "Phase B" research run (§6). Its plans and
+specs live under [`docs/superpowers/`](../superpowers/).
 
 ## 1. Layout
 
@@ -11,7 +11,7 @@ feature tracks); the original 2026-05-16 design doc is in the git log.
 |---|---|
 | `rows/<service>.md` | One per service doc folder under `services/`. Captures the service's missing-pair integrations, candidate new services, and feature gaps. **One file = one author = one subagent run.** |
 | `candidates/<slug>.md` | One per candidate new service (e.g. `obsidian-mcp.md`, `langfuse.md`). Multiple rows may reference the same candidate. |
-| `integration-matrix.md` | Generated index that aggregates all rows by service, by category, plus a global candidates table. **Do not edit by hand.** Re-generate with `python -m bootstrapper.docs.merge_research`. |
+| `integration-matrix.md` | Generated index that aggregates all rows by service, by category, plus a global candidates table. **Do not edit by hand.** Re-generate with `PYTHONPATH=bootstrapper uv run --project bootstrapper python -m bootstrapper.docs.merge_research`. |
 
 ## 2. Row file schema
 
@@ -87,10 +87,8 @@ Six required sections:
 
 `## Why now (and why not sooner)` is optional.
 
-These generated research one-pagers intentionally keep schema-fixed heading
-names such as `## Headline` instead of hierarchical numeric prefixes. They are
-exempt from the repository-wide numbered-docs convention so the schema
-validator and merge script can treat headings as stable field names.
+Research one-pagers number their headings like every other page (`## 1. Headline`).
+The schema validator matches the title after the number, so the titles above stay fixed.
 
 ## 4. Validation
 
@@ -98,22 +96,23 @@ A schema validator lives at `scripts/validate_research_schema.py`. Run it on
 one file or all:
 
 ```bash
-python scripts/validate_research_schema.py docs/research/rows/hermes.md
-python scripts/validate_research_schema.py --all
+uv run --project bootstrapper python scripts/validate_research_schema.py docs/research/rows/hermes.md
+uv run --project bootstrapper python scripts/validate_research_schema.py --all
 ```
 
 Exit 0 = valid, 1 = errors (printed with file:line refs).
 
 ## 5. Merging
 
-`python -m bootstrapper.docs.merge_research` reads all rows + candidates,
+`PYTHONPATH=bootstrapper uv run --project bootstrapper python -m bootstrapper.docs.merge_research` reads all rows + candidates,
 emits `integration-matrix.md`, and reconciles `referenced-by:` on each
 candidate. Deterministic and idempotent. `--check` reports the files it would
 rewrite and exits 2 without writing. `python -m bootstrapper.docs.regen --all`
 runs the same merge, so the service READMEs and the matrix change together.
 The docs drift gate (`regen --all --check`) covers the matrix and each
 candidate's normalized front matter too. After adding or editing a record, run
-`python -m bootstrapper.docs.regen --all` and commit what it rewrites.
+`PYTHONPATH=bootstrapper uv run --project bootstrapper python -m bootstrapper.docs.regen --all`
+and commit what it rewrites.
 
 ## 6. Dispatch pattern (how Phase B was produced)
 

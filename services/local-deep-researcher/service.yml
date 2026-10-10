@@ -53,8 +53,10 @@ sources:
 
 env:
   - name: LOCAL_DEEP_RESEARCHER_SOURCE
+    description: "Deployment source for Local Deep Researcher: container or disabled."
     default: container
   - name: LOCAL_DEEP_RESEARCHER_PORT
+    description: "Host port for the Local Deep Researcher LangGraph API (in-container 2024)."
     # default removed — computed by services/topology.py slot allocator
   - name: LOCAL_DEEP_RESEARCHER_REF
     default: "38f769f84380f2065de76021ac7c5215f88aa39e"
@@ -66,17 +68,22 @@ env:
     default: "26fc35ac377836de6628e5f7b180944c4d4bd50a5e9f0200bd6e663f20e35c1a"
     description: "SHA-256 digest of uv.lock at LOCAL_DEEP_RESEARCHER_REF; startup rejects a source tree whose lock does not match."
   - name: LOCAL_DEEP_RESEARCHER_LOOPS
+    description: "Maximum web research loops per run, passed as MAX_WEB_RESEARCH_LOOPS."
     default: 3
   - name: LOCAL_DEEP_RESEARCHER_SEARCH_API
+    description: "Web search backend, passed as SEARCH_API. Default searxng."
     default: searxng
   - name: LOCAL_DEEP_RESEARCHER_WORKERS
+    description: "Reserved: passed to the container, but the entrypoint does not pass it to langgraph dev. One server process owns the in-memory research state."
     default: 3
   - name: LOCAL_DEEP_RESEARCHER_FULL_PAGE_MODE
     default: disabled
     description: "Full-page extraction mode: disabled, builtin, or crawl4ai. The crawl4ai mode requires CRAWL4AI_SOURCE=container."
   - name: FETCH_FULL_PAGE
+    description: "Set by ./start.sh from LOCAL_DEEP_RESEARCHER_FULL_PAGE_MODE; do not edit. true for builtin or crawl4ai, false for disabled."
     auto_managed: true
   - name: LOCAL_DEEP_RESEARCHER_SCALE
+    description: "Set by ./start.sh from LOCAL_DEEP_RESEARCHER_SOURCE; do not edit. 0 when disabled, else 1."
     auto_managed: true
 
 depends_on:
@@ -154,6 +161,6 @@ data_flow:
 # until a cited cold-start, workflow, and upgrade qualification run promotes it.
 support:
   tier: experimental
-  evidence: "Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet"
+  evidence: "Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet"
   evidence_revision: v0.1.0
   owner: Atlas maintainers

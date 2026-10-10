@@ -1,27 +1,18 @@
 # 5.2.8. Chatterbox (TTS engine)
 
-Chatterbox is one of the TTS engines selectable via `TTS_PROVIDER_SOURCE`. It is
-documented under the **TTS Provider** aggregator rather than as a standalone
-service, because the user-facing role is "pick a TTS engine" — not "pick
-Chatterbox":
-
-→ See [services/tts-provider/README.md](../tts-provider/README.md) for the full
-user-facing description, source-variant table, and configuration reference.
+Chatterbox is a TTS engine selected with `TTS_PROVIDER_SOURCE`. See
+[the TTS Provider README](../tts-provider/README.md) for setup and configuration.
 
 ## 1. Engine quick reference
 
-- **Image:** `travisvn/chatterbox-tts-api:gpu` (GPU only; voice-cloning model)
-- **License:** MIT (Resemble AI)
+- **Image:** `travisvn/chatterbox-tts-api:gpu`, pinned by digest (GPU only; voice-cloning model)
+- **License:** AGPL-3.0 for the `chatterbox-tts-api` server; MIT for the Resemble AI model
 - **Activation:** `TTS_PROVIDER_SOURCE=chatterbox-container-gpu` (or
   `chatterbox-localhost` for a host-installed instance)
 - **In-container port:** 4123 (compose sets `PORT=4123`; the image's own default is 5123)
 - **Model cache:** the `chatterbox-cache` volume at `/cache` (the image's `MODEL_CACHE_DIR`)
 - **Host port:** `${CHATTERBOX_PORT}` (computed from `BASE_PORT` by the
   bootstrapper)
-
-The manifest (`service.yml`) and compose fragment (`compose.yml`) in this folder
-are the bootstrapper's source of truth for those values; treat this README as a
-pointer, not a duplicate of the aggregator doc.
 
 ## 2. Dependencies & Integrations
 
@@ -59,7 +50,7 @@ _No high-confidence opportunities identified._
 
 ## 3. Capabilities & limitations
 
-Support tier: **experimental** — Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
 | Capability | Status | Verification | Notes |
 |---|---|---|---|

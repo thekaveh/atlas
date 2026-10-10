@@ -16,11 +16,11 @@ capabilities:
   - name: "Token-authenticated notebook access"
     status: partial
     verification: tested
-    note: "The direct and CORS-only jupyter.localhost paths require one Jupyter token, and browser origins are limited to Jupyter's same-origin check by default (JUPYTER_ALLOW_ORIGIN is empty); do not set it to '*'."
+    note: "The direct and CORS-only jupyter.localhost paths require one Jupyter token. Browser origins are limited to Jupyter's same-origin check by default (JUPYTER_ALLOW_ORIGIN is empty); do not set it to '*'."
   - name: "Operator-trusted credential environment"
     status: partial
     verification: documented
-    note: "The server receives high-privilege database and service credentials and runs arbitrary user code, so it is an engineering workspace rather than a hostile multi-tenant sandbox (GRANT_SUDO is set but inert: the container does not start as root)."
+    note: "The server receives high-privilege database and service credentials and runs arbitrary user code. It is an engineering workspace, not a hostile multi-tenant sandbox. GRANT_SUDO is set but inert, because the container does not start as root."
   - name: "Notebook workspace persistence"
     status: supported
     verification: tested
@@ -32,7 +32,7 @@ capabilities:
   - name: "Multi-user JupyterHub isolation and HA"
     status: not-supported
     verification: documented
-    note: "Despite the service name, Atlas runs one start-notebook JupyterLab process with one token, not a Hub spawner, per-user servers, replicated state, or an HA control plane."
+    note: "Despite the service name, Atlas runs one start-notebook JupyterLab process with one token. It has no Hub spawner, per-user servers, replicated state, or HA control plane."
 
 containers:
   - jupyterhub
@@ -67,8 +67,10 @@ env:
     secret: true
     description: "Bootstrapper-synchronized percent-encoded JUPYTER_DB_PASSWORD for DSN userinfo."
   - name: JUPYTERHUB_SOURCE
+    description: "Deployment source for the JupyterLab notebook server: container or disabled."
     default: container
   - name: JUPYTERHUB_PORT
+    description: "Host port for the JupyterLab server (in-container 8888)."
     # default removed — computed by services/topology.py slot allocator
   - name: JUPYTERHUB_TOKEN
     default: ""
@@ -76,7 +78,7 @@ env:
     description: "Optional. Empty = generate on start."
   - name: JUPYTER_ALLOW_ORIGIN
     default: ""
-    description: "Allowed browser origin for Jupyter Server websocket upgrades. Empty keeps Jupyter's same-origin check; token-authenticated clients such as VS Code do not need '*'. Set one exact origin (a single value, not a list) only if a browser page on another origin must connect."
+    description: "Allowed browser origin for Jupyter Server websocket upgrades. Empty keeps Jupyter's same-origin check; token clients such as VS Code do not need '*'. Set one exact origin only for a browser page on another origin."
   - name: SPARK_REMOTE
     default: "sc://spark-connect:15002"
     description: "Spark Connect endpoint used by bundled notebooks; override for a remote or managed Spark Connect server."
@@ -84,6 +86,7 @@ env:
     auto_managed: true
     description: "Streamable HTTP URL for the Curated MCP Servers endpoint. The bootstrapper sets http://mcp-servers:8000/mcp only for MCP_SERVERS_SOURCE=container and clears it when disabled."
   - name: JUPYTERHUB_SCALE
+    description: "Set by ./start.sh from JUPYTERHUB_SOURCE; do not edit. 0 when disabled, else 1."
     auto_managed: true
 
 depends_on:
@@ -221,6 +224,6 @@ data_flow:
 # until a cited cold-start, workflow, and upgrade qualification run promotes it.
 support:
   tier: experimental
-  evidence: "Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet"
+  evidence: "Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet"
   evidence_revision: v0.1.0
   owner: Atlas maintainers

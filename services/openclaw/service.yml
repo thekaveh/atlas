@@ -8,7 +8,7 @@ capabilities:
   - name: "LiteLLM-backed messaging agent gateway"
     status: partial
     verification: tested
-    note: "Atlas injects the LiteLLM key and openclaw-init points the bundled litellm provider at http://litellm:4000 when its baseUrl is unset; messaging channels and approvals require onboarding and are not exercised against live platforms."
+    note: "Atlas injects the LiteLLM key, and openclaw-init points the bundled litellm provider at http://litellm:4000 when its baseUrl is unset. Messaging channels and approvals require onboarding and are not exercised against live platforms."
   - name: "Container and operator-host sources"
     status: partial
     verification: tested
@@ -60,19 +60,23 @@ sources:
 
 env:
   - name: OPENCLAW_SOURCE
+    description: "OpenClaw deployment source: container, localhost (host install on OPENCLAW_LOCALHOST_PORT) or disabled."
     default: disabled
   - name: OPENCLAW_GATEWAY_PORT
+    description: "Host port for the OpenClaw gateway API and dashboard (container port 18789)."
     # default removed — computed by services/topology.py slot allocator
   - name: OPENCLAW_BRIDGE_PORT
+    description: "Host port for the OpenClaw bridge (container port 18790)."
     # default removed — computed by services/topology.py slot allocator
   - name: OPENCLAW_GATEWAY_TOKEN
     default: ""
     secret: true
-    description: "Auto-generated bearer token for the OpenClaw gateway API and dashboard (kept once set). The gateway binds to the LAN interface, which it refuses to do tokenless; left empty, it would mint a random per-start token nobody can read back."
+    description: "Auto-generated bearer token for the OpenClaw gateway API and dashboard; kept once set. The gateway binds to the LAN interface and refuses to do so without a token. Left empty, it would mint an unreadable per-start token."
   - name: OPENCLAW_LOCALHOST_PORT
     default: "63065"
     description: "Host port for the localhost source variant (its own slot, separate from OPENCLAW_GATEWAY_PORT). URL is derived at compose-render time as http://host.docker.internal:63065."
   - name: OPENCLAW_INIT_SOURCE
+    description: "Init-container selector listed in the SOURCE values reference. OPENCLAW_INIT_SCALE follows OPENCLAW_SOURCE, so openclaw-init runs only for container."
     default: container
   - name: OPENCLAW_ANTHROPIC_API_KEY
     default: ""
@@ -83,12 +87,14 @@ env:
     secret: true
     description: "Optional per-OpenClaw OpenAI override. Leave empty to keep OpenClaw routed through LiteLLM instead of bypassing the stack gateway."
   - name: OPENCLAW_SCALE
+    description: "Set by ./start.sh from OPENCLAW_SOURCE; do not edit. 1 runs the openclaw-gateway container for container, else 0."
     auto_managed: true
   - name: OPENCLAW_INIT_SCALE
+    description: "Set by ./start.sh from OPENCLAW_SOURCE; do not edit. 1 runs the openclaw-init container for container, else 0."
     auto_managed: true
   - name: OPENCLAW_ENDPOINT
     auto_managed: true
-    description: "Resolved per-source by the bootstrapper (container DNS / host.docker.internal / empty when disabled). Forward-looking hook: no compose fragment injects it into a container today — consumers (e.g. n8n workflows) would read it via their own env wiring when that lands."
+    description: "Resolved per source by ./start.sh: the container DNS name, a host.docker.internal URL, or empty when disabled. No compose fragment injects it into a container; consumers wire it themselves."
 
 depends_on:
   required:
@@ -160,6 +166,6 @@ data_flow:
 # until a cited cold-start, workflow, and upgrade qualification run promotes it.
 support:
   tier: experimental
-  evidence: "Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet"
+  evidence: "Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet"
   evidence_revision: v0.1.0
   owner: Atlas maintainers

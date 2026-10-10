@@ -11,7 +11,7 @@ capabilities:
   - name: "NVIDIA GPU worker execution"
     status: partial
     verification: tested
-    note: "The GPU source selects the CUDA images only; the compose fragment does not yet request an NVIDIA device, so GPU tasks stay pending until GPU reservations are wired."
+    note: "The GPU source selects the CUDA images only. The compose fragment requests no NVIDIA device, so GPU tasks stay pending until GPU reservations are wired (#1373)."
   - name: "Remote Ray surface security"
     status: partial
     verification: tested
@@ -48,6 +48,7 @@ sources:
 
 env:
   - name: RAY_SOURCE
+    description: "Ray deployment source: ray-container-cpu, ray-container-gpu or disabled. Drives RAY_HEAD_SCALE, RAY_WORKER_SCALE, RAY_IMAGE and RAY_ADDRESS."
     default: disabled
   - name: RAY_DASHBOARD_PORT
     # default removed — computed by services/topology.py slot allocator
@@ -60,8 +61,9 @@ env:
     description: "Loopback-only host port for the unauthenticated Ray client server (in-container 10001). Used only by trusted host Python: `ray.init('ray://localhost:<port>')`."
   - name: RAY_WORKER_COUNT
     default: 2
-    description: "Number of ray-worker replicas. The wizard prompts for this with default 2. Valid values: 0 (head-only mode) and up. No hard upper bound — bounded by host resources."
+    description: "Number of ray-worker containers; 0 runs the head only. The wizard and --ray-worker-count accept 0-64; the wizard default is 2."
   - name: RAY_HEAD_SCALE
+    description: "Set by ./start.sh from RAY_SOURCE; do not edit. 1 runs the ray-head container for the container sources, else 0."
     auto_managed: true
   - name: RAY_WORKER_SCALE
     auto_managed: true
@@ -74,7 +76,7 @@ env:
     description: "Optional override for the Ray dashboard URL the backend's job client uses. Empty = derive from RAY_ADDRESS (http://ray-head:8265)."
   - name: RAY_HEAD_MEMORY_LIMIT
     default: 4g
-    description: "Container memory limit for ray-head (deploy.resources.limits.memory). The head node manages the GCS, dashboard, and object directory; 4 g is conservative but safe on a 32 GB host (the shm_size=8gb allocation is for /dev/shm, separate from this OS memory cap)."
+    description: "Memory limit for ray-head (deploy.resources.limits.memory). The head runs the GCS, dashboard and object directory; 4g is safe on a 32 GB host. The shm_size=8gb /dev/shm allocation is separate from this cap."
   - name: RAY_HEAD_CPU_LIMIT
     default: "2.0"
     description: "Container CPU limit for ray-head (deploy.resources.limits.cpus). GCS + dashboard coordination rarely needs more than 1 core; 2.0 leaves room for brief spikes."
@@ -171,6 +173,6 @@ data_flow:
 # until a cited cold-start, workflow, and upgrade qualification run promotes it.
 support:
   tier: experimental
-  evidence: "Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet"
+  evidence: "Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet"
   evidence_revision: v0.1.0
   owner: Atlas maintainers

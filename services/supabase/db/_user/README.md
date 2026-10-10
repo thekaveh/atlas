@@ -3,7 +3,7 @@
 ## 1. Purpose
 
 This directory is the downstream-owned Supabase SQL slot for local projects,
-submodule consumers, and forks that need to layer database objects on top of
+submodule consumers, and forks. Use it to layer database objects on top of
 Atlas without editing Atlas-owned files in `../scripts/`.
 
 `supabase-db-init` mounts this directory at `/user-scripts` and runs `*.sql`
@@ -18,9 +18,9 @@ services that depend on `supabase-db-init` from starting against a partially
 prepared database.
 
 PostgREST publishes the `public` schema. After the user scripts run,
-`supabase-db-init` re-applies Atlas's client grants: a `public` table with row
-level security enabled is granted to `anon` (SELECT) and `authenticated` (ALL)
-and gated by its policies, and a `public` table without RLS gets no `anon` or
+`supabase-db-init` re-applies Atlas's client grants. A `public` table with row
+level security enabled is granted to `anon` (SELECT) and `authenticated`
+(ALL), gated by its policies. A `public` table without RLS gets no `anon` or
 `authenticated` access. Enable RLS and write policies for any table clients
 should reach; put service-internal tables in their own schema.
 

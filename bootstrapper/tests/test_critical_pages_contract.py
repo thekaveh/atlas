@@ -56,7 +56,7 @@ def _fixture(tmp_path: Path, *, index_links_policy: bool = True) -> tuple:
     (site / "index.md").write_text("# 1. Overview\n", encoding="utf-8")
     (site / "policy.md").write_text(_POLICY, encoding="utf-8")
     (wiki / "Home.md").write_text("# 1. Overview\n", encoding="utf-8")
-    (wiki / "2-Policy.md").write_text(_POLICY, encoding="utf-8")
+    (wiki / "Policy.md").write_text(_POLICY, encoding="utf-8")
     manifest = load_manifest(docs / "manifest.yaml", tmp_path)
     contract = load_contract(docs / "critical-pages.yaml")
     return manifest, contract
@@ -97,7 +97,7 @@ def test_stripping_the_only_navigation_link_fails(tmp_path: Path) -> None:
     assert ("repo", "critical security page is not reachable from the documentation index") in findings
 
 
-@pytest.mark.parametrize("surface, filename", [("site", "policy.md"), ("wiki", "2-Policy.md")])
+@pytest.mark.parametrize("surface, filename", [("site", "policy.md"), ("wiki", "Policy.md")])
 def test_a_surface_rendering_only_the_title_fails(tmp_path: Path, surface: str, filename: str) -> None:
     manifest, contract = _fixture(tmp_path)
     (tmp_path / "generated" / surface / filename).write_text(
@@ -113,7 +113,7 @@ def test_a_surface_rendering_only_the_title_fails(tmp_path: Path, surface: str, 
 
 def test_a_missing_generated_page_fails(tmp_path: Path) -> None:
     manifest, contract = _fixture(tmp_path)
-    (tmp_path / "generated" / "wiki" / "2-Policy.md").unlink()
+    (tmp_path / "generated" / "wiki" / "Policy.md").unlink()
 
     assert _run(tmp_path, manifest, contract) == [("wiki", "critical security page is missing")]
 

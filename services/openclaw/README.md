@@ -12,7 +12,7 @@ The OpenClaw service provides an LLM-backed agent that connects to messaging app
 - **GitHub Monitoring**: Monitor repositories, issues, and pull requests
 - **Command Execution**: Execute commands via messaging interface
 - **Web Dashboard**: Browser-based admin panel for configuration and approvals
-- **Multi-Provider LLM**: The container receives the stack's LiteLLM key (Ollama upstream + cloud providers), and `openclaw-init` points the bundled `litellm` provider at the gateway when its base URL is unset. Direct Anthropic/OpenAI keys are supported as overrides
+- **Multi-Provider LLM**: Models come through LiteLLM (§2). Direct Anthropic and OpenAI keys are optional overrides (§4.3).
 
 ## 2. Architecture
 
@@ -23,13 +23,15 @@ OpenClaw runs as a single gateway process that:
 - Stores configuration in `~/.openclaw/` directory
 - Stores workspace files in `~/.openclaw/workspace/`
 
-For LLM access, the container receives the stack's **LiteLLM gateway** credentials (`LITELLM_BASE_URL` + `LITELLM_API_KEY`) — one URL fronts the Ollama upstream and any enabled cloud providers (OpenAI, Anthropic, OpenRouter). OpenClaw's bundled `litellm` provider reads `LITELLM_API_KEY` itself but defaults its base URL to `http://localhost:4000`, which is unreachable inside the container, so `openclaw-init` sets `models.providers.litellm.baseUrl` to `http://litellm:4000` when it is unset (an operator value is kept; a JSON5 config is left unpatched, see §2). `LITELLM_BASE_URL` is not read by OpenClaw. Pick models from the `litellm` provider; its built-in default (`litellm/claude-opus-4-6`) only works if the Atlas catalog serves a model of that name. Alternatively, repurpose the `openai` provider as described in §7. Leave `OPENCLAW_OPENAI_API_KEY` empty when doing so: a real OpenAI key in that override would then be sent to LiteLLM. Direct provider keys (`OPENCLAW_OPENAI_API_KEY`, `OPENCLAW_ANTHROPIC_API_KEY`) remain available as explicit overrides for cases where OpenClaw should bypass LiteLLM; empty override keys keep traffic on the gateway path. The gateway also connects to messaging platforms (WhatsApp, Telegram, etc.) for user interaction.
+OpenClaw reaches models through LiteLLM. The container gets `LITELLM_API_KEY` (the LiteLLM master key), which OpenClaw's bundled `litellm` provider reads. Its default base URL `http://localhost:4000` does not resolve in the container. `openclaw-init` therefore sets `models.providers.litellm.baseUrl` to `http://litellm:4000` when it is unset. It keeps an operator value and does not patch a JSON5 config (see below). OpenClaw does not read `LITELLM_BASE_URL`.
+
+Select models from the `litellm` provider. Its built-in default `litellm/claude-opus-4-6` works only if LiteLLM serves a model with that name. You can also point the `openai` provider at LiteLLM (§7). Keep `OPENCLAW_OPENAI_API_KEY` empty then, or a real OpenAI key goes to LiteLLM. `OPENCLAW_OPENAI_API_KEY` and `OPENCLAW_ANTHROPIC_API_KEY` bypass LiteLLM (§4.3).
 
 **Container Mode Initialization**: When running in container mode, an `openclaw-init` container runs first to:
 - Set correct volume permissions (uid 1000/node) on config and workspace volumes
 - Pre-configure the gateway for non-loopback binding (`gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback`)
 
-A config `jq` cannot parse (JSON5: comments, trailing commas, which OpenClaw itself accepts) is left unpatched with a warning; set `models.providers.litellm.baseUrl` and `gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback` in it yourself.
+OpenClaw accepts JSON5 (comments, trailing commas), but `jq` does not. `openclaw-init` leaves a config that `jq` cannot parse unpatched and logs a warning. Set `models.providers.litellm.baseUrl` and `gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback` in that file yourself.
 
 The gateway container starts with `--bind lan` to listen on all interfaces (required for Docker networking).
 
@@ -56,10 +58,11 @@ Or use CLI override:
 
 **Step 3: Access the dashboard**
 
-Open `http://localhost:${OPENCLAW_GATEWAY_PORT}` (default 63076) or `http://openclaw.localhost:63000` (via Kong).
+Open `http://localhost:${OPENCLAW_GATEWAY_PORT}` (default 63076) or `http://openclaw.localhost:${KONG_HTTP_PORT}` (via Kong; default port 63000).
 
-**Step 4: Run onboarding**
+**Step 4: Run onboarding** (from the repository root)
 ```bash
+PROJECT_NAME=$(grep '^PROJECT_NAME=' .env | cut -d= -f2-)
 docker exec -it ${PROJECT_NAME}-openclaw-gateway openclaw onboard
 ```
 
@@ -128,7 +131,7 @@ By default OpenClaw is wired into the stack's LiteLLM gateway via:
 
 ### 4.3. Optional Direct-Provider Overrides
 
-These bypass LiteLLM and let OpenClaw call providers directly — useful when you want a separate budget/key from the rest of the stack, or to talk to a model LiteLLM doesn't have registered.
+These keys let OpenClaw call a provider directly, without LiteLLM. Use them for a separate budget or key, or for a model that LiteLLM does not serve.
 
 | Variable | Description | Default |
 |----------|-------------|---------|
@@ -139,25 +142,24 @@ These bypass LiteLLM and let OpenClaw call providers directly — useful when yo
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `OPENCLAW_LOCALHOST_PORT` | Local service port (its own slot, separate from `OPENCLAW_GATEWAY_PORT`); set to `18789` if your local OpenClaw runs on its native/default port. URL is derived as `http://host.docker.internal:${OPENCLAW_LOCALHOST_PORT}` at compose-render time. | `63065` |
+| `OPENCLAW_LOCALHOST_PORT` | Host port of a native OpenClaw (its own slot, separate from `OPENCLAW_GATEWAY_PORT`). Set it to `18789` if your local OpenClaw uses its native default port. Compose derives the URL `http://host.docker.internal:${OPENCLAW_LOCALHOST_PORT}`. | `63065` |
 
 ## 5. LLM Routing and Model Selection
 
-OpenClaw inherits LLM access from the always-on LiteLLM gateway (the variables
-themselves are documented in §4.2–§4.3):
+OpenClaw gets LLM access from the always-on LiteLLM gateway (variables in §4.2–§4.3):
 
-- **Default path (LiteLLM)**: the bundled `litellm` provider (key from `LITELLM_API_KEY`, base URL set by `openclaw-init`) or a repurposed `openai` provider (§7) makes OpenClaw an OpenAI-compatible client of the gateway. Whatever Ollama / OpenAI / Anthropic / OpenRouter upstreams you've enabled in the stack are routed transparently through LiteLLM. To pick a model, use the model IDs registered in `volumes/litellm/config.yaml` (e.g. `ollama/qwen3.8:latest`, `gpt-4o`, `claude-sonnet-4-6`).
-- **Anthropic override**: Set `OPENCLAW_ANTHROPIC_API_KEY` in `.env` to make OpenClaw call Anthropic directly, bypassing LiteLLM. When unset, OpenClaw uses any stack-wide Anthropic key only through LiteLLM.
-- **OpenAI override**: Set `OPENCLAW_OPENAI_API_KEY` in `.env` to bypass LiteLLM for OpenAI traffic. When unset, OpenClaw stays on the LiteLLM gateway path and does not inherit the stack-wide `OPENAI_API_KEY`.
+- **Default path (LiteLLM)**: the bundled `litellm` provider (key from `LITELLM_API_KEY`, base URL set by `openclaw-init`) or a repurposed `openai` provider (§7) calls the gateway. LiteLLM routes to every Ollama, OpenAI, Anthropic or OpenRouter upstream that the stack enables. Use the model IDs that LiteLLM serves (for example `ollama/qwen3.8:latest`, `gpt-4o`, `claude-sonnet-4-6`).
+- **Anthropic override**: set `OPENCLAW_ANTHROPIC_API_KEY` in `.env` to call Anthropic directly. When it is unset, OpenClaw reaches Anthropic only through LiteLLM.
+- **OpenAI override**: set `OPENCLAW_OPENAI_API_KEY` in `.env` to call OpenAI directly. When it is unset, OpenClaw does not inherit the stack-wide `OPENAI_API_KEY`.
 
-**Provider Priority**: When direct override keys are present, OpenClaw prefers them in this order: Anthropic direct > OpenAI direct > LiteLLM gateway. To force every request through LiteLLM (recommended for budget tracking and spend logs), leave both `OPENCLAW_*_API_KEY` overrides empty.
+**Provider selection.** OpenClaw uses the provider named in the selected model id (`litellm/<model>`, `anthropic/<model>`, `openai/<model>`). An override key takes effect only when you select a model from that provider. To keep every request on LiteLLM (budget tracking, spend logs), select `litellm/` models and leave both `OPENCLAW_*_API_KEY` overrides empty.
 
 ## 6. Web Dashboard
 
 The OpenClaw gateway includes a built-in web dashboard for administration:
 
 - **Direct access**: `http://localhost:${OPENCLAW_GATEWAY_PORT}` (default 63076)
-- **Via Kong**: `http://openclaw.localhost:63000`
+- **Via Kong**: `http://openclaw.localhost:${KONG_HTTP_PORT}` (default port 63000)
 
 The dashboard provides:
 - Chat interface for interacting with the agent
@@ -165,13 +167,15 @@ The dashboard provides:
 - Execution approvals
 - Channel status monitoring
 
-**Security**: The dashboard is an admin surface and requires `OPENCLAW_GATEWAY_TOKEN` (read it with `grep '^OPENCLAW_GATEWAY_TOKEN=' .env`). Atlas generates the token at startup when it is empty: the gateway binds to the LAN interface, which it refuses to do tokenless, so an empty value used to produce a random per-start token nobody could read back.
+**Security**: The dashboard is an admin surface and requires `OPENCLAW_GATEWAY_TOKEN` (read it with `grep '^OPENCLAW_GATEWAY_TOKEN=' .env`). Atlas generates the token at startup when it is empty, because the gateway refuses to bind to the LAN without a token.
 
 ## 7. Interactive CLI Usage
 
-Run OpenClaw CLI commands inside the container:
+Run OpenClaw CLI commands inside the container. Run from the repository root; the first line reads the values the later commands use from `.env`:
 
 ```bash
+env_get() { grep "^$1=" .env | cut -d= -f2-; }; PROJECT_NAME=$(env_get PROJECT_NAME)
+
 # Run onboarding
 docker exec -it ${PROJECT_NAME}-openclaw-gateway openclaw onboard
 
@@ -184,21 +188,21 @@ docker exec -it ${PROJECT_NAME}-openclaw-gateway openclaw doctor
 
 # View gateway status
 docker exec -it ${PROJECT_NAME}-openclaw-gateway openclaw gateway probe
-```
 
-Or use docker compose run for one-off commands:
-```bash
-docker compose run --rm openclaw-gateway openclaw config get gateway.auth.token
+# Read the gateway token
+env_get OPENCLAW_GATEWAY_TOKEN
 ```
 
 ## 8. Health Check
 
+Use the `env_get` helper and `PROJECT_NAME` from §7.
+
 ```bash
 # Direct health check
-curl http://localhost:${OPENCLAW_GATEWAY_PORT}/healthz
+curl http://localhost:$(env_get OPENCLAW_GATEWAY_PORT)/healthz
 
-# Deep health check (requires token)
-docker exec ${PROJECT_NAME}-openclaw-gateway node openclaw.mjs health --token "$OPENCLAW_GATEWAY_TOKEN"
+# Deep health check (the container's environment supplies the token)
+docker exec ${PROJECT_NAME}-openclaw-gateway sh -c 'node openclaw.mjs health --token "$OPENCLAW_GATEWAY_TOKEN"'
 ```
 
 ## 9. Source Modes
@@ -221,7 +225,7 @@ Connects to OpenClaw running natively on the host machine.
 
 **Resources**: Node.js 22+, npm
 
-**Setup**: Manual - `npm install -g openclaw`, then `openclaw gateway`
+**Setup**: Manual — see §3.2 (`openclaw gateway --port 63065`, or set `OPENCLAW_LOCALHOST_PORT` to your port).
 
 ### 9.3. disabled
 
@@ -235,20 +239,18 @@ No OpenClaw agent (default).
 
 ### 10.1. Required
 
-- **LiteLLM** — the gateway container waits for `litellm` to be healthy (`depends_on`); nothing else requires OpenClaw
+- **LiteLLM** — the gateway container waits for `litellm` to be healthy (`depends_on`). No other service requires OpenClaw.
 
 ### 10.2. LLM access
 
-- **LiteLLM gateway** (default): Provides Ollama + cloud providers behind a single OpenAI-compatible URL (`LITELLM_BASE_URL`). Always-on; the bundled `litellm` provider reaches it through the base URL `openclaw-init` sets, and it covers every provider.
-- **Anthropic direct** (override): `OPENCLAW_ANTHROPIC_API_KEY`
-- **OpenAI direct** (override): `OPENCLAW_OPENAI_API_KEY`
+See §5.
 
 ## 11. References
 
 - [OpenClaw Documentation](https://docs.openclaw.ai/)
 - [OpenClaw Docker Guide](https://docs.openclaw.ai/install/docker)
 - [LiteLLM Gateway](../litellm/README.md) — the OpenAI-compatible front door OpenClaw points at by default
-- [Hermes Agent](../hermes/README.md) — the programmable agent runtime OpenClaw bridges to messaging channels
+- [Hermes Agent](../hermes/README.md) — the agent runtime. `HERMES_ENDPOINT` and `HERMES_API_KEY` are set in this container, but no OpenClaw-to-Hermes bridge exists yet.
 - [OpenClaw GitHub Repository](https://github.com/openclaw/openclaw)
 
 ## 12. Dependencies & Integrations
@@ -274,19 +276,19 @@ No OpenClaw agent (default).
 ### 12.4. Future — Missing pair integrations
 
 - **openclaw ↔ hermes** — *Why:* OpenClaw is positioned as a channel adapter (40+ messaging surfaces); Hermes is the programmable agent runtime already in the stack. The compose file already passes `HERMES_ENDPOINT`/`HERMES_API_KEY` — only the bridge wiring is missing. *Mechanism:* OpenClaw skill or webhook plugin forwarding inbound messages to `http://hermes:8642/v1/chat/completions`; replies posted back via OpenClaw's `send` RPC. *Effort:* medium. *Confidence:* high.
-- **openclaw ↔ n8n** — *Why:* OpenClaw's webhooks plugin explicitly lists n8n as a primary trigger source; gives non-developers a visual surface to wire messaging events to stack workflows. *Mechanism:* n8n HTTP Request node → `POST http://openclaw-gateway:18789/webhooks/<route>` with `Authorization: Bearer <route-secret>`. *Effort:* small. *Confidence:* high.
+- **openclaw ↔ n8n** — *Why:* OpenClaw webhooks name n8n as a main trigger. n8n gives non-developers a visual way to connect messaging events to stack workflows. *Mechanism:* n8n HTTP Request node → `POST http://openclaw-gateway:18789/webhooks/<route>` with `Authorization: Bearer <route-secret>`. *Effort:* small. *Confidence:* high.
 - **openclaw ↔ minio** — *Why:* Workspace files, voice notes, and media attachments live only in the `openclaw-workspace` Docker volume — not addressable by other stack services. *Mechanism:* configure S3 backend with `endpoint=http://minio:9000`, dedicated `openclaw` bucket alongside the existing `MINIO_BUCKET_*` set. *Effort:* small. *Confidence:* medium.
-- **openclaw ↔ doc-processor** — *Why:* when users drop PDFs/Office docs into a chat, OpenClaw's built-in PDF handling is shallow; doc-processor (Docling) produces structured markdown + chunks the rest of the stack uses. *Mechanism:* custom OpenClaw skill posting attachments to `http://docling-gpu:8000/v1/document/convert`; persist markdown to workspace + MinIO. *Effort:* medium. *Confidence:* high.
+- **openclaw ↔ doc-processor** — *Why:* OpenClaw handles chat PDF and Office attachments poorly. doc-processor (Docling) produces structured Markdown and chunks that the rest of the stack uses. *Mechanism:* custom OpenClaw skill posting attachments to `${DOCLING_ENDPOINT}/v1/document/convert`; persist markdown to workspace + MinIO. *Effort:* medium. *Confidence:* high.
 - **openclaw ↔ weaviate** — *Why:* OpenClaw lists "memory search across persistent knowledge bases" but has no backend wired; Weaviate is the stack's vector DB. *Mechanism:* skill or MCP server bridging to `http://weaviate:8080/v1/objects` (REST) or `:50051` (gRPC); embedding via LiteLLM's embeddings endpoint. *Effort:* medium. *Confidence:* medium.
 - **openclaw ↔ searxng** — *Why:* OpenClaw ships web-search tools with multiple providers but defaults to commercial APIs; SearXNG is the stack's privacy-preserving metasearch. *Mechanism:* set OpenClaw's web-search provider to a custom HTTP backend pointing at `${SEARXNG_INTERNAL_URL}/search?format=json&q=...`. *Effort:* small. *Confidence:* medium.
 
 ### 12.5. Future — Candidate new services
 
-- **Honcho** ([details](../../docs/research/candidates/honcho.md)) — *Headline:* hosted/self-hostable user-memory store explicitly listed as an OpenClaw memory-engine backend. *Wires into:* hermes, backend, local-deep-researcher.
+- **Honcho** ([details](https://github.com/thekaveh/atlas/blob/main/docs/research/candidates/honcho.md)) — *Headline:* hosted/self-hostable user-memory store explicitly listed as an OpenClaw memory-engine backend. *Wires into:* hermes, backend, local-deep-researcher.
 
 ### 12.6. Future — Unused features in this service
 
-- **MCP CLI / external MCP server support** — *Why pursue:* lets OpenClaw consume any MCP server (Neo4j, Weaviate, GitHub) over stdio/SSE/streamable-http, unlocking RAG and graph tools without bespoke skills. *Effort:* medium.
+- **MCP CLI / external MCP server support** — *Why pursue:* lets OpenClaw use any MCP server (Neo4j, Weaviate, GitHub) over stdio, SSE or streamable HTTP. RAG and graph tools then need no bespoke skills. *Effort:* medium.
 - **Webhooks plugin (inbound TaskFlow trigger)** — *Why pursue:* standard surface for n8n/CI/external triggers; auth model already defined. *Effort:* small.
 - **Sandbox runners (Docker/SSH backends)** — *Why pursue:* non-main sessions can run tools in Docker sandboxes — meaningfully safer than current host-bound execution. *Effort:* medium.
 - **Local TTS/STT providers** — *Why pursue:* stack already runs `tts-provider` and `stt-provider`; swap OpenClaw's cloud STT/TTS for local providers to keep voice fully on-device. *Effort:* small.
@@ -301,7 +303,7 @@ No OpenClaw agent (default).
 
 **Solution**:
 1. The `openclaw-init` container should fix this automatically on startup
-2. If it persists, manually fix: `docker run --rm -v ${PROJECT_NAME}-openclaw-config:/data alpine chown -R 1000:1000 /data`
+2. If it persists, set `PROJECT_NAME` as in §7 and run: `docker run --rm -v ${PROJECT_NAME}-openclaw-config:/data alpine chown -R 1000:1000 /data`
 3. Restart the gateway: `docker restart ${PROJECT_NAME}-openclaw-gateway`
 
 ### 13.2. Gateway Won't Start
@@ -309,9 +311,9 @@ No OpenClaw agent (default).
 **Problem**: OpenClaw container fails to start
 
 **Solution**:
-1. Check logs: `docker logs ${PROJECT_NAME}-openclaw-gateway`
+1. Check logs (set `PROJECT_NAME` as in §7): `docker logs ${PROJECT_NAME}-openclaw-gateway`
 2. Verify image is available: `docker pull ghcr.io/openclaw/openclaw:2026.6.10`
-3. Ensure ports 63076/63077 (the canonical gateway/bridge slots — overridable via `OPENCLAW_GATEWAY_PORT` / `OPENCLAW_BRIDGE_PORT`) are not in use
+3. Ensure ports 63076/63077 (the gateway and bridge defaults; `OPENCLAW_GATEWAY_PORT` / `OPENCLAW_BRIDGE_PORT`) are free
 4. Check Docker has sufficient memory (2GB+ recommended)
 
 ### 13.3. Can't See LLM Models
@@ -319,21 +321,21 @@ No OpenClaw agent (default).
 **Problem**: OpenClaw doesn't see any models
 
 **Solution**:
-1. Verify LiteLLM is healthy: `curl http://localhost:63040/health/liveliness`
-2. List the models LiteLLM has registered: `curl -H "Authorization: Bearer $LITELLM_MASTER_KEY" http://localhost:63040/v1/models`
-3. Run inside the container: `docker exec ${PROJECT_NAME}-openclaw-gateway openclaw config get models.providers.openai`
-4. Confirm `LITELLM_BASE_URL` and `LITELLM_API_KEY` are present in the OpenClaw container environment
-5. If you specifically need Ollama models, ensure `LLM_PROVIDER_SOURCE` is set to one of the `ollama-*` values (not `none`) so LiteLLM has an Ollama upstream to forward to
+1. Verify LiteLLM is healthy: `curl http://localhost:63040/health/liveliness` (63040 is the default `LITELLM_PORT`)
+2. List the models LiteLLM serves: `curl -H "Authorization: Bearer $(grep '^LITELLM_MASTER_KEY=' .env | cut -d= -f2-)" http://localhost:63040/v1/models`
+3. Check the provider config (`baseUrl` must be `http://litellm:4000`; set `PROJECT_NAME` as in §7): `docker exec ${PROJECT_NAME}-openclaw-gateway openclaw config get models.providers.litellm`. Check `models.providers.openai` only if you repurposed it (§7).
+4. Confirm that `LITELLM_API_KEY` is set in the OpenClaw container environment
+5. For Ollama models, set `LLM_PROVIDER_SOURCE` to an `ollama-*` value (not `none`), so LiteLLM has an Ollama upstream
 
 ### 13.4. Dashboard Not Loading
 
 **Problem**: Web dashboard returns errors
 
 **Solution**:
-1. Check health endpoint: `curl http://localhost:${OPENCLAW_GATEWAY_PORT}/healthz`
+1. Check the health endpoint: `curl http://localhost:63076/healthz` (default `OPENCLAW_GATEWAY_PORT`)
 2. Wait for startup (20s start period)
 3. If using Kong, verify hosts file: `./start.sh --setup-hosts`
-4. Check if `OPENCLAW_GATEWAY_TOKEN` is required
+4. Sign in with `OPENCLAW_GATEWAY_TOKEN` from `.env`; it is always required
 
 ### 13.5. Port Already in Use
 
@@ -350,11 +352,11 @@ lsof -i :63076
 
 ## 14. Capabilities & limitations
 
-Support tier: **experimental** — Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
-| LiteLLM-backed messaging agent gateway | partial | tested | Atlas injects the LiteLLM key and openclaw-init points the bundled litellm provider at http://litellm:4000 when its baseUrl is unset; messaging channels and approvals require onboarding and are not exercised against live platforms. |
+| LiteLLM-backed messaging agent gateway | partial | tested | Atlas injects the LiteLLM key, and openclaw-init points the bundled litellm provider at http://litellm:4000 when its baseUrl is unset. Messaging channels and approvals require onboarding and are not exercised against live platforms. |
 | Container and operator-host sources | partial | tested | Atlas initializes and runs the container source, while localhost mode only resolves an existing operator-managed gateway and cannot guarantee its version, onboarding, or supervision. |
 | Direct cloud-provider overrides | partial | tested | Optional OpenClaw-specific Anthropic or OpenAI keys can bypass LiteLLM, which also bypasses Atlas gateway accounting and centralized provider routing. |
 | OpenClaw gateway authentication | partial | tested | OPENCLAW_GATEWAY_TOKEN, generated at startup, protects the gateway API and dashboard; the CORS-only Kong route adds no Atlas authentication of its own. Direct gateway ports are loopback-only by default; an operator who deliberately publishes them remotely must secure that exposure separately. |

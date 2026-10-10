@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="./assets/atlas-poster-blue.png" alt="Atlas — the Titan holding the globe, with the ATLAS-PLATFORM wordmark" width="100%">
-</p>
-
 <h1 align="center">Atlas</h1>
 
 <p align="center">
@@ -9,61 +5,83 @@
 </p>
 
 <p align="center">
-  Chat, RAG, agents, distributed compute, and a full data platform — source-configurable services wired together out of the box and selectable among the deployment modes each supports.
+  Chat, RAG, agents, distributed compute, and a full data platform — integrated services, each selectable among the deployment modes it supports.
 </p>
 
-<p align="center">
-  <img alt="Docker Compose" src="https://img.shields.io/badge/Docker%20Compose-orchestration-2496ED?logo=docker&logoColor=white">
-  <img alt="Ollama" src="https://img.shields.io/badge/Ollama-local%20LLMs-000000?logo=ollama&logoColor=white">
-  <img alt="LiteLLM" src="https://img.shields.io/badge/LiteLLM-LLM%20gateway-2563EB">
-  <img alt="Kong" src="https://img.shields.io/badge/Kong-API%20gateway-003459?logo=kong&logoColor=white">
-</p>
+Atlas is a self-hosted engineering platform that bundles 58 service families behind a Kong gateway and an adaptive FastAPI backend. They cover LLM inference and a gateway, vector and graph databases, workflow and DAG automation, distributed compute, object storage, notebooks, and observability.
 
-<p align="center">
-  <img alt="vLLM" src="https://img.shields.io/badge/vLLM-inference-0F8041">
-  <img alt="Supabase" src="https://img.shields.io/badge/Supabase-Postgres-3FCF8E?logo=supabase&logoColor=white">
-  <img alt="Weaviate" src="https://img.shields.io/badge/Weaviate-vector-262C30?logo=weaviate">
-  <img alt="Neo4j" src="https://img.shields.io/badge/Neo4j-graph-4581FF?logo=neo4j&logoColor=white">
-  <img alt="Redis" src="https://img.shields.io/badge/Redis-cache-DC382D?logo=redis&logoColor=white">
-  <img alt="MinIO" src="https://img.shields.io/badge/MinIO-object-C72E49?logo=minio">
-  <img alt="Ray" src="https://img.shields.io/badge/Ray-compute-028CF0?logo=ray">
-  <img alt="Spark" src="https://img.shields.io/badge/Spark-compute-E25A1C?logo=apachespark&logoColor=white">
-  <img alt="n8n" src="https://img.shields.io/badge/n8n-workflow-EA4B71?logo=n8n&logoColor=white">
-  <img alt="Airflow" src="https://img.shields.io/badge/Airflow-orchestrator-017CEE?logo=apacheairflow&logoColor=white">
-  <img alt="JupyterHub" src="https://img.shields.io/badge/JupyterHub-notebooks-F37626?logo=jupyter&logoColor=white">
-  <img alt="Zeppelin" src="https://img.shields.io/badge/Zeppelin-notebooks-FFD700">
-  <img alt="Prometheus" src="https://img.shields.io/badge/Prometheus-metrics-E6522C?logo=prometheus&logoColor=white">
-  <img alt="Grafana" src="https://img.shields.io/badge/Grafana-dashboards-F46800?logo=grafana&logoColor=white">
-  <img alt="Langfuse" src="https://img.shields.io/badge/Langfuse-tracing-FF7E29">
-</p>
+The services are integrated, not only co-located. Kong routes every `*.localhost` host, and LiteLLM puts local and cloud models behind one API. The backend connects to whichever vector, graph, workflow and media services you enable. Supabase supplies the shared database, storage and API identity.
 
-Atlas is a self-hosted engineering platform that bundles 30+ services — LLM inference and a gateway, vector and graph databases, workflow and DAG automation, distributed compute, object storage, notebooks, and observability — behind a Kong gateway and an adaptive FastAPI backend.
+**Who it is for**. Developers and engineers who want a local or single-host stack for gen-AI, RAG, ML and data work, with each service configurable.
 
-It's not a catalog of independent containers: the services are integrated out of the box. Kong routes every `*.localhost` host, LiteLLM unifies local and cloud models behind one API, an adaptive FastAPI backend auto-wires to whichever vector, graph, workflow, and media services you enable, Supabase provides the shared database and storage plus the user identity the backend's APIs accept, and one observability pipeline plus declared dependency ordering tie it all together. Bundled dashboards keep their own logins — there is no single sign-on; [Access and Credentials](docs/operations/access-and-credentials.md) says what opens each one.
-
-Source-configurable services expose the deployment variants each family supports — commonly `container`, `localhost`, or `disabled` — so the same stack scales from a CPU starter to a multi-GPU lab. Seven tracks — Generative AI · RAG, Generative AI · Engineering, Generative AI · Creative, ML Engineering, Data Engineering, Trading / Financial Research, and All / Custom — preselect a working subset per workflow, and a `--profile` switch (`dev`/`default` vs `prod`) applies the matching source and observability bundle. Both profiles keep published service ports loopback-bound by default; an explicit `HOST_BIND_IP` remains an operator choice. The always-on core is Kong, Supabase, Redis, LiteLLM, and the Backend API.
-
-- **30+ services across 7 tracks**, all ports derived from one `BASE_PORT`
-- **Integrated, not just launched:** Kong routing, the LiteLLM model gateway, an adaptive backend, a shared Supabase database, storage and API identity (each dashboard keeps its own login), and one observability pipeline
-- **Always-on core:** Kong, Supabase, Redis, LiteLLM, Backend
-- **Per-service SOURCE:** family-specific variants, commonly `container` / `localhost` / `disabled`
-- **Profiles:** `--profile dev` (default, loopback-bound) or `--profile prod` (also loopback-bound, observability on)
-- **One command:** `./start.sh` opens the interactive **Textual TUI wizard** — pick a track, choose per-service sources, set the base port, and watch the live launch
-
-[![Atlas — interactive setup wizard streaming the launch phase, with the ASCII brand banner pinned at the top of the terminal](./docs/screenshots/wizard-running.png)](./docs/screenshots/wizard-running.png)
-
-*The Textual TUI wizard streaming a live `./start.sh` launch — one view for stack status and logs.*
+**What it does not cover**. Atlas runs on one Docker host with Docker Compose. It has no multi-host clustering, failover or Kubernetes deployment, and no single sign-on across dashboards. Every service family is currently `experimental`: selectable, but not yet qualified with cited evidence (see the [service catalog](docs/services.md)). The trading track supports research and paper portfolios only, not live trading.
 
 ## 1. Quick start
+
+Before you start, install:
+
+- Docker with Docker Compose v2.20.3 or newer (v2.26+ recommended).
+- `uv`, or Python 3.10 or newer.
+- Git.
+
+The wizard preselects the `gen-ai-rag` track: chat UI, workflow automation, vector and graph databases, private web search, and deep research on a CPU Ollama engine. The `all` track (the `.env.example` defaults) adds ComfyUI, JupyterHub, Hermes, MinIO, speech-to-text, text-to-speech and CLIP. Measured setup time, memory and disk per track are not published yet; larger tracks need more of each.
+
+Clone the repository and run `./start.sh` from the repository root (`atlas/`):
 
 ```bash
 git clone https://github.com/thekaveh/atlas && cd atlas
 ./start.sh
 ```
 
-`./start.sh` with no arguments launches an interactive setup wizard covering track and profile selection, base port and project name, per-service SOURCE choices, host aliases, and a launch summary; the wizard preselects the `gen-ai-rag` track (chat UI, workflow automation, vector and graph databases, privacy search, deep research on a CPU Ollama engine), and the `all` track (the `.env.example` defaults) adds ComfyUI, JupyterHub, Hermes, MinIO, speech-to-text/text-to-speech and CLIP, so plan memory and disk for the track you pick. See [docs/quick-start/index.md](docs/quick-start/index.md) for the first-run walkthrough and [docs/quick-start/interactive-setup-wizard.md](docs/quick-start/interactive-setup-wizard.md) for what the wizard does step by step.
+`./start.sh` with no arguments opens the setup wizard. It asks for track and profile, base port and project name, per-service SOURCE choices and host aliases, then shows a launch summary.
 
-## 2. Service topology
+When the launch finishes, open the root dashboard at `http://localhost:<BASE_PORT>`. With the default base port this is `http://localhost:63000`. `KONG_HTTP_PORT` in `.env` holds the dashboard port, which is derived from `BASE_PORT`.
+
+Next: the [first-run walkthrough](docs/quick-start/index.md) and the [wizard guide](docs/quick-start/interactive-setup-wizard.md).
+
+## 2. At a glance
+
+- **58 service families across 7 tracks**. Only configurable services belong to tracks, and tracks can overlap. A track preselects the services for one workload. The tracks are Generative AI · RAG, Generative AI · Engineering, Generative AI · Creative, ML Engineering, Data Engineering, Trading / Financial Research, and All / Custom. See [Tracks](docs/tracks.md).
+- **Core services**. The always-on core is Kong, Supabase, Redis, LiteLLM and the Backend API.
+- **Per-service SOURCE**. Each configurable service runs in a container, uses an instance on your host, or is disabled. The variants differ by family; see the [SOURCE Configuration Guide](docs/operations/source-configuration.md).
+- **Ports**. Every host port derives from one `BASE_PORT` (default `63000`). Both profiles bind published ports to loopback unless you set `HOST_BIND_IP`. See [Ports and Routes](docs/operations/ports-and-routes.md) and [Access and Credentials](docs/operations/access-and-credentials.md).
+- **Profiles**. `--profile dev` (alias `default`) or `--profile prod`, which also enables Prometheus and Grafana. See [Configuration](docs/configuration.md).
+- **Logins**. Each dashboard keeps its own login; there is no single sign-on. See [Access and Credentials](docs/operations/access-and-credentials.md).
+
+<p align="center">
+  <img src="./assets/atlas-poster-blue-banner.jpg" alt="Atlas poster: a blue wireframe Titan holds a glowing gold globe above the ATLAS-PLATFORM wordmark, on a dark starfield" width="720">
+</p>
+
+<p align="center">
+  <img alt="Docker Compose: orchestration" src="https://img.shields.io/badge/Docker%20Compose-orchestration-2496ED?logo=docker&logoColor=white">
+  <img alt="Ollama: local LLMs" src="https://img.shields.io/badge/Ollama-local%20LLMs-000000?logo=ollama&logoColor=white">
+  <img alt="LiteLLM: LLM gateway" src="https://img.shields.io/badge/LiteLLM-LLM%20gateway-2563EB">
+  <img alt="Kong: API gateway" src="https://img.shields.io/badge/Kong-API%20gateway-003459?logo=kong&logoColor=white">
+</p>
+
+<p align="center">
+  <img alt="vLLM: inference" src="https://img.shields.io/badge/vLLM-inference-0F8041">
+  <img alt="Supabase: Postgres" src="https://img.shields.io/badge/Supabase-Postgres-3FCF8E?logo=supabase&logoColor=white">
+  <img alt="Weaviate: vector" src="https://img.shields.io/badge/Weaviate-vector-262C30?logo=weaviate">
+  <img alt="Neo4j: graph" src="https://img.shields.io/badge/Neo4j-graph-4581FF?logo=neo4j&logoColor=white">
+  <img alt="Redis: cache" src="https://img.shields.io/badge/Redis-cache-DC382D?logo=redis&logoColor=white">
+  <img alt="MinIO: object" src="https://img.shields.io/badge/MinIO-object-C72E49?logo=minio">
+  <img alt="Ray: compute" src="https://img.shields.io/badge/Ray-compute-028CF0?logo=ray">
+  <img alt="Spark: compute" src="https://img.shields.io/badge/Spark-compute-E25A1C?logo=apachespark&logoColor=white">
+  <img alt="n8n: workflow" src="https://img.shields.io/badge/n8n-workflow-EA4B71?logo=n8n&logoColor=white">
+  <img alt="Airflow: orchestrator" src="https://img.shields.io/badge/Airflow-orchestrator-017CEE?logo=apacheairflow&logoColor=white">
+  <img alt="JupyterHub: notebooks" src="https://img.shields.io/badge/JupyterHub-notebooks-F37626?logo=jupyter&logoColor=white">
+  <img alt="Zeppelin: notebooks" src="https://img.shields.io/badge/Zeppelin-notebooks-FFD700">
+  <img alt="Prometheus: metrics" src="https://img.shields.io/badge/Prometheus-metrics-E6522C?logo=prometheus&logoColor=white">
+  <img alt="Grafana: dashboards" src="https://img.shields.io/badge/Grafana-dashboards-F46800?logo=grafana&logoColor=white">
+  <img alt="Langfuse: tracing" src="https://img.shields.io/badge/Langfuse-tracing-FF7E29">
+</p>
+
+[![Terminal screenshot of the setup wizard during a launch: a 36-service overview above a live Docker log pane](./docs/screenshots/wizard-running.png)](./docs/screenshots/wizard-running.png)
+
+*The setup wizard during a live `./start.sh` launch of Atlas v0.1.0 on 2026-06-19. Its overview lists 36 services, 34 of them enabled, on base port 64075. Ollama and ComfyUI use host (`localhost`) sources, and the cloud APIs are off. The capture does not record the host hardware.*
+
+## 3. Service topology
 
 <!-- TOPOLOGY:BEGIN -->
 _Engine-only manifests (speaches, chatterbox) are not listed — they're selected as source variants of their parent (STT Provider / TTS Provider) rather than as standalone services._
@@ -134,33 +152,33 @@ _Engine-only manifests (speaches, chatterbox) are not listed — they're selecte
 | Apps & UIs | Apache Zeppelin | 63099 | — |
 <!-- TOPOLOGY:END -->
 
-[![Atlas — topologically-ordered architecture diagram](./docs/diagrams/architecture.svg)](./docs/diagrams/architecture.svg)
+[![Atlas architecture: clients reach the Kong gateway, which fronts apps, agents, the LLM core, media services and data stores, plus opt-in compute and observability](./docs/diagrams/architecture.svg)](./docs/diagrams/architecture.svg)
 
 *Kong routes services with declared host aliases; loopback-only interfaces such as Zeppelin bypass the gateway.*
 
 Full port + Kong-route detail: [docs/reference/ports-routes.md](docs/reference/ports-routes.md) and [docs/operations/ports-and-routes.md](docs/operations/ports-and-routes.md). Per-service documentation: [docs/services.md](docs/services.md).
 
-## 3. Documentation
+## 4. Documentation
 
 [docs/README.md](docs/README.md) is the full documentation index. Key entry points:
 
-- **Getting started** — [Quick Start](docs/quick-start/index.md), [Interactive Setup Wizard](docs/quick-start/interactive-setup-wizard.md), [Troubleshooting](docs/quick-start/troubleshooting.md), [Startup error recovery](docs/TROUBLESHOOTING.md)
+- **Getting started** — [Quick Start](docs/quick-start/index.md), [Interactive Setup Wizard](docs/quick-start/interactive-setup-wizard.md), [Quick Start Troubleshooting](docs/quick-start/troubleshooting.md), [Sudo recovery](docs/TROUBLESHOOTING.md)
 - **Core concepts** — [Core Concepts](docs/core-concepts.md) (SOURCE values, tracks, manifests, gateway access), [SOURCE reference](docs/reference/source-values.md), [Tracks](docs/tracks.md)
 - **Operating the stack** — [Service catalog](docs/services.md), [SOURCE configuration](docs/operations/source-configuration.md), [Ports and routes](docs/operations/ports-and-routes.md), [Architecture diagrams](docs/architecture/index.md)
 - **Running Atlas for another project** — [Reusing Atlas as Infrastructure](docs/operations/reusing-atlas.md), [Using as a submodule](docs/operations/submodule-usage.md)
-- **Contributing** — [Contributing guide](CONTRIBUTING.md) (first change: setup, one safe test per area, branch target, required checks), [Development](docs/development.md) (repository layout, parent-repo consumer layout, required docs checks), [Adding a service](docs/CONTRIBUTING-services.md), [Security policy](SECURITY.md)
+- **Contributing** — [Contributing guide](CONTRIBUTING.md) (setup, one safe test per area, branch target, required checks), [Development](docs/development.md) (repository and consumer layout, docs checks), [Adding a service](docs/CONTRIBUTING-services.md), [Security policy](SECURITY.md)
 - **Release history** — [ROADMAP](docs/ROADMAP.md), [CHANGELOG](docs/CHANGELOG.md), [Releasing & version tags](docs/operations/releasing.md)
 - **Project & internal docs** — research, strategy, and maintenance notes live under `docs/`: [docs/research/README.md](docs/research/README.md), [docs/strategy/README.md](docs/strategy/README.md), [docs/maintenance/README.md](docs/maintenance/README.md)
 
-## 4. Contributing
+## 5. Contributing
 
-Contributions welcome. Start with the [contributing guide](CONTRIBUTING.md): it covers setup, one safe test for each code area, the Docker and live-test boundary, and opening a pull request against `develop` with the four required checks. For anything larger than a typo, open an issue first so the scope is agreed.
+Contributions are welcome. Start with the [contributing guide](CONTRIBUTING.md). It covers setup, one safe test for each code area, and the Docker and live-test boundary. It also covers the pull request against `develop` and its four required checks. For anything larger than a typo, open an issue first so the scope is agreed.
 
-## 5. License
+## 6. License
 
 [Apache License 2.0](LICENSE)
 
-## 6. Support
+## 7. Support
 
 - Check the [documentation](docs/README.md)
 - Report bugs and request features on [GitHub Issues](https://github.com/thekaveh/atlas/issues)

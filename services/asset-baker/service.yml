@@ -47,6 +47,7 @@ env:
   - name: ASSET_BAKER_PORT
     description: "Host port for the asset-baker API (in-container listen port is 8096)."
   - name: ASSET_BAKER_SCALE
+    description: "Set by ./start.sh from ASSET_BAKER_SOURCE; do not edit. 1 runs asset-baker (container-cpu), 0 does not."
     auto_managed: true
   - name: ASSET_BAKER_PLATFORM
     default: "linux/amd64"
@@ -170,6 +171,6 @@ data_flow:
 # until a cited cold-start, workflow, and upgrade qualification run promotes it.
 support:
   tier: experimental
-  evidence: "Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet"
+  evidence: "Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet"
   evidence_revision: v0.1.0
   owner: Atlas maintainers

@@ -10,6 +10,11 @@ from scripts.docs.content_quality import (  # noqa: E402
     production_style_findings,
     marketing_adjective_findings,
     duplicate_block_findings,
+    long_prose_findings,
+    manifest_prose_findings,
+    prose_baseline_increases,
+    prose_counts,
+    prose_ratchet_findings,
 )
 
 
@@ -85,3 +90,118 @@ def test_root_readme_does_not_leak_diagram_generation_mechanics():
     readme = (_REPO_ROOT / "README.md").read_text(encoding="utf-8")
 
     assert "data_flow.calls" not in readme
+
+
+def _words(count: int, word: str = "word") -> str:
+    """``count`` words that start a sentence (the splitter needs a capital)."""
+    return " ".join([word.capitalize()] + [word] * (count - 1))
+
+
+def _rules(text: str) -> list[tuple[int, str]]:
+    return [(line, rule) for line, rule, _ in long_prose_findings(text)]
+
+
+def test_long_sentence_is_flagged_and_short_one_is_not():
+    text = f"# T\n\n{_words(26)}. {_words(25)}.\n"
+    assert _rules(text) == [(3, "sentence")]
+
+
+def test_numbered_step_uses_the_twenty_word_limit():
+    text = f"1. {_words(21)}.\n2. {_words(20)}.\n- {_words(21)}.\n"
+    assert _rules(text) == [(1, "step")]
+
+
+def test_paragraph_word_and_sentence_limits():
+    words = " ".join(f"{_words(19)}." for _ in range(4))
+    sentences = " ".join("Short one." for _ in range(7))
+    assert _rules(f"{words}\n\n{sentences}\n") == [
+        (1, "para_words"),
+        (3, "para_sentences"),
+    ]
+
+
+def test_paragraph_spans_wrapped_lines_until_a_blank_line():
+    text = f"{_words(40)}\n{_words(40)}\n\n{_words(10)}.\n"
+    assert (1, "para_words") in _rules(text)
+    assert all(line != 4 for line, _ in _rules(text))
+
+
+def test_fences_generated_ranges_html_and_lint_ok_are_skipped():
+    long = _words(30)
+    text = (
+        f"```\n{long}\n```\n\n"
+        f"<!-- BEGIN GENERATED X -->\n{long}.\n<!-- END GENERATED X -->\n\n"
+        f"<!-- TOPOLOGY:BEGIN -->\n{long}.\n<!-- TOPOLOGY:END -->\n\n"
+        f"<p>{long}.</p>\n\n"
+        f"{long}. <!-- lint-ok -->\n"
+    )
+    assert long_prose_findings(text) == []
+
+
+def test_table_cells_are_checked_one_by_one():
+    text = f"| A | B |\n|---|---|\n| {_words(26)}. | {_words(5)} |\n"
+    assert _rules(text) == [(3, "sentence")]
+
+
+def test_link_targets_do_not_count_as_words():
+    link = "[x](" + "/".join(["very-long-path"] * 40) + ")"
+    assert long_prose_findings(f"{_words(20)} {link}.\n") == []
+
+
+def test_blockquote_prose_is_checked():
+    assert _rules(f"> {_words(26)}.\n") == [(1, "sentence")]
+
+
+def test_prose_counts_collapse_findings_per_rule():
+    text = f"{_words(26)}. {_words(26)}.\n\n1. {_words(21)}.\n"
+    assert prose_counts(long_prose_findings(text)) == {"sentence": 2, "step": 1}
+
+
+def test_manifest_rule_flags_long_or_issue_citing_descriptions_and_notes():
+    manifest = {
+        "env": [
+            {"name": "LONG", "description": _words(41)},
+            {"name": "ISSUE", "description": "Fixed in (#1234)."},
+            {"name": "OK", "description": "Host port. See RFC #1 and a&#123; entity."},
+            {"name": "NONE"},
+        ],
+        "capabilities": [
+            {"name": "Long", "note": f"{_words(26)}. Short."},
+            {"name": "Fine", "note": f"{_words(25)}. {_words(25)}."},
+        ],
+    }
+    assert [(key, rule) for key, rule, _ in manifest_prose_findings(manifest)] == [
+        ("LONG", "env_description"),
+        ("ISSUE", "env_issue_ref"),
+        ("Long", "capability_note"),
+    ]
+
+
+def test_ratchet_rejects_regressions_and_unlowered_gains():
+    baseline = {"a.md": {"sentence": 3}, "gone.md": {"step": 1}}
+    current = {"a.md": {"sentence": 2, "step": 1}, "new.md": {"para_words": 1}}
+    messages = prose_ratchet_findings(current, baseline)
+    assert "a.md: sentence 2 < baseline 3; lower the baseline (--write-prose-baseline)" in messages
+    assert "a.md: step 1 > baseline 0" in messages
+    assert "new.md: para_words 1 > baseline 0" in messages
+    assert any(message.startswith("gone.md: step 0 < baseline 1") for message in messages)
+    assert prose_ratchet_findings(baseline, baseline) == []
+
+
+def test_baseline_rewrite_reports_every_increase():
+    assert prose_baseline_increases({"a.md": {"sentence": 4}}, {"a.md": {"sentence": 3}}) == [
+        "a.md: sentence 4 > 3"
+    ]
+    assert prose_baseline_increases({"a.md": {"sentence": 2}}, {"a.md": {"sentence": 3}}) == []
+
+
+def test_committed_prose_baseline_matches_the_current_text():
+    """The gate is wired into check-docs-drift; this pins the same contract."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "check_docs_drift", _REPO_ROOT / "scripts" / "check-docs-drift.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert module.check_prose_length() == []

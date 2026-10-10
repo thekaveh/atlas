@@ -68,6 +68,7 @@ sources:
 
 env:
   - name: TEI_RERANKER_SOURCE
+    description: "Deployment source for the TEI reranker: container-cpu, container-gpu, localhost or disabled (default)."
     default: disabled
   - name: TEI_RERANKER_PORT
     # default computed by services/topology.py slot allocator
@@ -76,18 +77,25 @@ env:
     default: "63049"
     description: "Host port for the host-installed TEI rerank source variant."
   - name: TEI_RERANKER_MODEL_ID
+    description: "Hugging Face model id TEI serves (--model-id)."
     default: "mixedbread-ai/mxbai-rerank-base-v1"
   - name: TEI_RERANKER_REVISION
+    description: "Model revision TEI loads (--revision). The default pins a commit of the default model."
     default: "800f24c113213a187e65bde9db00c15a2bb12738"
   - name: TEI_RERANKER_MAX_CLIENT_BATCH_SIZE
+    description: "Maximum inputs per client request TEI accepts (--max-client-batch-size)."
     default: 32
   - name: TEI_RERANKER_MEMORY_LIMIT
+    description: "Container memory limit for tei-reranker (deploy.resources.limits.memory)."
     default: 4g
   - name: TEI_RERANKER_CPU_LIMIT
+    description: "Container CPU limit for tei-reranker (deploy.resources.limits.cpus)."
     default: "2.0"
   - name: TEI_RERANKER_HF_CACHE_DIR
+    description: "In-container Hugging Face cache (HF_HOME). The default /data is the tei-reranker-data volume, so models persist across restarts."
     default: "/data"
   - name: TEI_RERANKER_SCALE
+    description: "Set by ./start.sh from TEI_RERANKER_SOURCE; do not edit. 1 runs tei-reranker for container-cpu and container-gpu, 0 otherwise."
     auto_managed: true
   - name: TEI_RERANKER_ENDPOINT
     auto_managed: true
@@ -153,6 +161,6 @@ data_flow:
 # until a cited cold-start, workflow, and upgrade qualification run promotes it.
 support:
   tier: experimental
-  evidence: "Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet"
+  evidence: "Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet"
   evidence_revision: v0.1.0
   owner: Atlas maintainers

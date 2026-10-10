@@ -11,35 +11,46 @@ This is a local development service. It is not exposed through Kong, has no brow
 - SOURCE: `OTEL_COLLECTOR_SOURCE=disabled` by default.
 - Internal OTLP HTTP endpoint when enabled: `http://otel-collector:4318`.
 - Internal OTLP gRPC endpoint when enabled: `http://otel-collector:4317`.
-- Direct host URL: none in the first slice.
+- Direct host URL: none.
 - Kong URL: none; no Kong route is generated.
 - Grafana surface: use the Tempo datasource for traces and Loki for logs.
 
 ## 3. Configuration
 
-The service reads `./config/config.yaml`, mounted to `/etc/otelcol/config.yaml`. Atlas computes `OTEL_COLLECTOR_ENDPOINT`, `OTEL_COLLECTOR_OTLP_HTTP_ENDPOINT`, `OTEL_COLLECTOR_OTLP_GRPC_ENDPOINT`, and `ATLAS_OTEL_ENABLED` from SOURCE choices. Container mode requires both `TEMPO_SOURCE=container` and `LOKI_SOURCE=container`; startup rejects either missing sink rather than silently retrying forever.
+The service reads `./config/config.yaml`, mounted at `/etc/otelcol/config.yaml`. Atlas computes `OTEL_COLLECTOR_ENDPOINT`, `OTEL_COLLECTOR_OTLP_HTTP_ENDPOINT`, `OTEL_COLLECTOR_OTLP_GRPC_ENDPOINT` and `ATLAS_OTEL_ENABLED` from the SOURCE values. Container mode requires `TEMPO_SOURCE=container` and `LOKI_SOURCE=container`. If either is missing, `./start.sh` stops with an error before Compose starts.
 
-The receiver caps gRPC messages at 4 MiB and HTTP request bodies at 4,194,304 bytes; larger gRPC messages are rejected by the transport, while the pinned HTTP receiver returns `400 Bad Request` with `request body too large` before OTLP parsing. The logs pipeline then applies the memory limiter, redacts credentials, batches at most 1,024 records, and sends through a 512-request queue with two consumers and exponential retry. The queue is deliberately bounded and in memory: it retries a Loki outage while the Collector stays alive, but queued records do not survive a Collector restart. Logs accepted by Loki persist according to `LOKI_RETENTION_PERIOD`.
+**Receiver limits.** gRPC messages are capped at 4 MiB and HTTP request bodies at 4,194,304 bytes. The gRPC transport rejects larger messages. The HTTP receiver returns `400 Bad Request` with `request body too large` before it parses OTLP.
 
-Attribute redaction deletes top-level log and resource attributes whose keys case-insensitively end in one of `authorization`, `proxy-authorization`, `x-api-key`, `api_key`, `api-key`, `apikey`, `token`, `access_token`, `refresh_token`, `client_secret`, `password`, `passwd`, `secret`, `cookie`, `set-cookie` or `master_key`, either as the whole key or after a `.`, `_` or `-` separator, so `db.password`, `OPENAI_API_KEY` and `http.request.header.cookie` are removed while `max_tokens` is kept. It does not recursively inspect nested attribute maps. For string bodies only, case-insensitive patterns replace Bearer/Basic authorization values, the listed key spellings (also with a prefix, such as `LITELLM_MASTER_KEY=`) in `key=value` or `key: value` text, passwords in `scheme://user:password@` connection strings, and `sk-…` API keys. A body key must start the string or follow whitespace or one of `{`, `[`, `,`, `?`, `&`, or `;`; optional single or double quotes around keys and values cover JSON-like and logfmt text. Transform errors propagate instead of sending the affected batch unredacted. Body filtering is best-effort; it does not traverse structured nested or non-string bodies, encodings, arbitrary identifiers, or unknown keys. Applications must still avoid logging secrets.
+**Logs pipeline.** The pipeline applies the memory limiter and redaction, then batches at most 1,024 records. It sends through a queue of 512 requests with two consumers and exponential retry. The queue is bounded and in memory. It rides out a Loki outage while the Collector runs, but queued records do not survive a Collector restart. Loki keeps accepted logs for `LOKI_RETENTION_PERIOD`.
 
-Traces pass through a separate transform that blanks the values of credential-named query parameters (`apikey`, `api_key`, `token`, `access_token`, `key`, `password`, `secret`, `sig`, and the S3 presign `X-Amz-Security-Token`, `X-Amz-Signature`, `X-Amz-Credential`) in `url.query`, `url.full` and `http.url` span attributes before they reach Tempo. It uses `error_mode: ignore`, so a span whose statement fails is exported as-is rather than dropped. Kong's backend `key-auth` forwards the `apikey` (plugins declaring `auth: key-auth` re-check it in the backend), so this transform is what keeps it out of Tempo.
+**Attribute redaction** deletes top-level log and resource attributes whose keys case-insensitively end in one of the names below. The name is the whole key or follows a `.`, `_` or `-`.
 
-The pinned upstream image is distroless. Its container health check therefore
-runs the Collector's own `validate` subcommand against the exact mounted config;
-Docker separately observes main-process liveness. At startup the Collector waits
-for Tempo's health check and for Loki to start; Loki's distroless image cannot run
-a probe, and the bounded Loki export queue retries until Loki accepts writes. Backend startup fails fast if
-tracing is explicitly enabled without an exporter endpoint or required OTel
-packages instead of silently dropping telemetry.
+Names: `authorization`, `proxy-authorization`, `x-api-key`, `api_key`, `api-key`, `apikey`, `token`, `access_token`, `refresh_token`, `client_secret`, `password`, `passwd`, `secret`, `cookie`, `set-cookie`, `master_key`. For example, it removes `db.password`, `OPENAI_API_KEY` and `http.request.header.cookie`, and keeps `max_tokens`. It does not recursively inspect nested attribute maps.
+
+**String-body redaction** uses the same key list, also with a prefix such as `LITELLM_MASTER_KEY=`, in `key=value` or `key: value` text:
+
+- `authorization` and `proxy-authorization`: the whole value, including the scheme (`Bearer`, `Basic`, `Token` and others).
+- `cookie` and `set-cookie`: the first value and every following `; name=value` pair.
+- All other keys: the value up to the next whitespace, `,`, `;`, `&`, quote, `}` or `]`.
+- Passwords in `scheme://user:password@` strings, and `sk-…` API keys.
+
+A body key must start the string or follow whitespace, `{`, `[`, `,`, `?`, `&` or `;`. Quotes around keys and values are allowed, so JSON-like and logfmt text match. A transform error fails the batch instead of sending it unredacted. Body filtering is best-effort: it does not traverse structured nested or non-string bodies, encodings, or unknown keys. Do not log secrets.
+
+**Trace redaction** blanks credential query values in the `url.query`, `url.full` and `http.url` span attributes. Parameters: `apikey`, `api_key`, `token`, `access_token`, `key`, `password`, `secret`, `sig`, `X-Amz-Security-Token`, `X-Amz-Signature`, `X-Amz-Credential`. This keeps the `apikey` that Kong's `key-auth` forwards to the backend out of Tempo. The transform uses `error_mode: ignore`, so a span that fails it is exported unchanged.
+
+**Health and startup.** The image is distroless, so the health check runs the Collector's `validate` subcommand against the mounted config. The Collector starts after Tempo is healthy and Loki has started. Loki has no health check; the Loki export queue retries until Loki accepts writes. The backend stops at startup if tracing is enabled without an exporter endpoint or the OTel packages.
 
 ## 4. Architecture & Wiring
 
 Backend, Celery, and LiteLLM export OTLP HTTP spans to the collector. The collector batches and forwards traces to Tempo. OTLP log producers use the same receiver; after redaction and bounded live retry, the collector sends logs to Loki's native `/otlp` endpoint. The collector stays stateless and uses no persistent volume.
 
-Loki preserves OTLP `trace_id` and `span_id` as structured metadata. Query a correlated record with LogQL such as `{service_name="backend"} | trace_id = "0123456789abcdef0123456789abcdef"`; Grafana's Loki datasource reads the `trace_id` structured-metadata label to derive the Tempo link without scanning the rendered log line.
+Loki keeps OTLP `trace_id` and `span_id` as structured metadata. Grafana's Loki datasource reads the `trace_id` label to build the Tempo link; it does not scan the log line. To query a correlated record in LogQL:
 
-Trace correlation uses W3C `traceparent` first. Backend spans start or continue request traces, the backend's instrumented httpx client sends `traceparent` on its outbound calls, and LiteLLM's `otel` callback (added when `ATLAS_OTEL_ENABLED=true`, with prompt and completion content excluded from span attributes) continues it. Kong is not instrumented as a tracing producer in this slice, so Kong access logs and request IDs are adjacent correlation clues rather than Tempo spans. A future Kong `correlation-id` plugin pass should standardize `X-Request-ID` injection and forwarding once the backend/LiteLLM trace path is proven.
+```logql
+{service_name="backend"} | trace_id = "0123456789abcdef0123456789abcdef"
+```
+
+Trace correlation uses W3C `traceparent`. Backend spans start or continue request traces. The backend's instrumented httpx client sends `traceparent` on outbound calls. When `ATLAS_OTEL_ENABLED=true`, LiteLLM's `otel` callback continues the trace and excludes prompt and completion content. Kong emits no spans, so Kong access logs and request IDs are correlation clues only. A Kong `correlation-id` plugin is a candidate in the [Kong README](../kong/README.md).
 
 ## 5. Dependencies & Integrations
 
@@ -78,18 +89,18 @@ _No high-confidence opportunities identified._
 
 ## 6. Troubleshooting
 
-- If backend or LiteLLM do not emit traces, confirm `OTEL_COLLECTOR_SOURCE=container` and `TEMPO_SOURCE=container`.
+- If backend, Celery or LiteLLM do not emit traces, confirm `OTEL_COLLECTOR_SOURCE=container` and `TEMPO_SOURCE=container`.
 - If logs do not appear, confirm `LOKI_SOURCE=container`, query the normalized `service_name` label, and inspect Collector retry errors. A Collector restart discards records that Loki had not accepted.
-- If the collector is unhealthy, run the same mounted-config validation shown in the Compose health check and inspect the reported receiver, processor, or exporter error.
+- If the collector is unhealthy, run `docker exec ${PROJECT_NAME}-otel-collector /otelcol-contrib validate --config=/etc/otelcol/config.yaml`. The output names the failing receiver, processor or exporter.
 - If Grafana shows no traces, check the Tempo datasource and the collector logs.
-- Roll back by setting `OTEL_COLLECTOR_SOURCE=disabled`; backend and LiteLLM tracing env collapses to no-op values.
+- Roll back by setting `OTEL_COLLECTOR_SOURCE=disabled`. `./start.sh` then sets `ATLAS_OTEL_ENABLED=false` and empty endpoints, so backend, Celery and LiteLLM stop exporting.
 
 ## 7. Capabilities & limitations
 
-Support tier: **experimental** — Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
 | OTLP trace ingestion and Tempo export | supported | tested | Atlas accepts internal OTLP over gRPC and HTTP, batches traces, and exports them to the required Tempo service. |
-| Log export to Loki | supported | tested | Atlas redacts a documented top-level credential-key allowlist, sends OTLP logs through a bounded live retry queue, and persists accepted logs in the required local Loki service. |
+| Log export to Loki | supported | tested | Atlas redacts a documented top-level credential-key allowlist and sends OTLP logs through a bounded live retry queue. Accepted logs persist in the required local Loki service. |
 | Public telemetry ingestion | not-supported | tested | Collector receivers are backend-network only with no published host port or Kong route in the stock deployment. |

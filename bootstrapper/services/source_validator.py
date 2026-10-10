@@ -396,8 +396,9 @@ class SourceValidator:
             rewrites['TTS_PROVIDER_SOURCE'] = 'chatterbox-localhost'
             print(
                 "ℹ️  TTS_PROVIDER_SOURCE=xtts-localhost auto-migrated to "
-                "chatterbox-localhost. Run `pip install chatterbox-tts-api` on the "
-                "host and start its server — see services/tts-provider/provider/localhost/README.md."
+                "chatterbox-localhost. Install chatterbox-tts-api on the host from "
+                "https://github.com/travisvn/chatterbox-tts-api and start its server — "
+                "see services/tts-provider/provider/localhost/README.md."
             )
 
         if rewrites:

@@ -13,7 +13,7 @@ capabilities:
   - name: "Project namespace and base-port ownership"
     status: supported
     verification: tested
-    note: "This virtual manifest owns the Compose project namespace, bind and gateway settings, and the base port from which service ports are derived; it launches no container of its own."
+    note: "This virtual manifest owns the Compose project namespace, the bind and gateway settings, and the base port from which service ports derive. It launches no container of its own."
   - name: "Branding and launch defaults"
     status: supported
     verification: tested
@@ -29,53 +29,42 @@ containers: []
 env:
   - name: PROJECT_NAME
     default: atlas
-    description: "Docker Compose project name — the container/volume/network prefix (<name>-…) and `docker compose -p` namespace. start.sh AND stop.sh read it from here, so stop tears down exactly what start launched. Override with `./start.sh --project <name>` (also -p; persists back here) or by editing this value. Set a unique name when running Atlas as a submodule so you don't collide with a base Atlas stack."
+    description: "Docker Compose project name: the prefix for containers, volumes and networks, and the `docker compose -p` namespace. start.sh and stop.sh both read it. `./start.sh --project <name>` (or -p) writes it here. Use a unique name for a submodule consumer."
   - name: BASE_PORT
     default: 63000
     description: "Base port. Every service's *_PORT derives from this + a fixed offset."
   - name: HOST_BIND_IP
     default: "127.0.0.1:"
-    description: |
-      Host interface prefix for ALL published service ports. Default
-      "127.0.0.1:" keeps service ports reachable only from the host (the
-      public edge — Cloudflare Tunnel or Caddy — reaches Kong locally).
-      Existing .env files with HOST_BIND_IP= are upgraded by ./start.sh's
-      blank-value backfill. Set "0.0.0.0:" only for deliberate remote access.
-      Values must include the trailing colon. Compose fragments use
-      ${HOST_BIND_IP-127.0.0.1:}, so an UNSET variable (e.g. docker compose run
-      without this .env) still binds loopback; an explicitly empty value binds
-      all interfaces. Deliberate exceptions: Ray,
-      Zeppelin and mcp-servers always bind 127.0.0.1 (unauthenticated job,
-      notebook and database-tool APIs), and the Supabase DB, Docling and
-      Parakeet ports fall back to 127.0.0.1 when this value is empty.
-      Kong's Supabase API routes answer only on local Host names: to reach
-      them by the LAN address, add it to KONG_SUPABASE_EXTRA_HOSTS (#1382).
+    description: "Published-port interface prefix (trailing colon). Default 127.0.0.1: is host-only; 0.0.0.0: is for deliberate remote access. Existing .env files with HOST_BIND_IP= are upgraded by backfill. Empty binds all interfaces except Ray, Zeppelin, mcp-servers, Supabase DB, Docling, Parakeet. LAN Supabase routes: KONG_SUPABASE_EXTRA_HOSTS."
   - name: HOST_GATEWAY_IP
     auto_managed: true
     default: host-gateway
-    description: |
-      Bootstrapper computes this at runtime based on the runtime (Docker:
-      "host-gateway"; Podman: literal gateway IP). If you copy this file to
-      .env manually without running ./start.sh, set this to "host-gateway"
-      on Linux/macOS Docker, or the real bridge IP on rootless setups.
+    description: "Set by ./start.sh for the container runtime: host-gateway on Docker, the literal gateway IP on Podman. If you write .env without ./start.sh, use host-gateway on Docker, or the real bridge IP on rootless setups."
   # Branding (TUI wizard)
   - name: BRAND_NAME
+    description: "Wizard branding: the brand name shown by the wizard and --no-tui banner. Empty uses the Atlas default."
     default: "Atlas"
   - name: BRAND_TAGLINE
+    description: "Wizard branding: the tagline shown by the wizard and --no-tui banner. Empty uses the Atlas default."
     default: "A self-hosted, source-configurable, multi-disciplinary engineering platform — gen-AI, ML, and data."
   - name: BRAND_VERSION
+    description: "Wizard branding: the version shown by the wizard and --no-tui banner. Empty uses the Atlas default."
     default: "0.1.0"
   - name: BRAND_AUTHOR
+    description: "Wizard branding: the author shown by the wizard and --no-tui banner. Empty uses the Atlas default."
     default: "Kaveh Razavi"
   - name: BRAND_AUTHOR_EMAIL
+    description: "Wizard branding: the author email shown by the wizard and --no-tui banner. Empty uses the Atlas default."
     default: "kaveh.razavi@gmail.com"
   - name: BRAND_LICENSE
+    description: "Wizard branding: the license shown by the wizard and --no-tui banner. Empty uses the Atlas default."
     default: "Apache License 2.0"
   - name: BRAND_REPO_URL
+    description: "Wizard branding: the repository URL shown by the wizard and --no-tui banner. Empty uses the Atlas default."
     default: "https://github.com/thekaveh/atlas"
   - name: BRAND_LOGO_FILE
     default: ""
-    description: "Optional path to a custom block-art logo that overrides the built-in ATLAS lockup in the wizard + --no-tui banner (the BRAND_* rebranding contract). File format: the wide-lockup rows, an optional '---' line on its own, then the narrow (compact) fallback rows used on terminals too small for the wide one. Keep it 6 rows tall. Empty = built-in ATLAS. Format + example: docs/quick-start/interactive-setup-wizard.md (Brand Customization)."
+    description: "Optional path to a block-art logo that replaces the built-in ATLAS lockup in the wizard and --no-tui banner. Empty keeps ATLAS. Keep it 6 rows tall. File format: docs/quick-start/interactive-setup-wizard.md (Brand Customization)."
 
   - name: COMPOSE_PROFILES
     auto_managed: true
@@ -101,20 +90,27 @@ env:
     description: "Host-side GPU visibility. Forwarded into every NVIDIA-runtime container."
   - name: PROD_ENV_CPUS
     default: 2
-    description: "Default container CPU cap (cores). Per-service overrides below."
+    description: "Reserved default container CPU cap (cores). No compose fragment reads it yet."
   - name: PROD_ENV_MEM_LIMIT
+    description: "Reserved default container memory cap. No compose fragment reads it yet."
     default: 8g
   - name: PROD_ENV_BACKEND_CPUS
+    description: "Reserved backend CPU cap (cores). No compose fragment reads it yet; the backend runs unbounded."
     default: 1
   - name: PROD_ENV_BACKEND_MEM_LIMIT
+    description: "Reserved backend memory cap. No compose fragment reads it yet; the backend runs unbounded."
     default: 2g
   - name: PROD_ENV_N8N_CPUS
+    description: "Reserved n8n CPU cap (cores). No compose fragment reads it yet; n8n runs unbounded."
     default: 1
   - name: PROD_ENV_N8N_MEM_LIMIT
+    description: "Reserved n8n memory cap. No compose fragment reads it yet; n8n runs unbounded."
     default: 2g
   - name: PROD_ENV_COMFYUI_CPUS
+    description: "CPU limit (cores) for ComfyUI with COMFYUI_SOURCE=container-gpu. The CPU variant uses COMFYUI_CPU_LIMIT instead."
     default: 2
   - name: PROD_ENV_COMFYUI_MEM_LIMIT
+    description: "Memory limit for ComfyUI with COMFYUI_SOURCE=container-gpu. The CPU variant uses COMFYUI_MEMORY_LIMIT instead."
     default: 4g
 
   - name: LOG_MAX_SIZE
@@ -128,7 +124,7 @@ env:
   - name: BOOTSTRAPPER_PORT_LAYOUT_VERSION
     default: 5
     auto_managed: false
-    description: "Sentinel updated by bootstrapper/services/migrations. Missing or <N triggers the chained env migrations up to N (v1 port-layout, v2 URL>PORT, v3 COMFYUI model-set, v4 stale curated Ollama model cleanup, v5 Weaviate backup-filesystem enablement). Fresh .env files are already v5-shaped."
+    description: "Env-migration sentinel. A missing value or one below 5 runs the chained migrations up to v5. They cover port layout, URL to PORT, ComfyUI model set, stale Ollama model cleanup and Weaviate backup-filesystem. Fresh .env files are v5."
 
 depends_on:
   required: []
@@ -189,6 +185,6 @@ runtime_dependency_tiers:
 # until a cited cold-start, workflow, and upgrade qualification run promotes it.
 support:
   tier: experimental
-  evidence: "Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet"
+  evidence: "Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet"
   evidence_revision: v0.1.0
   owner: Atlas maintainers

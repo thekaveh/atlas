@@ -16,7 +16,7 @@ capabilities:
   - name: "Docling credential isolation"
     status: supported
     verification: tested
-    note: "LightRAG receives only the internal adapter URL; on that isolated boundary, the adapter alone receives the Docling bearer token and authenticates the upstream call, with no host-published adapter port."
+    note: "LightRAG receives only the internal adapter URL; on that isolated boundary, the adapter alone receives the Docling bearer token and authenticates the upstream call. There is no host-published adapter port."
   - name: "Bounded ephemeral adapter jobs"
     status: supported
     verification: tested
@@ -46,6 +46,6 @@ data_flow:
 # until a cited cold-start, workflow, and upgrade qualification run promotes it.
 support:
   tier: experimental
-  evidence: "Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet"
+  evidence: "Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet"
   evidence_revision: v0.1.0
   owner: Atlas maintainers

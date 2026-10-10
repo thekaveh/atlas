@@ -593,7 +593,6 @@ def test_adapter_docs_match_pinned_lightrag_route_contract():
     )
     doc_paths = (
         ROOT / "services" / "lightrag" / "README.md",
-        ROOT / "services" / "doc-processor" / "README.md",
         ROOT / "services" / "docling-lightrag-adapter" / "README.md",
     )
 

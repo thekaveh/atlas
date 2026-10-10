@@ -10,7 +10,11 @@
 - [Manifest fields](manifest-fields.md)
 - [Supply-chain license inventory](license-inventory.md)
 
-## 2. Category Summary
+## 2. Hand-written References
+
+- [Consumer manifest](consumer-manifest.md)
+
+## 3. Category Summary
 
 | Category | Count | Services |
 | --- | --- | --- |

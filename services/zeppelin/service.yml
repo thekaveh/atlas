@@ -7,7 +7,7 @@ capabilities:
   - name: "Spark-first interactive notebooks"
     status: supported
     verification: tested
-    note: "Atlas bundles a matching Spark runtime and seeds the standalone Spark interpreter for Scala, PySpark, and SQL paragraphs against the in-stack cluster. PySpark's driver runs a bundled CPython 3.10, the minor release the cluster's executors run (#1314)."
+    note: "Atlas bundles a matching Spark runtime and seeds the standalone Spark interpreter for Scala, PySpark and SQL paragraphs against the in-stack cluster. PySpark's driver runs a bundled CPython 3.10, the minor release the cluster's executors run."
   - name: "MinIO and Iceberg lakehouse notebooks"
     status: partial
     verification: tested
@@ -23,7 +23,7 @@ capabilities:
   - name: "Authenticated Zeppelin access"
     status: not-supported
     verification: tested
-    note: "Zeppelin ships without authentication and is deliberately exposed only on a fixed loopback port with no Kong route; remote users must tunnel or configure auth before proxying it."
+    note: "Zeppelin ships without authentication. It is deliberately exposed only on a fixed loopback port with no Kong route. Remote users must tunnel or configure auth before proxying it."
   - name: "Interpreter process isolation and HA"
     status: not-supported
     verification: documented
@@ -53,7 +53,7 @@ sources:
 env:
   - name: ZEPPELIN_SPARK_CORES_MAX
     default: "1"
-    description: "Maximum standalone-cluster cores the long-lived Zeppelin Spark interpreter may hold (spark.cores.max, re-seeded on each start). Uncapped it would take every free worker core and leave Airflow SparkSubmit drivers waiting; raise only when the worker pool has headroom beyond Spark Connect and Airflow."
+    description: "Cores the long-lived Zeppelin Spark interpreter may hold (spark.cores.max, re-seeded each start). Uncapped, it takes every free worker core and leaves Airflow SparkSubmit drivers waiting. Raise it only with spare cores beyond Spark Connect and Airflow."
   - name: ZEPPELIN_DB_USER
     default: atlas_zeppelin
     description: "Read-only PostgreSQL login exposed to Zeppelin's JDBC interpreter."
@@ -62,20 +62,23 @@ env:
     secret: true
     description: "Auto-generated password for Zeppelin's read-only database role."
   - name: ZEPPELIN_SOURCE
+    description: "Deployment source for Zeppelin: container or disabled (default). container requires SPARK_SOURCE=container."
     default: disabled
   - name: ZEPPELIN_PORT
     # default removed — computed by topology
     description: "Host port for the Zeppelin Web UI (in-container 8080)."
   - name: ZEPPELIN_SCALE
+    description: "Set by ./start.sh from ZEPPELIN_SOURCE; do not edit. 1 runs zeppelin, 0 does not."
     auto_managed: true
   - name: ZEPPELIN_INIT_SCALE
+    description: "Set by ./start.sh from ZEPPELIN_SOURCE; do not edit. 1 runs zeppelin-init, 0 does not."
     auto_managed: true
   - name: ZEPPELIN_MEMORY_LIMIT
     default: 2g
     description: "Container memory limit for the zeppelin container (deploy.resources.limits.memory). Zeppelin's JVM-based interpreter host typically uses under 1 g for a single-user session; 2 g leaves comfortable headroom on a 32 GB host."
   - name: ZEPPELIN_CPU_LIMIT
     default: "1.5"
-    description: "Container CPU limit for the zeppelin container (deploy.resources.limits.cpus). 1.5 cores covers notebook rendering and interpreter dispatch; compute-heavy work runs on the remote Spark cluster, not in this process."
+    description: "Container CPU limit for the zeppelin container (deploy.resources.limits.cpus). 1.5 cores covers notebook rendering and interpreter dispatch. Compute-heavy work runs on the remote Spark cluster, not in this process."
 
 depends_on:
   required:
@@ -206,13 +209,16 @@ data_flow:
     - supabase
     - minio
     - iceberg-rest
-    - redpanda
+    - target: redpanda
+      status: optional
+      condition: "Kafka jars not bundled (#1376); Atlas passes only SPARK_KAFKA_BOOTSTRAP_SERVERS"
+      evidence: services/zeppelin/compose.yml
     - trino
 
 # Support tier (#1050). Selectable is not validated: this family is `experimental`
 # until a cited cold-start, workflow, and upgrade qualification run promotes it.
 support:
   tier: experimental
-  evidence: "Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet"
+  evidence: "Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet"
   evidence_revision: v0.1.0
   owner: Atlas maintainers

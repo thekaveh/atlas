@@ -9,7 +9,7 @@ from PIL import Image
 import pytest
 import yaml
 
-from scripts.docs.build_docs import render_mkdocs_yml
+from scripts.docs.build_docs import SITE_REDIRECTS, render_mkdocs_yml
 from scripts.docs.links import find_links, is_forbidden
 from scripts.docs.manifest import load_manifest
 from services.manifests import load_manifests
@@ -167,27 +167,41 @@ def test_generated_reference_pages_cover_core_sources() -> None:
 
 def test_service_authoring_policy_projects_to_site_and_wiki() -> None:
     site_guide = (DOCS_SITE / "CONTRIBUTING-services.md").read_text(encoding="utf-8")
-    wiki_guide = (WIKI_DIR / "9.2-Contributing-Services.md").read_text(encoding="utf-8")
+    wiki_guide = (WIKI_DIR / "Contributing-Services.md").read_text(encoding="utf-8")
     site_map = (DOCS_SITE / "documentation-map.md").read_text(encoding="utf-8")
-    wiki_map = (WIKI_DIR / "9.3-Documentation-Map.md").read_text(encoding="utf-8")
+    wiki_map = (WIKI_DIR / "Documentation-Map.md").read_text(encoding="utf-8")
     site_fields = (DOCS_SITE / "reference" / "manifest-fields.md").read_text(
         encoding="utf-8"
     )
-    wiki_fields = (WIKI_DIR / "10.6-Manifest-Fields.md").read_text(encoding="utf-8")
-    canonical_map = (ROOT / "docs" / "README.md").read_text(encoding="utf-8")
-    archive_range = re.search(
-        r"plans and specs dated (\d{4}-\d{2}-\d{2} through \d{4}-\d{2}-\d{2})",
-        canonical_map,
+    wiki_fields = (WIKI_DIR / "Manifest-Fields.md").read_text(encoding="utf-8")
+    archive_index = (ROOT / "docs" / "superpowers" / "README.md").read_text(
+        encoding="utf-8"
     )
 
-    assert archive_range is not None
+    # The plan archive is repository-only; a published link to it is dead.
+    assert re.search(r"plans and specs dated \d{4}-\d{2}-\d{2} through", archive_index)
     for guide in (site_guide, wiki_guide):
         assert "`manifest_documentation`" in guide
         assert "`missing_documentation`" in guide
     for documentation_map in (site_map, wiki_map):
-        assert archive_range.group(1) in documentation_map
+        assert "](superpowers/" not in documentation_map
+        assert "plans and specs dated" not in documentation_map
     for fields in (site_fields, wiki_fields):
         assert "| docs_exception |" in fields
+
+
+def test_moved_site_urls_redirect_to_their_current_pages() -> None:
+    """Old deployment/* and reference/tracks URLs keep working (no plugin)."""
+    pages = {page.source: page for page in _manifest().pages}
+    for old_url, source in SITE_REDIRECTS.items():
+        assert source in pages, f"{old_url} redirects to a non-manifest page {source}"
+        stub = DOCS_SITE / old_url / "index.html"
+        html = stub.read_text(encoding="utf-8")
+        target = re.search(r'http-equiv="refresh" content="0; url=([^"]+)"', html).group(1)
+        resolved = (Path("/site") / old_url / target).resolve()
+        expected = Path("/site") / pages[source].site_path.with_suffix("")
+        assert resolved == expected.resolve(), (old_url, target)
+        assert f'rel="canonical" href="{target}"' in html
 
 
 def test_diagram_masters_and_surface_assets_are_complete() -> None:
@@ -413,8 +427,8 @@ def test_managed_host_docs_and_historical_reference_name_current_surfaces() -> N
     opening = operations.split("## 8. Managed Host Lifecycle", 1)[1].split("\n\n", 2)[1]
     assert "Blender" in opening
     changelog = (ROOT / "docs/CHANGELOG.md").read_text(encoding="utf-8")
-    assert "docs/README.md §1.7" not in changelog
-    assert "docs/README.md §1.8" in changelog
+    assert "docs/README.md §1." not in changelog
+    assert "see docs/superpowers/README.md" in changelog
 
 
 def test_observability_architecture_names_each_trace_producer() -> None:
@@ -631,7 +645,7 @@ def test_wiki_contains_the_complete_manifest_page_set_and_navigation() -> None:
     assert actual == expected
     sidebar = (WIKI_DIR / "_Sidebar.md").read_text(encoding="utf-8")
     assert "**5. Services**" in sidebar
-    assert "[5.2.11. comfyui](5.2.11-comfyui)" in sidebar
+    assert "[5.2.11. comfyui](Service-Comfyui)" in sidebar
     for page in manifest.pages:
         text = (WIKI_DIR / page.wiki_path).read_text(encoding="utf-8")
         canonical = (ROOT / page.source).read_text(encoding="utf-8")
@@ -868,3 +882,41 @@ def test_structural_docs_audit_accepts_generated_surfaces() -> None:
         stderr=subprocess.PIPE,
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+_ATTR_LIST = re.compile(r"\{:\s*[.#][^}\n]*\}")
+_FENCE = re.compile(r"^[ \t]*(```|~~~).*?^[ \t]*\1", re.MULTILINE | re.DOTALL)
+
+
+def test_canonical_docs_render_cleanly_on_github() -> None:
+    """GitHub prints a MkDocs attribute list (`{: .class}`) as literal text,
+    so the repository view of the homepage showed it beside every card link
+    (#1493). Canonical sources use raw `<a class>` links instead; the site
+    keeps the class and the wiki resolves the target."""
+    sources = [ROOT / "README.md", *sorted((ROOT / "docs").rglob("*.md")),
+               *sorted((ROOT / "services").glob("*/README.md"))]
+    leaks = [
+        str(path.relative_to(ROOT))
+        for path in sources
+        if _ATTR_LIST.search(_FENCE.sub("", path.read_text(encoding="utf-8")))
+    ]
+    assert leaks == []
+
+
+def test_styled_homepage_links_keep_their_targets_on_every_surface() -> None:
+    """The raw `<a class>` links that replaced the attribute lists (#1493)
+    resolve in the source, keep their classes on the site, and become wiki
+    page links."""
+    home = (ROOT / "docs" / "index.md").read_text(encoding="utf-8")
+    links = re.findall(r'<a class="(atlas-[\w-]+)" href="([^"]+)">', home)
+    assert links
+    for _cls, href in links:
+        assert (ROOT / "docs" / href).is_file(), href
+    site = (DOCS_SITE / "index.md").read_text(encoding="utf-8")
+    site_links = re.findall(r'<a class="(atlas-[\w-]+)" href="([^"]+)">', site)
+    assert [cls for cls, _ in site_links] == [cls for cls, _ in links]
+    assert not [href for _, href in site_links if href.endswith(".md")]
+    wiki = (WIKI_DIR / "Home.md").read_text(encoding="utf-8")
+    wiki_links = re.findall(r'<a class="atlas-[\w-]+" href="([^"]+)">', wiki)
+    assert len(wiki_links) == len(links)
+    assert not [href for href in wiki_links if href.endswith(".md")]

@@ -2,9 +2,9 @@
 
 ## 1. Overview
 
-Asset Worker is Atlas' containerized glTF post-processing service for generated 3D assets. It accepts raw GLB input from upload clients or from a MinIO object reference, applies the shared Atlas normalization contract, runs glTF-Transform optimization, and writes the resulting GLB to a content-addressed artifact location.
+Asset Worker is Atlas' containerized glTF post-processing service for generated 3D assets. It takes a raw GLB as an upload or a MinIO object reference. It applies the shared Atlas normalization contract, runs glTF-Transform optimization, and writes the GLB to a content-addressed location.
 
-This service exists so image-to-3D providers, Blender/DayDreams flows, and future creative routes do not duplicate mesh cleanup logic. It is disabled by default until a workflow explicitly needs a common post-processing API.
+This service exists so image-to-3D providers, Blender and external pipelines, and future creative routes do not duplicate mesh cleanup logic. It is disabled by default until a workflow explicitly needs a common post-processing API.
 
 ## 2. Access
 
@@ -25,7 +25,7 @@ Every route except `GET /health` and `GET /metrics` requires `Authorization: Bea
 | `ASSET_WORKER_SOURCE` | `disabled` | Enables the containerized worker when set to `container`. |
 | `ASSET_WORKER_IMAGE` | `python:3.12.9-slim` | Base image for the local build. |
 | `ASSET_WORKER_GLTF_TRANSFORM_VERSION` | `4.5.1` | Expected pinned `@gltf-transform/cli` lock version. An override is a validation guard and must match both `package.json` and `package-lock.json`; update those files together when refreshing the dependency. |
-| `ASSET_WORKER_MAX_UPLOAD_MB` | `200` | Maximum uploaded or MinIO-referenced GLB size. Uploads whose declared `Content-Length` exceeds the limit (plus 1 MiB of multipart framing) are rejected with `413` before the body is read; other inputs are rejected with `413` before transformation. |
+| `ASSET_WORKER_MAX_UPLOAD_MB` | `200` | Maximum uploaded or MinIO-referenced GLB size. An upload whose declared `Content-Length` exceeds the limit plus 1 MiB of multipart framing gets `413` before the body is read. Other oversized inputs get `413` before transformation. |
 | `ASSET_WORKER_TIMEOUT_SECONDS` | `300` | Per-command timeout for `inspect`, `validate`, and `optimize`. A timeout returns `504`. |
 | `ASSET_WORKER_CONCURRENCY` | `1` | Maximum concurrent mutation requests. A saturated worker rejects new work with `429` before acquiring its input. |
 | `ASSET_WORKER_PORT` | computed | Host port assigned by Atlas' topology allocator. |
@@ -49,7 +49,13 @@ The default `ASSET_WORKER_SOURCE=disabled` keeps the worker out of normal starts
 
 ### 4.1. Uploaded GLB
 
-Inputs (uploaded or MinIO-referenced) must be self-contained binary glTF 2.0 files: anything else (a `.gltf` JSON file, whatever its name, or a GLB whose JSON chunk does not parse) is rejected with `400`, as is a `buffers[].uri` or `images[].uri` that is not a `data:` URI. Both checks run before any converter, because the converters would resolve such a URI against the container filesystem (or network) and embed what they read.
+Inputs (uploaded or MinIO-referenced) must be self-contained binary glTF 2.0 files. These inputs are rejected with `400`:
+
+- a `.gltf` JSON file, whatever its name;
+- a GLB whose JSON chunk does not parse;
+- a `buffers[].uri` or `images[].uri` that is not a `data:` URI.
+
+These checks run before any converter. A converter would resolve such a URI against the container filesystem or network and embed what it reads. Asset Baker applies the same rules.
 
 `POST /gltf/postprocess` accepts `multipart/form-data`:
 
@@ -65,12 +71,12 @@ curl -H "Authorization: Bearer ${ASSET_WORKER_API_TOKEN}" \
 | `target_height_m` | no | Target height after normalization when `normalize_axis=height`. |
 | `target_width_m` | no | Target max horizontal width after normalization when `normalize_axis=width`. |
 | `normalize_axis` | no | `height` or `width`; default `height`. |
-| `up_axis` | no | Orientation policy (#524): `keep` (default — trust the incoming +Y-up orientation; scale/center/ground only), `auto` (minimum-AABB-volume search over small pitch/roll tilts; never rotates a model already within a few degrees of Y-up), or `x`/`y`/`z` (explicitly rotate that axis to +Y; a proper rotation, never a mirror). Only `POSITION` data is rewritten: stored normals and tangents are not rotated, and node transforms are not applied. |
-| `simplify_ratio` | no | glTF-Transform simplification ratio from `0` to `1`. |
+| `up_axis` | no | Orientation policy. `keep` (default) trusts +Y-up and only scales, centers and grounds. `auto` searches small pitch/roll tilts for the minimum bounding-box volume; it never rotates a model already within a few degrees of Y-up. `x`/`y`/`z` rotates that axis to +Y (a proper rotation, never a mirror). Only `POSITION` data changes; normals, tangents and node transforms are not rotated or applied. |
+| `simplify_ratio` | no | glTF-Transform simplification ratio, greater than `0` and up to `1`. Without it (and without `collider_decimation`), no simplification runs. |
 | `draco` | no | Enables Draco mesh compression. |
-| `meshopt` | no | Enables Meshopt mesh compression when Draco is not selected. |
+| `meshopt` | no | Meshopt mesh compression. Default `true`; Draco takes precedence when `draco=true`. Pass `meshopt=false` for an uncompressed mesh, for example to re-import into Blender. |
 | `ktx2` | no | Requests KTX2 texture compression; otherwise WebP is used. KTX2 needs the KTX-Software `ktx` binary, which the stock image does not include, so the request is rejected with `422` there. |
-| `collider_decimation` | no | collider decimation ratio used when `simplify_ratio` is absent. |
+| `collider_decimation` | no | Ratio for collider decimation, used as the simplification ratio when `simplify_ratio` is absent (same range). |
 
 ### 4.2. MinIO Referenced GLB
 
@@ -121,21 +127,21 @@ Both endpoints return a normalized artifact envelope:
 }
 ```
 
-When `ASSET_WORKER_MINIO_ENABLED=false`, the worker stores the optimized GLB under `ASSET_WORKER_ARTIFACT_DIR/gltf/<sha256>.glb` and returns `download_url=/gltf/artifacts/<sha256>.glb`. The normalization places the base-at-y=0 before scaling.
+When `ASSET_WORKER_MINIO_ENABLED=false`, the worker stores the optimized GLB under `ASSET_WORKER_ARTIFACT_DIR/gltf/<sha256>.glb` and returns `download_url=/gltf/artifacts/<sha256>.glb`.
 
 ### 4.4. Scope boundary — mechanical conditioning only
 
-This service performs **mechanical glTF conditioning**: scale-to-target, center-XZ, ground-at-`y=0`, and mesh/texture optimization. **Orientation policy is the consumer's** — glTF is +Y-up by spec, so by default (`up_axis=keep`) incoming orientation is trusted and never second-guessed; reorientation (`auto` or an explicit axis) is strictly opt-in per request (#524). Product-specific asset rules (which assets to reorient, semantic up-ness, placement conventions) belong in the consuming pipeline, not here.
+This service performs **mechanical glTF conditioning**: scale-to-target, center-XZ, ground-at-`y=0`, and mesh/texture optimization. **Orientation policy is the consumer's.** glTF is +Y-up by spec, so the default (`up_axis=keep`) trusts the incoming orientation. Reorientation (`auto` or an explicit axis) is opt-in per request. Product-specific asset rules (which assets to reorient, semantic up-ness, placement conventions) belong in the consuming pipeline, not here.
 
 ## 5. Architecture & Wiring
 
-The worker performs three operations in order. Uploaded bodies are copied to bounded temporary files in chunks, and the blocking transformation pipeline runs in a worker thread so health and concurrent API requests remain responsive. A process-wide semaphore admits mutation requests before request-body parsing or object-store fetch; requests beyond `ASSET_WORKER_CONCURRENCY` receive `429` without consuming transformation, upload-spooling, or MinIO-fetch capacity.
+The worker performs three operations in order. Uploads are copied in chunks to bounded temporary files. The blocking pipeline runs in a worker thread, so health and other API requests stay responsive. A process-wide semaphore admits mutation requests before request-body parsing or object-store fetch; requests beyond `ASSET_WORKER_CONCURRENCY` receive `429` without consuming transformation, upload-spooling, or MinIO-fetch capacity.
 
-1. Normalize geometry by reading float32 GLB `POSITION` accessors, placing the base at `y=0`, centering X/Z around the origin, and scaling to the requested target height or width. Incoming `+Y`-up is trusted by default (`up_axis=keep`); axis reorientation is opt-in via the `up_axis` parameter (see §4.1) — the old unconditional largest-extent-to-Y remap was the #524 bug this replaced.
+1. Normalize geometry from the float32 GLB `POSITION` accessors. Apply base-at-y=0, center X/Z on the origin, and scale to the target height or width. Reorientation is opt-in through `up_axis` (§4.1).
 2. Run `gltf-transform inspect`, `gltf-transform validate`, and `gltf-transform optimize` with the requested simplification and compression settings.
 3. Hash the optimized GLB with SHA-256 and write it to MinIO or the local artifact cache under `gltf/<sha256>.glb`.
 
-The service is intentionally separate from the media gateway. Provider-specific image-to-3D tickets should submit raw provider outputs to this worker rather than embedding mesh normalization in each provider adapter.
+The service is intentionally separate from the media gateway. Image-to-3D provider adapters should send raw provider outputs to this worker rather than embed mesh normalization.
 
 ## 6. Dependencies & Integrations
 
@@ -161,7 +167,7 @@ The service is intentionally separate from the media gateway. Provider-specific 
 ### 6.4. Future — Missing pair integrations
 
 - Backend media operations should call Asset Worker after hosted image-to-3D providers return raw GLB outputs.
-- Blender and DayDreams flows should use the API for the same upright/normalize/optimize contract instead of carrying local duplicate scripts.
+- Blender and external pipelines should use the API for the same upright/normalize/optimize contract instead of carrying local duplicate scripts.
 
 ### 6.5. Future — Candidate new services
 
@@ -183,11 +189,11 @@ _No high-confidence opportunities identified._
 
 ## 8. Capabilities & limitations
 
-Support tier: **experimental** — Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
-| Mechanical glTF conditioning | supported | tested | Atlas normalizes scale and grounding, validates GLB input, and applies opt-in glTF-Transform simplification, Draco or Meshopt compression, and WebP texture compression (KTX2 needs KTX-Software, which the image does not ship). |
+| Mechanical glTF conditioning | supported | tested | Atlas normalizes scale and grounding and validates GLB input. It applies opt-in glTF-Transform simplification, Meshopt compression by default (opt-in Draco takes precedence), and WebP texture compression. KTX2 needs KTX-Software, which the image does not ship. |
 | Bounded authenticated post-processing API | supported | tested | Upload, MinIO-reference, and artifact routes require the generated bearer token and enforce admission, upload-size, and subprocess-timeout bounds; health and metrics remain public. |
 | Content-addressed optimized artifacts | supported | tested | Optimized GLBs use SHA-256 keys in the scoped MinIO bucket by default, with an explicitly selected local-artifact fallback. |
 | Semantic orientation correction | partial | tested | The default trusts glTF Y-up orientation; callers may request explicit-axis or bounded auto reorientation, but product-specific notions of upright remain consumer policy. |

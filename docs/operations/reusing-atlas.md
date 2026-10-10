@@ -1,19 +1,19 @@
 # 7.6. Reusing Atlas as Infrastructure
 
-How to use Atlas as the backing infrastructure / platform for another project — for example a RAG-showcase app that needs Weaviate + Neo4j + an LLM gateway + object storage without standing those up itself.
+This page tells you how to use Atlas as the infrastructure for another project. An example is a RAG app that needs Weaviate, Neo4j, an LLM gateway and object storage.
 
-This page is the **overview and decision guide**. It answers: *can I reuse Atlas, which method should I pick, is it ready, how do I wire my project to it, and how do I customize it?* For the full step-by-step of the Git-submodule method specifically, see [submodule-usage.md](submodule-usage.md).
+The page is the overview and decision guide. It covers the choice of method, readiness, wiring your project, and customization. The step-by-step guide for the Git-submodule method is [Using Atlas as a Git submodule](submodule-usage.md).
 
 ---
 
 ## 1. TL;DR
 
-- **Yes, Atlas is designed to be reused** as shared infra for other projects. The whole stack is namespaced by `PROJECT_NAME`, its ports move as a block via `BASE_PORT`, every service is toggleable via `*_SOURCE`, and all containers share one Docker network (`${PROJECT_NAME}-network`) that your project can join.
-- **Two methods are ready today:**
-  - **A — Standalone + shared network** (recommended when one Atlas instance backs *several* of your projects): run Atlas on its own; your project is a *separate* repo / Compose project that joins `${PROJECT_NAME}-network` and calls services by their Docker DNS name (or through Kong).
-  - **B — Git submodule** (recommended when your project *ships and deploys Atlas together with it*): vendor Atlas into your repo under `infra/` and run it from there. Fully documented in [submodule-usage.md](submodule-usage.md).
-- **Customization needs no fork:** `PROJECT_NAME`, `BASE_PORT`, `BRAND_*`, per-service `*_SOURCE`, and `--track` cover the common cases.
-- **Honest status:** the consumer paths above work today; services dropped into the `services/_user/` overlay now **launch automatically** (see [§6.1.1](#611-back-compatible-services_user-overlay-slot)); and the repo is **tagged** for submodule pinning. See the [§7 consumer runbook](#7-consumer-adoption-runbook-the-full-journey) and [§8 Readiness](#8-readiness).
+- **Atlas is designed for reuse.** `PROJECT_NAME` namespaces the stack, `BASE_PORT` moves all host ports as one block, and `*_SOURCE` turns each service on or off. All containers share one Docker network, `${PROJECT_NAME}-network`, which your project can join.
+- **Two methods are ready:**
+  - **A — Standalone + shared network.** Use it when one Atlas instance serves several projects. Atlas runs on its own. Your project is a separate Compose project that joins `${PROJECT_NAME}-network` and calls services by Docker DNS name or through Kong.
+  - **B — Git submodule.** Use it when your project ships and deploys Atlas with it. Atlas lives in your repo under `infra/` and runs from there.
+- **You do not need a fork.** `PROJECT_NAME`, `BASE_PORT`, `BRAND_*`, `*_SOURCE`, `--track` and the consumer manifest cover the common cases.
+- New consumer repo: follow the [§4.1 walkthrough](#41-stand-up-a-consumer-from-scratch-the-ordered-walkthrough). Day-2 operation: [§7](#7-consumer-adoption-runbook-the-full-journey). Status of each capability: [§8 Readiness](#8-readiness).
 
 ---
 
@@ -21,12 +21,12 @@ This page is the **overview and decision guide**. It answers: *can I reuse Atlas
 
 | Method | Use it when… | Ready? | Detail |
 |--------|--------------|--------|--------|
-| **A. Standalone + shared network** | One Atlas instance is shared infra across one or more *separate* project repos; you want your app decoupled from Atlas internals. | **Yes** | [§3](#3-method-a--standalone--shared-network-the-rag-showcase-walkthrough) |
-| **B. Git submodule** | Your project should clone/deploy *with* a pinned copy of Atlas (single repo, single deploy unit, reproducible version). | **Yes** | [submodule-usage.md](submodule-usage.md) + [§4](#4-method-b--git-submodule) |
-| **C. Template / fork** | You need to diverge structurally from upstream Atlas. | Works, but you own the merge cost | [§5](#5-method-c--template--fork-and-why-not-published-images) |
+| **A. Standalone + shared network** | One Atlas instance is shared infra for one or more *separate* project repos, and your app must not depend on Atlas internals. | **Yes** | [§3](#3-method-a--standalone--shared-network-the-rag-showcase-walkthrough) |
+| **B. Git submodule** | Your project clones and deploys *with* a pinned copy of Atlas (one repo, one deploy unit, a reproducible version). | **Yes** | [§4](#4-method-b--git-submodule), [Using Atlas as a Git submodule](submodule-usage.md) |
+| **C. Template / fork** | You must change Atlas's structure. | Works; you own the merge cost | [§5](#5-method-c--template--fork-and-why-not-published-images) |
 | **D. Published images / pip package** | You want `docker pull atlas/...` or `pip install atlas` without the repo. | **Not supported** | [§5](#5-method-c--template--fork-and-why-not-published-images) |
 
-**Rule of thumb:** building a showcase / app that *talks to* infra → **Method A**. Shipping a product that *bundles* the infra → **Method B**.
+**Rule of thumb:** an app that *talks to* the infra uses Method A. A product that *bundles* the infra uses Method B.
 
 ---
 
@@ -34,7 +34,7 @@ This page is the **overview and decision guide**. It answers: *can I reuse Atlas
 
 ## 3. Method A — Standalone + shared network (the RAG-showcase walkthrough)
 
-Atlas runs as its own stack. Your RAG project is a separate Compose project that attaches to Atlas's network and addresses services by container DNS name. Nothing in your app repo needs to know Atlas's internals beyond the service hostnames.
+Atlas runs as its own stack. Your RAG project is a separate Compose project that joins Atlas's network and calls services by container DNS name. Your app needs to know only the service hostnames.
 
 ### 3.1. Step 1 — Run Atlas with a known `PROJECT_NAME`
 
@@ -44,11 +44,11 @@ Atlas runs as its own stack. Your RAG project is a separate Compose project that
 # (or any track/source combination your showcase needs, e.g. --track gen-ai-rag)
 ```
 
-`PROJECT_NAME` (default `atlas`) determines the shared network name: **`${PROJECT_NAME}-network`** (e.g. `atlas-network`). Set it in Atlas's `.env` if you want a non-default name.
+`PROJECT_NAME` (default `atlas`) sets the shared network name: **`${PROJECT_NAME}-network`** (for example `atlas-network`). To use another name, pass `--project <name>`; Atlas saves it to `.env`.
 
 ### 3.2. Step 2 — Join Atlas's network from your project
 
-In your RAG project's `docker-compose.yml`, declare Atlas's network as **external** and attach your service to it:
+In your project's `docker-compose.yml`, declare Atlas's network as **external** and attach your service to it:
 
 ```yaml
 # your-rag-project/docker-compose.yml
@@ -79,7 +79,7 @@ docker compose up -d                    # your RAG app joins atlas-network
 
 ### 3.3. Service addresses (inside the shared network)
 
-Within `${PROJECT_NAME}-network`, reach each service by its **compose service name** on its **container port** (these are stable and independent of `BASE_PORT`, which only affects host-published ports):
+Inside `${PROJECT_NAME}-network`, use the **Compose service name** and the **container port**. These addresses do not change with `BASE_PORT`, which moves only the host-published ports.
 
 | Service | In-network address | Notes |
 |---------|--------------------|-------|
@@ -87,18 +87,18 @@ Within `${PROJECT_NAME}-network`, reach each service by its **compose service na
 | **LiteLLM** (LLM gateway, OpenAI-compatible) | `litellm:4000` | `POST http://litellm:4000/v1/chat/completions`; auth with `LITELLM_MASTER_KEY` |
 | **Weaviate** (vector DB) | `weaviate:8080` (gRPC `weaviate:50051`) | |
 | **Neo4j** (graph DB) | `neo4j-graph-db:7687` (Bolt), `:7474` (HTTP) | auth from `GRAPH_DB_AUTH` |
-| **Supabase Postgres** | `supabase-db:5432` | REST/Auth/Storage are exposed via Kong — see [submodule-usage.md §6.2](submodule-usage.md#62-pattern-2-kong-gateway-for-routed-services) |
+| **Supabase Postgres** | `supabase-db:5432` | REST, Auth and Storage go through Kong: see [submodule guide §6.2](submodule-usage.md#62-pattern-2-kong-gateway-for-routed-services) |
 | **MinIO** (S3-compatible) | `minio:9000` (console `:9001`) | creds `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` |
 | **Redis** | `redis:6379` | auth `REDIS_PASSWORD` |
 | **n8n** (workflows) | `n8n:5678` | |
 | **Open WebUI** (chat UI) | `open-web-ui:8080` | |
 | **Backend** (FastAPI orchestrator) | `backend:8000` | |
 
-The authoritative, always-current port list (port variables + Kong hostnames) is the generated [ports and routes reference](../reference/ports-routes.md) and the generated `.env.example`; [ports-and-routes.md](ports-and-routes.md) describes route behaviour.
+The generated [Ports and Routes reference](../reference/ports-routes.md) and `.env.example` hold the current port variables and Kong hostnames. [Ports and Routes](ports-and-routes.md) describes route behaviour.
 
 ### 3.4. Going through Kong instead (single entry point)
 
-If you'd rather not depend on individual service hostnames, route Kong-enabled services through Atlas's gateway at `kong-api-gateway:8000`. Supabase REST is path-routed (`/rest/v1/...`); browser-facing services with declared routes are host-routed (`<service>.localhost`). Direct TCP services still use their exported endpoint contracts. The Kong patterns, including the auth headers, are documented in [submodule-usage.md §6.2](submodule-usage.md#62-pattern-2-kong-gateway-for-routed-services).
+To avoid depending on service hostnames, send Kong-enabled services through `kong-api-gateway:8000`. Supabase REST is path-routed (`/rest/v1/...`). Browser-facing services with declared routes are host-routed (`<service>.localhost`). Direct TCP services still use their exported endpoint contracts. The Kong patterns and auth headers are in [submodule guide §6.2](submodule-usage.md#62-pattern-2-kong-gateway-for-routed-services).
 
 ---
 
@@ -106,68 +106,35 @@ If you'd rather not depend on individual service hostnames, route Kong-enabled s
 
 ## 4. Method B — Git submodule
 
-Vendor Atlas into your repo and run it from a subdirectory — best when your project and its infra ship as one versioned, reproducible unit.
+Vendor Atlas into your repo and run it from a subdirectory. Use this method when your project and its infra ship as one versioned, reproducible unit.
 
-```bash
-git submodule add https://github.com/thekaveh/atlas infra
-cd infra && git checkout v0.1.0       # pin to a release tag — see releasing.md
-cp .env.example .env                   # set PROJECT_NAME to your project
-./start.sh
-```
+Pin the submodule to a reviewed `main` commit, not to a moving branch, so each infra upgrade is an explicit commit. The only release tag, `v0.1.0`, predates the consumer manifest, so do not pin it ([§8](#8-readiness), [Releasing & version tags](releasing.md)). Your app joins `${PROJECT_NAME}-network` as in Method A.
 
-Pin the submodule to a release **tag** or a reviewed `main`-ancestor commit rather than tracking `main`, so infra upgrades are explicit, reviewable commits — see [releasing.md](releasing.md) for the tag convention. This is the same shared-network model as Method A (your app joins `${PROJECT_NAME}-network`), with the difference that Atlas's source lives inside your repo at a pinned commit. The **complete** reference — directory layout, `.gitignore`, custom env-file location, integration patterns, contributing upstream, CI/CD, multiple stacks, troubleshooting — is [submodule-usage.md](submodule-usage.md).
+The [submodule guide](submodule-usage.md) covers directory layout, `.gitignore`, the custom env-file location, integration patterns, contributing upstream, CI/CD, multiple stacks and troubleshooting.
 
 ### 4.1. Stand up a consumer from scratch, the ordered walkthrough
 
-The canonical greenfield path: empty repo → a running, isolated, reproducible
-Atlas-backed stack. Each step is runnable; deep dives are linked per step.
-(Already on the older `_user/`-symlink layout? Use the
-[migration guide](submodule-usage.md#42-parent-repo-consumer-reference-layout).)
+This walkthrough takes an empty repo to a running, isolated, reproducible Atlas-backed stack. Each step is runnable. If you use the older `_user/`-symlink layout, see the [migration guide](submodule-usage.md#421-migrating-to-atlasconsumeryml).
 
-**1. Vendor + pin.** Vendor Atlas and pin it to a specific reviewed commit (a
-release tag or a `main`-ancestor SHA) so every infra upgrade is an explicit,
-reviewable pointer bump:
+**1. Vendor and pin.** Pin Atlas to a reviewed `main` commit, so each infra upgrade is an explicit pointer bump:
 
 ```bash
 git submodule add https://github.com/thekaveh/atlas infra
-cd infra && git checkout <atlas-tag-or-main-ancestor-sha> && cd ..
+cd infra && git checkout <reviewed-main-commit> && cd ..
 git add .gitmodules infra && git commit -m "vendor atlas@<sha>"
 ```
 
-Re-pin on a cadence: bump the submodule pointer to a newer reviewed commit, then
-re-run your CI gates (step 8). A stale pin misses upstream fixes (including
-security fixes); a moving pin makes builds irreproducible.
+Bump the pin on a regular schedule, then run your CI gates again (step 8). A stale pin misses upstream fixes, including security fixes. A moving pin makes builds irreproducible.
 
-**Stale local images are rebuilt automatically after a pin bump (#506).** An
-in-place submodule upgrade changes the Atlas source but leaves your previously
-built local images (`<project>-asset-worker:local`, `<project>-backend`, etc.) untouched — and
-`docker compose up --force-recreate` recreates *containers* from those stale
-images, so without a rebuild the backend can run last week's code against this
-week's compose/env (e.g. a pre-Celery image → `ModuleNotFoundError`). Atlas now
-detects this: it records the source commit, a secret-safe fingerprint of the
-resolved local-image build configuration and dependency graph, and the Compose
-target set actually built (in a gitignored `.atlas-build-state` marker). When
-any of those inputs changes, a normal `./start.sh` adds `--build` so stale images rebuild **before**
-containers are recreated. Release archives without Git metadata still use the
-build-configuration fingerprint. The paths behave as expected:
+**A pin bump rebuilds stale images.** `./start.sh` records the Atlas commit, the resolved build inputs and the set of built services in `.atlas-build-state`. If any of them changed, the start adds `--build` before it recreates containers. Details and limits: [§7.6](#76-upgrades-warm-starts-rebuild-stale-local-images).
 
-- **Fresh clone** — no marker yet → images build on first start.
-- **Unchanged restart** — commit, resolved build inputs, and enabled target set match the marker → no rebuild, fast start (buildkit still caches, so a rebuild that does run only touches contexts that actually changed).
-- **Submodule upgrade** — commit differs → stale local images rebuild automatically; no manual `docker compose build` needed.
-- **Same-commit image/build-arg change** — the resolved build fingerprint differs → enabled local images rebuild automatically.
-- **A previously disabled service is enabled** — the target set differs → that service cannot inherit a marker written while only other services were built.
-
-(Uncommitted local edits to a Dockerfile under the same commit aren't auto-detected — rebuild those with `./start.sh --cold` or an explicit `docker compose build`.)
-
-**2. Author `atlas.consumer.yml`.** One committed manifest is the single source
-of truth for how you extend Atlas — consumed with `--consumer` (step 4). A
-complete example:
+**2. Write `atlas.consumer.yml`.** One committed manifest declares how you extend Atlas. Pass it with `--consumer` or `ATLAS_CONSUMER_MANIFEST` (step 4). An example:
 
 ```yaml
 # atlas.consumer.yml (parent repo root)
 name: myproject
 project_name: myproject                 # Docker resource namespace (step 3)
-profile: dev                            # default environment bundle (#755); dev aliases default
+profile: dev                            # default environment bundle; dev aliases default
 brand:
   name: MyProject
   tagline: "MyProject on Atlas"
@@ -176,7 +143,7 @@ env:
   values:
     BASE_PORT: auto                      # durable free block — distinct per consumer, stable across restarts
     COMFYUI_SOURCE: auto                 # durable host-adaptive source — MPS on Apple Silicon, container-gpu on NVIDIA, container-cpu elsewhere
-    LLM_PROVIDER_SOURCE: auto            # host Ollama if installed, else container
+    LLM_PROVIDER_SOURCE: auto            # host Ollama → ollama-localhost; NVIDIA → ollama-container-gpu; else ollama-container-cpu
     FAL_SOURCE:                          # key-gated: enabled iff the key is present
       enabled_if_env: FAL_API_KEY
       else: disabled
@@ -184,108 +151,44 @@ compose_overlays:
   - ./compose/myproject-overlay.yml      # external overlay; no symlink into infra/
 backend_plugins:
   - ./backend/plugins                    # mounted into the backend plugin seam (step 6)
-litellm_models:                          # expose plugin routes as LiteLLM models
-  version: 1
-  models:
-    - name: myproject-rag                # globally-unique, non-reserved alias
-      api_base: "${ATLAS_BACKEND_INTERNAL}/myproject-rag/v1"
-      api_key_var: MYPROJECT_API_KEY
-n8n_workflows:                           # seed + activate workflows
-  version: 1
-  workflows:
-    - id: myproject-flow                 # namespaced to atlas-consumer-myproject-flow
-      path: ./n8n/myproject-flow.workflow.json
-      active: "true"
-storage:                                 # parent-owned MinIO buckets + scoped creds
-  buckets:
-    - name: assets                       # bucket defaults to "<consumer>-<name>"
+# Optional blocks: storage, litellm_models, n8n_workflows, rag_ingestion_profiles,
+# lightrag_query_profiles, managed_host_services, model_sidecars, custom_nodes, blender_mcp
 ```
 
-**Reserved-namespace rules:** litellm aliases may not shadow a stack-owned model
-(runtime `hermes-agent`/`lightrag`/`fal-image`/`tei-rerank` + every catalog model name); n8n ids are
-namespaced `atlas-consumer-<id>`; a storage bucket may **not** reuse a built-in bucket name (`comfyui`, `backend`, `n8n`, `lakehouse`, `spark-history`, `raw-assets`, `asset-worker`, `asset-baker` and every other default `MINIO_BUCKET_*` / `ASSET_*_MINIO_BUCKET` in `.env.example`), and a store whose generated `MINIO_BUCKET_<KEY>` / `MINIO_<KEY>_ACCESS_KEY` / `MINIO_<KEY>_SECRET_KEY` name matches a stack variable or another store's (consumer `asset` + store `baker` would alias asset-baker's credentials) is rejected; the workflow id `plan` is reserved for the seed plan.
-Unknown top-level keys are rejected. See
-[§6.1](#61-registering-a-parent-project-with-atlasconsumeryml) for the full key
-reference.
+Unknown top-level keys and reserved names (stack model aliases, built-in buckets, the n8n id `plan`) are rejected. Per-key contract: [Consumer Manifest Reference](../reference/consumer-manifest.md).
 
-**3. Isolation — distinct project + non-default port.** `project_name` isolates
-Docker **resource names** (container/volume/network are `<name>-…`); it does
-**not** namespace host ports. So a second stack on one host also needs a distinct
-**`BASE_PORT`**, never the default `63000` a bare `atlas` checkout binds (`doctor`
-warns if a non-default project is left on it). Three ways, in order of preference:
+**3. Isolation.** `project_name` isolates container, volume and network names. It does not isolate host ports, so each stack on one host needs its own `BASE_PORT`. The default is `63000`, which a bare `atlas` checkout binds. `doctor` warns when a non-default project uses it. Choose one:
 
-- **`BASE_PORT: auto` in the manifest (recommended, esp. for several consumers on
-  one host).** Atlas reserves the first wholly-free `BASE_PORT+0..N` block — one
-  that skips `63000` **and** any block already in use by another running stack —
-  then **persists it and keeps it** across restarts. Consumers started in turn
-  each get a **distinct, stable** block with no numbers to coordinate. (Details:
-  [§7.4](#74-run-multiple-atlas-instances-on-one-host).)
-- **A fixed non-default number** (e.g. `BASE_PORT: "63100"`) when you want a
-  specific, identical port on every host.
-- **`--base-port auto` at launch** — the one-off form: resolves a free block
-  **fresh** each time it's passed (good for a quick relocation; for a durable pin
-  prefer the manifest `auto` above). Ports of a disabled service are not
-  probed. The probe applies this run's `--<svc>-source` flags, a manifest's
-  declared `*_SOURCE` values (for `BASE_PORT: auto`) and the wizard's source
-  answers (#1391). Once a profile, the manifest and the flags have written
-  their sources, the port check probes a block chosen this run again; if a
-  service enabled by one of them finds its port taken, the next free block is
-  used instead of refusing the launch.
-  Candidate blocks are 100 ports apart, the highest port offset in use plus one;
-  the `apps` slot band reserves offsets up to 109 for future services, and
-  keeping the step at 100 leaves existing auto blocks where they are (#1391).
+- **`BASE_PORT: auto` in the manifest (recommended).** On first start, Atlas picks the first free 100-port block. It skips `63000` and blocks that another running stack uses. It keeps that block across restarts.
+- **A fixed value**, such as `BASE_PORT: "63100"`, when every host must use the same ports.
+- **`--base-port auto` on the command line**, for one run. It picks a new block every time it is passed.
 
-**4. Startup ordering.** Run the preflights, then launch — each step guards the
-next:
+How the allocator probes ports: [§7.4](#74-run-multiple-atlas-instances-on-one-host).
+
+**4. Preflight, then start.** Each step guards the next:
 
 ```bash
+export ATLAS_CONSUMER_MANIFEST="$PWD/atlas.consumer.yml"   # from the parent repo root
 cd infra
 ./start.sh env backfill                                  # fill any new .env keys from .env.example
 ./start.sh compose validate                              # assert the merged compose is well-formed
-./start.sh doctor --format json                          # consumer-manifest + base-port + unpullable-model + Redis AOF lints
-./start.sh --consumer "$(pwd)/../atlas.consumer.yml" \
-  --project myproject [--track <k>] [--detach]   # BASE_PORT + project come from the manifest
+./start.sh doctor --format json                          # manifest, base-port, unpullable-model and Redis AOF lints
+./start.sh [--track <k>] [--detach]                      # project, BASE_PORT and sources come from the manifest
 ```
 
-`env backfill` keeps `.env` complete across pin bumps (a newly added `*_PORT` is seeded on your `BASE_PORT` block, not the default one, and an `export KEY=` line counts as present). Every Atlas `.env` writer (source, profile and consumer-manifest overrides, generated secrets and Supabase keys, service configuration, `--base-port` and the layout migrations) rewrites an `export KEY=` line in place, keeping `export`, instead of appending a second assignment (#1368); `compose validate` catches
-overlay/manifest errors before any container starts; `doctor` surfaces
-contract/port/provisioning problems; `--detach` exits after the health gates.
-Before a stack's first start, `doctor` and `compose validate` write the manifest's
-values into `.env` so the assembled compose resolves; after a start (which
-records `ATLAS_PROFILE_APPLIED`) they refresh only the derived plugin/sidecar
-paths (`BACKEND_PLUGINS_DIR`, `COMFYUI_CUSTOM_MODELS_FILE`,
-`COMFYUI_CUSTOM_NODES_FILE`, `OLLAMA_CUSTOM_MODELS`) and keys `.env` does not
-hold yet, so a launch-time `--base-port`, `-p` or `--<svc>-source` keeps winning. With
-`--format json`, `doctor` writes everything except the JSON document to stderr.
-A manifest named by `ATLAS_CONSUMER_MANIFEST` is validated before any `.env` write,
-exactly like `--consumer`. Declaring one of those four derived keys in
-`env.values` as well as through plugins/sidecars is an error naming both places,
-instead of the sidecar list silently replacing your value. Atlas records the
-derived keys it wrote in `ATLAS_DERIVED_KEYS`; when a later start with a
-consumer manifest no longer derives one (you removed `model_sidecars.ollama`,
-say), it blanks that key. Without a manifest nothing is blanked, and a value
-from `.env.user` or `ATLAS_ENV_USER_FILE` is never blanked; a derived key you
-edit by hand in `.env` stays Atlas-owned and is cleared with its source (#1368).
+`doctor`, `compose validate` and the start read the manifest only when you pass `--consumer` or set `ATLAS_CONSUMER_MANIFEST`. Atlas does not find `atlas.consumer.yml` on its own. A manifest named by `ATLAS_CONSUMER_MANIFEST` is validated before any `.env` write, the same as `--consumer`.
 
-**5. Consuming endpoints.** Your host-side code (a devserver, a desktop app)
-reads the exported contract; in-container plugins use compose service DNS
-directly.
+`--detach` exits after the health checks. What each preflight command checks, and its exit codes: [§6.1.4](#614-preflight-and-ci-gates).
+
+**5. Consume endpoints.** Host-side code (a devserver, a desktop app) reads the exported contract. In-container plugins use Compose service DNS directly.
 
 ```bash
 ./infra/start.sh endpoints export --format env > atlas-endpoints.env   # ATLAS_* KEY=value
 ```
 
-Host tools read `ATLAS_<SVC>_HOST_ENDPOINT` (e.g. `ATLAS_MINIO_HOST_ENDPOINT`);
-in-network containers use the service name (`http://minio:9000`). Never hard-code
-a `localhost:<port>` — it moves with `BASE_PORT`. Full field list:
-[§6.5](#65-exporting-the-endpoint-contract-endpoints-export).
+Host tools read `ATLAS_<SVC>_HOST_ENDPOINT` (for example `ATLAS_MINIO_HOST_ENDPOINT`). In-network containers use the service name (`http://minio:9000`). Do not hard-code `localhost:<port>`, because it moves with `BASE_PORT`. With `BASE_PORT: auto`, export after the first start. Full field list: [§6.5](#65-exporting-the-endpoint-contract-endpoints-export).
 
-**6. Backend plugin seam.** Each `backend_plugins` dir is mounted into the backend
-at `/app/plugins`; a plugin serving an OpenAI-compatible route can be surfaced as
-a LiteLLM model (step 2's `litellm_models`). A plugin sources object storage from
-the **exported scoped vars** (`ATLAS_STORE_<store>_*`), never a hand-wired
-`MINIO_PUBLIC_ENDPOINT` or a published MinIO port. Details:
-[§6.3](#63-adding-backend-api-routes-via-the-plugin-seam).
+**6. Backend plugin seam.** Atlas mounts each `backend_plugins` directory into the backend at `/app/plugins`. A plugin that serves an OpenAI-compatible route can appear as a LiteLLM model ([`litellm_models`](../reference/consumer-manifest.md#9-litellm_models)). A plugin gets object storage from the exported scoped variables (`ATLAS_STORE_<CONSUMER>_<STORE>_*`). Do not hand-wire `MINIO_PUBLIC_ENDPOINT` or a published MinIO port. Details: [§6.3](#63-adding-backend-api-routes-via-the-plugin-seam) and [Consumer Manifest Reference §7](../reference/consumer-manifest.md#7-storage).
 
 **7. Teardown.**
 
@@ -294,79 +197,17 @@ the **exported scoped vars** (`ATLAS_STORE_<store>_*`), never a hand-wired
 ./infra/stop.sh --project myproject --consumer ./atlas.consumer.yml --cold   # also remove this project's volumes (data loss)
 ```
 
-`--cold` removes the project's named volumes (DB, MinIO, model caches) — a clean
-slate; omit it to preserve data across restarts. Pass the same `--consumer`
-manifest you started with (or set `ATLAS_CONSUMER_MANIFEST`): without it, volumes
-declared only in the manifest's `compose_overlays` are not removed. When a
-manifest's overlays cannot be loaded or fail validation, `./start.sh --cold` fails its cleanup
-step and does not rotate secrets (the surviving overlay volumes would keep the
-old credentials). The same applies when Docker cannot list the project's volumes
-after `down`: the removal is not confirmed.
+`--cold` removes the project's named volumes (databases, MinIO, model caches). Omit it to keep data across restarts. Pass the same manifest that you started with, by `--consumer` or `ATLAS_CONSUMER_MANIFEST`. Without it, volumes declared only in the manifest's `compose_overlays` are not removed.
 
-**8. CI drift gates.** Wire these into your consumer CI so an Atlas pin bump can't
-break you silently:
+If a manifest's overlays cannot load or fail validation, `./start.sh --cold` fails its cleanup step and does not rotate secrets. The surviving overlay volumes would otherwise keep the old credentials. The same applies when Docker cannot list the project's volumes after `down`, because the removal is not confirmed.
 
-```bash
-./infra/start.sh doctor --format json                    # manifest + lints
-./infra/start.sh endpoints assert --require \
-  ATLAS_LITELLM_HOST_ENDPOINT,ATLAS_MINIO_HOST_ENDPOINT   # contract fields you read (#723)
-```
-
-Plus assert your `.env.user`/manifest overlay still applies after a cold cycle,
-and fail CI if the pinned Atlas is far behind `main` (pin-freshness).
+**8. CI drift gates.** Run the [preflight and CI gates](#614-preflight-and-ci-gates) in consumer CI on every pin bump. Also check that your `.env.user` and manifest overlay still apply after a cold cycle. Fail CI when the pinned Atlas is far behind `main` (pin freshness).
 
 **9. Common footguns.**
 
-- **Default-port collision.** Leaving `BASE_PORT=63000` under a non-default
-  project collides with a bare `atlas` checkout — host ports aren't
-  project-scoped. Use `--base-port auto` (`doctor` warns otherwise).
-- **Declared models on host sources.** `model_sidecars.ollama` /
-  `COMFYUI_USER_MODELS` now provision on host sources too: `managed-localhost-mps`
-  downloads the resolved ComfyUI set (#754) and `ollama-localhost` pulls the
-  declared tags onto the host daemon (#757) — both idempotent, at every start.
-  Only an **unmanaged** ComfyUI `localhost` install remains hands-off; `doctor`
-  names anything declared-but-missing.
-- **Host-Ollama sizing for multi-model runs (#798).** A consumer pipeline that
-  touches several models in sequence — a LightRAG ingest with separate extract,
-  embed and keyword models is the worked case — will **evict its own working
-  set** when the host daemon's `OLLAMA_MAX_LOADED_MODELS` is below that count.
-  Ollama unloads one model to load the next and reloads it moments later. There
-  is no error; the run just crawls and `ollama ps` shows models cycling through
-  `Stopping…`. Ollama's default `keep_alive` of 5m evicts on its own too, so
-  even enough slots is not sufficient for a slow pipeline.
-
-  Atlas cannot fix this for `ollama-localhost` — the host-prereq doctrine means
-  you own the daemon. Declare what you need and let `doctor` check it:
-
-  ```bash
-  OLLAMA_MODELS_RESIDENT_MIN=3      # distinct models one ingest touches
-  ```
-
-  `./start.sh doctor` then reads the daemon's real `OLLAMA_MAX_LOADED_MODELS`
-  and `OLLAMA_KEEP_ALIVE` and fails the `ollama-residency` check *before* a long
-  run rather than after it, with the `launchctl` command to fix it.
-
-  **Set-for-the-run, then revert.** The host-side fix is:
-
-  ```bash
-  launchctl setenv OLLAMA_MAX_LOADED_MODELS 4
-  launchctl setenv OLLAMA_KEEP_ALIVE -1      # forever
-  osascript -e 'quit app "Ollama"' && open -a Ollama   # restart to pick it up
-  # …run the ingest…
-  launchctl unsetenv OLLAMA_KEEP_ALIVE
-  launchctl unsetenv OLLAMA_MAX_LOADED_MODELS
-  osascript -e 'quit app "Ollama"' && open -a Ollama
-  ```
-
-  **Know the RAM cost before you set it.** `-1` pins *every* loaded model in
-  memory until you revert and restart — with a large model-set that is tens of
-  gigabytes held indefinitely, on top of whatever else the stack has resident.
-  On a unified-memory host it competes directly with ComfyUI and vLLM-Metal.
-  Treat it as a per-run setting, not a permanent one.
-- **Committed-value clobber.** A value committed in the manifest re-applies every
-  start and overwrites an operator's temporary `.env` edit — keep human-tuned
-  values (e.g. model lists) host-local, and commit only identity (`project_name`,
-  `BASE_PORT`).
+- **Declared models on host sources.** `managed-localhost-mps` downloads the declared ComfyUI set, and `ollama-localhost` pulls declared tags onto the host daemon, at every start. An unmanaged ComfyUI `localhost` install is not provisioned; `doctor` names what is missing.
+- **Host Ollama evicts its own models.** On `ollama-localhost`, a run that uses more models than `OLLAMA_MAX_LOADED_MODELS` reloads them in a loop, with no error. The fix is in [§6.6](#66-host-ollama-sizing-for-multi-model-ingest-ollama-localhost).
+- **Committed-value clobber.** A manifest value applies again on every start and replaces a temporary `.env` edit. Keep human-tuned and machine-specific values (for example model lists and host paths) in `.env` or `.env.user`. What to commit: [§7.2](#72-pin-instance-identity-in-the-manifest-not-just-env).
 
 **Complete worked example — a minimal consumer repo:**
 
@@ -378,15 +219,13 @@ myproject/
 ├── compose/
 │   └── myproject-overlay.yml         # external overlay (no symlink into infra/)
 ├── backend/plugins/myproject-rag/    # backend plugin (→ /app/plugins)
-├── n8n/myproject-flow.workflow.json  # seeded workflow
+├── n8n/myproject-flow.workflow.json  # seeded workflow (n8n_workflows)
 ├── scripts/start.sh                  # thin launcher (the step-4 command)
 ├── src/                              # your application code
 └── infra/                            # Atlas submodule @ pinned commit
 ```
 
-`scripts/start.sh` is a thin wrapper around the step-4 launch — no symlinking into
-`infra/`, no `.env` mutation, no `docker restart` of Atlas containers. That is the
-whole integration.
+`scripts/start.sh` only wraps the step-4 launch. It does not symlink into `infra/`, change `.env` or run `docker restart` on Atlas containers.
 
 ---
 
@@ -394,8 +233,8 @@ whole integration.
 
 ## 5. Method C — Template / fork (and why not published images)
 
-- **Template / fork:** Clone Atlas, rip out what you don't need, and own it. Full control, but you inherit the cost of merging upstream changes by hand. Reasonable only if you need to diverge structurally.
-- **Published images / pip package (not supported):** There is no `atlas/...` image set or `pip install atlas` artifact. The bootstrapper assumes the repo layout (it reads `services/<name>/service.yml` manifests and generates compose from them), so Atlas is consumed *as a repo*, not as a dependency. If a packaged distribution is ever needed it would be new work; today, use Method A or B.
+- **Template / fork.** Clone Atlas, remove what you do not need, and own the result. You get full control, but you merge upstream changes by hand. Use it only when you must change Atlas's structure.
+- **Published images / pip package (not supported).** There is no `atlas/...` image set and no `pip install atlas` package. The bootstrapper reads `services/<name>/service.yml` manifests and generates Compose from them, so it needs the repo layout. Use Method A or B.
 
 ---
 
@@ -403,27 +242,30 @@ whole integration.
 
 | Knob | What it does | Where |
 |------|--------------|-------|
-| **`PROJECT_NAME`** | The Docker Compose project name — prefixes every container, volume, and the network (`${PROJECT_NAME}-network`), and is the `docker compose -p` namespace. **Both `./start.sh` and `./stop.sh` read it**, so stop tears down exactly what start launched. The key to isolation between stacks. Override per-run with `./start.sh --project <name>` / `-p` (persists back to `.env`, unless `.env` already names the same project in another letter case: then the stored spelling is kept, for `./stop.sh -p` too); the wizard also prompts for it. Every compose command Atlas runs (wizard included) makes `PROJECT_NAME` name the same project as its `-p`: a shell-exported value or a `--cold --project <new>` that names a different project is replaced, so `down --volumes` cannot reach another project's volumes, while a hand-edited mixed-case name such as `MyStack` (project `mystack`) keeps its spelling, so existing `MyStack-*` volumes stay in use. | `.env` / `-p` |
-| **`.env.user`** | Optional user-owned overlay beside the active `.env`. On every start, Atlas merges `.env.user` values into `.env` before backfill and CLI flags. Use it for local downstream-only keys that must survive `.env` regeneration without adding them to upstream `.env.example`. | `.env.user` |
-| **`ATLAS_ENV_USER_FILE`** | Optional external user-owned overlay. Use this when Atlas is a submodule and the persistent project config should live in the parent repo instead of inside the Atlas checkout. The external file is applied after sibling `.env.user`, so it wins on duplicate keys; `--project` and other CLI flags still win last. | shell env var |
-| **`atlas.consumer.yml`** | Parent-owned one-file registration for project name, branding, env overlays, external Compose overlays, backend plugin roots, and model sidecars. Pass it with `./start.sh --consumer ./atlas.consumer.yml` or `ATLAS_CONSUMER_MANIFEST`. | [§6.1](#61-registering-a-parent-project-with-atlasconsumeryml) |
-| **`BASE_PORT`** | Moves the entire host-published port block (default `63000`). `./start.sh --base-port 64000`, or **`--base-port auto`** to pick the first wholly-free block automatically. Does not affect in-network addresses. **Host ports are not project-scoped**, so a second Atlas stack on the same host needs a distinct `BASE_PORT` — reusing one causes silent cross-instance traffic ([§7.4](#74-run-multiple-atlas-instances-on-one-host)). | `.env` / flag |
-| **`BRAND_*`** | Rebrands the wizard/banner (name, tagline, author, repo URL, license) — make Atlas present as your platform. | `.env` (`BRAND_*` block) |
-| **`*_SOURCE`** | Enable/disable each service or pick its backend (`container` / `container-gpu` / `localhost` / `disabled`). LLMs use `ollama-container-*` / `ollama-localhost` / `none`; cloud providers toggle via the separate `CLOUD_*_SOURCE` vars. Disable what your showcase doesn't use. | `.env` / `--<svc>-source` |
-| **`--track`** | Start a curated subset (`gen-ai-rag`, `gen-ai-eng`, `gen-ai-creative`, `ml-eng`, `data-eng`, `trading`, `all`). `--track gen-ai-rag` is the natural fit for a RAG showcase. Explicit `--<service>-source` flags override track membership, and so do SOURCE vars **declared in the manifest's `env.values`** (#783) — a committed `MINIO_SOURCE: container` survives an out-of-track selection instead of being force-disabled, so consumers can request one extra service outside the track declaratively, with no wrapper flag. An explicit CLI flag still beats both. | flag |
-| **`services/_user/` overlay** | Back-compatible local discovery slot for co-located services. Prefer `atlas.consumer.yml` for new parent repos so overlays can stay outside the Atlas checkout without symlinks. | [§6.1.1](#611-back-compatible-services_user-overlay-slot) |
-| **`MINIO_EXTRA_CONSUMERS`** | Add parent-owned MinIO buckets and scoped service-account credentials for `_user` or manifest-declared services without forking Atlas's `init-minio.sh`. | [§6.1.2](#612-adding-parent-owned-minio-buckets) |
-| **`services/supabase/db/_user/` SQL slot** | Add downstream-owned Supabase schema, seed, view, grant, or extension SQL that runs after Atlas-owned database initialization. | [§6.2](#62-adding-supabase-sql-via-the-user-migration-slot) |
-| **`BACKEND_PLUGINS_DIR` plugin seam** | Mount a directory of FastAPI route packages into the backend app to add your own API routes — no fork of `services/backend/` required. | [§6.3](#63-adding-backend-api-routes-via-the-plugin-seam) |
+| **`PROJECT_NAME`** | Compose project name. It prefixes containers, volumes and the network (`${PROJECT_NAME}-network`). `./start.sh` and `./stop.sh` both read it, so stop removes what start launched. `--project` / `-p` overrides it and saves it to `.env`; the wizard also asks for it. See the letter-case note below the table. | `.env` / `-p` |
+| **`.env.user`** | Optional user-owned overlay beside the active `.env`. Atlas merges it into `.env` on every start, before backfill and CLI flags. Use it for downstream-only keys that must survive `.env` regeneration. | `.env.user` |
+| **`ATLAS_ENV_USER_FILE`** | Optional external overlay, for config that lives in the parent repo. It applies after `.env.user`, so it wins on duplicate keys. CLI flags such as `--project` still win last. | shell env var |
+| **`atlas.consumer.yml`** | Parent-owned manifest: project name, branding, env overlays, external Compose overlays, plugin roots, model sidecars and more. Pass it with `--consumer` or `ATLAS_CONSUMER_MANIFEST`. | [§6.1](#61-registering-a-parent-project-with-atlasconsumeryml), [reference](../reference/consumer-manifest.md) |
+| **`BASE_PORT`** | Moves the host-published port block (default `63000`). It does not change in-network addresses. Host ports are not project-scoped, so a second stack on one host needs its own `BASE_PORT`. Use `BASE_PORT: auto` in the manifest for a durable free block, or `--base-port 64000`. Use `--base-port auto` only for a one-off run. | manifest / `.env` / flag ([§7.4](#74-run-multiple-atlas-instances-on-one-host)) |
+| **`BRAND_*`** | Rebrands the wizard and banner (name, tagline, author, repo URL, license). | `.env` (`BRAND_*` block) |
+| **`*_SOURCE`** | Turns each service on or off, or picks its backend (`container` / `container-gpu` / `localhost` / `disabled`). LLMs use `ollama-container-*` / `ollama-localhost` / `none`. Cloud providers use the separate `CLOUD_*_SOURCE` variables. | `.env` / `--<svc>-source` |
+| **`--track`** | Starts a curated subset (`gen-ai-rag`, `gen-ai-eng`, `gen-ai-creative`, `ml-eng`, `data-eng`, `trading`, `all`). `--track gen-ai-rag` suits a RAG showcase. Explicit `--<service>-source` flags override track membership. A `*_SOURCE` in the manifest's `env.values` also keeps that service on outside the track. A CLI flag beats both. | flag |
+| **`services/_user/` overlay** | Older local discovery slot for co-located services. New parent repos use `atlas.consumer.yml`, which needs no symlinks. | [§6.1.1](#611-back-compatible-services_user-overlay-slot) |
+| **`MINIO_EXTRA_CONSUMERS`** | Adds parent-owned MinIO buckets and scoped service-account credentials without a fork of `init-minio.sh`. | [§6.1.2](#612-adding-parent-owned-minio-buckets) |
+| **`services/supabase/db/_user/` SQL slot** | Adds downstream-owned Supabase SQL that runs after Atlas's own database setup. | [§6.2](#62-adding-supabase-sql-via-the-user-migration-slot) |
+| **`BACKEND_PLUGINS_DIR` plugin seam** | Mounts FastAPI route packages into the backend, without a fork of `services/backend/`. | [§6.3](#63-adding-backend-api-routes-via-the-plugin-seam) |
 
-Full source/customization matrix: [source-configuration.md](source-configuration.md).
+Full source and customization matrix: [SOURCE Configuration Guide](source-configuration.md).
 
-User overlays use normal `.env` syntax (`KEY=value`, quoted values, and whitespace-prefixed inline comments). When Atlas writes a value into `.env`, one containing a backslash or a `$` that is not a `${VAR}` reference is single-quoted (so a `$$` also stays literal, matching what Atlas itself reads), because Docker Compose expands `$name` and backslash escapes in unquoted and double-quoted values (`pa$word` would reach containers as `pa`); a value that also contains a single quote or ends in a backslash is refused. In a hand-edited `.env`, quote such values yourself the same way. The merge order is deterministic: `.env.example` baseline → generated or existing `.env` → sibling `.env.user` → `ATLAS_ENV_USER_FILE` → `atlas.consumer.yml` env values → explicit CLI flags such as `--project` or `--<svc>-source`. Overlays and consumer manifests are merged on every start, including `--cold`, before missing keys are backfilled from `.env.example`.
+**`PROJECT_NAME` letter case.** If `.env` already names the same project in another letter case, Atlas keeps the stored spelling, for `./stop.sh -p` too. Every Compose command Atlas runs makes `PROJECT_NAME` name the same project as its `-p`. A shell-exported value, or a `--cold --project <new>`, that names a different project is replaced. So `down --volumes` cannot reach another project's volumes. A hand-edited `MyStack` (project `mystack`) keeps its spelling, so existing `MyStack-*` volumes stay in use.
 
-For submodule consumers that need a repeatable parent-repo shape, use the
-reference layout in [submodule-usage.md §4.2](submodule-usage.md#42-parent-repo-consumer-reference-layout). It shows the parent-owned `atlas.consumer.yml` pattern, parent-owned Compose overlays, force-set source/branding wrappers, and the validation checklist used by RAG-showcase-style and DayDreams-style consumers. The older `services/_user/<name>/compose.yml` symlink slot remains supported for existing integrations, but new consumers should register through the manifest.
+**Overlay syntax.** Overlays use `.env` syntax: `KEY=value`, quoted values and whitespace-prefixed inline comments. An `export KEY=` line counts as present; every Atlas `.env` writer rewrites it in place and keeps `export`. Compose expands `$name` and backslash escapes in unquoted and double-quoted values, so `pa$word` reaches containers as `pa`.
 
-Use `ATLAS_ENV_USER_FILE` for parent-owned config that should be tracked or templated by the consuming project:
+Atlas therefore single-quotes a value it writes when the value has a backslash or a `$` that is not a `${VAR}` reference. A `$$` also stays literal. Atlas refuses a value that also contains a single quote or ends in a backslash. Quote such values the same way in a hand-edited `.env`.
+
+**Merge order.** Atlas merges on every start, including `--cold`. The order is `.env.example` → generated or existing `.env` → `.env.user` → `ATLAS_ENV_USER_FILE` → `atlas.consumer.yml` env values → explicit CLI flags such as `--project` or `--<svc>-source`. It then fills missing keys from `.env.example`.
+
+Use `ATLAS_ENV_USER_FILE` for parent-owned config that the consuming project tracks or templates:
 
 ```bash
 # In the parent project
@@ -437,13 +279,11 @@ EOF
 ATLAS_ENV_USER_FILE="$PWD/atlas.env.user" ./infra/start.sh
 ```
 
-Absolute paths are safest in CI and wrapper scripts. Relative `ATLAS_ENV_USER_FILE` values are resolved against the directory that invoked `start.sh`; direct Python invocations resolve them against the Python process working directory. If the file is missing or unreadable, Atlas prints a warning and continues without applying that overlay. If no overlay provides `PROJECT_NAME`, cold start preserves the previous valid value so a later `./stop.sh` still targets the same stack namespace.
+Use absolute paths in CI and wrapper scripts. A relative `ATLAS_ENV_USER_FILE` resolves against the directory that ran `start.sh`. A direct Python run resolves it against the Python process's working directory. If the file is missing or unreadable, Atlas prints a warning and continues without it. If no overlay sets `PROJECT_NAME`, a cold start keeps the previous valid value, so a later `./stop.sh` still targets the same stack.
 
 ### 6.1. Registering a parent project with `atlas.consumer.yml`
 
-For new parent repositories, commit one `atlas.consumer.yml` beside the
-parent-owned overlay, env overlay, plugin directory, and model sidecars. Pass it
-to Atlas from the parent repo:
+New parent repos commit one `atlas.consumer.yml` beside their overlays, plugins and model sidecars. Pass it from the parent repo:
 
 ```bash
 ./infra/start.sh --consumer ./atlas.consumer.yml --no-tui --detach
@@ -451,173 +291,21 @@ to Atlas from the parent repo:
 ./infra/start.sh --consumer ./atlas.consumer.yml doctor --format json
 ```
 
-Relative paths in the manifest resolve from the manifest directory, not from
-the Atlas checkout. The manifest can declare:
+Relative paths in the manifest resolve from the manifest's directory, not from the Atlas checkout. [§4.1 step 2](#41-stand-up-a-consumer-from-scratch-the-ordered-walkthrough) shows an example manifest. Every key, its fields and its validation rules are in the [Consumer Manifest Reference](../reference/consumer-manifest.md).
 
-```yaml
-name: rag-showcase
-project_name: ragshowcase
-brand:
-  name: RAG Showcase
-  tagline: "Atlas-backed retrieval playground"
-env:
-  file: ./atlas.env.user
-  values:
-    WEAVIATE_MEMORY_LIMIT: 4g
-    FAL_SOURCE:                       # key-gated: enabled iff FAL_API_KEY is set
-      enabled_if_env: FAL_API_KEY
-      else: disabled
-compose_overlays:
-  - ./compose/rag-showcase-overlay.yml
-backend_plugins:
-  - ./backend/plugins
-model_sidecars:
-  comfyui:
-    - ./models/comfyui-custom-models.yaml
-  ollama:
-    - llama3.2:latest
-custom_nodes:                         # pin extra ComfyUI workflow nodes (#905); merged into COMFYUI_CUSTOM_NODES_FILE
-  comfyui:
-    - ./comfyui/comfyui-krea2edit.yaml
-litellm_models:                       # expose plugin routes as LiteLLM models (§6.3.2)
-  version: 1
-  models:
-    - name: graph-rag
-      api_base: "${ATLAS_BACKEND_INTERNAL}/graph-rag/v1"
-      api_key_var: RAG_SHOWCASE_API_KEY
-n8n_workflows:                        # seed + activate n8n workflows (§6.3.3)
-  version: 1
-  workflows:
-    - id: adaptive-rag
-      path: ./n8n/adaptive-rag.workflow.json
-      active: "true"
-```
+**Validation and merge rules.** Atlas validates the declared paths before Compose runs. It merges manifest env values into `.env` and appends external overlays to the Compose command, with no symlinks into the submodule. The launch overview lists registered consumers.
 
-Atlas validates the declared paths before Compose runs, merges manifest env
-values into `.env`, appends external Compose overlays to the assembled
-`docker compose` command without writing symlinks into the submodule, and lists
-registered consumers in the launch overview. Multiple manifests may be supplied
-by repeating `--consumer` or by setting `ATLAS_CONSUMER_MANIFEST` with
-`os.pathsep`-separated paths. List-valued model declarations merge by ordered
-union; scalar conflicts such as different `PROJECT_NAME` values fail during
-validation instead of silently last-wins. Duplicate YAML mapping keys at any
-depth are invalid and fail with their key name rather than being silently
-overwritten. Standard YAML merge inheritance remains supported, including an
-explicit key overriding a merged default.
+- To load several manifests, repeat `--consumer`, or set `ATLAS_CONSUMER_MANIFEST` to `os.pathsep`-separated paths.
+- List-valued model declarations merge by ordered union. Atlas fails validation on scalar conflicts, such as two different `PROJECT_NAME` values, instead of last-wins.
+- Duplicate YAML mapping keys at any depth are invalid and fail with their key name. Standard YAML merge inheritance works, including an explicit key overriding a merged default.
 
-An `env.values` entry may be **key-gated** instead of a plain scalar, so a
-consumer can enable a paid provider only when its key is present — declaratively,
-with no wrapper script:
-
-```yaml
-env:
-  values:
-    FAL_SOURCE:
-      enabled_if_env: FAL_API_KEY   # env var name, read from the invoking shell
-      then: enabled                 # optional; value when the var is set+non-empty (default "enabled")
-      else: disabled                # required; value when the var is unset/empty
-```
-
-The gate reads `FAL_API_KEY` from the environment at `./start.sh` time (a blank
-value counts as absent). Malformed forms — a missing `else`, an unknown key, or a
-non-`^[A-Z][A-Z0-9_]*$` env-var name — fail validation up front.
-
-`env.values` are parsed as YAML 1.1, so unquoted `yes`, `no`, `on`, `off`,
-`true` and `false` are booleans; Atlas writes them to `.env` as `true` /
-`false`. Quote any value whose YAML type would change its text: `"0755"`
-(otherwise octal 493), `"1.10"` (otherwise 1.1), `"12:30"` (otherwise 750).
-
-A `<SVC>_SOURCE` entry may also be the **`auto` sentinel** — the source-selection
-analog of `BASE_PORT: auto` (#753). It resolves once, before source validation,
-to the best source for **this** host and is then durable:
-
-```yaml
-env:
-  values:
-    COMFYUI_SOURCE: auto        # Apple Silicon → managed-localhost-mps; NVIDIA → container-gpu; else container-cpu
-    LLM_PROVIDER_SOURCE: auto   # host Ollama installed → ollama-localhost; else container
-```
-
-- **Durable keep.** A concrete, valid, *non-default* value already in `.env` — a
-  prior `auto` resolution or an explicit `--<svc>-source` override — is kept
-  as-is; `auto` never clobbers it. (To durably force the service *default* on a
-  host where `auto` would pick otherwise, commit the concrete id instead of
-  `auto`.)
-- **Platform-adaptive.** Resolution follows the service manifest's ordered
-  `sources.auto_prefer` list, matched against a host-capability probe
-  (`apple_silicon`, `nvidia_gpu`, `host_ollama`), restricted to options offered
-  under the active `--profile`. Services without `auto_prefer` fall back to
-  their default with a warning.
-- **Cold-regen safe.** A regenerated `.env` re-resolves host-correctly instead
-  of silently reverting to `container-cpu` — the same committed manifest is
-  right on a Metal Mac, an NVIDIA box, and Linux CI.
-- `./start.sh … doctor` reports each resolution and the capability that matched
-  (the `auto-sources` check).
-
-**Deployment profiles — one switch for the whole environment (#755).** Beyond
-per-var selection, a consumer can select a named **environment bundle**. Atlas
-ships two declarative bundles in `bootstrapper/profiles.yml` — `default` (alias
-`dev`) and `prod` — each naming per-profile `sources` (a concrete id or
-`auto`), `env` values (limits/logging knobs), and `host_bind_ip`. The manifest
-may name its default environment and override individual bundle fields
-(override-only — consumers cannot define new profile names):
-
-```yaml
-profile: dev                          # this project's default environment
-profile_overrides:
-  dev:
-    sources: { comfyui: auto }        # delegate to the #753 resolver
-    env: { WEAVIATE_MEMORY_LIMIT: 4g }
-  prod:
-    sources: { comfyui: container-gpu }
-```
-
-`./start.sh` with no `--profile` flag uses the manifest's `profile:`;
-`--profile prod` selects the whole prod set in one switch (observability ON,
-log rotation, prod sources). Both shipped profiles keep newly configured and
-legacy-blank published ports loopback-bound; a non-empty `HOST_BIND_IP` is an
-explicit operator choice and is preserved. Semantics per field: a profile's
-`sources` are asserted on every start of that profile **except** when that
-service's source was set by an explicit CLI flag this run or is declared in the
-manifest's `env` with a non-empty value (precedence: CLI flag > manifest > profile);
-a profile's `env` value replaces an unset value, the shipped `.env.example`
-default, or (on a switch) the prior profile's value for the same key, unless
-the key is pinned in `.env.user` / `ATLAS_ENV_USER_FILE` or the manifest's `env` (any other
-operator-set value is kept with a notice; `env` keys only the old profile
-declared are not reset on a switch); switching profiles resets the prior profile's asserted sources to
-their service defaults (no residue), while a same-profile restart never resets
-anything — tracked via the `ATLAS_PROFILE_APPLIED` marker in `.env`. The
-`profile` doctor check reports the effective bundle and the precedence tier
-each managed value currently comes from. A profile's `env` cannot set a `*_SOURCE` key; declare it under `sources`, where the option and precedence checks apply.
-
-Unknown or typo'd **top-level** keys are rejected with a clear error naming the
-offending key and the allowed set — a manifest that misspells `compose_overlays`
-as `compose_overlay` (or `model_sidecars` as `model_sidecar`) fails validation
-and `./start.sh … doctor` reports the `consumer-manifests` check as failed,
-instead of silently dropping the block and surfacing later as mysterious runtime
-404s. The allowed top-level keys are exactly those shown above: `name`,
-`project_name`, `profile`, `profile_overrides`, `brand`, `env`,
-`compose_overlays`, `backend_plugins`, `model_sidecars`, `custom_nodes`, `storage`,
-`litellm_models`, `n8n_workflows`, `rag_ingestion_profiles`,
-`lightrag_query_profiles`, `managed_host_services`, and `blender_mcp`. Unknown keys inside the
-`brand`, `env`, `model_sidecars`, `custom_nodes`, `storage` and `blender_mcp` blocks (and each
-`storage.buckets` entry) are rejected the same way.
-
-`blender_mcp: {instances: N}` (#851, 1 to 16) sizes the Atlas-managed headless
-Blender pool under `BLENDER_MCP_SOURCE=managed-localhost`; it sets
-`BLENDER_MCP_INSTANCES`. Atlas allocates the ports (instance `i` listens on
-`BLENDER_MCP_LOCALHOST_PORT + i`), starts and health-checks every instance,
-stops instances left above N by a smaller pool at the next start, and tears
-them all down with `./stop.sh --stop-managed-hosts`. A multi-agent consumer
-reads the instances from `ATLAS_BLENDER_MCP_HOST_ENDPOINTS` (§6.5) instead of
-running its own Blender supervisor. Omitting the block, or `instances: 1`,
-keeps the single bridge.
+Value-level rules (key-gated values, YAML typing, the `auto` source sentinel, deployment profiles, the Blender pool size) are in [Consumer Manifest Reference §3–§4 and §14](../reference/consumer-manifest.md#3-env).
 
 #### 6.1.1. Back-compatible `services/_user/` overlay slot
 
-To add your own service *into* the Atlas stack (so it starts/stops with `./start.sh` / `./stop.sh` and shares the stack's network), drop a Compose fragment at `services/_user/<name>/compose.yml`. On launch the bootstrapper discovers every `services/_user/*/compose.yml` and merges it into the `docker compose` invocation (`-f docker-compose.yml -f services/_user/<name>/compose.yml …`), so your service comes up alongside the core stack. The `services/_user/` slot is gitignored upstream, so your additions never appear in an Atlas PR.
+To add your own service *into* the Atlas stack, put a Compose fragment at `services/_user/<name>/compose.yml`. The service then starts and stops with `./start.sh` / `./stop.sh` and shares the stack's network. At launch, the bootstrapper adds every `services/_user/*/compose.yml` to the Compose command (`-f docker-compose.yml -f services/_user/<name>/compose.yml …`). Upstream gitignores `services/_user/`, so your additions never enter an Atlas PR.
 
-A `_user/` overlay service is a **self-contained Compose fragment**: it brings its own image, host ports, and environment, and joins the shared network. Example:
+A `_user/` service is a **self-contained Compose fragment**. It brings its own image, host ports and environment, and joins the shared network:
 
 ```yaml
 # services/_user/rag-indexer/compose.yml
@@ -640,58 +328,19 @@ networks:
     external: true
 ```
 
-**Scope note:** overlay services *launch*, but they are intentionally **not** wired into Atlas's wizard, topology port-allocator, or generated `.env.example` — you manage their image/ports/env directly in the fragment (use `${HOST_BIND_IP-127.0.0.1:}` on published ports to inherit Atlas's loopback binding default). If you'd rather keep your service in its *own* repo entirely, use Method A instead (it joins the same network from outside).
+**Scope.** Overlay services launch, but Atlas's wizard, port allocator and generated `.env.example` do not know them. You manage their image, ports and env in the fragment. Use `${HOST_BIND_IP-127.0.0.1:}` on published ports to keep Atlas's loopback default. To keep the service in its own repo, use Method A.
 
 #### 6.1.2. Adding parent-owned MinIO buckets
 
-**Preferred (declarative): the `storage:` block.** Register object stores in
-your `atlas.consumer.yml` and Atlas provisions everything — no compose override,
-no endpoint reverse-engineering, no URL rewriting:
+**Preferred: the `storage:` block.** Declare object stores in `atlas.consumer.yml`. Atlas provisions the bucket and a scoped credential, writes the `minio-init` overlay and exports `ATLAS_STORE_<CONSUMER>_<STORE>_*` fields, with no Compose override. Fields, naming rules, the exported contract and presigned-URL rules: [Consumer Manifest Reference §7](../reference/consumer-manifest.md#7-storage).
 
-```yaml
-# atlas.consumer.yml
-name: daydreams
-storage:
-  buckets:
-    - name: artifacts              # store handle (unique per consumer)
-      bucket: daydreams-artifacts  # optional; default "<consumer>-<name>"
-```
-
-Atlas compiles each store to the `MINIO_EXTRA_CONSUMERS` grammar below, generates
-a scoped service-account credential once (persisted across restarts), writes the
-`minio-init` overlay for you (gitignored `volumes/minio/consumer-storage.compose.yml`),
-and exports stable per-store fields for your app to consume:
-
-```text
-ATLAS_STORE_DAYDREAMS_ARTIFACTS_BUCKET=daydreams-artifacts
-ATLAS_STORE_DAYDREAMS_ARTIFACTS_INTERNAL_ENDPOINT=http://minio:9000     # write path
-ATLAS_STORE_DAYDREAMS_ARTIFACTS_PUBLIC_ENDPOINT=http://localhost:${MINIO_PORT}  # browser read base
-ATLAS_STORE_DAYDREAMS_ARTIFACTS_REGION=us-east-1
-ATLAS_STORE_DAYDREAMS_ARTIFACTS_ACCESS_KEY_VAR=MINIO_DAYDREAMS_ARTIFACTS_ACCESS_KEY  # reference, not a raw secret
-ATLAS_STORE_DAYDREAMS_ARTIFACTS_SECRET_KEY_VAR=MINIO_DAYDREAMS_ARTIFACTS_SECRET_KEY
-```
-
-Bucket names are validated (S3 rules) and collision-checked against built-in
-buckets and across consumers. **Browser-safe presigning:** sign presigned GET
-URLs against the **public** endpoint (`…_PUBLIC_ENDPOINT`) — never sign against
-`minio:9000` and rewrite the host, which invalidates the signature. Use boto3
-with `endpoint_url=<public>` or the dependency-free reference presigner
-`bootstrapper/utils/s3_presign.py::presign_get_url`. See
-[services/minio/README.md §6.1–6.2](https://github.com/thekaveh/atlas/blob/main/services/minio/README.md).
-
-**Underlying grammar (still supported for `_user` overlays).** If your `_user`
-service needs object storage, do not fork
-`services/minio/init/scripts/init-minio.sh`. Instead, extend the existing
-`minio-init` service from the parent-owned overlay and pass
-`MINIO_EXTRA_CONSUMERS`. Each entry uses the same grammar as Atlas's built-in
-consumers:
+**Underlying grammar (for `_user` overlays).** A `_user` service that needs object storage extends the existing `minio-init` service from a parent-owned overlay and passes `MINIO_EXTRA_CONSUMERS`. Do not fork `services/minio/init/scripts/init-minio.sh`. Each entry uses the built-in consumers' grammar:
 
 ```text
 CONSUMER:BUCKET_VAR:ACCESS_VAR:SECRET_VAR[:EXTRA_BUCKET_VAR,...]
 ```
 
-A DayDreams-style overlay can keep the bucket name and credentials in the
-parent repo:
+A DayDreams-style overlay keeps the bucket name and credentials in the parent repo:
 
 ```yaml
 # services/_user/daydreams/compose.yml
@@ -704,153 +353,68 @@ services:
       MINIO_DAYDREAMS_SECRET_KEY: ${MINIO_DAYDREAMS_SECRET_KEY}
 ```
 
-Place the referenced `MINIO_BUCKET_DAYDREAMS`,
-`MINIO_DAYDREAMS_ACCESS_KEY`, and `MINIO_DAYDREAMS_SECRET_KEY` values in
-`.env.user` or `ATLAS_ENV_USER_FILE`. On every `minio-init` run, Atlas creates
-the extra bucket, writes a named inspectable policy, and creates or refreshes a
-service account with the same inline scoped policy used by built-in consumers.
-Multiple entries may be separated by spaces; comma-separated extra bucket vars
-after the fourth field grant one consumer access to a small named bucket set.
+Put `MINIO_BUCKET_DAYDREAMS`, `MINIO_DAYDREAMS_ACCESS_KEY` and `MINIO_DAYDREAMS_SECRET_KEY` in `.env.user` or `ATLAS_ENV_USER_FILE`. On every `minio-init` run, Atlas creates the bucket, writes a named policy, and creates or refreshes a service account with the built-in consumers' scoped policy. Separate several entries with spaces. Comma-separated extra bucket variables after the fourth field give one consumer a small named bucket set.
 
 #### 6.1.3. Scripted bring-up for automation
 
-For CI, cron, or parent-repo wrapper scripts, use the non-interactive detached
-path instead of backgrounding `start.sh` and killing it after a hand-written
-health poll:
+For CI, cron or parent-repo wrapper scripts, use the detached path. Do not background `start.sh` and kill it after a hand-written health poll:
 
 ```bash
 ./start.sh --no-tui --detach
 ```
 
-`--detach` is also available as `--no-follow`. It runs the normal Atlas start
-pipeline, starts Compose in detached mode with its health wait enabled, prints a
-per-service status summary, and exits with `0` only when the final status
-summary is healthy. Startup targets only the **enabled** services from the
-rendered Compose projection (derived from the resolved configuration — tracks,
-overrides, and consumer overlays included), so a broken local build belonging
-to a disabled/out-of-track service cannot abort the bring-up. A service whose
-healthcheck is still in its start period (`health=starting`) is treated as
-**convergent-pending**, not failed: it is re-polled within a bounded grace
-window (up to ~120 s) before classifying, so a stack that is merely mid-probe
-does not false-fail. Genuine failures (unhealthy, exited non-zero, or still
-starting after the grace window) still fail loudly and name the offending
-service and exit code. Add `--json` when a parent script needs machine-readable
-status:
+`--detach` (alias `--no-follow`) runs the normal start, waits for health, prints a per-service status summary and exits. It exits `0` only when the summary is healthy. It starts only the enabled services (after tracks, overrides and consumer overlays), so a broken build of a disabled service cannot stop it.
+
+A service still in its health start period (`health=starting`) is polled again for up to about 120 s before it counts as failed. A real failure (unhealthy, exited non-zero, or still starting after that window) names the service and its exit code. Add `--json` for machine-readable status:
 
 ```bash
 ./start.sh --no-tui --detach --json
 ```
 
-When startup reaches the service summary, the JSON payload is
-`{"ok", "services", "converged_after_grace", "not_started"}`. `not_started`
-lists services left out of `up` because their image failed to build (the start
-still counts as successful, so check it when completeness matters).
-`converged_after_grace` is
-`true` when the start converged only after re-polling still-`starting` rows
-through the grace window, so automation can tell a health race apart from a
-first-pass-healthy start. If the final status poll itself fails, the payload
-keeps those keys with `"ok": false`, an `"error"` string and empty `services`.
-When startup stops earlier (invalid input, a failed
-setup step, or a failed `up`), the payload is only `{"ok": false,
-"exit_code": N}` and the offending services are named on stderr; check `ok`
-before reading the other keys.
+When the start reaches the summary, the payload is `{"ok", "services", "converged_after_grace", "not_started"}`:
 
-**Shared managed-host runtimes and teardown.** Some sources run a **native
-host-global process** rather than a container: Apple-Silicon/Metal ComfyUI
-(`COMFYUI_SOURCE=managed-localhost-mps`), vLLM Metal
-(`VLLM_METAL_SOURCE=managed-localhost`), and headless Blender MCP
-(`BLENDER_MCP_SOURCE=managed-localhost`). These listen on fixed loopback ports
-and are shared by **every** Atlas consumer on the machine — they are not
-Compose-project resources, so `docker compose down` never touches them. Because
-multiple concurrent consumers (disjoint project names + base-port ranges) can
-share one such runtime, a project-scoped stop leaves it running by default:
+- `not_started` lists services left out of `up` because their image build failed. The start still counts as a success, so check it when completeness matters.
+- `converged_after_grace` is `true` when the stack became healthy only inside the grace window.
+- If the final status poll fails, `ok` is `false`, and the payload has an `error` string and empty `services`.
+- If the start stops earlier, the payload is `{"ok": false, "exit_code": N}`, and stderr names the services. Causes are invalid input, a failed setup step or a failed `up`. Check `ok` before you read other keys.
+
+Managed host runtimes and their teardown: [§7.5](#75-coexist-with-host-run-services-localhost-sources).
+
+<a id="614-headless-submodule-upgrade-validation"></a>
+<a id="615-consumer-doctor-for-ci-preflight"></a>
+
+#### 6.1.4. Preflight and CI gates
+
+Run this sequence when you bump the pin, and as the parent repo's preflight before product tests. It finds new `.env.example` keys, invalid overlays and contract drift without the interactive wizard:
 
 ```bash
-./stop.sh --project consumer-b        # containers for consumer-b only; host-global runtimes untouched
-```
-
-If a managed host process is detected running, `stop.sh` prints an advisory
-naming the explicit opt-in. To deliberately tear the host-global runtimes down
-(ComfyUI-MPS, vLLM-Metal, **and** Blender MCP), pass `--stop-managed-hosts` — this affects
-**all** consumers using them and is reported as such:
-
-```bash
-./stop.sh --stop-managed-hosts        # also stop ComfyUI-MPS / vLLM-Metal / Blender MCP
-```
-
-Standard and `--cold` stops follow the same rule. This makes unattended
-multi-consumer cold-reset loops safe: repeatedly resetting one consumer with a
-bare `./stop.sh --project <name>` (optionally `--cold`) will not interrupt
-another consumer sharing a managed host runtime.
-
-#### 6.1.4. Headless submodule upgrade validation
-
-When a parent repository pins Atlas as an `infra/` submodule, upgrade the pin
-with a headless validation pass before starting the stack. This catches newly
-introduced `.env.example` keys and invalid Compose overlays without entering the
-interactive wizard:
-
-```bash
+export ATLAS_CONSUMER_MANIFEST="$PWD/atlas.consumer.yml"   # from the parent repo root
 git -C infra fetch
 git -C infra checkout <atlas-sha>
 cd infra
 ./start.sh env backfill
-./start.sh --consumer ../atlas.consumer.yml compose validate
-./start.sh --consumer ../atlas.consumer.yml doctor
 ./start.sh compose validate
-./start.sh doctor
+./start.sh doctor --format json
 ./start.sh --no-tui --detach
+./start.sh endpoints assert --require ATLAS_LITELLM_HOST_ENDPOINT,ATLAS_MINIO_HOST_ENDPOINT
 ```
 
-`./start.sh env backfill` is additive and idempotent. It preserves existing
-values, fills blank values only when `.env.example` now provides a non-blank
-default, and prints the keys it added or filled grouped by their source section.
-`./start.sh compose validate` runs the assembled `docker compose config -q`
-path, including every `services/_user/<name>/compose.yml` overlay, and rewrites
-common missing-variable failures into a service and variable summary before
-printing Compose's raw stderr for debugging. Before validating, it materializes
-the consumer manifest's derived env (`BACKEND_PLUGINS_DIR`,
-`COMFYUI_CUSTOM_MODELS_FILE`, `COMFYUI_CUSTOM_NODES_FILE`, `OLLAMA_CUSTOM_MODELS`) into `.env` — the same
-values a full start writes — so an overlay that interpolates
-`${BACKEND_PLUGINS_DIR}` validates on a fresh checkout that has never started
-(no manual `export` workaround needed). `doctor` does the same before running
-its checks.
+`doctor` and `compose validate` check the manifest only when `ATLAS_CONSUMER_MANIFEST` is set or `--consumer` is passed. Without one, the `consumer-manifests` check validates nothing.
+
+- **`env backfill`** is additive and idempotent. It keeps existing values and fills a blank value only when `.env.example` now has a non-blank default. A new `*_PORT` goes on your `BASE_PORT` block, not the default block. It prints the keys it added or filled, grouped by section.
+- **`compose validate`** runs `docker compose config -q` on the assembled stack, including every `services/_user/<name>/compose.yml`. It rewrites common missing-variable failures into a service and variable summary, then prints Compose's raw stderr.
+- **`doctor`** does not start containers. It checks manifest validity, Compose, `_user` overlay env references, plugin directories, model sidecars, consumer endpoints and tracked-file cleanliness of the Atlas checkout. Docker checks report `skipped` when Docker is unavailable.
+- **`endpoints assert`** fails when a field your code reads is missing ([§6.5](#65-exporting-the-endpoint-contract-endpoints-export)).
+
+**Manifest values in `.env`.** Before the first start, `doctor` and `compose validate` write the manifest values into `.env`, so the compose files resolve. Later refreshes and the four derived keys: [Consumer Manifest Reference §3.4](../reference/consumer-manifest.md#34-manifest-values-and-derived-keys-in-env).
 
 Exit codes:
 
-- `env backfill` exits `0` when the env file is already current or was updated
-  successfully, and `1` if the backfill write fails. With no env file yet it
-  writes nothing, says so on stderr, and still exits `0` (`./start.sh` creates
-  the file).
-- `compose validate` exits `0` when Compose accepts the assembled stack, and
-  otherwise exits with Compose's failing status code.
+- `env backfill` exits `0` when `.env` is current or was updated, and `1` when the write fails. With no env file it writes nothing, says so on stderr and exits `0` (`./start.sh` creates the file).
+- `compose validate` exits `0` when Compose accepts the stack. Otherwise it exits with Compose's status code.
+- `doctor` exits non-zero when any check reports `fail`.
 
-#### 6.1.5. Consumer doctor for CI preflight
-
-Use the consumer doctor as the parent repository's Atlas-generic preflight
-before product-specific tests:
-
-```bash
-cd infra
-./start.sh env backfill
-./start.sh doctor --format json
-./start.sh --consumer ../atlas.consumer.yml doctor --format json
-./start.sh --no-tui --detach
-```
-
-`./start.sh doctor` does not start containers. It runs a registry of preflight
-checks for the assembled consumer integration: consumer manifest validation,
-Compose validation, `_user` overlay environment references, plugin directory
-sanity, model sidecar parsing, consumer endpoint reporting, and tracked-file
-cleanliness for the Atlas
-checkout. Checks that require Docker are reported as `skipped` when Docker is
-unavailable; Docker-free checks still run. Text output is intended for local
-debugging, while `--format json` is intended for consumer CI. The command exits
-non-zero when any check reports `fail`.
-
-`--format json` emits **pure JSON on stdout** — the `📦 Using …` dependency-manager
-banner from the shell dispatcher goes to stderr — so it pipes directly to `jq`
-with no extraction shim:
+`--format json` is for consumer CI; text output is for local debugging. It writes **pure JSON to stdout**: the `📦 Using …` banner and all other text go to stderr. So it pipes directly to `jq`:
 
 ```bash
 ./start.sh doctor --format json 2>/dev/null | jq .ok
@@ -858,38 +422,17 @@ with no extraction shim:
 
 ### 6.2. Adding Supabase SQL via the user migration slot
 
-To layer project-owned database objects onto Atlas's managed Supabase instance,
-place SQL files under `services/supabase/db/_user/`. The `supabase-db-init`
-container runs Atlas-owned SQL from `services/supabase/db/scripts/` first, then
-runs user SQL from `_user/` in lexical order. The slot is mounted read-only in
-the init container and is optional; a fresh Atlas checkout starts normally with
-no user SQL files.
-
-Use numbered file names such as `10-project-schema.sql` and
-`20-seed-reference-data.sql`. User SQL should be idempotent because the init
-runner may be re-executed against an existing volume. Prefer `CREATE ... IF NOT
-EXISTS`, guarded `ALTER TABLE`, and conflict-safe seed statements. A failing
-user SQL file fails `supabase-db-init`, which prevents dependent services from
-starting against a half-prepared database.
-
-See `services/supabase/db/_user/README.md` and
-`services/supabase/README.md` for the service-level contract.
+Put project-owned SQL files under `services/supabase/db/_user/`. `supabase-db-init` runs them in lexical order after Atlas's own scripts in `services/supabase/db/scripts/`. A failing file stops `supabase-db-init`, so dependent services do not start. Write idempotent SQL with numbered names such as `10-project-schema.sql`. The full contract is in [Supabase §2.4](../../services/supabase/README.md#24-downstream-user-migrations) and `services/supabase/db/_user/README.md`.
 
 ### 6.3. Adding backend API routes via the plugin seam
 
-The FastAPI backend exposes a **generic plugin seam**, so you can mount your own API routes *into* it without forking `services/backend/`. On startup the backend calls `load_plugins(app)`, which scans `$BACKEND_PLUGINS_DIR` (default `/app/plugins`):
+The FastAPI backend has a **generic plugin seam**: you can mount your own API routes into it without a fork of `services/backend/`.
 
-- It installs an optional shared `$BACKEND_PLUGINS_DIR/requirements.txt` first. If that fails, plugin loading is skipped for that startup.
-- Each immediate subdirectory that is an importable Python package with a module-level `router` (a FastAPI `APIRouter`) is a plugin. Its own optional `requirements.txt` is installed, then the package is imported and included into the running app.
-- A plugin whose requirements fail to install is logged with the requirements path and pip output, then skipped before import. A plugin that fails to import is logged and skipped. One bad plugin never crashes the backend.
-- Requirements install into a **writable plugin site** (`pip --target $BACKEND_PLUGINS_SITE_DIR`, default `/tmp/atlas-plugins-site`). The seam creates it and prepends it to `sys.path` before any plugin import. The image runs as `appuser` with root-owned site-packages and no `$HOME`, so an untargeted install would fail with `EACCES` (#559); no consumer-side tmpfs or `PYTHONUSERBASE` workaround is needed.
-- The seam empties that site at each start before it installs. `pip --target --upgrade` keeps an earlier version's `*.dist-info` beside the new one, so without this a pin change left two per distribution and `pip list` disagreed with what imports (#1340).
-- A custom `BACKEND_PLUGINS_SITE_DIR` is emptied only once it carries the seam's `.atlas-plugin-site` marker, which the seam writes into an empty directory. A custom site that already holds packages is left alone with a warning until you empty it once.
-- The seam is a **no-op when the directory does not exist**, so base Atlas is unaffected.
+At startup the backend mounts each package in `$BACKEND_PLUGINS_DIR` (default `/app/plugins`) that exposes a module-level FastAPI `router`. A plugin that fails is logged and skipped; it never crashes the backend. Loading, dependency and naming rules: [Consumer Manifest Reference §8.1](../reference/consumer-manifest.md#81-loading-rules).
 
-Plugins are installed and imported **at backend startup**, so **apply plugin changes by recreating the backend** (re-run `./start.sh --consumer <manifest>`; a bare `docker compose up -d --force-recreate backend` targets the wrong Compose project and drops the consumer overlay that mounts the plugins) — a restart, not a hot reload, is the correct pickup path. The backend's dev auto-reloader is off by default (#679): with your `backend_plugins` dir bind-mounted, host-side git churn in that tree (a checkout, branch switch, or rebase) must **not** restart the running backend — that would kill in-flight requests and, under rapid churn, crash-loop the container. Set `BACKEND_DEV_RELOAD=true` only when you are actively editing plugin source and want live reloads.
+**Apply plugin changes by recreating the backend.** Run `./start.sh --consumer <manifest>` again. A bare `docker compose up -d --force-recreate backend` targets the wrong Compose project and drops the overlay that mounts the plugins. The backend's auto-reloader is off by default, so git churn in a bind-mounted plugin tree does not restart it. Set `BACKEND_DEV_RELOAD=true` only while you edit plugin source.
 
-To use it, mount a plugins directory into the backend container and (optionally) point `BACKEND_PLUGINS_DIR` at it. With a submodule/overlay layout you extend Atlas's `backend` service from your parent Compose:
+To mount plugins without a manifest, extend Atlas's `backend` service from your parent Compose:
 
 ```yaml
 # your parent docker-compose.yml — overlay onto Atlas's backend
@@ -901,7 +444,7 @@ services:
       BACKEND_PLUGINS_DIR: /app/plugins   # the default; shown for clarity
 ```
 
-Each plugin is a package directory exposing `router`:
+Each plugin is a package directory that exposes `router`:
 
 ```
 my-plugins/
@@ -922,254 +465,37 @@ def health():
     return {"ok": True}
 ```
 
-The package directory name is imported as a top-level module, so it must be unique across every plugin root and must not match a module the backend already imports (for example `observability`, `rag_ingestion`, or `redis`). A plugin whose name matches a module already imported at load time is skipped and listed with status `skipped` in the plugin inventory; a name matching a library the backend imports later shadows that library, so avoid those names too. A plugin without a `plugin.yml` is also skipped when a route's first path segment is a reserved built-in name or a path parameter (e.g. `@router.get("/{slug}")`), because plugins mount ahead of the built-in routes and would otherwise answer `/health`; give its router a literal prefix.
+Give the package a unique name that no backend module uses, and give its router a literal prefix ([naming and path rules](../reference/consumer-manifest.md#81-loading-rules)).
 
-Your routes are then served by the same backend — reachable at `backend:8000` in-network, or via Kong at `api.localhost/...`. This is the recommended way to add backend endpoints (e.g. a `/rag` surface) for a downstream showcase without maintaining a fork. See [`services/backend/README.md` §4](https://github.com/thekaveh/atlas/blob/main/services/backend/README.md) for the backend-side description.
+Your routes are served at `backend:8000` in-network, or through Kong at `api.localhost/...`. Backend-side description: [Backend API §4](../../services/backend/README.md).
 
 #### 6.3.1. Declaring a typed plugin contract with `plugin.yml`
 
-A plugin package MAY ship an optional **`plugin.yml`** next to its `__init__.py`. Absent → the plugin loads exactly as above (fully backward compatible). Present → it declares a **versioned, typed, validated contract** so operators can *see* what is mounted and what env it needs, a missing/typo'd var surfaces as a startup **diagnostic** instead of a runtime 500, and per-plugin Kong auth and upstream timeouts have a place to live:
-
-```yaml
-# my-plugins/tableau/plugin.yml
-plugin_manifest_version: 1
-name: tableau                       # unique, kebab-case
-route_prefix: /tableau             # must not overlap another plugin or a built-in route; no `.`/`..` segments
-health_path: /tableau/health
-docs_url: https://example.com
-auth: key-auth                     # inherit | open | key-auth
-connect_timeout: 120000            # optional; milliseconds
-write_timeout: 120000              # optional; milliseconds
-read_timeout: 900000               # optional; milliseconds
-request_buffering: false           # optional; stream uploads to the plugin
-env:
-  - name: TABLEAU_EXECUTION
-    type: enum
-    values: [fake, comfyui]
-    default: comfyui
-  - name: LITELLM_MASTER_KEY
-    required: true                 # missing → startup + doctor warning
-    secret: true                   # masked everywhere (inventory, doctor, logs)
-```
-
-A RAG-shaped plugin declares its dependency endpoints and role/model/flavor files the same way:
-
-```yaml
-# backend_plugins/rag/plugin.yml
-plugin_manifest_version: 1
-name: rag
-route_prefix: /rag
-health_path: /rag/health
-auth: inherit
-depends_on: [litellm, weaviate, lightrag, n8n]
-env:
-  - name: RAG_ROLES_FILE
-    required: true
-  - name: RAG_MODELS_FILE
-    required: true
-  - name: RAG_FLAVORS_FILE
-    required: true
-```
-
-**What the contract buys you:**
-
-- **Inventory.** `GET /plugins` on the backend lists every mounted plugin — name, route prefix, health/docs, auth policy, explicitly declared timeouts, buffering flags (`kong_route`), declared env (secret values masked as `***`), and load status (`loaded` / `skipped` / `error`). Secret *values* are never exposed, but env-var names/flags are; `/plugins` requires a Backend service token (for example `BACKEND_INTERNAL_API_TOKEN`), independent of `BACKEND_KONG_AUTH`.
-- **Startup + preflight validation.** The seam validates declared env at boot, and [`./start.sh doctor`](#615-consumer-doctor-for-ci-preflight) re-validates it before launch: required-but-missing and enum/type mismatches are reported by plugin + var name. Secret values are never echoed.
-- **Fail-fast, isolated.** A present-but-malformed `plugin.yml` does **not** degrade to manifest-less loading — that one plugin is **skipped** with a structured error and the others stay healthy. Duplicate plugin names, overlapping prefixes, and prefixes that shadow one of the backend's reserved built-in route names are rejected before mounting; the reserved-name list is defined in the schema linked below. A plugin without a `plugin.yml` cannot mount a path under another plugin's declared prefix (a path parameter such as `/up/{name}` counts from its literal start), and a manifest cannot declare a prefix over such a path: the other plugin's auth mode and body limit would apply to it. Unless its `auth` is `open`, a plugin router may hold only FastAPI routes (`@router.get`, `@router.websocket`, …); a Starlette `router.add_route` or `add_websocket_route` handler is refused, because the auth dependency cannot apply to it.
-- **Per-plugin gateway and application auth.** `auth: key-auth` puts Kong key-auth on that plugin's `route_prefix` and validates the same `BACKEND_KONG_API_KEY` inside FastAPI, preventing direct-port bypass. `auth: open` is an explicit public opt-out. A `route_prefix` or `health_path` with a `.` or `..` segment (or a trailing newline) is rejected, because Kong normalizes route paths on load and `/x/../api` would become an open `/api`. `auth: inherit`, and plugins without a manifest, use the Backend application identity boundary. Atlas composes the matching Kong policy per prefix; distinct per-prefix credentials remain a future extension.
-- **Per-plugin Kong upstream timeouts.** `connect_timeout`, `write_timeout`, and `read_timeout` are optional strict integers in milliseconds from `1` through `2147483646`. Atlas copies only the fields you declare; an omitted `read_timeout`/`write_timeout` gets the backend's own long timeout, at least 3,630,000 ms (the same as the shared `backend-api` service), and an omitted `connect_timeout` keeps Kong's 60,000 ms default. Because Kong stores timeouts on services rather than routes, Atlas emits one dedicated backend service for each timed plugin while leaving plugins without overrides on the shared `backend-api` service. Auth continues to compose per prefix on the dedicated route. A plugin may also set `request_buffering: false` and/or `response_buffering: false` (booleans, route-level, Kong's default is `true`): Kong then streams the request body to the backend as it arrives, so the plugin can refuse an oversized or unwanted upload after the first bytes instead of after Kong has read all of it (measured on Kong 3.9.3: a 300 MB upload refused at a 1 MB cap returned after 1 MiB instead of 300 MB), and streams large responses to the client. A plugin that sets either gets the same dedicated backend service as a timed plugin (#1454). With `request_buffering: false` the backend's 16 MiB default request-body limit does not apply under the plugin's `route_prefix` either, so the plugin must enforce its own size cap. Before any body byte is read, the backend checks the caller with the plugin's `auth` mode (`inherit` or `key-auth`; an `open` plugin is not checked). A streaming handler must read `request.stream()` and count the bytes itself. A `Body`, `Form` or `File` parameter makes FastAPI read the whole body before the handler runs.
-
-For `key-auth` HTTP requests, send the credential in the `apikey` header. The
-header is preferred and takes precedence if a query parameter is also present:
-
-```bash
-curl -H "apikey: ${BACKEND_KONG_API_KEY}" \
-  http://api.localhost:${KONG_HTTP_PORT}/plugin-prefix/health   # default 63000
-```
-
-Browser WebSocket APIs cannot set arbitrary request headers, so those clients
-may use the `apikey` query parameter for the WebSocket handshake (URL-encode the
-value before interpolation). Atlas redacts that parameter's value from Uvicorn
-HTTP and WebSocket request logs, and Kong's proxy access log omits query strings
-entirely. Consumers should still avoid recording full WebSocket URLs in their
-own client logs or telemetry.
-
-The `plugin_manifest_version` is a hard-pinned contract version — a manifest built for a version this backend does not understand is skipped rather than mis-read. The canonical schema is [`bootstrapper/schemas/plugin.schema.json`](https://github.com/thekaveh/atlas/blob/main/bootstrapper/schemas/plugin.schema.json).
+A plugin may ship an optional `plugin.yml` next to its `__init__.py`. It declares the route prefix, health and docs paths, Kong auth mode, timeouts, buffering and typed env. `GET /plugins` then lists the plugin, and `./start.sh doctor` checks its env before launch. Contract: [Consumer Manifest Reference §8.2](../reference/consumer-manifest.md#82-pluginyml).
 
 #### 6.3.2. Exposing plugin models to LiteLLM with `litellm_models`
 
-A backend plugin (§6.3) that serves an OpenAI-compatible route can surface that route as a **first-class model in LiteLLM** — so Open WebUI, n8n, the backend, and any other LiteLLM consumer discover it through `/v1/models` with **no registration script**. Declare a versioned `litellm_models` block in `atlas.consumer.yml`:
-
-```yaml
-# atlas.consumer.yml
-name: rag-showcase
-backend_plugins:
-  - ./backend/plugins            # serves /graph-rag, /vanilla-rag, … (§6.3)
-litellm_models:
-  version: 1
-  models:
-    - name: graph-rag                                   # the LiteLLM alias / model_name
-      api_base: "${ATLAS_BACKEND_INTERNAL}/graph-rag/v1"  # approved Atlas endpoint template
-      api_key_var: RAG_SHOWCASE_API_KEY                 # a secret *reference* (env var NAME)
-      description: Graph RAG over Neo4j
-      tags: [rag, graph]
-      model_info:
-        mode: chat
-    - name: vanilla-rag
-      api_base: "${ATLAS_BACKEND_INTERNAL}/vanilla-rag/v1"
-```
-
-Because LiteLLM's config is regenerated from YAML + env on every start, Atlas **merges owned model rows into the declarative config before LiteLLM boots** — it never calls the LiteLLM admin API. On `./start.sh`, the bootstrapper resolves each row, writes the gitignored `volumes/litellm/consumer-models.yaml`, and `litellm-init` appends those rows to `config.yaml` after the stack rows (`hermes-agent`, `lightrag`) and catalog models.
-
-**No consumer-side reload is needed.** Every `./start.sh` recreates the stack with `docker compose up --force-recreate`, and the LiteLLM server waits for `litellm-init` (`service_completed_successfully`) before it boots. So on *every* start — cold or warm — LiteLLM is recreated reading the freshly-merged `config.yaml`, and your declared aliases appear in `/v1/models` immediately. **Do not** `docker restart` the LiteLLM container or hit its admin API from your own launcher to "pick up" model changes — that's redundant with the recreate-on-start contract.
-
-**What the contract enforces.** Ownership is derived from the manifest (rows are stamped `model_info.atlas_owner: <consumer>`, and a removed manifest removes only that consumer's rows). `api_base` must resolve to a clean URL against an allowlist of in-network Atlas endpoints (currently `${ATLAS_BACKEND_INTERNAL}`, i.e. `http://backend:8000`) — an external host, userinfo credentials, or any query string / fragment is rejected at load, so a row can never exfiltrate to an off-stack host or carry a secret. Secrets are declared by `api_key_var` (an env var **name**), never a literal `api_key`; the value never appears in a generated file, log, or doctor output. A row without `api_key_var` sends the fixed dummy key `sk-noauth`, never the stack's `OPENAI_API_KEY`. `api_key_var` may not name a variable the stack's litellm container already sets (for example `DATABASE_URL` or `OPENAI_API_KEY`), since the generated overlay would replace it. Aliases must be globally unique and may not shadow a stack-owned or catalog model name. [`./start.sh doctor`](#615-consumer-doctor-for-ci-preflight) cross-checks each model's route against the declared `plugin.yml` `route_prefix` (§6.3.1).
-
-This is exactly how a RAG-showcase-style consumer retires a bespoke `register_models.py`: declare the approaches and flavor aliases in the manifest and let Atlas own the LiteLLM wiring.
+A plugin that serves an OpenAI-compatible route can appear as a LiteLLM model in `/v1/models`, with no registration script. Atlas writes the rows on every start; do not restart LiteLLM or call its admin API. Contract: [Consumer Manifest Reference §9](../reference/consumer-manifest.md#9-litellm_models).
 
 #### 6.3.3. Seeding n8n workflows with `n8n_workflows`
 
-A consumer that ships n8n workflows (e.g. an adaptive-RAG webhook flow) can have Atlas **import, activate, and readiness-check** them instead of hand-writing an import/restart/poll script. Declare a versioned `n8n_workflows` block in `atlas.consumer.yml`:
-
-```yaml
-# atlas.consumer.yml
-name: rag-showcase
-n8n_workflows:
-  version: 1
-  workflows:
-    - id: adaptive-rag                        # stable, consumer-scoped idempotency key
-      path: ./n8n/adaptive-rag.workflow.json  # resolved relative to the manifest
-      active: "true"                          # fromJson | "true" | "false"
-      checksum: "sha256:…"                    # optional integrity pin
-      required_webhooks:
-        - path: /webhook/adaptive-rag
-          method: GET
-          expect_status: 200
-          probe: true                         # GET/HEAD probes are safe; POST needs explicit probe: true
-```
-
-On `./start.sh`, the bootstrapper normalizes each workflow JSON to an **Atlas-namespaced id** `atlas-consumer-<id>` (baking in the activation policy and stripping the runtime-state carriers `staticData`/`pinData`), writes the gitignored `volumes/n8n/consumer-workflows/` + a `plan.json`, and generates a compose overlay that runs an Atlas-owned **`n8n-seed`** container (the n8n image, sharing the n8n schema). After n8n is healthy, the seed imports each workflow with `n8n import:workflow` — **keyed by the namespaced `atlas-consumer-<id>`, so re-running startup updates the workflow in place and never creates a duplicate active workflow**. (The seeder uses **node**, not `wget`, for its API calls: the n8n image is Alpine/BusyBox and its `wget` has no `--method`.)
-
-**What the contract enforces.** Each declared `id` (at most 21 characters, since n8n workflow ids are limited to 36) imports under the reserved database id `atlas-consumer-<id>`, so re-running startup updates the workflow in place and can never overwrite a workflow an operator built by hand in the UI. A removed manifest, or a removed single workflow, drops only its own generated workflow JSON on the next start; with `N8N_API_KEY` set, the seed also reconciles — an undeclared `atlas-consumer-*` workflow is deactivated and deleted so it doesn't orphan a live webhook. When the last declared workflow is removed, every start runs the seed with an empty plan to do this, until a workflow is declared again or you delete `volumes/n8n/consumer-workflows/`. Credentials may only be referenced by a `{id, name}` mapping, never embedded inline — a raw secret or extra-keyed credential payload is rejected at load, and generated artifacts and seed logs never carry workflow content. Malformed JSON, an invalid `active`/`version`, a checksum mismatch, and duplicate webhook routes are all rejected up front; [`./start.sh doctor`](#615-consumer-doctor-for-ci-preflight) warns when an active workflow declares webhooks without `N8N_API_KEY` set. Declared webhooks are readiness-probed after import — `GET`/`HEAD` by default; a `POST` probe requires `probe: true` since it can trigger side effects. n8n Community Edition cannot activate a workflow over its API without a key, so without one Atlas restarts the n8n container once after seeding to register the webhook — no consumer-side restart or manual activation needed. A per-workflow import/activation failure is logged and isolated; the seed container always exits 0 so one bad workflow can't fail startup.
-
-Downstream payoff: `rag-showcase` deletes its `import:workflow` + activate + restart + `/healthz`-poll sequence from `scripts/start-all.sh` and declares the workflow in the manifest.
+Atlas imports, activates and readiness-checks a consumer's n8n workflows on every start, through an Atlas-owned `n8n-seed` container. It replaces a hand-written import, restart and poll script. Contract: [Consumer Manifest Reference §10](../reference/consumer-manifest.md#10-n8n_workflows).
 
 #### 6.3.4. Declaring RAG ingestion profiles with `rag_ingestion_profiles`
 
-A consumer that ships a RAG corpus (documents to parse, chunk, embed, and load into a vector store + LightRAG) can declare a versioned `rag_ingestion_profiles` block and have **Atlas own the repeatable ingestion lifecycle** — discover → parse → chunk → embed → vector-store write → LightRAG upload → drain → finalize — instead of hand-writing the orchestration and readiness logic around the same Atlas services.
-
-```yaml
-# atlas.consumer.yml
-name: rag-showcase
-rag_ingestion_profiles:
-  version: 1
-  profiles:
-    - name: showcase-default                 # stable, globally-unique profile id
-      corpus:
-        source: mount                         # mount | minio — NEVER an arbitrary host path
-        path: corpus/raw                       # mount: relative, under the backend corpus root
-        # bucket / prefix                      # minio: the object prefix to ingest
-      parser_order: [docling, tika, plain_text]  # first parser that succeeds wins; plain_text (appended last) decodes text files only
-      chunker: { strategy: recursive, chunk_size: 700, overlap: 120 }  # Chonkie strategy
-      vector_targets:
-        - { backend: weaviate, collection_prefix: RagShowcase, on_unavailable: fail }
-      graph_targets:
-        - { backend: lightrag, mode: upload_documents, wait_for_extraction: true, timeout_seconds: 3600, on_unavailable: skip }
-```
-
-With the Celery tier enabled, the whole job (parse, chunk, embed, write and the LightRAG drain) runs inside one Celery task with its own limits, `RAG_INGESTION_TASK_SOFT_TIME_LIMIT_SECONDS` (default the larger of 3840 s and the global soft limit; past it the job is recorded `failed`) and `RAG_INGESTION_TASK_TIME_LIMIT_SECONDS` (default the larger of 3900 s and the global hard limit); other Celery tasks keep the 840 s default. A submission whose graph targets' `timeout_seconds` add up to at least the soft limit is refused with HTTP 400 naming both values. That check covers the drain alone, and parsing, embedding and writing come first inside the same limit, so leave room for them; for larger corpora raise the two `RAG_INGESTION_TASK_*` limits; the worker keeps the broker visibility timeout above the hard limit by itself (#1352). Chunking also holds about 20–25 bytes of memory per character, so a document is chunked only up to 20,000,000 characters; a longer one is recorded as a per-file chunk error (and its earlier vectors are kept), well inside `RAG_INGESTION_MAX_FILE_BYTES`.
-
-On `./start.sh`, the bootstrapper validates + normalizes each profile, hashes it into a stable **`revision`**, writes the gitignored `volumes/backend/rag-ingestion-profiles.json`, and generates a compose overlay that bind-mounts that file into both Backend and Celery at a reserved internal contract path. Both services receive the same `RAG_INGESTION_PROFILES_FILE`, Redis state URL, upstream endpoints, and resource limits. For a MinIO corpus, the bucket must also be declared under the same consumer's `storage.buckets`; Atlas compiles that store's access/secret **variable names** into the profile and injects only those scoped credential references into both services. The backend exposes an async job API to submit ingestions headlessly:
-
-```bash
-# Submit (async when the Celery tier is enabled, else runs in-request); returns an ingestion id.
-curl -XPOST "$BACKEND_URL/api/rag/ingestions" -H 'content-type: application/json' \
-     -d '{"profile":"showcase-default"}'
-# Poll machine-readable status (phases, counts, timing, per-file errors).
-curl "$BACKEND_URL/api/rag/ingestions/<ingestion_id>"
-```
-
-Mounted corpora remain operator-owned. Mount the same read-only host directory at `RAG_INGESTION_CORPUS_ROOT` in both execution services so enabling Celery does not change the visible corpus:
-
-```yaml
-services:
-  backend:
-    volumes:
-      - ./corpus:/app/corpus:ro
-  celery-worker:
-    volumes:
-      - ./corpus:/app/corpus:ro
-```
-
-**What the contract enforces.**
-
-- **Corpus paths.** A `mount` corpus must be a relative path under the shared execution root (`RAG_INGESTION_CORPUS_ROOT`, default `/app/corpus`); an absolute path, a `~` or a `..` segment is rejected. A MinIO corpus must reference a store the same consumer declared. A missing corpus path is never an empty corpus: submission rejects it with HTTP 400, and a worker that lacks the backend's mount fails the job.
-- **Bounds.** Corpus discovery stops at manifest-owned limits before content is held in memory: `RAG_INGESTION_MAX_FILE_BYTES` (default 100 MiB), `RAG_INGESTION_MAX_CORPUS_BYTES` (default 1 GiB) and `RAG_INGESTION_MAX_FILES` (default 10,000).
-- **Parsing.** `parser_order` is tried in the declared order. The `plain_text` entry Atlas appends last accepts only text (UTF-8, Windows-1252, or BOM-marked UTF-16/32). A binary file that Docling and Tika failed on is a per-file error, and its prior vectors are preserved; it is never indexed as raw bytes.
-- **Targets.** A profile may declare at most one `graph_target` (Atlas has one LightRAG endpoint). Each `vector_target` and `graph_target` declares `on_unavailable: fail | skip`, so a disabled backend fails or visibly skips rather than silently degrading. A `wait_for_extraction: true` graph target polls LightRAG until idle or `timeout_seconds`, then finalizes.
-- **Phases.** Each job records observable phases (`discover → parse → chunk → embed → vector_write → lightrag_upload → drain → finalize`). Per-file errors are isolated, so one bad file does not fail the batch.
-- **Idempotency.** The job key is consumer + profile + revision + corpus fingerprint + embedding model. A resubmit of unchanged content returns the existing job; changed content or a changed `LITELLM_EMBEDDING_MODEL` creates a fresh one. A job interrupted by the Celery soft time limit is recorded `failed`, so a resubmit starts a fresh job.
-- **Leases.** Each execution holds an owner-fenced Redis lease (`RAG_INGESTION_EXECUTION_LEASE_SECONDS`, default 30), so duplicate deliveries of one job and lost workers cannot double-write. The lease is per ingestion, not per profile: two jobs of one profile (for example after the corpus changed) can run at once, so let one finish before you submit the next.
-- **Embedding identity.** Each Weaviate class records the embedding model and vector dimension it holds. A class created before Atlas recorded them is adopted when its vectors have the current size (Atlas cannot tell which model produced them). Otherwise the first ingestion after the model or size changes drops and recreates the class, then writes the whole corpus, so vectors of two models never mix. While that ingestion runs, queries see only the objects it has written so far. If it fails, the class stays partial until a later run succeeds, and sources that failed in the rebuilding run have no vectors (the job note names them).
-- **Class names.** Profile names that map to one class (`a-b` and `a.b` both become `{prefix}_a_b`) are rejected at manifest load, and object ids include the profile name (#1364).
-
-List ingestion state in bounded pages. `GET /api/rag/ingestions` keeps the historical JSON-list body, returns 100 records by default (maximum 200), and exposes the exclusive continuation token in `X-Atlas-Next-Cursor`; send that value as the next request's `cursor` query parameter. Stateful Backend routes use Redis by default and return a typed `state_store_unavailable` HTTP 503 during an outage. The only in-memory alternative is the explicit `BACKEND_STATE_STORE_MODE=memory` single-process, non-durable mode; it is not an automatic outage fallback, and RAG submissions run synchronously rather than crossing into a Celery worker-local store.
-
-Live ingestion against running Docling/Tika/Weaviate/LightRAG is an **optional** live test; the unit suite validates the contract, the phase state machine, capability semantics, idempotency, and path safety with fake upstreams. The complete field-level contract lives in the backend's ingestion module and its test suite (`app/app/tests/test_rag_ingestion.py`).
-
-Downstream payoff: `rag-showcase` keeps owning its datasets, comparison reports, and approach-specific plugins, while Atlas owns the repeatable ingestion lifecycle across documents, vector stores, and LightRAG.
+A consumer with a RAG corpus declares ingestion profiles, and Atlas owns the job lifecycle: discover → parse → chunk → embed → vector-store write → LightRAG upload → drain → finalize. Submit and poll jobs at `/api/rag/ingestions`. Contract, corpus mounts and limits: [Consumer Manifest Reference §11](../reference/consumer-manifest.md#11-rag_ingestion_profiles).
 
 #### 6.3.5. Declaring LightRAG query profiles with `lightrag_query_profiles`
 
-A consumer that runs **side-by-side graph-RAG evaluations** (or wants named UI flavors) can declare a versioned `lightrag_query_profiles` block. Each profile is a **named LightRAG query flavor** — a bundle of the per-query knobs a caller selects by name — so Open WebUI users pick "graph-rag local k=30" versus "graph-rag hybrid k=10" without the downstream app hard-coding mode/top-k/token-budget choices.
+A query profile is a named bundle of LightRAG per-query settings, such as "graph-rag local k=30". A plugin or an Open WebUI model alias selects it by name. Contract: [Consumer Manifest Reference §12](../reference/consumer-manifest.md#12-lightrag_query_profiles).
 
-```yaml
-# atlas.consumer.yml
-name: rag-showcase
-lightrag_query_profiles:
-  version: 1
-  profiles:
-    - name: graph-hybrid-default              # stable, globally-unique profile id
-      mode: hybrid                             # local | global | hybrid | mix | naive
-      top_k: 10                                # bounded positive ints; omit → inherit env default
-      chunk_top_k: 5
-      max_total_tokens: 12000
-      enable_rerank: false                     # true requires LIGHTRAG_RERANK_ADAPTER_ENABLED=true (#415 adapter)
-    - name: graph-local-wide
-      mode: local
-      top_k: 30                                # chunk_top_k / max_total_tokens omitted → env default
-      query_llm_model: gpt-4o                  # optional model references (a LiteLLM alias / handle)
-      litellm_alias: graph-rag-local-wide      # optional: surface this flavor as a LiteLLM model
-```
+**LightRAG roles on native bindings.** To run the EXTRACT role on native Ollama, set `LIGHTRAG_EXTRACT_LLM_MODEL`, `LIGHTRAG_EXTRACT_LLM_BINDING=ollama`, its `_BINDING_HOST` and `LIGHTRAG_EXTRACT_LLM_BINDING_API_KEY`. LightRAG needs a key for a role on its own binding, and Ollama ignores it, so any string such as `ollama` works. Atlas caps that role's output with `LIGHTRAG_EXTRACT_OLLAMA_LLM_NUM_PREDICT` (default `4096`) and `LIGHTRAG_EXTRACT_OLLAMA_LLM_NUM_CTX` (default `16384`).
 
-On `./start.sh`, the bootstrapper validates + normalizes each profile, hashes it into a stable **`revision`**, writes the gitignored `volumes/backend/lightrag-query-profiles.json`, and generates a compose overlay that bind-mounts that file into the backend at `/atlas-consumer-config/lightrag-query-profiles.json` (the same reserved contract directory as §6.3.4) and sets `LIGHTRAG_QUERY_PROFILES_FILE` to it. A backend plugin reads the registry to resolve a flavor by name; `./start.sh doctor` reports the registered profiles (and warns when profiles are declared but `LIGHTRAG_SOURCE` is disabled, so flavors can't yet be served).
-
-**How this differs from role-specific model settings.** The `LIGHTRAG_EXTRACT_*` / `LIGHTRAG_KEYWORD_*` / `LIGHTRAG_QUERY_*` env vars pick **which model runs each LightRAG role** for the single deployment-wide default — one active configuration at a time. A query profile is a **named, per-query flavor** you select at call time; many coexist, so you can compare modes/retrieval bounds across the same corpus without editing Atlas-tracked env. Profiles never replace those env defaults — they layer on top of them (see precedence below).
-
-**What the contract enforces.** `mode` is required (`local | global | hybrid | mix | naive`); `top_k`, `chunk_top_k`, and `max_total_tokens` are optional strictly-positive integers, and an omitted bound falls through to the deployment's `LIGHTRAG_QUERY_*` env default via an explicit request-then-profile-then-env-default precedence. `enable_rerank: true` is rejected at load unless the deployment has opted the LightRAG rerank adapter in with `LIGHTRAG_RERANK_ADAPTER_ENABLED=true` (and `TEI_RERANKER_SOURCE` enabled) — see [`services/backend/README.md` §5.1](https://github.com/thekaveh/atlas/blob/main/services/backend/README.md#51-lightrag--tei-rerank-adapter-post-lightragrerank-415) for why LightRAG's rerank wire shape needs a backend adapter. Profile names are globally unique and ownership is manifest-derived, so a removed manifest drops exactly its own profiles and a deployment with no profiles stays behavior-compatible with the single-default LightRAG. The registry holds only flavor knobs and model-name references — never credentials. A profile that sets `litellm_alias` also emits a consumer-owned [`litellm_models`](#632-exposing-plugin-models-to-litellm-with-litellm_models) row so the flavor appears as a selectable model in Open WebUI / LiteLLM. Atlas does not serve that row yet: it points at `http://backend:8000/chat/completions`, which no stack route answers, so selecting the alias returns 404 until a consumer plugin serves that path (#1453).
-
-Downstream payoff: `rag-showcase` moves its graph-RAG flavor definitions out of bespoke code/config into a reusable Atlas profile contract — comparable, documentable, and visible to Open WebUI users.
-
-**Extract-role generation caps.** Running the EXTRACT role on native Ollama takes it off LiteLLM. Set `LIGHTRAG_EXTRACT_LLM_MODEL` (required for a role on its own binding), `LIGHTRAG_EXTRACT_LLM_BINDING=ollama` and its `_BINDING_HOST`. Also set `LIGHTRAG_EXTRACT_LLM_BINDING_API_KEY`. LightRAG requires a key for a role on its own binding and Ollama ignores the value, so any string such as `ollama` works. Left empty, the container stops at start and names the variable: Atlas defaults a role key to the LiteLLM master key only while that role talks to LiteLLM (#1271).
-
-In LightRAG 1.5.4 such a role sends no generation options of its own, so Atlas caps it (#796):
-
-- `LIGHTRAG_EXTRACT_OLLAMA_LLM_NUM_PREDICT` (default `4096` output tokens), passed through as `EXTRACT_OLLAMA_LLM_NUM_PREDICT`;
-- `LIGHTRAG_EXTRACT_OLLAMA_LLM_NUM_CTX` (default `16384`), passed through as `EXTRACT_OLLAMA_LLM_NUM_CTX`.
-
-Keep both numeric. The [LightRAG service guide](../../services/lightrag/README.md) explains how the defaults were sized, how `LIGHTRAG_EXTRACT_LLM_TIMEOUT` bounds a call, and why one failed chunk fails its document.
-
-**Catalog request defaults on native bindings (#658).** A model's catalog `request_defaults` (today `think: false` on `qwen3.8:latest`) are applied by LiteLLM, and a native LightRAG 1.5.4 binding does not send them. So when `LIGHTRAG_LLM_BINDING` and its host point LightRAG at a provider directly, Atlas decides each role's transport at start:
-
-- a role that sets none of its own binding, host or key, and whose model declares such defaults, stays on LiteLLM and keeps them, at the cost of one gateway hop;
-- a role whose model declares none goes native with the base;
-- a role you configure yourself is never re-routed, so one you pin to native Ollama does not receive its model's defaults.
-
-`./start.sh doctor` names each role's transport and request defaults in its `lightrag-role-transport` check and warns about a role that loses them. The [LightRAG service guide](../../services/lightrag/README.md) has the details.
+A native binding does not send a model's catalog `request_defaults`, so Atlas decides each role's transport at start. `doctor`'s `lightrag-role-transport` check names each role's transport. Sizing, timeouts and transport rules: [LightRAG §3](../../services/lightrag/README.md#3-configuration).
 
 ### 6.4. Consuming auto-managed endpoint variables
 
-Atlas's bootstrapper computes a set of **auto-managed endpoint variables** in `.env` that resolve to the correct internal URL for whichever `*_SOURCE` mode is active. Downstream consumers (whether Method A standalone or Method B submodule) should bridge these into their own service variables rather than hard-coding a URL.
+The bootstrapper computes **auto-managed endpoint variables** in `.env`. Each resolves to the right internal URL for the active `*_SOURCE`. Consumers (Method A or B) should map these into their own variables instead of hard-coding a URL.
 
 | Variable | Resolved from | Example value (container source) | Example value (localhost source) |
 |----------|---------------|----------------------------------|----------------------------------|
@@ -1178,11 +504,11 @@ Atlas's bootstrapper computes a set of **auto-managed endpoint variables** in `.
 | `LITELLM_BASE_URL` | locked (always-on; does not vary by source) | `http://litellm:4000` | n/a (locked — no localhost mode) |
 | `MINIO_ENDPOINT` | `MINIO_SOURCE` | `http://minio:9000` | n/a (`container`/`disabled` only — no localhost mode) |
 
-A localhost-source value always names `host.docker.internal`, on Linux too (#1361). Docker Desktop resolves that name; on Linux Docker and Podman a consuming container resolves it only with `extra_hosts: ["host.docker.internal:${HOST_GATEWAY_IP}"]`, which every Atlas container that reads one carries. Add the same mapping to your own services.
+A localhost-source value always names `host.docker.internal`, on Linux too. Docker Desktop resolves that name. On Linux Docker and Podman, a container resolves it only with `extra_hosts: ["host.docker.internal:${HOST_GATEWAY_IP}"]`. Every Atlas container that reads such a value has that mapping; add it to your own services.
 
-`LITELLM_BASE_URL` is the base URL with **no path suffix** — LiteLLM's OpenAI-compatible routes live under `/v1` (e.g. `${LITELLM_BASE_URL}/v1/chat/completions`), so append `/v1` in your client.
+`LITELLM_BASE_URL` has **no path suffix**. LiteLLM's OpenAI-compatible routes are under `/v1` (for example `${LITELLM_BASE_URL}/v1/chat/completions`), so append `/v1` in your client.
 
-**Consumer-bridging pattern.** In your overlay Compose fragment or `services/_user/` service, bridge the auto-managed endpoint into your service's own variable using a three-level fallback:
+**Bridging pattern.** In your overlay or `services/_user/` service, map the endpoint into your own variable with a three-level fallback:
 
 ```yaml
 # services/_user/my-app/compose.yml
@@ -1194,23 +520,18 @@ services:
       MY_LITELLM_URL: ${MY_LITELLM_URL:-${LITELLM_BASE_URL:-http://litellm:4000}}  # append /v1 for OpenAI routes
 ```
 
-This ensures your consumer works transparently across all `*_SOURCE` values (container, localhost, etc.) without per-source branching. The same pattern applies to `OLLAMA_ENDPOINT`, `MINIO_ENDPOINT`, and any future auto-managed endpoint Atlas adds.
+Your service then works with every `*_SOURCE` value, with no per-source branches. The same pattern applies to `OLLAMA_ENDPOINT`, `MINIO_ENDPOINT` and later auto-managed endpoints.
 
 ### 6.5. Exporting the endpoint contract (`endpoints export`)
 
-For non-Python consumers (web/desktop shells, devservers) and submodule parents
-that would otherwise hand-grep `.env`, Atlas emits a **stable, machine-readable
-endpoint contract**:
+Atlas emits a **stable, machine-readable endpoint contract** for non-Python consumers (web and desktop shells, devservers) and submodule parents. It replaces grepping `.env` and hand-kept URL-rewrite bridges.
 
 ```bash
 ./start.sh endpoints export --format env    # KEY=value on stdout
 ./start.sh endpoints export --format json   # JSON object on stdout
 ```
 
-The field **names are a compatibility contract** — a rename is a breaking change.
-For every consumer-relevant service (Backend/Kong, LiteLLM, ComfyUI, Asset Worker,
-Ollama, MinIO, Weaviate, Neo4j, n8n, Redis, Supabase) it emits the active SOURCE
-mode and each applicable URL as a **distinct named field**:
+The field **names are a compatibility contract**: a rename is a breaking change. The services are Backend/Kong, LiteLLM, ComfyUI, Asset Worker, Ollama, MinIO, Weaviate, Neo4j, n8n, Redis and Supabase. For each, it emits the active SOURCE and each URL as a separate field:
 
 | Field | Meaning |
 |---|---|
@@ -1220,25 +541,30 @@ mode and each applicable URL as a **distinct named field**:
 | `ATLAS_<SVC>_KONG_ENDPOINT` | Kong `*.localhost` route (when exposed) |
 | `ATLAS_<SVC>_PUBLIC_ENDPOINT` | browser-facing public read base (MinIO presigned reads) |
 
-Plus `ATLAS_KONG_GATEWAY` and every per-consumer `ATLAS_STORE_*` field from the
-[storage contract](#612-adding-parent-owned-minio-buckets) (#404). Host/Kong URLs
-track `BASE_PORT`, and the internal vs public MinIO endpoints are distinct — sign
-presigned URLs against `ATLAS_MINIO_PUBLIC_ENDPOINT`.
+It also emits `ATLAS_KONG_GATEWAY` and every `ATLAS_STORE_*` field from the [storage contract](#612-adding-parent-owned-minio-buckets). Host and Kong URLs follow `BASE_PORT`. The internal and public MinIO endpoints differ; sign presigned URLs against `ATLAS_MINIO_PUBLIC_ENDPOINT`.
 
-`ATLAS_<SVC>_HOST_ENDPOINT` is **source-aware** (#643): for host-process sources
-the exporter renders the port the host process actually serves on, not the
-compose *published* port (which is dead — no container listens — or unset there).
-So `COMFYUI_SOURCE=managed-localhost-mps` → `http://localhost:8188`
-(`COMFYUI_MPS_LOCALHOST_PORT`), `COMFYUI_SOURCE=localhost` → `http://localhost:8000`
-(`COMFYUI_LOCALHOST_PORT`), and `LLM_PROVIDER_SOURCE=ollama-localhost` →
-`http://localhost:11434` (`OLLAMA_LOCALHOST_PORT`, a field that was previously
-omitted entirely). Container sources keep rendering their published port.
+**Host-process sources.** `ATLAS_<SVC>_HOST_ENDPOINT` uses the port the host process serves on, not the Compose published port. Container sources use their published port.
 
-**Guard against contract drift in your CI (`endpoints assert`).** The export
-field **names** are a stable compatibility contract, but a future Atlas pin bump
-could rename or drop one — and your consumer would then silently read `None` and
-fall back to a broken default with no failing test. Assert the fields you depend
-on against the pinned submodule, so a rename fails loudly:
+- `COMFYUI_SOURCE=managed-localhost-mps` → `http://localhost:8188` (`COMFYUI_MPS_LOCALHOST_PORT`)
+- `COMFYUI_SOURCE=localhost` → `http://localhost:8000` (`COMFYUI_LOCALHOST_PORT`)
+- `LLM_PROVIDER_SOURCE=ollama-localhost` → `http://localhost:11434` (`OLLAMA_LOCALHOST_PORT`)
+
+**Source-specific fields.** Under a managed Metal ComfyUI source, the export adds `ATLAS_COMFYUI_OUTPUT_DIR` and `ATLAS_COMFYUI_INPUT_DIR` (absolute host paths). Directory layout: [ComfyUI §10](../../services/comfyui/README.md). Under a Blender host source, it adds `ATLAS_BLENDER_MCP_HOST_ENDPOINT` with a `tcp://` scheme (a raw socket, not HTTP). A managed pool of more than one instance also adds `ATLAS_BLENDER_MCP_HOST_ENDPOINTS`: every instance, comma-separated, instance 0 first. Client contract: [Blender MCP](../../services/blender-mcp/README.md).
+
+**Resolved values.** The exporter expands Compose-style `${VAR}` and `${VAR:-default}` references stored in `.env`. For example, a host-source `COMFYUI_ENDPOINT` of `http://host.docker.internal:${COMFYUI_MPS_LOCALHOST_PORT:-8188}` is expanded. The output never holds a `${…}` literal, except for secrets.
+
+**Secrets.** By default the output has **no secret values**. Infra secrets (for example the Redis password inside `REDIS_URL`) stay `${VAR}` references. `--with-secrets` resolves only consumer-scoped credentials (the storage keys), never infra secrets. It refuses stdout and needs `--output PATH`:
+
+```bash
+# Submodule parent: capture the contract next to the parent app on every bring-up
+(cd infra && ./start.sh endpoints export --format env --output ../atlas-consumer.env)
+```
+
+Output is deterministic for the same inputs, so a consumer can diff it across runs.
+
+**Before the first start.** With `BASE_PORT: auto` and no allocated block, `endpoints export` exits `3` and tells you to start the stack first. `--allow-unresolved` exports anyway, with default-block ports. Use it only for templates and sample files, never to connect.
+
+**Guard against contract drift (`endpoints assert`).** A later Atlas pin could rename or drop a field. Your code would then read `None` and fall back to a broken default with no failing test. Assert the fields you read, against the pinned submodule:
 
 ```bash
 # Fails (exit 1) if any listed field is absent from the current contract:
@@ -1248,63 +574,22 @@ on against the pinned submodule, so a rename fails loudly:
 ./start.sh endpoints assert --format json
 ```
 
-Run the `--require` form (with the exact fields your code reads) in consumer CI
-against your configured stack — it's the recommended drift gate for a vendored
-Atlas.
-
-All non-secret exported values are **fully resolved** — the exporter expands any
-compose-style `${VAR}` / `${VAR:-default}` interpolation stored in `.env` (e.g. a
-host-source `COMFYUI_ENDPOINT` of `http://host.docker.internal:${COMFYUI_MPS_LOCALHOST_PORT:-8188}`)
-so the artifact never carries a `${…}` literal a consumer would have to
-interpolate itself (#646). Secrets remain `${VAR}` references by design — resolve
-consumer-scoped ones with `--with-secrets`.
-
-A few source-specific fields are emitted only when meaningful: under a managed
-Metal ComfyUI source, the export adds `ATLAS_COMFYUI_OUTPUT_DIR` and
-`ATLAS_COMFYUI_INPUT_DIR` (tilde-expanded, absolute host paths) so consumers
-that read or stage images on disk don't hardcode the internal layout — see
-[`services/comfyui/README.md`](../../services/comfyui/README.md) for the
-managed-host directory layout. Under a Blender host source the export adds
-`ATLAS_BLENDER_MCP_HOST_ENDPOINT`, which uses a `tcp://` scheme (a raw socket,
-not HTTP); with a managed pool of more than one instance it also adds
-`ATLAS_BLENDER_MCP_HOST_ENDPOINTS`, every instance's endpoint comma-separated,
-instance 0 first (#851) — see
-[`services/blender-mcp/README.md`](../../services/blender-mcp/README.md) for
-the client contract.
-
-**Secrets.** By default the output contains **no secret values** — infra secrets
-(e.g. the Redis password inside `REDIS_URL`) are emitted as `${VAR}` references.
-`--with-secrets` resolves **only consumer-scoped credentials** (the storage
-access/secret keys), never infra secrets, and **refuses stdout** — it requires an
-explicit `--output PATH`:
-
-```bash
-# Submodule parent: capture the contract next to the parent app on every bring-up
-(cd infra && ./start.sh endpoints export --format env --output ../atlas-consumer.env)
-```
-
-Output is deterministic and byte-stable for the same inputs, so a consumer's
-overlay doctor can diff it across runs. This replaces per-consumer `.env`
-grepping and the hand-maintained endpoint/URL-rewrite bridges.
+Run the `--require` form, with the exact fields your code reads, in consumer CI ([§6.1.4](#614-preflight-and-ci-gates)).
 
 ### 6.6. Host Ollama sizing for multi-model ingest (`ollama-localhost`)
 
-A graph-RAG ingest drives several Ollama models in one run — an EXTRACT model,
-an embedding model, and a KEYWORD/QUERY model — and under Ollama's defaults the
-large ones evict each other between calls (`ollama ps` shows `Stopping…`),
-causing reload thrash that stalls extraction. On a host with room to hold the
-whole ingest set resident, raise the daemon's resident-model ceiling and pin
-the set for the run's duration, then revert.
+A graph-RAG ingest uses several Ollama models in one run: an EXTRACT model, an embedding model and a KEYWORD/QUERY model. With Ollama's defaults, the large models evict each other between calls. `ollama ps` shows models cycling through `Stopping…`, and extraction stalls with no error. Two settings control this: `OLLAMA_MAX_LOADED_MODELS` (how many stay loaded) and `OLLAMA_KEEP_ALIVE` (how long, default 5m). Background: [Ollama §3](../../services/ollama/README.md#3-configuration).
 
-**Set-for-run-then-revert (macOS — the host daemon is host-owned under
-`ollama-localhost`, so Atlas cannot set this for you):**
+**`ollama-localhost`.** You own the host daemon, so Atlas cannot set these. Set `OLLAMA_MODELS_RESIDENT_MIN` in `.env` to the number of models one run uses (for example `3`). `./start.sh doctor` then reads the daemon's real values and fails the `ollama-residency` check before a long run. The check prints the `launchctl` command to fix it.
+
+**Set for the run, then revert (macOS):**
 
 ```bash
 # Before the run — keep the ingest model-set resident. Size to YOUR set +
 # free RAM (4 covered extract 37 GB + embed + keyword 29 GB on a 192 GB host):
 launchctl setenv OLLAMA_MAX_LOADED_MODELS 4
 launchctl setenv OLLAMA_KEEP_ALIVE -1        # "UNTIL: Forever" — no idle unload
-# Restart Ollama.app so the daemon picks up the env, then confirm:
+osascript -e 'quit app "Ollama"' && open -a Ollama   # restart to pick it up
 ollama ps                                     # the set holds at UNTIL: Forever
 ```
 
@@ -1312,276 +597,135 @@ ollama ps                                     # the set holds at UNTIL: Forever
 # After the run — revert so you don't pin model RAM indefinitely:
 launchctl unsetenv OLLAMA_MAX_LOADED_MODELS
 launchctl unsetenv OLLAMA_KEEP_ALIVE
-# Restart Ollama.app; defaults (KEEP_ALIVE=5m, evict-on-pressure) return.
+osascript -e 'quit app "Ollama"' && open -a Ollama   # defaults (KEEP_ALIVE=5m, evict-on-pressure) return
 ```
 
-The RAM cost is real and the reason this is a run-scoped tweak, not a default:
-holding the set resident (e.g. ~66 GB for a 37 GB extract + 29 GB keyword
-model) stays allocated until you revert and restart the daemon. Size
-`OLLAMA_MAX_LOADED_MODELS` to your ingest set and free RAM, not higher.
+**Know the RAM cost.** `-1` keeps every loaded model in memory until you revert and restart the daemon. For a 37 GB extract model plus a 29 GB keyword model, that is about 66 GB. On a unified-memory host, it competes with ComfyUI and vLLM-Metal. Set `OLLAMA_MAX_LOADED_MODELS` to your ingest set and free RAM, not higher.
 
-> **Container sources don't need this.** For `ollama-container-*`, Atlas sets
-> the parallel-serving knobs (`OLLAMA_NUM_PARALLEL`, `OLLAMA_MAX_LOADED_MODELS`)
-> in the container's compose environment (#849), so the engine owns them
-> directly. This section is only for `ollama-localhost`, where the host daemon
-> is a host-owned prerequisite Atlas does not manage (#798).
+**Container sources.** For `ollama-container-*`, set the same limits in `.env`, then restart: `OLLAMA_MAX_LOADED_MODELS` (default `2`) and `OLLAMA_KEEP_ALIVE` (default empty, which is Ollama's 5m). The `ollama-residency` doctor check covers only `ollama-localhost`.
 
 ### 6.7. Declaring your own managed host process (`managed_host_services`)
 
-A Metal/MLX-native service cannot be handed a GPU through a Linux container on
-macOS, which is why Atlas runs ComfyUI-MPS, vLLM-Metal and the Blender MCP
-bridge as *host processes* rather than containers. If your project needs one of
-its own — an MLX segmentation service, a Metal-only inference server — declare
-it in `atlas.consumer.yml` and Atlas manages its lifecycle generically (#795).
-No fork, and no hand-rolled pid files.
+A Metal or MLX service cannot get the GPU through a Linux container on macOS. If your project needs one (for example an MLX segmentation service), declare it under `managed_host_services`. Atlas then manages its venv, start, stop and health checks, with no fork and no hand-made pid files.
 
-```yaml
-# atlas.consumer.yml
-managed_host_services:
-  - name: sam3-segment            # [a-z0-9][a-z0-9-]* — owns ~/.atlas/<name>
-    workdir: services/sam3        # must resolve INSIDE your consumer root
-    command: python -m sam3_service   # argv; never run through a shell
-    port: 8799
-    venv:
-      python: "3.13"              # bare version → the `python3.13` binary
-      metal: true                 # preflight refuses off macOS
-      requirements: services/sam3/requirements.txt
-    health:
-      path: /health               # a declared path implies an HTTP probe; must start with /
-      expect_json: { status: ok }
-```
-
-**Lifecycle**, mirroring the built-in host services:
-
-```bash
-./start.sh managed-host list                    # what is declared, and its endpoint var
-./start.sh managed-host preflight sam3-segment  # read-only: bind, venv, command, port
-./start.sh managed-host install   sam3-segment  # create the venv, install deps
-./start.sh managed-host start     sam3-segment  # spawn, wait for the port to open; restarts a process launched on another port or bind
-./start.sh managed-host status    sam3-segment  # pid / running / port-open
-./start.sh managed-host health    sam3-segment  # run the declared probe
-./start.sh managed-host stop      sam3-segment  # SIGTERM, then SIGKILL after a grace window
-./start.sh managed-host remove    sam3-segment  # stop + delete ~/.atlas/sam3-segment
-```
-
-An optional `env:` mapping sets environment variables for the process. A boolean
-value is written as `true` or `false`, and a `null` value is rejected.
-
-`./start.sh doctor` reports a `managed-host-services` row that preflights every
-declared service (a pid file whose pid the OS has since recycled to a younger
-process shows as a `pid-file` warning; `start` replaces that stale record without
-signalling the process, #1341), and the endpoint contract gains
-`ATLAS_SAM3_SEGMENT_HOST_ENDPOINT` (see [§6.5](#65-exporting-the-endpoint-contract-endpoints-export)).
-The scheme follows the probe: an `http` probe exports `http://`, a `tcp` probe
-exports `tcp://` — a raw-socket service advertised as `http://` would hand you a
-URL no HTTP client can use.
-
-**Field reference**
-
-| Field | Required | Notes |
-|-------|----------|-------|
-| `name` | yes | `[a-z0-9][a-z0-9-]*`. Becomes `~/.atlas/<name>` and `ATLAS_<NAME>_HOST_ENDPOINT`, so two consumers loaded together cannot share one; `comfyui-mps`, `vllm-metal` and `blender-mcp` are reserved for the built-ins, and the stack service names the endpoints export already names (`backend`, `litellm`, `comfyui`, `asset-worker`, `ollama`, `minio`, `weaviate`, `neo4j`, `n8n`, `redis`, `supabase`) are reserved too. The state directory is per user, not per project, so separate consumer repos on one machine must also use distinct names. |
-| `command` | yes | String (POSIX-split) or list. Argv — **not** a shell line. |
-| `port` | yes | 1–65535. |
-| `workdir` | no | Defaults to the manifest's directory. Must resolve inside the consumer root. |
-| `bind` | no | Defaults to `127.0.0.1`. |
-| `env` | no | Extra environment for the process. |
-| `venv` | no | `python`, `metal`, `requirements`, `packages`. A leading `python`/`python3` in `command` is rewritten to the venv interpreter. |
-| `install` | no | Extra argv steps run after dependency install. |
-| `health` | no | `kind` (`tcp`/`http`), `path`, `expect_json`, `timeout`. Defaults to a TCP port knock. `timeout` (default 5s) also bounds each readiness probe during `start`, capped by the time left in the start wait. |
-| `allow_remote` | no | Required to bind anything other than loopback. |
-
-> **Three deliberate constraints.** (1) A declared command is argv handed
-> straight to `subprocess` — never a shell — so a semicolon in a value is a
-> string, not a second command. (2) A non-loopback `bind` is *refused* without
-> `allow_remote: true`, because these processes are unauthenticated by
-> construction. (3) `workdir` and `venv.requirements` must resolve inside your
-> consumer root; this block declares things Atlas executes, so a path that
-> reaches outside its own tree is an error rather than a warning.
-
-> **`metal: true` does not install a Metal wheel for you.** It is a preflight
-> guard that fails fast off macOS. The torch/MLX pin belongs in your own
-> `requirements` file, where it is visible and reviewable.
+`./start.sh` and `./stop.sh` do not start or stop a declared service, and neither does `--stop-managed-hosts`. Use `./start.sh managed-host list|preflight|install|start|status|health|stop|remove <name>`. Fields, safety constraints and the commands: [Consumer Manifest Reference §13](../reference/consumer-manifest.md#13-managed_host_services).
 
 ---
 
 ## 7. Consumer adoption runbook (the full journey)
 
-Sections 3–6 give you the *mechanisms*; this runbook composes them into the one
-journey every downstream product walks — **declare a manifest → pin instance
-identity → select sources → validate → start → export endpoints → operate
-day-2** — and calls out four operational behaviors that consumers (Tableau,
-DayDreams) each learned from a real incident. It links to the per-topic docs
-rather than repeating them.
+For a new repo, follow the [§4.1 walkthrough](#41-stand-up-a-consumer-from-scratch-the-ordered-walkthrough) first. This section covers operating a running consumer: what to commit, how to change sources, and how to share a host, upgrade and verify.
 
-### 7.1. The journey in order
+### 7.1. Day-2 checklist
 
-> **New consumer, empty repo?** The [§4.1 ordered walkthrough](#41-stand-up-a-consumer-from-scratch-the-ordered-walkthrough) runs this journey end-to-end with copy-pasteable commands. This runbook is the day-2 reference for the same steps and the operational behaviors behind them.
+| When | Do this |
+|---|---|
+| You bump the Atlas pin | Run the [preflight and CI gates](#614-preflight-and-ci-gates). |
+| You add a value to the manifest | Check that it is the same on every machine ([§7.2](#72-pin-instance-identity-in-the-manifest-not-just-env)). |
+| You change a service's source | Edit `.env` or the manifest, not the launch command ([§7.3](#73-select-sources-once-keep-env-as-the-source-of-truth)). |
+| A paid provider must follow its key | Use [`enabled_if_env`](../reference/consumer-manifest.md#32-key-gated-values). |
+| A second stack runs on the host | Give it its own `project_name` and `BASE_PORT` ([§7.4](#74-run-multiple-atlas-instances-on-one-host)). |
+| The host already runs Ollama, ComfyUI or Blender | Use a `localhost` source ([§7.5](#75-coexist-with-host-run-services-localhost-sources)). |
+| You edit a Dockerfile | Rebuild that service only ([§7.6](#76-upgrades-warm-starts-rebuild-stale-local-images)). |
+| The stack is up | Verify it ([§7.7](#77-post-launch-verification)). |
 
-1. **Register** a parent manifest — [§6.1](#61-registering-a-parent-project-with-atlasconsumeryml) (`atlas.consumer.yml`).
-2. **Pin identity** (`PROJECT_NAME` + a distinct `BASE_PORT`) durably in the manifest — §7.2 — never the default `63000`; `doctor` warns if a non-default project is left on it. Set **`BASE_PORT: auto`** in the manifest to have Atlas reserve a distinct free block per consumer and keep it stable across restarts (best for several consumers on one host, §7.4), or commit a fixed number. (`--base-port auto` at launch is the one-off, resolve-fresh form.)
-3. **Select sources** once (`container` / `localhost` / `managed-localhost-mps` / `ollama-localhost` / `none`) — §7.3, [source-configuration.md](source-configuration.md). Gate a paid provider on its key with the manifest's key-gated [`enabled_if_env`](#61-registering-a-parent-project-with-atlasconsumeryml) form instead of a wrapper script.
-4. **Validate** headlessly — `env backfill` + `compose validate` + `doctor` ([operations](index.md); [§6.1.4](#614-headless-submodule-upgrade-validation) / [§6.1.5](#615-consumer-doctor-for-ci-preflight)). `doctor` also lints the default-`63000` squat and **declared-but-unpullable** model provisioning (`model_sidecars.ollama` / `COMFYUI_USER_MODELS` under a `*-localhost` source).
-5. **Start** — `./start.sh --consumer …` (first run may pass source flags; see §7.3). Rely on the manifest's `BASE_PORT` from step 2; do not add `--base-port auto` to a routine start command, since the flag resolves fresh each time, skips the block this stack already holds, and moves the ports on every warm restart. Your consumer LiteLLM models are discoverable in `/v1/models` on start with **no `docker restart`**, and declared n8n workflows activate even **without an `N8N_API_KEY`** — Atlas performs any restart the webhook needs. Do **not** script an admin-API call or a container restart to "pick up" model/workflow changes.
-6. **Export + assert endpoints** for your app — [§6.5](#65-exporting-the-endpoint-contract-endpoints-export). Add **`endpoints assert --require …`** to your CI so an Atlas pin bump can't silently drop a field your code reads.
-7. **Operate day-2** — multi-instance isolation (§7.4), host-service coexistence (§7.5), upgrades (§7.6), verification (§7.7).
+LiteLLM models and n8n workflows apply on every start. Do not script a restart or an admin-API call for them.
 
 ### 7.2. Pin instance identity in the manifest, not just `.env`
 
-`PROJECT_NAME` and `BASE_PORT` are your instance's identity. `.env` is
-**machine-local and disposable** — a cold start (`./start.sh --cold`) regenerates it from `.env.example`
-(`./stop.sh --cold` removes volumes but keeps `.env`). `PROJECT_NAME` survives
-that regeneration (Atlas re-persists the previous value), but a non-default
-**`BASE_PORT` resets to the `63000` default** unless something re-supplies it —
-so an instance that carried its port block only in `.env` silently loses it on
-the next cold start and collides with any parallel stack (§7.4).
+`PROJECT_NAME` and `BASE_PORT` are your instance's identity. `.env` is machine-local and disposable. `./start.sh --cold` regenerates it from `.env.example`; `./stop.sh --cold` removes volumes but keeps `.env`. `PROJECT_NAME` survives the regeneration, because Atlas saves the previous value. A non-default `BASE_PORT` does not: it resets to `63000`, and the stack then collides with any parallel stack ([§7.4](#74-run-multiple-atlas-instances-on-one-host)).
 
-The durable fix: commit identity in the consumer manifest's **`env.values`**
-block, which is re-applied to `.env` on **every** start (warm and cold), before
-ports are resolved:
+Commit identity in the manifest. Atlas applies `env.values` to `.env` on every start, warm and cold, before it resolves ports:
 
 ```yaml
 # atlas.consumer.yml
 project_name: tableau          # top-level key → PROJECT_NAME
 env:
   values:
-    BASE_PORT: "63100"         # re-applied every start; survives cold .env regen
+    BASE_PORT: auto            # or a fixed value such as "63100"; re-applied every start
 ```
 
-**Inverse rule — do NOT put machine-specific *scalars* in `env.values`.** A
-manifest scalar re-applies every start and clobbers temporary operator switches,
-so OS-specific paths (e.g. `COMFYUI_MPS_MODELS_PATH`) belong in `.env` (or
-`.env.user`), not the committed manifest. For **source selections** the right
-committed form is the **`auto` sentinel** (§6.1): `COMFYUI_SOURCE: auto`
-resolves per host and never clobbers a **non-default** operator override (an
-override to the service default id is indistinguishable from a cold regen and
-re-resolves — commit the concrete id to pin the default; §6.1) — unlike a
-committed concrete id, which re-applies every start. Keep concrete `env.values` to the
-identity and branding that should be identical on every machine.
+**Do not commit machine-specific values.** A manifest value applies again on every start and replaces temporary operator changes. OS-specific paths (for example `COMFYUI_MPS_MODELS_PATH`) belong in `.env` or `.env.user`. For source selections, commit the `auto` sentinel; it resolves per host and keeps a non-default override ([the `auto` sentinel](../reference/consumer-manifest.md#33-the-auto-source-sentinel)). Keep other committed values to identity and branding that must be the same on every machine.
 
 ### 7.3. Select sources once; keep `.env` as the source of truth
 
-Every `--<svc>-source` CLI flag is **persisted into `.env` as an explicit
-override**. When it replaces a different saved value the run prints one
-warning line naming the variable, the old and new values, and the flag, and the
-new value then applies to every later run.
-That turns an innocent wrapper script into a footgun: a launcher that runs
+Atlas saves every `--<svc>-source` flag to `.env`. When the flag changes a saved value, the run prints a warning with the old and new values. A launcher that passes `--comfyui-source "${COMFYUI_SOURCE:-container-cpu}"` therefore resets a hand-set `managed-localhost-mps` to the CPU container on every restart. Details: [SOURCE Configuration Guide §2.1](source-configuration.md#21-cli-source-flags-persist-to-env-consumer-wrapper-trap).
 
-```bash
-./start.sh --comfyui-source "${COMFYUI_SOURCE:-container-cpu}"   # re-asserts every start
-```
+**Rule:** pass source flags on the first run only. After that, edit `.env` or the manifest, not the launch command. Better, commit `COMFYUI_SOURCE: auto` / `LLM_PROVIDER_SOURCE: auto`: every start resolves the right source for the host, and no flag is needed ([the `auto` sentinel](../reference/consumer-manifest.md#33-the-auto-source-sentinel)).
 
-re-applies `container-cpu` on **every** restart, silently reverting a
-hand-configured `COMFYUI_SOURCE=managed-localhost-mps` and demoting image
-generation from Metal to an unusable CPU container with no error anywhere.
+`managed-localhost-mps` is a valid `--comfyui-source` value. Its lifecycle (preflight, install, provision, start, status, stop) and `COMFYUI_MPS_*` variables are in [ComfyUI §10](../../services/comfyui/README.md). Atlas downloads declared `COMFYUI_USER_MODELS` into `COMFYUI_MPS_MODELS_PATH` on start. The `unpullable-models` doctor lint passes when the host tree matches the declared catalog.
 
-**Rule:** pass source flags on **first run only**; treat `.env` as the source of
-truth thereafter (edit `.env` or the manifest, not the launch command).
-`managed-localhost-mps` is now a valid `--comfyui-source` value, so it can be
-selected on first run or set directly in `.env`; its managed lifecycle
-(preflight / install / **provision** / start / status / stop, `COMFYUI_MPS_*`
-vars) is documented in the ComfyUI service README §10
-(`services/comfyui/README.md`). Declared `COMFYUI_USER_MODELS` are
-**auto-provisioned** into `COMFYUI_MPS_MODELS_PATH` on start (#754) — no manual
-weight staging; the `unpullable-models` doctor lint passes once the host tree
-satisfies the declared catalog. The Blender bridge has the same managed shape:
-`BLENDER_MCP_SOURCE=managed-localhost` provisions the pinned add-on and runs
-headless Blender (lifecycle `./start.sh blender-mcp …`; loopback-only; see
-`services/blender-mcp/README.md`).
-
-**Better: skip the first-run flags entirely with `auto`.** Committing
-`COMFYUI_SOURCE: auto` / `LLM_PROVIDER_SOURCE: auto` in the manifest (§6.1)
-removes the ritual: every start — including after a cold `.env` regen — resolves
-the host-correct source, keeps a prior resolution, and honors any explicit
-**non-default** `--<svc>-source` override durably (an override to the service
-default id is indistinguishable from a cold regen and re-resolves — commit the
-concrete id to pin the default; §6.1). The wrapper-script footgun above cannot
-happen, because there is no flag to re-assert.
+`BLENDER_MCP_SOURCE=managed-localhost` works the same way: it provisions the pinned add-on and runs headless Blender, on loopback only. Lifecycle: `./start.sh blender-mcp …`; see [Blender MCP](../../services/blender-mcp/README.md).
 
 ### 7.4. Run multiple Atlas instances on one host
 
-**Container names, networks, and volumes are `${PROJECT_NAME}-*` —
-project-isolated. Host-published ports are not: they are fixed offsets from
-`BASE_PORT` and carry no project namespace.** So a second instance on the same
-host **must** have **both** a distinct `project_name` and a distinct `BASE_PORT`
-(both persist to `.env`), never the default `63000`.
+Container names, networks and volumes are `${PROJECT_NAME}-*`, so they are isolated per project. Host ports are fixed offsets from `BASE_PORT` and have no project namespace. A second instance on one host therefore needs its own `project_name` **and** its own `BASE_PORT`, never the default `63000`.
 
-For **committed consumers that run side by side** (the common case — several
-Atlas-backed products on one dev box), set **`BASE_PORT: auto` in each
-`atlas.consumer.yml`**. Atlas reserves a distinct free `BASE_PORT+0..99` block per
-consumer (the allocator steps by 100 — the topology's max port offset is 99) —
-skipping `63000` **and** any block whose ports are already in use by
-another running stack — then **persists it and keeps it** across restarts. So
-three consumers started in turn each land on their own **durable** block
-(`20000`, `20100`, `20200`, …) with no numbers to coordinate and no drift on a
-warm restart. A cold start re-resolves, still skipping occupied blocks. For an
-**ad-hoc** stack, pass **`--base-port auto`** at launch (resolves a free block
-*fresh* each run). Either way you never hand-pick a number or squat the default;
-`doctor` warns if a non-default project is left on `63000`.
+For committed consumers that run side by side, set `BASE_PORT: auto` in each manifest. Atlas gives each consumer its own free `BASE_PORT+0..99` block. Blocks are 100 ports apart, which is the topology's highest port offset plus one.
+
+The allocator skips `63000` and any block another running stack uses, and keeps the block across restarts. Three consumers started in turn get blocks such as `20000`, `20100` and `20200`. A cold start resolves again and still skips used blocks.
+
+The port probe checks only services that this run enables. It applies this run's `--<svc>-source` flags, the manifest's `*_SOURCE` values and the wizard's answers. After the profile, the manifest and the flags write their sources, Atlas probes the chosen block again. If an enabled service finds its port taken, Atlas uses the next free block.
 
 ```bash
-# Committed consumer — BASE_PORT: auto in the manifest gives each a distinct,
-# durable block; the launcher needs no port flag:
-./start.sh --consumer ./atlas.consumer.yml --project daydreams \
-  --llm-provider-source ollama-localhost --comfyui-source localhost
+# Committed consumer — project, BASE_PORT: auto and sources come from the manifest:
+./start.sh --consumer ./atlas.consumer.yml
 
 # Ad-hoc stack — resolve a free block fresh at launch:
-./start.sh --project daydreams --base-port auto \
-  --llm-provider-source ollama-localhost --comfyui-source localhost
-
-# ...or pin an explicit distinct base port:
-./start.sh --project daydreams --base-port 64000 \
-  --llm-provider-source ollama-localhost --comfyui-source localhost
+./start.sh --project daydreams --base-port auto
 ```
 
-**Failure mode if you reuse a base port** (distinct `PROJECT_NAME`, same
-`BASE_PORT`): the two stacks interleave on one host-port range. Container names
-stay isolated, so everything *looks* healthy — but you get partial binds and
-**silent cross-instance traffic**: the exported `atlas-consumer.env` records,
-say, `LITELLM :63040` while the *other* instance's LiteLLM is what answers there.
-Both front ends refuse a block whose enabled services' ports are already
-taken ("Port conflicts detected", exit 1), but ports of services disabled in
-this instance are not probed, so choose a distinct base per instance up
-front. On a warm start that first stops this instance's own containers, the
-re-check waits up to 15 seconds for Docker to release the ports it just
-unpublished, so only a port still held after that wait is reported (#1438). Port topology: [ports-and-routes.md](ports-and-routes.md).
+Do not add `--base-port auto` to a routine start command. It resolves a new block each time, skips the block the stack already holds, and moves the ports on every warm restart.
 
-### 7.5. Coexist with host-run services (`*-localhost` sources)
+**If two stacks share a base port**, their host ports interleave. Container names stay isolated, so everything looks healthy. But binds are partial, and traffic crosses instances without warning. For example, `atlas-consumer.env` records `LITELLM :63040` while the *other* instance's LiteLLM answers there.
 
-When the host already runs Ollama, ComfyUI, or Blender, point Atlas at them
-instead of starting duplicates:
+Both front ends refuse a block whose enabled services' ports are taken ("Port conflicts detected", exit 1). Ports of services disabled in this instance are not probed, so choose a distinct base per instance up front. On a warm start that first stops this instance's containers, the check waits up to 15 seconds for Docker to release their ports. Port topology: [Ports and Routes](ports-and-routes.md).
+
+### 7.5. Coexist with host-run services (localhost sources)
+
+When the host already runs Ollama, ComfyUI or Blender, point Atlas at it instead of starting a duplicate:
 
 | Source flag | Effect | Host prerequisite |
 |---|---|---|
-| `--llm-provider-source ollama-localhost` | No `*-ollama` container; LiteLLM upstream → `host.docker.internal:11434`; catalog auto-imported from the host's `/api/tags` | Host Ollama on `:11434` ([source-configuration.md](source-configuration.md) §4.1.1.3) |
+| `--llm-provider-source ollama-localhost` | No `*-ollama` container; LiteLLM upstream → `host.docker.internal:11434`; catalog auto-imported from the host's `/api/tags` | Host Ollama on `:11434` ([SOURCE Configuration Guide §4.1.1](source-configuration.md)) |
 | `--comfyui-source localhost` | No `*-comfyui` container; endpoint → `host.docker.internal:${COMFYUI_LOCALHOST_PORT:-8000}` | Host ComfyUI on `COMFYUI_LOCALHOST_PORT` |
-| `--comfyui-source managed-localhost-mps` | Atlas-managed Metal-native ComfyUI process on `${COMFYUI_MPS_LOCALHOST_PORT:-8188}` | macOS / Apple Silicon; ComfyUI README §10 |
+| `--comfyui-source managed-localhost-mps` | Atlas-managed Metal-native ComfyUI process on `${COMFYUI_MPS_LOCALHOST_PORT:-8188}` | macOS / Apple Silicon; [ComfyUI §10](../../services/comfyui/README.md) |
 
-**Warning:** the default `--llm-provider-source ollama-container-cpu` starts a
-containerized Ollama **next to** the host's Ollama, double-loading models and
-contending for GPU/RAM on single-GPU machines. On a host that already runs
-Ollama, prefer `ollama-localhost`.
+**Warning:** the default `--llm-provider-source ollama-container-cpu` starts a containerized Ollama **next to** the host's Ollama. The two load models twice and compete for GPU and RAM. On a host that runs Ollama, use `ollama-localhost`.
 
-### 7.6. Upgrades — warm starts rebuild stale local images
+**Shared managed-host runtimes.** Three sources run a native host-global process, not a container: ComfyUI-MPS (`COMFYUI_SOURCE=managed-localhost-mps`), vLLM Metal (`VLLM_METAL_SOURCE=managed-localhost`) and headless Blender MCP (`BLENDER_MCP_SOURCE=managed-localhost`). They listen on fixed loopback ports and serve every Atlas consumer on the machine. They are not Compose resources, so `docker compose down` never touches them.
 
-A warm `./start.sh` always recreates containers (`--force-recreate`) and adds
-`--build` when its gitignored `.atlas-build-state` marker no longer matches the
-Atlas commit, resolved local-image build inputs/dependencies, or actual
-enabled/explicit Compose target set. This covers submodule pin advances,
-same-commit build-arg changes such as `MLFLOW_IMAGE`, and enabling a service that was excluded from
-the previous build. Release archives without Git metadata still track build
-inputs and targets. A successful targeted build records only that target set,
-so rebuilding unrelated enabled services cannot mark a disabled service fresh.
+A project-scoped stop therefore leaves them running:
 
-An unchanged warm restart skips the build. `./start.sh --cold` remains the
-operator-controlled no-cache rebuild and volume-reset path; use it (or an
-explicit `docker compose build --no-cache <svc>`) for uncommitted Dockerfile or
-build-context edits, because the marker does not hash source-file contents.
+```bash
+./stop.sh --project consumer-b        # containers for consumer-b only; host-global runtimes untouched
+```
+
+When one is running, `stop.sh` prints a notice that names the opt-in flag. To stop all three, pass `--stop-managed-hosts`. This affects **every** consumer that uses them, and the output says so:
+
+```bash
+./stop.sh --stop-managed-hosts        # also stop ComfyUI-MPS / vLLM-Metal / Blender MCP
+```
+
+Standard and `--cold` stops follow the same rule. So a loop that resets one consumer with `./stop.sh --project <name>` (with or without `--cold`) does not interrupt another consumer. Services you declare in `managed_host_services` are not covered; use `./start.sh managed-host stop <name>` ([§6.7](#67-declaring-your-own-managed-host-process-managed_host_services)).
+
+### 7.6. Upgrades: warm starts rebuild stale local images
+
+A warm `./start.sh` always recreates containers (`--force-recreate`). It adds `--build` when its gitignored `.atlas-build-state` marker no longer matches one of these:
+
+- the Atlas commit (a submodule pin bump);
+- the resolved local-image build inputs and dependencies (for example a same-commit `MLFLOW_IMAGE` change);
+- the enabled or explicit Compose target set (a service that the previous build left out).
+
+Release archives without Git metadata still track build inputs and targets. A targeted build records only its own target set, so building other services cannot mark a disabled service fresh. An unchanged warm restart skips the build.
+
+**Dockerfile edits are not detected.** The marker does not hash source files, so an uncommitted Dockerfile or build-context edit does not trigger a rebuild. Rebuild only that service, for example `docker compose -p <project> build --no-cache <svc>`, then run `./start.sh`.
+
+**Warning:** do not use `./start.sh --cold` to pick up a Dockerfile edit. It rebuilds without cache, but it also **deletes all of the project's volumes** and regenerates `.env` and its secrets. Use it only for a full reset.
 
 ### 7.7. Post-launch verification
 
-Trust `docker ps`, not the banner. A copy-pasteable check for `<project>` at
-base port `<BASE>`:
+Trust `docker ps`, not the banner. Run this check for `<project>` at base port `<BASE>`, from `infra/` with `ATLAS_CONSUMER_MANIFEST` set:
 
 ```bash
 docker ps --filter "name=<project>-"          # every container prefixed with your project
@@ -1594,11 +738,7 @@ docker ps --filter "name=<project>-"          # every container prefixed with yo
   ATLAS_LITELLM_HOST_ENDPOINT,ATLAS_MINIO_HOST_ENDPOINT   # the export fields your code reads
 ```
 
-**Wire the last two into consumer CI.** `doctor` (manifest validity + the
-default-port / unpullable-model lints) and `endpoints assert --require <the
-fields you read>` are the standing drift gates: run them against your configured
-stack on every pin bump so an upstream change fails your build loudly instead of
-degrading the running consumer. See [§4.1 step 8](#41-stand-up-a-consumer-from-scratch-the-ordered-walkthrough).
+Run the last two in consumer CI on every pin bump, so an upstream change fails your build instead of degrading the running consumer ([§6.1.4](#614-preflight-and-ci-gates)).
 
 ---
 
@@ -1607,21 +747,18 @@ degrading the running consumer. See [§4.1 step 8](#41-stand-up-a-consumer-from-
 | Capability | Status |
 |------------|--------|
 | Standalone + shared-network consumer (Method A) | **Ready** |
-| Git submodule (Method B) | **Ready** ([submodule-usage.md](submodule-usage.md)) |
+| Git submodule (Method B) | **Ready** ([Using Atlas as a Git submodule](submodule-usage.md)) |
 | Customization: `PROJECT_NAME` / `BASE_PORT` / `BRAND_*` / `*_SOURCE` / `--track` | **Ready** |
-| Multiple isolated Atlas stacks on one host | **Ready** (distinct `PROJECT_NAME` + `BASE_PORT` — see [§7.4](#74-run-multiple-atlas-instances-on-one-host)) |
-| `services/_user/` overlay **auto-launch** | **Ready** — drop `services/_user/<name>/compose.yml` and the bootstrapper merges + launches it (see [§6.1.1](#611-back-compatible-services_user-overlay-slot)). |
-| Semver release tags for submodule pinning | **Ready** — the repo is tagged `vMAJOR.MINOR.PATCH`; pin your submodule to a tag (see [releasing.md](releasing.md)). |
+| Multiple isolated Atlas stacks on one host | **Ready** (distinct `PROJECT_NAME` + `BASE_PORT`; see [§7.4](#74-run-multiple-atlas-instances-on-one-host)) |
+| `services/_user/` overlay **auto-launch** | **Ready**: put a fragment at `services/_user/<name>/compose.yml`, and the bootstrapper merges and launches it ([§6.1.1](#611-back-compatible-services_user-overlay-slot)). |
+| Release tags for submodule pinning | **Not current.** One tag exists (`v0.1.0`, June 2026), and it predates the consumer manifest. Pin a reviewed `main` commit until a newer tag is cut ([Releasing & version tags](releasing.md)). |
 | Published images / pip package | **Not supported** (see §5) |
-
-The first two rows were Phase 1 of the production-readiness & reuse roadmap — now implemented (see the [Phase 1 design](../superpowers/specs/2026-06-21-phase1-reuse-mechanics-design.md)). Remaining roadmap items (Infisical secrets, centralized logging, image signing, deeper hardening) are Phase 2+.
 
 ---
 
 ## 9. See also
 
-- [submodule-usage.md](submodule-usage.md) — complete Git-submodule guide (layout, integration patterns, CI/CD, troubleshooting)
-- [source-configuration.md](source-configuration.md) — every `*_SOURCE` variable and what it does
-- [ports and routes reference](../reference/ports-routes.md) — generated, authoritative port + Kong-hostname mapping; [ports-and-routes.md](ports-and-routes.md) — route behaviour
-- [releasing.md](releasing.md) — version-tag convention for pinning a submodule
-- [Production readiness & reuse roadmap](../superpowers/specs/2026-06-20-production-readiness-and-reuse-roadmap-design.md) — the strategy/assessment behind this guide
+- [Using Atlas as a Git submodule](submodule-usage.md): Git-submodule mechanics, the legacy `_user` layout, `.gitignore`, integration patterns, CI/CD, troubleshooting.
+- [SOURCE Configuration Guide](source-configuration.md): every `*_SOURCE` variable and what it does.
+- [Ports and Routes reference](../reference/ports-routes.md): generated port and Kong-hostname mapping. [Ports and Routes](ports-and-routes.md): route behaviour.
+- [Releasing & version tags](releasing.md): the tag convention.

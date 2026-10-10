@@ -41,8 +41,10 @@ sources:
 
 env:
   - name: SEARXNG_SOURCE
+    description: "SearXNG deployment source: container or disabled."
     default: container
   - name: SEARXNG_PORT
+    description: "Host port for the SearXNG web UI and JSON API (container port 8080). Also sets SEARXNG_BASE_URL."
     # default removed — computed by services/topology.py slot allocator
   - name: SEARXNG_SECRET
     default: ""
@@ -58,6 +60,7 @@ env:
   # changed. Re-add only as part of a follow-up that templates
   # `settings.yml` at start-up (envsubst init step).
   - name: SEARXNG_SCALE
+    description: "Set by ./start.sh from SEARXNG_SOURCE; do not edit. 1 runs the searxng container, 0 does not."
     auto_managed: true
 
 depends_on:
@@ -108,6 +111,6 @@ data_flow:
 # until a cited cold-start, workflow, and upgrade qualification run promotes it.
 support:
   tier: experimental
-  evidence: "Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet"
+  evidence: "Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet"
   evidence_revision: v0.1.0
   owner: Atlas maintainers

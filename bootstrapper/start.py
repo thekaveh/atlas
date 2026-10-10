@@ -6608,7 +6608,8 @@ def _doctor_check_base_port(starter: "AtlasStarter") -> dict:
     ``project_name`` isolates Docker resource names (container/volume/network)
     but NOT host port bindings, so a consumer that keeps the default BASE_PORT
     while running under a non-default project collides with a bare atlas
-    checkout on the same host. Use ``--base-port auto`` or a distinct block.
+    checkout on the same host. Set ``BASE_PORT: auto`` in the consumer
+    manifest (durable) or pin a distinct block; ``--base-port auto`` is a one-off.
     """
     try:
         env = starter.config_parser.parse_env_file()
@@ -6631,7 +6632,8 @@ def _doctor_check_base_port(starter: "AtlasStarter") -> dict:
             f"Consumer project '{project}' is on the default BASE_PORT "
             f"{DEFAULT_BASE_PORT}. project_name isolates Docker resources but not "
             f"host ports, so this stack collides with a bare atlas checkout on the "
-            f"same host. Use '--base-port auto' or pin a non-default BASE_PORT.",
+            f"same host. Set BASE_PORT: auto in the consumer manifest, or pin a "
+            f"non-default BASE_PORT (--base-port auto is a one-off).",
             details=details,
         )
     return _doctor_result(

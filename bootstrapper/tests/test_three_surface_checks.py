@@ -242,7 +242,7 @@ diagrams: []
     wiki.mkdir(parents=True)
     (site / "index.md").write_text("# 1. Overview\n", encoding="utf-8")
     (wiki / "Home.md").write_text("# 1. Overview\n", encoding="utf-8")
-    (wiki / "2-Guide.md").write_text("# 2. Guide\n", encoding="utf-8")
+    (wiki / "Guide.md").write_text("# 2. Guide\n", encoding="utf-8")
     (wiki / "_Sidebar.md").write_text("- [Overview](Home)\n", encoding="utf-8")
     (tmp_path / "mkdocs.yml").write_text(
         "nav:\n  - Overview: index.md\n", encoding="utf-8"
@@ -254,7 +254,7 @@ diagrams: []
     assert [(item.surface, item.path) for item in findings] == [
         ("repo", "docs/guide/index.md"),
         ("site", "generated/site/guide/index.md"),
-        ("wiki", "generated/wiki/2-Guide.md"),
+        ("wiki", "generated/wiki/Guide.md"),
     ]
 
     (docs / "index.md").write_text(
@@ -263,7 +263,7 @@ diagrams: []
     (site / "guide").mkdir()
     (site / "guide" / "index.md").write_text("# 2. Guide\n", encoding="utf-8")
     (wiki / "_Sidebar.md").write_text(
-        "- [Overview](Home)\n- [Guide](2-Guide)\n", encoding="utf-8"
+        "- [Overview](Home)\n- [Guide](Guide)\n", encoding="utf-8"
     )
     (tmp_path / "mkdocs.yml").write_text(
         "nav:\n  - Overview: index.md\n  - Guide: guide/index.md\n",
@@ -274,14 +274,14 @@ diagrams: []
 
     (site / "guide" / "index.md").unlink()
     (site / "guide" / "index.md").symlink_to(docs / "guide" / "index.md")
-    (wiki / "2-Guide.md").unlink()
-    (wiki / "2-Guide.md").symlink_to(docs / "guide" / "index.md")
+    (wiki / "Guide.md").unlink()
+    (wiki / "Guide.md").symlink_to(docs / "guide" / "index.md")
 
     assert [(item.surface, item.path) for item in checker(
         manifest, tmp_path, tmp_path / "generated"
     )] == [
         ("site", "generated/site/guide/index.md"),
-        ("wiki", "generated/wiki/2-Guide.md"),
+        ("wiki", "generated/wiki/Guide.md"),
     ]
 
 
@@ -375,9 +375,9 @@ diagrams: []
     (site / "index.md").write_text("# 1. Overview\n", encoding="utf-8")
     (site / "guide.md").write_text("# 2. Guide\n", encoding="utf-8")
     (wiki / "Home.md").write_text("# 1. Overview\n", encoding="utf-8")
-    (wiki / "2-Guide.md").write_text("# 2. Guide\n", encoding="utf-8")
+    (wiki / "Guide.md").write_text("# 2. Guide\n", encoding="utf-8")
     (wiki / "_Sidebar.md").write_text(
-        "- [Overview](Home)\n- [Guide](2-Guide)\n", encoding="utf-8"
+        "- [Overview](Home)\n- [Guide](Guide)\n", encoding="utf-8"
     )
     (tmp_path / "mkdocs.yml").write_text(
         "nav:\n  - Overview: index.md\n  - Guide: guide.md\n",

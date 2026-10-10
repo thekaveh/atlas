@@ -666,8 +666,8 @@ class KeyGenerator:
         would make every client authenticate with a value the role does not
         have → ``password authentication failed for user "supabase_admin"``.
 
-        Scoped to the project's volume name (``<project>_supabase-db-data``,
-        Compose's default underscore form; hyphen accepted too) so an
+        Scoped to the project's volume name (``<project>-supabase-db-data``,
+        the explicit compose ``name:``; the underscore form is also accepted) so an
         unrelated project's volume never trips it. Returns False on ANY
         uncertainty — no PROJECT_NAME, docker missing/not running, non-zero
         exit, timeout — so a genuine first run is never blocked from rotating.

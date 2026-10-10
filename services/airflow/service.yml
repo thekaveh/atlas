@@ -11,7 +11,7 @@ capabilities:
   - name: "Untrusted DAG code isolation"
     status: not-supported
     verification: tested
-    note: "LocalExecutor operator-authored DAGs execute unsandboxed with Airflow Connections holding MinIO root, LiteLLM master, Neo4j administrator, scoped Supabase reader, and Redis password credentials; admit only trusted DAG authors."
+    note: "LocalExecutor operator-authored DAGs execute unsandboxed. Their Airflow Connections hold MinIO root, LiteLLM master, Neo4j administrator, scoped Supabase reader, and Redis password credentials. Admit only trusted DAG authors."
   - name: "Seeded stack service connections"
     status: partial
     verification: tested
@@ -23,7 +23,7 @@ capabilities:
   - name: "Airflow UI and API authentication"
     status: supported
     verification: tested
-    note: "Direct and CORS-only Kong surfaces rely on Airflow FAB login for the UI and JWT exchange for /api/v2; Kong adds routing but no second authentication gate."
+    note: "Direct and CORS-only Kong surfaces rely on Airflow FAB login for the UI and JWT exchange for /api/v2. Kong adds routing but no second authentication gate."
   - name: "Distributed executor and control-plane HA"
     status: not-supported
     verification: documented
@@ -51,10 +51,12 @@ sources:
 
 env:
   - name: AIRFLOW_SOURCE
+    description: "Deployment source for Airflow: container or disabled (default)."
     default: disabled
   - name: AIRFLOW_PORT
     description: "Host port for the Airflow Web UI + REST API (in-container 8080)."
   - name: AIRFLOW_DB_USER
+    description: "Postgres role that owns the airflow metadata database on supabase-db. Supabase DB init creates it; Airflow connects with it and AIRFLOW_DB_PASSWORD."
     default: airflow
   - name: AIRFLOW_DB_PASSWORD
     default: atlas-db-password
@@ -81,23 +83,26 @@ env:
   - name: AIRFLOW_SECRET_KEY
     default: ""
     secret: true
-    description: "Auto-generated. AIRFLOW__API__SECRET_KEY — signs inter-process payloads (DagFileProcessor → scheduler RPC, deferrable triggers, multi-scheduler JWTs). Airflow 3.x; previously [webserver] secret_key + Flask sessions in 2.x."
+    description: "Auto-generated. Mapped to AIRFLOW__API__SECRET_KEY ([api] secret_key) in every Airflow container. Execution API JWTs use AIRFLOW_JWT_SECRET instead."
   - name: AIRFLOW_JWT_SECRET
     default: ""
     secret: true
-    description: "Auto-generated. AIRFLOW__API_AUTH__JWT_SECRET — signs Execution API JWTs (the /execution/ task-supervisor protocol + /api/v2/ auth-token exchange). Distinct from AIRFLOW_SECRET_KEY: when unset, webserver/scheduler/dag-processor each mint their own and cross-process JWT verification fails with 403 InvalidSignatureError (#850). Idempotent — never rotates on warm restart."
+    description: "Auto-generated. Mapped to AIRFLOW__API_AUTH__JWT_SECRET; signs Execution API and /api/v2/ auth-token JWTs. Every Airflow process must share it, or cross-process verification fails with 403 InvalidSignatureError. Kept on warm restart."
   - name: AIRFLOW_ADMIN_PASSWORD
     default: ""
     secret: true
     description: "Auto-generated. Admin login. Username is hardcoded 'admin'."
   - name: AIRFLOW_WEBSERVER_SCALE
+    description: "Set by ./start.sh from AIRFLOW_SOURCE; do not edit. 1 runs airflow-webserver (UI and REST API), 0 does not."
     auto_managed: true
   - name: AIRFLOW_SCHEDULER_SCALE
+    description: "Set by ./start.sh from AIRFLOW_SOURCE; do not edit. 1 runs airflow-scheduler, 0 does not."
     auto_managed: true
   - name: AIRFLOW_DAG_PROCESSOR_SCALE
     auto_managed: true
-    description: "Required in Airflow 3.x — the standalone DAG processor service parses DAG files into the metadata DB (the scheduler no longer does this in-process)."
+    description: "Set by ./start.sh from AIRFLOW_SOURCE; do not edit. 1 runs airflow-dag-processor. Airflow 3 needs it: it parses DAG files into the metadata DB, which the scheduler does not do."
   - name: AIRFLOW_INIT_SCALE
+    description: "Set by ./start.sh from AIRFLOW_SOURCE; do not edit. 1 runs the one-shot airflow-init container at stack start, 0 does not."
     auto_managed: true
   - name: AIRFLOW_WEBSERVER_MEMORY_LIMIT
     default: 2g
@@ -342,18 +347,30 @@ data_flow:
   calls:
     - supabase
     - spark
-    - redpanda
+    - target: redpanda
+      status: optional
+      condition: an operator-authored DAG; Atlas passes only SPARK_KAFKA_BOOTSTRAP_SERVERS
+      evidence: services/airflow/compose.yml
     - minio
     - iceberg-rest
     - litellm
-    - weaviate
-    - neo4j
-    - redis
+    - target: weaviate
+      status: optional
+      condition: an operator-authored DAG; airflow-init only seeds the Connection
+      evidence: services/airflow/init/scripts/init-airflow.sh
+    - target: neo4j
+      status: optional
+      condition: an operator-authored DAG; airflow-init only seeds the Connection
+      evidence: services/airflow/init/scripts/init-airflow.sh
+    - target: redis
+      status: optional
+      condition: an operator-authored DAG; airflow-init only seeds the Connection
+      evidence: services/airflow/init/scripts/init-airflow.sh
 
 # Support tier (#1050). Selectable is not validated: this family is `experimental`
 # until a cited cold-start, workflow, and upgrade qualification run promotes it.
 support:
   tier: experimental
-  evidence: "Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet"
+  evidence: "Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet"
   evidence_revision: v0.1.0
   owner: Atlas maintainers

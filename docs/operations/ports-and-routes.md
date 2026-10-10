@@ -4,9 +4,9 @@ Ports and Kong hostnames are derived from `BASE_PORT` in `.env` (default `63000`
 
 ## 1. Canonical reference
 
-The full per-service port-variable-to-Kong-alias mapping is generated from the service manifests and lives in [docs/reference/ports-routes.md](../reference/ports-routes.md) — that page, not this one, is the single authoritative source for which port variables and Kong aliases a service uses. The README's generated [Service topology](../../README.md#2-service-topology) block presents the same mapping as a browsable table. `bootstrapper/services/topology.py` is the code-level source both are generated from.
+The [Ports and Routes reference](../reference/ports-routes.md) is the authoritative list of each service's port variables and Kong aliases. It is generated from the service manifests and `bootstrapper/services/topology.py`.
 
-This page documents route *behavior* the generated tables don't carry: per-alias auth mechanisms and routing notes (§2), per-engine port quirks (§3), and localhost-mode port overrides (§4).
+This page documents route *behavior* that the generated tables omit: auth and routing per alias (§2), engine port quirks (§3) and localhost port overrides (§4).
 
 ## 2. Kong hostnames
 
@@ -16,11 +16,11 @@ Run once to add them to `/etc/hosts`:
 ./start.sh --setup-hosts
 ```
 
-The flag is part of a normal start: after the hosts write it launches the stack with the current `.env` (without the wizard). On a fresh checkout, run `./start.sh` once first so the wizard picks the track and sources.
+The flag is part of a normal start: after it writes the hosts entries, it launches the stack with the current `.env` (without the wizard). On a fresh checkout, run `./start.sh` once first so the wizard picks the track and sources.
 
 Active aliases (every `*-localhost` source also routes through `host.docker.internal`):
 
-- `airflow.localhost` → Airflow Web UI + REST API (`AIRFLOW_SOURCE != disabled`; same alias serves UI at `/` and REST API under `/api/v2/`). Web UI auth: `admin` / auto-generated `AIRFLOW_ADMIN_PASSWORD` (FAB session cookie). REST API auth: JWT bearer — POST credentials to `/auth/token` first, then attach `Authorization: Bearer <jwt>` to `/api/v2/...` calls. See [services/airflow/README.md](https://github.com/thekaveh/atlas/blob/main/services/airflow/README.md) §6 for the full two-step curl.
+- `airflow.localhost` → Airflow Web UI + REST API (`AIRFLOW_SOURCE != disabled`; same alias serves UI at `/` and REST API under `/api/v2/`). Web UI auth: `admin` / auto-generated `AIRFLOW_ADMIN_PASSWORD` (FAB session cookie). REST API auth: JWT bearer — POST credentials to `/auth/token` first, then attach `Authorization: Bearer <jwt>` to `/api/v2/...` calls. See the [Airflow README](../../services/airflow/README.md) §6 for the full two-step curl.
 - `api.localhost` → Backend API (always-on adaptive; protected routes always enforce application bearer identity, while optional `BACKEND_KONG_AUTH=key-auth` adds an outer `apikey: ${BACKEND_KONG_API_KEY}` gateway gate)
 - `asset-baker.localhost` → Asset Baker API (`ASSET_BAKER_SOURCE != disabled`)
 - `asset-worker.localhost` → Asset Worker API (`ASSET_WORKER_SOURCE != disabled`)
@@ -55,7 +55,7 @@ Active aliases (every `*-localhost` source also routes through `host.docker.inte
 - `stt.localhost` → STT engine — container resolves to `parakeet-gpu` or `speaches`; localhost routes via `host.docker.internal`
 - `tika.localhost` → Apache Tika extraction fallback (`TIKA_SOURCE != disabled`; Kong basic-auth/ACL)
 - `trino.localhost` → Trino coordinator UI/API (`TRINO_SOURCE=container`; Kong dashboard basic-auth/ACL)
-- `localhost` → Atlas service directory and health dashboard (generated from topology: category-grouped service cards with per-category accents and click-through to each service's Kong alias, dark/light themes with a toggle + `prefers-color-scheme` default, SOURCE state, auth notes, and lightweight browser reachability checks)
+- `localhost` → Atlas service directory and health dashboard, generated from topology. It shows service cards grouped by category, each with its SOURCE state, auth notes, a reachability check and a link to its Kong alias. It has dark and light themes; the default follows `prefers-color-scheme`.
 - `supabase-studio.localhost` → Supabase Studio dashboard (basic-auth: `DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD` from `.env`)
 - `trueforge.localhost` → TrueForge agent runtime UI + API (`TRUEFORGE_SOURCE=container`; Kong dashboard basic-auth/ACL — TrueForge itself has no login)
 - `tts.localhost` → TTS engine — container resolves to `speaches:8000` or `chatterbox:4123`; localhost routes via `host.docker.internal`
@@ -66,7 +66,7 @@ Active aliases (every `*-localhost` source also routes through `host.docker.inte
 
 "Kong dashboard basic-auth/ACL" is the shared `DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD` pair from `.env`. It gates only the `*.localhost` alias; a direct port bypasses it. Which credential opens each surface is tabulated in [Access and Credentials](access-and-credentials.md).
 
-The Kong gateway listens on `KONG_HTTP_PORT` (default `63000` under topology v1, i.e. `BASE_PORT + 0`). All aliases above resolve to `http://<alias>:${KONG_HTTP_PORT}`.
+The Kong gateway listens on `KONG_HTTP_PORT`, which is `BASE_PORT + 0` (`63000` by default). All aliases above resolve to `http://<alias>:${KONG_HTTP_PORT}`.
 
 ## 3. Per-engine port quirks
 
@@ -100,12 +100,17 @@ HTTP.
 | TCP, no Kong | Blender MCP | `BLENDER_MCP_LOCALHOST_PORT` | `tcp://host:port` MCP bridge endpoint | No Kong route |
 | TCP, no Kong | Neo4j Bolt | `NEO4J_LOCALHOST_BOLT_PORT` | Bolt clients reach the host database directly | No Kong route |
 
-See the generated [port and route reference](../reference/ports-routes.md) for
-the complete port-variable inventory (`SUPABASE_AUTH_PORT`, `SUPABASE_META_PORT` and `SUPABASE_STUDIO_PORT` are reserved there but not published; use Kong) and PR #10 / the localhost-port-override
-entry in `docs/CHANGELOG.md` for the design rationale.
+The generated [port and route reference](../reference/ports-routes.md) lists every port variable.
+`SUPABASE_AUTH_PORT`, `SUPABASE_META_PORT` and `SUPABASE_STUDIO_PORT` are reserved there but not published; use Kong.
 
 ## 5. Advanced overrides
 
-`BASE_PORT` is the only supported mechanism for moving ports. Every `./start.sh` recomputes all `*_PORT` variables from `BASE_PORT` (`port_manager.update_env_ports`), so a hand-edited single `*_PORT` in `.env`, `.env.user` or a consumer manifest's `env.values` is reset on the next start; change `BASE_PORT` (or pass `--base-port`) instead. Localhost-source `*_LOCALHOST_PORT` variables are not derived from `BASE_PORT` and stay as set. Each start writes the chosen port into the service's URL in `.env` (for example `WEAVIATE_URL`, `NEO4J_URI`, `COMFYUI_ENDPOINT`), so changing one takes effect on the next `./start.sh`. The port migration framework (`bootstrapper/services/migrations/`) handles cross-version layout shifts; on a bump like topology v1, your `.env` is auto-rewritten with the new defaults (a backup is taken to `.env.backup.v<N>.<timestamp>.<random>`; user-customized values are preserved). Pass `--no-port-migrate` to opt out. Both the wizard and `--no-tui` migrate before applying the run's source, profile, key and model overrides (#1391).
+`BASE_PORT` is the only supported way to move ports. Each `./start.sh` recomputes every `*_PORT` from `BASE_PORT` (`port_manager.update_env_ports`). A hand-edited `*_PORT` in `.env`, `.env.user` or a consumer manifest's `env.values` is reset on the next start, so change `BASE_PORT` or pass `--base-port`. `*_LOCALHOST_PORT` variables are not derived from `BASE_PORT` and stay as set.
 
-Base-port changes and env migrations snapshot `.env` first, mode `0600`. Supabase JWT key generation (`generate_supabase_keys`, which auto-runs at startup only when all three keys are blank and rewrites all three when run by hand) does not, so copy `.env` yourself before running it by hand. Atlas keeps the five most recent snapshots per migration version and prunes older ones, so a rotated secret does not stay readable on disk indefinitely. `.env.backup.*` is gitignored and never committed.
+Each start also writes the port into the service URLs in `.env` (for example `WEAVIATE_URL`, `NEO4J_URI`, `COMFYUI_ENDPOINT`).
+
+Env migrations (`bootstrapper/services/migrations/`) rewrite `.env` when the port layout changes between versions. They keep your custom values and save a backup to `.env.backup.v<N>.<timestamp>.<random>`. The wizard and `--no-tui` both migrate before they apply the run's source, profile, key and model overrides. `--no-port-migrate` skips migrations for one run.
+
+Base-port changes and env migrations snapshot `.env` first, mode `0600`. Supabase JWT key generation (`generate_supabase_keys`) takes no snapshot. At startup it runs only when all three keys are blank; run by hand, it rewrites all three. Copy `.env` yourself before you run it by hand.
+
+Atlas keeps the five most recent snapshots per migration version and prunes older ones, so a rotated secret does not stay readable on disk indefinitely. `.env.backup.*` is gitignored and never committed.

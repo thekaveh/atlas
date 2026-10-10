@@ -122,7 +122,7 @@ services:
     # Override the upstream image's default CMD to add the three ServerApp
     # flags VS Code (and any other remote Jupyter client) needs.
     #
-    # Full launch chain after this override (see README §10.3.1):
+    # Full launch chain after this override (see README §10.3):
     #   ENTRYPOINT = /usr/local/bin/startup.sh   (our wrapper; exec "$@")
     #   CMD        = [the list below]
     #   →  startup.sh start-notebook.sh <flags>
@@ -135,10 +135,10 @@ services:
     # container will restart-loop with `exec: --ServerApp.allow_origin=...:
     # not found`.
     #
-    # allow_origin defaults to empty (Jupyter's same-origin check). '*' let a
-    # page on any other localhost port open a cookie-authenticated terminal
-    # websocket (2026-10-08 run, cycle 57); token-authenticated clients such
-    # as VS Code skip the origin check anyway. README §10.3.2 explains each
+    # allow_origin defaults to empty (Jupyter's same-origin check). '*' would
+    # let a page on any other localhost port open a cookie-authenticated
+    # terminal websocket; token-authenticated clients such
+    # as VS Code skip the origin check anyway. README §10.3 explains each
     # flag's mechanism in detail.
     command:
       - start-notebook.sh

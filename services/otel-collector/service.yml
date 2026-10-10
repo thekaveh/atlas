@@ -12,7 +12,7 @@ capabilities:
   - name: "Log export to Loki"
     status: supported
     verification: tested
-    note: "Atlas redacts a documented top-level credential-key allowlist, sends OTLP logs through a bounded live retry queue, and persists accepted logs in the required local Loki service."
+    note: "Atlas redacts a documented top-level credential-key allowlist and sends OTLP logs through a bounded live retry queue. Accepted logs persist in the required local Loki service."
   - name: "Public telemetry ingestion"
     status: not-supported
     verification: tested
@@ -37,8 +37,10 @@ sources:
 
 env:
   - name: OTEL_COLLECTOR_SOURCE
+    description: "OpenTelemetry Collector deployment source: container or disabled."
     default: disabled
   - name: OTEL_COLLECTOR_SCALE
+    description: "Set by ./start.sh from OTEL_COLLECTOR_SOURCE; do not edit. 1 runs the otel-collector container, 0 does not."
     auto_managed: true
   - name: OTEL_COLLECTOR_ENDPOINT
     auto_managed: true
@@ -95,6 +97,6 @@ data_flow:
 # until a cited cold-start, workflow, and upgrade qualification run promotes it.
 support:
   tier: experimental
-  evidence: "Capability contract declared (#967); no cited cold-start, workflow, or upgrade qualification run yet"
+  evidence: "Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet"
   evidence_revision: v0.1.0
   owner: Atlas maintainers
