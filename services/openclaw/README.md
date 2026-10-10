@@ -6,11 +6,9 @@ Open-source AI agent for messaging platforms with web-based administration dashb
 
 The OpenClaw service provides an LLM-backed agent that connects to messaging apps:
 
-- **Messaging Integration**: WhatsApp, Telegram, Discord, Slack, iMessage
-- **File Management**: Read, create, and manage files in a dedicated workspace
-- **Calendar Management**: Schedule events and manage calendars
-- **GitHub Monitoring**: Monitor repositories, issues, and pull requests
-- **Command Execution**: Execute commands via messaging interface
+- **Messaging channels**: WhatsApp, Telegram, Discord, Slack, Signal and others (upstream `docs/channels/index.md` in the image). iMessage needs a signed-in Mac running the `imsg` bridge.
+- **Workspace files**: Read, create, and manage files in a dedicated workspace
+- **Skills**: Bundled skills include `github` and `gog` (Google Calendar, Gmail, Drive). They need the `gh` and `gog` binaries, which the pinned image (`2026.6.10`) does not contain.
 - **Web Dashboard**: Browser-based admin panel for configuration and approvals
 - **Multi-Provider LLM**: Models come through LiteLLM (§2). Direct Anthropic and OpenAI keys are optional overrides (§4.3).
 
@@ -213,7 +211,7 @@ Runs OpenClaw gateway in a Docker container.
 
 **Best for**: Standard deployment, messaging app integrations
 
-**Resources**: ~2GB RAM minimum
+**Resources**: Atlas sets no memory limit and has not measured the gateway's memory use. Upstream's 2 GB guidance applies to building the image, which Atlas does not do.
 
 **Setup**: Automatic via docker-compose
 
@@ -314,7 +312,7 @@ See §5.
 1. Check logs (set `PROJECT_NAME` as in §7): `docker logs ${PROJECT_NAME}-openclaw-gateway`
 2. Verify image is available: `docker pull ghcr.io/openclaw/openclaw:2026.6.10`
 3. Ensure ports 63076/63077 (the gateway and bridge defaults; `OPENCLAW_GATEWAY_PORT` / `OPENCLAW_BRIDGE_PORT`) are free
-4. Check Docker has sufficient memory (2GB+ recommended)
+4. Check `docker logs` for an exit code 137 (out of memory) and give Docker more memory if you see it
 
 ### 13.3. Can't See LLM Models
 

@@ -6,7 +6,9 @@ Asset Baker is Atlas' containerized **Blender headless HP→LP bake worker**. It
 
 It is a **separate service from the [Asset Worker](../asset-worker/README.md)**. Asset Worker (Node, glTF-Transform) welds, simplifies and compresses. It *cannot* voxel-remesh, regenerate UVs or bake textures and normals; those steps need Blender. Both use the same content-addressed MinIO artifact schema. Asset Baker serves its own `asset-baker.localhost` route; the Backend gateway has no bake route. The intended chain is `generate → image→3D → bake (this) → optimize (asset-worker)`.
 
-It is **disabled by default** (`ASSET_BAKER_SOURCE=disabled`); the supported enabled mode is `container-cpu`. Cycles bakes on **CPU** for determinism and portability (CI, Linux), and Docker on macOS cannot pass Metal into a container. A bake takes 30–200 s per asset at 2k textures. GPU (`container-gpu`) and managed `localhost` wait for separate lifecycle and performance evidence. The image is ~1.5–2.5 GB, so the wizard offers it only in the `gen-ai-creative` and `all` tracks.
+It is **disabled by default** (`ASSET_BAKER_SOURCE=disabled`); the supported enabled mode is `container-cpu`. Cycles bakes on **CPU** for determinism and portability (CI, Linux), and Docker on macOS cannot pass Metal into a container.
+
+Bake time depends on the mesh and the texture size; Atlas has not published measured bake times. `ASSET_BAKER_TIMEOUT_SECONDS` (default 600) caps each bake. GPU (`container-gpu`) and managed `localhost` wait for separate lifecycle and performance evidence. The image holds a full Blender install, and the wizard offers it only in the `gen-ai-creative` and `all` tracks.
 
 There is **no MCP surface, by design**: this is a deterministic batch stage driven by job parameters. The `blender-mcp` add-on also refuses to start under `blender -b`. For agent-driven Blender, use [Blender MCP](../blender-mcp/README.md).
 
@@ -52,7 +54,7 @@ Enable from the CLI with:
 ./start.sh --asset-baker-source container-cpu
 ```
 
-The default `ASSET_BAKER_SOURCE=disabled` keeps the ~2 GB Blender worker out of normal starts until a creative or 3D workflow needs it.
+The default `ASSET_BAKER_SOURCE=disabled` keeps the Blender worker and its image build out of normal starts until a creative or 3D workflow needs it.
 
 ### 3.1. Pinned Blender runtime
 
@@ -64,7 +66,7 @@ The image installs a **pinned, checksum-verified** headless Blender at build tim
 | Artifact | `blender-<version>-linux-x64.tar.xz` |
 | Integrity | `ASSET_BAKER_BLENDER_SHA256` (default `4da1c956…a5592e6`), verified with `sha256sum -c` before extraction |
 | Architecture | **`linux/amd64` (x86_64) only** — Blender ships no official `linux-arm64` build; the Dockerfile fails fast with an actionable message on any other architecture. The compose service pins `platform: ${ASSET_BAKER_PLATFORM:-linux/amd64}`, so an arm64 host (Apple Silicon) builds and runs it under emulation |
-| License | Blender is **GNU GPL-2.0-or-later**. It runs as a separate headless subprocess (`blender -b`) and is not linked into Atlas code. What redistributing a built image requires is open item R-BUILD in the [license inventory](../../docs/reference/license-inventory.md) |
+| License | Blender is licensed under the **GNU GPL**: its source files carry `GPL-2.0-or-later`, and the `v4.3.2` source tree also ships the GPL-3.0 text. It runs as a separate headless subprocess (`blender -b`) and is not linked into Atlas code. Atlas has not settled what redistributing a built image requires; that is open item R-BUILD in the [license inventory](../../docs/reference/license-inventory.md) |
 
 **Download source.** `download.blender.org` returns HTTP 403 to automated clients. The build therefore fetches from the official Blender **mirror network** and tries each mirror in turn: `ftp.nluug.nl`, `mirror.clarkson.edu`, `mirrors.ocf.berkeley.edu`, `mirrors.dotsrc.org`. The SHA-256 is verified whatever the host, so one mirror outage does not break the build. A clean `docker build` needs no developer cache. A build-time smoke step asserts that `blender --version` matches the pin.
 

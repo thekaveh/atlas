@@ -42,4 +42,4 @@ There is no single login. Most dashboards open with an administrator password th
 - Grafana: `admin` / `GRAFANA_ADMIN_PASSWORD`.
 - Supabase Studio and several other dashboards: the Kong pair `DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD`.
 
-n8n asks you to create its owner account. JupyterHub prints its token in the container log. [Access and Credentials](../operations/access-and-credentials.md) lists every surface and the credential that opens it.
+n8n asks you to create its owner account. With an empty `JUPYTERHUB_TOKEN` (the default), JupyterHub generates a token and prints it in its container log. [Access and Credentials](../operations/access-and-credentials.md) lists every surface and the credential that opens it.

@@ -84,7 +84,7 @@ preflight → install → start immediately before `docker compose up`. The shar
 managed-host rules apply: rollback on a failed launch, a host-global process,
 and opt-in stop with `./stop.sh --stop-managed-hosts`. See
 [Operations §8](../../docs/operations/index.md#8-managed-host-lifecycle) and the
-[ComfyUI managed-MPS lifecycle](../comfyui/README.md#102-lifecycle), which uses
+[ComfyUI managed-MPS lifecycle](../comfyui/README.md#92-lifecycle), which uses
 the same framework. vLLM-specific points:
 
 - A read-only check runs before a warm start stops the stack. If the host

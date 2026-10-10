@@ -129,10 +129,10 @@ With `localhost`, LiteLLM's `hermes-agent` route sends Atlas's `HERMES_API_KEY` 
 
 ## 5. Known caveats
 
-- **`HERMES_UID` cannot be `0`** — the upstream entrypoint runs
-  `usermod -u $HERMES_UID hermes`, which fails with
-  `usermod: UID '0' already exists`. The stack default is `10000`; keep it
-  non-zero.
+- **`HERMES_UID` must be 1–65534** — the image's boot hook
+  (`/opt/hermes/docker/stage2-hook.sh`) ignores `0` and other out-of-range
+  values and keeps the `hermes` user at UID 10000. The stack default is
+  `10000`.
 - **Gateway warning on first boot** — the gateway logs
   `WARNING gateway.run: No user allowlists configured. All unauthorized
   users will be denied.` This applies to the messaging-platform allowlists

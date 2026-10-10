@@ -353,7 +353,7 @@ This section gives the main runtime dependencies. [Service Dependencies](../refe
 ### 7.1. Core Dependencies
 - **Backend / n8n / JupyterHub / Local Deep Researcher / OpenClaw** → read `LITELLM_BASE_URL` + `LITELLM_API_KEY` for LLM access. **Open WebUI** reaches the same gateway through `OPENAI_API_BASE_URLS` / `OPENAI_API_KEYS`. LiteLLM is always-on; `LLM_PROVIDER_SOURCE` and the `CLOUD_*_SOURCE` toggles select the upstream.
 - **Backend API** → Depends on database services (PostgreSQL, Redis)
-- **n8n workflows** → Often use Weaviate for vector operations
+- **n8n workflows** → can call Weaviate through `WEAVIATE_URL`; no bundled workflow does, and n8n starts without it
 
 ### 7.2. Optional Dependencies
 - **ComfyUI** → Independent, can be disabled without affecting other services

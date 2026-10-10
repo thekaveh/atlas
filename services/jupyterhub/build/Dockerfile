@@ -127,10 +127,12 @@ RUN pip install --no-cache-dir --only-binary=:all: \
 # index went unreachable. Only two packages in this graph publish sdists alone,
 # and both are pure Python; anything else losing its wheel now fails the build
 # rather than quietly stretching it.
-# The Ray wheel also ships ray/jars (ray_dist.jar) for Java workers. Notebooks
-# reach the in-stack cluster as a ray:// client (notebooks/07_ray_cluster.ipynb)
-# and never start a local Ray runtime, so the jar is never loaded here; it
-# carried jackson-databind 2.18.6 (CVE-2026-68497, #1308). Deleting it in the
+# The Ray wheel also ships ray/jars (ray_dist.jar) for Java workers. The
+# bundled notebook (notebooks/07_ray_cluster.ipynb) connects to the in-stack
+# cluster as a ray:// client and starts no local Ray runtime, so the jar is never
+# loaded here. That connect currently fails on a Python version mismatch
+# between this image and the Ray cluster (#1374). The jar carried
+# jackson-databind 2.18.6 (CVE-2026-68497, #1308). Deleting it in the
 # install layer keeps it out of every image layer, and `test -d` fails the
 # build if Ray moves it.
 RUN pip install --no-cache-dir \
