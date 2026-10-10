@@ -8,7 +8,7 @@ Image: `n8nio/n8n:2.28.2`. The web/API container serves HTTP and the UI; the wor
 
 The one-shot `n8n-init` runs first, installs the pinned ComfyUI community nodes and exits. The web/API and worker containers start only after it succeeds, and the launcher fails if it exits nonzero. It does not import workflow templates (`services/n8n/init/config/`) or PostgreSQL credentials; import them manually (§4).
 
-Track placement: n8n is in `all`, `gen-ai-rag` and `gen-ai-eng`. In the RAG track it orchestrates document ingestion, search-to-extraction flows, vector-store operations and human-reviewed automation. n8n requires Weaviate (§3), and `gen-ai-eng` does not include Weaviate. On that track, pass `--weaviate-source container`, or n8n is auto-disabled at start.
+Track placement: n8n is in `all`, `gen-ai-rag` and `gen-ai-eng`. In the RAG track it orchestrates document ingestion, search-to-extraction flows, vector-store operations and human-reviewed automation. Weaviate is optional for n8n, so n8n also runs on `gen-ai-eng`, which does not include Weaviate.
 
 n8n (event-driven, visual: cron triggers, webhooks, manual runs) and Hermes (conversational, skill-driven) complement each other. Workflows call Hermes through `HERMES_ENDPOINT`. Hermes → n8n is not wired (see §4).
 
@@ -73,7 +73,7 @@ Only `BACKEND_N8N_API_TOKEN` is route-scoped. The web and worker containers also
 - Calls to a Parakeet `${STT_ENDPOINT}/v1/audio/transcriptions` route must send `{{$env.PARAKEET_API_TOKEN}}`. Speaches and whisper.cpp do not use it.
 - Use the LiteLLM master key and provider-level credentials only in server-side expressions. Never put them in execution output, webhook responses or browser JavaScript.
 
-**Required runtime dep:** `weaviate` (`runtime_deps.n8n.requires`). With `WEAVIATE_SOURCE=disabled`, n8n and `n8n-worker` are auto-disabled with an error message, because the seeded AI workflows need Weaviate vector operations.
+**Optional runtime dep:** `weaviate` (`runtime_deps.n8n.optional`). No bundled workflow uses it. With `WEAVIATE_SOURCE=disabled`, n8n and `n8n-worker` still start, and `WEAVIATE_URL` is blank; a workflow that needs Weaviate must treat a blank URL as not configured.
 
 ## 4. Architecture & wiring
 
@@ -180,7 +180,7 @@ When `LIGHTRAG_SOURCE != disabled`, n8n containers receive `LIGHTRAG_ENDPOINT` a
 
 ## 7. Troubleshooting
 
-**`Command start not found` restart loop.** The usual cause is a corrupt `n8n-data` volume after a partial cold start. Stop the n8n containers first: Docker refuses to remove a volume in use. Then run `docker volume rm <project>-n8n-data` (not `./stop.sh --cold`). The next `./start.sh` recreates the volume and reinstalls the community nodes. Workflows and credentials stay, because they live in Postgres (schema `n8n`) and `N8N_ENCRYPTION_KEY` comes from `.env`.
+**`Command start not found` restart loop.** The cause is not established; a damaged `n8n-data` volume after an interrupted start is one possibility. Stop the n8n containers first: Docker refuses to remove a volume in use. Then run `docker volume rm <project>-n8n-data` (not `./stop.sh --cold`). The next `./start.sh` recreates the volume and reinstalls the community nodes. Workflows and credentials stay, because they live in Postgres (schema `n8n`) and `N8N_ENCRYPTION_KEY` comes from `.env`.
 
 **Init container exits with `EACCES` writing nodes.** The community-package install needs a writable node-modules directory. Check `docker logs <project>-n8n-init`. The cause is usually a remnant of an earlier failed run. Stop the n8n containers, then run `docker volume rm <project>-n8n-data` to clear it.
 

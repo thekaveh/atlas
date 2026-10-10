@@ -114,7 +114,11 @@ conflict-safe seed statements. If a user SQL file fails, `psql` stops
 
 ### 2.5. Service Dependencies
 
-Most other services have `depends_on: { supabase-db-init: { condition: service_completed_successfully } }` to ensure they only start after both base and custom initialization are complete.
+Containers with `depends_on: { supabase-db-init: { condition: service_completed_successfully } }` start only after base and custom initialization complete. Supabase's sub-services have it. So does at least one container of each service below. Other services do not wait for it.
+
+- Airflow, Backend, Celery, ComfyUI, Iceberg REST, JupyterHub
+- Label Studio, Langfuse, LiteLLM, MCP servers, MLflow, n8n
+- Ollama (`ollama-pull`), Open WebUI, Supavisor, TrueForge
 
 ## 3. Authentication System
 

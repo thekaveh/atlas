@@ -748,8 +748,8 @@ class VllmMetalManager:
         """Poll /v1/models until the server answers or ``timeout`` elapses.
 
         Returns the last health dict either way — the caller decides whether an
-        unreachable result is fatal (usually not: vLLM loads weights lazily and
-        containers retry, so a still-warming host is expected on a cold start).
+        unreachable result is fatal (usually not: vLLM answers HTTP only after it
+        has loaded the weights, which can outlast the wait on a cold start).
         """
         deadline = time.monotonic() + timeout
         last = self.health()

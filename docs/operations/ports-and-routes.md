@@ -66,6 +66,13 @@ Active aliases (every `*-localhost` source also routes through `host.docker.inte
 
 "Kong dashboard basic-auth/ACL" is the shared `DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD` pair from `.env`. It gates only the `*.localhost` alias; a direct port bypasses it. Which credential opens each surface is tabulated in [Access and Credentials](access-and-credentials.md).
 
+**Blocked paths.** Kong answers `403` for these paths and does not forward them:
+
+- `s3.minio.localhost`: the MinIO Prometheus metrics paths `/minio/v2/metrics/*`, `/minio/metrics/v3/*` and `/minio/prometheus/metrics`. MinIO serves metrics without authentication so that Prometheus can scrape it on the internal network.
+- `prometheus.localhost`: `/-/quit` and `/-/reload`, the Prometheus lifecycle API.
+
+The direct ports do not apply this filter.
+
 The Kong gateway listens on `KONG_HTTP_PORT`, which is `BASE_PORT + 0` (`63000` by default). All aliases above resolve to `http://<alias>:${KONG_HTTP_PORT}`.
 
 ## 3. Per-engine port quirks

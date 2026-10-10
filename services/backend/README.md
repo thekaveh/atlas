@@ -10,21 +10,7 @@ Source: `services/backend/app/`. The app boots in `app/main.py` and reads its ad
 
 LangMem (long-term memory) is on by default (`LANGMEM_ENABLED=true`). Its models come from `LITELLM_DEFAULT_MODEL` and `LITELLM_EMBEDDING_MODEL`, which `./start.sh` resolves from the YAML model catalogs. If `LITELLM_EMBEDDING_MODEL` is empty, the entrypoint uses `/shared/weaviate-config.env` (written by `weaviate-init`), then `ollama/nomic-embed-text`. Compose always sets it.
 
-Dependencies:
-
-- Runtime dependencies are in `app/requirements.txt`.
-- Test dependencies are in `app/requirements-dev.txt`. Only test environments install them.
-- The Backend test suite is in `app/app/tests/`. The `services-lint` job "Bootstrapper and Backend suites (with containers)" runs it.
-
-Local iteration: compose bind-mounts `./app/app` onto `/app`, so you edit the source in place. To apply a change, recreate the Backend. On a stack with no consumer manifest and no overlays, run:
-
-```bash
-docker compose -p <PROJECT_NAME> up -d --force-recreate backend
-```
-
-With a consumer manifest, run `./start.sh --consumer <manifest>` again instead. A bare Compose command drops the overlay that mounts the plugins.
-
-Recreate it also after a runtime dependency change. Set `BACKEND_DEV_RELOAD=true` to run `uvicorn[standard] --reload` and hot-reload host-side edits. It is off by default, because git churn in the bind-mounted plugin directory can restart or crash-loop the Backend.
+Local development (source mounts, recreate commands, dependency files): §4, "Source and local development".
 
 ## 2. Access
 
@@ -249,7 +235,7 @@ MEDIA_LEDGER_RECOVERY_MAX_CYCLES=4
 **Timeouts.**
 
 - Set the request's top-level `timeout_seconds` above the provider's cold start. Otherwise a successful generation is timed out and cancelled mid-flight.
-- A cold Krea 2 BF16 load on the managed-MPS ComfyUI host takes about 90–120 s before the first sampler step.
+- A user report measured about 90–120 s for a cold Krea 2 BF16 load on the managed-MPS ComfyUI host, before the first sampler step. Atlas has not benchmarked this.
 - Nothing polls in the background. The first poll after the deadline asks the provider once and keeps a terminal result (`succeeded`, `failed`, `cancelled`). Otherwise it records `timeout` and requests provider cancellation.
 - With budgets enabled, a timed-out FAL job becomes `cancellation_requested` with `provenance.timed_out=true`. It keeps its reservation until a poll sees FAL's terminal state, because FAL can keep running and billing.
 - Keep polling, or settle the job with `/reconcile` (below).
@@ -417,6 +403,20 @@ A disabled optional service degrades only its feature:
 - Do not use memory mode if you scale the Backend yourself.
 - Rolling upgrades keep the legacy Redis SET indexes for old replicas and copy membership into versioned sorted indexes without deleting it.
 - Media ledger recovery reads at most `MEDIA_LEDGER_RECOVERY_BATCH_SIZE` intents per page and at most `MEDIA_LEDGER_RECOVERY_MAX_CYCLES` pages per poll. The next cycle resumes the cursor.
+
+**Source and local development.**
+
+- Runtime dependencies are in `services/backend/app/app/requirements.txt`. Test dependencies are in `requirements-dev.txt` in the same directory; only test environments install them.
+- The Backend test suite is in `services/backend/app/app/tests/`. The `services-lint` job "Bootstrapper and Backend suites (with containers)" runs it.
+- Compose bind-mounts `./app/app` onto `/app`, so you edit the source in place. To apply a change, recreate the Backend. On a stack with no consumer manifest and no overlays, run:
+
+```bash
+docker compose -p <PROJECT_NAME> up -d --force-recreate backend
+```
+
+With a consumer manifest, run `./start.sh --consumer <manifest>` again instead. A bare Compose command drops the overlay that mounts the plugins.
+
+Recreate the Backend also after a runtime dependency change. Set `BACKEND_DEV_RELOAD=true` to run `uvicorn[standard] --reload` and hot-reload host-side edits. It is off by default, because git churn in the bind-mounted plugin directory can restart or crash-loop the Backend.
 
 ## 5. LightRAG integration
 

@@ -97,7 +97,7 @@ Once you understand the candidate, scan our existing service manifests (run `gre
 | Container images | `qdrant/qdrant:vX.Y.Z` (Docker Hub). CPU-only public image; GPU support is built in but isn't a separate image tag. | hub.docker.com/r/qdrant/qdrant |
 | License | Apache 2.0 (verified) | LICENSE file in repo |
 | Runtime deps | Self-contained — writes its own storage to a mounted volume. No external DB or cache. | Qdrant "Storage" docs |
-| Healthcheck | `GET /healthz` returns 200 when ready. | Qdrant operational docs |
+| Healthcheck | `GET /healthz` returns 200 when ready. The image (Debian slim) has no `wget` or `curl`, so a Compose healthcheck must use another probe. | Qdrant operational docs; upstream `Dockerfile` |
 | Managed cloud? | Yes — Qdrant Cloud. Worth offering `external` once the stack-wide auth design lands. | cloud.qdrant.io |
 | Host install common? | Less common than Postgres/Weaviate for typical users; offer `localhost` for flexibility but expect rare use. | Ecosystem knowledge |
 | Config style | Env vars (`QDRANT__SERVICE__GRPC_PORT`, …) + optional `config.yaml` volume mount. | Qdrant "Configuration" docs |
@@ -481,7 +481,8 @@ services:
     volumes:
       - qdrant-data:/qdrant/storage
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O-", "http://localhost:6333/healthz"]
+      # debian:13-slim base: no wget or curl, so probe the port with bash.
+      test: ["CMD-SHELL", "bash -c ':> /dev/tcp/127.0.0.1/6333' || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -698,7 +699,10 @@ user-model-selection path) needs FOUR coordinated edits, not two:
 1. the `@click.option` declaration in `start.py`,
 2. the `source_mapping` / collector-dict entry,
 3. the `user_model_selections[KEY] = kwarg` assignment in `main()`,
-4. the `wizard_screen` bucket lambda in `integration.py`.
+4. the wizard bucket. `_selections_to_args` in `ui/textual/integration.py`
+   returns it. The "Apply user model selections" lambda in
+   `ui/textual/screens/wizard_screen.py` reads it with `.get(...)`. A new
+   bucket key needs both edits.
 Missing seam 4 silently drops the flag's value. AST-based seam-parity tests
 (`tests/test_user_model_selections_seam_parity.py`,
 `tests/test_wizard_app_discovery.py`) guard all four — extend them when
@@ -727,7 +731,10 @@ adding a picker.
 
 ### 14.3. Init-container patterns
 
-- **Init jobs never install packages at container startup.** Bake tools into a service-owned build context (for example `init/Dockerfile`). Pin the multi-architecture base and every Alpine package version, and give the image a project-local name. Runtime `apk add` makes startup depend on mutable repositories and can silently change a deployed revision.
+- **Init jobs never install OS packages at container startup.** Bake tools into a service-owned build context (for example `init/Dockerfile`). Pin the multi-architecture base and every Alpine package version, and give the image a project-local name. Runtime `apk add` makes startup depend on mutable repositories and can silently change a deployed revision.
+  - Application add-ons are the exception. `n8n-init` installs community nodes
+    with `npm ci` from a committed lockfile. ComfyUI provisioning runs
+    `pip install` for custom-node requirements.
   - A Debian image takes security fixes through a reviewed pinned-base refresh.
   - If the newest base still has fixable findings, a build-time `apt-get upgrade` is accepted, with the rationale written next to it.
   - The non-required Final-image scan job rescans each refreshed image.

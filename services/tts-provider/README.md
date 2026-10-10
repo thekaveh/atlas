@@ -10,7 +10,7 @@ them the same way.
 |---|---|---|---|---|
 | `speaches-container-cpu` (default) | Speaches → Kokoro / Piper | `ghcr.io/speaches-ai/speaches:0.9.0-rc.3-cpu` | MIT | Linux + macOS Docker, CPU |
 | `speaches-container-gpu` | Speaches → Kokoro / Piper | `ghcr.io/speaches-ai/speaches:0.9.0-rc.3-cuda` | MIT | Not usable yet: CUDA image, but no GPU device is attached (#1373) |
-| `chatterbox-container-gpu` | Resemble AI Chatterbox | `travisvn/chatterbox-tts-api:gpu`, pinned by digest | AGPL-3.0 (API server); model MIT | NVIDIA (≥8 GB) |
+| `chatterbox-container-gpu` | Resemble AI Chatterbox | `travisvn/chatterbox-tts-api:gpu`, pinned by digest | AGPL-3.0 (API server); model MIT | NVIDIA (upstream recommends 8 GB+ memory) |
 | `chatterbox-localhost` | Resemble AI Chatterbox | — (git clone + `uv run main.py`) | AGPL-3.0 (API server); model MIT | macOS MPS / Linux |
 | `disabled` | — | — | — | — |
 
@@ -252,7 +252,8 @@ models, so an unhealthy container has a startup error. If you set
 **Speaches returns 404 "Model is not installed locally"** — download the model
 (see §3).
 
-**Chatterbox container OOMs** — needs ≥8 GB VRAM. Use Speaches instead, or
+**Chatterbox container OOMs** — upstream recommends 8 GB+ memory (4 GB
+minimum); Atlas has not measured its VRAM use. Use Speaches instead, or
 the localhost variant.
 
 **No audio out of Open WebUI** — run `docker exec <project>-open-web-ui env | grep AUDIO_TTS`.

@@ -275,10 +275,10 @@ def test_a_slot_ordering_pin_is_not_reported_as_a_missing_dependency():
     from utils.atlas_dashboard import _dependency_warnings
 
     sources = {"RAY_SOURCE": "disabled", "PROMETHEUS_SOURCE": "container", "GRAFANA_SOURCE": "container",
-               "WEAVIATE_SOURCE": "disabled", "N8N_SOURCE": "container"}
+               "WEAVIATE_SOURCE": "disabled", "VERBA_SOURCE": "container"}
     warnings = _dependency_warnings(get_topology().rows, sources, {})
     assert not any("ray" in w for w in warnings), warnings
-    assert any("n8n" in w.lower() and "weaviate" in w for w in warnings), warnings
+    assert any("verba" in w.lower() and "weaviate" in w for w in warnings), warnings
     # Real hard dependencies still warn (only runtime_deps lost these, cycle 63).
     sources.update(MINIO_SOURCE="disabled", SPARK_SOURCE="container", ASSET_WORKER_SOURCE="container")
     warnings = _dependency_warnings(get_topology().rows, sources, {})

@@ -31,7 +31,7 @@ JENKINS_MEMORY_LIMIT=3g            # controller + Maven builds
 JENKINS_CPU_LIMIT=2.0
 ```
 
-JCasC is loaded from `services/jenkins/casc/jenkins.yaml` via `CASC_JENKINS_CONFIG`. The bundled config disables signup, creates the admin user, and avoids the first-run setup wizard. It gives the controller two executors; Atlas ships no build agents, so builds run on the controller inside the memory and CPU limits above.
+JCasC is loaded from `services/jenkins/casc/jenkins.yaml` via `CASC_JENKINS_CONFIG`. The bundled config disables signup and creates the admin user. The image build writes `jenkins.install.UpgradeWizard.state`, so Jenkins skips the first-run setup wizard. The config gives the controller two executors; Atlas ships no build agents, so builds run on the controller inside the memory and CPU limits above.
 
 `JENKINS_HOME` persists in the `${PROJECT_NAME}-jenkins-home` volume. `./stop.sh --cold` removes it with all jobs and build history.
 

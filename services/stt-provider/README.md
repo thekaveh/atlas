@@ -181,7 +181,7 @@ until inference is available. Speaches `/health` reports process liveness only.
 
 - Parakeet providers expect WAV, FLAC, MP3, M4A, OGG or OPUS. Other extensions log a warning and still go to the model.
 - whisper.cpp accepts WAV, MP3 and FLAC. Other formats need `--convert` and `ffmpeg` on the `PATH`.
-- Open WebUI transcodes browser microphone recordings to MP3 before it sends them.
+- Open WebUI (`v0.6.32`) converts AAC audio to MP3 before it sends it. It also converts any codec other than FLAC, M4A, MP3, MP4, MPEG, WAV or WebM. Browser microphone recordings (Opus or AAC) therefore arrive as MP3.
 
 ## 8. References
 
@@ -251,7 +251,8 @@ If `AUDIO_STT_ENGINE` and `AUDIO_STT_OPENAI_API_BASE_URL` are empty,
 `STT_PROVIDER_SOURCE` is `disabled`. With Speaches, also check that the model
 is downloaded.
 
-**Parakeet GPU container OOMs** — it needs about 2 GB VRAM. Use
+**Parakeet GPU container OOMs** — the default model's weights alone are about
+2.5 GB; Atlas has not measured total VRAM use. Use
 `speaches-container-cpu` or a localhost engine. NeMo's Parakeet loader has no
 `int8` compute-type control.
 
