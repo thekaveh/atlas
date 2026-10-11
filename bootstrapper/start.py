@@ -1172,16 +1172,15 @@ class AtlasStarter:
     def _parse_env_overlay_file(self, overlay_path: Path) -> Dict[str, str]:
         """Parse a user env overlay with the same line semantics as .env: the
         `export ` prefix Compose accepts, and the shared value decoder."""
-        from utils.atomic_write import decode_env_value
+        from utils.atomic_write import decode_env_assignment
 
         env_vars: Dict[str, str] = {}
         with open(overlay_path, "r", encoding="utf-8-sig") as f:  # BOM-tolerant (#1391)
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith("#") or "=" not in line:
-                    continue
-                key, value = line.split("=", 1)
-                env_vars[re.sub(r"^export[ \t]+", "", key.strip())] = decode_env_value(value)
+            for line_number, line in enumerate(f, 1):
+                assignment = decode_env_assignment(line, origin=f"{overlay_path}:{line_number}")
+                if assignment is not None:
+                    key, value = assignment
+                    env_vars[key] = value
         return env_vars
 
     def _apply_single_env_user_overlay(
@@ -1207,7 +1206,7 @@ class AtlasStarter:
 
         try:
             overrides = self._parse_env_overlay_file(overlay_path)
-        except OSError as e:
+        except (OSError, ValueError) as e:
             self.banner.show_status_message(
                 f"{label} points to {overlay_path}, but it could not be read ({e}); skipping",
                 "warning",

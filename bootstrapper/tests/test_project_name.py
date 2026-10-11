@@ -454,6 +454,14 @@ def test_cold_stop_uses_project_override_without_host_wide_cleanup(monkeypatch):
         "execute_compose_command",
         fake_execute_compose_command,
     )
+
+    def fake_project_volume_names(project_name):
+        assert project_name == "myshowcase"
+        return []
+
+    monkeypatch.setattr(
+        stopper.docker_manager, "_project_volume_names", fake_project_volume_names,
+    )
     monkeypatch.setattr(
         stopper.docker_manager,
         "remove_project_networks",

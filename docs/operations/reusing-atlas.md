@@ -259,9 +259,15 @@ Full source and customization matrix: [SOURCE Configuration Guide](source-config
 
 **`PROJECT_NAME` letter case.** If `.env` already names the same project in another letter case, Atlas keeps the stored spelling, for `./stop.sh -p` too. Every Compose command Atlas runs makes `PROJECT_NAME` name the same project as its `-p`. A shell-exported value, or a `--cold --project <new>`, that names a different project is replaced. So `down --volumes` cannot reach another project's volumes. A hand-edited `MyStack` (project `mystack`) keeps its spelling, so existing `MyStack-*` volumes stay in use.
 
-**Overlay syntax.** Overlays use `.env` syntax: `KEY=value`, quoted values and whitespace-prefixed inline comments. An `export KEY=` line counts as present; every Atlas `.env` writer rewrites it in place and keeps `export`. Compose expands `$name` and backslash escapes in unquoted and double-quoted values, so `pa$word` reaches containers as `pa`.
+**Overlay syntax.** Overlays use `KEY=value` assignments, single-line quoted values, and space-prefixed inline comments. An `export KEY=` line counts as present. Atlas rewrites it in place and keeps `export`.
 
 Atlas therefore single-quotes a value it writes when the value has a backslash or a `$` that is not a `${VAR}` reference. A `$$` also stays literal. Atlas refuses a value that also contains a single quote or ends in a backslash. Quote such values the same way in a hand-edited `.env`.
+
+Atlas rejects unsupported syntax before it derives credentials, sources, or the project name. Single-quote literal values containing backslashes or dollar signs. Escaped quotes, colon assignments, multiline quotes, and trailing text after a closing quote produce a file, line, and key-specific error.
+
+Atlas preserves generated `${VAR}` references and warns that Compose expands them. For literal `${VAR}` text, single-quote the value directly in active `.env`. Overlay merges retain `${VAR}` as a reference regardless of the original quote style.
+
+See [Compose's environment-file syntax](https://docs.docker.com/compose/how-tos/environment-variables/variable-interpolation/#env-file-syntax) for its interpolation and escaping rules.
 
 **Merge order.** Atlas merges on every start, including `--cold`. The order is `.env.example` → generated or existing `.env` → `.env.user` → `ATLAS_ENV_USER_FILE` → `atlas.consumer.yml` env values → explicit CLI flags such as `--project` or `--<svc>-source`. It then fills missing keys from `.env.example`.
 
