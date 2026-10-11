@@ -534,3 +534,58 @@ def test_invalid_manifest_project_name_is_rejected_at_load(tmp_path: Path) -> No
     manifest = _write_manifest(tmp_path, "c", "project_name: 'bad name!'\n")
     with pytest.raises(ConsumerManifestError, match="project_name"):
         load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
+
+
+@pytest.mark.parametrize("raw,expected", [
+    ("disabled", "disabled"), ("false", "false"), ("null", ""), ("auto", "auto"),
+])
+def test_env_values_pin_carries_reason_and_scalar_semantics(tmp_path, raw, expected):
+    from core.consumer_manifest import load_consumer_config
+
+    _write_root(tmp_path)
+    manifest = _write_manifest(
+        tmp_path, "pins",
+        "env:\n  values:\n"
+        f"    SUPAVISOR_SOURCE:\n      value: {raw}\n"
+        "      reason: '  Requires session-scoped database locks.  '\n",
+    )
+    config = load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
+    assert config.env_overrides["SUPAVISOR_SOURCE"] == expected
+    assert config.env_reasons == {"SUPAVISOR_SOURCE": "Requires session-scoped database locks."}
+    assert config.env_origins["SUPAVISOR_SOURCE"] == str(manifest)
+
+
+@pytest.mark.parametrize("pin", [
+    "{reason: direct}", "{value: disabled, reason: ''}",
+    "{value: disabled, reason: false}", "{value: disabled, reason: null}",
+    *[f'{{value: disabled, reason: "line{separator}break"}}'
+      for separator in (r"\n", r"\r", r"\v", r"\f", r"\x1c", r"\x1d", r"\x1e", r"\x85", r"\u2028", r"\u2029")],
+    "{value: disabled, reason: direct, typo: x}",
+    "{value: [disabled], reason: direct}",
+])
+def test_env_values_rejects_malformed_pin_reason(tmp_path, pin):
+    from core.consumer_manifest import ConsumerManifestError, load_consumer_config
+
+    _write_root(tmp_path)
+    manifest = _write_manifest(tmp_path, "pins", f"env:\n  values:\n    SUPAVISOR_SOURCE: {pin}\n")
+    with pytest.raises(ConsumerManifestError, match=r"SUPAVISOR_SOURCE.*(?:value|reason)"):
+        load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
+
+
+@pytest.mark.parametrize("case", [
+    ("PROJECT_NAME", "shared", "project_name: shared\n"),
+    ("BRAND_NAME", "Shared", "brand:\n  name: Shared\n"),
+    ("BLENDER_MCP_INSTANCES", "2", "blender_mcp:\n  instances: 2\n"),
+])
+def test_pin_reason_follows_the_latest_scalar_origin(tmp_path, case):
+    key, value, replacement = case
+    _write_root(tmp_path)
+    first = _write_manifest(
+        tmp_path, "first",
+        f"env:\n  values:\n    {key}: {{value: '{value}', reason: Chosen here.}}\n",
+    )
+    second = _write_manifest(tmp_path, "second", replacement)
+    config = load_consumer_config(tmp_path, explicit_paths=[str(first), str(second)])
+    assert config.env_overrides[key] == value
+    assert config.env_origins[key] == str(second)
+    assert key not in config.env_reasons

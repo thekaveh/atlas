@@ -100,3 +100,32 @@ def test_existing_value_is_read_as_the_env_reader_reads_it(tmp_path, monkeypatch
     mgr = _mgr(tmp_path, monkeypatch, line)
     assert mgr.apply_overrides({var: flag}) is True
     assert ("overridden by" in capsys.readouterr().out) is warns
+
+
+@pytest.mark.parametrize("case", [
+    ("disabled", "container", "disabled", True), ("container", "container", "disabled", True),
+    ("disabled", "disabled", "disabled", False),
+    ("container", "container", "auto", False), ("container", "container", "' Auto '", False),
+])
+def test_source_flag_reports_consumer_pin_reason(tmp_path, monkeypatch, capsys, case):
+    import start as start_module
+
+    current, flag, pin, warns = case
+    env = tmp_path / ".env"
+    env.write_text(f"SUPAVISOR_SOURCE={current}\n", encoding="utf-8")
+    manifest = tmp_path / "atlas.consumer.yml"
+    manifest.write_text(
+        "name: pinned\nenv:\n  values:\n"
+        f"    SUPAVISOR_SOURCE: {{value: {pin}, reason: Needs session locks.}}\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("ATLAS_ENV_FILE", str(env))
+    monkeypatch.setenv("ATLAS_CONSUMER_MANIFEST", str(manifest))
+    starter = start_module.AtlasStarter()
+    starter.config_parser.root_dir = tmp_path
+    assert starter.apply_source_overrides(supavisor_source=flag) is True
+    output = capsys.readouterr().out.replace("\n", "")
+    assert ("Needs session locks." in output) is warns
+    if warns:
+        assert "--supavisor-source" in output and str(manifest) in output.replace("\n", "")
+    assert f"SUPAVISOR_SOURCE={flag}\n" in env.read_text()
