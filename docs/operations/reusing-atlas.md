@@ -651,6 +651,8 @@ env:
     BASE_PORT: auto            # or a fixed value such as "63100"; re-applied every start
 ```
 
+For a literal pin, `{value: disabled, reason: Uses session advisory locks.}` records why the consumer needs that value. Doctor reports the reason. Source flags still win but warn when they replace the pin; see [pin reasons](../reference/consumer-manifest.md#35-pin-reasons).
+
 **Do not commit machine-specific values.** A manifest value applies again on every start and replaces temporary operator changes. OS-specific paths (for example `COMFYUI_MPS_MODELS_PATH`) belong in `.env` or `.env.user`. For source selections, commit the `auto` sentinel; it resolves per host and keeps a non-default override ([the `auto` sentinel](../reference/consumer-manifest.md#33-the-auto-source-sentinel)). Keep other committed values to identity and branding that must be the same on every machine.
 
 ### 7.3. Select sources once; keep `.env` as the source of truth

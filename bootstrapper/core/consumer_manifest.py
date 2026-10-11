@@ -487,6 +487,7 @@ class ConsumerConfig:
     # manifest's ``env.file``. The support bundle (#1057) reports it as the
     # place to change a wrong value.
     env_origins: dict[str, str] = field(default_factory=dict)
+    env_reasons: dict[str, str] = field(default_factory=dict)
     # Deployment-profile defaults (#755): the consumer's named default profile
     # (canonical id; `dev` is normalized to `default`) and per-profile field
     # overrides merged over bootstrapper/profiles.yml by the applier.
@@ -786,6 +787,42 @@ def _set_scalar(
 
 
 _CONDITIONAL_ENV_KEYS = frozenset({"enabled_if_env", "then", "else"})
+
+
+def _env_pin(key: str, value: Any, manifest_path: Path) -> tuple[Any, str | None]:
+    if not isinstance(value, Mapping) or not {"value", "reason"}.intersection(value):
+        return value, None
+    if "value" not in value or set(value) - {"value", "reason"}:
+        raise ConsumerManifestError(
+            f"env.values['{key}'] requires {{value: SCALAR, reason?: TEXT}} in {manifest_path}"
+        )
+    if isinstance(value["value"], (Mapping, list, tuple, set)):
+        raise ConsumerManifestError(f"env.values['{key}'].value must be a scalar in {manifest_path}")
+    return value["value"], _env_pin_reason(key, value, manifest_path)
+
+
+def _env_pin_reason(key: str, value: Mapping, manifest_path: Path) -> str | None:
+    reason = value.get("reason")
+    if "reason" in value and (
+        not isinstance(reason, str) or not reason.strip()
+        or any(separator in reason for separator in "\n\r\v\f\x1c\x1d\x1e\x85\u2028\u2029")
+    ):
+        raise ConsumerManifestError(
+            f"env.values['{key}'].reason must be non-empty single-line text in {manifest_path}"
+        )
+    return reason.strip() if reason is not None else None
+
+
+def _set_env_reason(reasons: dict[str, str], key: str, reason: str | None) -> None:
+    reasons.pop(key, None)
+    if reason is not None:
+        reasons[key] = reason
+
+
+def _clear_env_reasons_at_origin(reasons: dict[str, str], origins: dict[str, str], origin: str) -> None:
+    for key in tuple(reasons):
+        if origins[key] == origin:
+            reasons.pop(key)
 
 
 def _env_text(value: Any) -> Any:
@@ -3220,6 +3257,7 @@ def load_consumer_config(
 
     env_overrides: dict[str, str] = {}
     env_origins: dict[str, str] = {}
+    env_reasons: dict[str, str] = {}
     declared_profile: str | None = None
     declared_profile_origin = ""
     profile_overrides_acc: dict[str, dict] = {}
@@ -3317,6 +3355,7 @@ def load_consumer_config(
                     _set_scalar(env_overrides, env_origins, env_key, value, origin)
 
         _apply_blender_mcp_block(data, (env_overrides, env_origins), origin)
+        _clear_env_reasons_at_origin(env_reasons, env_origins, origin)
 
         env_block = data.get("env") or {}
         if env_block:
@@ -3329,11 +3368,13 @@ def load_consumer_config(
                 env_path = _resolve_existing_file(base_dir, str(raw_file), label="env.file")
                 for key, value in _read_env_overlay(env_path).items():
                     _set_scalar(env_overrides, env_origins, key, value, str(env_path))
+                    env_reasons.pop(key, None)
             values = env_block.get("values") or {}
             if values:
                 if not isinstance(values, Mapping):
                     raise ConsumerManifestError(f"env.values must be a mapping in {manifest_path}")
                 for key, value in values.items():
+                    value, reason = _env_pin(str(key), value, manifest_path)
                     # A YAML `null` means "empty", not the string "None" —
                     # matching the `profile_overrides` scalar branch and the
                     # `brand` block, both of which already handle it.
@@ -3344,6 +3385,7 @@ def load_consumer_config(
                     _set_scalar(
                         env_overrides, env_origins, str(key), _env_text(resolved), origin
                     )
+                    _set_env_reason(env_reasons, str(key), reason)
 
         record_overlays: list[Path] = []
         for raw_overlay in _as_list(data.get("compose_overlays")):
@@ -3592,6 +3634,7 @@ def load_consumer_config(
         consumers=tuple(consumers),
         env_overrides=env_overrides,
         env_origins=env_origins,
+        env_reasons=env_reasons,
         profile=declared_profile,
         profile_overrides=profile_overrides_acc,
         compose_overlays=compose_overlays,
