@@ -2052,7 +2052,7 @@ class KongConfigGenerator:
             # the forwarded `apikey` inside the backend (require_plugin_gateway_key),
             # including via this catch-all. The OTel Collector blanks `apikey`
             # in span URLs and the access log redacts it instead.
-            {'name': 'key-auth', 'config': {'key_names': ['apikey']}},
+            {'name': 'key-auth', 'config': {'key_names': ['apikey'], 'key_in_query': True}},
             {'name': 'acl', 'config': {'allow': ['backend_api']}},
         ]
 

@@ -273,7 +273,9 @@ curl -H "apikey: ${BACKEND_KONG_API_KEY}" \
   http://api.localhost:${KONG_HTTP_PORT}/plugin-prefix/health   # default 63000
 ```
 
-Browser WebSocket APIs cannot set headers, so those clients may send `apikey` as a query parameter in the handshake. URL-encode the value. Atlas redacts that value from Uvicorn HTTP and WebSocket logs, and Kong's access log omits query strings. Do not record full WebSocket URLs in your own client logs or telemetry.
+Browser WebSocket APIs cannot set headers, so those clients may send `apikey` as a query parameter in the handshake.
+
+Generated Backend key-auth explicitly sets `key_names: [apikey]` and `key_in_query: true`, including plugin routes. URL-encode the value. Atlas redacts that value from Uvicorn HTTP and WebSocket logs, and Kong's access log omits query strings. Do not record full WebSocket URLs in your own client logs or telemetry.
 
 `plugin_manifest_version` is a fixed contract version, currently `1`. A manifest with another version is not loaded (status `error`), not misread. The canonical schema is `bootstrapper/schemas/plugin.schema.json`.
 

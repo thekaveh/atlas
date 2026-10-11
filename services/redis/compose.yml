@@ -16,9 +16,12 @@ services:
     # The policy is volatile-lru, NOT noeviction: db 0 mixes LiteLLM's
     # response cache with n8n's BullMQ queue,
     # Langfuse's queue and the backend's media store. volatile-lru evicts
-    # only keys that carry a TTL — which is the cache — so memory pressure
-    # sheds recomputable data and leaves queue entries (written without a
-    # TTL) intact. Under noeviction a full instance instead rejects WRITES,
+    # only keys that carry a TTL, including ordinary media operation records.
+    # Those records can disappear before their seven-day retention expires.
+    # Budget-tracked in-flight records, unresolved submissions and pending
+    # ledger intents have no TTL.
+    # Other persistent keys also survive eviction. Under noeviction a full
+    # instance instead rejects WRITES,
     # so the cache would take the whole queue down with it.
     #
     # Worst case is unchanged: if nothing volatile remains, volatile-lru
