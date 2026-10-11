@@ -1124,7 +1124,8 @@ def test_the_reader_and_the_writer_share_one_decoder():
     from core import config_parser
 
     source = inspect.getsource(config_parser.ConfigParser.parse_env_file)
-    assert "decode_env_value" in source
+    assert "decode_env_assignment" in source
+    assert "decode_env_value" in inspect.getsource(atomic_write.decode_env_assignment)
     # ...and no re-implementation of the quote/comment rules alongside it
     assert "find(quote" not in source
 
@@ -1250,3 +1251,125 @@ def test_decode_env_value_matches_compose(raw, expected):
     from utils.atomic_write import decode_env_value
 
     assert decode_env_value(raw) == expected
+
+
+_UNSUPPORTED_ENV_LINES = [
+    r'PASSWORD="a\"b"',
+    r'PASSWORD="a\nb"',
+    r'PASSWORD="a\\b"',
+    'PASSWORD=pa$$word',
+    'PASSWORD=pa$word',
+    r'PASSWORD=pa\word',
+    r"PASSWORD='Let\'s go!'",
+    'PASSWORD: x',
+    'PASSWORD: x=y',
+    'PASSWORD="first\nsecond"',
+    "PASSWORD='first\nsecond'",
+    'PASSWORD="unterminated',
+    'PASSWORD="value" trailing',
+]
+
+
+@pytest.mark.parametrize("line", _UNSUPPORTED_ENV_LINES)
+@pytest.mark.parametrize("reader", ["env", "manifest", "user"])
+def test_env_reader_rejects_unsupported_compose_syntax(line, reader, tmp_path):
+    from core.config_parser import ConfigParser
+    from core.consumer_manifest import _read_env_overlay
+    from start import AtlasStarter
+
+    path = tmp_path / ".env"
+    path.write_text(line + "\n", encoding="utf-8")
+    readers = {
+        "env": lambda: ConfigParser(str(tmp_path)).parse_env_file(),
+        "manifest": lambda: _read_env_overlay(path),
+        "user": lambda: AtlasStarter._parse_env_overlay_file(None, path),
+    }
+    with pytest.raises(ValueError, match=r"\.env:1.*PASSWORD") as failure:
+        readers[reader]()
+    assert "single" in str(failure.value) or "KEY=value" in str(failure.value)
+    assert "pa$$word" not in str(failure.value)
+    assert "pa$word" not in str(failure.value)
+
+
+@pytest.mark.parametrize("raw,expected", [
+    ("redis://:${PASSWORD}@redis:6379/0", "redis://:${PASSWORD}@redis:6379/0"),
+    ("${UNDEF:-def}", "${UNDEF:-def}"),
+    ('"${UNDEF:-def}"', "${UNDEF:-def}"),
+])
+def test_env_reader_warns_for_preserved_compose_references(raw, expected, tmp_path, capsys):
+    from core.config_parser import ConfigParser
+
+    (tmp_path / ".env").write_text(
+        f"REDIS_URL={raw}\n"
+        "LITERAL='${PASSWORD}'\n", encoding="utf-8",
+    )
+    parser = ConfigParser(str(tmp_path))
+    assert parser.parse_env_file()["REDIS_URL"] == expected
+    warning = capsys.readouterr().err
+    assert "REDIS_URL" in warning and "Compose" in warning and "single" in warning
+    assert "${PASSWORD}" not in warning and "LITERAL" not in warning
+    parser.parse_env_file()
+    assert capsys.readouterr().err == ""
+
+
+def test_manifest_overlay_syntax_error_has_the_manifest_error_type(tmp_path):
+    from core.consumer_manifest import ConsumerManifestError, _read_env_overlay
+
+    path = tmp_path / "consumer.env"
+    path.write_text("PASSWORD=pa$$word\n", encoding="utf-8")
+    with pytest.raises(ConsumerManifestError, match=r"consumer.env:1: PASSWORD"):
+        _read_env_overlay(path)
+
+
+def test_invalid_env_syntax_does_not_rotate_an_existing_secret(tmp_path, monkeypatch):
+    from utils.key_generator import KeyGenerator
+
+    path = tmp_path / ".env"
+    original = "LITELLM_MASTER_KEY=sk-existing\nBAD=pa$word\n"
+    path.write_text(original, encoding="utf-8")
+    generator = KeyGenerator(str(tmp_path))
+    writes = []
+    monkeypatch.setattr(generator, "update_env_key", lambda *args: writes.append(args))
+    with pytest.raises(ValueError, match=r"\.env:2: BAD"):
+        generator.generate_and_update_litellm_master_key(force=False)
+    assert writes == []
+    assert path.read_text(encoding="utf-8") == original
+
+
+@pytest.mark.parametrize("raw,expected", [
+    ('"plain"', "plain"),
+    ("'pa$$word'", "pa$$word"),
+    ("'pa$word'", "pa$word"),
+    (r"'a\nb'", r"a\nb"),
+    (r"'a\\b'", r"a\\b"),
+    ("'a\"b'", 'a"b'),
+])
+def test_env_reader_literal_subset_matches_compose(raw, expected, tmp_path):
+    import shutil
+    import subprocess
+
+    from core.config_parser import ConfigParser
+
+    if shutil.which("docker") is None:
+        pytest.skip("docker CLI unavailable")
+    version = subprocess.run(
+        ["docker", "compose", "version"], capture_output=True, timeout=10,
+    )
+    if version.returncode:
+        pytest.skip("docker compose unavailable")
+    (tmp_path / ".env").write_text(f"VALUE={raw}\n", encoding="utf-8")
+    compose = tmp_path / "compose.yml"
+    compose.write_text(
+        'services:\n  test:\n    image: unused\n    environment:\n      VALUE: "${VALUE}"\n',
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        ["docker", "compose", "--project-directory", str(tmp_path),
+         "--env-file", str(tmp_path / ".env"), "-f", str(compose),
+         "config", "--environment"],
+        env={"PATH": os.environ["PATH"], "DOCKER_HOST": "unix:///nonexistent.sock"},
+        capture_output=True, text=True, timeout=20, check=True,
+    )
+    assert ConfigParser(str(tmp_path)).parse_env_file()["VALUE"] == expected
+    environment = dict(line.split("=", 1) for line in result.stdout.splitlines() if "=" in line)
+    assert environment["VALUE"] == expected
