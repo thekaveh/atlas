@@ -758,8 +758,22 @@ class AtlasStarter:
         # source (generalizes the historical prometheus/grafana-only guards).
         self._explicit_source_vars = set(overrides.keys())
         if overrides:
+            self._warn_on_consumer_pin_overrides(overrides)
             return self.source_override_manager.apply_overrides(overrides)
         return True
+
+    def _warn_on_consumer_pin_overrides(self, overrides: Dict[str, str]) -> None:
+        consumer = self.config_parser.load_consumer_config()
+        for key, reason in consumer.env_reasons.items():
+            if key not in overrides or _consumer_pin_is_auto(key, consumer.env_overrides[key]):
+                continue
+            if overrides[key] != consumer.env_overrides[key]:
+                flag = "--" + key.lower().replace("_", "-")
+                self.banner.show_status_message(
+                    f"{key} consumer pin overridden by {flag}: "
+                    f"{reason} ({consumer.env_origins[key]}). The next start reapplies the pin.",
+                    "warning",
+                )
 
     def apply_profile_overrides(
         self,
@@ -5324,6 +5338,27 @@ def _doctor_check_compose(starter: "AtlasStarter") -> dict:
     )
 
 
+def _consumer_pin_is_auto(key: str, value: str) -> bool:
+    return (key == "BASE_PORT" or key.endswith("_SOURCE")) and value.strip().lower() == "auto"
+
+
+def _consumer_pin_report(consumer_config, env: dict) -> tuple[dict, str]:
+    pins = {
+        key: {
+            "reason": reason, "origin": consumer_config.env_origins[key],
+            "overridden": key in env and not _consumer_pin_is_auto(key, consumer_config.env_overrides[key])
+            and env[key] != consumer_config.env_overrides[key],
+        }
+        for key, reason in consumer_config.env_reasons.items()
+    }
+    pin_summary = "".join(
+        f" {key}: {pin['reason']} ({pin['origin']})."
+        + (" Consumer pin overridden." if pin["overridden"] else "")
+        for key, pin in pins.items()
+    )
+    return pins, pin_summary
+
+
 def _doctor_check_consumer_manifests(starter: "AtlasStarter") -> dict:
     try:
         consumer_config = starter.config_parser.load_consumer_config()
@@ -5341,11 +5376,12 @@ def _doctor_check_consumer_manifests(starter: "AtlasStarter") -> dict:
         )
     names = [consumer.name for consumer in consumer_config.consumers]
     overlay_count = sum(len(consumer.compose_overlays) for consumer in consumer_config.consumers)
+    pins, pin_summary = _consumer_pin_report(consumer_config, starter.config_parser.parse_env_file())
     return _doctor_result(
         "consumer-manifests",
-        "pass",
-        f"{len(names)} consumer manifest(s) valid: {', '.join(names)}.",
-        details={"consumers": names, "compose_overlays": overlay_count},
+        "warn" if any(pin["overridden"] for pin in pins.values()) else "pass",
+        f"{len(names)} consumer manifest(s) valid: {', '.join(names)}." + pin_summary,
+        details={"consumers": names, "compose_overlays": overlay_count, "pins": pins},
     )
 
 

@@ -122,6 +122,57 @@ def test_doctor_text_reports_endpoint_resolution(tmp_path, monkeypatch) -> None:
     assert "overlay-env" in result.output
 
 
+@pytest.mark.parametrize("output_format", ["json", "text"])
+def test_doctor_reports_consumer_pin_reasons_without_values(tmp_path, monkeypatch, output_format):
+    import start as start_module
+
+    _write_base_env(tmp_path)
+    manifest = tmp_path / "atlas.consumer.yml"
+    manifest.write_text(
+        "name: pinned\nenv:\n  values:\n"
+        "    SUPAVISOR_SOURCE: {value: disabled, reason: Needs session locks.}\n"
+        "    PRIVATE_KEY: {value: secret-pin-canary, reason: Credential is operator-owned.}\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("ATLAS_CONSUMER_MANIFEST", str(manifest))
+    _patch_starter_paths(monkeypatch, tmp_path)
+    monkeypatch.setattr(start_module, "DOCTOR_CHECKS", (start_module._doctor_check_consumer_manifests,))
+    result = CliRunner().invoke(start_module.main, ["doctor", "--format", output_format])
+    assert result.exit_code == 0, result.output
+    assert "Needs session locks." in result.output
+    assert "secret-pin-canary" not in result.output
+    assert str(manifest) in result.output
+    if output_format == "json":
+        check = json.loads(result.output)["checks"][0]
+        assert check["details"]["pins"]["SUPAVISOR_SOURCE"] == {
+            "reason": "Needs session locks.", "origin": str(manifest), "overridden": False,
+        }
+
+
+@pytest.mark.parametrize("case", [("disabled", "warn"), ("auto", "pass"), ("' Auto '", "pass")])
+def test_doctor_warns_when_saved_source_differs_from_consumer_pin(tmp_path, monkeypatch, case):
+    import start as start_module
+
+    pin, expected = case
+    _write_base_env(tmp_path, "SUPAVISOR_SOURCE=container\nATLAS_PROFILE_APPLIED=default\n")
+    manifest = tmp_path / "atlas.consumer.yml"
+    manifest.write_text(
+        "name: pinned\nenv:\n  values:\n"
+        f"    SUPAVISOR_SOURCE: {{value: {pin}, reason: Needs session locks.}}\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("ATLAS_CONSUMER_MANIFEST", str(manifest))
+    _patch_starter_paths(monkeypatch, tmp_path)
+    monkeypatch.setattr(start_module, "DOCTOR_CHECKS", (start_module._doctor_check_consumer_manifests,))
+    result = CliRunner().invoke(start_module.main, ["doctor", "--format", "json"])
+    assert result.exit_code == 0, result.output
+    check = json.loads(result.output)["checks"][0]
+    assert check["status"] == expected
+    assert check["details"]["pins"]["SUPAVISOR_SOURCE"]["overridden"] is (expected == "warn")
+    assert "SUPAVISOR_SOURCE" in check["message"] and "Needs session locks." in check["message"]
+    assert "SUPAVISOR_SOURCE=container\n" in (tmp_path / ".env").read_text()
+
+
 def test_doctor_fails_on_typod_consumer_manifest_top_level_key(tmp_path, monkeypatch) -> None:
     """#649 AC#2: the consumer `doctor` must FAIL (not pass) when a manifest
     has a typo'd top-level key, naming the offending key."""
