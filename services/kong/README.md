@@ -93,7 +93,7 @@ Kong retries only on connection errors (`KONG_NGINX_PROXY_PROXY_NEXT_UPSTREAM=er
 
 Kong applies one of three schemes per route:
 
-- **API key** (`key-auth`): Supabase API services.
+- **API key** (`key-auth`): Supabase API services and protected Backend routes. Backend routes explicitly set `key_names: [apikey]` and `key_in_query: true` for [browser WebSockets](../../docs/reference/consumer-manifest.md#82-pluginyml).
 - **Basic** (`basic-auth`): protected dashboards.
 - **Pass-through**: services that handle their own auth.
 

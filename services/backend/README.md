@@ -231,6 +231,7 @@ MEDIA_LEDGER_RECOVERY_MAX_CYCLES=4
 - An artifact URL lives as long as its operation record: `MEDIA_OPERATION_TTL_SECONDS` with the Redis store, or until a restart with the in-memory store.
 - A budget-tracked record does not expire while the operation is in flight, in either store. This includes a record whose ledger attach failed at submit and was recovered later.
 - For a budget-tracked operation, `MEDIA_OPERATION_TTL_SECONDS` starts once it is terminal and its ledger row is settled. It also applies to operations that are not budget-tracked.
+- With `REDIS_MAXMEMORY` set, `volatile-lru` can evict TTL-bearing records before expiry. See [Redis memory tuning](../redis/README.md#9-tuning).
 
 **Timeouts.**
 

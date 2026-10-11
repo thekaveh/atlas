@@ -7,7 +7,7 @@ The Redis policy is the subtle one. Redis db 0 mixes LiteLLM's response
 cache with n8n's BullMQ queue, Langfuse's queue
 and the backend's media store. Under ``noeviction`` a full instance rejects
 WRITES, so an oversized cache takes the queue down with it. ``volatile-lru``
-evicts only keys carrying a TTL — the cache — leaving TTL-less queue entries
+evicts only keys carrying a TTL, including ordinary media records, leaving TTL-less entries
 intact. With nothing volatile left it returns the same OOM error
 ``noeviction`` would, so the worst case is unchanged.
 """
@@ -96,7 +96,7 @@ def test_redis_evicts_only_expiring_keys() -> None:
     cmd = _redis_command()
     assert "volatile-lru" in cmd, (
         "db 0 mixes the LiteLLM cache with n8n/Kong/Langfuse/backend state. "
-        "volatile-lru sheds only TTL-carrying keys (the cache); the queue "
+        "volatile-lru sheds only TTL-carrying keys; persistent "
         "entries carry no TTL and survive."
     )
     assert "noeviction" not in cmd, (
