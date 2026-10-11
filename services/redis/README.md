@@ -177,8 +177,10 @@ For general startup and routing issues, see [Troubleshooting](../../docs/quick-s
 
 - `REDIS_MAXMEMORY` defaults to `0` (no cap). Redis then grows until Docker's memory limit kills it, which loses in-flight queue state.
 - Set a cap of about 75% of the container's memory budget, for example `REDIS_MAXMEMORY=512mb`.
-- `REDIS_MAXMEMORY_POLICY` defaults to `volatile-lru`, which evicts only keys with a TTL. On this stack that is LiteLLM's response cache (`litellm.cache:*`, TTL from `LITELLM_CACHE_TTL`).
-- The n8n and Langfuse queues and the Backend's state have no TTL, so Redis never evicts them.
+- `REDIS_MAXMEMORY_POLICY` defaults to `volatile-lru`, which evicts only keys with a TTL. These include LiteLLM's response cache and ordinary Backend media records.
+- Media retention defaults to seven days, but a memory cap can evict TTL-bearing records earlier, including operations without budget tracking.
+- Budget-tracked in-flight records, unresolved `submission_unknown` records and pending ledger intents remain persistent until settlement. See [Backend media retention](../backend/README.md#36-hosted-media-gateway).
+- Keys without a TTL survive `volatile-lru`.
 - If no TTL key is left, writes fail with an OOM error.
 
 Stack-relevant knobs (the first two are `.env` settings; the rest need a Compose change):

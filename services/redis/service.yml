@@ -49,7 +49,7 @@ env:
     description: "Redis memory cap, e.g. 512mb. 0 means unlimited: Redis grows until the container is OOM-killed and loses in-flight queue state. A cap lets REDIS_MAXMEMORY_POLICY shed recomputable data instead. Size it to about 75% of the container memory budget."
   - name: REDIS_MAXMEMORY_POLICY
     default: volatile-lru
-    description: "Eviction policy at REDIS_MAXMEMORY. volatile-lru evicts only keys with a TTL (LiteLLM's response cache). The n8n and Langfuse queues and the backend media store have no TTL and survive. With nothing volatile left, writes fail with OOM."
+    description: "volatile-lru evicts TTL keys, including LiteLLM cache and ordinary media records (seven-day default). Budget-tracked in-flight records, unresolved submissions and pending ledger intents persist until settlement. Without TTL keys, writes fail with OOM."
   - name: REDIS_PORT
     # default removed — computed by services/topology.py slot allocator
     description: "Host port. Container port is always 6379."
