@@ -9,6 +9,7 @@ import errno
 import glob as _glob
 import re
 import stat
+import sys
 import tempfile
 from datetime import datetime
 from pathlib import Path
@@ -205,6 +206,20 @@ def set_env_assignment(content: str, key: str, value: str) -> str:
     return f"{content}{separator}{line}\n"
 
 
+def _decode_quoted_env_value(value: str) -> str:
+    quote = value[0]
+    end = value.find(quote, 1)
+    if end == -1 or value[end - 1:end] == "\\":
+        raise ValueError("use a single-line literal value with a closing quote and no escaped quotes")
+    suffix = value[end + 1:].strip()
+    if suffix and not suffix.startswith("#"):
+        raise ValueError("use a single quoted value; unexpected text follows its closing quote")
+    decoded = value[1:end]
+    if quote == '"' and _compose_would_rewrite(decoded):
+        raise ValueError("use single quotes for a literal value containing backslashes or dollar signs")
+    return decoded
+
+
 def decode_env_value(raw: str) -> str:
     """Decode the right-hand side of one `.env` line, as the reader does.
 
@@ -214,13 +229,7 @@ def decode_env_value(raw: str) -> str:
     """
     value = raw.strip()
     if value[:1] in ('"', "'"):
-        # Quoted value: take the quoted span verbatim — a `#` inside quotes is
-        # data, not a comment (PASSWORD="ab#cd" used to be read as `ab`).
-        quote = value[0]
-        end = value.find(quote, 1)
-        if end != -1:
-            return value[1:end]
-        return value.strip('"').strip("'")  # unterminated quote — legacy cleanup
+        return _decode_quoted_env_value(value)
     # Unquoted: as Docker Compose reads it, a comment starts only at a hash
     # preceded by a space (`ab#cd` and `ab<TAB>#cd` are values; `abc  # note`
     # carries a comment). A leading `#` is data: `KEY=#secret` read as empty
@@ -230,20 +239,53 @@ def decode_env_value(raw: str) -> str:
         if char == "#" and index > 0 and value[index - 1] == " ":
             value = value[:index]
             break
-    return value.strip()
+    value = value.strip()
+    if _compose_would_rewrite(value):
+        raise ValueError("use single quotes for a literal value containing backslashes or dollar signs")
+    return value
+
+
+def decode_env_assignment(line: str, *, origin: str) -> tuple[str, str] | None:
+    """Read the supported assignment subset, with value-free diagnostics."""
+    line = line.strip()
+    if not line or line.startswith("#"):
+        return None
+    line = re.sub(r'^export[ \t]+', '', line)
+    colon_key = re.match(r'^([A-Za-z_][A-Za-z0-9_]*)[ \t]*:', line)
+    if colon_key:
+        raise ValueError(f"{origin}: {colon_key[1]}: use KEY=value; colon assignments are unsupported")
+    if "=" not in line:
+        return None
+    key, raw = line.split("=", 1)
+    key = key.strip()
+    try:
+        value = decode_env_value(raw)
+    except ValueError as exc:
+        raise ValueError(f"{origin}: {key}: {exc}") from None
+    # Generated endpoint references deliberately remain raw.
+    if not raw.lstrip().startswith("'") and "${" in value:
+        print(
+            f"WARNING: {origin}: {key}: Atlas preserves this reference; "
+            "Compose expands it. For a literal reference, set a single-quoted "
+            "value directly in the active .env.",
+            file=sys.stderr,
+        )
+    return key, value
 
 
 def _compose_would_rewrite(value: str) -> bool:
-    """A backslash, or a `$` that is not a `${...}` reference. `$$` is quoted
-    too: Atlas's own readers take it literally, so containers must as well."""
+    """Quote backslashes and bare dollars, including `$$`, as literals.
+
+    Generated `${...}` references deliberately remain available to Compose.
+    """
     return "\\" in value or re.search(r"\$(?!\{)", value) is not None
 
 
 def _compose_literal(key: str, value: str) -> str:
     """Single-quote a value Docker Compose would otherwise rewrite.
 
-    Compose expands `$name` and backslash escapes in unquoted and
-    double-quoted values (`pa$word` was read as `pa`; a trailing backslash
+    Compose expands `$name` in unquoted and double-quoted values, and decodes
+    backslash escapes in double quotes (`pa$word` was read as `pa`; a trailing backslash
     inside quotes broke the whole file). Single quotes are literal to both
     parsers, except that Compose reads a closing backslash-quote as escaped.
     `${VAR}` is left as written: Atlas writes those on purpose.
@@ -273,8 +315,11 @@ def render_env_value(key: str, value: str) -> str:
     if _compose_would_rewrite(value):
         return _compose_literal(key, value)
     for candidate in (value, f'"{value}"', f"'{value}'"):
-        if decode_env_value(candidate) == value:
-            return candidate
+        try:
+            if decode_env_value(candidate) == value:
+                return candidate
+        except ValueError:
+            continue
     # Contains both quote styles AND needs quoting — no encoding this reader
     # accepts round-trips, so writing it at all would corrupt it.
     raise ValueError(

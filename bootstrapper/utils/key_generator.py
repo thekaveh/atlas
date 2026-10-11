@@ -333,6 +333,9 @@ class KeyGenerator:
             cp = ConfigParser(str(self.root_dir))
             cp.env_file_path = self.env_file_path
             value = cp.parse_env_file().get(key_name, '')
+        except ValueError:
+            # Invalid syntax must not look like an absent secret and rotate it.
+            raise
         except Exception:
             return None
 
