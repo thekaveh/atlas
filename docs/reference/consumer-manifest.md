@@ -56,6 +56,8 @@ Commit identity in the manifest, not in `.env`: [Reusing Atlas §7.2](../operati
 - **`file`** names a flat overlay with `.env` syntax. `export KEY=` lines and a BOM are accepted.
 - **`values`** maps variable names to plain values, key-gated values ([§3.2](#32-key-gated-values)) or the `auto` source sentinel ([§3.3](#33-the-auto-source-sentinel)).
 
+Literal pins can carry an optional reason ([§3.5](#35-pin-reasons)).
+
 Atlas applies `env.values` to `.env` on every start, warm and cold, before it resolves ports. A `*_SOURCE` in `env.values` keeps that service on outside the selected track; a CLI flag beats it.
 
 Overlay files use `KEY=value` and single-line values. Single-quote literals containing backslashes or bare dollar signs; `${VAR}` remains a reference during overlay merges. Unsupported syntax fails with its file, line, and variable name; see the [reuse guide](../operations/reusing-atlas.md).
@@ -104,6 +106,22 @@ After a start (which records `ATLAS_PROFILE_APPLIED`), they write only keys that
 Do not also set a derived key in `env.values`: Atlas stops with an error that names both places.
 
 Atlas records the derived keys it wrote in `ATLAS_DERIVED_KEYS`. When a later start with a manifest no longer derives a key (for example, you removed `model_sidecars.ollama`), Atlas blanks it. Without a manifest, nothing is blanked. A value from `.env.user` or `ATLAS_ENV_USER_FILE` is never blanked. A derived key that you edit by hand in `.env` stays Atlas-owned and is cleared with its source.
+
+### 3.5. Pin reasons
+
+Use `{value: ..., reason: ...}` to explain a committed literal pin. `value` follows the scalar rules in [§3.1](#31-yaml-typing). An optional `reason` must be non-empty, single-line text.
+
+```yaml
+env:
+  values:
+    SUPAVISOR_SOURCE:
+      value: disabled
+      reason: Uses session advisory locks.
+```
+
+Doctor lists each reason and manifest origin without printing pinned credential values. It warns when a saved value differs from a concrete pin. An `auto` value remains a host-dependent selection, so its resolved value does not trigger that warning.
+
+Explicit source flags still win, with a reason warning when they replace a concrete pin. Track filtering preserves manifest-declared sources. Every start reapplies concrete manifest values before source flags. Reasons are visible operational notes; keep credentials in values.
 
 ---
 
