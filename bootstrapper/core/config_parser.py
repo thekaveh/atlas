@@ -10,7 +10,7 @@ import sys
 from typing import Dict, Optional, Any
 from pathlib import Path
 
-from utils.atomic_write import create_private_backup, decode_env_value
+from utils.atomic_write import create_private_backup, decode_env_assignment
 
 
 # Single source of truth for the default base port. Imported by start.py and
@@ -245,20 +245,11 @@ class ConfigParser:
         # utf-8-sig: a byte-order mark would otherwise become part of the
         # first key's name (#1391).
         with open(self.env_file_path, 'r', encoding="utf-8-sig") as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith('#'):
-                    continue
-                    
-                # Split on first = only
-                if '=' in line:
-                    key, value = line.split('=', 1)
-                    key = key.strip()
-                    # Compose reads `export<space|tab>KEY` as KEY.
-                    key = re.sub(r'^export[ \t]+', '', key)
-                    # ONE definition, shared with the writers' round-trip
-                    # check — a second copy here is how the two drifted apart.
-                    env_vars[key] = decode_env_value(value)
+            for line_number, line in enumerate(f, 1):
+                assignment = decode_env_assignment(line, origin=f"{self.env_file_path}:{line_number}")
+                if assignment is not None:
+                    key, value = assignment
+                    env_vars[key] = value
 
         self._env_cache = {stamp: dict(env_vars)}  # single entry: only the current file
         return env_vars

@@ -204,6 +204,8 @@ direction `view -> viewmodel -> model` as far as each layer exists:
 
 `start.sh` and `stop.sh` are thin wrappers that prefer `uv run` and fall back to system Python. The bootstrapper can also be invoked directly with its dependencies available, e.g. `uv run --project bootstrapper python bootstrapper/start.py [flags]` (a bare system `python` lacks `click` and the other dependencies). `--no-tui` bypasses the Textual TUI and runs the linear stdout flow (used by CI, non-TTY shells, and very narrow terminals).
 
+The `.env` reader accepts `KEY=value` and single-line literal values. It rejects unsupported escapes, dollar syntax, colon assignments, multiline quotes, and trailing quoted-value text with a key-specific error. Generated `${VAR}` references remain raw and warn about Compose expansion. See the [reuse guide](docs/operations/reusing-atlas.md) for overlay syntax.
+
 Dependencies are managed via `uv` (with a pip fallback) and declared in `bootstrapper/pyproject.toml`, including the Python-version markers needed at the supported Python `>=3.10` floor. Treat that file and `bootstrapper/uv.lock` as the dependency source of truth rather than duplicating the inventory here.
 
 **Brand customization.** `BRAND_*` env vars in `.env` configure the wizard's brand panel and info box. They set brand name, tagline, version, author, author email, license and repo URL. Defaults are Atlas; forks can rebrand by setting these. See the `BRAND_*` block in `.env.example`.

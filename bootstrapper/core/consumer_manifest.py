@@ -12,7 +12,7 @@ from typing import Any, Iterable, Mapping
 import yaml
 
 from services.manifests import load_yaml_strict
-from utils.atomic_write import assert_safe_env_assignment, decode_env_value, env_lines
+from utils.atomic_write import assert_safe_env_assignment, decode_env_assignment, env_lines
 
 try:
     from utils.comfyui_custom_nodes import (
@@ -630,9 +630,6 @@ def discover_consumer_manifest_paths(
     return list(dict.fromkeys(resolved))
 
 
-_EXPORT_PREFIX = re.compile(r"^export[ \t]+")
-
-
 def _read_env_overlay(path: Path) -> dict[str, str]:
     env_vars: dict[str, str] = {}
     # `env_lines`, not `splitlines()`. This is the one `.env`-format reader that
@@ -652,14 +649,14 @@ def _read_env_overlay(path: Path) -> dict[str, str]:
         raise ConsumerManifestError(
             f"env.file {path} is not valid UTF-8 ({exc})"
         ) from exc
-    for line in env_lines(text):
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#") or "=" not in stripped:
-            continue
-        key, value = stripped.split("=", 1)
-        # `export KEY=` is accepted as by .env / .env.user (#1391); it used to
-        # become the key "export KEY" and fail the manifest.
-        env_vars[_EXPORT_PREFIX.sub("", key.strip())] = decode_env_value(value)
+    for line_number, line in enumerate(env_lines(text), 1):
+        try:
+            assignment = decode_env_assignment(line, origin=f"{path}:{line_number}")
+        except ValueError as exc:
+            raise ConsumerManifestError(str(exc)) from None
+        if assignment is not None:
+            key, value = assignment
+            env_vars[key] = value
     return env_vars
 
 

@@ -58,6 +58,8 @@ Commit identity in the manifest, not in `.env`: [Reusing Atlas §7.2](../operati
 
 Atlas applies `env.values` to `.env` on every start, warm and cold, before it resolves ports. A `*_SOURCE` in `env.values` keeps that service on outside the selected track; a CLI flag beats it.
 
+Overlay files use `KEY=value` and single-line values. Single-quote literals containing backslashes or bare dollar signs; `${VAR}` remains a reference during overlay merges. Unsupported syntax fails with its file, line, and variable name; see the [reuse guide](../operations/reusing-atlas.md).
+
 ### 3.1. YAML typing
 
 Atlas parses `env.values` as YAML 1.1. Unquoted `yes`, `no`, `on`, `off`, `true` and `false` are booleans, written to `.env` as `true` / `false`. Quote a value whose YAML type would change its text: `"0755"` (else octal 493), `"1.10"` (else 1.1), `"12:30"` (else 750).
