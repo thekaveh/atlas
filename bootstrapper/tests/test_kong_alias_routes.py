@@ -135,7 +135,7 @@ def test_backend_kong_auth_key_auth_adds_consumer_and_route_plugins():
 
     assert plugin_names == ["cors", "key-auth", "acl"]
     # The apikey is forwarded: key-auth plugins re-check it in the backend.
-    assert backend["plugins"][1]["config"] == {"key_names": ["apikey"]}
+    assert backend["plugins"][1]["config"] == {"key_names": ["apikey"], "key_in_query": True}
     assert backend["plugins"][2]["config"] == {"allow": ["backend_api"]}
 
     consumers = [
@@ -247,6 +247,9 @@ def test_backend_route_auth_key_auth_prefix_on_open_default():
     backend = _service(config, "backend-api")
     routes = {r["name"]: r for r in backend["routes"]}
     assert _plugin_names(routes["backend-api-tableau"]) == ["key-auth", "acl"]
+    assert routes["backend-api-tableau"]["plugins"][0]["config"] == {
+        "key_names": ["apikey"], "key_in_query": True,
+    }
     assert routes["backend-api-tableau"]["paths"] == ["/tableau"]
     assert _plugin_names(routes["backend-api-all"]) == []            # open catch-all
     consumers = [c for c in config["consumers"] if c["username"] == "backend_api_user"]
@@ -375,6 +378,7 @@ def test_backend_timeout_inherit_uses_key_auth_default():
     timed = _service(config, "backend-api-plugin-tableau")
 
     assert _plugin_names(timed["routes"][0]) == ["key-auth", "acl"]
+    assert timed["routes"][0]["plugins"][0]["config"]["key_in_query"] is True
 
 
 def test_backend_timeout_explicit_auth_is_applied_only_on_dedicated_route():
@@ -389,6 +393,7 @@ def test_backend_timeout_explicit_auth_is_applied_only_on_dedicated_route():
 
     assert all(route.get("paths") != ["/tableau"] for route in shared["routes"])
     assert _plugin_names(timed["routes"][0]) == ["key-auth", "acl"]
+    assert timed["routes"][0]["plugins"][0]["config"]["key_in_query"] is True
     assert any(consumer["username"] == "backend_api_user" for consumer in config["consumers"])
 
 
