@@ -455,7 +455,7 @@ On `./start.sh`, the bootstrapper validates and normalizes each profile and hash
 - **Model references.** `query_llm_model` and `embedding_model` are model handles (a LiteLLM alias or `provider/model`), never secrets.
 - **Rerank.** `enable_rerank: true` is rejected at load unless `LIGHTRAG_RERANK_ADAPTER_ENABLED=true`, in `.env` or in a manifest's `env`. Reranking also needs `LIGHTRAG_SOURCE` and `TEI_RERANKER_SOURCE` enabled; `doctor`'s `lightrag-rerank-adapter` check warns when one is disabled. Why LightRAG needs the backend adapter: [Backend API §5.1](../../services/backend/README.md).
 - **Ownership.** Profile names are globally unique, and a removed manifest drops only its own profiles. With no profiles, LightRAG keeps its single default. The registry holds only settings and model names, never credentials.
-- **`litellm_alias`** also emits a consumer-owned [`litellm_models`](#9-litellm_models) row, so the flavor is a selectable model. Atlas does not serve that row yet. It points at `http://backend:8000/chat/completions`, which no stack route answers, so the alias returns 404 until a consumer plugin serves that path (#1453).
+- **`litellm_alias`** emits a consumer-owned [`litellm_models`](#9-litellm_models) row. Its Backend base implies `/chat/completions`, which Atlas does not serve. Doctor warns because that base has no route head to validate. The alias remains unusable until an integration serves that endpoint.
 
 ---
 
