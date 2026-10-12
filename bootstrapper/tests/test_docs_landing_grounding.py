@@ -105,3 +105,23 @@ def test_the_always_on_core_claim_matches_the_locked_tier():
         if word.strip()
     }
     assert claimed == {"kong", "supabase", "redis", "litellm", "backend"}, claimed
+
+
+def test_readme_documentation_entry_points_precede_the_topology():
+    text = README.read_text(encoding="utf-8")
+    section = re.search(r"^## \d+\. Documentation\n(.*?)(?=^## |\Z)", text, re.M | re.S)
+    assert section, "README no longer has its documentation entry points"
+    assert section.start() < text.index("<!-- TOPOLOGY:BEGIN -->")
+    for path in (
+        "docs/README.md",
+        "docs/quick-start/index.md",
+        "docs/operations/reusing-atlas.md",
+        "docs/quick-start/troubleshooting.md",
+    ):
+        assert f"]({path})" in section.group(1), path
+    anchors = set(re.findall(r'<a\s+id="([^"]+)"', text))
+    anchors.update(
+        re.sub(r"[^a-z0-9 -]", "", heading.lower()).replace(" ", "-")
+        for heading in re.findall(r"^## (.+)$", text, re.M)
+    )
+    assert {"3-service-topology", "4-documentation"} <= anchors
