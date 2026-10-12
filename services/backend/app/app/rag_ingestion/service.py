@@ -678,9 +678,16 @@ class RagIngestionService:
         manifest = sorted(
             (f.name, hashlib.sha256(f.content).hexdigest()) for f in files
         )
-        record.content_digest = hashlib.sha256(
+        fingerprint = hashlib.sha256(
             json.dumps(manifest, separators=(",", ":")).encode("utf-8")
-        ).hexdigest()[:16]
+        ).hexdigest()
+        record.content_digest = fingerprint[:16]
+        runtime_key = self._idempotency_key(
+            profile, corpus, fingerprint, str(getattr(self.deps.embedder, "model", "") or "")
+        )
+        if runtime_key != record.idempotency_key:
+            record.counts["dedup_invalidated"] = 1
+            record.phase("discover").note = "corpus identity changed; resubmits create a new job"
 
     async def _phase_parse(self, record, profile, corpus, state):
         docs: List[ParsedDocument] = []
