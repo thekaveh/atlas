@@ -20,6 +20,7 @@ make docs-build
 make docs-check
 ```
 
+The PNG renderer exports at 3600 pixels wide and preserves each SVG's aspect ratio.
 The documentation gate rejects master drift and stale derived assets.
 
 ## 2. Per-service diagrams (auto-generated)
