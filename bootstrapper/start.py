@@ -5946,13 +5946,16 @@ def _doctor_check_litellm_models(starter: "AtlasStarter") -> dict:
             continue  # non-backend endpoints have no plugin route to match
         segments = [seg for seg in parsed.path.split("/") if seg]
         head = segments[0] if segments else ""
-        # Only warn when plugin manifests exist but none serves this route AND
-        # it isn't a built-in backend route — a route with no manifests may be
-        # served by a built-in route or a plugin added later, so we don't cry
-        # wolf on the manifest-less case or on a legitimate built-in prefix.
-        if (
+        # A bare base cannot be cross-checked against a declared route head.
+        # Nonempty built-in prefixes remain valid without plugin manifests.
+        if not head:
+            warnings.append(
+                f"model {model.name!r} (owner {model.consumer}) has a backend "
+                "api_base with no route head; confirm a consumer plugin serves "
+                "its OpenAI endpoint before selecting this model"
+            )
+        elif (
             have_manifests
-            and head
             and head not in plugin_heads
             and head not in RESERVED_ROUTE_PREFIXES
         ):
