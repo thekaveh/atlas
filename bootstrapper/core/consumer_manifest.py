@@ -427,9 +427,9 @@ class LightragQueryProfile:
         ``litellm_alias``, render a consumer-owned LiteLLM row that surfaces this
         flavor as a selectable OpenWebUI/LiteLLM model.
 
-        The row points at the backend's in-network profile-aware OpenAI route
-        (``${ATLAS_BACKEND_INTERNAL}`` — where #402 backend plugins mount), and the
-        profile knobs ride along in ``model_info`` so the alias and the profile
+        The row uses the Backend base URL, whose implied ``/chat/completions``
+        endpoint has no built-in handler. A consumer integration must serve it.
+        Profile knobs ride along in ``model_info`` so the alias and the profile
         stay a single source of truth. Returns ``None`` when no alias is declared,
         so the coupling is strictly opt-in (a no-alias profile emits no row).
         """

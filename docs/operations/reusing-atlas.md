@@ -493,7 +493,7 @@ A consumer with a RAG corpus declares ingestion profiles, and Atlas owns the job
 
 #### 6.3.5. Declaring LightRAG query profiles with `lightrag_query_profiles`
 
-A query profile is a named bundle of LightRAG per-query settings, such as "graph-rag local k=30". A plugin or an Open WebUI model alias selects it by name. Contract: [Consumer Manifest Reference §12](../reference/consumer-manifest.md#12-lightrag_query_profiles).
+A query profile is a named bundle of LightRAG per-query settings, such as "graph-rag local k=30". A plugin can read the registry to select it by name. Generated LiteLLM aliases imply an unserved Backend `/chat/completions` endpoint; doctor warns about their missing route head. Contract: [Consumer Manifest Reference §12](../reference/consumer-manifest.md#12-lightrag_query_profiles).
 
 **LightRAG roles on native bindings.** To run the EXTRACT role on native Ollama, set `LIGHTRAG_EXTRACT_LLM_MODEL`, `LIGHTRAG_EXTRACT_LLM_BINDING=ollama`, its `_BINDING_HOST` and `LIGHTRAG_EXTRACT_LLM_BINDING_API_KEY`. LightRAG needs a key for a role on its own binding, and Ollama ignores it, so any string such as `ollama` works. Atlas caps that role's output with `LIGHTRAG_EXTRACT_OLLAMA_LLM_NUM_PREDICT` (default `4096`) and `LIGHTRAG_EXTRACT_OLLAMA_LLM_NUM_CTX` (default `16384`).
 

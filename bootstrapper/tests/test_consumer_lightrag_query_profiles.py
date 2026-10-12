@@ -462,7 +462,7 @@ def test_litellm_alias_generates_row(tmp_path: Path) -> None:
     assert "graph-rag-local-wide" in rows
     alias = rows["graph-rag-local-wide"]
     assert alias.consumer == "rag-showcase"
-    # Points at the backend's profile-aware OpenAI route (approved in-network base).
+    # Approved Backend base; its implied OpenAI endpoint has no built-in handler.
     assert alias.api_base == "http://backend:8000"
     assert alias.model == "openai/graph-rag-local-wide"
     row = alias.to_row()
