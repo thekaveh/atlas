@@ -1,5 +1,6 @@
 from pathlib import Path
 import re
+import struct
 
 import pytest
 
@@ -58,6 +59,17 @@ def test_svg_to_png_writes_png_signature(tmp_path: Path) -> None:
         '<rect width="20" height="20" fill="#020617"/></svg>',
         width=40,
     )
+
+
+def test_default_png_export_is_high_resolution_with_matching_provenance(tmp_path: Path) -> None:
+    svg = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10"><rect width="20" height="10" fill="#020617"/></svg>'
+    output = tmp_path / "diagram.png"
+
+    svg_to_png(svg, output)
+
+    assert struct.unpack(">II", output.read_bytes()[16:24]) == (3600, 1800)
+    assert png_source_fingerprint(output) == diagram_source_fingerprint(svg, width=3600)
+    assert diagram_source_fingerprint(svg) == diagram_source_fingerprint(svg, width=3600)
 
 
 def test_platform_html_and_svg_masters_stay_synchronized() -> None:

@@ -34,7 +34,7 @@ def extract_svg(html: str) -> str:
     )
 
 
-def diagram_source_fingerprint(svg: str, *, width: int = 1800) -> str:
+def diagram_source_fingerprint(svg: str, *, width: int = 3600) -> str:
     payload = f"atlas-diagram-v1\nwidth={width}\n{svg}".encode("utf-8")
     return hashlib.sha256(payload).hexdigest()
 
@@ -83,7 +83,7 @@ def png_source_fingerprint(path: Path) -> str | None:
     return None
 
 
-def svg_to_png(svg: str, output: Path, *, width: int = 1800) -> None:
+def svg_to_png(svg: str, output: Path, *, width: int = 3600) -> None:
     if sys.platform == "darwin":
         candidates = (
             Path("/opt/homebrew/opt/cairo/lib"),
