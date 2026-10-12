@@ -64,7 +64,7 @@ When an upstream floating tag (`nginx:alpine`, `node:20`, `python:3.12-slim`) is
 - `python-floor`: the full suite on Python 3.10.
 - `component-tests`: the MCP and asset API suites.
 
-A new push to a pull request cancels that pull request's superseded `services-lint` run. Runs on `main` and `develop` are never cancelled.
+A new push or edit to a pull request cancels its superseded `services-lint` run. Title edits rerun the full workflow. Runs on `main` and `develop` are never cancelled.
 
 The ruleset also gives the repository admin role an always-on bypass (`bypass_mode: always`). For an admin, these rules are the required workflow, not a mechanical guarantee. Inspect the live rule with `gh api repos/thekaveh/atlas/rulesets`.
 

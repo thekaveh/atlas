@@ -173,7 +173,7 @@ Also in this range: 160 fixes, 75 documentation, 4 build and ci, 42 maintenance,
 ### 1.18. Changed — 2026-09-17 — Release notes are generated from Conventional Commits (#968, #838)
 
 - **The Unreleased section now opens with a generated summary.** `scripts/release_notes.py --update-changelog` renders the block between the `GENERATED RELEASE NOTES` markers from the commits since `v0.1.0` up to a recorded commit: breaking changes, security fixes, and features entry by entry, everything else as counts. The curated entries below it are untouched and remain the detailed history, which settles #838's changelog-split question by generation rather than by file. `--check-changelog` fails when the block differs from what its recorded range renders, so it cannot be hand-edited or go stale unnoticed; a test runs that check.
-- **Pull-request titles must be Conventional Commits.** The required *Manifest lint + unit tests* job now validates the title (`type(scope)!: summary`) with `scripts/release_notes.py --check-title`, because the squash commit takes its subject from the title and the generator reads that subject. History before the cut-off is left as it is; no release framework was installed and nothing was published.
+- **Pull-request titles must be Conventional Commits.** The required *Manifest lint + unit tests* job validates the title (`type(scope)!: summary`) with `scripts/release_notes.py --check-title`. The generator reads the final squash subject, whose default depends on the repository's merge policy. History before the cut-off is left as it is; no release framework was installed and nothing was published.
 
 ### 1.19. Fixed — 2026-09-17 — Five init images build again after Alpine rotated their pinned packages (#1002)
 
