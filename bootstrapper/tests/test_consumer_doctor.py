@@ -148,7 +148,6 @@ def test_doctor_reports_consumer_pin_reasons_without_values(tmp_path, monkeypatc
             "reason": "Needs session locks.", "origin": str(manifest), "overridden": False,
         }
 
-
 @pytest.mark.parametrize("case", [("disabled", "warn"), ("auto", "pass"), ("' Auto '", "pass")])
 def test_doctor_warns_when_saved_source_differs_from_consumer_pin(tmp_path, monkeypatch, case):
     import start as start_module
@@ -471,6 +470,36 @@ def test_doctor_litellm_models_warns_on_unmatched_route(tmp_path, monkeypatch) -
     assert checks["litellm-models"]["status"] == "warn"
     warnings = " ".join(checks["litellm-models"]["details"]["warnings"])
     assert "/graph-rag" in warnings and "no declared plugin route_prefix" in warnings
+    assert payload["ok"] is True
+
+
+
+@pytest.mark.parametrize("case", [
+    "litellm_models:\n  version: 1\n  models:\n    - name: graph-rag\n      api_base: '${ATLAS_BACKEND_INTERNAL}'\n",
+    "lightrag_query_profiles:\n  version: 1\n  profiles:\n    - name: graph-local\n      mode: local\n      litellm_alias: graph-rag\n",
+    "litellm_models:\n  version: 1\n  models:\n    - name: graph-rag\n      api_base: '${ATLAS_BACKEND_INTERNAL}/'\n",
+])
+@pytest.mark.parametrize("with_plugin", [False, True])
+def test_doctor_litellm_models_reports_missing_backend_route_head(tmp_path, monkeypatch, case, with_plugin):
+    import start as start_module
+
+    declaration = case
+    plugins_dir = tmp_path / "plugins"
+    plugins_dir.mkdir()
+    if with_plugin:
+        _write_plugin(plugins_dir, "tableau", "plugin_manifest_version: 1\nname: tableau\nroute_prefix: /tableau\n")
+    manifest = _write_consumer_manifest(tmp_path, "rag-showcase", declaration)
+    _write_base_env(tmp_path, extra=f"BACKEND_PLUGINS_DIR={plugins_dir}\n")
+    monkeypatch.setenv("ATLAS_CONSUMER_MANIFEST", str(manifest))
+    _patch_starter_paths(monkeypatch, tmp_path)
+    monkeypatch.setattr(start_module, "DOCTOR_CHECKS", (start_module._doctor_check_litellm_models,))
+    result = CliRunner().invoke(start_module.main, ["doctor", "--format", "json"])
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.output)
+    check = payload["checks"][0]
+    assert check["status"] == "warn"
+    assert "no route head" in check["message"] and "graph-rag" in check["message"]
+    assert "consumer plugin" in check["message"]
     assert payload["ok"] is True
 
 
