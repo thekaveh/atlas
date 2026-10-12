@@ -244,6 +244,7 @@ class MountCorpusReader:
                 )
             total += consumed
             manifest.append((name, digest.hexdigest()))
+        manifest.sort()
         return hashlib.sha256(
             json.dumps(manifest, separators=(",", ":")).encode("utf-8")
         ).hexdigest()
@@ -345,15 +346,22 @@ class MinioCorpusReader:
                 max_file_bytes=max_file_bytes,
                 max_corpus_bytes=max_corpus_bytes,
             )
-            total += declared_size or 0
-            manifest.append(
-                (
+            digest = hashlib.sha256()
+            resp = client.get_object(bucket, obj.object_name)
+            try:
+                consumed = _consume_bounded(
+                    resp,
                     obj.object_name,
-                    getattr(obj, "etag", None),
-                    size,
-                    str(getattr(obj, "last_modified", "")),
+                    total=total,
+                    max_file_bytes=max_file_bytes,
+                    max_corpus_bytes=max_corpus_bytes,
+                    on_chunk=digest.update,
                 )
-            )
+            finally:
+                resp.close()
+                resp.release_conn()
+            total += consumed
+            manifest.append((obj.object_name, digest.hexdigest()))
         manifest.sort()
         return hashlib.sha256(
             json.dumps(manifest, separators=(",", ":")).encode("utf-8")

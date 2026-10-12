@@ -125,6 +125,9 @@ class IngestionRecord:
 
     @property
     def is_dedup_candidate(self) -> bool:
+        # Discovery used content different from the submission's identity.
+        if self.counts.get("dedup_invalidated") == 1:
+            return False
         # A job the caller asked to stop is not "the existing job" a resubmit
         # should be folded into (it would end cancelled).
         if self.status != STATUS_COMPLETED and self.cancel_requested:
