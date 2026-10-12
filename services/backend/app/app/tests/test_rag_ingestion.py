@@ -1342,7 +1342,8 @@ def test_mount_corpus_rejects_file_count_over_configured_limit(tmp_path, monkeyp
         MountCorpusReader().discover({"source": "mount", "path": "docs"})
 
 
-def test_minio_corpus_rejects_oversize_metadata_before_download(monkeypatch):
+@pytest.mark.parametrize("operation", ["discover", "fingerprint"])
+def test_minio_corpus_rejects_oversize_metadata_before_download(monkeypatch, operation):
     import minio
 
     get_calls = []
@@ -1365,7 +1366,7 @@ def test_minio_corpus_rejects_oversize_metadata_before_download(monkeypatch):
     monkeypatch.setenv("RAG_INGESTION_MAX_CORPUS_BYTES", "100")
 
     with pytest.raises(ValueError, match="large.bin.*4 bytes"):
-        MinioCorpusReader().discover(
+        getattr(MinioCorpusReader(), operation)(
             {"source": "minio", "bucket": "corpus", "prefix": "docs/"}
         )
     assert get_calls == []
@@ -1404,13 +1405,15 @@ def test_minio_corpus_uses_compiled_scoped_credentials(monkeypatch):
     assert captured["kwargs"]["secret_key"] == "scoped-secret"
 
 
-def test_minio_corpus_bounds_stream_when_size_metadata_is_missing(monkeypatch):
+@pytest.mark.parametrize("operation", ["discover", "fingerprint"])
+def test_minio_corpus_bounds_stream_when_size_metadata_is_missing(monkeypatch, operation):
     import io
     import minio
 
     response = io.BytesIO(b"12345")
-    response.close = lambda: None
-    response.release_conn = lambda: None
+    cleanup = []
+    response.close = lambda: cleanup.append("closed")
+    response.release_conn = lambda: cleanup.append("released")
 
     class Object:
         object_name = "unknown-size.bin"
@@ -1429,9 +1432,10 @@ def test_minio_corpus_bounds_stream_when_size_metadata_is_missing(monkeypatch):
     monkeypatch.setenv("RAG_INGESTION_MAX_CORPUS_BYTES", "100")
 
     with pytest.raises(ValueError, match="unknown-size.bin.*4 bytes"):
-        MinioCorpusReader().discover(
+        getattr(MinioCorpusReader(), operation)(
             {"source": "minio", "bucket": "corpus", "prefix": "docs/"}
         )
+    assert cleanup == ["closed", "released"]
 
 
 def test_corpus_fingerprint_enforces_the_same_resource_limits(tmp_path, monkeypatch):
@@ -3210,3 +3214,141 @@ def test_the_last_renewal_attempt_ends_before_the_lease_expires():
 
     lost, elapsed = asyncio.run(scenario())
     assert lost and elapsed < 4.0, elapsed
+
+
+def _mutable_ingestion_corpus(tmp_path, monkeypatch, source):
+    if source != "minio":
+        root = _corpus(tmp_path, monkeypatch, {"a.txt": "A"})
+        if source == "nested-mount":
+            (root / "docs/a").mkdir()
+            (root / "docs/a/b.txt").write_text("nested")
+        return {"source": "mount", "path": "docs"}, (root / "docs/a.txt").write_bytes
+    import io
+    import minio
+
+    payload = {"content": b"A"}
+
+    class Client:
+        def list_objects(self, *_args, **_kwargs):
+            return [SimpleNamespace(object_name="docs/a.txt", size=1, etag="unchanged")]
+
+        def get_object(self, *_args):
+            response = io.BytesIO(payload["content"])
+            response.release_conn = lambda: None
+            return response
+
+    monkeypatch.setattr(minio, "Minio", lambda *_args, **_kwargs: Client())
+    monkeypatch.setenv("MINIO_ENDPOINT", "http://minio:9000")
+    return {"source": source, "bucket": "corpus", "prefix": "docs/"}, lambda value: payload.update(content=value)
+
+
+def _ingestion_regression_store(live_redis):
+    if live_redis:
+        url = os.environ.get("ATLAS_TEST_REDIS_URL")
+        if not url:
+            pytest.skip("needs disposable ATLAS_TEST_REDIS_URL")
+        return RedisIngestionStore(url)
+    return InMemoryIngestionStore()
+
+
+def _corpus_change_service(tmp_path, corpus, store):
+    path = _profiles_file(tmp_path, corpus=corpus)
+    payload = json.loads(Path(path).read_text())
+    payload["profiles"][0]["revision"] = str(tmp_path)
+    Path(path).write_text(json.dumps(payload))
+    return RagIngestionService(
+        store=store,
+        deps=Deps(embedder=FakeEmbedder(), weaviate=FakeWeaviate(), lightrag=FakeLightrag()),
+        profiles_path=path,
+    )
+
+
+@pytest.mark.parametrize("source", ["mount", "minio"])
+@pytest.mark.parametrize("live_redis", [False, True])
+def test_changed_queued_corpus_does_not_dedup_a_restored_corpus(
+    tmp_path, monkeypatch, source, live_redis
+):
+    store = _ingestion_regression_store(live_redis)
+    corpus, change = _mutable_ingestion_corpus(tmp_path, monkeypatch, source)
+    service = _corpus_change_service(tmp_path, corpus, store)
+    submitted, _ = service.submit("showcase-default")
+    change(b"B")
+    final = asyncio.run(service.run(submitted.id))
+    assert final.status == "completed"
+    change(b"A")
+    restored, created = service.submit("showcase-default")
+    assert created, "A must be ingested again after the queued job ingested B"
+    assert restored.id != submitted.id
+    assert asyncio.run(service.run(restored.id)).status == "completed"
+    assert service.deps.weaviate.written[-1]["properties"]["content"] == "A"
+    assert store.create_if_absent(restored)[1] is False
+
+
+@pytest.mark.parametrize("source", ["mount", "minio", "nested-mount"])
+@pytest.mark.parametrize("live_redis", [False, True])
+def test_unchanged_queued_corpus_remains_a_dedup_candidate(
+    tmp_path, monkeypatch, source, live_redis
+):
+    store = _ingestion_regression_store(live_redis)
+    corpus, _ = _mutable_ingestion_corpus(tmp_path, monkeypatch, source)
+    service = _corpus_change_service(tmp_path, corpus, store)
+    submitted, _ = service.submit("showcase-default")
+    final = asyncio.run(service.run(submitted.id))
+    assert final.status == "completed" and final.is_dedup_candidate
+    repeated, created = service.submit("showcase-default")
+    assert not created and repeated.id == submitted.id
+
+
+@pytest.mark.parametrize("live_redis", [False, True])
+@pytest.mark.parametrize("claimed", [False, True])
+def test_invalidated_job_cannot_restore_or_delete_a_newer_dedup_entry(live_redis, claimed):
+    import uuid
+
+    store = _ingestion_regression_store(live_redis)
+    key = str(uuid.uuid4())
+    old = _dedup_record(str(uuid.uuid4()))
+    old.idempotency_key = key
+    store.create_if_absent(old)
+    assert store.claim_execution(old.id, ExecutionClaim("owner", 60))
+    old.counts["dedup_invalidated"] = 1
+    old.status = "running"
+    save = (lambda record: store.save_claimed(record, "owner")) if claimed else store.save
+    save(old)
+    assert store.find_by_idempotency_key(key) is None
+    new = _dedup_record(str(uuid.uuid4()))
+    new.idempotency_key = key
+    assert store.create_if_absent(new)[1]
+    old.status = "completed"
+    save(old)
+    assert store.find_by_idempotency_key(key).id == new.id
+    duplicate = _dedup_record(str(uuid.uuid4()))
+    duplicate.idempotency_key = key
+    found, created = store.create_if_absent(duplicate)
+    assert not created and found.id == new.id
+    store.release_execution(old.id, "owner")
+
+
+@pytest.mark.parametrize("live_redis", [False, True])
+def test_corpus_invalidation_survives_a_retry_that_rediscovers_original_bytes(
+    tmp_path, monkeypatch, live_redis
+):
+    store = _ingestion_regression_store(live_redis)
+    corpus, change = _mutable_ingestion_corpus(tmp_path, monkeypatch, "mount")
+    service = _corpus_change_service(tmp_path, corpus, store)
+    service.deps.weaviate = RetryAfterClassCheck(rebuilt=False)
+    submitted, _ = service.submit("showcase-default")
+    change(b"B")
+    with pytest.raises(httpx.ConnectError):
+        asyncio.run(service.run(submitted.id, retry_transient=True))
+    saved = store.get(submitted.id)
+    assert saved.status == "pending" and not saved.is_dedup_candidate
+    assert store.find_by_idempotency_key(submitted.idempotency_key) is None
+    change(b"A")
+    newer, created = service.submit("showcase-default")
+    assert created
+    worker = RagIngestionService(
+        store=store, deps=service.deps, profiles_path=service._profiles_path
+    )
+    final = asyncio.run(worker.run(submitted.id))
+    assert final.status == "completed" and not final.is_dedup_candidate
+    assert store.find_by_idempotency_key(submitted.idempotency_key).id == newer.id

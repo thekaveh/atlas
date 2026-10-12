@@ -405,6 +405,13 @@ class RedisIngestionStore(IngestionStore):
     _SCORE_RESERVATION_SCRIPT = """
 local DISPATCH_FIELDS = {"dispatch_state", "dispatch_job_id", "dispatch_owner", "dispatch_claimed_at"}
 
+local function is_dedup_candidate(record)
+    if record.counts and record.counts.dedup_invalidated == 1 then return false end
+    return record.status == 'completed'
+        or ((record.status == 'pending' or record.status == 'running')
+            and record.cancel_requested ~= true)
+end
+
 local function reserve_score(legacy_key, index_key, sequence_key, member)
     local legacy_type = redis.call('TYPE', legacy_key).ok
     local index_type = redis.call('TYPE', index_key).ok
@@ -446,9 +453,7 @@ if current_id then
     local current_blob = redis.call('GET', ARGV[1] .. current_id)
     if current_blob then
         local current = cjson.decode(current_blob)
-        if current.status == 'completed'
-           or ((current.status == 'pending' or current.status == 'running')
-               and current.cancel_requested ~= true) then
+        if is_dedup_candidate(current) then
             return {0, current_blob}
         end
     end
@@ -487,9 +492,7 @@ if score_error then return redis.error_reply(score_error) end
 redis.call('SET', KEYS[1], blob, 'EX', ARGV[2])
 redis.call('SADD', KEYS[3], incoming.id)
 if score then redis.call('ZADD', KEYS[4], 'NX', score, incoming.id) end
-if incoming.status == 'completed'
-   or ((incoming.status == 'pending' or incoming.status == 'running')
-       and incoming.cancel_requested ~= true) then
+if is_dedup_candidate(incoming) then
     redis.call('SET', KEYS[2], incoming.id, 'EX', ARGV[2])
 elseif redis.call('GET', KEYS[2]) == incoming.id then
     redis.call('DEL', KEYS[2])
@@ -621,9 +624,7 @@ if score_error then return redis.error_reply(score_error) end
 redis.call('SET', KEYS[1], blob, 'EX', ARGV[2])
 redis.call('SADD', KEYS[3], incoming.id)
 if score then redis.call('ZADD', KEYS[5], 'NX', score, incoming.id) end
-if incoming.status == 'completed'
-   or ((incoming.status == 'pending' or incoming.status == 'running')
-       and incoming.cancel_requested ~= true) then
+if is_dedup_candidate(incoming) then
     redis.call('SET', KEYS[2], incoming.id, 'EX', ARGV[2])
 elseif redis.call('GET', KEYS[2]) == incoming.id then
     redis.call('DEL', KEYS[2])
