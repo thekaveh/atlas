@@ -137,11 +137,10 @@ Stand-alone output is numbered `## 1.`, `## 2.`, … without gaps.
 
 **Pull-request titles.** Pull-request titles must be Conventional Commits
 subjects (`type(scope)!: summary`); the required job runs
-`scripts/release_notes.py --check-title`. A multi-commit pull request squashes
-under its title. A single-commit pull request lands its commit subject instead,
-which the gate does not check, so that subject must also be Conventional. A
-title edited after the check ran is not checked again
-([#1457](https://github.com/thekaveh/atlas/issues/1457)).
+`scripts/release_notes.py --check-title`. Title edits rerun the full workflow.
+Under the current squash policy, a multi-commit pull request defaults to its title.
+A single-commit pull request defaults to its commit subject, which the title gate does not check.
+Before merging, ensure the final squash subject matches the checked title.
 
 Accepted types: `build`, `chore`, `ci`, `deps`, `docs`, `feat`, `fix`,
 `maintenance`, `perf`, `refactor`, `release`, `security`, `style`, `test`.
