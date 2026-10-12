@@ -26,7 +26,7 @@ Each step links to its deep-dive section.
 - [ ] **Add the row's display name to `EXPECTED_DISCOVERED`** in `bootstrapper/tests/test_wizard_app_discovery.py` (source-configurable services only). The discovery-count test fails until you do.
 - [ ] **`runtime_sc` key differs from the folder name** (for example `ray-head` in a multi-container family): add the mapping to `_FAMILY_KEY_ALIASES` in `bootstrapper/tracks.py`. Otherwise the track filter does not match it.
 - [ ] **Add the new containers to the fragment baseline** → [Byte-equivalence](#20-byte-equivalence)
-- [ ] **Run the root-safe regen, lint, and required-check checklist** → [After you save the files](#12-after-you-save-the-files--regen--lint-commands-in-order), then [CI gates](#134-ci-gates-that-run-on-every-push)
+- [ ] **Run the root-safe regen, lint, and required-check checklist** → [After you save the files](#12-after-you-save-the-files--regen--lint-commands-in-order), then [CI gates](#134-ci-gates)
 - [ ] **Update audit-script allowlists** if your service has hard deps → [Audit-script + CI implications](#13-audit-script--ci-implications)
 - [ ] **Commit and push.** CI gates the change with four required jobs: manifest-lint+pytest, compose-equivalence+permutation matrix, docs-drift+audit-scripts, and build-validation.
 
@@ -610,12 +610,13 @@ It also compares every default route by name, in both directions, against `EXPEC
 
 If your service ships a `requirements.txt` / `pyproject.toml` in a `build/` or `provider/` subdirectory, add the path to the `directories:` list of the `pip` ecosystem block. **Note:** all active manifests must be enumerated; omitted paths drop from scan coverage and silent vulnerabilities accumulate.
 
-### 13.4. CI gates that run on every push
+### 13.4. CI gates
 
 The `.github/workflows/services-lint.yml` workflow produces the four checks below.
-All four are required status checks in the live `gitflow` ruleset. A new push to
-a pull request cancels that pull request's superseded run; runs on `main` and
-`develop` are never cancelled.
+All four are required status checks in the live `gitflow` ruleset.
+Pull-request edits, including title edits, rerun the full workflow.
+A new push or edit cancels that pull request's superseded run.
+Runs on `main` and `develop` are never cancelled.
 
 | Job | What it catches |
 |---|---|

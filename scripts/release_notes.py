@@ -76,7 +76,7 @@ CHANGELOG_END = "<!-- END GENERATED RELEASE NOTES -->"
 _RANGE_COMMENT_RE = re.compile(r"<!-- generated-range: (?P<range>\S+) -->")
 # Buckets listed entry by entry in the changelog block; the rest are counted.
 _DETAILED_BUCKETS = ("Breaking changes", "Security", "Features")
-# Pull-request titles must be Conventional Commits so the squash commit is.
+# Validate Conventional Commits titles; merge policy selects the final subject.
 CONVENTIONAL_TITLE_RE = re.compile(
     r"^(?:build|chore|ci|deps|docs|feat|fix|maintenance|perf|refactor|release|security|style|test)"
     r"(?:\([^()\s][^()]*\))?!?: \S.*$"
