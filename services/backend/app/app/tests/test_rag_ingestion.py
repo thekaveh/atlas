@@ -2877,7 +2877,8 @@ def test_a_legacy_class_with_matching_vectors_is_adopted_not_dropped(monkeypatch
     assert rebuilt is True and "DELETE" in [c[0] for c in calls]
 
 
-def test_a_rebuilt_class_does_not_claim_failed_sources_were_preserved():
+@pytest.mark.parametrize("rebuilt_class", ["Rag", "Another"])
+def test_a_rebuilt_class_does_not_claim_failed_sources_were_preserved(rebuilt_class):
     from types import SimpleNamespace
 
     from rag_ingestion.service import RagIngestionService
@@ -2887,11 +2888,75 @@ def test_a_rebuilt_class_does_not_claim_failed_sources_were_preserved():
 
     service = RagIngestionService.__new__(RagIngestionService)
     service.deps = SimpleNamespace(weaviate=SimpleNamespace(reconcile_objects=reconcile_objects))
-    phases = {}
-    record = SimpleNamespace(phase=lambda name: phases.setdefault(name, SimpleNamespace(note=None)))
-    state = {"failed_sources": {"bad.pdf"}, "class_rebuilt": True}
+    record = IngestionRecord("i", "c", "p", "r", "k", counts={f"class_rebuilt:{rebuilt_class}": 1})
+    state = {"failed_sources": {"bad.pdf"}}
     asyncio.run(service._reconcile_kept_sources(record, SimpleNamespace(name="p"), state, "Rag", []))
-    assert "preserved" not in phases["vector_write"].note and "bad.pdf" in phases["vector_write"].note
+    note = record.phase("vector_write").note
+    assert "bad.pdf" in note
+    assert ("preserved" not in note) is (rebuilt_class == "Rag")
+
+
+class RetryAfterClassCheck(FakeWeaviate):
+    def __init__(self, rebuilt):
+        super().__init__()
+        self.rebuilt = rebuilt
+        self.first_write = True
+        self.object_ids = {"previous-bad"}
+        self.source_of = {"previous-bad": "docs/bad.pdf"}
+
+    async def ensure_class(self, class_name, embedding=None):
+        first = not self.classes
+        self.classes.append(class_name)
+        if first and self.rebuilt:
+            self.object_ids.clear()
+            self.source_of.clear()
+            return True
+        return False
+
+    async def write_objects(self, class_name, objects):
+        if self.first_write:
+            self.first_write = False
+            raise httpx.ConnectError("temporary Weaviate write failure")
+        return await super().write_objects(class_name, objects)
+
+
+def test_later_target_does_not_overwrite_an_earlier_rebuild_warning():
+    service = RagIngestionService.__new__(RagIngestionService)
+    service.deps = SimpleNamespace(weaviate=FakeWeaviate())
+    record = IngestionRecord("i", "c", "p", "r", "k", counts={"class_rebuilt:RagA": 1})
+    state = {"failed_sources": {"bad.pdf"}}
+    for class_name in ("RagA", "RagB"):
+        asyncio.run(service._reconcile_kept_sources(record, SimpleNamespace(name="p"), state, class_name, []))
+    note = record.phase("vector_write").note
+    assert "earlier vectors were removed" in note
+    assert "preserved existing vectors" in note
+    assert "RagA" in note and "RagB" in note
+
+
+@pytest.mark.parametrize("rebuilt", [True, False])
+def test_class_rebuild_note_survives_a_retried_worker(tmp_path, monkeypatch, rebuilt):
+    root = _corpus(tmp_path, monkeypatch, {"good.txt": "good content"})
+    (root / "docs" / "bad.pdf").write_bytes(b"%PDF-1.7\x00\xff")
+    profiles = _profiles_file(tmp_path, graph=[])
+    weaviate = RetryAfterClassCheck(rebuilt)
+    deps = Deps(embedder=FakeEmbedder(), weaviate=weaviate, lightrag=FakeLightrag(False))
+    first_worker = _service(tmp_path, deps, profiles)
+    record, _ = first_worker.submit("showcase-default")
+    with pytest.raises(httpx.ConnectError):
+        asyncio.run(first_worker.run(record.id, retry_transient=True))
+    assert first_worker.store.get(record.id).status == "pending"
+
+    # A fresh worker reloads the serialized record, rather than attempt state.
+    next_worker = RagIngestionService(store=first_worker.store, deps=deps, profiles_path=profiles)
+    final = asyncio.run(next_worker.run(record.id, retry_transient=True))
+    note = final.phase("vector_write").note
+    assert final.status == "completed" and "bad.pdf" in note
+    if rebuilt:
+        assert "earlier vectors were removed" in note and "preserved" not in note
+        assert "previous-bad" not in weaviate.object_ids
+    else:
+        assert "preserved existing vectors" in note
+        assert "previous-bad" in weaviate.object_ids
 
 
 def test_legacy_only_count_is_atomic_against_a_concurrent_writer(monkeypatch):
@@ -3026,8 +3091,7 @@ def test_an_abandoned_run_is_marked_failed_so_a_resubmit_starts_fresh(tmp_path, 
 
 
 def test_ensure_target_class_records_a_rebuild_only_when_the_class_was_rebuilt():
-    """The note test set state["class_rebuilt"] by hand, so dropping the
-    assignment in _ensure_target_class stayed green (cycle 22)."""
+    """Rebuild history is recorded by the class check, rather than note tests."""
     from types import SimpleNamespace
 
     from rag_ingestion.service import RagIngestionService
@@ -3043,9 +3107,11 @@ def test_ensure_target_class_records_a_rebuild_only_when_the_class_was_rebuilt()
         service.deps = SimpleNamespace(
             weaviate=SimpleNamespace(ensure_class=ensure_class), embedder=SimpleNamespace(model="m"))
         state = {"chunks": [{"vector": [0.1, 0.2]}]}
-        asyncio.run(service._ensure_target_class(state, "Rag"))
+        record = IngestionRecord("i", "c", "p", "r", "k")
+        asyncio.run(service._ensure_target_class(record, state, "Rag"))
         assert seen == [("Rag", ("m", 2))]
-        assert state.get("class_rebuilt", False) is rebuilt
+        asyncio.run(service._ensure_target_class(record, state, "Rag"))
+        assert record.counts == ({"class_rebuilt:Rag": 1} if rebuilt else {})
 
 
 def _heartbeat_service(renew):
