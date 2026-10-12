@@ -212,7 +212,7 @@ def test_postgres_tool_runs_read_only_bounded_transaction(monkeypatch) -> None:
 def test_neo4j_tool_uses_read_routing_and_bounded_cypher(monkeypatch) -> None:
     srv = _runtime_module()
     import neo4j
-
+    monkeypatch.setenv("NEO4J_URI", "bolt://neo4j.invalid:7687")
     captured: dict = {}
 
     class _Record:

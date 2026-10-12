@@ -195,7 +195,11 @@ function resourceName(id, taken) {
   name = name.slice(0, 64).replace(/-+$/g, "");
   if (name.length < 2) name = `m-${name}`;
   let candidate = name;
-  for (let n = 2; taken.has(candidate); n++) candidate = `${name.slice(0, 61)}-${n}`;
+  for (let n = 2; taken.has(candidate); n++) {
+    const suffix = `-${n}`;
+    // Preserve existing valid names while reserving room for wider suffixes.
+    candidate = `${name.slice(0, Math.min(61, 64 - suffix.length))}${suffix}`;
+  }
   taken.add(candidate);
   return candidate;
 }
