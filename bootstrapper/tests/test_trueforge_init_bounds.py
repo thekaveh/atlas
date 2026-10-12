@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import http.server
 import os
+import re
 import shutil
 import signal
 import socket
@@ -225,6 +226,13 @@ class _FakeStackServer(http.server.ThreadingHTTPServer):
     are observable without Docker or the live stack.
     """
 
+    model_ids: tuple[str, ...] = ("test-model",)
+    provider_manifest: dict
+
+    def _store_provider(self, manifest: dict) -> dict:
+        self.provider_manifest = manifest
+        return {}
+
     def __init__(self) -> None:
         server = self
 
@@ -243,7 +251,7 @@ class _FakeStackServer(http.server.ThreadingHTTPServer):
                 if self.path == "/healthz":
                     return self._json(200, {})
                 if self.path == "/v1/models":
-                    return self._json(200, {"data": [{"id": "test-model"}]})
+                    return self._json(200, {"data": [{"id": model_id} for model_id in server.model_ids]})
                 prefix = "/api/v1/settings/mcp-servers/"
                 if self.path.startswith(prefix):
                     name = self.path[len(prefix):]
@@ -274,7 +282,7 @@ class _FakeStackServer(http.server.ThreadingHTTPServer):
                     server.mcp_put_count += 1
                     return self._json(200, {})
                 if self.path == "/api/v1/settings/model-providers":
-                    return self._json(200, {})
+                    return self._json(200, server._store_provider(manifest))
                 return self._json(404, {"error": "not found"})
 
             def log_message(self, *args: object) -> None:  # noqa: D102
@@ -305,6 +313,26 @@ def _run_against_fake_stack(server: _FakeStackServer, mcp_scale: str) -> subproc
 
 
 DISABLED_CONNECTOR_URL = "http://atlas-mcp-servers.disabled.invalid/mcp"
+
+
+@pytest.mark.parametrize("count", [99, 100, 120])
+def test_colliding_model_names_fit_the_resource_name_contract(count: int) -> None:
+    model_ids = ["a" * 70 + f"/{index}" for index in range(count)]
+    server = _FakeStackServer()
+    server.model_ids = tuple(model_ids)
+    try:
+        _run_against_fake_stack(server, "0")
+        models = server.provider_manifest["models"]
+        names = [model["name"] for model in models]
+        assert [model["model_id"] for model in models] == model_ids
+        assert len(set(names)) == count
+        assert all(re.fullmatch(r"[a-z][a-z0-9-]{0,62}[a-z0-9]", name) for name in names)
+        # Keep names already usable by saved agents, including suffixes 2–99.
+        legacy_names = ["a" * 64] + ["a" * 61 + f"-{n}" for n in range(2, 100)]
+        assert names[:99] == legacy_names[:count]
+    finally:
+        server.shutdown()
+        server.server_close()
 
 
 def test_enable_disable_enable_converges_without_stale_or_duplicate_connector() -> None:

@@ -2,6 +2,10 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import sys
+from types import SimpleNamespace
+
+import pytest
 
 from tests.three_surface_test_utils import surface_text
 
@@ -60,3 +64,40 @@ def test_ragas_notebook_and_docs_register_backend_runtime_contract() -> None:
     assert "14_ragas_evaluation.ipynb" in docs_text
     assert "POST /api/rag/evaluate" in docs_text
     assert "LiteLLM" in docs_text
+
+
+@pytest.mark.parametrize("opt_in", [None, "", "0", "1"])
+def test_notebook_backend_evaluation_requires_its_own_opt_in(monkeypatch, opt_in) -> None:
+    notebook = json.loads(
+        (ROOT / "services/jupyterhub/build/notebooks/14_ragas_evaluation.ipynb").read_text()
+    )
+    cells = {cell["id"]: "".join(cell["source"]) for cell in notebook["cells"]}
+    monkeypatch.delenv("RUN_BACKEND_RAGAS_LIVE", raising=False)
+    if opt_in is not None:
+        monkeypatch.setenv("RUN_BACKEND_RAGAS_LIVE", opt_in)
+    # Opting into the local evaluator must not run the Backend evaluator too.
+    monkeypatch.setenv("RUN_RAGAS_LIVE", "1")
+    monkeypatch.setenv("BACKEND_API_URL", "http://fake-backend.invalid/")
+    monkeypatch.setenv("BACKEND_NOTEBOOK_API_TOKEN", "fake-scoped-token")
+    requests = []
+
+    def post(url, **kwargs):
+        requests.append((url, kwargs))
+        return SimpleNamespace(raise_for_status=lambda: None, json=lambda: {"scores": []})
+
+    monkeypatch.setitem(sys.modules, "httpx", SimpleNamespace(post=post, HTTPError=RuntimeError))
+    namespace = {}
+    exec(compile(cells["atlas-ragas-imports"], "notebook-setup", "exec"), namespace)
+    exec(compile(cells["atlas-ragas-backend-call"], "notebook-backend", "exec"), namespace)
+
+    if opt_in != "1":
+        assert requests == []
+        return
+    assert len(requests) == 1
+    url, options = requests[0]
+    assert url == "http://fake-backend.invalid/api/rag/evaluate"
+    assert options["headers"] == {"Authorization": "Bearer fake-scoped-token"}
+    assert options["json"] == {
+        "records": [namespace["SAMPLE_RECORD"]], "metrics": namespace["METRICS"]
+    }
+    assert options["timeout"] == 120.0
