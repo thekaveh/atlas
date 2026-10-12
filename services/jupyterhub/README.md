@@ -101,6 +101,8 @@ The notebooks read MinIO bucket names from the `MINIO_BUCKET_*` variables (`MINI
 | `14_ragas_evaluation.ipynb` | Evaluate RAG answers with Ragas metrics and the Backend `/api/rag/evaluate` runtime endpoint. |
 | `15_mcp_clients.ipynb` | Discovers and invokes Curated MCP tools through FastMCP 3, exercises error handling, and prototypes an in-process tool. The bootstrapper injects `MCP_SERVERS_URL` only when `MCP_SERVERS_SOURCE=container` and leaves it empty when the curated package is disabled. |
 
+Ragas notebook 14 requires `RUN_RAGAS_LIVE=1` for local evaluation or `RUN_BACKEND_RAGAS_LIVE=1` for Backend evaluation. Both paths can consume tokens.
+
 The repository gate keeps this inventory in sync with the image welcome page and the environment-check notebook. It compiles every Python code cell and checks that each direct third-party import is declared in the image requirements. Service-dependent execution remains an explicit live smoke test.
 
 ## 6. Service Integration Examples

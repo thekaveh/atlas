@@ -1162,7 +1162,6 @@ def _cleanup_contained_probe(
     cleanup_deadline = time.monotonic() + 1.5
     if isinstance(owned, _OwnedProcesses):
         owned.deadline = cleanup_deadline
-    _kill_live_root_group(process, owned)
     stable_scans = 0
     stabilize_deadline = min(
         time.monotonic() + _CONTAINMENT_STABILIZE_SECONDS,
@@ -1175,6 +1174,8 @@ def _cleanup_contained_probe(
         stable_scans = stable_scans + 1 if set(owned) == prior else 0
         time.sleep(0.01)
 
+    # Freeze descendants while the live launcher still proves their ancestry.
+    _kill_live_root_group(process, owned)
     _signal_owned_processes(owned, signal.SIGKILL)
     while time.monotonic() < cleanup_deadline:
         _capture_owned_processes(process.pid, pid_files, owned)
