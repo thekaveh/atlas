@@ -19,6 +19,7 @@ name: services-lint
 on:
   pull_request:
     branches: [main, develop]
+    types: [opened, edited, synchronize, reopened]
   push:
     branches: [main, develop]
 
@@ -27,7 +28,7 @@ on:
 permissions:
   contents: read
 
-# A new push to a pull request cancels that pull request's superseded run
+# A new push or edit to a pull request cancels its superseded run
 # (#1176). Every push to main or develop gets a group of its own (its run id),
 # so those runs are never cancelled and never cancel anything.
 concurrency:
@@ -75,9 +76,9 @@ jobs:
 
       - name: Pull-request title is a Conventional Commits subject
         # scripts/release_notes.py generates the changelog summary from squash
-        # subjects (#968). With squash_merge_commit_title=COMMIT_OR_PR_TITLE a
-        # single-commit PR lands its commit subject, and a title edit does not
-        # re-run this check (#1457). Pushes to develop/main carry no title.
+        # subjects. PR edits re-run this check against the current title.
+        # The repository's squash policy still selects the landed subject.
+        # Pushes to develop/main carry no pull-request title.
         if: github.event_name == 'pull_request'
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}

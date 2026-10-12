@@ -363,8 +363,12 @@ def test_committed_changelog_block_is_current() -> None:
 
 
 def test_required_lint_job_gates_titles_and_the_changelog_block() -> None:
-    workflow = yaml.safe_load(
-        (ROOT / ".github" / "workflows" / "services-lint.yml").read_text(encoding="utf-8")
+    workflow = yaml.load(
+        (ROOT / ".github" / "workflows" / "services-lint.yml").read_text(encoding="utf-8"),
+        Loader=yaml.BaseLoader,
+    )
+    assert {"opened", "edited", "synchronize", "reopened"} <= set(
+        workflow["on"]["pull_request"]["types"]
     )
     # The two gates sit in the `lint` job, whose result the required
     # "Manifest lint + unit tests" gate requires (#1176).
@@ -374,6 +378,7 @@ def test_required_lint_job_gates_titles_and_the_changelog_block() -> None:
 
     assert '--check-title "$PR_TITLE"' in title["run"]
     assert title["if"] == "github.event_name == 'pull_request'"
+    assert title["env"]["PR_TITLE"] == "${{ github.event.pull_request.title }}"
     assert "python -m scripts.release_notes --check-changelog" in changelog["run"]
     assert "lint" in workflow["jobs"]["required-lint"]["needs"]
 
