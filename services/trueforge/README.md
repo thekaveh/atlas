@@ -55,23 +55,33 @@ Model, MCP, skill and sandbox configuration does **not** use env catalogs. `true
 ### 4.2. What trueforge-init seeds (idempotent, every start)
 
 1. Reads the gateway's live `/v1/models` catalog. An empty or failed read stops the init before any key rotates, so TrueForge keeps its working key.
-2. Mints a **LiteLLM virtual key** (alias `trueforge`), so agent traffic does not carry the master key. If minting fails, it falls back to the master key and logs a warning.
+2. Reads all key-inventory pages and captures only settled generations with the exact Atlas ownership metadata and generation-alias format. If inventory is unavailable, it defers retirement and continues the mint/fallback path.
+3. Mints a **LiteLLM virtual key** with a unique `trueforge-<uuid>` alias and marks it `pending`. Previous keys stay valid. Mint failure retains the logged master-key fallback.
+4. Writes one `custom` provider (`atlas-litellm` → `http://litellm:4000/v1`) with the new key and catalog. It checks the provider confirmation before marking the key settled.
 
-   It seeds one `custom` model provider (`atlas-litellm` → `http://litellm:4000/v1`) with that catalog. All enabled Ollama and cloud models arrive through it; **Ollama needs no direct wiring**. Model availability follows the gateway at every restart.
-3. When `MCP_SERVERS_SOURCE=container`, registers the in-stack `atlas-tools` MCP connector (`http://mcp-servers:8000/mcp`, streamable HTTP, no auth on the internal network). Its tools (Supabase Postgres queries, Neo4j graph queries, SearXNG web search) sit behind TrueForge's per-tool-call approvals and `@write`/`@destructive` gating.
+    All enabled Ollama and cloud models arrive through this provider. **Ollama needs no direct wiring**. Model availability follows the gateway at every restart.
 
-   When the family is **disabled**, the pinned v0.2.0 settings API has no DELETE. The init therefore *parks* the connector on an unresolvable RFC 2606 `.invalid` address with a `[disabled by Atlas]` description. Re-enabling restores it without duplicates.
+5. Marks the replacement `confirmed`, then deletes only settled hashes captured before minting. It re-reads inventory to verify their removal. User-owned keys remain untouched.
+6. When `MCP_SERVERS_SOURCE=container`, registers the in-stack `atlas-tools` MCP connector (`http://mcp-servers:8000/mcp`, streamable HTTP, no auth on the internal network). Its tools (Supabase Postgres queries, Neo4j graph queries, SearXNG web search) sit behind TrueForge's per-tool-call approvals and `@write`/`@destructive` gating.
 
-   Saved agents that reference the parked connector still start. Upstream rejects a session only when a referenced connector name is missing from settings (`Unknown MCP server … — not configured`). Calls to the parked tools fail at connect time, after upstream's `MCP_CONNECT_TIMEOUT_MS` (default 30 s).
+    When the family is **disabled**, the pinned v0.2.0 settings API has no DELETE. The init therefore *parks* the connector on an unresolvable RFC 2606 `.invalid` address with a `[disabled by Atlas]` description. Re-enabling restores it without duplicates.
 
-   `atlas-tools` is reserved for Atlas; do not create a connector with that name. Atlas never changes user-created connectors.
+    Saved agents that reference the parked connector still start. Upstream rejects a session only when a referenced connector name is missing from settings (`Unknown MCP server … — not configured`). Calls to the parked tools fail at connect time, after upstream's `MCP_CONNECT_TIMEOUT_MS` (default 30 s).
 
-Settings writes replace by name, so re-runs converge. Each HTTP call has a per-request timeout, and the whole init has a 5-minute budget. A hung peer fails the init with the operation name. SIGTERM aborts in-flight work at once.
+    `atlas-tools` is reserved for Atlas; do not create a connector with that name. Atlas never changes user-created connectors.
+
+A timed-out provider write can still finish on the server. Its key stays pending and remains valid. Legacy alias keys also remain valid. Reconcile these keys only after all earlier provider writes are known to have finished. The initializer never deletes pending or legacy keys automatically.
+
+Successful serialized runs retire settled generation keys. Concurrent successes can leave additional confirmed generations, which a later serialized run retires. Logs report retained-key counts without credential values or hashes.
+
+The pinned [LiteLLM key API](https://github.com/BerriAI/litellm/blob/b36fb1dc191620e8ff2b3a43854c05f5189cd813/litellm/proxy/management_endpoints/key_management_endpoints.py) and [TrueForge provider API](https://github.com/truefoundry/trueforge/blob/8b1d98e/packages/trueforge/src/apis/modelProviders.ts#L101) define the endpoint contracts.
+
+Settings writes replace by name. Each HTTP call has a per-request timeout, and the whole init has a 5-minute budget. A hung peer fails the init with the operation name. SIGTERM aborts in-flight work at once.
 
 ### 4.3. Security posture
 
 - No OIDC (fixed admin identity): the same network-trusted tier as the other Atlas UIs. Two mitigations apply. The Kong route has the dashboard-user basic-auth/ACL guard. The model provider normally holds a scoped LiteLLM virtual key, not raw provider credentials. If key minting fails, init uses the LiteLLM master key until the next start (§4.2). Wire the `OIDC_*` triple to an external IdP before any exposure beyond a trusted host.
-- Skills and sandbox execution are **off**: no skill sources and no sandbox provider are configured (upstream supports Daytona only). TrueForge rejects agent specs that request either at session creation, so the boundary is explicit.
+- Skills and sandbox execution are **off**: no skill sources or sandbox provider are configured. The pinned [settings API](https://github.com/truefoundry/trueforge/blob/8b1d98e4d06a6214d5ea2e977c8d9dae46006c62/packages/trueforge/src/schemas/sandboxProvider.ts#L51) exposes Daytona only. TrueForge rejects agent specs that request either at session creation, so the boundary is explicit.
 
 ### 4.4. Observability
 
@@ -119,8 +129,8 @@ _No high-confidence opportunities identified._
 ## 6. Troubleshooting
 
 - **`trueforge` exits immediately at boot**: the server validates its full env contract at startup and refuses any invalid value. `docker logs ${PROJECT_NAME}-trueforge` names the variable. Usual causes:
-  - an unprovisioned database: check that `supabase-db-init` completed;
-  - an empty `TRUEFORGE_API_KEY`: run `./start.sh` once so the bootstrapper generates it. Do not hand-write `.env` from scratch.
+    - an unprovisioned database: check that `supabase-db-init` completed;
+    - an empty `TRUEFORGE_API_KEY`: run `./start.sh` once so the bootstrapper generates it. Do not hand-write `.env` from scratch.
 - **No models in the UI**: `trueforge-init` seeds the provider from LiteLLM's live catalog; check `docker logs ${PROJECT_NAME}-trueforge-init`. An empty gateway catalog (e.g. `LLM_PROVIDER_SOURCE=none` with no cloud keys) fails the seed on purpose rather than registering a dead provider.
 - **Agent creation rejected with a skills/sandbox error**: expected: Atlas configures neither (§4.3). Remove the skills/sandbox blocks from the agent spec.
 - **Schedules never fire**: the controller is a separate container. Check `docker logs ${PROJECT_NAME}-trueforge-controller`. Check that `TRUEFORGE_API_KEY` is the same for server and controller; it is, unless `.env` was edited by hand.
@@ -135,5 +145,5 @@ Support tier: **experimental** — Capability contract declared for upstream v0.
 | User-composable saved agents over LiteLLM models | supported | documented | trueforge-init seeds a single `custom` model provider pointed at the in-stack LiteLLM gateway. Every enabled Ollama and cloud model is therefore available to agents. Keys never live in agent configs. Live qualification run pending (#1159). |
 | MCP tool calling with per-call human approvals | supported | documented | Remote streamable-HTTP MCP connectors with per-tool-call approvals and @write/@destructive gating. trueforge-init registers the in-stack mcp-servers endpoint when that family is enabled; other connectors are user-added. |
 | Scheduled unattended agent runs | supported | documented | The trueforge-controller container dispatches hourly/daily/weekly schedules through the server API. Raw cron expressions and webhook/event triggers are not part of upstream v0.2. |
-| Git-backed skills and code sandbox execution | not-supported | documented | Atlas configures no skill sources and no sandbox provider (upstream supports Daytona only). TrueForge rejects agent specs that request skills or a sandbox at session creation, so the boundary is explicit rather than silently degraded. |
+| Git-backed skills and code sandbox execution | not-supported | documented | Atlas configures no skill sources or sandbox provider. The pinned settings API exposes Daytona only. TrueForge rejects agent specs that request skills or a sandbox at session creation, so the boundary is explicit rather than silently degraded. |
 | Authenticated multi-user access | not-supported | documented | The OIDC triple is unset, so TrueForge runs with a fixed local admin identity. Anyone who reaches the server or the Kong route is admin, like the other Atlas UIs. The seeded provider normally holds a dedicated LiteLLM virtual key. If key minting fails at init, for example before LiteLLM's database is ready, init uses the LiteLLM master key until the next start. Meanwhile anyone reaching TrueForge holds LiteLLM admin rights. |
