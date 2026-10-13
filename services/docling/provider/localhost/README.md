@@ -104,10 +104,16 @@ containers use that port.
 
 ### 3.1. Input Formats
 
-The provider uses Docling's default converter: PDF, DOCX, PPTX, XLSX, HTML and
+The provider uses Docling's converter: PDF, DOCX, PPTX, XLSX, HTML and
 images (PNG, JPEG, TIFF). Docling does not convert legacy Office files (`.doc`,
 `.xls`, `.ppt`). The Atlas backend sends those to Tika; see the
 [Document Processor README](../../../doc-processor/README.md).
+
+Uploaded Docling JSON retains `data:`, `http:` and `https:` image references.
+Filesystem paths, `file:` URIs and other schemes are ignored before enrichment
+or export, including page images. Embedded images and images from other input
+formats keep their existing handling. The log reports only the discarded
+count. The same rule applies to the GPU provider and LightRAG bundle.
 
 ### 3.2. Output Formats
 - **markdown** - Markdown (default)
