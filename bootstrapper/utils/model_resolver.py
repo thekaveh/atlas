@@ -18,12 +18,12 @@ and single-source-of-truth answers before any container is up.
 
 IMPORTANT DIVERGENCE FROM THE FORMER sync-catalog.py
 ------------------------------------------------------
-When a provider's ``*_USER_MODELS`` is empty, this module ALWAYS falls back to
-the catalog's ``default_active=True`` names. The former ``sync-catalog.py`` instead preserved
-whatever rows were already active in the database on a re-run. That distinction
-is moot here (there is no DB to preserve state) and is correct for bootstrap,
-wizard, and ``.env.example`` generation, but callers must NOT treat
-``active_models()`` as a mirror of a running stack's persisted DB state.
+An empty cloud-provider ``*_USER_MODELS`` falls back to the catalog defaults.
+For Ollama, only a missing ``OLLAMA_USER_MODELS`` key uses those defaults.
+An explicitly empty value preserves the operator's deselection.
+The former ``sync-catalog.py`` preserved active database rows on a re-run.
+There is no database state to preserve here. Callers must not treat
+``active_models()`` as a mirror of a running stack's persisted database state.
 
 ACTIVATION RULES
 ----------------
@@ -32,8 +32,8 @@ These replicate the former ``sync-catalog.py``'s DB-write logic without touching
 Ollama (provider ``'ollama'``):
   1. ``LLM_PROVIDER_SOURCE`` must start with ``'ollama-'`` (i.e. not ``'none'``
      or ``'disabled'``) — otherwise no ollama models are active.
-  2. Base name set = ``OLLAMA_USER_MODELS`` (CSV) if non-empty, else the
-     catalog's ``default_active=True`` ollama names.
+  2. A present ``OLLAMA_USER_MODELS`` key supplies the base CSV set, including
+     an empty set. Only a missing key uses the catalog's default Ollama names.
   3. If ``ollama_tags`` is provided (host-side auto-import), union them in.
   4. Union ``OLLAMA_CUSTOM_MODELS`` (CSV).
   5. Catalog entries whose name is in the set are included (in catalog order).
@@ -306,16 +306,20 @@ def dim_for_model_id(model_id: str | None) -> Optional[int]:
     if not model_id:
         return None
     target = model_id.strip()
-    # Real LITELLM_EMBEDDING_MODEL values are canonical litellm-ids (ollama
-    # prefixed, cloud bare), but tolerate a leading ``<provider>/`` so a
-    # hand-set ``openai/text-embedding-3-large`` still resolves. Model names
-    # never contain ``/`` (ollama uses ``:`` for tags), so the bare tail is safe.
-    bare_target = target.rsplit("/", 1)[-1]
-    for entry in llm_catalog.all_catalog_entries():
+    # Match canonical IDs before provider aliases and legacy bare names.
+    # Preserve complete names so foreign namespaces cannot borrow a dimension.
+    entries = llm_catalog.all_catalog_entries()
+    for entry in entries:
         entry_id = (
             f"ollama/{entry.name}" if entry.provider == "ollama" else entry.name
         )
-        if target == entry_id or bare_target == entry.name:
+        if target == entry_id:
+            return entry.dim
+    for entry in entries:
+        if target == f"{entry.provider}/{entry.name}":
+            return entry.dim
+    for entry in entries:
+        if target == entry.name:
             return entry.dim
     return None
 
@@ -332,11 +336,11 @@ def embedding_dimension_contract(
     """
     catalog_dimension = dim_for_model_id(model)
     if configured_dimension is None:
-        if catalog_dimension is not None:
-            return catalog_dimension
-        raise ValueError(
-            "A custom embedding model must declare LANGMEM_EMBEDDING_DIM explicitly"
-        )
+        if catalog_dimension is None:
+            raise ValueError(
+                "A custom embedding model must declare LANGMEM_EMBEDDING_DIM explicitly"
+            )
+        configured_dimension = catalog_dimension
     try:
         dimension = int(configured_dimension)
     except (TypeError, ValueError) as exc:
