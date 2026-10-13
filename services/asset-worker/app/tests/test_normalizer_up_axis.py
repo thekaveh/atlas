@@ -12,6 +12,8 @@ from __future__ import annotations
 import math
 import struct
 
+import pytest
+
 from asset_worker.models import PostprocessParams, normalization_metadata
 from asset_worker.normalizer import _build_glb, _parse_glb, normalize_glb
 
@@ -202,3 +204,23 @@ def test_normalize_copies_through_dangling_accessor_indices(tmp_path) -> None:
 
     normalize_glb(src, out, PostprocessParams(target_height_m=1.0))
     assert out.read_bytes() == src.read_bytes()
+
+
+@pytest.mark.parametrize("invalid_fields", [
+    {"meshes": [None]},
+    {"meshes": {"mesh": {}}},
+    {"meshes": [{"primitives": [None]}]},
+    {"meshes": [{"primitives": {"primitive": {}}}]},
+    {"meshes": [{"primitives": [{"attributes": [0]}]}]},
+    {"accessors": {"0": {}}},
+    {"bufferViews": {"0": {}}},
+])
+def test_normalize_copies_through_malformed_geometry_metadata(tmp_path, invalid_fields):
+    doc, binary = _parse_glb(_glb_from_positions([(1.0, 2.0, 3.0)]))
+    payload = _build_glb(doc | invalid_fields, binary)
+    src, dst = tmp_path / "input.glb", tmp_path / "output.glb"
+    src.write_bytes(payload)
+
+    normalize_glb(src, dst, PostprocessParams())
+
+    assert dst.read_bytes() == payload
