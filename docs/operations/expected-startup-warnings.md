@@ -1,6 +1,8 @@
 # 7.3. Expected Startup Warnings
 
-In the first minute after `./start.sh`, some warnings and one-shot ERROR lines look serious but are harmless. Each is library noise we cannot suppress without a fork, an intentional secure default, or a one-time startup race. This page lists the ones we investigated and accepted, so operators do not chase them again.
+In the first minute after `./start.sh`, some warnings and one-shot ERROR lines describe expected conditions. They can come from library noise, intentional defaults, or one-time startup races. Some library messages cannot be suppressed without a fork.
+
+Use the rows below to decide whether your deployment needs action, and check service health separately. A listed message does not establish healthy services or production-safe settings. In particular, the wildcard Open WebUI CORS default needs an explicit origin list for production (§1.2).
 
 If you see a warning *not* on this list, that's a real signal — start there.
 
@@ -20,7 +22,9 @@ If you see a warning *not* on this list, that's a real signal — start there.
 | `atlas-jupyterhub` | `WARNING: Use start-notebook.py instead` / `WARNING: container must be started as root to grant sudo permissions!` | Both come from the jupyter/docker-stacks base. We need root for sudo grants to the spawned user notebooks. |
 | `atlas-minio` | `WARNING: Host local has more than 0 drives of set. A host failure will result in data becoming unavailable.` | Single-host dev mode. Production multi-node MinIO would silence this. |
 
-### 1.2. Intentional secure defaults
+<a id="12-intentional-secure-defaults"></a>
+
+### 1.2. Intentional defaults
 
 | Service | Message | Why |
 |---|---|---|
