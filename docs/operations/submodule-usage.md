@@ -248,14 +248,20 @@ Validation checklist before committing a parent consumer update:
 
 #### 4.2.1. Migrating to atlas.consumer.yml
 
-The manifest covers everything this layout does: the force-set
+The manifest covers this layout's project wiring: the force-set
 `PROJECT_NAME`/`BRAND_*` values, the `*_SOURCE` overrides, the
 `services/_user/<name>/compose.yml` overlay, backend plugin mounts and
-`MINIO_EXTRA_CONSUMERS` buckets. After you migrate, delete the symlink,
-`setup-overlay.sh` and `.env.user`. The launcher becomes
-`./infra/start.sh --consumer ./atlas.consumer.yml`; the manifest's
-`project_name` sets `PROJECT_NAME`. For every manifest key, see the
-[Consumer Manifest Reference](../reference/consumer-manifest.md).
+`MINIO_EXTRA_CONSUMERS` buckets. Move these declarations into the manifest
+before removing the symlink and `setup-overlay.sh`.
+
+Keep `.env.user` until you have migrated every needed value. Keep secrets and
+machine-specific values in an untracked overlay or secret store, rather than
+committing them in `env.values`. Declare a parent-owned overlay with `env.file`
+or `ATLAS_ENV_USER_FILE` ([Reusing Atlas §6](reusing-atlas.md#6-customizing-atlas-for-your-project-no-fork-required)).
+
+The launcher becomes `./infra/start.sh --consumer ./atlas.consumer.yml`;
+the manifest's `project_name` sets `PROJECT_NAME`. For every manifest key,
+see the [Consumer Manifest Reference](../reference/consumer-manifest.md).
 
 ### 4.3. Parent .gitignore Configuration
 
@@ -740,7 +746,7 @@ For every service and value, see [Source Configuration](source-configuration.md)
 
 3. **Commit Settings, Not .env**: Commit the non-secret settings in the parent
    repository, not a copy of `infra/.env`. The parent cannot add files inside
-   the submodule, and `infra/.env` holds generated secrets. Put them in the
+   the submodule, and `infra/.env` holds generated secrets. Put those non-secret settings in the
    `env.values` block of `atlas.consumer.yml`
    ([Consumer Manifest Reference §3](../reference/consumer-manifest.md#3-env)),
    which Atlas re-applies on every start.
