@@ -2,7 +2,7 @@
 
 ## 1. Services by Category
 
-The *Support* column is each family's declared support tier (`stable`, `experimental`, `community`, `unsupported`) from its manifest's `support:` block; selectable is not the same as validated, and a family is `stable` only with cited qualification evidence at a release tag.
+The *Support* column comes from each family's manifest `support:` block. Tiers are `stable`, `experimental`, `community` and `unsupported`; selectable is not the same as validated. A family is `stable` only with cited qualification evidence at a release tag.
 
 ### 1.1. agents
 

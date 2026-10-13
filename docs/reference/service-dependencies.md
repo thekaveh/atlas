@@ -2,7 +2,7 @@
 
 ## 1. Generated Dependency Matrix
 
-The start-order column is each manifest's `depends_on.required`: it orders startup and display (some entries only pin a port slot) and is not a list of runtime requirements. Runtime edges are in the Runtime Calls column.
+The start-order column comes from each manifest's `depends_on.required`. It orders startup and display; some entries only pin a port slot. It does not list runtime requirements. Runtime edges are in the Runtime Calls column.
 
 | Service | Start order (depends_on.required) | Optional | Runtime Calls |
 | --- | --- | --- | --- |
