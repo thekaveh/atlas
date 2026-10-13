@@ -224,3 +224,28 @@ def test_normalize_copies_through_malformed_geometry_metadata(tmp_path, invalid_
     normalize_glb(src, dst, PostprocessParams())
 
     assert dst.read_bytes() == payload
+
+
+@pytest.mark.parametrize("group,field", [
+    ("accessors", "count"),
+    ("accessors", "byteOffset"),
+    ("bufferViews", "byteStride"),
+])
+def test_normalize_copies_through_overflowing_numeric_metadata(tmp_path, group, field):
+    import json
+
+    doc, binary = _parse_glb(_glb_from_positions([(1.0, 2.0, 3.0)]))
+    doc[group][0][field] = "overflow-number"
+    # A legal JSON number that overflows the decoder's binary float. glTF's
+    # integer-field validator owns rejection; normalization must not crash.
+    body = json.dumps(doc).replace('"overflow-number"', "1e309").encode()
+    body += b" " * (-len(body) % 4)
+    payload = struct.pack("<III", 0x46546C67, 2, 28 + len(body) + len(binary))
+    payload += struct.pack("<II", len(body), 0x4E4F534A) + body
+    payload += struct.pack("<II", len(binary), 0x004E4942) + binary
+    src, dst = tmp_path / "input.glb", tmp_path / "output.glb"
+    src.write_bytes(payload)
+
+    normalize_glb(src, dst, PostprocessParams())
+
+    assert dst.read_bytes() == payload

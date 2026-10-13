@@ -33,6 +33,22 @@ def _client(api) -> TestClient:
     )
 
 
+@pytest.mark.parametrize("bad_limit", ["invalid", "nan", "inf", "1e309"])
+def test_invalid_upload_limit_does_not_permanently_consume_admission(monkeypatch, bad_limit):
+    from asset_worker import api
+
+    monkeypatch.setenv("ASSET_WORKER_MAX_UPLOAD_MB", bad_limit)
+    app = api.create_app(api_token=_TOKEN)
+    with TestClient(app, raise_server_exceptions=False) as client:
+        responses = [client.post(
+            "/gltf/postprocess", headers={"Authorization": f"Bearer {_TOKEN}"},
+            files={"file": ("input.glb", RAW_GLB, "model/gltf-binary")},
+        ).status_code for _ in range(2)]
+    assert responses == [500, 500]
+    assert app.state.transform_semaphore.acquire(blocking=False)
+    app.state.transform_semaphore.release()
+
+
 def test_health_requires_gltf_transform_binary(monkeypatch) -> None:
     from asset_worker import api
 

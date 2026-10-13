@@ -1970,6 +1970,38 @@ def test_an_unregistered_child_is_terminated_not_orphaned(monkeypatch) -> None:
     assert child.poll() is not None, "child was orphaned"
 
 
+@pytest.mark.skipif(os.name != "posix", reason="POSIX process-group contract")
+def test_unregistered_group_is_reaped_after_its_leader_exits(monkeypatch, tmp_path):
+    real_popen = subprocess.Popen
+    spawned = []
+    pid_file = tmp_path / "unregistered-descendant.pid"
+
+    def tracking_popen(*args, **kwargs):
+        process = real_popen(*args, **kwargs)
+        spawned.append(process)
+        return process
+
+    class InterruptedInsert(dict):
+        def __setitem__(self, key, value):
+            _wait_for_recorded_pid(pid_file)
+            spawned[-1].wait(timeout=3)
+            raise KeyboardInterrupt("interrupted after leader exit")
+
+    leader = "import subprocess,sys; subprocess.Popen([sys.executable,'-c',sys.argv[1]], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)"
+    monkeypatch.setattr(subprocess, "Popen", tracking_popen)
+    monkeypatch.setattr(process_runner, "_ACTIVE_PROCESSES", InterruptedInsert())
+    try:
+        with pytest.raises(KeyboardInterrupt, match="interrupted after leader exit"):
+            process_runner._launch_registered(
+                [sys.executable, "-c", leader, _term_resistant_child(pid_file)],
+                cwd=None, env=None, termination_grace_seconds=0.05,
+            )
+        assert spawned[-1].returncode == 0
+        _assert_recorded_process_stopped(pid_file)
+    finally:
+        _kill_recorded_process(pid_file)
+
+
 def test_the_grace_period_is_a_maximum_not_a_fixed_delay() -> None:
     """`_stop_registered_processes` runs INSIDE the SIGTERM handler.
 
