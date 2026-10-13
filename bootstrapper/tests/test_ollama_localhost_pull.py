@@ -297,6 +297,7 @@ def test_a_stalled_pull_fails_at_the_stall_bound_and_is_retried_once(monkeypatch
     finally:
         released.set()
         server.shutdown()
+        server.server_close()
 
     assert (result.pulled, result.failed, len(attempts)) == (["tiny:1b"], [], 2)
     assert any("retrying once" in line for line in logs)

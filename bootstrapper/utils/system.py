@@ -229,6 +229,14 @@ def run_compose_child(full_cmd: list, cwd: str, sink=None) -> int:
     return _stream_compose_child(full_cmd, cwd, sink)
 
 
+def _emit_compose_output(stream, sink) -> None:
+    try:
+        for line in stream:
+            sink(line.rstrip("\n"))
+    finally:
+        stream.close()
+
+
 def _stream_compose_child(full_cmd: list, cwd: str, sink) -> int:
     """Line by line into ``sink``, bounded: buffered until exit, a stop showed
     nothing until compose ended, and a wedged daemon never ended (cycle 69)."""
@@ -239,7 +247,7 @@ def _stream_compose_child(full_cmd: list, cwd: str, sink) -> int:
         stderr=subprocess.STDOUT, text=True, errors="replace", env=compose_env(full_cmd),
     )
     reader = threading.Thread(
-        target=lambda: [sink(line.rstrip("\n")) for line in process.stdout], daemon=True,
+        target=_emit_compose_output, args=(process.stdout, sink), daemon=True,
     )
     reader.start()
     try:
