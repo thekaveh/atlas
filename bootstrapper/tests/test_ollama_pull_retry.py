@@ -105,3 +105,46 @@ def test_progressing_large_pull_has_no_artificial_wall_clock_cutoff():
     assert '--speed-time "$pull_stall_timeout"' in pull_command
     assert "--speed-limit" in pull_command
     assert "--max-time" not in pull_command
+
+
+@pytest.mark.parametrize("case", [
+    ("", False, 3, True),
+    ('{"status":"pulling manifest"}', False, 3, True),
+    ('{"status":"pulling manifest"}\n{"status":', False, 3, True),
+    ('{"status":"pulling manifest"}\n{"status":"success"', False, 3, True),
+    ('{"status":"success"}', False, 1, False),
+    ('{ "status" : "success" }', False, 1, False),
+    ('{"error":"registry unavailable"}', False, 3, True),
+    ('{"status":"pulling manifest"}', True, 2, False),
+])
+def test_container_pull_requires_completion(tmp_path, monkeypatch, case):
+    body, recovery, expected_attempts, failed = case
+    attempts = tmp_path / "attempts"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    (fake_bin / "sleep").write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    (fake_bin / "curl").write_text(
+        '#!/bin/sh\ncase " $* " in\n'
+        ' *"/api/pull"*)\n'
+        '  printf "attempt\\n" >> "$ATLAS_PULL_TEST_ATTEMPTS"\n'
+        '  if [ "$ATLAS_PULL_TEST_RECOVERY" = 1 ] && '
+        '[ "$(wc -l < "$ATLAS_PULL_TEST_ATTEMPTS")" -gt 1 ]; then\n'
+        '   printf \'{"status":"success"}\\n\'\n'
+        '  else printf "%s\\n" "$ATLAS_PULL_TEST_BODY"; fi ;;\n'
+        ' *) exit 0 ;;\nesac\n', encoding="utf-8",
+    )
+    for executable in fake_bin.iterdir():
+        executable.chmod(0o755)
+    monkeypatch.setenv("ATLAS_PULL_TEST_ATTEMPTS", str(attempts))
+    monkeypatch.setenv("ATLAS_PULL_TEST_RECOVERY", "1" if recovery else "0")
+    monkeypatch.setenv("ATLAS_PULL_TEST_BODY", body)
+    env = {**os.environ, "PATH": f"{fake_bin}:{os.environ['PATH']}",
+           "OLLAMA_HOST_URL": "http://fixture.invalid:11434",
+           "OLLAMA_USER_MODELS": "fixture:1b", "OLLAMA_CUSTOM_MODELS": ""}
+
+    completed = run_with_deadline(["sh", str(PULL_SH)], env=env, timeout_seconds=10)
+
+    assert completed.returncode == 0
+    assert len(attempts.read_text().splitlines()) == expected_attempts
+    assert ("after 3 attempts" in completed.stderr) is failed
+    assert "Finished model pulling process" in completed.stdout
