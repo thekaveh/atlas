@@ -326,3 +326,32 @@ def test_zeppelin_pyspark_env_lock_matches_the_spark_executors(conda_subdir: str
     assert {len(url.rpartition("#")[2]) for url in urls} == {32}
     (python,) = [url for url in urls if "/python-3." in url]
     assert f"/python-{_spark_executor_python_minor()}." in python
+
+
+@pytest.mark.parametrize("method", ["GET", "PUT", "POST"])
+def test_failed_interpreter_reply_does_not_disclose_response_credentials(monkeypatch, method):
+    import io
+
+    seed = _load_seed_module()
+    response = {"status": "ERROR", "body": {"properties": {
+        "spark.hadoop.fs.s3a.secret.key": "owned-test-secret-canary",
+        "default.password": "owned-test-password-canary",
+    }}}
+    monkeypatch.setattr(seed.urllib.request, "urlopen", lambda request, timeout: io.BytesIO(json.dumps(response).encode()))
+    with pytest.raises(RuntimeError) as caught:
+        seed.request_json(method, "http://owned-test.invalid/api/interpreter/setting", {})
+    diagnostic = str(caught.value)
+    assert "owned-test-secret-canary" not in diagnostic
+    assert "owned-test-password-canary" not in diagnostic
+    assert method in diagnostic and "non-OK" in diagnostic
+
+
+def test_successful_interpreter_reply_preserves_properties(monkeypatch):
+    import io
+
+    seed = _load_seed_module()
+    response = {"status": "OK", "body": [{"id": "owned-setting", "properties": {
+        "spark.master": {"value": "spark://spark-master:7077"},
+    }}]}
+    monkeypatch.setattr(seed.urllib.request, "urlopen", lambda request, timeout: io.BytesIO(json.dumps(response).encode()))
+    assert seed.request_json("GET", "http://owned-test.invalid/api/interpreter/setting") == response

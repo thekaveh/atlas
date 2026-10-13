@@ -252,7 +252,7 @@ def request_json(
         body = resp.read().decode("utf-8")
     parsed = json.loads(body)
     if parsed.get("status") != "OK":
-        raise RuntimeError(f"Zeppelin API returned non-OK status for {url}: {parsed}")
+        raise RuntimeError(f"Zeppelin API {method} returned non-OK status for {url}")
     return parsed
 
 
