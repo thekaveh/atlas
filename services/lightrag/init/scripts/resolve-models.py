@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import http.client
 import json
+import math
 import os
 import re
 import shlex
@@ -59,6 +60,15 @@ def fetch_models() -> list[str]:
         return []
 
 
+def _valid_embedding_vector(vector: object) -> bool:
+    if not isinstance(vector, list) or not vector:
+        return False
+    try:
+        return all(type(value) in (int, float) and math.isfinite(value) for value in vector)
+    except OverflowError:
+        return False
+
+
 def probe_embedding_dim(base_url: str, key: str, model: str, timeout: float = 15) -> tuple:
     """Measure ``model``'s embedding dimension through LiteLLM.
 
@@ -95,7 +105,7 @@ def probe_embedding_dim(base_url: str, key: str, model: str, timeout: float = 15
         vector = payload["data"][0]["embedding"]
     except (KeyError, IndexError, TypeError):
         return "unsupported", None
-    return ("supported", len(vector)) if vector else ("unsupported", None)
+    return ("supported", len(vector)) if _valid_embedding_vector(vector) else ("unsupported", None)
 
 
 def resolve_dim(model: str) -> int:
