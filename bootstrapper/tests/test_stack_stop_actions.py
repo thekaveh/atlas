@@ -570,3 +570,35 @@ def test_the_stop_flag_is_set_at_commit_and_the_escape_window_expires(monkeypatc
     clock["t"] += 1
     assert scr.refuse_exit_during_teardown() is False
     assert any("result is unknown" in line for line in logs), logs
+
+@pytest.mark.parametrize("timed_out", [False, True])
+def test_teardown_stream_closes_its_owned_output_pipe(tmp_path, monkeypatch, timed_out):
+    from utils import system
+
+    launched = []
+    real_popen = system.subprocess.Popen
+
+    def record_owned_process(*args, **kwargs):
+        process = real_popen(*args, **kwargs)
+        launched.append(process)
+        return process
+
+    monkeypatch.setattr(system.subprocess, "Popen", record_owned_process)
+    monkeypatch.setattr(system, "SINK_COMPOSE_TIMEOUT_SECONDS", 2)
+    program = "import time; print('owned output', flush=True)"
+    if timed_out:
+        program += "; time.sleep(5)"
+    output = []
+    try:
+        result = system.run_compose_child([sys.executable, "-c", program],
+                                          str(tmp_path), output.append)
+        assert result == (124 if timed_out else 0)
+        if not timed_out:
+            assert output == ["owned output"]
+        else:
+            assert any("did not finish" in line for line in output)
+        assert len(launched) == 1 and launched[0].stdout.closed
+    finally:
+        for process in launched:
+            process.wait(timeout=3)
+            process.stdout.close()
