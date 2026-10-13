@@ -856,13 +856,12 @@ def test_cleanup_probe_failure_does_not_mask_primary_timeout(
 ) -> None:
     module = _module()
     runner = module.CommandRunner(token="9" * 32, timeout=1, scope="probe-error")
-    monkeypatch.setattr(
-        module,
-        "_wait_for_process_group_exit",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            RuntimeError("cleanup probe failed")
-        ),
-    )
+    def failed_probe(process, *_args, **_kwargs):
+        # The injected probe owns this exact child; reap it before failing.
+        process.wait(timeout=3)
+        raise RuntimeError("cleanup probe failed")
+
+    monkeypatch.setattr(module, "_wait_for_process_group_exit", failed_probe)
 
     with pytest.raises(subprocess.TimeoutExpired):
         runner.run([sys.executable, "-c", "import time; time.sleep(60)"])
