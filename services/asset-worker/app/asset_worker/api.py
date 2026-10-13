@@ -108,14 +108,13 @@ def create_app(*, api_token: str | None = None) -> FastAPI:
                     content={"detail": "Asset worker is busy; retry later"},
                 )
             admitted = True
-            if _declared_body_too_large(request):
-                app.state.transform_semaphore.release()
+        try:
+            if admitted and _declared_body_too_large(request):
                 return JSONResponse(
                     status_code=413,
                     content={"detail": f"GLB exceeds {_max_input_bytes()} byte limit"},
                 )
-        work = asyncio.create_task(call_next(request))
-        try:
+            work = asyncio.create_task(call_next(request))
             return await _join_request_task(work)
         finally:
             if admitted:

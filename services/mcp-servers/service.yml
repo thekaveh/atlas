@@ -24,7 +24,7 @@ capabilities:
   - name: "Write and administration prevention"
     status: partial
     verification: tested
-    note: "Atlas ships no dedicated write or administration tool. Accepted CALL db.* procedures run with the Neo4j admin credentials and can cause administration or write side effects. Neo4j loads APOC unrestricted, but the validator admits only argument-free apoc.meta.* calls. Accepted SELECT functions run as the restricted atlas_mcp Postgres login."
+    note: "Atlas ships no dedicated write or administration tool. Accepted `CALL db.*` procedures run with the Neo4j admin credentials and can cause administration or write side effects. Neo4j loads APOC unrestricted, but the validator admits only argument-free `apoc.meta.*` calls. Accepted SELECT functions run as the restricted atlas_mcp Postgres login."
   - name: "Per-consumer MCP authorization"
     status: not-supported
     verification: tested
