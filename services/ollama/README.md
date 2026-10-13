@@ -124,6 +124,7 @@ The **Ollama  ·  additional models to pull** step takes a free-text comma-separ
 
 - Tags already present (per `/api/tags`) are skipped.
 - Missing tags stream through `POST /api/pull`. Ollama verifies layers, so re-runs and interrupted pulls converge.
+- Both sources require an explicit `status: success` response. An empty or unfinished response counts as a failed attempt and follows the source's retry policy.
 - A pull whose stream sends nothing for 300 s fails as stalled. Each failed tag is retried once, then reported as a warning; the stack still starts. A pull that keeps streaming has no total limit.
 - If the daemon is not running (`ollama serve`), the pull is skipped with a warning and runs at the next start.
 

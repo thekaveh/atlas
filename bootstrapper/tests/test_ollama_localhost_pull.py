@@ -13,6 +13,8 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace as NS
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "bootstrapper"))
 
@@ -312,3 +314,63 @@ def test_list_host_tags_treats_a_foreign_json_shape_as_unreachable(monkeypatch):
         monkeypatch.setattr(ol.urllib.request, "urlopen", lambda *a, _p=payload, **k: _FakeResponse(_p))
         result = ol.list_host_tags("http://localhost:11434")
         assert result is None, (body, result)
+
+
+@pytest.mark.parametrize("body,complete", [
+    (b"", False),
+    (b'{"status":"pulling manifest"}\n', False),
+    (b'{"status":"pulling manifest"}\n{"status":', False),
+    (b'{"status":"pulling manifest"}\n{"status":"success"', False),
+    (b'{"status":"success"}\n', True),
+])
+def test_host_pull_requires_a_completion_event(monkeypatch, body, complete):
+    attempts = []
+
+    def respond(request, **_kwargs):
+        attempts.append(json.loads(request.data)["model"])
+        return _FakeResponse(body)
+
+    monkeypatch.setattr(ol, "list_host_tags", lambda *_args: set())
+    monkeypatch.setattr(ol.urllib.request, "urlopen", respond)
+    logs = []
+    result = ol.pull_declared_models({"OLLAMA_USER_MODELS": "fixture:1b"}, log=logs.append)
+
+    assert result.ok is complete
+    assert result.pulled == (["fixture:1b"] if complete else [])
+    assert len(result.failed) == (0 if complete else 1)
+    assert attempts == ["fixture:1b"] * (1 if complete else 2)
+    assert any("✓ fixture:1b pulled" in line for line in logs) is complete
+
+
+def test_host_incomplete_pull_retries_to_success(monkeypatch):
+    bodies = iter([b'{"status":"pulling manifest"}\n', b'{"status":"success"}\n'])
+    attempts = []
+
+    def respond(request, **_kwargs):
+        attempts.append(json.loads(request.data)["model"])
+        return _FakeResponse(next(bodies))
+
+    monkeypatch.setattr(ol, "list_host_tags", lambda *_args: set())
+    monkeypatch.setattr(ol.urllib.request, "urlopen", respond)
+    result = ol.pull_declared_models({"OLLAMA_USER_MODELS": "fixture:1b"})
+
+    assert result.ok and result.pulled == ["fixture:1b"]
+    assert attempts == ["fixture:1b", "fixture:1b"]
+
+
+def test_host_incomplete_pull_keeps_later_models_independent(monkeypatch):
+    attempts = []
+
+    def respond(request, **_kwargs):
+        tag = json.loads(request.data)["model"]
+        attempts.append(tag)
+        return _FakeResponse(b"" if tag == "missing:1b" else b'{"status":"success"}\n')
+
+    monkeypatch.setattr(ol, "list_host_tags", lambda *_args: set())
+    monkeypatch.setattr(ol.urllib.request, "urlopen", respond)
+    result = ol.pull_declared_models({"OLLAMA_USER_MODELS": "missing:1b,good:2b"})
+
+    assert not result.ok and len(result.failed) == 1
+    assert result.failed[0].startswith("missing:1b:")
+    assert result.pulled == ["good:2b"]
+    assert attempts == ["missing:1b", "missing:1b", "good:2b"]
