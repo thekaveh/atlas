@@ -31,7 +31,8 @@ def _git(repo: Path, *args: str) -> str:
 
 
 def _commit(repo: Path, subject: str, body: str = "") -> str:
-    (repo / "f").open("a").write(subject + "\n")
+    with (repo / "f").open("a") as stream:
+        stream.write(subject + "\n")
     _git(repo, "add", "f")
     message = subject if not body else f"{subject}\n\n{body}"
     _git(repo, "commit", "-q", "-m", message)
