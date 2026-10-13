@@ -57,6 +57,8 @@ Inputs (uploaded or MinIO-referenced) must be self-contained binary glTF 2.0 fil
 
 These checks run before any converter. A converter would resolve such a URI against the container filesystem or network and embed what it reads. Asset Baker applies the same rules.
 
+Malformed geometry arrays or object entries reach glTF-Transform's checks and return `422` when those checks reject them.
+
 `POST /gltf/postprocess` accepts `multipart/form-data`:
 
 ```bash
