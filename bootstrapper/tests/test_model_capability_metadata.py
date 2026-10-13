@@ -400,6 +400,41 @@ def test_each_probe_tells_supported_unsupported_and_unavailable_apart(kind, good
         assert probe(lambda _path, _body, r=reply: r, "m") == expected, (kind, reply)
 
 
+@pytest.mark.parametrize("kind", ["tools", "json", "vision"])
+@pytest.mark.parametrize("choices", [{"unexpected": []}, True, 1])
+def test_successful_probe_reply_with_invalid_choices_is_unsupported(kind, choices):
+    import start
+
+    probe = getattr(start, f"probe_{kind}")
+    assert probe(lambda *_a: (200, {"choices": choices}), "m") == "unsupported"
+
+
+@pytest.mark.parametrize("calls", [
+    1,
+    {"function": {"name": "get_utc_time"}},
+    ["unexpected"],
+    [None],
+    [{"function": ["get_utc_time"]}],
+    [{"function": "get_utc_time"}],
+    [{"function": 1}],
+])
+def test_successful_tool_probe_reply_with_invalid_calls_is_unsupported(calls):
+    import start
+
+    payload = {"choices": [{"message": {"tool_calls": calls}}]}
+    assert start.probe_tools(lambda *_a: (200, payload), "m") == "unsupported"
+
+
+def test_tool_probe_accepts_the_offered_call_among_invalid_entries():
+    import start
+
+    payload = {"choices": [{"message": {"tool_calls": [
+        "unexpected", {"function": ["unexpected"]},
+        {"function": {"name": "get_utc_time"}},
+    ]}}]}
+    assert start.probe_tools(lambda *_a: (200, payload), "m") == "supported"
+
+
 def _tool_model() -> str:
     return next(e.name for e in llm_catalog.ollama_entries() if e.capabilities.get("tools"))
 
@@ -454,6 +489,46 @@ def test_the_embedding_probe_is_lightrag_inits_own(monkeypatch):
     assert namespace["resolve_dim"]("some-unlisted-embedder") == 2560  # resolve_dim calls the shared probe
     monkeypatch.setitem(namespace, "probe_embedding_dim", lambda *_a, **_k: ("unavailable", None))
     assert namespace["resolve_dim"]("some-unlisted-embedder") == 768  # lightrag-init's fallback stays
+
+
+@pytest.mark.parametrize("vector", [
+    "encoded-vector", {"dimension": 1}, 1, True,
+    ["1"], [True], [[0.1]], [None],
+    [float("nan")], [float("inf")], [float("-inf")], [10 ** 400],
+])
+def test_embedding_probe_rejects_non_numeric_or_nonfinite_vectors(monkeypatch, vector):
+    import io
+    import start
+
+    probe = start._shared_embedding_probe()
+    raw = json.dumps({"data": [{"embedding": vector}]}).encode()
+    monkeypatch.setattr(probe.__globals__["urllib"].request, "urlopen",
+                        lambda *_a, **_k: io.BytesIO(raw))
+    assert probe("http://owned.invalid/v1", "owned-key", "owned-model") == ("unsupported", None)
+
+
+@pytest.mark.parametrize("vector", [[0.1, -0.2, 0.3], [0, 1, -1], [1e308]])
+def test_embedding_probe_preserves_finite_numeric_dimensions(monkeypatch, vector):
+    import io
+    import start
+
+    probe = start._shared_embedding_probe()
+    raw = json.dumps({"data": [{"embedding": vector}]}).encode()
+    monkeypatch.setattr(probe.__globals__["urllib"].request, "urlopen",
+                        lambda *_a, **_k: io.BytesIO(raw))
+    assert probe("http://owned.invalid/v1", "owned-key", "owned-model") == ("supported", len(vector))
+
+
+def test_lightrag_dimension_resolution_does_not_use_an_encoded_string_length(monkeypatch, capsys):
+    import io
+    import start
+
+    probe = start._shared_embedding_probe()
+    raw = json.dumps({"data": [{"embedding": "encoded-vector"}]}).encode()
+    monkeypatch.setattr(probe.__globals__["urllib"].request, "urlopen",
+                        lambda *_a, **_k: io.BytesIO(raw))
+    assert probe.__globals__["resolve_dim"]("owned-unlisted-model") == 768
+    assert "unsupported" in capsys.readouterr().err
 
 
 def test_probes_are_opt_in_and_capped(tmp_path):

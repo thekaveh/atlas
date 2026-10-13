@@ -8546,6 +8546,8 @@ def _probe_message(post, body: dict):
     if verdict or not isinstance(payload, dict):
         return verdict or PROBE_UNSUPPORTED, {}
     choices = payload.get("choices") or [{}]
+    if not isinstance(choices, list):
+        return PROBE_UNSUPPORTED, {}
     message = choices[0].get("message") if isinstance(choices[0], dict) else None
     return None, message if isinstance(message, dict) else {}
 
@@ -8565,7 +8567,11 @@ def probe_tools(post, model: str) -> str:
         "model": model, "tools": [_UTC_TOOL],
         "messages": [{"role": "user", "content": "What time is it in UTC? Use the get_utc_time tool."}],
     })
-    names = [(call.get("function") or {}).get("name") for call in message.get("tool_calls") or []]
+    calls = message.get("tool_calls") or []
+    if not isinstance(calls, list):
+        return verdict or PROBE_UNSUPPORTED
+    names = [call["function"].get("name") for call in calls
+             if isinstance(call, dict) and isinstance(call.get("function"), dict)]
     return verdict or (PROBE_SUPPORTED if "get_utc_time" in names else PROBE_UNSUPPORTED)
 
 
