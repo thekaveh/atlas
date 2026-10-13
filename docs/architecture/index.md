@@ -10,4 +10,4 @@ The platform's major tiers and runtime call direction, from user entrypoints thr
 
 ## 2. Perspectives
 
-Each split perspective (bootstrapper lifecycle, SOURCE model, tracks, routing, data and RAG flow, LLM providers, and more) has its own page; the [Diagram Catalog](README.md) lists them.
+Each perspective has its own page. Topics include the bootstrapper lifecycle, SOURCE model, tracks, routing, data and RAG flow, and LLM providers. The [Diagram Catalog](README.md) lists these and other perspectives.
