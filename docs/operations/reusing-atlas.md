@@ -139,7 +139,7 @@ brand:
   name: MyProject
   tagline: "MyProject on Atlas"
 env:
-  file: ./atlas.env.user                 # optional flat .env overlay (same syntax as .env: `export KEY=` and a BOM are accepted)
+  # file: ./atlas.env.user               # optional flat .env overlay (same syntax as .env: `export KEY=` and a BOM are accepted)
   values:
     BASE_PORT: auto                      # durable free block — distinct per consumer, stable across restarts
     COMFYUI_SOURCE: auto                 # durable host-adaptive source — MPS on Apple Silicon, container-gpu on NVIDIA, container-cpu elsewhere
@@ -147,13 +147,15 @@ env:
     FAL_SOURCE:                          # key-gated: enabled iff the key is present
       enabled_if_env: FAL_API_KEY
       else: disabled
-compose_overlays:
-  - ./compose/myproject-overlay.yml      # external overlay; no symlink into infra/
-backend_plugins:
-  - ./backend/plugins                    # mounted into the backend plugin seam (step 6)
+# compose_overlays:
+#   - ./compose/myproject-overlay.yml    # external overlay; no symlink into infra/
+# backend_plugins:
+#   - ./backend/plugins                  # mounted into the backend plugin seam (step 6)
 # Optional blocks: storage, litellm_models, n8n_workflows, rag_ingestion_profiles,
 # lightrag_query_profiles, managed_host_services, model_sidecars, custom_nodes, blender_mcp
 ```
+
+The optional path entries above are commented out. Create each `env.file` or `compose_overlays` file, and each `backend_plugins` directory, before enabling its entry.
 
 Unknown top-level keys and reserved names (stack model aliases, built-in buckets, the n8n id `plan`) are rejected. Per-key contract: [Consumer Manifest Reference](../reference/consumer-manifest.md).
 
@@ -173,12 +175,13 @@ cd infra
 ./start.sh env backfill                                  # fill any new .env keys from .env.example
 ./start.sh compose validate                              # assert the merged compose is well-formed
 ./start.sh doctor --format json                          # manifest, base-port, unpullable-model and Redis AOF lints
-./start.sh [--track <k>] [--detach]                      # project, BASE_PORT and sources come from the manifest
+./start.sh --detach                                      # return after health checks; settings come from the manifest
+cd ..                                                   # return to the parent repo for steps 5–7
 ```
 
 `doctor`, `compose validate` and the start read the manifest only when you pass `--consumer` or set `ATLAS_CONSUMER_MANIFEST`. Atlas does not find `atlas.consumer.yml` on its own. A manifest named by `ATLAS_CONSUMER_MANIFEST` is validated before any `.env` write, the same as `--consumer`.
 
-`--detach` exits after the health checks. What each preflight command checks, and its exit codes: [§6.1.4](#614-preflight-and-ci-gates).
+The shown `--detach` command exits after the health checks. Add `--track <key>` to choose a track. Preflight checks and exit codes: [§6.1.4](#614-preflight-and-ci-gates).
 
 **5. Consume endpoints.** Host-side code (a devserver, a desktop app) reads the exported contract. In-container plugins use Compose service DNS directly.
 
