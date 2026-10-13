@@ -21,7 +21,7 @@ capabilities:
   - name: "Git-backed skills and code sandbox execution"
     status: not-supported
     verification: documented
-    note: "Atlas configures no skill sources and no sandbox provider (upstream supports Daytona only). TrueForge rejects agent specs that request skills or a sandbox at session creation, so the boundary is explicit rather than silently degraded."
+    note: "Atlas configures no skill sources or sandbox provider. The pinned settings API exposes Daytona only. TrueForge rejects agent specs that request skills or a sandbox at session creation, so the boundary is explicit rather than silently degraded."
   - name: "Authenticated multi-user access"
     status: not-supported
     verification: documented
