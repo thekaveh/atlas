@@ -55,6 +55,11 @@ shell value is a fallback, then `atlas`. The Spark Connect surface runs inside
 API and runs it with Zeppelin's seeded standalone Spark interpreter at
 `spark://spark-master:7077`.
 
+Each streaming wait uses a 120-second timeout. An unfinished query fails the
+step instead of continuing to result verification. Every exit from the wait
+calls `stop()` on that run's query. Cleanup is a separate Spark call and can
+take longer than the wait.
+
 ## 4. Capabilities Covered
 
 - `MERGE INTO` row-level upsert against an Iceberg format-version 2 table.
@@ -86,5 +91,7 @@ the MinIO warehouse and the Spark image.
 Normal CI stays static and hermetic.
 `bootstrapper/tests/test_iceberg_advanced_smoke_suite.py` checks that the
 script, notebooks, docs, advanced operations, S3A landing and checkpoint paths
-and the no-new-service topology contract are present. An operator runs the live
-smoke explicitly, because it needs the data-eng stack to be up.
+and the no-new-service topology contract are present. It also executes each
+surface's streaming completion code with test doubles to check success,
+timeout, and exception cleanup. An operator runs the live smoke explicitly,
+because it needs the data-eng stack to be up.
