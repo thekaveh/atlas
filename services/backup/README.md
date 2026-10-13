@@ -45,6 +45,7 @@ Runtime image: `${PROJECT_NAME}-backup:local`. Compose builds it from the digest
 - The runner never mounts the live Neo4j or Weaviate data volumes.
 
 Scripts live under `services/backup/init/scripts/`:
+
 - `entrypoint.sh` — verifies the image-baked OpenSSL CLI and the checksum-pinned, image-baked `mc` binary, then execs the requested script (runs for both backup and restore).
 - `database-snapshots.sh` — validates the exact Neo4j 5.26.31 offline dump, drives Weaviate 1.38.17's native filesystem backup API to `SUCCESS`, and emits signed version, checksum and completeness metadata.
 - `backup-all.sh` — one exported repeatable-read Postgres snapshot, database snapshot artifacts, authenticated inventories, and the Supabase Storage archive -> S3 prefix `s3/<bucket>/<timestamp>/`.
