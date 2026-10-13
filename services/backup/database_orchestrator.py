@@ -186,8 +186,10 @@ def _process_start(pid: int) -> str | None:
     proc_stat = Path(f"/proc/{pid}/stat")
     try:
         if proc_stat.is_file():
-            fields = proc_stat.read_text(encoding="utf-8").split()
-            return f"proc:{fields[21]}" if len(fields) > 21 else None
+            # The parenthesized comm field may contain whitespace and ')'.
+            _, closing, tail = proc_stat.read_text(encoding="utf-8").rpartition(")")
+            fields = tail.split() if closing else []
+            return f"proc:{fields[19]}" if len(fields) > 19 else None
         if sys.platform == "darwin":
             class ProcBsdInfo(ctypes.Structure):
                 _fields_ = [
