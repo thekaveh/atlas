@@ -5819,3 +5819,78 @@ def test_init_containers_mount_repo_sources_read_only_and_label_studio_blocks_ss
     assert sorted(set(writable) - pending_review) == [], writable
     label_studio = yaml.safe_load((repo / "services/label-studio/compose.yml").read_text())
     assert label_studio["services"]["label-studio"]["environment"]["SSRF_PROTECTION_ENABLED"] == "true"
+
+
+def _kernel_stat(pid, comm, start):
+    # Fields 3 through 24; comm is field 2 and may contain spaces or ')'.
+    tail = ["S", str(pid), str(pid), str(pid), "0", "-1", "4194304",
+            "0", "0", "0", "0", "0", "0", "0", "0", "20", "0",
+            "1", "0", str(start), "1024", "16"]
+    return f"{pid} ({comm}) " + " ".join(tail) + "\n"
+
+
+def _mock_proc_stat(module, monkeypatch, pid, current):
+    class StatPath:
+        def __init__(self, path):
+            assert path == f"/proc/{pid}/stat"
+
+        def is_file(self):
+            return True
+
+        def read_text(self, **_kwargs):
+            return current[0]
+
+    monkeypatch.setattr(module, "Path", StatPath)
+
+
+@pytest.mark.parametrize("comm", ["python", "atlas backup", "atlas) backup"])
+def test_process_start_uses_kernel_field_after_parenthesized_comm(monkeypatch, comm):
+    module = _database_orchestrator_module()
+    pid = os.getpid()
+    _mock_proc_stat(module, monkeypatch, pid, [_kernel_stat(pid, comm, 123456)])
+    assert module._process_start(pid) == "proc:123456"
+
+
+@pytest.mark.parametrize("raw", ["", "123 (short) S 0", " ".join(["0"] * 24)])
+def test_process_start_rejects_incomplete_kernel_record(monkeypatch, raw):
+    module = _database_orchestrator_module()
+    pid = os.getpid()
+    _mock_proc_stat(module, monkeypatch, pid, [raw])
+    assert module._process_start(pid) is None
+
+
+def test_atomic_lock_stays_active_when_process_comm_changes(tmp_path, monkeypatch):
+    module = _database_orchestrator_module()
+    pid = os.getpid()
+    current = [_kernel_stat(pid, "python", 123456)]
+    _mock_proc_stat(module, monkeypatch, pid, current)
+    lock_path = tmp_path / "restore.lock"
+    first = module.OwnedFileLock(lock_path, token="a" * 32)
+    first.acquire()
+    current[0] = _kernel_stat(pid, "atlas) backup", 123456)
+    second = module.OwnedFileLock(lock_path, token="b" * 32)
+    try:
+        with pytest.raises(module.ContractError, match="active"):
+            second.acquire()
+        assert lock_path.read_text() == first.content
+    finally:
+        second.release()
+        first.release()
+
+
+def test_atomic_lock_reclaims_reused_pid_with_spaced_comm(tmp_path, monkeypatch):
+    module = _database_orchestrator_module()
+    pid = os.getpid()
+    current = [_kernel_stat(pid, "atlas backup", 123456)]
+    _mock_proc_stat(module, monkeypatch, pid, current)
+    lock_path = tmp_path / "restore.lock"
+    first = module.OwnedFileLock(lock_path, token="c" * 32)
+    first.acquire()
+    current[0] = _kernel_stat(pid, "atlas backup", 234567)
+    second = module.OwnedFileLock(lock_path, token="d" * 32)
+    try:
+        second.acquire()
+        assert "start=proc:234567\n" in lock_path.read_text()
+    finally:
+        second.release()
+        first.release()
