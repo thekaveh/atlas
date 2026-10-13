@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import threading
 from typing import Mapping, NamedTuple
+
+
+_LOGGER = logging.getLogger(__name__)
 
 
 _OCR_MODES = {"auto", "always", "never"}
@@ -94,6 +98,44 @@ def build_converter(settings: PipelineSettings):
         return converter
 
 
+def _clear_json_image_references(document) -> int:
+    removed = 0
+    for collection in vars(document).values():
+        if isinstance(collection, dict):
+            holders = collection.values()
+        elif isinstance(collection, list):
+            holders = collection
+        else:
+            continue
+        for holder in holders:
+            image = getattr(holder, "image", None)
+            if image is not None and getattr(image.uri, "scheme", None) not in {
+                "data", "http", "https",
+            }:
+                holder.image = None
+                removed += 1
+    return removed
+
+
+def _json_format_option():
+    from docling.backend.json.docling_json_backend import DoclingJSONBackend
+    from docling.document_converter import FormatOption
+    from docling.pipeline.simple_pipeline import SimplePipeline
+
+    class GuardedJSONBackend(DoclingJSONBackend):
+        def convert(self):
+            document = super().convert()
+            removed = _clear_json_image_references(document)
+            if removed:
+                _LOGGER.warning(
+                    "Discarded unsupported image references from Docling JSON (count=%s)",
+                    removed,
+                )
+            return document
+
+    return FormatOption(pipeline_cls=SimplePipeline, backend=GuardedJSONBackend)
+
+
 def _construct_converter(settings: PipelineSettings):
     from docling.datamodel.base_models import InputFormat
     from docling.datamodel.pipeline_options import (
@@ -117,6 +159,7 @@ def _construct_converter(settings: PipelineSettings):
     return DocumentConverter(
         format_options={
             InputFormat.PDF: PdfFormatOption(pipeline_options=options),
+            InputFormat.JSON_DOCLING: _json_format_option(),
         }
     )
 

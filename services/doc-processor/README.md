@@ -10,7 +10,7 @@ The Document Processor service converts and extracts content from documents. It 
 - **Advanced Processing**: Tables (DocLayNet + TableFormer), formulas, images, code blocks
 - **GPU Acceleration**: NVIDIA GPU acceleration for layout and table models
 - **Multiple Formats**: PDF, DOCX, PPTX, XLSX, HTML and images (§6)
-- **RAG-Ready**: Structure-aware chunking for retrieval-augmented generation
+- **RAG-Ready**: Bounded character chunks for retrieval-augmented generation
 - **Hardened Provider Boundary**: bearer authentication, bounded admission, and finite conversion deadlines
 
 ## 2. Quick Start
@@ -55,8 +55,9 @@ uv run server.py
 For long-lived use, run the provider under a service manager with restart-on-failure (§4.5).
 
 **Note:**
+
 - Document processor is **disabled by default** - you must explicitly enable it
-- First run downloads Docling's layout and table models; allow several minutes
+- First conversion downloads Docling's layout and table models; allow several minutes
 - Later runs reuse the downloaded models
 - Alternative: Edit `.env` and set `DOC_PROCESSOR_SOURCE=docling-localhost` for permanent enable
 
@@ -150,6 +151,13 @@ Atlas generates and preserves the token in `.env`. In shared examples, use a pla
 
 **Admission and deadlines.** Conversion capacity is reserved before multipart parsing, so overload gets `429` before a large body is read. Conversion and lazy model loading share one deadline, `DOCLING_INFERENCE_TIMEOUT_SECONDS` (default 900 s). On timeout the provider returns a generic `504` and exits with status 70, so Docker restarts it. Run a native provider under a service manager (systemd or launchd) with restart-on-failure. A bare `uv run server.py` stays stopped after a fatal timeout.
 
+**JSON image references.** Both providers retain `data:`, `http:` and
+`https:` image references in uploaded Docling JSON. They ignore filesystem
+paths, `file:` URIs and other schemes before enrichment or export, including
+page images. Embedded images and images from other input formats stay
+available. The log reports only the discarded count. This also applies to
+the LightRAG bundle.
+
 **LightRAG adapter.** In-stack LightRAG never receives the Docling token. It calls `docling-lightrag-adapter` on a private network, and the adapter authenticates to Docling. The adapter runs only when `LIGHTRAG_SOURCE=container` and a Docling source is enabled. See [Docling LightRAG Adapter](../docling-lightrag-adapter/README.md).
 
 ## 5. API Reference
@@ -158,9 +166,13 @@ Both providers expose `POST /v1/document/convert` and public `GET /health`; the 
 
 ## 6. Supported Formats
 
-Both providers use Docling's default converter. Documents: PDF, Word (`.docx`), PowerPoint (`.pptx`), Excel (`.xlsx`) and HTML. Images: PNG, JPEG and TIFF.
+Both providers use Docling's converter. Documents: PDF, Word (`.docx`), PowerPoint (`.pptx`), Excel (`.xlsx`) and HTML. Images: PNG, JPEG and TIFF.
 
-Docling does not convert legacy Office (`.doc`, `.xls`, `.ppt`), `.epub`, mail, RTF, OpenDocument or archive files. Backend and Celery send these by file extension or content type straight to [Tika](../tika/README.md); this needs a Tika source. Tika is not a general fallback: other formats need a Docling source and fail when Docling is disabled or the conversion fails.
+Backend `POST /documents/extract` routes legacy Office (`.doc`, `.xls`, `.ppt`), EPUB, mail, RTF, OpenDocument and archives straight to [Tika](../tika/README.md). This needs a Tika source. The routing policy applies even when Docling's registry includes a format, such as EPUB or email. Direct provider requests use the pinned Docling registry.
+
+On that Backend route, Tika is not a general fallback. Other formats need a Docling source and fail when Docling is disabled or conversion fails.
+
+Celery RAG ingestion follows the profile's `parser_order` instead of extension-based routing. It can try Tika after Docling fails.
 
 ## 7. Output Formats
 
@@ -192,7 +204,7 @@ Authorization: Bearer {{$env.DOCLING_API_TOKEN}}
 
 ### 8.3. JupyterHub Notebooks
 
-JupyterHub notebooks call the same `/v1/document/convert` endpoint with `requests`, passing `Authorization: Bearer ${DOCLING_API_TOKEN}` from the server-side notebook environment plus the conversion form fields. Do not print the token or persist it in notebook output.
+To call Docling from a JupyterHub notebook, use `requests` with `/v1/document/convert`. Pass `Authorization: Bearer ${DOCLING_API_TOKEN}` from the server-side environment and supply the conversion form fields. Do not print the token or persist it in notebook output.
 
 ### 8.4. Backend API
 
@@ -200,7 +212,9 @@ The backend's authenticated `POST /documents/extract` sends long-tail formats (�
 
 ## 9. RAG Integration
 
-With `enable_chunking=true` (plus `chunk_size` and `chunk_overlap`), `/v1/document/convert` returns pre-split `chunks`. Each chunk carries `chunk_index`, `page_number`, `section_title` and `chunk_type` metadata. A typical pipeline: convert with chunking → embed each chunk → store in Weaviate → retrieve top-k chunks → pass them to an LLM as context.
+With `enable_chunking=true`, `/v1/document/convert` returns character-based `chunks` using `chunk_size` and `chunk_overlap`. Each chunk has `chunk_index` and `chunk_type=text`. The nullable `page_number` and `section_title` fields are not filled by the current chunker.
+
+A typical pipeline: convert with chunking → embed each chunk → store in Weaviate → retrieve top-k chunks → pass them to an LLM as context.
 
 JupyterHub notebooks receive `DOCLING_ENDPOINT` and `DOCLING_API_TOKEN`; no shipped notebook calls Docling yet.
 
@@ -215,6 +229,7 @@ Runs Docling in Docker container with NVIDIA GPU acceleration.
 **Resources**: NVIDIA driver that supports CUDA 12.6 (the base image is `pytorch/pytorch:2.13.0-cuda12.6-cudnn9-runtime`)
 
 **Advantages**:
+
 - GPU-accelerated layout and table models
 - Isolated environment
 - No local installation needed
@@ -228,6 +243,7 @@ Connects to Docling running on host machine.
 **Setup**: Run the Atlas Docling provider on the host, port 18159 by default (§2.2)
 
 **Advantages**:
+
 - Works on any platform (Mac, Linux, Windows)
 - Can use native GPU drivers
 - Easier debugging
@@ -276,7 +292,7 @@ _No upstream calls._
 
 ### 13.4. Future — Missing pair integrations
 
-- **doc-processor ↔ weaviate** — *Why:* closes the RAG loop — Docling already emits structure-aware chunks; persisting them straight into the stack's vector store removes per-consumer reimplementation. *Mechanism:* post-convert callback writes to `http://weaviate:8080/v1/objects` (upstream ships `rag_weaviate.ipynb` showing the pattern). *Effort:* medium. *Confidence:* high.
+- **doc-processor ↔ weaviate** — *Why:* closes the RAG loop. Atlas emits character-based chunks; direct vector-store persistence would remove per-consumer write logic. *Mechanism:* a proposed post-convert callback writes to `http://weaviate:8080/v1/objects`. Upstream's `rag_weaviate.ipynb` illustrates this pattern. *Effort:* medium. *Confidence:* high.
 - **doc-processor ↔ minio** — *Why:* conversion is slow and the same source is frequently re-requested. Caching `(sha256 → DocTags JSON)` in MinIO removes re-processing cost and gives stable S3 URIs that n8n/backend can reference. *Mechanism:* sidecar writes `s3://docling-cache/<sha>.json` via boto3 on convert; subsequent requests short-circuit. *Effort:* medium. *Confidence:* medium.
 - **doc-processor ↔ n8n** — *Why:* README invites this pattern but no shipped workflow exists. A first-party "PDF → markdown → Weaviate" workflow makes RAG ingest a two-click setup. *Mechanism:* `services/n8n/init/workflows/docling-rag.json` doing HTTP Request → `POST http://docling-gpu:8000/v1/document/convert` → Weaviate node. *Effort:* small. *Confidence:* high.
 - **doc-processor ↔ hermes** — *Why:* Hermes agents lack a "read this document" tool. Docling-MCP exposes convert/extract directly to MCP-capable runtimes. *Mechanism:* run `docling-mcp` as a streamable-HTTP MCP endpoint registered as a Hermes custom provider. *Effort:* medium. *Confidence:* medium.
@@ -290,7 +306,7 @@ _No upstream calls._
 
 - **Audio/ASR pipeline** — *Why pursue:* Docling natively parses WAV/MP3/WebVTT to DoclingDocument with timestamps + sections, more structured than raw STT output. *Effort:* medium.
 - **HybridChunker (tokenizer-aware)** — *Why pursue:* replaces naive `chunk_size`/`chunk_overlap` with embedding-model-aware boundaries, materially improving RAG recall. *Effort:* small.
-- **DocTags lossless output** — *Why pursue:* enables round-trip editing and full-fidelity caching; we currently consume only markdown. *Effort:* small.
+- **DocTags lossless output** — *Why pursue:* build editing and full-fidelity caching around the provider's existing `doctags` output. *Effort:* small.
 - **VLM pipeline (GraniteDocling 258M)** — *Why pursue:* better layout + chart understanding than the default DocLayNet/TableFormer pair, at low VRAM cost. *Effort:* medium.
 - **Structured information extraction (beta)** — *Why pursue:* enables doc → entities/relations without a separate LLM step, feeding the proposed Neo4j integration. *Effort:* large.
 
@@ -298,9 +314,10 @@ _No upstream calls._
 
 ### 14.1. Model Download Fails
 
-**Problem**: First startup fails to download models
+**Problem**: First conversion fails to download models
 
 **Solution**:
+
 1. Check Hugging Face Hub access
 2. Set `HUGGING_FACE_HUB_TOKEN` if needed
 3. Verify free disk space for the Hugging Face model cache
@@ -310,6 +327,7 @@ _No upstream calls._
 **Problem**: Document processing slower than expected
 
 **Solution**:
+
 - **GPU**: Check CUDA drivers (`nvidia-smi`)
 - **GPU**: Use `table_mode=fast` for faster (less accurate) table extraction
 - **Memory**: Ensure sufficient RAM/VRAM available
@@ -319,6 +337,7 @@ _No upstream calls._
 **Problem**: Text not extracted from scanned PDFs
 
 **Solution**:
+
 - Set `use_ocr=always` to force OCR on all documents
 - Check document quality (low-res images may fail)
 - Verify OCR dependencies are installed
@@ -328,6 +347,7 @@ _No upstream calls._
 **Problem**: docling-gpu fails to start
 
 **Solution**:
+
 1. Check logs: `docker logs ${PROJECT_NAME}-docling-gpu`
 2. Verify SOURCE setting matches your hardware
 3. Ensure Docker has sufficient resources allocated
@@ -338,6 +358,7 @@ _No upstream calls._
 **Problem**: "File too large" error
 
 **Solution**:
+
 - Increase `DOCLING_MAX_FILE_SIZE` in `.env`
 - Split large documents into smaller files
 - Compress images in PDF documents
