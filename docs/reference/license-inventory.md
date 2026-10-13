@@ -2,7 +2,11 @@
 
 <!-- Generated from docs/reference/license-inventory.yaml by scripts/docs/canonical_references.py. Edit the YAML, not this page. -->
 
-Atlas is licensed under Apache 2.0, and that grant relicenses none of the container images, dependencies or model weights it pins. This inventory records, for every image Atlas pins and every model weight a catalogue downloads, its license, the notices it requires, and what its terms allow for each way it can be used. It is a review record, not a legal conclusion: an open item is a question nobody has adjudicated, and nothing here is marked compatible by assumption.
+Atlas's Apache 2.0 license applies to its own code. It does not relicense the container images, dependencies or model weights it pins.
+
+This inventory covers every pinned image and every model weight a catalogue downloads. Each row records the license, required notices and terms for the three usage modes below.
+
+Treat this inventory as a review record, not a legal conclusion. An open item names an unanswered question. No row assumes compatibility.
 
 Reviewed 2026-09-29: 85 images and 20 models, 48 of them with at least one open item.
 
@@ -22,7 +26,9 @@ Each artifact is judged in three modes, because many licenses treat them differe
 | conditional | The terms restrict this mode; the license's required notices say how. |
 | unresolved | Not adjudicated; one of the row's open items names the question. |
 
-License links point at the license file in the upstream repository at the exact revision the pinned version was built from, so a change of terms shows up as a different file rather than a silent edit. Redistribution values describe the upstream project's own terms. Shipping an image also ships its operating-system packages; that notice set is open item R-BASE and applies to every image.
+License links identify the upstream files reviewed for each row. Revision-pinned URLs preserve the reviewed copy. Open items record floating license URLs and images whose build revision is unknown. For R-FLOAT, the review uses the upstream default branch or newest matching release on the review date.
+
+Redistribution values describe the upstream project's own terms. Shipping an image also ships its operating-system packages. Their notice set is open item R-BASE, which applies to every image.
 
 ## 2. Open review items
 
@@ -65,7 +71,7 @@ License links point at the license file in the upstream repository at the exact 
 
 ## 4. Container images
 
-One row per image in a service manifest's `images:` list. Locally built images appear as the base image their Dockerfile builds on; what the build installs on top is open items R-PY and R-BUILD. A row overrides its license's mode values only where its own terms differ.
+Each row represents an image in a service manifest's `images:` list. For locally built images, the row lists the Dockerfile's base image. R-PY and R-BUILD cover additions made during the build. A row overrides its license's mode values only where its own terms differ.
 
 | Service · variable | Image | Upstream | License | Hosted use | Source integration | Redistribution | Open items |
 |---|---|---|---|---|---|---|---|
@@ -155,7 +161,7 @@ One row per image in a service manifest's `images:` list. Locally built images a
 
 ### 4.1. Images only a Dockerfile pins
 
-An external image a Dockerfile builds from or copies out of (`FROM`, `COPY --from`, `RUN --mount=from`, resolved through ARG defaults) that no manifest declares, such as a multi-stage build's runtime stage. The container-security scan reads Dockerfiles the same way.
+This table lists external images used by Dockerfiles and not declared in a manifest. It covers `FROM`, `COPY --from` and `RUN --mount=from`, with ARG defaults resolved. A multi-stage build's runtime image is one example. The container-security scan reads Dockerfiles the same way.
 
 | Dockerfile | Image | Upstream | License | Hosted use | Source integration | Redistribution | Open items |
 |---|---|---|---|---|---|---|---|
@@ -164,7 +170,11 @@ An external image a Dockerfile builds from or copies out of (`FROM`, `COPY --fro
 
 ## 5. Model weights
 
-One row per model in `services/comfyui/models.yaml` and `services/ollama/models.yaml`, listing every file the entry downloads. A ComfyUI model's license comes from its catalogue entry's `license_name`, `license_url` and `license_restrictions` fields, which the setup wizard also shows.
+Each row represents a model in `services/comfyui/models.yaml` or `services/ollama/models.yaml`. `Pinned source` shows the first download's revision or floating source. A count identifies any additional files.
+
+For the complete download source list, read the row's `sources` in `docs/reference/license-inventory.yaml`.
+
+For ComfyUI, the license comes from `license_name`, `license_url` and `license_restrictions` in the catalogue entry. The setup wizard shows those fields.
 
 | Catalogue | Model | Pinned source | License | Hosted use | Source integration | Redistribution | Open items |
 |---|---|---|---|---|---|---|---|
@@ -198,6 +208,21 @@ One row per model in `services/comfyui/models.yaml` and `services/ollama/models.
 
 ## 7. Keeping it current
 
-`make docs-check` runs the same check as `python -m scripts.docs.license_inventory --check`, which fails when a manifest image default, a Dockerfile image, or a catalogue model's download URLs or license URL differ from their row, when an artifact has no row, when a license URL is not pinned to a revision, and when an unresolved mode has no open item that concerns it. When a pin moves, read the license at the new revision, update the row's `image` or `sources`, `url`, `notice` and mode values in `docs/reference/license-inventory.yaml`, then regenerate this page with `uv run --project bootstrapper python -m scripts.docs.canonical_references`.
+`make docs-check` includes the check run by `python -m scripts.docs.license_inventory --check`. It fails when:
+
+- A manifest image default or Dockerfile image differs from its row.
+- A model's download URLs or license URL differ from its row.
+- An artifact has no row or has duplicate rows.
+- A license or NOTICE URL lacks a required revision pin.
+- An unresolved mode has no open item about that mode.
+
+Declared exceptions allow floating model sources or license URLs. Each exception must name one of its row's open items.
+
+When a pin changes:
+
+1. Read the license at the new revision.
+2. For image rows, update `image`, `url`, `notice` and mode values in `docs/reference/license-inventory.yaml`.
+3. For model rows, update `sources`, `license_url` and mode values in the same file.
+4. Regenerate this page with `uv run --project bootstrapper python -m scripts.docs.canonical_references`.
 
 Reviewing this inventory is a pre-tag step of every release; see [Releasing](../operations/releasing.md) §3.
