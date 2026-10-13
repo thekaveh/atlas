@@ -154,7 +154,7 @@ def _position_accessors(doc: dict, bin_len: int) -> list[PositionAccessor]:
             offset = int(view.get("byteOffset", 0)) + int(accessor.get("byteOffset", 0))
             stride = int(view.get("byteStride", 12))
             count = int(accessor.get("count", 0))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             continue
         if offset < 0 or stride < 12:
             continue

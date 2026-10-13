@@ -305,7 +305,8 @@ def test_mcp_database_guardrails_disclose_accepted_privileged_side_effects() -> 
         True,
         ("partial", "tested"),
     )
-    _assert_contains(prevention["note"], (
+    # Inline-code formatting does not change the disclosed capability limits.
+    _assert_contains(prevention["note"].replace("`", ""), (
         "no dedicated write or administration tool",
         "SELECT functions",
         "CALL db.* procedures",

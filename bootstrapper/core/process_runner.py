@@ -567,8 +567,8 @@ def _terminate_unregistered(
     """
     try:
         for sig in (signal.SIGTERM, signal.SIGKILL):
-            if process.poll() is not None:
-                return
+            # Leader exit does not prove its process group is empty. Always
+            # send the final SIGKILL, including after a successful wait.
             try:
                 os.killpg(process.pid, sig)
             except OSError:
@@ -578,7 +578,6 @@ def _terminate_unregistered(
                     return
             try:
                 process.wait(timeout=max(0.0, termination_grace_seconds))
-                return
             except (subprocess.TimeoutExpired, OSError):
                 continue
     finally:
