@@ -138,16 +138,16 @@ a log excerpt into one local `.tar.gz` you can attach to an issue. A relative
 - `./start.sh doctor --bundle PATH` runs the checks and writes the bundle.
 - `./start.sh --support-bundle PATH` writes one only if the startup pipeline
   fails:
-  - In the Textual app, that is the launch; the log excerpt is the session log.
-  - Under `--no-tui`, that is the startup steps; the log excerpt is what the run
-    printed. Docker Compose output that goes straight to the terminal is not
-    captured.
-  - A failure before the pipeline starts leaves no bundle. Examples: Docker
-    unavailable, an unsupported Compose version, a failed `--setup-hosts`, a
-    legacy `external` source, an invalid flag. Run
-    `./start.sh doctor --bundle PATH` instead.
-  - Stopping the log stream after a successful start (Ctrl+C) is not a failure
-    and writes nothing.
+    - In the Textual app, that is the launch; the log excerpt is the session log.
+    - Under `--no-tui`, that is the startup steps; the log excerpt is what the run
+      printed. Docker Compose output that goes straight to the terminal is not
+      captured.
+    - A failure before the pipeline starts leaves no bundle. Examples: Docker
+      unavailable, an unsupported Compose version, a failed `--setup-hosts`, a
+      legacy `external` source, an invalid flag. Run
+      `./start.sh doctor --bundle PATH` instead.
+    - Stopping the log stream after a successful start (Ctrl+C) is not a failure
+      and writes nothing.
 
 **Before anything is written**, the contents are shown:
 
@@ -157,12 +157,18 @@ a log excerpt into one local `.tar.gz` you can attach to an issue. A relative
   log excerpt shows its first and last 20 lines, since the pane already holds
   that log. Ctrl+Q waits until the bundle is written.
 
-The file is created owner-only (`0600`). **Nothing is sent anywhere.** While the
-checks run, Python socket connections to anything but loopback or a Unix socket
-are refused. That guard does not cover subprocesses such as
-`docker compose config`. It also means a check that probes a non-local address
-reports that it could not connect, so `doctor --bundle` can differ from plain
-`doctor` there.
+The file is created owner-only (`0600`). **Atlas does not upload the bundle.**
+While checks run, Python socket connections outside loopback or a Unix socket
+are refused in every thread.
+
+A check that exceeds the collection budget is reported as `unavailable`; its
+thread can keep running. The guard stays active until all check threads finish,
+even after collection returns. A check that never finishes keeps the guard
+active for that process.
+
+The guard does not cover subprocesses such as `docker compose config` or DNS
+lookups. A check that probes a non-local address reports that it could not
+connect, so `doctor --bundle` can differ from plain `doctor` there.
 
 **Format.** The archive holds `atlas-support-bundle/bundle.json` (schema
 `atlas-support-bundle/1`), one `atlas-support-bundle/logs/<name>` file per log
@@ -200,7 +206,8 @@ configuration key. It only adds fields, and they are redacted too.
 
 - Each log excerpt keeps its last 256 KiB.
 - Each text field keeps 8,192 characters.
-- All checks together get a 60-second wall-time budget.
+- Collection waits for all checks within one 60-second wall-time budget;
+  it does not terminate a check thread that exceeds the budget.
 - Redaction patterns are length-bounded, so long log lines stay fast.
 
 Each cut is recorded in `truncation`. If `.env` cannot be read, log excerpts are
@@ -219,10 +226,11 @@ every string is scrubbed of:
 - the literal values of secret-named environment keys, from `.env` and from
   the shell environment.
 
-Values made only of lowercase letters, `-` and `_` are not matched by value.
-Those are enum toggles such as `disabled`, and the public `.env.example`
-placeholders. A pattern above still catches them as `KEY=value`, in a URL or
-in a header.
+Values of at most 11 lowercase letters, `-` or `_` are not matched by value.
+This keeps short enum toggles such as `disabled` visible.
+Longer known secret values are scrubbed, including the public `.env.example`
+password placeholders. A pattern above still catches short values as
+`KEY=value`, in a URL or in a header.
 
 A secret in an unusual shape can still get through, and so can one the
 terminal wrapped across lines. Read the preview before you share the file.
