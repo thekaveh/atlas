@@ -20,10 +20,21 @@ setup, configuration and integration.
   or device configuration returns `503 unavailable`; health reports the
   converter only and does not claim lazily loaded model artifacts.
 
+**JSON image references.** Uploaded Docling JSON keeps embedded images. Both
+providers ignore filesystem paths, `file:` URIs and unsupported image schemes
+before enrichment or export. Only `data:`, `http:` and `https:` references
+remain. The log reports their discarded count without exposing paths. Images
+from other input formats keep their existing handling.
+
 **Timeouts and fallback.**
 
 - Backend and Celery extraction wait up to `DOCLING_INFERENCE_TIMEOUT_SECONDS` plus 30 s for Docling. `TIKA_TIMEOUT_SECONDS` does not apply.
-- Long-tail formats go straight to Tika: legacy Office (`.doc`, `.xls`, `.ppt`), `.epub`, mail, RTF, OpenDocument and archives. Atlas's Docling providers answer an unsupported format with 500, not 415.
+- Backend `POST /documents/extract` routes long-tail formats straight to Tika.
+  These include legacy Office (`.doc`, `.xls`, `.ppt`), `.epub`, mail, RTF,
+  OpenDocument and archives. Atlas's Docling providers answer an unsupported
+  format with 500, not 415.
+- Celery RAG ingestion follows the profile's `parser_order`.
+  It can try Tika after Docling fails.
 - Kong cuts `api.localhost` requests at 300 s. The HTTP client gets a 504 while the conversion continues.
 - A Celery RAG ingestion has its own limits, `RAG_INGESTION_TASK_SOFT_TIME_LIMIT_SECONDS` and `RAG_INGESTION_TASK_TIME_LIMIT_SECONDS`. By default they are the larger of 3840 / 3900 s and the global Celery limits.
 
