@@ -1730,11 +1730,14 @@ def test_doctor_bundle_records_checks_that_could_not_run(tmp_path, monkeypatch) 
     assert "Support bundle preview" in result.stderr
 
 
-def _timed_checks(release):
+def _timed_checks(release, workers):
     def _doctor_check_fast(_starter):
         return {"id": "fast", "status": "pass", "message": "ok", "details": {}}
 
     def _doctor_check_hangs(_starter):
+        import threading
+
+        workers.append(threading.current_thread())
         release.wait(5)
         return {"id": "hangs", "status": "pass", "message": "late", "details": {}}
 
@@ -1754,10 +1757,14 @@ def test_support_bundle_caps_logs_and_time_and_says_so(tmp_path) -> None:
     limits = sb.BundleLimits(max_log_bytes=2048, max_seconds=0.3)
     big = "".join(f"line {n:06d} filler filler filler\n" for n in range(20000))
     release = threading.Event()
+    workers = []
     try:
-        results, notes = sb.run_checks(_timed_checks(release), None, limits)
+        results, notes = sb.run_checks(_timed_checks(release, workers), None, limits)
     finally:
         release.set()
+        for worker in workers:
+            worker.join(2)
+    assert not any(worker.is_alive() for worker in workers)
     bundle = sb.build_bundle(sb.BundleRequest(
         env={}, checks=results, notes=notes, limits=limits,
         logs=[sb.LogSource("big.log", text=big)],
@@ -1784,6 +1791,120 @@ def test_support_bundle_caps_logs_and_time_and_says_so(tmp_path) -> None:
         "original_bytes": len(big.encode()), "tail_kept": True,
         "log_note": True, "time_note": True,
     }
+
+
+def _bundle_socket_stand_ins(monkeypatch):
+    """No network call is possible, including when a regression is red."""
+    import socket
+
+    attempts = []
+
+    def connect(_sock, address):
+        attempts.append(address)
+        return 0
+
+    monkeypatch.setattr(socket.socket, "connect", connect)
+    monkeypatch.setattr(socket.socket, "connect_ex", connect)
+    return attempts, connect
+
+
+def _bundle_socket_errno(method):
+    import socket
+
+    try:
+        # A marker instead of a real socket also prevents accidental OS I/O.
+        return getattr(socket.socket, method)(object(), ("192.0.2.1", 12345))
+    except OSError as exc:
+        return exc.errno
+
+
+@pytest.mark.parametrize("method", ["connect", "connect_ex"])
+def test_support_bundle_timed_out_check_keeps_offline_guard(monkeypatch, method):
+    import errno
+    import socket
+    import threading
+
+    sb = _bundle_module()
+    attempts, original = _bundle_socket_stand_ins(monkeypatch)
+    release, entered = threading.Event(), threading.Event()
+    observed, workers = [], []
+
+    def delayed(_argument):
+        workers.append(threading.current_thread())
+        entered.set()
+        release.wait(2)
+        observed.append(_bundle_socket_errno(method))
+        return {"id": "delayed", "status": "pass", "message": "done"}
+
+    try:
+        results, _ = sb.run_checks([delayed], None, sb.BundleLimits(max_seconds=0.1))
+        assert entered.is_set() and results[0]["status"] == "unavailable"
+    finally:
+        release.set()
+        for worker in workers:
+            worker.join(2)
+    assert not any(worker.is_alive() for worker in workers)
+    assert observed == [errno.ENETUNREACH] and attempts == []
+    assert socket.socket.connect is original and socket.socket.connect_ex is original
+
+
+@pytest.mark.parametrize("method", ["connect", "connect_ex"])
+def test_support_bundle_overlapping_offline_contexts_restore_once(monkeypatch, method):
+    import errno
+    import socket
+
+    sb = _bundle_module()
+    attempts, original = _bundle_socket_stand_ins(monkeypatch)
+    first, second = sb.offline(), sb.offline()
+    first.__enter__()
+    second.__enter__()
+    first.__exit__(None, None, None)
+    try:
+        observed = _bundle_socket_errno(method)
+    finally:
+        second.__exit__(None, None, None)
+    assert observed == errno.ENETUNREACH and attempts == []
+    assert socket.socket.connect is original and socket.socket.connect_ex is original
+
+
+def test_support_bundle_offline_restore_preserves_newer_patch(monkeypatch):
+    import socket
+
+    sb = _bundle_module()
+    _bundle_socket_stand_ins(monkeypatch)
+
+    def newer(_sock, _address):
+        return 0
+
+    with sb.offline():
+        monkeypatch.setattr(socket.socket, "connect", newer)
+        monkeypatch.setattr(socket.socket, "connect_ex", newer)
+    assert socket.socket.connect is newer and socket.socket.connect_ex is newer
+
+
+@pytest.mark.parametrize("method", ["connect", "connect_ex"])
+def test_support_bundle_retained_wrapper_releases_finished_guard(monkeypatch, method):
+    import socket
+
+    sb = _bundle_module()
+    attempts, _ = _bundle_socket_stand_ins(monkeypatch)
+    with sb.offline():
+        guarded = getattr(socket.socket, method)
+
+        def newer(sock, address):
+            return guarded(sock, address)
+
+        monkeypatch.setattr(socket.socket, method, newer)
+    assert getattr(socket.socket, method) is newer
+    assert _bundle_socket_errno(method) == 0
+    assert attempts == [("192.0.2.1", 12345)]
+    with sb.offline():
+        import errno
+
+        assert _bundle_socket_errno(method) == errno.ENETUNREACH
+    assert getattr(socket.socket, method) is newer
+    assert _bundle_socket_errno(method) == 0
+    assert attempts == [("192.0.2.1", 12345)] * 2
 
 
 def _outbound_recorder(monkeypatch) -> list:
