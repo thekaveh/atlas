@@ -112,8 +112,15 @@ def create_app(*, api_token: str | None = None) -> FastAPI:
                     status_code=429,
                     content={"detail": "Bake worker is busy; retry later"},
                 )
-        work = asyncio.create_task(call_next(request))
         try:
+            if admitted:
+                try:
+                    _enforce_content_length(request)
+                except HTTPException as exc:
+                    return JSONResponse(
+                        status_code=exc.status_code, content={"detail": exc.detail}
+                    )
+            work = asyncio.create_task(call_next(request))
             return await _join_request_task(work)
         finally:
             if admitted:
@@ -147,7 +154,7 @@ def create_app(*, api_token: str | None = None) -> FastAPI:
         mode: str = Form(default="bake"),
     ) -> BakeResponse:
         _validate_glb_name(file.filename or "")
-        _enforce_content_length(request)  # reject obviously-oversize before buffering
+        _enforce_content_length(request)  # retain the handler's defensive size check
         # Built inside the handler, so FastAPI doesn't validate these Form fields
         # for us — a bad value (e.g. mode outside the Literal, target_tris<=0)
         # would raise ValidationError → 500. Map it to 422 like the body-validated
@@ -381,7 +388,9 @@ def _enforce_content_length(request: Request) -> None:
     raw = request.headers.get("content-length")
     if raw and raw.isdigit():
         max_mb = float(os.getenv("ASSET_BAKER_MAX_UPLOAD_MB", "200"))
-        if int(raw) > (max_mb + 2) * 1024 * 1024:
+        limit = (max_mb + 2) * 1024 * 1024
+        digits = raw.lstrip("0") or "0"
+        if len(digits) > len(str(int(limit))) or int(digits) > limit:
             raise HTTPException(status_code=413, detail=f"Upload exceeds {max_mb:.0f} MiB limit")
 
 

@@ -64,7 +64,7 @@ DOCLING_API_TOKEN=              # Auto-generated Docling bearer; server-side onl
 PARAKEET_API_TOKEN=             # Auto-generated Parakeet bearer; server-side only
 ```
 
-The image is pinned by digest, so builds are reproducible and a base change happens only through a reviewed pin update.
+The base image is pinned by digest, and a base change requires a reviewed pin update. `build/Dockerfile` also installs current system-package updates. Rebuilds can therefore produce different final images.
 
 ### 4.2. Authentication
 
@@ -84,7 +84,7 @@ The notebooks read MinIO bucket names from the `MINIO_BUCKET_*` variables (`MINI
 
 | Notebook | Description |
 |----------|-------------|
-| `00_environment_check.ipynb` | Inspect configured core integrations and run bounded HTTP/database connectivity probes without printing credential-bearing URLs. |
+| `00_environment_check.ipynb` | Inspect configured core integrations and probe connectivity without printing credential-bearing URLs. Timeouts cover HTTP/Redis operations and PostgreSQL/Neo4j connections. |
 | `01_litellm_basics.ipynb` | Chat, streaming and embeddings through the LiteLLM gateway, using `LITELLM_DEFAULT_MODEL` / `LITELLM_EMBEDDING_MODEL`. |
 | `02_langchain_rag.ipynb` | RAG pipeline with Weaviate. With Weaviate disabled it says so and skips the Weaviate cells. |
 | `03_neo4j_graphs.ipynb` | Knowledge graph queries |
@@ -100,6 +100,8 @@ The notebooks read MinIO bucket names from the `MINIO_BUCKET_*` variables (`MINI
 | `13_chonkie_chunking.ipynb` | Compare Chonkie token, recursive, and optional semantic chunking, then call the Backend `/api/chunk` runtime endpoint. |
 | `14_ragas_evaluation.ipynb` | Evaluate RAG answers with Ragas metrics and the Backend `/api/rag/evaluate` runtime endpoint. |
 | `15_mcp_clients.ipynb` | Discovers and invokes Curated MCP tools through FastMCP 3, exercises error handling, and prototypes an in-process tool. The bootstrapper injects `MCP_SERVERS_URL` only when `MCP_SERVERS_SOURCE=container` and leaves it empty when the curated package is disabled. |
+
+Notebook 00 sets HTTP and Redis timeouts and PostgreSQL/Neo4j connection timeouts. These do not impose a deadline on the whole notebook.
 
 Ragas notebook 14 requires `RUN_RAGAS_LIVE=1` for local evaluation or `RUN_BACKEND_RAGAS_LIVE=1` for Backend evaluation. Both paths can consume tokens.
 
@@ -124,6 +126,7 @@ Other clients read injected process variables, so no credentials need hand-assem
 | Other services | `COMFYUI_BASE_URL`, `N8N_BASE_URL`, `SEARXNG_URL`, `BACKEND_API_URL`, `HERMES_ENDPOINT`, `LABEL_STUDIO_URL`, `MCP_SERVERS_URL`, `STT_ENDPOINT`, `TTS_ENDPOINT`, `DOCLING_ENDPOINT` |
 
 Three limits apply:
+
 - DuckDB reads the key and region from the environment, but not the endpoint. Before `read_parquet('s3://…')`, run `CREATE SECRET (TYPE s3, ENDPOINT 'minio:9000', URL_STYLE 'path', USE_SSL false)`. Otherwise DuckDB targets AWS.
 - The JupyterHub MinIO account is read-only on the `lakehouse` bucket by design. Write tables through Spark Connect, not PyIceberg or boto3.
 - `ray.init()` from the notebook kernel fails: the kernel runs Python 3.13 and the Ray image Python 3.10. Submit Ray work through the Ray Jobs REST API instead. The Ray README troubleshooting section has an example.
@@ -215,8 +218,8 @@ VS Code's Jupyter extension can use this container as the **remote kernel** for 
 1. Open any local `.ipynb` in VS Code.
 2. Click the **kernel selector** in the top-right of the notebook. Then choose **"Select Another Kernel"** → **"Existing Jupyter Server"** → **"Enter the URL of the running Jupyter server"**.
 3. Paste one of these URLs, substituting the actual token **and your actual ports**. The ports below are the defaults for `BASE_PORT=63000`. If you launched with `--base-port`, use `JUPYTERHUB_PORT` (direct) and `KONG_HTTP_PORT` (Kong) from `.env`. For example, `--base-port 64000` gives direct port `64094`. `grep -E '^(JUPYTERHUB_PORT|KONG_HTTP_PORT)=' .env` prints both.
-   - Direct port: `http://localhost:${JUPYTERHUB_PORT}/?token=<JUPYTERHUB_TOKEN>` (default `63094`)
-   - Kong-aliased (after `./start.sh --setup-hosts`): `http://jupyter.localhost:${KONG_HTTP_PORT}/?token=<JUPYTERHUB_TOKEN>` (default `63000`)
+    - Direct port: `http://localhost:${JUPYTERHUB_PORT}/?token=<JUPYTERHUB_TOKEN>` (default `63094`)
+    - Kong-aliased (after `./start.sh --setup-hosts`): `http://jupyter.localhost:${KONG_HTTP_PORT}/?token=<JUPYTERHUB_TOKEN>` (default `63000`)
 4. When VS Code prompts to **remember the server**, give it a name (e.g. `atlas`). The server now appears in every future kernel-picker.
 5. VS Code then asks which **kernel** to use on that server. Pick **Python 3 (ipykernel)**, **R**, **Julia 1.12**, **Scala 2.13**, or **Scala 3** depending on the notebook.
 
