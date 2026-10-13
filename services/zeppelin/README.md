@@ -4,9 +4,10 @@ Zeppelin runs as a single container in the stack's `apps` band. The Spark interp
 
 ## 1. Overview
 
-Image: `apache/zeppelin:0.12.1` (Apache 2.0), wrapped by `services/zeppelin/build/Dockerfile` so `/opt/spark` contains the matching Spark 4.1.2 runtime plus S3A and Iceberg lakehouse jars. All interpreters run in-process (no Kubernetes interpreter isolation). The Spark interpreter is the headline.
+Image: `apache/zeppelin:0.12.1` (Apache 2.0), wrapped by `services/zeppelin/build/Dockerfile` so `/opt/spark` contains the matching Spark 4.1.2 runtime plus S3A and Iceberg lakehouse jars. Interpreters run in the Zeppelin container (no Kubernetes interpreter isolation). The Spark interpreter is the headline.
 
 The wrapper also removes the interpreters and plugins that Atlas never configures:
+
 - the Alluxio, BigQuery, Cassandra, Elasticsearch, Neo4j, R and SPARQL interpreters;
 - the Docker and Kubernetes interpreter launchers;
 - the Azure, GCS and S3 notebook repositories.
@@ -25,6 +26,8 @@ The Zeppelin Backend Decision (`docs/strategy/zeppelin-spark-backend-decision.md
 ### 1.2. Zero-touch Spark interpreter seeding
 
 `zeppelin-init` waits for the Zeppelin REST API, updates the stock `spark` interpreter setting, restarts it, and exits. It is idempotent: rerunning it preserves user-owned properties while overwriting Atlas-owned Spark/lakehouse values.
+
+For non-OK JSON replies, init logs the operation and endpoint without printing the response payload.
 
 Seeded values include:
 
@@ -56,7 +59,9 @@ spark.range(5).selectExpr("id * id as sq").show()
 spark.sql("SELECT 1 + 1 AS result").show()
 ```
 
-If both return values, the notebook is talking to the standalone Spark cluster. (The starter notebook `notebooks/spark_basics.zpln` in §5 does the same checks plus an s3a round-trip.)
+If both return values, the notebook is talking to the standalone Spark cluster.
+The starter notebook `notebooks/spark_basics.zpln` checks the Spark version,
+S3A round-trip and JDBC integrations (§5).
 
 With Iceberg REST enabled, a `%spark.sql` cell can validate the lakehouse catalog:
 
@@ -129,6 +134,7 @@ ZEPPELIN_DB_PASSWORD=              # auto-generated
 ## 5. Starter notebook
 
 `services/zeppelin/notebooks/spark_basics.zpln` ships pre-loaded. 5 cells:
+
 1. Spark version check (`spark.version`)
 2. Markdown intro
 3. MinIO round-trip via S3A (`s3a://<MINIO_BUCKET_SPARK_HISTORY>/...`, default `spark-history`)
@@ -193,13 +199,31 @@ _No high-confidence opportunities identified._
 
 - **Spark interpreter says "no master URL"** — the container and the `spark` interpreter must both use `spark://spark-master:7077`. Check the container with `docker exec ${PROJECT_NAME}-zeppelin env | grep SPARK_MASTER`, and check `spark.master` in the interpreter settings. Rerun `./start.sh` to restore both, because `zeppelin-init` re-seeds the interpreter.
 - **First `%spark` cell after stack-up errors with "connection refused"** — Zeppelin waits for `spark-master` to be healthy and `spark-init` to complete. A cold Spark worker or a freshly restarted interpreter can still need a few seconds before it accepts driver and executor traffic. Confirm `spark.master=spark://spark-master:7077` in the `spark` interpreter settings, then re-run the cell once the Spark master UI shows a live worker.
-- **S3A: "Access Denied" on s3a://...** — the generated `MINIO_SPARK_ACCESS_KEY` / `MINIO_SPARK_SECRET_KEY` or scoped policy is missing from the container. `docker exec ${PROJECT_NAME}-zeppelin env | grep -E 'MINIO|SPARK_SUBMIT_OPTIONS'` to confirm. Re-run `./start.sh` to provision the account and refresh the interpreter.
+- **S3A: "Access Denied" on s3a://...** — the scoped `MINIO_SPARK_*` credentials or policy can be missing.
+    Check credential and submit-option presence without printing their values:
+
+    ```bash
+    docker exec ${PROJECT_NAME}-zeppelin sh -c '
+      for name in MINIO_SPARK_ACCESS_KEY MINIO_SPARK_SECRET_KEY SPARK_SUBMIT_OPTIONS; do
+        if printenv "$name" | grep -q .; then
+          printf "%s: configured\n" "$name"
+        else
+          printf "%s: missing\n" "$name"
+        fi
+      done'
+    ```
+
+    Presence alone does not confirm bucket permissions.
+    Re-run `./start.sh` to provision the account and refresh the interpreter.
+
 - **JDBC interpreter "Interpreter not properly configured"** — Zeppelin does not auto-bind the `ZEPPELIN_JDBC_POSTGRES_*` env vars to a JDBC interpreter profile. Walk through §4's one-time UI setup, then restart it (Interpreter → postgres → Restart). Supabase Postgres also must be running (it's a required dep of the stack).
 - **`%trino` is missing or cannot load the driver** — confirm both `ZEPPELIN_SOURCE=container` and `TRINO_SOURCE=container`, then check `docker logs ${PROJECT_NAME}-zeppelin-init`. The init script reports "trino JDBC interpreter created", "configured and restarted" or "already configured". The interpreter dependency must include `io.trino:trino-jdbc:482`.
 - **`%spark.pyspark` fails with `Fail to bootstrap pyspark`** — PySpark 4.1 needs Python 3.10 or newer, and the stock image's own conda envs are 3.7 and 3.9. Check that the `spark` interpreter's `PYSPARK_DRIVER_PYTHON` is `/opt/conda/envs/pyspark/bin/python`; rerunning `./start.sh` re-seeds it.
-  - That env is installed from the explicit conda-forge locks in `build/pyspark-env/` (one per architecture).
-  - To refresh them, solve `python=3.10` against conda-forge with `CONDA_SUBDIR` set to `linux-64` and `linux-aarch64` (`conda create --dry-run --json --override-channels -c conda-forge`). Write each package's URL and md5 under `@EXPLICIT`.
-  - Keep the minor release equal to the Spark image's `python3`.
+
+    - That env is installed from the explicit conda-forge locks in `build/pyspark-env/` (one per architecture).
+    - To refresh them, solve `python=3.10` against conda-forge with `CONDA_SUBDIR` set to `linux-64` and `linux-aarch64` (`conda create --dry-run --json --override-channels -c conda-forge`). Write each package's URL and md5 under `@EXPLICIT`.
+    - Keep the minor release equal to the Spark image's `python3`.
+
 - **"Notebook won't save"** — `/notebook` is bind-mounted from `services/zeppelin/notebooks/`. Confirm `services/zeppelin/notebooks/` exists and is writable by the host user. Zeppelin writes new .zpln files there.
 
 ## 8. Capabilities & limitations
