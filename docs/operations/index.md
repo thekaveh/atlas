@@ -9,7 +9,7 @@ Related operator pages:
 - [SOURCE Configuration](source-configuration.md): the deployment mode of each service.
 - [Ports and Routes](ports-and-routes.md): the port block and the Kong hostnames.
 - [Access and Credentials](access-and-credentials.md): login details and secrets.
-- [Expected Startup Warnings](expected-startup-warnings.md): log lines you can ignore.
+- [Expected Startup Warnings](expected-startup-warnings.md): expected log lines and conditions that need operator action.
 - [Reusing Atlas](reusing-atlas.md) and [Submodule Usage](submodule-usage.md): Atlas inside a parent project.
 - [Troubleshooting](../TROUBLESHOOTING.md): recovery steps for failed starts.
 
