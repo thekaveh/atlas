@@ -174,6 +174,7 @@ def test_hung_litellm_endpoint_fails_naming_the_operation() -> None:
         )
     finally:
         healthy.shutdown()
+        healthy.server_close()
         hang.close()
 
     # The catalog read runs first and its failure is terminal and names the
@@ -378,6 +379,7 @@ def test_enable_disable_enable_converges_without_stale_or_duplicate_connector() 
         assert list(server.connectors).count("atlas-tools") == 1
     finally:
         server.shutdown()
+        server.server_close()
 
 
 def test_user_created_connectors_survive_reconciliation_untouched() -> None:
@@ -396,6 +398,7 @@ def test_user_created_connectors_survive_reconciliation_untouched() -> None:
         assert "atlas-tools" not in server.connectors
     finally:
         server.shutdown()
+        server.server_close()
 
 
 def _rotation_handler(server):
