@@ -336,7 +336,10 @@ def resolve_host_executable(binary: str, workdir: Path | None) -> str | None:
 
 def _linux_process_start_identity(pid: int) -> str | None:
     try:
-        stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+        # Kernel command names are raw bytes; only numeric start ticks matter.
+        stat = Path(f"/proc/{pid}/stat").read_text(
+            encoding="utf-8", errors="replace"
+        )
     except OSError:
         return None
     close = stat.rfind(")")
@@ -466,7 +469,9 @@ def _linux_process_group_members(pgid: int) -> list[Path]:
     members = []
     for process_dir in Path("/proc").glob("[0-9]*"):
         try:
-            stat = process_dir.joinpath("stat").read_text(encoding="utf-8")
+            stat = process_dir.joinpath("stat").read_text(
+                encoding="utf-8", errors="replace"
+            )
             fields = stat.rsplit(")", 1)[1].split()
             if int(fields[2]) == pgid:
                 members.append(process_dir)
