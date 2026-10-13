@@ -403,3 +403,122 @@ def test_blender_mcp_restarts_when_its_port_or_bind_changed(tmp_path, monkeypatc
     monkeypatch.setattr(BlenderMcpManager, "_install_locked", lambda self: None)
     monkeypatch.setattr(BlenderMcpManager, "_start_locked", lambda self, _timeout: "status")
     assert manager.ensure_running() == ("status", restarts)
+
+
+def _kernel_identity_fixture(tmp_path, monkeypatch, name, start_ticks=b"987654"):
+    import services as services_package
+
+    stat = tmp_path / "kernel-stat"
+    stat.write_bytes(
+        b"4242 (" + name + b") "
+        + b" ".join([b"S", *([b"0"] * 18), start_ticks, *([b"0"] * 30)])
+        + b"\n"
+    )
+
+    def proc_path(value):
+        assert str(value) == "/proc/4242/stat"
+        return stat
+
+    monkeypatch.setattr(services_package, "Path", proc_path)
+    monkeypatch.setattr(sys, "platform", "linux")
+    return services_package._linux_process_start_identity
+
+
+@pytest.mark.parametrize(
+    "name",
+    [b"atlas", "atlas-é".encode(), b"atlas\xff", ("a" * 14 + "é").encode()[:15]],
+    ids=["ascii", "complete-unicode", "raw-name-byte", "clipped-unicode"],
+)
+def test_linux_identity_decodes_kernel_name_bytes(tmp_path, monkeypatch, name):
+    probe = _kernel_identity_fixture(tmp_path, monkeypatch, name)
+    assert probe(4242) == "linux-proc-start-v1:987654"
+
+
+@pytest.mark.parametrize(
+    "recorded_ticks, stranger", [("987654", False), ("987655", True)],
+    ids=["same-owner", "reused-pid"],
+)
+def test_linux_ownership_uses_ticks_with_raw_name_bytes(
+    tmp_path, monkeypatch, recorded_ticks, stranger,
+):
+    manager = ManagedHostManager(_spec(), tmp_path / "state")
+    manager.state_dir.mkdir()
+    manager.pid_file.write_text(
+        f"4242\nstart_utc=linux-proc-start-v1:{recorded_ticks}\n", encoding="utf-8"
+    )
+    _kernel_identity_fixture(tmp_path, monkeypatch, b"worker\xff)")
+    assert manager._pid_is_stranger(4242) is stranger
+
+
+@pytest.mark.parametrize("start_ticks", [b"\xff", b"123\xff"])
+def test_linux_identity_keeps_invalid_start_bytes_unknown(
+    tmp_path, monkeypatch, start_ticks,
+):
+    probe = _kernel_identity_fixture(tmp_path, monkeypatch, b"atlas", start_ticks)
+    assert probe(4242) is None
+
+
+def _kernel_group_fixture(tmp_path, monkeypatch, name, group=b"4242"):
+    import services as services_package
+
+    proc = tmp_path / "proc"
+    member = proc / "4242"
+    member.mkdir(parents=True)
+    member.joinpath("stat").write_bytes(
+        b"4242 (" + name + b") "
+        + b" ".join(
+            [b"S", b"1", group, b"4242", *([b"0"] * 15), b"987654", *([b"0"] * 30)]
+        )
+        + b"\n"
+    )
+    member.joinpath("fd").mkdir()
+    member.joinpath("fd", "3").symlink_to("socket:[111]")
+
+    def proc_path(value):
+        assert str(value) == "/proc"
+        return proc
+
+    monkeypatch.setattr(services_package, "Path", proc_path)
+    monkeypatch.setattr(services_package, "_lsof_path", lambda: None)
+    monkeypatch.setattr(
+        services_package, "_linux_listening_socket_inodes", lambda *_args: {"111"}
+    )
+    monkeypatch.setattr(sys, "platform", "linux")
+    return services_package, member
+
+
+@pytest.mark.parametrize(
+    "name",
+    [b"atlas", "atlas-é".encode(), b"worker\xff)", ("a" * 14 + "é").encode()[:15]],
+    ids=["ascii", "complete-unicode", "raw-name-byte", "clipped-unicode"],
+)
+def test_kernel_group_members_include_raw_name_bytes(tmp_path, monkeypatch, name):
+    package, member = _kernel_group_fixture(tmp_path, monkeypatch, name)
+    assert package._linux_process_group_members(4242) == [member]
+
+
+@pytest.mark.parametrize("name", [b"worker\xff)", ("a" * 14 + "é").encode()[:15]])
+@pytest.mark.parametrize(
+    "socket_case", [("111", True), ("222", False)],
+    ids=["owned-socket", "foreign-socket"],
+)
+def test_kernel_group_endpoint_ownership_with_raw_names(
+    tmp_path, monkeypatch, name, socket_case,
+):
+    manager = ManagedHostManager(_spec(), tmp_path / "state")
+    inode, owned = socket_case
+    _package, member = _kernel_group_fixture(tmp_path, monkeypatch, name)
+    fd = member.joinpath("fd", "3")
+    fd.unlink()
+    fd.symlink_to(f"socket:[{inode}]")
+    assert manager._spawned_endpoint_owned(4242) is owned
+
+
+@pytest.mark.parametrize("group", [b"4243", b"42\xff", b"bad"])
+def test_kernel_group_foreign_or_invalid_ids_stay_unowned(
+    tmp_path, monkeypatch, group,
+):
+    manager = ManagedHostManager(_spec(), tmp_path / "state")
+    package, _member = _kernel_group_fixture(tmp_path, monkeypatch, b"worker\xff)", group)
+    assert package._linux_process_group_members(4242) == []
+    assert manager._spawned_endpoint_owned(4242) is False
