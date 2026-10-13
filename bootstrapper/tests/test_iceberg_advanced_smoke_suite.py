@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import ast
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
+import pytest
 import yaml
 
 
@@ -149,3 +152,69 @@ def test_existing_service_topology_remains_unchanged_for_smoke_suite() -> None:
     assert "iceberg-rest" in spark_manifest["depends_on"]["optional"]
     assert "spark" in zeppelin_manifest["depends_on"]["required"]
     assert "spark" in jupyter_manifest["depends_on"]["optional"]
+
+
+def _streaming_completion_source(surface: str) -> str:
+    if surface == "script":
+        return SCRIPT.read_text().split("<<'PY'\n", 1)[1].split("\nPY\n", 1)[0]
+    if surface == "jupyter":
+        notebook = json.loads(JUPYTER_NOTEBOOK.read_text())
+        cells = ["".join(cell.get("source", [])) for cell in notebook["cells"]]
+    else:
+        notebook = json.loads(ZEPPELIN_NOTEBOOK.read_text())
+        cells = [p["text"].split("\n", 1)[-1] for p in notebook["paragraphs"]]
+    return next(cell for cell in cells if "awaitTermination" in cell)
+
+
+def _streaming_completion_tail(source: str) -> ast.Module:
+    body = ast.parse(source).body
+    creation = next(
+        i for i, node in enumerate(body)
+        if isinstance(node, ast.Assign)
+        and any(isinstance(target, ast.Name) and target.id == "query" for target in node.targets)
+    )
+    # Run the real wait and verification after query creation, never the Spark
+    # imports, SQL, table writes, connection setup or later maintenance calls.
+    return ast.Module(body=body[creation + 1:creation + 3], type_ignores=[])
+
+
+class _CompletionQuery:
+    def __init__(self, outcome):
+        self.outcome = outcome
+        self.active = True
+        self.stop_calls = 0
+        self.waits = []
+
+    def awaitTermination(self, seconds):
+        self.waits.append(seconds)
+        if isinstance(self.outcome, Exception):
+            raise self.outcome
+        self.active = not self.outcome
+        return self.outcome
+
+    def stop(self):
+        self.stop_calls += 1
+        self.active = False
+
+
+@pytest.mark.parametrize("surface", ["jupyter", "zeppelin", "script"])
+@pytest.mark.parametrize("outcome", [True, False, RuntimeError("owned query failed")])
+def test_streaming_completion_stops_owned_query_and_rejects_timeout(surface, outcome):
+    query, verified = _CompletionQuery(outcome), []
+
+    def table(name):
+        verified.append(name)
+        return SimpleNamespace(show=lambda **kwargs: None, count=lambda: 2)
+
+    namespace = {"query": query, "spark": SimpleNamespace(table=table),
+                 "stream_table": "owned-test-table"}
+    code = compile(_streaming_completion_tail(_streaming_completion_source(surface)), surface, "exec")
+    if outcome is True:
+        exec(code, namespace)
+        assert len(verified) == 1
+    else:
+        expected = TimeoutError if outcome is False else RuntimeError
+        with pytest.raises(expected):
+            exec(code, namespace)
+        assert verified == []
+    assert query.waits == [120] and query.stop_calls == 1 and not query.active

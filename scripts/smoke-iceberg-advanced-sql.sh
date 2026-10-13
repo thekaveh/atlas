@@ -185,7 +185,11 @@ query = (
     .trigger(availableNow=True)
     .toTable(stream_table)
 )
-query.awaitTermination(120)
+try:
+    if not query.awaitTermination(120):
+        raise TimeoutError("Iceberg streaming query did not finish within 120 seconds")
+finally:
+    query.stop()
 assert spark.table(stream_table).count() >= 2
 
 spark.sql("CALL lakehouse.system.rewrite_data_files(table => 'atlas_smoke.advanced_sql')").collect()
