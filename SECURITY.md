@@ -107,10 +107,13 @@ on their host.
 - setuptools source-distribution exclusion bypass (CVE-2026-59890):
   **remediated**. Shipped compiled graphs and the Docling localhost lock now
   resolve setuptools 83.0.0 or newer.
-- Local Deep Researcher runtime graph: **remediated and audit-clean**. The
-  generated hash-pinned lock enforces patched floors for Click,
-  langchain-classic, LangSmith, and Soup Sieve. The refresh command and
-  byte-equivalence tests prevent those floors from silently regressing.
+- Local Deep Researcher runtime graph: **hash-pinned**. The generated lock
+  enforces reviewed floors for Click, langchain-classic, LangSmith, and Soup
+  Sieve. Refresh and byte-equivalence tests preserve those floors. Hash
+  pinning does not establish current vulnerability status. Run
+  `uv run --project bootstrapper python -m scripts.audit_runtime_locks`
+  before deployment to check for advisories published after the pins were
+  reviewed.
 
 ## 6. Public Edge Requirements
 

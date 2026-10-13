@@ -117,18 +117,26 @@ def _parse_glb(data: bytes) -> tuple[dict, bytearray] | None:
     return doc, bin_chunk
 
 
+def _position_indices(meshes: list) -> set[int]:
+    indices: set[int] = set()
+    for mesh in meshes:
+        primitives = mesh.get("primitives") if isinstance(mesh, dict) else None
+        for primitive in primitives if isinstance(primitives, list) else []:
+            attributes = primitive.get("attributes") if isinstance(primitive, dict) else None
+            index = attributes.get("POSITION") if isinstance(attributes, dict) else None
+            if isinstance(index, int):
+                indices.add(index)
+    return indices
+
+
 def _position_accessors(doc: dict, bin_len: int) -> list[PositionAccessor]:
     result: list[PositionAccessor] = []
     accessors = doc.get("accessors") or []
     buffer_views = doc.get("bufferViews") or []
     meshes = doc.get("meshes") or []
-    used_indices: set[int] = set()
-    for mesh in meshes:
-        for primitive in mesh.get("primitives") or []:
-            position_index = (primitive.get("attributes") or {}).get("POSITION")
-            if isinstance(position_index, int):
-                used_indices.add(position_index)
-    for index in sorted(used_indices):
+    if not all(isinstance(group, list) for group in (accessors, buffer_views, meshes)):
+        return result  # let glTF-Transform validate malformed container shapes
+    for index in sorted(_position_indices(meshes)):
         # Untrusted file: out-of-range or non-object entries are skipped
         # (negative indices would silently wrap), so validate reports them.
         accessor = accessors[index] if 0 <= index < len(accessors) else None

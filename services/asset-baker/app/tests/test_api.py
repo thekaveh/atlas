@@ -381,6 +381,46 @@ def test_content_length_guard_rejects_oversize_before_buffering(monkeypatch):
     api._enforce_content_length(small)  # must not raise
 
 
+def test_declared_oversize_upload_is_rejected_before_multipart_parsing(monkeypatch):
+    from starlette.requests import Request
+
+    from asset_baker import api
+
+    parsed = []
+    original = Request._get_form
+
+    async def track_form(self, *args, **kwargs):
+        parsed.append(True)
+        return await original(self, *args, **kwargs)
+
+    monkeypatch.setenv("ASSET_BAKER_MAX_UPLOAD_MB", "0.5")
+    monkeypatch.setattr(Request, "_get_form", track_form)
+    with _client(api) as client:
+        for _ in range(2):
+            response = client.post(
+                "/assets/bake",
+                files={"file": ("mesh.glb", RAW_GLB, "model/gltf-binary")},
+                headers={"Content-Length": str(4 * 1024 * 1024)},
+            )
+            assert response.status_code == 413
+    assert parsed == []
+
+
+@pytest.mark.parametrize("declared, expected", [
+    pytest.param("0" * 4500 + "1", 422, id="leading-zeros"),
+    pytest.param("9" * 4500, 413, id="oversized-decimal"),
+])
+def test_long_decimal_content_length_preserves_admission(declared, expected):
+    from asset_baker import api
+
+    with _client(api) as client:
+        response = client.post(
+            "/assets/bake", content=b"x", headers={"Content-Length": declared},
+        )
+        assert response.status_code == expected
+        assert client.post("/assets/bake", content=b"x").status_code == 422
+
+
 def test_minio_reference_rejects_oversize_object_before_read(monkeypatch) -> None:
     from asset_baker.storage import ArtifactStorage, ArtifactTooLargeError
 
