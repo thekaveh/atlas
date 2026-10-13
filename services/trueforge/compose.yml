@@ -120,9 +120,9 @@ services:
       TRUEFORGE_URL: http://trueforge:8790
       TRUEFORGE_API_KEY: ${TRUEFORGE_API_KEY}
       LITELLM_BASE_URL: http://litellm:4000
-      # Used once to mint/rotate a dedicated `trueforge` LiteLLM virtual key
-      # (the #1159 Q4 mitigation); the seeded model provider carries that
-      # virtual key, never the master key itself.
+      # Used to mint a dedicated `trueforge-<uuid>` LiteLLM virtual key.
+      # The provider normally carries that key; mint failure retains the
+      # logged master-key fallback. Pending and legacy keys are not revoked.
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
       # 1 when the mcp-servers family is enabled — gates seeding of the
       # in-stack MCP connector.

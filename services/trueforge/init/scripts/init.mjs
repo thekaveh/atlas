@@ -1,14 +1,16 @@
 // trueforge-init — seed TrueForge's live settings from the Atlas stack.
 //
-// Runs on every start (PUT /api/v1/settings/* is replace-by-name, so the
-// whole script is idempotent):
+// Runs on every start (settings replace by name; keys rotate only with
+// confirmed retirement):
 //   1. wait for the server's /healthz,
-//   2. mint a dedicated LiteLLM virtual key (alias `trueforge`) so agent
-//      traffic never carries the master key (#1159 Q4 mitigation),
-//   3. read the gateway's live /v1/models catalog — whatever Ollama and
-//      cloud models are enabled arrive through here, nothing is hardcoded,
+//   2. read the gateway's live /v1/models catalog,
+//   3. capture settled keys and mint a dedicated pending generation,
 //   4. seed one `custom` model provider pointed at LiteLLM,
-//   5. seed the in-stack mcp-servers connector when that family is enabled.
+//   5. confirm the replacement and retire only previously settled keys,
+//   6. seed the in-stack mcp-servers connector when that family is enabled.
+// Agent traffic normally uses the virtual key (#1159 Q4 mitigation); mint
+// failure retains the existing loud master-key fallback. Pending and legacy
+// keys remain valid until an operator reconciles their uncertain history.
 //
 // Skills and sandbox providers are deliberately not seeded (#1159 Q3):
 // TrueForge rejects agent specs that request them at session creation, which
@@ -23,6 +25,8 @@
 // The *_MS constants are deliberately not user-facing env knobs; the env
 // override exists so the bounds tests can exercise tiny budgets.
 
+import { createHash, randomUUID } from "node:crypto";
+
 const TRUEFORGE_URL = process.env.TRUEFORGE_URL || "http://trueforge:8790";
 const TRUEFORGE_API_KEY = process.env.TRUEFORGE_API_KEY || "";
 const LITELLM_BASE_URL = process.env.LITELLM_BASE_URL || "http://litellm:4000";
@@ -30,6 +34,7 @@ const LITELLM_MASTER_KEY = process.env.LITELLM_MASTER_KEY || "";
 const MCP_SERVERS_ENABLED = (process.env.MCP_SERVERS_SCALE || "0") === "1";
 
 const VIRTUAL_KEY_ALIAS = "trueforge";
+const GENERATION_ALIAS = /^trueforge-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const PROVIDER_NAME = "atlas-litellm";
 const MCP_CONNECTOR_NAME = "atlas-tools";
 
@@ -38,7 +43,7 @@ const positiveMs = (raw, fallback) => {
   return Number.isFinite(value) && value > 0 ? value : fallback;
 };
 // Total bootstrap budget: generously above the worst honest path (healthz
-// wait through first-boot migrations + four short API calls), far below
+// wait through first-boot migrations + bounded settings/key reconciliation), far below
 // "runs forever".
 const TOTAL_BUDGET_MS = positiveMs(process.env.TRUEFORGE_INIT_TOTAL_BUDGET_MS, 300_000);
 const REQUEST_TIMEOUT_MS = positiveMs(process.env.TRUEFORGE_INIT_REQUEST_TIMEOUT_MS, 15_000);
@@ -135,31 +140,73 @@ function litellm(operation, path, body) {
   });
 }
 
-// Mint (or rotate) the dedicated virtual key. Virtual keys are not readable
-// back in plaintext, so idempotency is delete-alias-then-generate; the fresh
-// key immediately replaces the stored provider credential below. Credential
-// writes are never retried within a run (#1173): a timed-out /key/generate
-// has an uncertain outcome, and retrying could mint duplicates — the
-// alias-scoped delete on the NEXT start reconciles any orphan, so this run
-// falls back to the master key with a loud warning instead.
-async function mintVirtualKey() {
-  try {
-    await litellm("litellm key delete", "/key/delete", { key_aliases: [VIRTUAL_KEY_ALIAS] });
-  } catch (err) {
-    if (shutdown.signal.aborted) throw err;
-    // best-effort: alias may not exist yet, or an older LiteLLM may not
-    // support alias-addressed deletes — /key/generate below is the arbiter
+const ownership = (state) => ({
+  service: "trueforge", managed_by: "trueforge-init", rotation_state: state,
+});
+
+function keyMetadata(row) {
+  if (typeof row?.metadata !== "string") return row?.metadata;
+  try { return JSON.parse(row.metadata); } catch { return null; }
+}
+
+function isManagedKey(row) {
+  const metadata = keyMetadata(row);
+  return metadata?.service === "trueforge" && metadata?.managed_by === "trueforge-init"
+    && (row.key_alias === VIRTUAL_KEY_ALIAS || GENERATION_ALIAS.test(row.key_alias))
+    && typeof row.token === "string" && /^[0-9a-f]{64}$/.test(row.token);
+}
+
+async function responseJson(res, operation) {
+  try { return await res.json(); } catch {
+    // JSON parser messages can include fragments of credential-bearing bodies.
+    throw new BootstrapError(operation, new Error("invalid JSON response"));
   }
+}
+
+async function readManagedKeys() {
+  const operation = "litellm key inventory read";
+  const rows = new Map();
+  for (let page = 1; ; page++) {
+    const res = await litellm(operation, `/key/list?page=${page}&size=100&return_full_object=true&key_alias=${VIRTUAL_KEY_ALIAS}`);
+    if (!res.ok) throw new BootstrapError(operation, new Error(`answered ${res.status}`));
+    const body = await responseJson(res, operation);
+    if (!Array.isArray(body?.keys) || body.keys.length > 100) {
+      throw new BootstrapError(operation, new Error("invalid key inventory"));
+    }
+    for (const row of body.keys) if (isManagedKey(row)) rows.set(row.token, row);
+    if (body.keys.length < 100) return [...rows.values()];
+  }
+}
+
+async function captureSettledKeys() {
+  try {
+    const hashes = (await readManagedKeys()).filter((row) => GENERATION_ALIAS.test(row.key_alias)
+      && keyMetadata(row)?.rotation_state === "confirmed").map((row) => row.token);
+    return { hashes, available: true };
+  } catch (err) {
+    if (shutdown.signal.aborted || remainingBudgetMs() <= 0) throw err;
+    // Preserve mint/master fallback when the key-management database is down.
+    // An unavailable inventory never supplies any retirement authority.
+    console.warn("trueforge-init: WARNING key inventory unavailable; settled-key retirement deferred");
+    return { hashes: [], available: false };
+  }
+}
+
+// A candidate starts pending. Only this run may confirm it, after its sole
+// provider PUT definitely succeeds. Never revoke a pending or legacy key:
+// an earlier timed-out server PUT can still install that credential later.
+async function mintVirtualKey() {
+  const alias = `${VIRTUAL_KEY_ALIAS}-${randomUUID()}`;
   try {
     const res = await litellm("litellm key generate", "/key/generate", {
-      key_alias: VIRTUAL_KEY_ALIAS,
-      metadata: { service: "trueforge", managed_by: "trueforge-init" },
+      key_alias: alias,
+      metadata: ownership("pending"),
     });
     if (res.ok) {
-      const data = await res.json();
-      if (data.key) {
-        console.log(`trueforge-init: minted LiteLLM virtual key (alias ${VIRTUAL_KEY_ALIAS})`);
-        return data.key;
+      const data = await responseJson(res, "litellm key generate");
+      if (typeof data?.key === "string" && data.key.length > 0) {
+        console.log(`trueforge-init: minted LiteLLM virtual key (alias ${alias})`);
+        return { key: data.key, hash: createHash("sha256").update(data.key).digest("hex") };
       }
     }
     console.warn(`trueforge-init: WARNING /key/generate answered ${res.status}; falling back to the master key`);
@@ -167,7 +214,37 @@ async function mintVirtualKey() {
     if (shutdown.signal.aborted) throw err;
     console.warn(`trueforge-init: WARNING ${err.operation || "key mint"} failed (${err.message}); falling back to the master key`);
   }
-  return LITELLM_MASTER_KEY;
+  return { key: LITELLM_MASTER_KEY, hash: null };
+}
+
+async function confirmVirtualKey(hash) {
+  const operation = "litellm key confirmation";
+  const res = await litellm(operation, "/key/update", { key: hash, metadata: ownership("confirmed") });
+  if (!res.ok) throw new BootstrapError(operation, new Error(`answered ${res.status}`));
+  const body = await responseJson(res, operation);
+  if (body?.key !== hash || body?.token !== hash || !isManagedKey(body)
+      || keyMetadata(body)?.rotation_state !== "confirmed") {
+    throw new BootstrapError(operation, new Error("invalid key confirmation"));
+  }
+}
+
+async function retireSettledKeys(hashes) {
+  const operation = "litellm settled key retirement";
+  if (hashes.length) {
+    const res = await litellm(operation, "/key/delete", { keys: hashes });
+    // A different successful run can already have retired these exact hashes.
+    if (!res.ok && res.status !== 404) throw new BootstrapError(operation, new Error(`answered ${res.status}`));
+  }
+  const remaining = await readManagedKeys();
+  if (remaining.some((row) => hashes.includes(row.token))) {
+    throw new BootstrapError(operation, new Error("captured settled keys remain"));
+  }
+  console.log(`trueforge-init: retired ${hashes.length} settled LiteLLM virtual key(s)`);
+  const protectedCount = remaining.filter((row) => !GENERATION_ALIAS.test(row.key_alias)
+    || keyMetadata(row)?.rotation_state !== "confirmed").length;
+  if (protectedCount) {
+    console.warn(`trueforge-init: WARNING retained ${protectedCount} pending or legacy virtual key(s); operator reconciliation required`);
+  }
 }
 
 async function fetchModelIds() {
@@ -175,7 +252,7 @@ async function fetchModelIds() {
   if (!res.ok) {
     throw new BootstrapError("litellm model catalog read", new Error(`answered ${res.status}`));
   }
-  const data = await res.json();
+  const data = await responseJson(res, "litellm model catalog read");
   const ids = (data.data || []).map((m) => m.id).filter(Boolean);
   if (ids.length === 0) {
     throw new BootstrapError(
@@ -220,7 +297,7 @@ async function settingsRequest(operation, path, init = {}) {
   return res;
 }
 
-async function putSettings(section, manifest) {
+async function putSettings(section, manifest, confirmProvider = false) {
   const operation = `settings ${section} write`;
   const res = await settingsRequest(operation, `/api/v1/settings/${section}`, {
     method: "PUT",
@@ -231,7 +308,30 @@ async function putSettings(section, manifest) {
     // Status code only — response bodies of failed writes stay out of logs.
     throw new BootstrapError(operation, new Error(`answered ${res.status}`));
   }
+  if (confirmProvider) {
+    // The pinned handler returns 200 after commit. A queued 202 is not proof
+    // that this key's sole provider write has finished and is safe to settle.
+    if (res.status !== 200) {
+      throw new BootstrapError(operation, new Error(`unconfirmed status ${res.status}`));
+    }
+    const body = await responseJson(res, operation);
+    if (!validProviderConfirmation(body?.data, manifest)) {
+      throw new BootstrapError(operation, new Error("invalid provider confirmation"));
+    }
+  }
   console.log(`trueforge-init: seeded settings/${section} (${manifest.name})`);
+}
+
+function validProviderConfirmation(data, manifest) {
+  const key = manifest.auth.api_key;
+  const mask = key.length >= 10 ? `${key.slice(0, 3)}-***REDACTED***-${key.slice(-3)}` : "***REDACTED***";
+  const current = data?.manifest;
+  return data?.name === manifest.name && current?.name === manifest.name
+    && current?.type === "custom" && current?.base_url === manifest.base_url
+    && current?.auth?.api_key === mask && Array.isArray(current?.models)
+    && current.models.length === manifest.models.length
+    && current.models.every((model, index) => model?.model_id === manifest.models[index].model_id
+      && model?.name === manifest.models[index].name);
 }
 
 // The pinned v0.2.0 settings API has no DELETE and no enabled flag for MCP
@@ -260,7 +360,7 @@ async function reconcileDisabledMcpConnector() {
   if (!res.ok) {
     throw new BootstrapError(operation, new Error(`answered ${res.status}`));
   }
-  const body = await res.json();
+  const body = await responseJson(res, operation);
   const current = body?.data?.manifest;
   if (current?.url === DISABLED_CONNECTOR_URL) {
     console.log("trueforge-init: mcp-servers family disabled — managed connector already parked");
@@ -279,19 +379,27 @@ async function reconcileDisabledMcpConnector() {
 async function main() {
   await waitForHealthz();
 
-  // Read the catalog first: minting deletes the stored provider's key, and a
-  // catalog failure after that left TrueForge holding a deleted key (401 on
-  // every agent call) until a later init succeeded.
+  // Freeze retirement eligibility before minting. A confirmed generation's
+  // only provider PUT already completed, so it cannot be installed by an
+  // outstanding write after this run's later successful PUT. Pagination can
+  // omit concurrent rows; it must never expand this set after minting.
   const modelIds = await fetchModelIds();
-  const apiKey = await mintVirtualKey();
+  const settled = await captureSettledKeys();
+  const candidate = await mintVirtualKey();
   const taken = new Set();
   await putSettings("model-providers", {
     type: "custom",
     name: PROVIDER_NAME,
     base_url: `${LITELLM_BASE_URL}/v1`,
-    auth: { api_key: apiKey },
+    auth: { api_key: candidate.key },
     models: modelIds.map((id) => ({ model_id: id, name: resourceName(id, taken), properties: {} })),
-  });
+  }, true);
+  if (candidate.hash) {
+    await confirmVirtualKey(candidate.hash);
+    if (settled.available) {
+      await retireSettledKeys(settled.hashes.filter((hash) => hash !== candidate.hash));
+    }
+  }
   console.log(`trueforge-init: provider ${PROVIDER_NAME} carries ${modelIds.length} gateway model(s)`);
 
   if (MCP_SERVERS_ENABLED) {
