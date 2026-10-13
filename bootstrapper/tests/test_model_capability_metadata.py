@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import jsonschema
 import pytest
@@ -583,3 +584,120 @@ def test_an_unavailable_refresh_keeps_the_real_verdict(tmp_path, monkeypatch, ca
     start.report_capability_probes(tmp_path, [alias], [])
     out = capsys.readouterr().out
     assert "embedding: unsupported" in out and "dimensions" not in out
+
+
+@pytest.mark.parametrize("dimension", [1, 4000, 4001, 65536])
+@pytest.mark.parametrize("action", ["selection", "repair"])
+def test_catalog_memory_dimension_is_validated_before_env_write(
+    tmp_path, monkeypatch, dimension, action
+):
+    import start
+    from utils.model_resolver import MAX_PGVECTOR_DIMENSION
+
+    payload = {"embeddings": [{
+        "name": "owned-dimension-fixture", "metadata_version": 1,
+        "kind": "embedding", "adapter": "ollama", "dim": dimension,
+    }]}
+    # Catalogs can describe wider models for other consumers; the selected
+    # memory contract must enforce its own bound before touching .env.
+    jsonschema.validate(payload, SCHEMA)
+    entries = _load_flat_catalog(tmp_path, payload)
+    monkeypatch.setattr(llm_catalog, "all_catalog_entries", lambda: entries)
+    writes = []
+    starter = start.AtlasStarter.__new__(start.AtlasStarter)
+    starter.config_parser = SimpleNamespace(parse_env_file=lambda: {})
+    starter.source_override_manager = SimpleNamespace(
+        update_env_file=lambda values: writes.append(dict(values)) or True
+    )
+    selections = {"LITELLM_EMBEDDING_MODEL": "ollama/owned-dimension-fixture"}
+    if action == "selection":
+        apply = lambda: starter.apply_user_model_selections(selections)
+        expected_write = {**selections, "LANGMEM_EMBEDDING_DIM": str(dimension)}
+    else:
+        apply = lambda: starter._repair_catalog_embedding_dim(
+            {**selections, "LANGMEM_EMBEDDING_DIM": "768"}
+        )
+        expected_write = {"LANGMEM_EMBEDDING_DIM": str(dimension)}
+
+    if dimension <= MAX_PGVECTOR_DIMENSION:
+        assert apply()
+        assert writes == [expected_write]
+    else:
+        with pytest.raises(ValueError, match="LANGMEM_EMBEDDING_DIM"):
+            apply()
+        assert writes == []
+    assert selections == {"LITELLM_EMBEDDING_MODEL": "ollama/owned-dimension-fixture"}
+
+
+@pytest.fixture
+def namespaced_dimension_catalog(tmp_path, monkeypatch):
+    flat = {"embeddings": [
+        {"name": "shared-embed", "metadata_version": 1,
+         "kind": "embedding", "adapter": "ollama", "dim": 768},
+        {"name": "standalone-embed", "metadata_version": 1,
+         "kind": "embedding", "adapter": "ollama", "dim": 768},
+        {"name": "openai/cloud-embed", "metadata_version": 1,
+         "kind": "embedding", "adapter": "ollama", "dim": 4000},
+    ]}
+    cloud = {
+        "openai": {"embeddings": [
+            {"name": "cloud-embed", "metadata_version": 1,
+             "kind": "embedding", "adapter": "openai", "dim": 1536},
+            {"name": "shared-embed", "metadata_version": 1,
+             "kind": "embedding", "adapter": "openai", "dim": 1024},
+        ]},
+        "openrouter": {"embeddings": [{
+            "name": "openrouter/vendor/cloud-embed", "metadata_version": 1,
+            "kind": "embedding", "adapter": "openrouter", "dim": 2048,
+        }]},
+    }
+    jsonschema.validate(flat, SCHEMA)
+    jsonschema.validate(cloud, SCHEMA)
+    entries = _load_flat_catalog(tmp_path, flat) + _load_cloud_catalog(tmp_path, cloud)
+    monkeypatch.setattr(llm_catalog, "all_catalog_entries", lambda: entries)
+
+
+@pytest.mark.parametrize("model,expected", [
+    ("standalone-embed", 768),
+    ("shared-embed", 1024),
+    ("ollama/shared-embed", 768),
+    ("cloud-embed", 1536),
+    ("openai/cloud-embed", 1536),
+    ("openai/shared-embed", 1024),
+    ("ollama/openai/cloud-embed", 4000),
+    ("openrouter/vendor/cloud-embed", 2048),
+    ("custom/shared-embed", None),
+    ("openai/standalone-embed", None),
+    ("ollama/cloud-embed", None),
+    ("other/openrouter/vendor/cloud-embed", None),
+])
+def test_dimension_lookup_preserves_full_model_identity(
+    namespaced_dimension_catalog, model, expected
+):
+    from utils.model_resolver import dim_for_model_id
+
+    assert dim_for_model_id(model) == expected
+
+
+@pytest.mark.parametrize("action", ["selection", "repair"])
+def test_custom_model_dimension_is_not_replaced_by_a_catalog_suffix(
+    namespaced_dimension_catalog, action
+):
+    import start
+
+    model = "custom/shared-embed"
+    values = {"LITELLM_EMBEDDING_MODEL": model, "LANGMEM_EMBEDDING_DIM": "2048"}
+    writes = []
+    starter = start.AtlasStarter.__new__(start.AtlasStarter)
+    starter.config_parser = SimpleNamespace(parse_env_file=lambda: {})
+    starter.source_override_manager = SimpleNamespace(
+        update_env_file=lambda updates: writes.append(dict(updates)) or True
+    )
+
+    if action == "selection":
+        assert starter.apply_user_model_selections(values)
+        assert writes == [values]
+    else:
+        assert starter._repair_catalog_embedding_dim(values)
+        assert writes == []
+    assert values == {"LITELLM_EMBEDDING_MODEL": model, "LANGMEM_EMBEDDING_DIM": "2048"}
