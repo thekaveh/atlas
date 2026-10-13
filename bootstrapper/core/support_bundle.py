@@ -249,33 +249,67 @@ def _is_local_address(address: Any) -> bool:
     return parsed.is_loopback or bool(mapped and mapped.is_loopback)
 
 
-@contextmanager
-def offline() -> Iterator[None]:
-    """Refuse Python socket connections that would leave this machine.
+_OFFLINE_LOCK = threading.RLock()
+_OFFLINE_USERS = 0
+_OFFLINE_METHODS: tuple[tuple[str, Callable, Callable], ...] = ()
+_OFFLINE_ACTIVE: threading.Event | None = None
 
-    Loopback and Unix sockets stay usable, so checks that read a local
-    daemon still run; anything else fails and the check reports it. This
-    patches the socket class for every thread while it is active, and does
-    not reach subprocesses (``docker compose config``) or DNS lookups.
-    """
+
+def _install_offline_guard() -> tuple[
+    tuple[tuple[str, Callable, Callable], ...], threading.Event
+]:
     original_connect, original_connect_ex = socket.socket.connect, socket.socket.connect_ex
+    active = threading.Event()
+    active.set()
 
     def connect(sock: socket.socket, address: Any) -> Any:
-        if not _is_local_address(address):
+        if active.is_set() and not _is_local_address(address):
             raise OSError(errno.ENETUNREACH,
                           f"support-bundle collection is offline; refused {address!r}")
         return original_connect(sock, address)
 
     def connect_ex(sock: socket.socket, address: Any) -> int:
-        if not _is_local_address(address):
+        if active.is_set() and not _is_local_address(address):
             return errno.ENETUNREACH
         return original_connect_ex(sock, address)
 
     socket.socket.connect, socket.socket.connect_ex = connect, connect_ex
+    return (("connect", original_connect, connect),
+            ("connect_ex", original_connect_ex, connect_ex)), active
+
+
+def _restore_offline_guard() -> None:
+    # A newer wrapper may retain this generation's closures. Make them inert
+    # when its final lease ends, even if the newer wrapper stays installed.
+    if _OFFLINE_ACTIVE is not None:
+        _OFFLINE_ACTIVE.clear()
+    for name, original, guarded in _OFFLINE_METHODS:
+        if getattr(socket.socket, name) is guarded:
+            setattr(socket.socket, name, original)
+
+
+@contextmanager
+def offline() -> Iterator[None]:
+    """Refuse Python socket connections that would leave this machine.
+
+    Loopback and Unix sockets stay usable. The process-wide guard remains
+    until every overlapping context exits, including a check worker that
+    outlives its collection budget. Subprocesses and DNS are not covered.
+    """
+    global _OFFLINE_USERS, _OFFLINE_METHODS, _OFFLINE_ACTIVE
+    with _OFFLINE_LOCK:
+        if _OFFLINE_USERS == 0:
+            _OFFLINE_METHODS, _OFFLINE_ACTIVE = _install_offline_guard()
+        _OFFLINE_USERS += 1
     try:
         yield
     finally:
-        socket.socket.connect, socket.socket.connect_ex = original_connect, original_connect_ex
+        with _OFFLINE_LOCK:
+            _OFFLINE_USERS -= 1
+            if _OFFLINE_USERS == 0:
+                _restore_offline_guard()
+                _OFFLINE_METHODS = ()
+                _OFFLINE_ACTIVE = None
 
 
 def check_id(check: Callable) -> str:
@@ -296,7 +330,8 @@ def _run_one(check: Callable, argument: Any, timeout: float) -> dict:
 
     def target() -> None:
         try:
-            box["result"] = check(argument)
+            with offline():
+                box["result"] = check(argument)
         except BaseException as exc:  # noqa: BLE001 - recorded, never raised
             box["error"] = exc
 
