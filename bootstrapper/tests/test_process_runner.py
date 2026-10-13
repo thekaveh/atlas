@@ -5,6 +5,7 @@ from collections import deque
 from decimal import Decimal
 from fractions import Fraction
 import math
+import importlib.util
 import io
 import os
 import signal
@@ -12,6 +13,7 @@ import subprocess
 import sys
 import threading
 import time
+import types
 from pathlib import Path
 
 import pytest
@@ -2028,3 +2030,120 @@ def test_readiness_probe_uses_the_declared_health_timeout():
     assert _readiness_probe_timeout(SimpleNamespace(), 60.0) == 0.5
     from services.blender_mcp_manager import BlenderMcpManager
     assert _readiness_probe_timeout(BlenderMcpManager, 60.0) == 10.0
+
+
+def _database_command_module():
+    path = ROOT / "services/backup/database_orchestrator.py"
+    spec = importlib.util.spec_from_file_location("atlas_database_command_io", path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.mark.parametrize("cleanup_proven", [True, False])
+@pytest.mark.parametrize("failure", [RuntimeError("owned failure"), KeyboardInterrupt("owned interrupt")])
+def test_command_failure_closes_owned_pipes_without_masking_error(monkeypatch, failure, cleanup_proven):
+    module = _database_command_module()
+    streams = [io.StringIO() for _ in range(3)]
+
+    def communicate(**_kwargs):
+        raise failure
+
+    process = types.SimpleNamespace(stdin=streams[0], stdout=streams[1],
+                                    stderr=streams[2], communicate=communicate)
+    cleanup = []
+    monkeypatch.setattr(module.subprocess, "Popen", lambda *_args, **_kwargs: process)
+    monkeypatch.setattr(module, "_terminate_owned_process_group",
+                        lambda p: cleanup.append(p) or cleanup_proven)
+    runner = module.CommandRunner(token="owned-test", timeout=1)
+    try:
+        with pytest.raises(type(failure)) as caught:
+            runner.run(["owned-command"], input_text="owned-input")
+        assert caught.value is failure and cleanup == [process]
+        assert runner.process_group_cleanup_failed is not cleanup_proven
+        assert all(stream.closed for stream in streams)
+    finally:
+        for stream in streams:
+            stream.close()
+
+
+def test_command_input_transmission_is_inside_timeout_budget():
+    module = _database_command_module()
+    runner = module.CommandRunner(token="owned-input-budget", timeout=1)
+    # The owned child self-expires even if the regression is red; no external
+    # process, network, Docker or shared stack is used.
+    command = [sys.executable, "-c", "import time; time.sleep(3)"]
+    with pytest.raises(subprocess.TimeoutExpired):
+        runner.run(command, input_text="x" * (2 * 1024 * 1024))
+
+
+def test_command_input_preserves_all_input_and_output():
+    module = _database_command_module()
+    runner = module.CommandRunner(token="owned-input-roundtrip", timeout=3)
+    payload = "owned-input\n" * 20000
+    # Delay reading beyond the output-only polling interval. Input and output
+    # must still finish without duplicating or truncating the payload.
+    command = [sys.executable, "-c",
+               "import sys,time; time.sleep(0.4); data=sys.stdin.read(); "
+               "sys.stdout.write(data); sys.stderr.write('owned-error-output')"]
+    result = runner.run(command, input_text=payload)
+    assert result.stdout == payload and result.stderr == "owned-error-output"
+
+
+@pytest.mark.parametrize("ambient_error", [False, True])
+@pytest.mark.parametrize("error_type", [KeyboardInterrupt, RuntimeError])
+def test_command_close_attempts_all_pipes_then_propagates_new_failure(
+    monkeypatch, ambient_error, error_type,
+):
+    module = _database_command_module()
+    failure = error_type("owned close interruption")
+    attempts = []
+
+    def close_input():
+        attempts.append("stdin")
+        raise failure
+
+    process = types.SimpleNamespace(
+        stdin=types.SimpleNamespace(close=close_input),
+        stdout=types.SimpleNamespace(close=lambda: attempts.append("stdout")),
+        stderr=types.SimpleNamespace(close=lambda: attempts.append("stderr")),
+        communicate=lambda **_kwargs: ("owned output", ""), returncode=0,
+    )
+    monkeypatch.setattr(module.subprocess, "Popen", lambda *_args, **_kwargs: process)
+    runner = module.CommandRunner(token="owned-close", timeout=1)
+    try:
+        if ambient_error:
+            raise ValueError("already handled by caller")
+    except ValueError:
+        with pytest.raises(error_type) as caught:
+            runner.run(["owned-command"], input_text="input")
+        assert caught.value is failure
+    else:
+        with pytest.raises(error_type) as caught:
+            runner.run(["owned-command"], input_text="input")
+        assert caught.value is failure
+    assert attempts == ["stdin", "stdout", "stderr"]
+
+
+def test_command_blocked_input_remains_interruptible():
+    program = f"""
+import importlib.util, signal, sys
+spec = importlib.util.spec_from_file_location('owned_input_signal', {str(ROOT/'services/backup/database_orchestrator.py')!r})
+module = importlib.util.module_from_spec(spec)
+sys.modules[spec.name] = module
+spec.loader.exec_module(module)
+signal.signal(signal.SIGALRM, module._signal_as_exception)
+signal.setitimer(signal.ITIMER_REAL, 0.3)
+runner = module.CommandRunner(token='owned-input-signal', timeout=10)
+try:
+    runner.run([sys.executable, '-c', 'import time; time.sleep(3)'], input_text='x' * (2 * 1024 * 1024))
+except module.SignalInterruption:
+    print('owned-interruption-propagated')
+finally:
+    signal.setitimer(signal.ITIMER_REAL, 0)
+"""
+    result = subprocess.run([sys.executable, "-c", program], capture_output=True,
+                            text=True, timeout=12, check=True)
+    assert result.stdout.strip() == "owned-interruption-propagated"

@@ -441,6 +441,29 @@ def _terminate_owned_process_group(process: subprocess.Popen[str]) -> bool:
     return True
 
 
+def _close_owned_command_pipes(
+    process: subprocess.Popen[str], primary_error: BaseException | None,
+) -> None:
+    close_error = None
+    for name in ("stdin", "stdout", "stderr"):
+        stream = getattr(process, name, None)
+        if stream is None:
+            continue
+        try:
+            stream.close()
+        except BaseException as exc:
+            if primary_error is None and not isinstance(exc, (OSError, ValueError)):
+                if close_error is None:
+                    close_error = exc
+            print(
+                "database orchestrator: WARNING - could not close owned command "
+                f"{name} pipe (error_type={type(exc).__name__})",
+                file=sys.stderr,
+            )
+    if close_error is not None:
+        raise close_error
+
+
 class CommandRunner:
     def __init__(self, *, token: str, timeout: int, scope: str = "unscoped"):
         self.token = token
@@ -470,28 +493,28 @@ class CommandRunner:
             start_new_session=True,
             env=env,
         )
+        primary_error = None
         try:
-            if input_text is not None:
-                try:
-                    assert process.stdin is not None
-                    process.stdin.write(input_text)
-                    process.stdin.close()
-                    process.stdin = None
-                except BrokenPipeError:
-                    pass
             deadline = time.monotonic() + (timeout or self.timeout)
-            while True:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    raise subprocess.TimeoutExpired(command, timeout or self.timeout)
-                try:
-                    stdout, stderr = process.communicate(timeout=min(0.25, remaining))
-                    break
-                except subprocess.TimeoutExpired:
-                    # Return to the interpreter frequently so HUP/INT/TERM handlers
-                    # cannot remain deferred behind a long blocking communicate().
-                    continue
-        except BaseException:
+            if input_text is not None:
+                # One timed call drains output while transmitting the entire input.
+                stdout, stderr = process.communicate(
+                    input=input_text, timeout=deadline - time.monotonic(),
+                )
+            else:
+                while True:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise subprocess.TimeoutExpired(command, timeout or self.timeout)
+                    try:
+                        stdout, stderr = process.communicate(timeout=min(0.25, remaining))
+                        break
+                    except subprocess.TimeoutExpired:
+                        # Return to the interpreter frequently so HUP/INT/TERM handlers
+                        # cannot remain deferred behind a long blocking communicate().
+                        continue
+        except BaseException as failure:
+            primary_error = failure
             try:
                 cleanup_proven = _terminate_owned_process_group(process)
             except BaseException as exc:
@@ -504,6 +527,8 @@ class CommandRunner:
             if not cleanup_proven:
                 self.process_group_cleanup_failed = True
             raise
+        finally:
+            _close_owned_command_pipes(process, primary_error)
         result = subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
         if check and result.returncode != 0:
             raise ContractError(
