@@ -1083,9 +1083,9 @@ def architecture_pages(model: DocsModel) -> dict[Path, str]:
         "![Atlas platform architecture diagram](../diagrams/img/atlas-platform.png)\n\n"
         "[Open the full-size diagram](../diagrams/architecture.html).\n\n"
         "## 2. Perspectives\n\n"
-        "Each split perspective (bootstrapper lifecycle, SOURCE model, tracks, routing, "
-        "data and RAG flow, LLM providers, and more) has its own page; the "
-        "[Diagram Catalog](README.md) lists them.\n"
+        "Each perspective has its own page. Topics include the bootstrapper lifecycle, "
+        "SOURCE model, tracks, routing, data and RAG flow, and LLM providers. "
+        "The [Diagram Catalog](README.md) lists these and other perspectives.\n"
     )
     return pages
 
@@ -1190,9 +1190,9 @@ def reference_pages(model: DocsModel) -> dict[Path, str]:
             ports_rows,
         ),
         ref / "service-dependencies.md": "# Service Dependencies\n\n## 1. Generated Dependency Matrix\n\n"
-        "The start-order column is each manifest's `depends_on.required`: it orders "
-        "startup and display (some entries only pin a port slot) and is not a list of "
-        "runtime requirements. Runtime edges are in the Runtime Calls column.\n\n"
+        "The start-order column comes from each manifest's `depends_on.required`. "
+        "It orders startup and display; some entries only pin a port slot. "
+        "It does not list runtime requirements. Runtime edges are in the Runtime Calls column.\n\n"
         + table(["Service", "Start order (depends_on.required)", "Optional", "Runtime Calls"], deps_rows),
         ref / "manifest-fields.md": "# Manifest Fields\n\n## 1. Manifest Schema Quick Reference\n\n"
         "Generated from the top-level keys of `bootstrapper/schemas/service.schema.json`. See "
