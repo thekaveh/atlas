@@ -558,13 +558,15 @@ def _catalog_embedding_dim_repair(env: dict) -> dict[str, str]:
     """LANGMEM_EMBEDDING_DIM when a catalog embedding model's declared dim
     differs from .env; the contract rejects that pair, so it only arises from
     a corrected catalog entry. Custom (uncatalogued) models are left alone."""
-    from utils.model_resolver import dim_for_model_id  # noqa: PLC0415
+    from utils.model_resolver import (  # noqa: PLC0415
+        dim_for_model_id, embedding_dimension_contract,
+    )
 
     model = (env.get("LANGMEM_EMBEDDING_MODEL") or env.get("LITELLM_EMBEDDING_MODEL") or "").strip()
     dim = dim_for_model_id(model)
     if dim is None or str(dim) == (env.get("LANGMEM_EMBEDDING_DIM") or "").strip():
         return {}
-    return {"LANGMEM_EMBEDDING_DIM": str(dim)}
+    return {"LANGMEM_EMBEDDING_DIM": str(embedding_dimension_contract(model, None))}
 
 
 def _detect_env_image_drift(
