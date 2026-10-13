@@ -45,7 +45,7 @@ This page indexes the Atlas documentation. Start from the path that matches your
 - [Reusing Atlas as Infrastructure](operations/reusing-atlas.md) — decision guide for using Atlas as another project's infrastructure: which method, readiness, wiring and customization
 - [Using as a Submodule](operations/submodule-usage.md) — deep-dive for the Git-submodule reuse method
 - [Releasing & version tags](operations/releasing.md) — semver tag convention for pinning a vendored Atlas
-- [Expected Startup Warnings](operations/expected-startup-warnings.md) — known-benign log lines on `./start.sh`
+- [Expected Startup Warnings](operations/expected-startup-warnings.md) — expected log lines and conditions that need operator action
 
 ### 1.6. Development and contribution
 - [Contributing guide](../CONTRIBUTING.md) — first contribution: setup, one safe Backend and bootstrapper test, the Docker and live-test boundary, the `develop` pull-request target, and the four required checks
