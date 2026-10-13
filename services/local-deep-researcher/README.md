@@ -67,11 +67,11 @@ To upgrade:
 1. Client calls `POST /threads` to create a thread.
 2. Client calls `POST /threads/{id}/runs/stream` with the research topic.
 3. LangGraph executes the StateGraph defined upstream:
-   - `generate_query` — LiteLLM produces a search query.
-   - `web_research` — calls SearXNG at `http://searxng:8080/search?format=json`.
-   - `summarize_sources` — LiteLLM summarizes the gathered snippets into a `running_summary`.
-   - `reflect_on_summary` — LiteLLM produces a follow-up query if loop count < `LOCAL_DEEP_RESEARCHER_LOOPS`.
-   - `finalize_summary` — outputs the final Markdown report.
+    - `generate_query` — LiteLLM produces a search query.
+    - `web_research` — calls SearXNG at `http://searxng:8080/search?format=json`.
+    - `summarize_sources` — LiteLLM summarizes the gathered snippets into a `running_summary`.
+    - `reflect_on_summary` — LiteLLM produces a follow-up query if loop count < `LOCAL_DEEP_RESEARCHER_LOOPS`.
+    - `finalize_summary` — outputs the final Markdown report.
 4. State (running_summary, sources_gathered, loop_count) lives in the LangGraph dev-server's in-memory checkpointer.
 
 **Checkpointer caveat.** The dev-server's in-memory checkpointer drops thread state on container restart, so research cannot resume. A Redis-backed checkpointer is a future pair (§5.4).
@@ -130,7 +130,7 @@ To upgrade:
 
 **Container keeps restarting.** The pinned checkout, lock verification or install failed. `docker logs <project>-local-deep-researcher` shows the failing step; network or PyPI access is the usual cause.
 
-**Research returns empty / "no sources gathered".** SearXNG returned no JSON results. Check `curl 'http://localhost:${SEARXNG_PORT}/search?q=test&format=json'`; if the JSON format is disabled, fix `services/searxng/config/settings.yml`.
+**Research returns empty / "no sources gathered".** SearXNG returned no JSON results. Check `curl "http://localhost:${SEARXNG_PORT}/search?q=test&format=json"`; if the JSON format is disabled, fix `services/searxng/config/settings.yml`.
 
 **Runs hang at `summarize_sources`.** LiteLLM is unreachable or the model is overloaded. Run `docker logs <project>-litellm -f` and confirm that LiteLLM serves `LITELLM_DEFAULT_MODEL`.
 
