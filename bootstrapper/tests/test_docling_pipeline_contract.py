@@ -5,6 +5,8 @@ from concurrent.futures import ThreadPoolExecutor
 import importlib.util
 from pathlib import Path
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[2]
 MODULE_PATH = ROOT / "services/docling/provider/shared/pipeline_config.py"
@@ -286,3 +288,99 @@ def test_docling_localhost_docs_list_runtime_contract_variables():
         "DOCLING_INFERENCE_TIMEOUT_SECONDS",
     ):
         assert variable in localhost
+
+
+def _stub_converter_construction(monkeypatch):
+    import sys
+    from types import ModuleType, SimpleNamespace
+
+    class JSONBackend:
+        def __init__(self, document):
+            self.document = document
+
+        def convert(self):
+            if isinstance(self.document, BaseException):
+                raise self.document
+            return self.document
+
+    class SimplePipeline:
+        pass
+
+    class PDFOptions:
+        def __init__(self):
+            self.ocr_options = SimpleNamespace()
+            self.table_structure_options = SimpleNamespace()
+
+    class Converter:
+        def __init__(self, *, format_options):
+            default = SimpleNamespace(backend=JSONBackend, pipeline_cls=SimplePipeline)
+            self.format_options = {"json": default, **format_options}
+
+    modules = {
+        "docling.datamodel.base_models": dict(InputFormat=SimpleNamespace(PDF="pdf", JSON_DOCLING="json")),
+        "docling.datamodel.pipeline_options": dict(AcceleratorDevice=str, AcceleratorOptions=SimpleNamespace,
+            PdfPipelineOptions=PDFOptions, TableFormerMode=str),
+        "docling.document_converter": dict(DocumentConverter=Converter, PdfFormatOption=SimpleNamespace,
+            FormatOption=SimpleNamespace),
+        "docling.backend.json.docling_json_backend": dict(DoclingJSONBackend=JSONBackend),
+        "docling.pipeline.simple_pipeline": dict(SimplePipeline=SimplePipeline),
+    }
+    for name, attributes in modules.items():
+        module = ModuleType(name)
+        vars(module).update(attributes)
+        monkeypatch.setitem(sys.modules, name, module)
+    pipeline = _load_pipeline_module()
+    settings = pipeline.resolve_pipeline_settings(use_ocr="always", table_mode="fast", device="mps")
+    return pipeline, pipeline.build_converter(settings), settings
+
+
+@pytest.mark.parametrize("case", [
+    (collection, uri)
+    for collection in ("pictures", "tables", "key_value_items", "form_items", "field_regions", "field_items", "pages")
+    for uri in (Path("relative-image.png"), Path("/owned-test/no-such-private-image.png"),
+                Path(r"C:\owned-test\image.png"), Path(r"\\owned-test\share\image.png"),
+                "file", "ftp", "unknown")
+])
+def test_registered_json_backend_clears_all_filesystem_image_holders(monkeypatch, caplog, case):
+    from types import SimpleNamespace
+
+    collection, uri = case
+    reference = uri if isinstance(uri, Path) else SimpleNamespace(scheme=uri)
+    holder = SimpleNamespace(image=SimpleNamespace(uri=reference))
+    values = {1: holder} if collection == "pages" else [holder]
+    document = SimpleNamespace(**{collection: values}, texts=[SimpleNamespace(text="preserved text")])
+    pipeline, converter, _settings = _stub_converter_construction(monkeypatch)
+    result = converter.format_options["json"].backend(document).convert()
+    assert holder.image is None
+    assert result is document and result.texts[0].text == "preserved text"
+    assert "count=1" in caplog.text
+    assert "no-such-private-image" not in caplog.text and "relative-image.png" not in caplog.text
+    converter.format_options["json"].backend(document).convert()
+    assert caplog.text.count("count=1") == 1
+
+
+@pytest.mark.parametrize("scheme", ["data", "http", "https"])
+def test_registered_json_backend_keeps_allowed_image_references(monkeypatch, caplog, scheme):
+    from types import SimpleNamespace
+
+    image = SimpleNamespace(uri=SimpleNamespace(scheme=scheme))
+    picture = SimpleNamespace(image=image)
+    page = SimpleNamespace(image=image)
+    document = SimpleNamespace(pictures=[picture], pages={1: page}, metadata="preserved")
+    _pipeline, converter, _settings = _stub_converter_construction(monkeypatch)
+    assert converter.format_options["json"].backend(document).convert() is document
+    assert picture.image is image and page.image is image
+    assert document.metadata == "preserved" and not caplog.records
+
+
+def test_registered_json_backend_preserves_parse_error_and_pdf_cache(monkeypatch):
+    pipeline, converter, settings = _stub_converter_construction(monkeypatch)
+    assert pipeline.build_converter(settings) is converter
+    options = converter.format_options["pdf"].pipeline_options
+    assert options.do_ocr and options.ocr_options.force_full_page_ocr
+    assert options.table_structure_options.mode == "fast"
+    assert options.accelerator_options.device == "mps"
+    failure = ValueError("owned parse failure")
+    with pytest.raises(ValueError) as caught:
+        converter.format_options["json"].backend(failure).convert()
+    assert caught.value is failure

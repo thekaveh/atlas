@@ -13,9 +13,10 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-# Formats Docling cannot convert go to Tika first. Atlas's Docling providers
-# turn every conversion failure into a 500 (never 415), so the
-# "unsupported format" fallback below never fires for these.
+# Automatic extraction routes long-tail formats to Tika first, even when the
+# pinned Docling registry supports them. Explicit parser order bypasses this.
+# Atlas providers turn conversion failures into 500
+# (never 415), so the "unsupported format" fallback cannot select these parsers.
 LONG_TAIL_EXTENSIONS = {
     ".doc",
     ".xls",
