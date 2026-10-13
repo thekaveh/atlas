@@ -132,6 +132,7 @@ def _pull_one(base_url: str, tag: str, *, log, timeout: float | None = None) -> 
         method="POST",
     )
     last_status = ""
+    complete = False
     with urllib.request.urlopen(request, timeout=timeout or _PULL_STALL_TIMEOUT) as response:
         for raw_line in response:
             line = raw_line.decode("utf-8", errors="replace").strip()
@@ -144,9 +145,12 @@ def _pull_one(base_url: str, tag: str, *, log, timeout: float | None = None) -> 
             if "error" in event:
                 raise RuntimeError(str(event["error"]))
             status = str(event.get("status") or "")
+            complete |= status == "success"
             if status and status != last_status:
                 last_status = status
                 log(f"  {tag}: {status}")
+    if not complete:
+        raise RuntimeError("pull stream ended without a success event")
 
 
 def _pull_with_retry(base_url: str, tag: str, log) -> Exception | None:

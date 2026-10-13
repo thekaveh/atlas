@@ -84,7 +84,9 @@ echo "$_raw_list" | while IFS= read -r model_clean; do
     # one-off ERROR and leave the model missing until the next compose up.
     # /api/pull streams NDJSON and can report failures (bad model name,
     # registry errors) inside the body with HTTP 200, so each attempt checks
-    # BOTH the exit code AND the body for an error line. `set -e` above would
+    # the exit code, an error line, and the complete terminal success record.
+    # Ollama emits a status-only JSON object when the pull is complete. A clean
+    # EOF can still leave a model incomplete. `set -e` above would
     # abort on the first failed curl, so we tolerate non-zero exits here and
     # branch on the captured status instead.
     max_attempts=3
@@ -97,7 +99,8 @@ echo "$_raw_list" | while IFS= read -r model_clean; do
         -X POST "$OLLAMA_HOST_URL/api/pull" -d "$json_payload" 2>&1) || curl_exit_code=$?
       echo "ollama-pull: Curl exit code: $curl_exit_code (attempt $attempt/$max_attempts)"
       echo "ollama-pull: Curl output: $curl_output"
-      if [ "$curl_exit_code" -eq 0 ] && ! printf '%s' "$curl_output" | grep -q '"error"'; then
+      if [ "$curl_exit_code" -eq 0 ] && ! printf '%s' "$curl_output" | grep -q '"error"' \
+          && printf '%s' "$curl_output" | grep -q '^[[:space:]]*{[[:space:]]*"status"[[:space:]]*:[[:space:]]*"success"[[:space:]]*}[[:space:]]*$'; then
         pulled=1
         break
       fi
