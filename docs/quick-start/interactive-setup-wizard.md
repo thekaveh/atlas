@@ -322,9 +322,9 @@ After you confirm, the same screen switches from prompts to the launch phase:
 - The full output is also written to an owner-only `${TMPDIR:-/tmp}/atlas-launch-<timestamp>-<unique>.log` (Python's temporary directory; under `/var/folders` on macOS). See [Troubleshooting](troubleshooting.md#2-session-log).
 - Once the stack is up, `Ctrl+Q` detaches and services keep running. The log pane then lists `ctrl+q`, `ctrl+s` and `ctrl+x` with their effects (§9.2). During startup, `Ctrl+Q` only reminds you that `Ctrl+C` cancels.
 - `Ctrl+C` during startup sends SIGINT and can leave a Compose step half-done. Containers already started keep running, configuration written so far is kept, and no data is deleted. After the screen closes, a notice says so. It also says if this start stopped a previous stack to free its ports.
-- During the wait for one-shot init containers (up to 900 s), `Ctrl+C` returns within seconds. It takes longer only if `docker compose ps` hangs. The wizard's cold-start volume removal (`down --volumes`) also stops on `Ctrl+C`; the notice then says volumes may already be removed.
+- During the one-shot init wait (a 900-second polling window), `Ctrl+C` stops further checks. An active status command keeps its 10-second timeout; an active log-tail command keeps its 20-second timeout. The wizard's cold-start volume removal (`down --volumes`) also stops on `Ctrl+C`; the notice then says volumes may already be removed.
 - Exit codes: `130` only when `Ctrl+C` interrupts a running launch. After the launch ends, `Ctrl+C` keeps its result (`0` started, `1` failed) and prints no notice.
-- A failed init container's error line ends with its last 40 log lines.
+- A failed init container's error line includes up to 40 log lines when available. After cancellation, Atlas starts no log request.
 - To follow logs later, set `COMPOSE_PROJECT_NAME` as shown at the top of [Troubleshooting](troubleshooting.md), then run `docker compose logs -f <service>`.
 
 ### 9.1. Recovery without deleting data

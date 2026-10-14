@@ -4683,7 +4683,9 @@ class AtlasStarter:
 
         for service, reason in failures:
             msg = f"{service} failed after compose up ({reason})"
-            if reason != "cancelled":
+            if reason != "cancelled" and not (
+                self.docker_manager.should_stop is not None and self.docker_manager.should_stop()
+            ):
                 # The exit status alone does not say why (#1357).
                 tail = self.docker_manager.one_shot_log_tail(service)
                 if tail:
