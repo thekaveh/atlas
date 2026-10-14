@@ -523,3 +523,38 @@ def test_the_service_directory_does_not_link_an_unpublished_port():
     redis = SimpleNamespace(port_var="REDIS_PORT", localhost_port_var=None)
     assert _direct_url(meta, "container", env) is None
     assert _direct_url(redis, "container", env) == "http://localhost:63025"
+
+
+@pytest.mark.parametrize("operator_line,preserve", [
+    ("127.0.0.1 localhost # Atlas subdomains used by my proxy\n", True),
+    ("10.0.0.2 owner.example # Atlas subdomains reminder\n", True),
+    ("127.0.0.1 localhost # Atlas subdomains (added by start.py)\n", True),
+    ("127.0.0.1 n8n.localhost # Atlas subdomains operator mapping\n", True),
+    ("# Remember # Atlas subdomains when editing my hosts file\n", True),
+    ("# Atlas subdomains (added by start.py) with operator notes\n", True),
+    ("# Atlas subdomains\n", True),
+    ("127.0.0.1 localhost # GenAI Stack subdomains (added by start.py)\n", True),
+    ("# Atlas subdomains (added by start.py)\n", False),
+    ("# GenAI Stack subdomains (added by start.py)\n", False),
+    ("  # Atlas subdomains (added by start.py)\t\n", False),
+    ("\t# GenAI Stack subdomains (added by start.py)  \n", False),
+])
+def test_hosts_cleanup_owns_only_complete_generated_header_lines(tmp_path, operator_line, preserve):
+    import stat
+
+    manager = HostsManager.__new__(HostsManager)
+    manager.get_atlas_hosts = lambda: ["n8n.localhost"]
+    hosts = tmp_path / "owned-hosts"
+    prefix = "127.0.0.1 localhost\n# operator configuration\n"
+    suffix = "::1 localhost\n127.0.0.1 other.example\n"
+    generated = ("# Atlas subdomains (added by start.py)\n"
+                 "# GenAI Stack subdomains (added by start.py)\n127.0.0.1 n8n.localhost\n")
+    hosts.write_text(prefix + operator_line + generated + suffix, encoding="utf-8")
+    hosts.chmod(0o640)
+    before = hosts.stat()
+    expected = (prefix + (operator_line if preserve else "") + suffix).encode("utf-8")
+    for _ in range(3):
+        assert manager.remove_hosts_entries_silent(str(hosts)) is True
+        assert hosts.read_bytes() == expected
+        after = hosts.stat()
+        assert (stat.S_IMODE(after.st_mode), after.st_uid, after.st_gid) == (0o640, before.st_uid, before.st_gid)

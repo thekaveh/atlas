@@ -207,7 +207,10 @@ class HostsManager:
             for line in lines:
                 # Skip the comment line, including the header the GenAI-era
                 # layout wrote before the rename (#108).
-                if "# Atlas subdomains" in line or line.strip() == "# GenAI Stack subdomains (added by start.py)":
+                if line.strip() in (
+                    "# Atlas subdomains (added by start.py)",
+                    "# GenAI Stack subdomains (added by start.py)",
+                ):
                     continue
                     
                 # Skip any line with Atlas hostnames. Whole-token

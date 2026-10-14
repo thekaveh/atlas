@@ -578,3 +578,79 @@ def test_a_same_project_override_keeps_the_stored_spelling(tmp_path, monkeypatch
     # A different project is still persisted.
     assert persist("other") is True
     assert "PROJECT_NAME=other" in env.read_text(encoding="utf-8")
+
+
+from types import SimpleNamespace
+from core.docker_manager import DockerManager
+
+
+
+def _owned_project_preflight_manager(tmp_path, file_project, project):
+    from core.config_parser import ConfigParser
+
+    env = tmp_path / "active.env"
+    env.write_text(f"PROJECT_NAME={file_project}\n", encoding="utf-8")
+    (tmp_path / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+    overlay = tmp_path / "services" / "_user" / "owned" / "compose.yml"
+    overlay.parent.mkdir(parents=True)
+    overlay.write_text('services: {owned: {environment: {OWNED_PROJECT: "${PROJECT_NAME:?selected project required}"}}}\n')
+    manager = DockerManager.__new__(DockerManager)
+    manager.root_dir = tmp_path
+    manager.config_parser = ConfigParser(str(tmp_path))
+    manager.config_parser.env_file_path = env
+    manager.config_parser.load_consumer_config = lambda: SimpleNamespace(compose_overlays=())
+    manager.project_name_override = project
+    manager._compose_cmd = "docker compose"
+    manager.output_sink = None
+    manager._on_command = lambda _line: None
+    return manager
+
+
+def _owned_project_preflight_boundaries(manager, monkeypatch):
+    import os
+    from utils.system import compose_env
+
+    observed = {"preflight": [], "execution": [], "queries": []}
+    file_project = manager.config_parser.parse_env_file()["PROJECT_NAME"]
+
+    def config(command, **kwargs):
+        assert command[-2:] == ["config", "-q"]
+        effective = kwargs.get("env", os.environ).get("PROJECT_NAME", file_project)
+        observed["preflight"].append(effective)
+        return SimpleNamespace(returncode=0 if effective else 17)
+
+    def execute(command, *_args, **_kwargs):
+        observed["execution"].append(compose_env(command).get("PROJECT_NAME", file_project))
+        return 0
+
+    monkeypatch.setattr("core.docker_manager.subprocess.run", config)
+    monkeypatch.setattr("core.docker_manager.run_compose_child", execute)
+    monkeypatch.setattr(manager, "_stream_compose_command", execute)
+    monkeypatch.setattr(manager, "_project_volume_names", lambda project: observed["queries"].append(project) or [])
+    return observed
+
+
+@pytest.mark.parametrize("seam", ["execute-cold-stop", "stream-cold-start"])
+@pytest.mark.parametrize("case", [
+    (None, "old-owned", "new-owned", "new-owned"),
+    ("", "old-owned", "new-owned", "new-owned"),
+    ("foreign-owned", "old-owned", "new-owned", "new-owned"),
+    ("new-owned", "old-owned", "new-owned", "new-owned"),
+    (None, "MyStack", "mystack", "MyStack"),
+    ("MYStack", "MyStack", "mystack", "MYStack"),
+])
+def test_cleanup_preflight_and_execution_use_the_same_selected_project(tmp_path, monkeypatch, seam, case):
+    import os
+
+    shell, file_project, project, expected = case
+    if shell is None:
+        monkeypatch.delenv("PROJECT_NAME", raising=False)
+    else:
+        monkeypatch.setenv("PROJECT_NAME", shell)
+    manager = _owned_project_preflight_manager(tmp_path, file_project, project)
+    observed = _owned_project_preflight_boundaries(manager, monkeypatch)
+    success = (manager.perform_cold_stop_cleanup() if seam == "execute-cold-stop"
+               else manager.perform_cold_start_cleanup(project_name=project))
+    assert success is True and manager.teardown_overlays_dropped is False
+    assert observed == {"preflight": [expected], "execution": [expected], "queries": [project]}
+    assert (manager.project_name_override, os.environ.get("PROJECT_NAME")) == (project, shell)
