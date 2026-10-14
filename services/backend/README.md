@@ -106,6 +106,10 @@ LANGMEM_EMBEDDING_DIM=768
 
 **Extraction.** The LLM call runs outside the database transaction. Accepted facts and the completed session then commit atomically. A per-user lock enforces `LANGMEM_MAX_FACTS_PER_USER`. A failed extraction records a terminal failed session, not partial facts. The LangMem extraction module's docstring documents the full transaction and lock sequence.
 
+LLM confidence scores are clamped to `0..1`. Null, nonnumeric, NaN and unconvertible integer scores use `0.8` without discarding other facts.
+
+Recall and update confidence must be finite and in `0..1`. Invalid requests return `422` before memory operations run.
+
 **Vector store consistency.**
 
 - Every memory write (edit, soft delete, consolidation, retention) marks a durable `vector_sync_pending` intent with the Postgres change.
