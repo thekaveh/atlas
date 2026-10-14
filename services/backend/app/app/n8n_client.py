@@ -4,6 +4,28 @@ from urllib.parse import quote
 from typing import Dict, Any, List, Optional
 
 
+class N8nResponseError(RuntimeError):
+    """n8n returned an unusable successful workflow-list response."""
+
+
+def _workflow_page(response):
+    try:
+        payload = response.json()
+    except (ValueError, RecursionError) as exc:
+        raise N8nResponseError("n8n returned malformed workflow JSON") from exc
+    if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
+        raise N8nResponseError("n8n returned an invalid workflow inventory")
+    cursor = payload.get("nextCursor")
+    if cursor is not None and not isinstance(cursor, str):
+        raise N8nResponseError("n8n returned an invalid workflow cursor")
+    if cursor:
+        try:
+            cursor.encode("utf-8")
+        except UnicodeEncodeError as exc:
+            raise N8nResponseError("n8n returned an invalid workflow cursor") from exc
+    return payload["data"], cursor
+
+
 class N8nClient:
     """Client for interacting with n8n API"""
 
@@ -52,16 +74,15 @@ class N8nClient:
                 params=params,
             )
             response.raise_for_status()
-            payload = response.json()
-            workflows.extend(payload.get("data", []))
-            cursor = payload.get("nextCursor")
+            page, cursor = _workflow_page(response)
+            workflows.extend(page)
             if not cursor:
                 return workflows
             if cursor in seen_cursors:
-                raise RuntimeError("n8n returned a repeated cursor")
+                raise N8nResponseError("n8n returned a repeated cursor")
             seen_cursors.add(cursor)
 
-        raise RuntimeError("n8n workflow pagination exceeded 100 pages")
+        raise N8nResponseError("n8n workflow pagination exceeded 100 pages")
 
     async def get_workflow(self, workflow_id: str) -> Dict[str, Any]:
         """Get a workflow by ID"""

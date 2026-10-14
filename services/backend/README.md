@@ -322,7 +322,7 @@ BACKEND_HEAVY_WORK_TIMEOUT_SECONDS=600   # wait per call, then 504; the slot fre
 | `/api/chunk`, `/api/rag/evaluate` | `502` | Fixed detail (`Chunking failed`, `RAG evaluation failed`): the chunker failed, or the evaluator failed with `raise_exceptions=true`. The cause is logged, not returned. |
 | `/api/chunk`, `/api/rag/evaluate` | `503` / `504` | Missing dependency or full pool / past the deadline. |
 | `/api/rag/evaluate` with `raise_exceptions=false` (default) | `200` | A failed metric is `null`; `metadata.metric_errors[<metric>]` names only the exception type. |
-| `GET /workflows` | `503` / `502` | n8n is unreachable / n8n answered with an error. |
+| `GET /workflows` | `503` / `502` | n8n is unreachable / n8n returned an HTTP error or an invalid workflow inventory. |
 | `POST /research/{session_id}/cancel` | `404` / `409` | Unknown or foreign session / session not running. |
 
 ## 4. Architecture & wiring

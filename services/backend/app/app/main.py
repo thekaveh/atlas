@@ -24,7 +24,7 @@ import traceback
 from datetime import datetime, timezone
 from decimal import Decimal
 
-from n8n_client import N8nClient
+from n8n_client import N8nClient, N8nResponseError
 from research_service import ResearchCapacityError, ResearchService
 from comfyui_client import (
     ComfyUIClient,
@@ -196,7 +196,7 @@ def _n8n_gateway_error(operation: str, exc: Exception) -> HTTPException:
     else -> 500; details are logged, never returned (#1354)."""
     if isinstance(exc, httpx.TransportError):
         return _unexpected_error(operation, exc, status_code=status.HTTP_503_SERVICE_UNAVAILABLE)
-    if isinstance(exc, httpx.HTTPStatusError):
+    if isinstance(exc, (httpx.HTTPStatusError, N8nResponseError)):
         return _unexpected_error(operation, exc, status_code=status.HTTP_502_BAD_GATEWAY)
     return _unexpected_error(operation, exc)
 

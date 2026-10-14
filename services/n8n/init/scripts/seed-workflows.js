@@ -165,6 +165,51 @@ async function removeOrphan(workflowId) {
   return true;
 }
 
+async function listWorkflowIds() {
+  // Keep only the IDs needed for cleanup, and return only a complete inventory.
+  const ids = new Set();
+  const seenCursors = new Set();
+  let cursor = '';
+  for (let guard = 0; guard < 1000; guard++) {
+    const q = '/api/v1/workflows?limit=250' + (cursor ? '&cursor=' + encodeURIComponent(cursor) : '');
+    const page = await request('GET', q, { headers: authHeaders() });
+    if (!ok(page.status)) {
+      log(`WARN - could not list workflows for reconcile (HTTP ${page.status || 'none'}); orphans not cleaned this run`);
+      return null;
+    }
+    let body;
+    try {
+      body = JSON.parse(page.body);
+    } catch (e) {
+      throw new Error('n8n returned malformed workflow JSON');
+    }
+    if (!body || typeof body !== 'object' || !Array.isArray(body.data)) {
+      throw new Error('n8n returned an invalid workflow inventory');
+    }
+    const nextCursor = body.nextCursor;
+    if (nextCursor != null && typeof nextCursor !== 'string') {
+      throw new Error('n8n returned an invalid workflow cursor');
+    }
+    for (const entry of body.data) {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)
+          || typeof entry.id !== 'string' || !entry.id.trim()) {
+        throw new Error('n8n returned an invalid workflow ID');
+      }
+      try {
+        encodeURIComponent(entry.id);
+      } catch (e) {
+        throw new Error('n8n returned an invalid workflow ID');
+      }
+      ids.add(entry.id);
+    }
+    if (!nextCursor) return ids;
+    if (seenCursors.has(nextCursor)) throw new Error('n8n returned a repeated cursor');
+    seenCursors.add(nextCursor);
+    cursor = nextCursor;
+  }
+  throw new Error('n8n workflow pagination exceeded 1000 pages');
+}
+
 async function main() {
   if (!fs.existsSync(PLAN)) {
     log('no plan at ' + PLAN + ' — nothing to seed');
@@ -239,31 +284,16 @@ async function main() {
     // The n8n public API caps limit at 250 and paginates the rest via
     // nextCursor. Follow every page — a partial (first-page-only) list would
     // silently miss orphans on instances with >250 total workflows.
-    const all = [];
-    let cursor = '';
-    let listOk = true;
-    for (let guard = 0; guard < 1000; guard++) {
-      const q = '/api/v1/workflows?limit=250' + (cursor ? '&cursor=' + encodeURIComponent(cursor) : '');
-      const page = await request('GET', q, { headers: authHeaders() });
-      if (!ok(page.status)) {
-        log(`WARN - could not list workflows for reconcile (HTTP ${page.status || 'none'}); orphans not cleaned this run`);
-        listOk = false;
-        break;
-      }
-      let body = {};
-      try {
-        body = JSON.parse(page.body) || {};
-      } catch (e) {
-        body = {};
-      }
-      for (const w of body.data || []) all.push(w);
-      cursor = body.nextCursor || '';
-      if (!cursor) break;
+    let all;
+    try {
+      all = await listWorkflowIds();
+    } catch (e) {
+      log(`WARN - could not list workflows for reconcile (${e.message}); orphans not cleaned this run`);
     }
-    if (listOk) {
-      for (const w of all) {
-        if (typeof w.id === 'string' && w.id.startsWith(namespace) && !declared.has(w.id)) {
-          await removeOrphan(w.id);
+    if (all) {
+      for (const id of all) {
+        if (id.startsWith(namespace) && !declared.has(id)) {
+          await removeOrphan(id);
         }
       }
     }
