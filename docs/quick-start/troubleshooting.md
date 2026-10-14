@@ -104,8 +104,9 @@ chmod +x start.sh stop.sh
 # Liveness check (no auth required)
 curl http://localhost:63040/health/liveliness
 
-# List registered models (reads the key from .env without printing it)
-curl -H "Authorization: Bearer $(grep '^LITELLM_MASTER_KEY=' .env | cut -d= -f2-)" http://localhost:63040/v1/models
+# List registered models (uses Atlas's literal env parser without printing the key)
+LITELLM_KEY=$(PYTHONPATH=bootstrapper uv run --project bootstrapper python -c 'from core.config_parser import ConfigParser; print(ConfigParser().parse_env_file()["LITELLM_MASTER_KEY"])') &&
+curl -H "Authorization: Bearer $LITELLM_KEY" http://localhost:63040/v1/models
 
 # Inspect LiteLLM logs
 docker compose logs --tail=100 -f litellm
@@ -358,10 +359,10 @@ The build is one `docker compose build` of all enabled services. If it fails, At
 - **A required image fails:** the launch stops with `Failed to build some services`. Managed host processes (for example a host ComfyUI) are rolled back, and `./start.sh` exits nonzero.
 - **Only other images fail** (for example the `jupyterhub` notebook image): Atlas names them, leaves them out of `docker compose up` and starts everything else. Managed host processes keep running. The launch result reads `degraded` and names each image, so the start still succeeds. The next start tries the failed build again until it is fixed or the service is disabled:
 
-  ```bash
-  # Skip the service until its build is fixed (or set JUPYTERHUB_SOURCE=disabled in .env)
-  ./start.sh --jupyterhub-source disabled
-  ```
+    ```bash
+    # Skip the service until its build is fixed (or set JUPYTERHUB_SOURCE=disabled in .env)
+    ./start.sh --jupyterhub-source disabled
+    ```
 
 - **Every image builds on its own:** the first failure was transient and the whole stack starts.
 
