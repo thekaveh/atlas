@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 import yaml
 
 
@@ -120,3 +121,115 @@ def test_jupyterhub_deployment_docs_describe_current_data_track_lakehouse_path()
     assert "JupyterHub" in source_config
     assert "pyiceberg" in source_config
     assert "JupyterHub + Backend wiring is a future spec" not in source_config
+
+
+def _spark_notebook_connection(monkeypatch, notebook, address, failure=None):
+    """Compile the unchanged connection cell against local Spark doubles."""
+    import json
+    import sys
+    import types
+    from unittest.mock import MagicMock
+
+    path = JUPYTERHUB_DIR / "build" / "notebooks" / f"{notebook}.ipynb"
+    data = json.loads(path.read_text())
+    source = "".join(next(c for c in data["cells"] if c["cell_type"] == "code")["source"])
+    original = RuntimeError(f"Synthetic Spark failure at {address}")
+
+    class Session:
+        @property
+        def version(self):
+            if failure == "version":
+                raise original
+            return "4.1.2"
+
+    builder = MagicMock()
+    builder.remote.return_value = builder
+    builder.getOrCreate.return_value = Session()
+    if failure == "creation":
+        builder.getOrCreate.side_effect = original
+    package = types.ModuleType("pyspark")
+    sql = types.ModuleType("pyspark.sql")
+    sql.SparkSession = types.SimpleNamespace(builder=builder)
+    kinds = types.ModuleType("pyspark.sql.types")
+    for name in ["LongType", "StringType", "StructField", "StructType"]:
+        setattr(kinds, name, type(name, (), {}))
+    for name, module in [("pyspark", package), ("pyspark.sql", sql), ("pyspark.sql.types", kinds)]:
+        monkeypatch.setitem(sys.modules, name, module)
+    monkeypatch.setenv("SPARK_REMOTE", address)
+    return compile(source, str(path), "exec"), builder
+
+
+@pytest.mark.parametrize("notebook", ["09_spark_connect", "12_iceberg_advanced_sql"])
+@pytest.mark.parametrize(
+    "connection",
+    [
+        ("sc://spark-connect:15002", "sc://spark-connect:15002"),
+        (
+            "sc://owned.invalid:443/;use_ssl=true;x-aws-proxy-auth=OwnedSyntheticSparkProxyToken",
+            "sc://owned.invalid:443",
+        ),
+        (
+            "sc://[::1]:15002/;token=OwnedSyntheticSparkProxyToken",
+            "sc://[::1]:15002",
+        ),
+    ],
+)
+def test_spark_notebook_passes_raw_address_but_hides_connection_options(
+    monkeypatch, capsys, notebook, connection
+):
+    address, display = connection
+    code, builder = _spark_notebook_connection(monkeypatch, notebook, address)
+    exec(code, {})
+    builder.remote.assert_called_once_with(address)
+    output = capsys.readouterr().out
+    assert display in output and "4.1.2" in output
+    assert "OwnedSyntheticSparkProxyToken" not in output
+    assert "use_ssl" not in output
+
+
+@pytest.mark.parametrize("notebook", ["09_spark_connect", "12_iceberg_advanced_sql"])
+@pytest.mark.parametrize("failure", ["creation", "version"])
+def test_spark_notebook_connection_error_display_hides_proxy_token(
+    monkeypatch, capsys, notebook, failure
+):
+    import traceback
+
+    address = "sc://owned.invalid:443/;x-aws-proxy-auth=OwnedSyntheticSparkProxyToken"
+    code, builder = _spark_notebook_connection(monkeypatch, notebook, address, failure)
+    with pytest.raises(RuntimeError) as raised:
+        exec(code, {})
+    builder.remote.assert_called_once_with(address)
+    displayed = "".join(traceback.format_exception(raised.value)) + capsys.readouterr().out
+    assert "OwnedSyntheticSparkProxyToken" not in displayed
+    assert "sc://owned.invalid:443" in str(raised.value)
+
+
+@pytest.mark.parametrize("notebook", ["09_spark_connect", "12_iceberg_advanced_sql"])
+@pytest.mark.parametrize(
+    "case",
+    [
+        (address, failure)
+        for address in [
+            "sc://owned.invalid;x-aws-proxy-auth=OwnedSyntheticSparkProxyToken:443",
+            "sc://[::1%25;x-aws-proxy-auth=OwnedSyntheticSparkProxyToken]:443",
+        ]
+        for failure in [None, "creation", "version"]
+    ],
+)
+def test_spark_notebook_malformed_authority_does_not_disclose_credentials(
+    monkeypatch, capsys, notebook, case
+):
+    import traceback
+
+    address, failure = case
+    code, builder = _spark_notebook_connection(monkeypatch, notebook, address, failure)
+    displayed = ""
+    if failure:
+        with pytest.raises(RuntimeError) as raised:
+            exec(code, {})
+        displayed = "".join(traceback.format_exception(raised.value))
+    else:
+        exec(code, {})
+    builder.remote.assert_called_once_with(address)
+    displayed += capsys.readouterr().out
+    assert "ownedsyntheticsparkproxytoken" not in displayed.casefold()
