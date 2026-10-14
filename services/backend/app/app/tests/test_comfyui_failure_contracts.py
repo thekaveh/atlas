@@ -63,15 +63,15 @@ def test_rejected_workflow_maps_to_400(fastapi_client):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "response",
+    "response, ambiguous",
     [
-        httpx.Response(503, json={"error": "SENTINEL_COMFY_RESPONSE_SECRET"}),
-        httpx.Response(200, content=b"not-json"),
+        (httpx.Response(503, json={"error": "SENTINEL_COMFY_RESPONSE_SECRET"}), False),
+        (httpx.Response(200, content=b"not-json"), True),
     ],
     ids=["non-2xx", "invalid-json"],
 )
 async def test_queue_prompt_maps_bad_upstream_response_to_typed_gateway_error(
-    response, caplog
+    response, ambiguous, caplog
 ):
     import comfyui_client
 
@@ -80,10 +80,8 @@ async def test_queue_prompt_maps_bad_upstream_response_to_typed_gateway_error(
     client.client = _response_client(lambda _request: response)
 
     with caplog.at_level(logging.ERROR):
-        with pytest.raises(
-            comfyui_client.ComfyUIResponseError,
-            match="ComfyUI returned an invalid response",
-        ):
+        expected = comfyui_client.ComfyUISubmissionUnknownError if ambiguous else comfyui_client.ComfyUIResponseError
+        with pytest.raises(expected):
             await client.queue_prompt({"1": {"class_type": "SaveImage"}})
     await client.client.aclose()
 
@@ -113,8 +111,7 @@ async def test_queue_prompt_requires_nonempty_string_prompt_id(payload):
     )
 
     with pytest.raises(
-        comfyui_client.ComfyUIResponseError,
-        match="ComfyUI returned an invalid response",
+        comfyui_client.ComfyUISubmissionUnknownError,
     ):
         await client.queue_prompt({"1": {"class_type": "SaveImage"}})
     await client.client.aclose()
@@ -1649,6 +1646,7 @@ def _media_main_with_prompt_handler(monkeypatch, handler):
     monkeypatch.setenv("BACKEND_IDENTITY_AUTH", "disabled")
     monkeypatch.setenv("FAL_SOURCE", "disabled")
     monkeypatch.setenv("COMFYUI_SOURCE", "container-cpu")
+    monkeypatch.setenv("MEDIA_BUDGET_STORE", "memory")  # recovery stays fixture-local
     main = _reload_async_main(monkeypatch)
     import comfyui_media_client as cmc
 
@@ -1669,6 +1667,54 @@ def _post_media(main):
     return TestClient(main.app).post("/media/generate", json={
         "modality": "image", "provider": "comfyui", "model": "x.safetensors", "input": {"prompt": "cat"},
     })
+
+
+@pytest.mark.parametrize("upstream", [
+    lambda: httpx.Response(200, text="SENTINEL_UNUSABLE_CONFIRMATION"),
+    lambda: httpx.Response(200, json={}),
+    lambda: httpx.Response(200, json={"prompt_id": None}),
+    lambda: httpx.Response(200, json={"prompt_id": True}),
+    lambda: httpx.Response(200, json={"prompt_id": 7}),
+    lambda: httpx.Response(200, json={"prompt_id": ""}),
+    lambda: httpx.Response(200, json={"prompt_id": "   "}),
+])
+def test_media_unusable_prompt_confirmation_retains_recovery(monkeypatch, upstream):
+    delivered = []
+    def handler(request):
+        assert request.url.path == "/prompt"
+        delivered.append(request.url.path)
+        return upstream()
+    main = _media_main_with_prompt_handler(monkeypatch, handler)
+    response = _post_media(main)
+    assert delivered == ["/prompt"]
+    assert response.status_code == 504
+    detail = response.json()["detail"]
+    assert detail["submission_status"] == "unknown"
+    assert "SENTINEL" not in response.text
+    operation = asyncio.run(main.MEDIA_OPERATION_STORE.get(detail["local_submission_id"]))
+    assert operation["last_payload"]["status"] == "submission_unknown"
+    record = asyncio.run(main.MEDIA_BUDGET_ENGINE.store.get(detail["local_submission_id"]))
+    assert record.status in {"reserved", "submitted"}
+
+
+@pytest.mark.parametrize("upstream_status", [301, 302, 307, 308])
+def test_media_prompt_redirect_is_not_an_unknown_submission(monkeypatch, upstream_status):
+    delivered = []
+
+    def handler(request):
+        assert request.url.path == "/prompt"
+        delivered.append(request.url.path)
+        return httpx.Response(
+            upstream_status, text="SENTINEL_COMFY_LOGIN_REDIRECT",
+            headers={"Location": "https://example.invalid/login"},
+        )
+
+    main = _media_main_with_prompt_handler(monkeypatch, handler)
+    response = _post_media(main)
+    assert response.status_code == 502
+    assert delivered == ["/prompt"]
+    assert "SENTINEL" not in response.text
+    assert main.MEDIA_OPERATION_STORE._records == {}
 
 
 @pytest.mark.parametrize("lost", [httpx.ReadTimeout, httpx.RemoteProtocolError])

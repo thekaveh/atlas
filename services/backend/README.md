@@ -243,7 +243,8 @@ MEDIA_LEDGER_RECOVERY_MAX_CYCLES=4
 
 **Ambiguous submissions and reconciliation.**
 
-- If FAL may have accepted paid work but returned no usable request id, Atlas returns a local `submission_unknown` operation and keeps the reservation.
+- If FAL may have accepted paid work but returned no usable request id, Atlas returns `504` with a `local_submission_id` and keeps the reservation.
+- Malformed JSON, an incomplete reply, or an invalid request id follows this `submission_unknown` recovery path. Do not resubmit blindly.
 - An operator with `BACKEND_INTERNAL_API_TOKEN` settles it with `POST /media/operations/{operation_id}/reconcile` and `outcome=commit|release`, after reviewing provider billing.
 - The same route settles a timed-out FAL job or a user-cancelled one (`cancellation_requested` without `timed_out`) that FAL never resolves.
 - Release only after FAL's dashboard shows the job is no longer running. A release while it runs drops spend that FAL still bills.
@@ -251,11 +252,12 @@ MEDIA_LEDGER_RECOVERY_MAX_CYCLES=4
 - If the operation-state write fails (`local_record_persisted=false`), the spend ledger is the recovery source.
 - If reservation attachment or cleanup fails after provider acceptance, Atlas keeps the candidate ledger ids as a non-expiring recovery intent. It retries every 30 s and on each poll. The response exposes `recovery_ledger_ids`.
 - A ComfyUI `/media/generate` that may have queued without confirmation returns `504` with a `local_submission_id` and keeps a `submission_unknown` operation.
+- This includes malformed replies and invalid prompt ids. Check ComfyUI's queue before you retry.
 
 **ComfyUI cancellation and errors.**
 
 - Cancellation uses the pinned core's atomic `POST /api/jobs/{job_id}/cancel` and accepts only an exact boolean `cancelled`. Interrupted history becomes terminal `cancelled`.
-- An ambiguous ComfyUI delivery can be retried safely. A localhost ComfyUI without that endpoint fails closed; Atlas never falls back to the global `/interrupt`.
+- An ambiguous ComfyUI cancellation delivery can be retried safely. A localhost ComfyUI without that endpoint fails closed; Atlas never falls back to the global `/interrupt`.
 - A failed job's poll reports only `ComfyUI execution failed (<exception class>)`. The message, traceback and node inputs are logged, never returned.
 - A ComfyUI rejection on `/media/generate` returns a fixed message: `400` for a bad graph, `502` for any other upstream status. The upstream body is logged, never returned.
 
