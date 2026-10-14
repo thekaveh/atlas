@@ -152,9 +152,10 @@ def main() -> None:
         chat_candidates = [
             m for m in available
             if "embed" not in m.lower()
+            and m.removeprefix("ollama/").split(":", 1)[0] not in KNOWN_DIMS
             and m not in ("hermes-agent", "lightrag")
         ]
-        chat = chat_candidates[0] if chat_candidates else available[0]
+        chat = chat_candidates[0] if chat_candidates else ""
     if not chat:
         print(
             "# ERROR could not resolve a chat model from LIGHTRAG_LLM_MODEL, "
