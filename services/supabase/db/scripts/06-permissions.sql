@@ -123,7 +123,12 @@ BEGIN
     FROM pg_tables
     WHERE schemaname = 'public'
   LOOP
-    IF target.rowsecurity THEN
+    IF target.tablename = 'memory_embedding_schema_state' THEN
+      -- 14 owns this internal table's client exclusions. Preserve them when
+      -- the runner replays grants after user SQL; Backend keeps its scoped
+      -- SELECT grant and service callers use guarded maintenance functions.
+      EXECUTE format('REVOKE ALL ON public.%I FROM anon, authenticated, service_role', target.tablename);
+    ELSIF target.rowsecurity THEN
       EXECUTE format('GRANT SELECT ON public.%I TO anon', target.tablename);
       EXECUTE format('GRANT ALL ON public.%I TO authenticated', target.tablename);
     ELSE
