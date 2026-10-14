@@ -410,7 +410,7 @@ cd infra
 
 `doctor` and `compose validate` check the manifest only when `ATLAS_CONSUMER_MANIFEST` is set or `--consumer` is passed. Without one, the `consumer-manifests` check validates nothing.
 
-- **`env backfill`** is additive and idempotent. It keeps existing values and fills a blank value only when `.env.example` now has a non-blank default. A new `*_PORT` goes on your `BASE_PORT` block, not the default block. It prints the keys it added or filled, grouped by section.
+- **`env backfill`** is additive and idempotent. It keeps existing nonblank values and fills eligible empty assignments from nonblank `.env.example` defaults. Exported assignments and intentional empty settings stay unchanged. A new `*_PORT` goes on your `BASE_PORT` block, not the default block. It prints the keys it added or filled, grouped by section.
 - **`compose validate`** runs `docker compose config -q` on the assembled stack, including every `services/_user/<name>/compose.yml`. It rewrites common missing-variable failures into a service and variable summary, then prints Compose's raw stderr.
 - **`doctor`** does not start containers. It checks manifest validity, Compose, `_user` overlay env references, plugin directories, model sidecars, consumer endpoints and tracked-file cleanliness of the Atlas checkout. Docker checks report `skipped` when Docker is unavailable.
 - **`endpoints assert`** fails when a field your code reads is missing ([§6.5](#65-exporting-the-endpoint-contract-endpoints-export)).
@@ -419,7 +419,7 @@ cd infra
 
 Exit codes:
 
-- `env backfill` exits `0` when `.env` is current or was updated, and `1` when the write fails. With no env file it writes nothing, says so on stderr and exits `0` (`./start.sh` creates the file).
+- `env backfill` exits `0` when `.env` is current or was updated. Invalid env syntax, invalid UTF-8, or a write failure exits `1`. Both env files are validated before writing. With no env file it writes nothing, says so on stderr and exits `0` (`./start.sh` creates the file).
 - `compose validate` exits `0` when Compose accepts the stack. Otherwise it exits with Compose's status code.
 - `doctor` exits non-zero when any check reports `fail`.
 

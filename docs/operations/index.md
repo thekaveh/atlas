@@ -107,16 +107,19 @@ front end:
 
 ## 3. Headless Validation
 
-Use `./start.sh env backfill` after updating an Atlas submodule pin. It keeps
-existing values and appends new `.env.example` keys. It fills a blank value only
-when the new example has a non-blank default. It reports the affected keys by
-source section. Then run `./start.sh --consumer ./atlas.consumer.yml compose
-validate` to validate the assembled stack, including manifest-declared
-external overlays and back-compatible `services/_user/<name>/compose.yml`
-overlays.
+Use `./start.sh env backfill` after updating an Atlas submodule pin. It preserves
+existing nonblank values and adds missing `.env.example` keys. It fills eligible
+empty assignments from nonblank defaults. Exported assignments and intentional
+empty selections stay unchanged. It reports effective changes by source section.
+
+Then run `./start.sh --consumer ./atlas.consumer.yml compose validate` to validate
+the assembled stack. This includes manifest-declared external overlays and
+back-compatible `services/_user/<name>/compose.yml` overlays.
 
 Exit code `0` means the env backfill or Compose validation succeeded.
-`compose validate` returns Compose's failing status code when validation fails.
+`env backfill` exits `1` for invalid env syntax, invalid UTF-8, or a write failure.
+It validates both env files before writing. `compose validate` returns Compose's
+failing status code when validation fails.
 
 ## 4. Consumer Doctor
 
