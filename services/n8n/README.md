@@ -113,6 +113,8 @@ Through Kong (`n8n.localhost`, the `WEBHOOK_URL` that callers use), a webhook ca
 
 With `N8N_API_KEY` set, workflows removed from the manifest are deactivated and deleted. This includes removing the last one; the seed then runs with an empty plan on every start. The full spec is in §10 of the [Consumer Manifest Reference](../../docs/reference/consumer-manifest.md). The code is `bootstrapper/core/consumer_manifest.py` and `services/n8n/init/scripts/seed-workflows.js`.
 
+Cleanup requires a complete, valid workflow inventory. A malformed page, repeated cursor or exceeded page limit skips cleanup and logs a warning. Import results are retained, and readiness probes still run. Each orphan is processed once per run.
+
 ## 5. Calling LightRAG from n8n
 
 When `LIGHTRAG_SOURCE != disabled`, n8n containers receive `LIGHTRAG_ENDPOINT` and `LIGHTRAG_API_KEY`. Use the HTTP Request node:
