@@ -290,6 +290,7 @@ class DockerManager:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             check=False,
+            env=compose_env(config_cmd),
         )
         if result.returncode:
             self._on_command(
