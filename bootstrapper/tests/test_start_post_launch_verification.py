@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import select
 import socket
 import subprocess
@@ -769,3 +770,111 @@ def test_port_verification_skips_disabled_supabase_subservices(monkeypatch):
     # launch as a failed port check (2026-10-08 run, cycle 59).
     assert ("supabase-auth", "9999") not in calls
     assert ("weaviate", "8080") in calls
+
+
+def _one_shot_probe_status(state, mode, service):
+    failed = mode in {"ordinary_failure", "prior_failure"} and service == "n8n-init"
+    finished = mode == "ordinary_failure" or (mode == "transient" and len(state.calls) > 1)
+    if failed or finished:
+        code = 1 if failed else 0
+        return NS(returncode=0, stderr="", stdout=json.dumps([
+            {"State": "exited", "ExitCode": code, "Status": f"Exited ({code})"},
+        ]))
+    state.stopped = state.stopped or mode in {"inspect", "prior_failure"}
+    state.now += state.calls[-1][3]
+    raise subprocess.TimeoutExpired(["synthetic", "ps", service], state.calls[-1][3])
+
+
+def _one_shot_probe_command(state, mode, command, options):
+    kind = "logs" if "logs" in command else "ps"
+    state.calls.append((kind, command[-1], state.stopped, options["timeout"]))
+    if kind == "ps":
+        return _one_shot_probe_status(state, mode, command[-1])
+    if mode in {"ordinary_failure", "transient"}:
+        return NS(returncode=0, stdout="synthetic init diagnostic\n", stderr="")
+    state.now += options["timeout"]
+    raise subprocess.TimeoutExpired(command, options["timeout"])
+
+
+def _one_shot_cancel_probe(monkeypatch, mode, job_count=6):
+    import start as start_module
+    import core.docker_manager as docker_module
+    import core.process_runner as runner_module
+
+    starter = start_module.AtlasStarter()
+    manager = starter.docker_manager
+    state = NS(now=0.0, stopped=mode == "pre", calls=[])
+    messages = []
+    scales = ["N8N_INIT_SCALE", "OPEN_WEB_UI_INIT_SCALE", "COMFYUI_INIT_SCALE",
+              "REDPANDA_INIT_SCALE", "ZEPPELIN_INIT_SCALE"]
+    env = {key: "1" for key in (scales if job_count == 6 else scales[:1])}
+    monkeypatch.setattr(starter.config_parser, "parse_env_file", lambda: env)
+    monkeypatch.setattr(starter.config_parser, "load_consumer_config",
+                        lambda: NS(n8n_workflows=[object()] if job_count == 6 else []))
+    manager.project_name_override = "owned-synthetic-cancel-probe"
+    manager._compose_cmd = "docker compose"
+    monkeypatch.setattr(manager.config_parser, "env_file_exists", lambda: False)
+    monkeypatch.setattr(manager, "_compose_file_args", lambda: ["-f", "docker-compose.yml"])
+    monkeypatch.setattr(manager, "_build_compose_command",
+                        lambda args, **_kwargs: ["docker", "compose", *args])
+    manager.should_stop = lambda: state.stopped
+
+    def sleep(seconds):
+        state.now += seconds
+        if mode == "backoff":
+            state.stopped = True
+
+    clock = NS(monotonic=lambda: state.now, sleep=sleep)
+    monkeypatch.setattr(docker_module, "time", clock)
+    monkeypatch.setattr(runner_module, "time", clock)
+    monkeypatch.setattr(docker_module, "subprocess", NS(
+        SubprocessError=subprocess.SubprocessError,
+        run=lambda command, **options: _one_shot_probe_command(state, mode, command, options),
+    ))
+    monkeypatch.setattr(starter.banner, "show_status_message",
+                        lambda message, _level: messages.append(message))
+    return starter, state, messages
+
+
+@pytest.mark.parametrize("front_end", ["tui", "no-tui"])
+@pytest.mark.parametrize("case", [
+    ("pre", 1, 0.0, []),
+    ("pre", 6, 0.0, []),
+    ("inspect", 1, 10.0, [("ps", "n8n-init", False, 10)]),
+    ("inspect", 6, 10.0, [("ps", "n8n-init", False, 10)]),
+    ("backoff", 1, 10.2, [("ps", "n8n-init", False, 10)]),
+    ("backoff", 6, 10.2, [("ps", "n8n-init", False, 10)]),
+    ("prior_failure", 6, 10.0,
+     [("ps", "n8n-init", False, 10), ("ps", "open-webui-init", False, 10)]),
+])
+def test_one_shot_public_cancel_starts_no_later_commands(monkeypatch, front_end, case):
+    mode, job_count, elapsed, expected_calls = case
+    starter, state, messages = _one_shot_cancel_probe(monkeypatch, mode, job_count)
+    emit = (lambda message, _level="info": messages.append(message)) if front_end == "tui" else None
+
+    result = starter.verify_one_shot_init_containers(emit)
+
+    assert (result, state.calls, state.now) == (False, expected_calls, pytest.approx(elapsed))
+    cancelled = ["cancelled" in message for message in messages]
+    assert cancelled == ([False] + [True] * (job_count - 1) if mode == "prior_failure" else [True] * job_count)
+    if mode == "prior_failure":
+        assert "n8n-init failed after compose up (exit 1" in messages[0]
+
+
+@pytest.mark.parametrize("front_end", ["tui", "no-tui"])
+@pytest.mark.parametrize("mode", ["ordinary_failure", "transient"])
+def test_one_shot_public_uncancelled_retry_and_diagnostics(monkeypatch, front_end, mode):
+    starter, state, messages = _one_shot_cancel_probe(monkeypatch, mode)
+    emit = (lambda message, _level="info": messages.append(message)) if front_end == "tui" else None
+
+    result = starter.verify_one_shot_init_containers(emit)
+
+    services = ["n8n-init", "open-webui-init", "comfyui-init", "redpanda-init", "zeppelin-init", "n8n-seed"]
+    if mode == "ordinary_failure":
+        expected = (False, [("ps", service, False, 10) for service in services]
+                    + [("logs", "n8n-init", False, 20)], 0.0, [True])
+    else:
+        expected = (True, [("ps", service, False, 10) for service in [services[0], *services]], 10.5, [])
+    assert (result, state.calls, state.now,
+            ["synthetic init diagnostic" in message for message in messages]) == (
+                expected[0], expected[1], pytest.approx(expected[2]), expected[3])
