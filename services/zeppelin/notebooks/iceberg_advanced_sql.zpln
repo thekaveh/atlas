@@ -2,7 +2,7 @@
   "paragraphs": [
     {
       "title": "Advanced Iceberg smoke intro",
-      "text": "%md\n# Advanced Iceberg SQL smoke\n\nThis notebook validates the Atlas lakehouse through Zeppelin's standalone Spark interpreter at `spark://spark-master:7077`. It uses isolated `lakehouse.atlas_smoke` tables and covers MERGE INTO, VERSION AS OF, rollback_to_snapshot, CREATE BRANCH / spark.wap.branch, schema evolution, nested JSON, Structured Streaming from `s3a://landing/`, checkpoints under `s3a://checkpoints/`, and maintenance procedures.",
+      "text": "%md\n# Advanced Iceberg SQL smoke\n\nThis notebook runs the Atlas lakehouse smoke through Zeppelin's standalone Spark interpreter at `spark://spark-master:7077`.\n\nEnable Spark, MinIO and Iceberg REST before running these paragraphs. The smoke replaces two dedicated tables in `lakehouse.atlas_smoke`. Run it separately from other uses of those tables.\n\nThe checks cover:\n\n- MERGE INTO, VERSION AS OF and rollback_to_snapshot;\n- CREATE BRANCH / spark.wap.branch, schema evolution and nested JSON;\n- Structured Streaming from `s3a://landing/` and checkpoints under `s3a://checkpoints/`;\n- maintenance procedures.",
       "user": "anonymous",
       "config": {
         "editorSetting": {
