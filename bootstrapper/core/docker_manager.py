@@ -12,7 +12,7 @@ import re
 import signal
 import subprocess
 
-from utils.system import compose_env, project_volume_names, report_surviving_volumes, run_compose_child
+from utils.system import compose_env, project_volume_names, report_surviving_volumes, resolved_minio_environment, run_compose_child
 import time
 from typing import Callable, List, Optional
 
@@ -409,6 +409,12 @@ class DockerManager:
         args = ['down'] + ['--volumes'] * remove_volumes + ['--remove-orphans'] * remove_orphans
         return self.execute_compose_command(args)
     
+    def resolved_minio_environment(self) -> dict:
+        return resolved_minio_environment(
+            self._build_compose_command(['config', '--format', 'json']),
+            self.root_dir, _COMPOSE_PROBE_TIMEOUT_SECONDS,
+        )
+
     def enabled_service_targets(self) -> Optional[list[str]]:
         """Derive the enabled-service target set from the RENDERED compose
         projection (#504).

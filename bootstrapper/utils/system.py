@@ -218,6 +218,31 @@ def compose_env(compose_cmd: list) -> dict:
 SINK_COMPOSE_TIMEOUT_SECONDS = 600
 
 
+def resolved_minio_environment(compose_cmd: list, cwd: str | Path, timeout_seconds: float) -> dict:
+    """Resolve bucket names using Compose's shell, env-file and overlay rules.
+
+    Capture privately: rendered configuration can contain credentials.
+    Apply the caller's probe bounds; failures carry no command output.
+    """
+    import json
+
+    from core.process_runner import run_with_deadline
+
+    result = run_with_deadline(
+        compose_cmd, cwd=str(cwd), env=compose_env(compose_cmd),
+        timeout_seconds=timeout_seconds,
+    )
+    if result.returncode != 0:
+        raise RuntimeError("Could not resolve MinIO bucket configuration with Compose")
+    try:
+        environment = json.loads(result.stdout)['services']['minio-init']['environment']
+    except (ValueError, KeyError, TypeError):
+        raise RuntimeError("Could not read MinIO bucket configuration from Compose") from None
+    if not isinstance(environment, dict):
+        raise RuntimeError("Compose returned invalid MinIO bucket configuration")
+    return environment
+
+
 def run_compose_child(full_cmd: list, cwd: str, sink=None) -> int:
     """Run compose on the terminal, or into ``sink`` when given: a Textual
     screen owns the terminal, and inherited fds wrote compose's progress
