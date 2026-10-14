@@ -13,6 +13,7 @@ bootstrapper/tests/); they require the backend's own dependencies
 """
 
 import asyncio
+import json
 import os
 import re
 import unittest
@@ -23,6 +24,40 @@ from unittest.mock import patch, MagicMock, AsyncMock
 from uuid import UUID
 
 import pytest
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "raw, expected",
+    [(10**400, 0.8), (-(10**400), 0.8), (None, 0.8), ("bad", 0.8),
+     ("0.7", 0.7), (-0.2, 0.0), (1.2, 1.0), (float("nan"), 0.8),
+     (float("inf"), 1.0), (float("-inf"), 0.0)],
+)
+async def test_extraction_keeps_other_facts_when_one_confidence_is_unusable(
+    monkeypatch, raw, expected
+):
+    from tests.test_memory_failure_contracts import _extraction_service
+
+    executed = []
+    embeddings = AsyncMock(return_value=None)
+    service = _extraction_service(monkeypatch, executed, store_embedding=embeddings)
+    service._litellm_complete = AsyncMock(return_value=json.dumps([
+        {"content": "user likes tea", "confidence": 0.9},
+        {"content": "user likes coffee", "confidence": raw},
+    ]))
+
+    result = await service.extract_facts(
+        user_id="00000000-0000-4000-8000-000000000002",
+        messages=[{"role": "user", "content": "I like tea and coffee."}],
+    )
+
+    assert result["status"] == "completed"
+    assert result["facts_extracted"] == 2
+    assert [fact["confidence"] for fact in result["facts"]] == [0.9, expected]
+    assert embeddings.await_count == 2
+    assert [call.kwargs["confidence"] for call in embeddings.await_args_list] == [0.9, expected]
+    assert any("SET status = 'completed'" in call[0] for call in executed)
+    assert not any("SET status = 'failed'" in call[0] for call in executed)
 
 
 class TestGetExtractionModel(unittest.TestCase):
