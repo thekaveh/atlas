@@ -344,7 +344,7 @@ On `./start.sh`, the bootstrapper normalizes each workflow JSON. It sets the act
 
 - **Ids.** Each `id` (at most 21 characters, because n8n ids are limited to 36) imports as `atlas-consumer-<id>`. A new start updates the workflow in place. It never creates a duplicate and never overwrites a workflow built by hand in the UI.
 - **Removal.** A removed manifest or workflow drops only its own generated JSON on the next start. With `N8N_API_KEY` set, the seed also deactivates and deletes an undeclared `atlas-consumer-*` workflow, so no live webhook is orphaned. After the last workflow is removed, every start runs the seed with an empty plan. This continues until you declare a workflow again or delete `volumes/n8n/consumer-workflows/`.
-- **Credentials** may only be referenced by an `{id, name}` mapping. A raw secret or a credential payload with extra keys is rejected. Generated files and seed logs never hold workflow content.
+- **Credentials** may only be referenced by an `{id, name}` mapping. A raw secret or a credential payload with extra keys is rejected. Generated files contain normalized workflow JSON; seed logs omit workflow bodies.
 - **Validation.** Malformed JSON, an invalid `active` or `version`, a checksum mismatch and duplicate webhook routes are rejected at load.
 - **Probes.** After import, the seed calls only the webhooks that set `probe: true`. It logs a warning when the status is not `expect_status` (default `200`). Other webhooks are used only to detect duplicate routes. Set `probe: true` on a `POST` webhook only when a call is safe, because it can trigger side effects.
 - **API key warning.** `./start.sh doctor` warns when an active workflow declares webhooks and `N8N_API_KEY` is not set.
