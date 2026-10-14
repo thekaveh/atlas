@@ -60,6 +60,48 @@ def _write_private_text(path: Path, text: str) -> None:
     atomic_write_text(path, text, mode=0o600)
 
 
+def _read_env_backfill_text(path: Path) -> str:
+    with path.open(encoding="utf-8", newline="") as handle:
+        return handle.read()
+
+
+def _backfill_env_assignment(line: str, origin: str) -> tuple[str, str, str, bool] | None:
+    """Keep the decoded value and its validated encoded RHS separate."""
+    assignment = decode_env_assignment(line, origin=origin)
+    if assignment is None:
+        return None
+    key, value = assignment
+    encoded = line.partition("=")[2].rstrip("\r\n")
+    exported = re.match(r"^export[ \t]+", line.strip()) is not None
+    return key, value, encoded, exported
+
+
+def _backfill_default_values(text: str, origin: str) -> dict[str, tuple[str, str]]:
+    values = {}
+    for index, line in enumerate(env_lines(text.removeprefix("\ufeff")), 1):
+        item = _backfill_env_assignment(line, f"{origin}:{index}")
+        if item is not None:
+            key, value, encoded, _exported = item
+            values[key] = value, encoded
+    return values
+
+
+def _fill_env_backfill_blanks(text: str, replacements: dict[str, str], origin: str) -> str:
+    out = []
+    for index, original in enumerate(env_lines(text, keepends=True)):
+        bom = "\ufeff" if index == 0 and original.startswith("\ufeff") else ""
+        line = original.removeprefix(bom) if bom else original
+        item = _backfill_env_assignment(line, f"{origin}:{index + 1}")
+        if item is not None:
+            key, value, _encoded, exported = item
+            if key in replacements and value == "" and not exported:
+                ending = line[len(line.rstrip("\r\n")):]
+                out.append(f"{bom}{key}={replacements[key]}{ending}")
+                continue
+        out.append(original)
+    return "".join(out)
+
+
 _ENV_MIGRATION_VERSION = 5
 _MIGRATION_MARKER = "BOOTSTRAPPER_PORT_LAYOUT_VERSION"
 
@@ -1938,7 +1980,7 @@ class AtlasStarter:
 
     def backfill_missing_env_vars(self) -> bool:
         """Append variables present in ``.env.example`` but missing from
-        the user's ``.env`` (preserving every existing value).
+        the user's ``.env`` (preserving every existing nonblank value).
 
         Catches the merge-from-upstream case: a worktree adds new
         services to ``.env.example`` (e.g. MinIO's ``MINIO_IMAGE``,
@@ -1956,10 +1998,11 @@ class AtlasStarter:
         start — no flat "everything dumped at the bottom" lump.
 
         Idempotent — running again with no missing keys is a no-op.
-        Only appends new keys; never rewrites existing values or
-        reorders the file (so user-edited values and pre-existing
-        comments stay put). Auto-managed keys with empty defaults in
-        the example (passwords, access keys) are appended blank; the
+        Adds missing keys and fills eligible bare empty assignments;
+        other assignments retain their values and order (so user-edited
+        nonblank values and pre-existing comments stay put). Auto-managed
+        keys with empty defaults in the example (passwords, access keys)
+        are appended blank; the
         cold-start secret-generation step fills them later.
         """
         env_file_path = self.config_parser.env_file_path
@@ -1968,15 +2011,25 @@ class AtlasStarter:
             return True  # Nothing to backfill against.
 
         try:
-            example_text = env_example_path.read_text(encoding="utf-8")
-            env_text = env_file_path.read_text(encoding="utf-8")
+            example_text = _read_env_backfill_text(env_example_path)
+            env_text = _read_env_backfill_text(env_file_path)
+        except UnicodeError:
+            self.banner.show_status_message(
+                f"Cannot decode {env_file_path} or {env_example_path} as UTF-8 for backfill.", "error",
+            )
+            return False
         except OSError as e:
             self.banner.show_status_message(
                 f"Could not read env files for backfill: {e}", "warning",
             )
             return True  # Non-fatal — surface compose's own error later.
 
-        existing_keys, blank_keys = _scan_env_keys(env_text)
+        try:
+            existing_keys, blank_keys = _scan_env_keys(env_text, str(env_file_path))
+            example_values = _backfill_default_values(example_text, str(env_example_path))
+        except ValueError as exc:
+            self.banner.show_status_message(f"Cannot backfill env files: {exc}", "error")
+            return False
 
         # Keys the migration chain (services/migrations) is about to
         # write: backfill must NOT seed them from .env.example, or
@@ -2006,46 +2059,25 @@ class AtlasStarter:
         # (LITELLM_MASTER_KEY etc.) have `default: ""` in the manifest
         # and therefore stay blank in .env.example, so this branch is a
         # no-op for them.
-        example_values: dict[str, str] = {}
-        for line in example_text.splitlines():
-            stripped = line.strip()
-            if not stripped or stripped.startswith("#"):
-                continue
-            if "=" in stripped:
-                key, _, raw_value = stripped.partition("=")
-                example_values[key.strip()] = raw_value.split("#", 1)[0].strip()
         blank_fills = {
-            key: example_values[key]
+            key: example_values[key][1]
             for key in blank_keys
-            if example_values.get(key)
+            if example_values.get(key, ("", ""))[0]
             and key not in migration_owned
             and key not in _USER_OWNED_BLANKABLE
         }
         if blank_fills:
-            new_lines: list[str] = []
-            for line in env_lines(env_text, keepends=True):
-                stripped = line.strip()
-                if "=" in stripped and not stripped.startswith("#"):
-                    key, _, raw_value = stripped.partition("=")
-                    key = key.strip()
-                    if (
-                        key in blank_fills
-                        and not raw_value.split("#", 1)[0].strip()
-                    ):
-                        eol = "\r\n" if line.endswith("\r\n") else "\n"
-                        new_lines.append(f"{key}={blank_fills[key]}{eol}")
-                        continue
-                new_lines.append(line)
+            filled_text = _fill_env_backfill_blanks(env_text, blank_fills, str(env_file_path))
             try:
                 atomic_write_text(
-                    env_file_path, "".join(new_lines), mode=0o600,
+                    env_file_path, filled_text, mode=0o600,
                 )
             except OSError as e:
                 self.banner.show_status_message(
                     f"Failed to fill blank values in {env_file_path}: {e}", "error",
                 )
                 return False
-            env_text = env_file_path.read_text(encoding="utf-8")
+            env_text = _read_env_backfill_text(env_file_path)
             self.banner.show_status_message(
                 f"Filled {len(blank_fills)} blank value(s) from .env.example: "
                 f"{', '.join(sorted(blank_fills)[:4])}"
@@ -2133,7 +2165,7 @@ class AtlasStarter:
         current_start = 0
         i = 0
         while i < n:
-            line = lines[i]
+            line = lines[i].removeprefix("\ufeff") if i == 0 else lines[i]
             # Banner = bar / # TITLE / bar (3 lines).
             if (
                 bar_re.match(line.rstrip("\r\n"))
@@ -2194,6 +2226,8 @@ class AtlasStarter:
             ):
                 insertion_point -= 1
             splice = per_section_splice[idx]
+            if insertion_point and not out_lines[insertion_point - 1].endswith(("\r", "\n")):
+                splice = ["\n", *splice]
             out_lines[insertion_point:insertion_point] = splice
 
         # Append the trailer for any groups whose section didn't exist.
@@ -2262,7 +2296,7 @@ class AtlasStarter:
         #   # data: Apache Spark (standalone cluster)  (services/spark/service.yml)
         #   # ──────────────────────────────────────────────────
         bar_re = re.compile(r"^#\s*[=─]{3,}\s*$")
-        lines = example_text.splitlines()
+        lines = env_lines(example_text.removeprefix("\ufeff"))
         current_section = "(unsectioned)"
         # Buffer of comment lines accumulated since the last variable
         # line or section banner — used as the immediate context for
@@ -2306,14 +2340,7 @@ class AtlasStarter:
                 comment_buf = []
                 i += 1
                 continue
-            key, _, raw_value = stripped.partition("=")
-            key = key.strip()
-            value = raw_value
-            if "#" in value:
-                # Strip inline `# trailing comment` from the value but
-                # keep the value itself verbatim.
-                value = value.split("#", 1)[0]
-            value = value.rstrip()
+            key, _decoded, value, _exported = _backfill_env_assignment(stripped, "env example")
             if key and key not in existing_keys and key not in seen_keys:
                 seen_keys.add(key)
                 if current_section not in per_section:
@@ -5114,23 +5141,17 @@ class AtlasStarter:
 
 
 def _parse_env_values(path: Path) -> dict[str, str]:
-    values: dict[str, str] = {}
     if not path.exists():
-        return values
-    for line in path.read_text(encoding="utf-8").splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#") or "=" not in stripped:
-            continue
-        key, _, raw_value = stripped.partition("=")
-        values[key.strip()] = raw_value.split("#", 1)[0].strip()
-    return values
+        return {}
+    values = _backfill_default_values(_read_env_backfill_text(path), str(path))
+    return {key: value for key, (value, _encoded) in values.items()}
 
 
 def _env_example_section_by_key(path: Path) -> dict[str, str]:
     if not path.exists():
         return {}
     bar_re = re.compile(r"^#\s*[=─]{3,}\s*$")
-    lines = path.read_text(encoding="utf-8").splitlines()
+    lines = env_lines(_read_env_backfill_text(path).removeprefix("\ufeff"))
     current_section = "(unsectioned)"
     by_key: dict[str, str] = {}
     i = 0
@@ -5147,8 +5168,8 @@ def _env_example_section_by_key(path: Path) -> dict[str, str]:
             continue
         stripped = line.strip()
         if stripped and not stripped.startswith("#") and "=" in stripped:
-            key, _, _raw_value = stripped.partition("=")
-            by_key[key.strip()] = current_section
+            key, _decoded, _encoded, _exported = _backfill_env_assignment(stripped, str(path))
+            by_key[key] = current_section
         i += 1
     return by_key
 
@@ -6671,24 +6692,17 @@ def _doctor_check_vllm_metal(starter: "AtlasStarter") -> dict:
     )
 
 
-def _scan_env_keys(env_text: str) -> tuple[set[str], set[str]]:
-    """Keys an .env assigns, and which of them are blank. Compose reads
-    `export KEY=` as KEY, so it counts as present (appending a bare `KEY=`
-    default would shadow it, last wins); it is never blank-filled."""
+def _scan_env_keys(env_text: str, origin: str = "active env") -> tuple[set[str], set[str]]:
+    """Canonical keys and eligible bare empty occurrences; exports stay occupied."""
     existing_keys: set[str] = set()
     blank_keys: set[str] = set()
-    for line in env_lines(env_text):
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#") or "=" not in stripped:
-            continue
-        key, _, raw_value = stripped.partition("=")
-        key = key.strip()
-        if re.match(r"export[ \t]+", key):
-            existing_keys.add(re.sub(r"^export[ \t]+", "", key))
-            continue
-        existing_keys.add(key)
-        if not raw_value.split("#", 1)[0].strip():
-            blank_keys.add(key)
+    for index, line in enumerate(env_lines(env_text.removeprefix("\ufeff")), 1):
+        item = _backfill_env_assignment(line, f"{origin}:{index}")
+        if item is not None:
+            key, value, _encoded, exported = item
+            existing_keys.add(key)
+            if value == "" and not exported:
+                blank_keys.add(key)
     return existing_keys, blank_keys
 
 
@@ -8433,16 +8447,21 @@ def env_backfill_command() -> None:
         # recipes run this on fresh clones before ./start.sh creates .env.
         click.echo(f"No env file at {env_path}; nothing to backfill (./start.sh creates it).", err=True)
         return
-    before = _parse_env_values(env_path)
-    if not starter.backfill_missing_env_vars():
-        raise click.exceptions.Exit(1)
-    after = _parse_env_values(env_path)
-    _print_env_backfill_summary(
-        env_path=env_path,
-        env_example_path=env_example_path,
-        before=before,
-        after=after,
-    )
+    try:
+        before = _parse_env_values(env_path)
+        if not starter.backfill_missing_env_vars():
+            raise click.exceptions.Exit(1)
+        after = _parse_env_values(env_path)
+        _print_env_backfill_summary(
+            env_path=env_path,
+            env_example_path=env_example_path,
+            before=before,
+            after=after,
+        )
+    except UnicodeError:
+        raise click.ClickException(f"Cannot decode {env_path} or {env_example_path} as UTF-8.") from None
+    except ValueError as exc:
+        raise click.ClickException(f"Cannot backfill env files: {exc}") from None
 
 
 @main.group("compose")
