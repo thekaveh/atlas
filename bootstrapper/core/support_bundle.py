@@ -422,17 +422,17 @@ def config_entries(request: BundleRequest, redactor: Redactor) -> tuple[list[dic
             continue
         origin = _origin(key, request, file_keys)
         entries.append({
-            "key": key,
+            "key": redactor.text(key),
             "value": redactor.value(str(request.env[key]), key),
-            "origin": origin,
-            "action": _action(key, origin, request.env_file),
+            "origin": redactor.text(origin),
+            "action": redactor.text(_action(key, origin, request.env_file)),
         })
     return entries, omitted
 
 
 def _related(check: dict, entries: list[dict]) -> list[dict]:
     text = f"{check.get('message', '')} {json.dumps(check.get('details') or {}, default=str)}"
-    return [entry for entry in entries if re.search(rf"\b{re.escape(entry['key'])}\b", text)]
+    return [entry for entry in entries if re.search(rf"(?<!\w){re.escape(entry['key'])}(?!\w)", text)]
 
 
 def _check_entry(check: dict, request: BundleRequest, redactor: Redactor) -> dict:
@@ -485,7 +485,7 @@ def log_entry(source: LogSource, limits: BundleLimits, redactor: Redactor) -> di
     try:
         text, total, cut = _read_tail(source, limits.max_log_bytes)
     except OSError as exc:
-        return {"name": source.name, "available": False, "error": redactor.text(str(exc))}
+        return {"name": redactor.text(source.name), "available": False, "error": redactor.text(str(exc))}
     text = redactor.text(text)
     data = text.encode("utf-8")
     if len(data) > limits.max_log_bytes:
@@ -494,7 +494,7 @@ def log_entry(source: LogSource, limits: BundleLimits, redactor: Redactor) -> di
         data = data[data.find(b"\n") + 1:] if b"\n" in data else data
         text = data.decode("utf-8", errors="ignore")
     return {
-        "name": source.name, "available": True, "original_bytes": total,
+        "name": redactor.text(source.name), "available": True, "original_bytes": total,
         "kept_bytes": len(text.encode("utf-8")), "truncated": cut, "text": text,
     }
 
@@ -516,6 +516,16 @@ def _omitted(request: BundleRequest, config_keys: int, checks: int) -> dict[str,
 
 def _log_section(request: BundleRequest, redactor: Redactor) -> tuple[list[dict], list[str]]:
     logs = [log_entry(source, request.limits, redactor) for source in request.logs]
+    # Redaction and archive sanitization can collapse distinct log labels.
+    used = set()
+    for log in logs:
+        name = _safe_name(log["name"])
+        candidate, suffix = name, 1
+        while candidate in used:
+            suffix += 1
+            candidate = f"{name}.{suffix}"
+        log["name"] = candidate
+        used.add(candidate)
     notes = [
         f"log {log['name']}: kept the last {log['kept_bytes']} of {log['original_bytes']} bytes"
         for log in logs if log.get("truncated")
@@ -532,7 +542,7 @@ def build_bundle(request: BundleRequest, *, now: datetime.datetime | None = None
     """Assemble the redacted bundle. Secrets known to the process environment
     are scrubbed as well as those in ``request.env``."""
     redactor = Redactor(dict(os.environ), request.env)
-    notes = list(request.notes)
+    notes = [redactor.text(note) for note in request.notes]
     config, omitted_keys = config_entries(request, redactor)
     checks = [_check_entry(check, request, redactor) for check in request.checks]
     logs, log_notes = _log_section(request, redactor)
@@ -546,14 +556,14 @@ def build_bundle(request: BundleRequest, *, now: datetime.datetime | None = None
                  "python": platform.python_version()},
         "ok": not any(check["status"] == "fail" for check in checks),
         "checks": checks,
-        "findings": _findings(request.checks, checks, config),
+        "findings": _findings(redactor.value(request.checks), checks, config),
         "config": config,
         "omitted": _omitted(request, omitted_keys, len(checks)),
         "allowlist": ALLOWLIST,
         "logs": [{k: v for k, v in log.items() if k != "text"} for log in logs],
     }
     bundle = _clip(bundle, request.limits.max_field_chars, notes, "bundle")
-    bundle["truncation"] = notes
+    bundle["truncation"] = [redactor.text(note) for note in notes]
     texts = {log["name"]: log["text"] for log in logs if log.get("available")}
     return SupportBundle(body=bundle, logs=texts)
 
