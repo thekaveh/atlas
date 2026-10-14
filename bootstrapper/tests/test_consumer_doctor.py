@@ -1479,6 +1479,91 @@ def test_support_bundle_leaks_no_planted_canary(tmp_path, include_unlisted) -> N
     assert b"[REDACTED]" in preview
 
 
+
+@pytest.mark.parametrize("include_unlisted", [False, True])
+def test_support_bundle_scrubs_recognized_secrets_from_metadata(tmp_path, include_unlisted):
+    sb = _bundle_module()
+    secret = _CANARIES["env"]
+    request = sb.BundleRequest(
+        env={"OPENAI_API_KEY": secret, "PROJECT_NAME": "demo",
+             f"CUSTOM_{secret}_SOURCE": "container"},
+        env_origins={"PROJECT_NAME": f"/owned/{secret}/overlay.env"},
+        checks=[{"id": "project", "status": "warn", "message": "PROJECT_NAME needs repair"}],
+        logs=[sb.LogSource(f"{secret}.log", text="ERROR: service exited\n"),
+              sb.LogSource(f"missing-{secret}.log", path=tmp_path / "absent.log")],
+        notes=[f"collection warning: {secret}"], include_unlisted=include_unlisted,
+    )
+    bundle = sb.build_bundle(request)
+    preview = "\n".join(sb.preview_lines(bundle)).encode()
+    for blob in [*_archive_payloads(bundle), preview]:
+        assert secret.encode() not in blob
+    assert (b"PROJECT_NAME" in preview, b"ERROR: service exited" in preview,
+            b"collection warning:" in preview, b"overlay.env" in preview) == (True,) * 4
+
+
+@pytest.mark.parametrize("names", [
+    ("first", "second", "_REDACTED_.log"),
+    ("a/b.log", "a?b.log", "a_b.log"),
+    ("same.log", "same.log", "same.log"),
+])
+def test_support_bundle_preserves_logs_with_colliding_labels(names):
+    import io
+    import tarfile
+
+    sb = _bundle_module()
+    secrets = {"OPENAI_API_KEY": _CANARIES["env"], "ANTHROPIC_API_KEY": _CANARIES["url"]}
+    labels = {"first": secrets["OPENAI_API_KEY"] + ".log",
+              "second": secrets["ANTHROPIC_API_KEY"] + ".log"}
+    bundle = sb.build_bundle(sb.BundleRequest(env=secrets, logs=[
+        sb.LogSource(labels.get(name, name), text=f"diagnostic {index}\n")
+        for index, name in enumerate(names)
+    ]))
+    with tarfile.open(fileobj=io.BytesIO(sb.archive_bytes(bundle)), mode="r:gz") as tar:
+        logs = [member for member in tar.getmembers() if "/logs/" in member.name]
+        payloads = sorted(tar.extractfile(member).read().decode() for member in logs)
+    assert (len(bundle.logs), len({member.name for member in logs}), payloads) == (
+        3, 3, ["diagnostic 0\n", "diagnostic 1\n", "diagnostic 2\n"],
+    )
+    assert len({entry["name"] for entry in bundle.body["logs"]}) == 3
+
+
+def test_support_bundle_parser_error_scrubs_process_secret(tmp_path, monkeypatch):
+    sb = _bundle_module()
+    secret = _CANARIES["env"]
+    starter = _bundle_starter(tmp_path, monkeypatch, tmp_path / "unused.tar.gz")
+    monkeypatch.setenv("OPENAI_API_KEY", secret)
+
+    def broken_parser():
+        raise ValueError(f"owned parse failure: {secret}")
+
+    monkeypatch.setattr(starter.config_parser, "parse_env_file", broken_parser)
+    bundle = starter.build_support_bundle(
+        sb.BundleOptions(logs=(sb.LogSource("session.log", text=secret),)), checks=([], []),
+    )
+    preview = "\n".join(sb.preview_lines(bundle)).encode()
+    for blob in [*_archive_payloads(bundle), preview]:
+        assert secret.encode() not in blob
+    assert (bundle.logs, "log excerpts left out" in " ".join(bundle.body["truncation"])) == ({}, True)
+
+
+
+@pytest.mark.parametrize("secret_position", ["prefix", "suffix"])
+def test_support_bundle_redacted_key_keeps_finding_relationship(secret_position):
+    sb = _bundle_module()
+    secret = "OWNEDCANARY9X"
+    key = f"{secret}_SOURCE" if secret_position == "prefix" else f"CUSTOM_{secret}"
+    bundle = sb.build_bundle(sb.BundleRequest(
+        env={"OPENAI_API_KEY": secret, key: "container"}, include_unlisted=True,
+        checks=[{"id": "source", "status": "warn", "message": f"Repair {key}"},
+                {"id": "substring", "status": "warn", "message": f"Repair X{key}Y"}],
+    ))
+    finding, substring = bundle.body["findings"]
+    assert (len(finding["keys"]), substring["keys"]) == (1, [])
+    assert (finding["keys"][0]["key"], finding["keys"][0]["value"]) == (
+        sb.Redactor({"OPENAI_API_KEY": secret}).text(key), "container",
+    )
+
+
 def _synthetic_jwt() -> str:
     """A well-formed but meaningless JWT, assembled at runtime so secret
     scanners do not flag this test's canary as a leaked token."""
