@@ -1,13 +1,17 @@
+import hashlib
 from pathlib import Path
 import re
 import struct
+import xml.etree.ElementTree as ET
 
 import pytest
 
+from scripts.docs.manifest import load_manifest
 from scripts.docs.render_diagrams import (
     diagram_source_fingerprint,
     extract_svg,
     png_source_fingerprint,
+    render_all,
     svg_to_png,
 )
 
@@ -163,3 +167,32 @@ def test_platform_diagram_routes_kong_to_each_displayed_agent() -> None:
 
     for x in (140, 390, 640, 890, 1140):
         assert f'x1="{x}" y1="390" x2="{x}" y2="428"' in svg
+
+
+def test_standalone_exports_have_svg_namespace_without_rewriting_pngs(tmp_path: Path) -> None:
+    manifest = load_manifest(ROOT / "docs" / "manifest.yaml", ROOT)
+    png_dir = ROOT / "docs" / "diagrams" / "img"
+    before = {
+        entry.id: (
+            hashlib.sha256((png_dir / f"{entry.id}.png").read_bytes()).hexdigest(),
+            (png_dir / f"{entry.id}.png").stat().st_mode,
+        )
+        for entry in manifest.diagrams
+    }
+
+    render_all(manifest, ROOT, tmp_path, png_dir, check_png=True)
+
+    invalid = [
+        entry.id
+        for entry in manifest.diagrams
+        if ET.parse(tmp_path / f"{entry.id}.svg").getroot().tag
+        != "{http://www.w3.org/2000/svg}svg"
+    ]
+    assert invalid == []
+    assert before == {
+        entry.id: (
+            hashlib.sha256((png_dir / f"{entry.id}.png").read_bytes()).hexdigest(),
+            (png_dir / f"{entry.id}.png").stat().st_mode,
+        )
+        for entry in manifest.diagrams
+    }
