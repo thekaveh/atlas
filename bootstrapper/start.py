@@ -432,7 +432,7 @@ from utils.localhost_validator import LocalhostValidator
 from core.config_parser import ConfigParser, DEFAULT_BASE_PORT, DEFAULT_PROJECT_NAME
 from core.docker_manager import DockerManager
 from core.port_manager import PortManager
-from core.process_runner import run_with_deadline
+from core.process_runner import _one_shot_row_verdict, run_with_deadline
 from services.source_validator import SourceValidator
 from services.service_config import ServiceConfig
 from services.dependency_manager import DependencyManager
@@ -4422,12 +4422,22 @@ class AtlasStarter:
         monotonic = monotonic or _time.monotonic
 
         waited = False
+        finite_services = None
         deadline = monotonic() + grace_seconds
         while True:
             rows, error = poll_rows()
             if error is not None:
                 return [], False, waited, error
-            services = [self._compose_row_status(row) for row in rows]
+            if finite_services is None and any(
+                str(row.get("State") or "").strip().lower() == "exited" for row in rows
+            ):
+                inspected_at = monotonic()
+                finite_services = _one_shot_service_names(self._rendered_compose_services())
+                # Configuration has its own bound; retain the health grace period.
+                deadline += monotonic() - inspected_at
+            services = [self._compose_row_status(
+                row, str(row.get("Service") or "") in (finite_services or ())
+            ) for row in rows]
             genuine_failure = any(
                 not entry["ok"] and not entry["pending"] for entry in services
             )
@@ -4515,14 +4525,12 @@ class AtlasStarter:
         return True
 
     @staticmethod
-    def _compose_row_status(row: dict) -> dict:
+    def _compose_row_status(row: dict, one_shot: bool = False) -> dict:
         service = str(row.get("Service") or row.get("Name") or "unknown")
         state = str(row.get("State") or "").strip().lower()
         health = str(row.get("Health") or "").strip().lower()
         status = str(row.get("Status") or "").strip()
         exit_code = str(row.get("ExitCode") if row.get("ExitCode") is not None else "").strip()
-        status_lower = status.lower()
-
         ok = False
         pending = False
         reason = status or state or health or "unknown"
@@ -4542,11 +4550,9 @@ class AtlasStarter:
                 if health and health != "healthy":
                     reason = health
         elif state == "exited":
-            ok = (
-                exit_code in {"", "0", "<nil>", "None"}
-                or "exit 0" in status_lower
-                or "exited (0)" in status_lower
-            )
+            ok = one_shot and _one_shot_row_verdict(row)[0] == "done"
+            if not one_shot:
+                reason = f"{reason}; successful one-shot lifecycle not declared"
         elif state in {"created", "restarting", "paused", "dead"}:
             ok = False
 
@@ -5262,6 +5268,53 @@ def _n8n_needs_reactivation_restart(env: "dict[str, str]", consumer) -> bool:
         _n8n_workflow_effective_active(wf)
         for wf in getattr(consumer, "n8n_workflows", ())
     )
+
+
+# Exact Atlas-owned finite identities, including post-start jobs and the
+# generated consumer seed. Effective Compose metadata still controls admission.
+_COMPOSE_FINITE_SERVICES = frozenset({
+    "airflow-init", "backup", "comfyui-init", "hermes-init", "iceberg-rest-init",
+    "label-studio-init", "langfuse-init", "lightrag-init", "litellm-init", "minio-init",
+    "mlflow-init", "n8n-init", "n8n-seed", "ollama-pull", "open-webui-init",
+    "openclaw-init", "redpanda-init", "spark-init", "supabase-db-init", "trueforge-init",
+    "weaviate-init", "zeppelin-init",
+})
+
+
+def _one_shot_service_names(services) -> frozenset[str]:
+    """Positive finite-role evidence from the effective Compose model."""
+    if not isinstance(services, dict):
+        return frozenset()
+    try:
+        completed = {
+            name for spec in services.values()
+            for name, dependency in (spec.get("depends_on") or {}).items()
+            if dependency.get("condition") == "service_completed_successfully"
+        }
+        return frozenset(
+            name for name, spec in services.items()
+            if _finite_compose_service(name, spec, completed)
+        )
+    except (AttributeError, TypeError):
+        return frozenset()  # malformed metadata cannot prove completion
+
+
+def _finite_compose_service(name: str, spec: dict, completed: set[str]) -> bool:
+    restart = str(spec.get("restart") or "no").strip().lower()
+    if restart.split(":", 1)[0] not in {"no", "on-failure"}:
+        return False
+    if name in completed:
+        return True
+    health = spec.get("healthcheck") or {}
+    return (
+        name in _COMPOSE_FINITE_SERVICES
+        and restart == "no"
+        and not _enabled_compose_healthcheck(health)
+    )
+
+
+def _enabled_compose_healthcheck(health: dict) -> bool:
+    return bool(health) and not health.get("disable") and health.get("test") != ["NONE"]
 
 
 def _split_local_builds(

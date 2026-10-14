@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from tests.three_surface_test_utils import surface_text
 
 
@@ -10,6 +12,18 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 START_PY = REPO_ROOT / "bootstrapper" / "start.py"
 LINEAR_STARTUP = REPO_ROOT / "bootstrapper" / "core" / "linear_startup.py"
 REUSING_ATLAS = REPO_ROOT / "docs" / "operations" / "reusing-atlas.md"
+
+
+@pytest.fixture(autouse=True)
+def _rendered_model_boundary(monkeypatch):
+    """Status-row doubles also own the external Compose configuration boundary."""
+    import start as start_module
+
+    monkeypatch.setattr(
+        start_module.AtlasStarter,
+        "_rendered_compose_services",
+        lambda _self: _base_compose_services(),
+    )
 
 
 def test_start_cli_declares_detach_no_follow_and_json_options() -> None:
@@ -441,3 +455,184 @@ def test_declined_launch_says_the_running_stack_was_stopped() -> None:
 
     assert "stopped to free its ports" in launch_cancelled_notice(stopped_previous=True)
     assert "stopped" not in launch_cancelled_notice()
+
+
+def _base_compose_services():
+    """Read real owned fragments and the generated seed, without running Compose."""
+    import yaml
+
+    from core.consumer_manifest import render_n8n_seed_overlay
+
+    services = {}
+    for path in sorted((REPO_ROOT / "services").glob("*/compose.yml")):
+        services.update(yaml.safe_load(path.read_text())["services"])
+    services.update(yaml.safe_load(render_n8n_seed_overlay([]))["services"])
+    return services
+
+
+_CUSTOM_JOB = {
+    "prepare-index": {"restart": "on-failure", "healthcheck": {"test": ["CMD", "true"]}},
+    "consumer": {"depends_on": {"prepare-index": {"condition": "service_completed_successfully"}}},
+}
+_STOPPED_CASES = [
+    pytest.param(("backend", {"backend": {"restart": "unless-stopped"}}, 0, "Exited (0)", False), id="stopped-server"),
+    pytest.param(("worker-init", {"worker-init": {"restart": "no"}}, 0, "Exited (0)", False), id="unknown-init-suffix"),
+    pytest.param(("consumer-job", {"consumer-job": {"restart": "no"}}, 0, "Exited (0)", False), id="restart-no-is-not-role"),
+    pytest.param(("n8n-init", None, 0, "Exited (0)", False), id="config-unavailable"),
+    pytest.param(("n8n-init", {}, 0, "Exited (0)", False), id="service-absent"),
+    pytest.param(("n8n-init", ["n8n-init"], 0, "Exited (0)", False), id="malformed-model"),
+    pytest.param(("n8n-init", {"n8n-init": None}, 0, "Exited (0)", False), id="malformed-service"),
+    pytest.param(("n8n-init", {"n8n-init": {"restart": "always"}}, 0, "Exited (0)", False), id="job-repurposed-as-daemon"),
+    pytest.param(("n8n-init", {"n8n-init": {"restart": "on-failure"}}, 0, "Exited (0)", False), id="identity-only-ambiguous-retry"),
+    pytest.param(("n8n-init", {"n8n-init": {"healthcheck": {"test": ["CMD", "true"]}}}, 0, "Exited (0)", False), id="identity-only-healthcheck"),
+    pytest.param(("n8n-init", {"n8n-init": {"restart": "no"}}, 0, "Exited (0)", True), id="known-finite"),
+    pytest.param(("prepare-index", _CUSTOM_JOB, 0, "Exited (0)", True), id="custom-completion-retrying-job"),
+    pytest.param(("prepare-index", {**_CUSTOM_JOB, "prepare-index": {"restart": "always"}}, 0, "Exited (0)", False), id="completion-cannot-allow-daemon-restart"),
+    pytest.param(("n8n-init", {"n8n-init": {"healthcheck": {"disable": True}}}, 0, "Exited (0)", True), id="disabled-healthcheck"),
+    pytest.param(("n8n-init", {"n8n-init": {"healthcheck": {"test": ["NONE"]}}}, 0, "Exited (0)", True), id="none-healthcheck"),
+    pytest.param(("n8n-init", {"n8n-init": {"depends_on": ["backend"]}}, 0, "Exited (0)", False), id="malformed-effective-dependencies"),
+    pytest.param(("n8n-init", {"n8n-init": {}}, 2, "Exited (0)", False), id="exit-code-over-stale-status"),
+    pytest.param(("n8n-init", {"n8n-init": {}}, None, "Exited (0)", True), id="status-proves-zero"),
+    pytest.param(("n8n-init", {"n8n-init": {}}, "<nil>", "Exited (0)", True), id="nil-code-status-proves-zero"),
+    pytest.param(("n8n-init", {"n8n-init": {}}, None, "Exited (unknown)", False), id="missing-code-no-zero-evidence"),
+    pytest.param(("n8n-init", {"n8n-init": {}}, 0, "Exited", True), id="numeric-zero-authoritative"),
+    pytest.param((None, {"n8n-init": {}}, 0, "Exited (0)", False), id="container-name-is-not-Service"),
+]
+
+
+@pytest.mark.parametrize("case", _STOPPED_CASES)
+def test_detached_summary_requires_finite_role_and_zero_evidence(monkeypatch, capsys, case):
+    name, model, code, status, expected = case
+    starter = _starter()
+    monkeypatch.setattr(starter, "_rendered_compose_services", lambda: model)
+    row = {"Service": name, "Name": "atlas-n8n-init", "State": "exited", "ExitCode": code, "Status": status}
+
+    assert starter.show_detached_status_summary(
+        json_output=True, poll_rows=lambda: ([row], None)
+    ) is expected
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is expected
+    assert payload["services"][0]["ok"] is expected
+    assert payload["services"][0]["state"] == "exited"
+
+
+@pytest.mark.parametrize("case", _STOPPED_CASES)
+def test_wait_race_requires_finite_role_and_zero_evidence(monkeypatch, case):
+    name, model, code, status, expected = case
+    starter = _starter()
+    monkeypatch.setattr(starter, "_rendered_compose_services", lambda: model)
+    row = {"Service": name, "Name": "atlas-n8n-init", "State": "exited", "ExitCode": code, "Status": status}
+
+    assert starter._up_wait_race_converged(poll_rows=lambda: ([row], None)) is expected
+
+
+@pytest.mark.parametrize("job", [
+    "airflow-init", "backup", "comfyui-init", "hermes-init", "iceberg-rest-init",
+    "label-studio-init", "langfuse-init", "lightrag-init", "litellm-init", "minio-init",
+    "mlflow-init", "n8n-init", "n8n-seed", "ollama-pull", "open-webui-init",
+    "openclaw-init", "redpanda-init", "spark-init", "supabase-db-init", "trueforge-init",
+    "weaviate-init", "zeppelin-init",
+])
+def test_real_builtin_finite_jobs_keep_success_without_downstream_edges(monkeypatch, capsys, job):
+    model = _base_compose_services()
+    for service in model.values():
+        service.pop("depends_on", None)
+    starter = _starter()
+    monkeypatch.setattr(starter, "_rendered_compose_services", lambda: model)
+    row = {"Service": job, "State": "exited", "ExitCode": 0, "Status": "Exited (0)"}
+
+    assert starter.show_detached_status_summary(json_output=True, poll_rows=lambda: ([row], None))
+    assert json.loads(capsys.readouterr().out)["services"][0]["ok"]
+    assert starter._up_wait_race_converged(poll_rows=lambda: ([row], None))
+
+
+def test_running_only_summary_never_inspects_roles(monkeypatch, capsys):
+    starter = _starter()
+
+    def unexpected_lookup():
+        pytest.fail("running-only rows must not need configuration inspection")
+
+    monkeypatch.setattr(starter, "_rendered_compose_services", unexpected_lookup)
+    assert starter.show_detached_status_summary(
+        json_output=True, poll_rows=lambda: (_ALL_HEALTHY_2, None)
+    )
+    assert json.loads(capsys.readouterr().out)["ok"]
+
+
+def test_role_lookup_is_once_per_call_and_fresh_on_next_start(monkeypatch):
+    starter = _starter()
+    clock = _FakeClock()
+    models = [{"n8n-init": {}}, {"n8n-init": {"restart": "always"}}]
+    calls = []
+
+    def inspect():
+        calls.append(True)
+        return models[len(calls) - 1]
+
+    monkeypatch.setattr(starter, "_rendered_compose_services", inspect)
+    job = {"Service": "n8n-init", "State": "exited", "ExitCode": 0}
+    poll = _sequence_poll(
+        (_STARTING_THEN + [job], None), (_ALL_HEALTHY_2 + [job], None)
+    )
+    assert starter._up_wait_race_converged(
+        poll_rows=poll, sleep=clock.sleep, monotonic=clock.monotonic
+    )
+    assert len(calls) == 1
+    assert not starter._up_wait_race_converged(poll_rows=lambda: ([job], None))
+    assert len(calls) == 2
+
+
+@pytest.mark.parametrize("model", [None, {}])
+def test_unavailable_role_fails_promptly_and_retries_next_call(monkeypatch, model):
+    starter = _starter()
+    clock = _FakeClock()
+    calls = []
+
+    def inspect():
+        calls.append(True)
+        return model
+
+    monkeypatch.setattr(starter, "_rendered_compose_services", inspect)
+    # The unknown exit fails immediately; a second public call retries inspection.
+    job = {"Service": "n8n-init", "State": "exited", "ExitCode": 0}
+    for _ in range(2):
+        assert not starter._up_wait_race_converged(
+            poll_rows=lambda: (_STARTING_THEN + [job], None),
+            sleep=clock.sleep, monotonic=clock.monotonic,
+        )
+    assert len(calls) == 2
+    assert clock.now == 0
+
+
+def test_late_role_inspection_preserves_pending_health_grace(monkeypatch, capsys):
+    starter = _starter()
+    clock = _FakeClock()
+    calls = []
+
+    def inspect():
+        calls.append(True)
+        clock.sleep(60)  # existing configuration subprocess has a separate bound
+        return {"n8n-init": {}}
+
+    monkeypatch.setattr(starter, "_rendered_compose_services", inspect)
+    job = {"Service": "n8n-init", "State": "exited", "ExitCode": 0}
+    poll = _sequence_poll(
+        (_STARTING_THEN, None), (_STARTING_THEN + [job], None),
+        (_STARTING_THEN + [job], None), (_ALL_HEALTHY_2 + [job], None),
+    )
+    assert starter.show_detached_status_summary(
+        json_output=True, grace_seconds=6, poll_interval_seconds=2,
+        poll_rows=poll, sleep=clock.sleep, monotonic=clock.monotonic,
+    )
+    assert len(calls) == 1
+    assert clock.now == 66
+    assert json.loads(capsys.readouterr().out)["converged_after_grace"]
+
+
+def test_stopped_zero_server_cannot_recover_nonzero_up(monkeypatch, capsys):
+    rows = [{"Service": "backend", "State": "exited", "ExitCode": 0}]
+    starter = _race_starter(monkeypatch, up_result=1, ps_rows=rows)
+    assert not starter.start_docker_services(cold_start=False, wait=True)
+    output = capsys.readouterr().out
+    assert "backend" in output
+    assert "one-shot lifecycle not declared" in output
