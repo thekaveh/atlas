@@ -60,6 +60,67 @@ def _write_private_text(path: Path, text: str) -> None:
     atomic_write_text(path, text, mode=0o600)
 
 
+_ENV_MIGRATION_VERSION = 5
+_MIGRATION_MARKER = "BOOTSTRAPPER_PORT_LAYOUT_VERSION"
+
+
+def _is_migration_marker_assignment(line: str) -> bool:
+    """Use the reader's key normalization without decoding unrelated values."""
+    key, separator, _ = line.strip().partition("=")
+    key = re.sub(r"^export[ \t]+", "", key).strip()
+    return bool(separator) and key == _MIGRATION_MARKER
+
+
+def _duplicate_migration_markers(lines: list[str], env_path: Path) -> list[tuple[int, str]]:
+    """Decode duplicate sentinel assignments with the canonical env grammar."""
+    indices = [index for index, line in enumerate(lines) if _is_migration_marker_assignment(line)]
+    if len(indices) < 2:
+        return []
+    return [
+        (index, decode_env_assignment(lines[index], origin=f"{env_path}:{index + 1}")[1])
+        for index in indices
+    ]
+
+
+def _consolidated_migration_marker(lines: list[str], indices: set[int], version: int) -> str:
+    """Retain original marker text as comments and append one active marker."""
+    text = "".join("# " + line if index in indices else line for index, line in enumerate(lines))
+    separator = "" if not text or text.endswith(("\r", "\n")) else "\n"
+    return f"{text}{separator}{_MIGRATION_MARKER}={version}\n"
+
+
+def _prepare_migration_marker(env_path: Path) -> bool:
+    """Reconcile duplicate last-wins metadata before the frozen migration chain.
+
+    Return True only when an effective current/future duplicate marker makes
+    the entire chain a no-op. A legacy repair keeps the effective old version.
+    """
+    if not env_path.is_file():
+        return False
+    try:
+        original = env_path.read_bytes().decode("utf-8")
+        bom = "\ufeff" if original.startswith("\ufeff") else ""
+        lines = env_lines(original.removeprefix("\ufeff"), keepends=True)
+        markers = _duplicate_migration_markers(lines, env_path)
+        if not markers:
+            return False
+        effective = markers[-1][1].strip() or "0"
+        if not re.fullmatch(r"[0-9]+", effective):
+            raise ValueError("invalid duplicate migration version")
+        version = int(effective)
+        if version >= _ENV_MIGRATION_VERSION:
+            return True
+        create_private_backup(env_path, version="migration-marker")
+        text = bom + _consolidated_migration_marker(lines, {index for index, _ in markers}, version)
+        atomic_write_text(env_path, text, mode=0o600)
+    except (OSError, ValueError):
+        raise click.ClickException(
+            f"{env_path}: {_MIGRATION_MARKER}: could not safely resolve duplicate migration metadata; "
+            "check the marker assignments and file permissions."
+        ) from None
+    return False
+
+
 def _other_profile_binds(active: str, bundles: dict) -> set[str]:
     return {
         candidate.host_bind_ip
@@ -309,7 +370,8 @@ def _run_privileged_hosts_setup(non_interactive: bool = False) -> bool:
 sys.path.insert(0, str(Path(__file__).parent))
 
 from utils.atomic_write import (
-    atomic_replace_text, atomic_write_text, create_private_backup, env_lines, render_env_assignment,
+    atomic_replace_text, atomic_write_text, create_private_backup, decode_env_assignment,
+    env_lines, render_env_assignment,
     set_env_assignment,
 )
 from utils.banner import BannerDisplay
@@ -2624,6 +2686,8 @@ class AtlasStarter:
         relies on the v2 port values.
         """
         env_path = self.config_parser.env_file_path
+        if not no_port_migrate and _prepare_migration_marker(env_path):
+            return
 
         # v0 → v1: port-layout rewrite.
         if _needs_v1(env_path):

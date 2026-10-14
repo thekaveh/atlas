@@ -216,3 +216,305 @@ def test_an_export_prefixed_version_line_is_current(tmp_path):
     env.write_text("export BOOTSTRAPPER_PORT_LAYOUT_VERSION=0\n", encoding="utf-8")
     migration_v1.stamp_version(env, 1)
     assert env.read_text(encoding="utf-8") == "export BOOTSTRAPPER_PORT_LAYOUT_VERSION=1\n"
+
+# Duplicate sentinels must follow the canonical reader's last assignment.
+
+import json
+import stat
+from types import SimpleNamespace
+
+import click
+import pytest
+
+_MARKER = "BOOTSTRAPPER_PORT_LAYOUT_VERSION"
+_COMMON = (
+    "BASE_PORT=63000\nLITELLM_DEFAULT_MODEL=ollama/qwen3.6:latest\n"
+    "WEAVIATE_ENABLE_MODULES=text2vec-ollama\n"
+    "# retain this comment\nCUSTOM_LITERAL='a$z\\q # literal'\n"
+)
+
+
+def _marker_starter(tmp_path, markers):
+    from core.config_parser import ConfigParser
+    from start import AtlasStarter
+
+    env = tmp_path / ".env"
+    env.write_bytes((markers + _COMMON).encode("utf-8"))
+    events = []
+
+    def record(*args, **kwargs):
+        events.append(tuple(map(str, args)))
+
+    starter = AtlasStarter.__new__(AtlasStarter)
+    starter.root_dir = Path(__file__).resolve().parents[2]
+    starter.config_parser = ConfigParser(str(tmp_path))
+    starter.config_parser.env_file_path = env
+    starter.banner = SimpleNamespace(
+        console=SimpleNamespace(print=record), show_status_message=record,
+    )
+    return starter, env, events
+
+
+def _assert_marker_completed(starter, env):
+    parsed = starter.config_parser.parse_env_file()
+    assert (
+        parsed[_MARKER], parsed["LITELLM_DEFAULT_MODEL"],
+        parsed["WEAVIATE_ENABLE_MODULES"], parsed["CUSTOM_LITERAL"],
+    ) == ("5", "ollama/qwen3.8:latest", "text2vec-ollama,backup-filesystem", "a$z\\q # literal")
+    assert [needs(env) for needs in (needs_v1, needs_v2, needs_v3, needs_v4, needs_v5)] == [False] * 5
+    from utils.atomic_write import decode_env_assignment, env_lines
+    assignments = [decode_env_assignment(line, origin=str(env)) for line in env_lines(env.read_text(encoding="utf-8-sig"))]
+    assert [item[1] for item in assignments if item is not None and item[0] == _MARKER] == ["5"]
+
+
+@pytest.mark.parametrize("markers", [
+    f"{_MARKER}=5\n{_MARKER}=3\n",
+    f"{_MARKER}=3\n{_MARKER}=3\n",
+    f"{_MARKER}=9\n{_MARKER}=5\n{_MARKER}=3\n",
+    f"{_MARKER}=5\nexport {_MARKER}='3' # old version\n",
+    f"{_MARKER}=5\n  export\t{_MARKER}\t=\t\" 003 \" # old version\n",
+    f"{_MARKER}=5\n{_MARKER}=0\n",
+    f"{_MARKER}=5\n{_MARKER}=\n",
+    f"\ufeff{_MARKER}=5\r\n{_MARKER}=3\r\n",
+    f"{_MARKER}=5\n\u00a0{_MARKER}=3\n",
+    f"{_MARKER}=5\n{_MARKER}\u00a0=3\n",
+    f"{_MARKER}=5\n\f{_MARKER}=3\n",
+    f"{_MARKER}=5\n\v{_MARKER}=3\n",
+    f"{_MARKER}=5\n{_MARKER}=4\n\u00a0{_MARKER}=3\n",
+    f"{_MARKER}=5\n\u00a0export\t{_MARKER}\u00a0=\u00a0' 003 '\n",
+])
+def test_duplicate_legacy_marker_completes_and_preserves_pristine_backup(tmp_path, markers):
+    starter, env, events = _marker_starter(tmp_path, markers)
+    original = env.read_bytes()
+    starter.config_parser.parse_env_file()  # Populate the real reader cache.
+    starter.run_port_migration(False)
+    _assert_marker_completed(starter, env)
+    backups = list(tmp_path.glob(".env.backup.migration-marker.*"))
+    assert len(backups) == 1
+    assert (backups[0].read_bytes(), stat.S_IMODE(backups[0].stat().st_mode)) == (original, 0o600)
+    assert all(stat.S_IMODE(p.stat().st_mode) == 0o600 for p in tmp_path.glob(".env.backup.*"))
+    assert "Stale-model-reference migration complete (v4)." in str(events)
+    assert "Weaviate backup-module migration complete (v5)." in str(events)
+    first = env.read_bytes(), sorted(tmp_path.glob(".env.backup.*")), list(events)
+    starter.run_port_migration(False)
+    assert (env.read_bytes(), sorted(tmp_path.glob(".env.backup.*")), events) == first
+
+
+@pytest.mark.parametrize("markers", [
+    f"{_MARKER}=3\n{_MARKER}=5\n", f"{_MARKER}=3\n{_MARKER}=9\n",
+    f"{_MARKER}=5\n{_MARKER}=5\n", f"{_MARKER}=9\n{_MARKER}=9\n",
+    f"\ufeff{_MARKER}=3\r\nexport {_MARKER}=' 5 ' # current\r\n",
+    f"{_MARKER}=3\n\u00a0{_MARKER}=5\n",
+    f"{_MARKER}=3\n{_MARKER}\u00a0=9\n",
+])
+def test_duplicate_current_or_future_marker_is_exact_noop(tmp_path, monkeypatch, markers):
+    import start
+
+    starter, env, events = _marker_starter(tmp_path, markers)
+    original = env.read_bytes()
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("current/future effective marker must bypass the historical chain")
+
+    for name in ("_needs_v1", "_needs_v2", "_needs_v3", "_needs_v4", "_needs_v5"):
+        monkeypatch.setattr(start, name, forbidden)
+    starter.run_port_migration(False)
+    assert (env.read_bytes(), list(tmp_path.glob(".env.backup.*")), events) == (original, [], [])
+
+
+@pytest.mark.parametrize("markers", [
+    f"{_MARKER}=5\n{_MARKER}=3\n", f"{_MARKER}=3\n{_MARKER}=5\n",
+    f"{_MARKER}=3\n{_MARKER}=3\n", f"{_MARKER}=5\n{_MARKER}=5\n",
+])
+def test_skip_duplicate_markers_preserves_bytes_backups_and_messages(tmp_path, markers):
+    starter, env, events = _marker_starter(tmp_path, markers)
+    original = env.read_bytes()
+    starter.run_port_migration(True)
+    assert (env.read_bytes(), list(tmp_path.glob(".env.backup.*"))) == (original, [])
+    assert "complete" not in str(events)
+    if markers.startswith(f"{_MARKER}=3"):
+        assert "--no-port-migrate" in str(events)
+
+
+@pytest.mark.parametrize("value", ["-1", "3.5", "PRIVATE_MARKER_VALUE", "٣", "'3' trailing", "\"3"])
+def test_invalid_duplicate_marker_is_value_free_expected_error(tmp_path, value):
+    starter, env, events = _marker_starter(tmp_path, f"{_MARKER}=5\n{_MARKER}={value}\n")
+    original = env.read_bytes()
+    with pytest.raises(click.ClickException) as caught:
+        starter.run_port_migration(False)
+    assert (env.read_bytes(), list(tmp_path.glob(".env.backup.*")), events) == (original, [], [])
+    assert str(env) in str(caught.value) and _MARKER in str(caught.value)
+    assert value not in str(caught.value)
+
+
+@pytest.mark.parametrize("failure", ["backup", "before-write", "after-replace"])
+def test_marker_persistence_failure_stops_before_migration(tmp_path, monkeypatch, failure):
+    import start
+
+    starter, env, events = _marker_starter(tmp_path, f"{_MARKER}=5\n{_MARKER}=3\n")
+    original = env.read_bytes()
+    real_write = start.atomic_write_text
+
+    def fail(*args, **kwargs):
+        if failure == "after-replace":
+            real_write(*args, **kwargs)
+        raise OSError("PRIVATE_FAILURE_VALUE")
+
+    monkeypatch.setattr(start, "create_private_backup" if failure == "backup" else "atomic_write_text", fail)
+    with pytest.raises(click.ClickException) as caught:
+        starter.run_port_migration(False)
+    backups = list(tmp_path.glob(".env.backup.migration-marker.*"))
+    assert len(backups) == (0 if failure == "backup" else 1)
+    assert events == [] and "PRIVATE_FAILURE_VALUE" not in str(caught.value)
+    if backups:
+        assert (backups[0].read_bytes(), stat.S_IMODE(backups[0].stat().st_mode)) == (original, 0o600)
+    if failure == "after-replace":
+        parsed = starter.config_parser.parse_env_file()
+        assert (parsed[_MARKER], parsed["LITELLM_DEFAULT_MODEL"], parsed["WEAVIATE_ENABLE_MODULES"]) == (
+            "3", "ollama/qwen3.6:latest", "text2vec-ollama",
+        )
+        monkeypatch.setattr(start, "atomic_write_text", real_write)
+        starter.run_port_migration(False)
+        _assert_marker_completed(starter, env)
+    else:
+        assert env.read_bytes() == original
+
+
+def test_duplicate_marker_catalog_failure_does_not_leapfrog_and_retries(tmp_path, monkeypatch):
+    from services.migrations import migration_v4
+
+    starter, env, events = _marker_starter(tmp_path, f"{_MARKER}=5\n{_MARKER}=3\n")
+    with monkeypatch.context() as scoped:
+        scoped.setattr(migration_v4, "_current_ollama_catalog", lambda: None)
+        starter.run_port_migration(False)
+    parsed = starter.config_parser.parse_env_file()
+    assert (parsed[_MARKER], parsed["WEAVIATE_ENABLE_MODULES"]) == ("3", "text2vec-ollama")
+    assert "will retry" in str(events) and "complete (v5)" not in str(events)
+    starter.run_port_migration(False)
+    _assert_marker_completed(starter, env)
+
+
+@pytest.mark.parametrize("modules", [
+    "WEAVIATE_ENABLE_MODULES='text2vec-ollama' trailing\n",
+    "WEAVIATE_ENABLE_MODULES=text2vec-ollama\nWEAVIATE_ENABLE_MODULES=generative-ollama\n",
+])
+def test_duplicate_marker_v5_module_failure_remains_retryable(tmp_path, modules):
+    from utils.atomic_write import atomic_write_text
+
+    starter, env, events = _marker_starter(tmp_path, f"{_MARKER}=5\n{_MARKER}=4\n")
+    env.write_text(env.read_text().replace("WEAVIATE_ENABLE_MODULES=text2vec-ollama\n", modules))
+    starter.run_port_migration(False)
+    assert needs_v5(env) and not needs_v4(env)
+    assert "migration (v5) skipped" in str(events) and "complete (v5)" not in str(events)
+    text = env.read_text().replace(modules, "WEAVIATE_ENABLE_MODULES=text2vec-ollama\n")
+    atomic_write_text(env, text, mode=0o600)
+    starter.run_port_migration(False)
+    assert starter.config_parser.parse_env_file()[_MARKER] == "5"
+
+
+@pytest.mark.parametrize("ending", ["\n", "\r\n", "\r", ""])
+def test_marker_consolidation_preserves_bom_literal_lines_and_history(tmp_path, monkeypatch, ending):
+    import start
+    from utils.atomic_write import env_lines
+
+    starter, env, events = _marker_starter(tmp_path, "")
+    lines = [f"{_MARKER}=5", "# retain comment", "OTHER='a$z\\q # literal'", f"export {_MARKER}='3' # marker"]
+    original = ("\ufeff" + (ending or "\n").join(lines) + ending).encode()
+    env.write_bytes(original)
+    # Stop at v4's existing retry seam so historical newline rewrites cannot mask preflight bytes.
+    monkeypatch.setattr(start, "_apply_v4", lambda _: False)
+    starter.run_port_migration(False)
+    raw = env.read_bytes().decode("utf-8")
+    expected_lines = ["# " + line if _MARKER in line else line for line in env_lines(original.decode("utf-8-sig"), keepends=True)]
+    expected = "\ufeff" + "".join(expected_lines)
+    expected += ("" if expected.endswith(("\r", "\n")) else "\n") + f"{_MARKER}=3\n"
+    assert raw == expected
+    assert env.read_bytes().startswith(b"\xef\xbb\xbf")
+    assert "complete" not in str(events)
+
+
+def test_exotic_separator_and_unrelated_duplicates_are_not_promoted(tmp_path, monkeypatch):
+    import start
+
+    starter, env, _ = _marker_starter(tmp_path, f"{_MARKER}=5\n{_MARKER}=3\n")
+    tail = f"UNRELATED=first\nUNRELATED=last\nOTHER='literal\u2028{_MARKER}=9'\n"
+    env.write_text(env.read_text() + tail)
+    monkeypatch.setattr(start, "_apply_v4", lambda _: False)
+    starter.run_port_migration(False)
+    parsed = starter.config_parser.parse_env_file()
+    assert (parsed[_MARKER], parsed["UNRELATED"], parsed["OTHER"]) == ("3", "last", f"literal\u2028{_MARKER}=9")
+    assert tail in env.read_text()
+
+
+@pytest.mark.parametrize("symlink", [False, True])
+def test_marker_repair_uses_active_env_path_and_owned_symlink(tmp_path, monkeypatch, symlink):
+    from core.config_parser import ConfigParser
+
+    root = tmp_path / "root"
+    root.mkdir()
+    starter, decoy, _ = _marker_starter(root, f"{_MARKER}=5\n")
+    original_decoy = decoy.read_bytes()
+    target = tmp_path / "owned.env"
+    target.write_text(f"{_MARKER}=5\n{_MARKER}=3\n" + _COMMON)
+    original_target = target.read_bytes()
+    active = tmp_path / "active.env"
+    if symlink:
+        active.symlink_to(target)
+    else:
+        active = target
+    monkeypatch.setenv("ATLAS_ENV_FILE", str(active))
+    starter.config_parser = ConfigParser(str(root))
+    starter.run_port_migration(False)
+    _assert_marker_completed(starter, active)
+    assert decoy.read_bytes() == original_decoy
+    assert active.is_symlink() is symlink
+    selected = starter.config_parser.env_file_path
+    snapshot = list(selected.parent.glob(selected.name + ".backup.migration-marker.*"))
+    assert len(snapshot) == 1 and snapshot[0].read_bytes() == original_target
+
+
+def test_marker_boundary_chain_end_matches_manifest_default():
+    import yaml
+    from start import _ENV_MIGRATION_VERSION
+
+    manifest = yaml.safe_load((Path(__file__).resolve().parents[2] / "services/globals/service.yml").read_text())
+    assert next(item["default"] for item in manifest["env"] if item["name"] == _MARKER) == _ENV_MIGRATION_VERSION
+
+
+@pytest.mark.parametrize("flow", ["linear", "setup", "launch", "json"])
+def test_marker_error_blocks_public_flow_before_dependent_work(tmp_path, monkeypatch, flow):
+    from click.testing import CliRunner
+    from core.linear_startup import LinearStartupOptions, json_cli_guard, run_linear_startup
+    from ui.textual import integration
+
+    starter, env, events = _marker_starter(tmp_path, f"{_MARKER}=5\n{_MARKER}=PRIVATE_MARKER_VALUE\n")
+    monkeypatch.setattr(starter, "show_banner", lambda: None)
+    monkeypatch.setattr(starter, "prepare_environment", lambda **_: True)
+    monkeypatch.setattr(starter, "backfill_missing_env_vars", lambda: True)
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("migration error must stop before dependent work")
+
+    monkeypatch.setattr(starter, "apply_source_overrides", forbidden)
+    monkeypatch.setattr(integration, "_build_steps_and_rows", forbidden)
+    if flow == "linear":
+        options = LinearStartupOptions(False, None, None, {}, None, None, None, {}, {}, False, False, True, None, True, False, True)
+        with pytest.raises(click.ClickException):
+            run_linear_startup(starter, options)
+    elif flow == "setup":
+        with pytest.raises(click.ClickException):
+            integration.run_setup_flow(starter.config_parser, None, starter=starter)
+    elif flow == "launch":
+        with pytest.raises(click.ClickException):
+            integration.run_launch_flow(starter.config_parser, None, starter=starter, source_args={}, stack_options={})
+    else:
+        @click.command()
+        @click.option("--json", "json_output", is_flag=True)
+        @json_cli_guard
+        def command(json_output):
+            starter.run_port_migration(False)
+        result = CliRunner().invoke(command, ["--json"])
+        assert (result.exit_code, json.loads(result.stdout), result.stdout.count("\n")) == (1, {"ok": False, "exit_code": 1}, 1)
+        assert _MARKER in result.stderr and "PRIVATE_MARKER_VALUE" not in result.stderr
+        assert "Traceback" not in result.output
+    assert events == [] and list(tmp_path.glob(".env.backup.*")) == []
