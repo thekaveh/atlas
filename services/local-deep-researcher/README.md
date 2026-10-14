@@ -171,15 +171,15 @@ curl -s http://localhost:${LOCAL_DEEP_RESEARCHER_PORT}/threads/$THREAD/state | j
 
 Returns `running_summary`, `sources_gathered`, `loop_count`, current node — useful for debugging stalls.
 
-**Tune the research depth.** `LOCAL_DEEP_RESEARCHER_LOOPS` (default 3) and `LOCAL_DEEP_RESEARCHER_SEARCH_API` are defaults. A run's own `max_web_research_loops` and `search_api` override them. Backend `/research/start` fills omitted values from these variables. More loops can exceed the Backend's 300-second run wait. All other settings (provider, model, LiteLLM URL and key) come only from the environment, so a caller cannot redirect the LiteLLM key.
+**Tune the research depth.** `LOCAL_DEEP_RESEARCHER_LOOPS` (default 3) and `LOCAL_DEEP_RESEARCHER_SEARCH_API` are defaults. A run's own `max_web_research_loops` and `search_api` override them. Backend `/research/start` fills omitted values from these variables. The Backend waits up to `max(300, 180 * max_loops)` seconds for the run stream. All other settings (provider, model, LiteLLM URL and key) come only from the environment, so a caller cannot redirect the LiteLLM key.
 
 **Change the model.** Set `LITELLM_DEFAULT_MODEL` in `.env` to a model LiteLLM serves, then restart the stack.
 
 ## 8. Performance notes
 
 - **Cost per run.** About 2 LLM calls per loop plus 1 (about 7 for the default 3 loops), and one SearXNG call per loop. Loop time depends on the model and hardware. Local Ollama models have no per-call cost; cloud models through LiteLLM are metered.
-- **No streaming to clients.** The backend's `research_client.py` reads the `/runs/stream` SSE channel synchronously and does not forward events.
-- **Thread state.** Each run keeps its summary and sources in the in-memory checkpointer. Threads stay in process without a bound until a restart clears them.
+- **No streaming to clients.** The backend's `research_client.py` reads the `/runs/stream` SSE channel asynchronously and does not forward events.
+- **Thread state.** Each thread keeps its summary and sources in the in-memory checkpointer. After completed result handling, the Backend attempts thread deletion. Direct callers must manage their own threads; threads from incomplete runs remain.
 
 ## 9. Capabilities & limitations
 

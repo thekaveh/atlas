@@ -356,7 +356,7 @@ A disabled optional service degrades only its feature:
 - Each run waits at most `max(300, 180 × max_loops)` s for the stream, then is cancelled and the session failed. At `max_loops=10` a session can hold a slot for 30 minutes.
 - Each Backend process admits at most `RESEARCH_MAX_CONCURRENT` sessions (default `4`). A saturated `POST /research/start` returns `429` with `Retry-After: 1` before any database work.
 - This is a per-process limit. Atlas runs one Backend container; a consumer that scales it multiplies the limit.
-- After a completed run the LangGraph thread is deleted, because `langgraph dev` keeps every thread in memory. A timed-out or cancelled run's thread is kept, so LangGraph's cancellation can still find the run.
+- After completed result handling, the Backend attempts LangGraph thread deletion because `langgraph dev` keeps thread state in memory. Timed-out or cancelled threads remain so LangGraph's cancellation can find the run.
 
 **Network and mounts.** Upstream calls use Docker DNS on `backend-network`. Localhost-sourced services, such as a host ComfyUI, are reached through `host.docker.internal`. Host mounts: `./app/app` (source and plugins) and `volumes/comfyui` (read-only ComfyUI manifest).
 
@@ -497,7 +497,7 @@ _Rows marked planned are documented or intended, not wired yet._
 ### 6.4. Future — Missing pair integrations
 
 - **backend ↔ minio (general artifact API)**
-  - *Why:* RAG ingestion reads consumer-declared MinIO corpora through manifest-bound scoped credentials. Research outputs, ComfyUI image caches and large user uploads still use Supabase Storage, not the built-in `backend` bucket.
+  - *Why:* RAG ingestion reads consumer-declared MinIO corpora through manifest-bound scoped credentials. Research results stay in PostgreSQL, ComfyUI outputs stay with ComfyUI, and `/storage/upload` uses Supabase Storage. These paths do not use the built-in `backend` bucket.
   - *Mechanism:* add an artifact client using `MINIO_BUCKET_BACKEND` plus `MINIO_BACKEND_ACCESS_KEY`/`SECRET_KEY`; expose `POST /storage/artifact` + `GET /storage/artifact/{key}`.
   - *Effort:* small. *Confidence:* high.
 - **backend ↔ hermes**
