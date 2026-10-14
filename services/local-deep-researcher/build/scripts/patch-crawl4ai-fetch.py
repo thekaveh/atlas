@@ -38,14 +38,18 @@ def crawl4ai_fetch_raw_content(url: str) -> Optional[str]:
     """
     endpoint = os.getenv("CRAWL4AI_ENDPOINT", "").rstrip("/")
     token = os.getenv("CRAWL4AI_API_TOKEN", "")
-    timeout = float(os.getenv("CRAWL4AI_TIMEOUT_SECONDS", "30"))
-    max_chars = int(os.getenv("CRAWL4AI_MAX_CHARS", "60000"))
 
     if not endpoint or not token:
         print("Warning: Crawl4AI full-page mode selected but endpoint/token is missing")
         return None
 
     try:
+        timeout = float(os.getenv("CRAWL4AI_TIMEOUT_SECONDS", "30"))
+        max_chars = int(os.getenv("CRAWL4AI_MAX_CHARS", "60000"))
+        if not 0 < timeout < float("inf"):
+            raise ValueError("CRAWL4AI_TIMEOUT_SECONDS must be finite and positive")
+        if max_chars < 0:
+            raise ValueError("CRAWL4AI_MAX_CHARS must be nonnegative")
         headers = {"Authorization": f"Bearer {token}"}
         request_body = {"urls": [url], "priority": 10}
         with httpx.Client(timeout=timeout) as client:
