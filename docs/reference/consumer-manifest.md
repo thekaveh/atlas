@@ -380,14 +380,19 @@ Accepted values: `parser_order` entries `docling`, `tika`, `crawl4ai`, `plain_te
 
 On `./start.sh`, the bootstrapper validates and normalizes each profile and hashes it into a stable `revision`. It writes the gitignored `volumes/backend/rag-ingestion-profiles.json` and mounts it into Backend and Celery at a reserved internal path. Both services get the same `RAG_INGESTION_PROFILES_FILE`, Redis state URL, upstream endpoints and resource limits. A MinIO corpus bucket must also be in the same consumer's `storage.buckets`. Atlas then injects only that store's credential variable names into both services.
 
+Use the direct Backend URL as `BACKEND_URL` and send `BACKEND_INTERNAL_API_TOKEN` as the bearer token. Follow the [Backend access policy](../../services/backend/README.md#2-access) for gateway authentication.
+
 Submit and poll jobs through the backend API:
 
 ```bash
 # Submit (async when the Celery tier is enabled, else runs in-request); returns an ingestion id.
-curl -XPOST "$BACKEND_URL/api/rag/ingestions" -H 'content-type: application/json' \
+curl -XPOST "$BACKEND_URL/api/rag/ingestions" \
+     -H "Authorization: Bearer ${BACKEND_INTERNAL_API_TOKEN}" \
+     -H 'content-type: application/json' \
      -d '{"profile":"showcase-default"}'
 # Poll machine-readable status (phases, counts, timing, per-file errors).
-curl "$BACKEND_URL/api/rag/ingestions/<ingestion_id>"
+curl "$BACKEND_URL/api/rag/ingestions/<ingestion_id>" \
+     -H "Authorization: Bearer ${BACKEND_INTERNAL_API_TOKEN}"
 ```
 
 You own mounted corpora. Mount the same read-only host directory at `RAG_INGESTION_CORPUS_ROOT` in both services, so the corpus does not change when Celery is on:
@@ -404,14 +409,16 @@ services:
 
 - **Corpus paths.** A `mount` corpus must be a relative path under `RAG_INGESTION_CORPUS_ROOT` (default `/app/corpus`). An absolute path, `~` or a `..` segment is rejected. A MinIO corpus must name a store the same consumer declared. A missing path is never an empty corpus: submission returns HTTP 400, and a worker without the backend's mount fails the job.
 - **Bounds.** Discovery stops at `RAG_INGESTION_MAX_FILE_BYTES` (default 100 MiB), `RAG_INGESTION_MAX_CORPUS_BYTES` (default 1 GiB) and `RAG_INGESTION_MAX_FILES` (default 10,000), before content is held in memory.
-- **Chunk limit.** Chunking holds about 20–25 bytes of memory per character, so Atlas chunks a document only up to 20,000,000 characters. A longer document is a per-file chunk error, and its earlier vectors are kept.
-- **Parsing.** Parsers run in `parser_order`. The `plain_text` entry that Atlas appends last accepts only text (UTF-8, Windows-1252, or BOM-marked UTF-16/32). A binary file that Docling and Tika failed on is a per-file error. Its earlier vectors are kept, and it is never indexed as raw bytes.
+- **Chunk limit.** Chunking holds about 20–25 bytes of memory per character, so Atlas chunks a document only up to 20,000,000 characters. A longer document is a per-file chunk error and is excluded from stale-object deletion. Class replacement can still remove its earlier vectors.
+- **Parsing.** Parsers run in `parser_order`. The `plain_text` entry that Atlas appends last accepts only text (UTF-8, Windows-1252, or BOM-marked UTF-16/32). A binary file that Docling and Tika failed on is a per-file error. It is never indexed as raw bytes. Cleanup excludes it, but class replacement can remove its earlier vectors.
 - **Targets.** A profile may declare at most one `graph_target` (Atlas has one LightRAG endpoint). Each target declares `on_unavailable: fail | skip`, so a disabled backend fails or skips visibly. A `wait_for_extraction: true` graph target polls LightRAG until idle or `timeout_seconds`, then finalizes.
 - **Phases.** Each job records its phases (`discover → parse → chunk → embed → vector_write → lightrag_upload → drain → finalize`). Errors are isolated per file, so one bad file does not fail the batch.
 - **Idempotency.** The job key is consumer + profile + revision + corpus fingerprint + embedding model. Mount and MinIO fingerprints hash bounded file bytes. Unchanged content returns the existing job. Changed content or `LITELLM_EMBEDDING_MODEL` creates a new job. If discovery finds changed content, that job loses dedup eligibility before writes. Restoring earlier content then starts a new job.
-- **Leases.** Each execution holds an owner-fenced Redis lease (`RAG_INGESTION_EXECUTION_LEASE_SECONDS`, default 30), so duplicate deliveries and lost workers cannot write twice. The lease is per ingestion, not per profile. Two jobs of one profile can run at once, so let one finish before you submit the next.
+- **Leases.** Each execution holds an owner-fenced Redis lease (`RAG_INGESTION_EXECUTION_LEASE_SECONDS`, default 30) for state writes. Fencing protects ingestion records; it does not make external writes exactly-once. The lease is per ingestion, not per profile. Two jobs of one profile can run at once, so let one finish before you submit the next.
 - **Embedding identity.** Each Weaviate class records its embedding model and vector dimension. A class without that record is adopted when its vectors have the current size. Otherwise, the first ingestion after a model or size change drops the class and writes the whole corpus again, so two models never mix.
-- **Rebuild window.** During that rebuild, queries see only the objects written so far. If it fails, the class stays partial until a later run succeeds. Saved rebuild history survives a retry after a successful class check and later transient write failure. Failed-source notes report that earlier vectors were removed; writes from a previous attempt may still exist.
+- **Rebuild window.** During a rebuild, queries see only the objects written so far. Failed sources are excluded from stale-object deletion, but class replacement can remove earlier vectors. Writes from a previous attempt can survive.
+- **Rebuild reporting.** Saved rebuild history survives a retry after a successful class check and later write failure. Creation acknowledgement failure or lease loss before the checkpoint can leave vector availability unverified. A failed-source exclusion does not prove that vectors exist.
+- **Recovery.** Correct the failed input or upstream. A completed job with file errors still deduplicates unchanged input. To create a new job, change the corpus or profile definition and submit again. Run `./start.sh --consumer <manifest>` to regenerate an edited profile's revision. Each affected file must parse, chunk, embed and write successfully.
 - **Class names.** Profile names that map to one class (`a-b` and `a.b` both become `{prefix}_a_b`) are rejected at load. Object ids include the profile name.
 
 MinIO fingerprints hash bytes instead of object metadata; all fingerprints use consistent filename ordering. Upgrading fingerprint formats may cause one new ingestion for unchanged content.

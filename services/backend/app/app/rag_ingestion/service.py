@@ -720,8 +720,8 @@ class RagIngestionService:
         text and want OPPOSITE outcomes: the emptied file must lose its
         vectors (the reconcile doing its job, and the contract this module's
         tests state), while a real document a parser turned into whitespace
-        must keep them — deleting on a parser blip is the data loss the
-        preserve-set exists to prevent.
+        must be excluded from stale-object deletion. The preserve-set protects
+        objects in a surviving class; a class replacement can still remove them.
 
         The source bytes settle it: `state["files"]` holds what was actually on
         disk. Preserving unconditionally meant an emptied file's stale content
@@ -736,8 +736,8 @@ class RagIngestionService:
                 phase="chunk",
                 file=name,
                 message=(
-                    "parsed to whitespace despite non-empty source — "
-                    "existing vectors preserved"
+                    "parsed to whitespace despite non-empty source; "
+                    "treated as a failed source"
                 ),
             )
         )
@@ -897,7 +897,7 @@ class RagIngestionService:
     async def _reconcile_kept_sources(
         self, record, profile, state, class_name, objects
     ) -> None:
-        """Delete stale objects, preserving sources that failed THIS attempt.
+        """Delete stale objects, excluding sources that failed THIS attempt.
 
         `failed_sources` comes from `state`, not `record.errors`: that list is
         reloaded with the record and carries entries from earlier attempts, so
@@ -921,8 +921,10 @@ class RagIngestionService:
             )
         elif failed_sources:
             note = (
-                f"wrote {len(objects)} object(s); preserved existing vectors for "
-                f"{len(failed_sources)} source(s) that failed this run "
+                f"wrote {len(objects)} object(s); excluded {len(failed_sources)} "
+                f"source(s) that failed this attempt from stale-object deletion; "
+                f"their vector availability is unverified; an interrupted class "
+                f"replacement may have removed earlier vectors "
                 f"({', '.join(failed_sources[:5])})"
             )
         else:
