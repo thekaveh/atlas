@@ -393,3 +393,93 @@ def test_emr_script_terminates_when_client_stop_fails(monkeypatch):
     with pytest.raises(RuntimeError, match="owned client stop failed"):
         runpy.run_path(str(_EMR_PATH), run_name="__main__")
     client.terminate_session.assert_called_once_with(applicationId="owned-app", sessionId="owned-session")
+
+
+@pytest.fixture
+def daily_spark_smoke(monkeypatch):
+    """Load the complete daily DAG with synthetic operator and Spark modules."""
+    import sys
+    import types
+
+    providers = {
+        "airflow": {"DAG": MagicMock()},
+        "airflow.providers.amazon.aws.hooks.s3": {"S3Hook": MagicMock()},
+        "airflow.providers.openai.hooks.openai": {"OpenAIHook": MagicMock()},
+        "airflow.providers.common.sql.operators.sql": {
+            "SQLExecuteQueryOperator": MagicMock()
+        },
+        "airflow.providers.standard.operators.python": {
+            "PythonOperator": MagicMock()
+        },
+    }
+    for name, attributes in providers.items():
+        module = types.ModuleType(name)
+        module.__dict__.update(attributes)
+        monkeypatch.setitem(sys.modules, name, module)
+
+    builder = MagicMock()
+    builder.remote.return_value = builder
+    builder.appName.return_value = builder
+    pyspark = types.ModuleType("pyspark")
+    sql = types.ModuleType("pyspark.sql")
+    sql.SparkSession = types.SimpleNamespace(builder=builder)
+    monkeypatch.setitem(sys.modules, "pyspark", pyspark)
+    monkeypatch.setitem(sys.modules, "pyspark.sql", sql)
+    path = _MOD_PATH.with_name("example_etl_with_llm.py")
+    spec = importlib.util.spec_from_file_location("atlas_daily_spark_smoke", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module, builder
+
+
+@pytest.mark.parametrize("failure", ["version-error", "version-cancel", "output-error"])
+def test_daily_spark_smoke_stops_owned_session_after_failure(
+    daily_spark_smoke, monkeypatch, failure
+):
+    module, builder = daily_spark_smoke
+    original = {
+        "version-error": RuntimeError("synthetic version RPC failed"),
+        "version-cancel": KeyboardInterrupt("synthetic cancellation"),
+        "output-error": OSError("synthetic output failed"),
+    }[failure]
+
+    class Session:
+        stop = MagicMock()
+
+        @property
+        def version(self):
+            if failure.startswith("version-"):
+                raise original
+            return "4.1.2"
+
+    session = Session()
+    builder.getOrCreate.return_value = session
+    if failure == "output-error":
+        monkeypatch.setattr(module, "print", MagicMock(side_effect=original), raising=False)
+    with pytest.raises(type(original)) as raised:
+        module.spark_smoke()
+    assert raised.value is original
+    session.stop.assert_called_once_with()
+
+
+def test_daily_spark_smoke_preserves_success_output(daily_spark_smoke, capsys):
+    module, builder = daily_spark_smoke
+    session = MagicMock(version="4.1.2")
+    builder.getOrCreate.return_value = session
+    assert module.spark_smoke() is None
+    builder.remote.assert_called_once_with("sc://spark-connect:15002")
+    builder.appName.assert_called_once_with("airflow-smoke")
+    assert capsys.readouterr().out == "Spark Connect connected; version=4.1.2\n"
+    session.stop.assert_called_once_with()
+
+
+def test_daily_spark_smoke_creation_error_has_no_owned_session(daily_spark_smoke):
+    module, builder = daily_spark_smoke
+    original = RuntimeError("synthetic creation failed")
+    uncreated_session = MagicMock()
+    builder.getOrCreate.return_value = uncreated_session
+    builder.getOrCreate.side_effect = original
+    with pytest.raises(RuntimeError) as raised:
+        module.spark_smoke()
+    assert raised.value is original
+    uncreated_session.stop.assert_not_called()
