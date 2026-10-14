@@ -60,6 +60,10 @@ To recover, do one of these:
 - Then runs `05-scoped-roles.sh`, which creates the scoped per-service logins and grants
 - Then executes optional downstream-owned `.sql` files from `./services/supabase/db/_user/` in alphabetical order
 
+Role and database names must fit PostgreSQL's [63-byte identifier limit](https://www.postgresql.org/docs/17/sql-syntax-lexical.html).
+The role provisioner rejects longer names before it changes logins, ownership or grants.
+The length check preserves each accepted name's spelling, including punctuation and spaces.
+
 The seeding layout has two tiers. Core scaffolding lives in the `0x`-prefixed files. Per-service "vertical slice" files (`10` and up) each own one service's tables, migrations and seeds. `db-init-runner.sh` runs them in alphabetical order. A slice can reference a table from a lower-numbered slice, for example `public.users` in `10` from slices `13` and `14`.
 
 The Atlas-owned scripts do this work:
@@ -127,6 +131,7 @@ The stack uses Supabase Auth (GoTrue) for user authentication and management wit
 ### 3.1. Key Components
 
 **supabase-auth (GoTrue)**:
+
 - Issues JWTs upon successful login/sign-up
 - Validates JWTs presented to its endpoints  
 - Configured via `GOTRUE_*` environment variables
@@ -138,14 +143,17 @@ The stack uses Supabase Auth (GoTrue) for user authentication and management wit
 - Default privileges grant `anon` SELECT and `authenticated` ALL on future `public` tables. `06-permissions.sql` revokes both from every `public` table without row-level security, and db-init re-applies it after the `db/_user/` scripts. A table created later, outside db-init, stays exposed through PostgREST until the next db-init run, so enable RLS (or revoke) when you create it.
 
 **supabase-api (PostgREST)**:
+
 - Expects valid JWT in `Authorization: Bearer <token>` header
 - Validates JWT signature using `PGRST_JWT_SECRET` (shared with auth)
 - Enforces database permissions based on JWT role claim via PostgreSQL RLS
 
 **supabase-storage**:
+
 - Accepts JWTs passed via Kong. Atlas hardens the `storage` schema (no `anon`/`authenticated` grants, row-level security off), so only the service-role key can read or write objects. User and anon tokens get "permission denied".
 
 **kong-api-gateway**:
+
 - Routes authenticated requests to backend services
 - Relies on upstream services for JWT validation
 
