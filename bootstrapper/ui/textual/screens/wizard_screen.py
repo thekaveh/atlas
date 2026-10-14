@@ -902,18 +902,18 @@ def _restored_secondary_options(options, selections: dict):
     ]
 
 
-# The session-log tee (``_tee_to_log``) mirrors every streamed compose line
-# for the whole session — unlike LogPane's 10k-record in-memory cap, it has
-# no cap of its own and can grow large on a long multi-service launch. Cap
-# what ``Y`` copies to the clipboard so (a) the read stays fast and (b) the
-# payload stays under typical OSC-52 terminal-side clipboard size ceilings —
-# better to truncate deliberately and say so than let the terminal silently
-# drop an unbounded payload.
-SESSION_LOG_COPY_CAP_BYTES = 2 * 1024 * 1024  # 2 MB
+# The session-log tee retains bounded segments, but even one segment is
+# large for a clipboard copy. Bound the log bytes ``Y`` reads independently
+# of the tee's storage limit. The marker and replacement decoding can add
+# overhead to the resulting text; this is a raw-file byte budget.
+SESSION_LOG_COPY_CAP_BYTES = 2 * 1024 * 1024  # 2 MiB
 
 
 def read_session_log_tail(path: Path, cap_bytes: int = SESSION_LOG_COPY_CAP_BYTES) -> str:
-    """Read ``path``, capped to its last ``cap_bytes`` bytes.
+    """Read a finite tail window from one opened file, at most ``cap_bytes`` bytes.
+
+    Select the window from the opened file's current end. Later appends
+    are outside that window; concurrent truncation can yield fewer bytes.
 
     Module-level (like ``prune_skip_hidden_selections`` above) so tests
     bind to the production logic directly. When truncated, drops a
@@ -923,12 +923,15 @@ def read_session_log_tail(path: Path, cap_bytes: int = SESSION_LOG_COPY_CAP_BYTE
     log tee is expected to be text, but a decode error here must not raise
     and be mistaken for a real worker failure.
     """
-    size = path.stat().st_size
-    if size <= cap_bytes:
-        return path.read_bytes().decode("utf-8", errors="replace")
+    if cap_bytes < 0:
+        raise ValueError("cap_bytes must be nonnegative")
     with path.open("rb") as fh:
-        fh.seek(-cap_bytes, 2)
-        data = fh.read()
+        size = fh.seek(0, 2)
+        start = max(0, size - cap_bytes)
+        fh.seek(start)
+        data = fh.read(size - start)
+    if size <= cap_bytes:
+        return data.decode("utf-8", errors="replace")
     newline = data.find(b"\n")
     if newline != -1:
         data = data[newline + 1:]
