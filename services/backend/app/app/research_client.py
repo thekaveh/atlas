@@ -102,18 +102,19 @@ class ResearchClient:
                 thread_id = data.get("thread_id") or data.get("id")
                 if not thread_id:
                     raise ResearchError("LangGraph thread response did not include thread_id")
-                self._pending_requests[thread_id] = request
                 # #802: a created LangGraph thread is NOT a running run — the run
                 # is only dispatched later by wait_for_completion (POST
                 # /threads/{id}/runs/stream). Report PENDING (thread-creation
                 # semantics); RUNNING is reserved for a state the run stream
                 # actually reports.
-                return ResearchResponse(
+                result = ResearchResponse(
                     session_id=thread_id,
                     status=ResearchStatus.PENDING,
                     message="Research thread created (run not yet dispatched)",
                     data=data
                 )
+                self._pending_requests[thread_id] = request
+                return result
         except httpx.HTTPStatusError as e:
             logger.warning(
                 "research thread creation was rejected (status=%s)",
