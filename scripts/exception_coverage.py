@@ -1,4 +1,4 @@
-"""Report which .trivyignore.yaml rows each scanned image actually uses (#1289).
+"""Report which ignore-file rows each scanned image actually uses (#1289).
 
 Trivy's ``--show-suppressed`` JSON lists every finding an ignore row
 suppressed, but not which row did it. This attributes each one the way Trivy
@@ -82,11 +82,13 @@ def row_matches(row: Row, finding_id: str, purl: str, paths: Sequence[str]) -> b
     return True
 
 
-def _suppressed_findings(report: dict) -> Iterable[tuple[str, str, list[str]]]:
+def _suppressed_findings(
+    report: dict, source: str = ".trivyignore.yaml",
+) -> Iterable[tuple[str, str, list[str]]]:
     """Yield ``(id, purl, paths)`` for each finding the ignore file suppressed."""
     for result in report.get("Results") or ():
         for modified in result.get("ExperimentalModifiedFindings") or ():
-            if modified.get("Source") != ".trivyignore.yaml":
+            if modified.get("Source") != source:
                 continue
             finding = modified.get("Finding") or {}
             purl = str((finding.get("PkgIdentifier") or {}).get("PURL", ""))
@@ -94,14 +96,16 @@ def _suppressed_findings(report: dict) -> Iterable[tuple[str, str, list[str]]]:
             yield str(finding.get("VulnerabilityID", "")), purl, paths
 
 
-def attribute(report: dict, rows: Sequence[Row]) -> tuple[set[int], set[str]]:
+def attribute(
+    report: dict, rows: Sequence[Row], source: str = ".trivyignore.yaml",
+) -> tuple[set[int], set[str]]:
     """Return the indices of rows used, and any finding no row explains."""
     used: set[int] = set()
     unexplained: set[str] = set()
     by_id: dict[str, list[Row]] = defaultdict(list)
     for row in rows:
         by_id[row.id].append(row)
-    for finding_id, purl, paths in _suppressed_findings(report):
+    for finding_id, purl, paths in _suppressed_findings(report, source):
         matched = {
             row.index for row in by_id.get(finding_id, ())
             if row_matches(row, finding_id, purl, paths)
@@ -138,14 +142,15 @@ def coverage_line(label: str, platform: str, used: Iterable[int], unexplained: I
     return f"{MARKER}\t{label}\t{platform}\t{rows}\t{extra}"
 
 
-def scan(image: str, platform: str, *, source: str, ignore_unfixed: bool = False) -> dict | None:
+def scan(target: tuple[str, str, str], ignorefile: Path, *, ignore_unfixed: bool = False) -> dict | None:
     """Run Trivy with suppressed findings shown; None if it never produced a report."""
+    image, platform, source = target
     with tempfile.TemporaryDirectory() as tmp:
         report_path = Path(tmp) / "report.json"
         for _attempt in range(_TRIVY_ATTEMPTS):
             command = [
                 "trivy", "image", "--image-src", source, "--scanners", "vuln",
-                "--severity", "HIGH,CRITICAL", "--ignorefile", ".trivyignore.yaml",
+                "--severity", "HIGH,CRITICAL", "--ignorefile", str(ignorefile),
                 "--show-suppressed", "--format", "json", "--output", str(report_path),
                 "--no-progress", "--quiet", "--timeout", "30m",
             ]
@@ -164,16 +169,17 @@ def scan(image: str, platform: str, *, source: str, ignore_unfixed: bool = False
 
 
 def run_scans(
-    targets: Sequence[tuple[str, str, str, str]], rows: Sequence[Row], *, ignore_unfixed: bool = False,
+    targets: Sequence[tuple[str, str, str, str]], rows: Sequence[Row],
+    ignorefile: Path = ROOT / ".trivyignore.yaml", *, ignore_unfixed: bool = False,
 ) -> list[str]:
     """Scan ``(label, image, platform, source)`` targets and return their lines."""
     lines = []
     for label, image, platform, source in targets:
-        report = scan(image, platform, source=source, ignore_unfixed=ignore_unfixed)
+        report = scan((image, platform, source), ignorefile, ignore_unfixed=ignore_unfixed)
         if report is None:
             emitted = [f"{MARKER}\t{label}\t{platform}\tSCAN-FAILED\t-"]
         else:
-            emitted = [coverage_line(label, platform, *attribute(report, rows))]
+            emitted = [coverage_line(label, platform, *attribute(report, rows, ignorefile.as_posix()))]
             emitted += open_findings(report, label, platform)
         for line in emitted:
             print(line, flush=True)
@@ -236,6 +242,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="ignore unfixed findings, as the local-image gate does",
     )
     args = parser.parse_args(argv)
+    args.ignorefile = args.ignorefile.resolve()
     rows = load_rows(args.ignorefile)
     if args.summarize:
         lines = [
@@ -253,7 +260,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             for position, item in enumerate(scans)
             if position % args.shards == args.shard
         ]
-    lines = run_scans(targets, rows, ignore_unfixed=args.ignore_unfixed)
+    lines = run_scans(targets, rows, args.ignorefile, ignore_unfixed=args.ignore_unfixed)
     print(f"== {MARKER} summary ({len(lines)} scans) ==")
     print("\n".join(lines))
     return 0
