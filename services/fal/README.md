@@ -103,6 +103,7 @@ Hosted media generation has no LiteLLM-style spend accounting, so the media gate
 
 - **Enforcement is off by default** (`MEDIA_BUDGET_ENABLED=false`).
 - Even with enforcement off, an ambiguous FAL submission writes a minimal recovery row to `MEDIA_BUDGET_STORE`. Keep the default `postgres` for cross-process and restart durability; `memory` is ephemeral.
+- A lost or unusable submit reply returns `504` with a `local_submission_id`. Malformed JSON, incomplete replies and invalid request ids follow this recovery path. Atlas keeps the reservation and `submission_unknown` operation. Check FAL's dashboard and billing before reconciliation; do not resubmit blindly.
 - With enforcement on, each generation reserves its estimated cost before the provider call and reconciles to the final cost on completion, per operation, in `public.media_spend_ledger`.
 - A submission over the cap (`MEDIA_BUDGET_DEFAULT_USD`, and per-scope `MEDIA_BUDGET_CONSUMER_CAPS`) is rejected before any provider call or storage write.
 - `MEDIA_DISABLED_PROVIDERS` (CSV) turns off a specific provider, with or without enforcement.

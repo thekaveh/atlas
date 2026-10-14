@@ -675,7 +675,7 @@ class ComfyUIMediaClient:
             raise ComfyUISubmissionUnknownError(
                 "ComfyUI did not confirm the prompt; it may already be queued, so do not resubmit blindly"
             ) from exc
-        if resp.status_code >= 400:
+        if not resp.is_success:
             # The body is logged, not returned: a proxy's HTML page or raw
             # node_errors reached any signed-in caller.
             _logger.warning("ComfyUI /prompt returned %s: %.500s", resp.status_code, self._error_detail(resp))
@@ -683,15 +683,22 @@ class ComfyUIMediaClient:
                 # A bad graph / unknown model → ValueError → gateway 400, not
                 # a 502 that implies the host is down.
                 raise ValueError("ComfyUI rejected the prompt (check its node inputs and model names)")
-            # Any other status is upstream-side (413, 404 from a proxy, 5xx).
+            # Other nonsuccess statuses are upstream-side, including redirects.
             raise httpx.HTTPStatusError(
                 f"ComfyUI /prompt returned {resp.status_code}", request=resp.request, response=resp,
             )
-        body = _provider_json(resp)
+        try:
+            body = _provider_json(resp)
+        except RuntimeError as exc:
+            raise ComfyUISubmissionUnknownError(
+                "ComfyUI did not confirm the prompt; it may already be queued, so do not resubmit blindly"
+            ) from exc
         prompt_id = body.get("prompt_id") if isinstance(body, dict) else None
-        if not prompt_id:
-            raise RuntimeError(f"ComfyUI accepted the prompt but returned no prompt_id: {body}")
-        return str(prompt_id)
+        if not isinstance(prompt_id, str) or not prompt_id.strip():
+            raise ComfyUISubmissionUnknownError(
+                "ComfyUI did not confirm the prompt; it may already be queued, so do not resubmit blindly"
+            )
+        return prompt_id
 
     async def _get_history(self, prompt_id: str) -> Dict[str, Any]:
         resp = await self.client.get(f"{self.base_url}/history/{prompt_id}")

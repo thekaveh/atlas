@@ -14,7 +14,7 @@ import media_registry
 
 
 class FalSubmissionAmbiguousError(asyncio.TimeoutError):
-    """Atlas timed out before FAL returned the accepted request identifier."""
+    """FAL may have accepted a submission without a usable confirmation."""
 
 
 class FalUpstreamError(RuntimeError):
@@ -295,6 +295,13 @@ class FalClient:
             raise FalSubmissionAmbiguousError(
                 "FAL submission transport failed before a provider request id was "
                 "returned; the provider may still have accepted the request"
+            ) from exc
+        except (json.JSONDecodeError, UnicodeDecodeError, KeyError, TypeError) as exc:
+            # The pinned SDK parses the successful submit reply before returning
+            # its handle. An unusable confirmation cannot prove nonacceptance.
+            raise FalSubmissionAmbiguousError(
+                "FAL submission returned an unusable confirmation; "
+                "the provider may still have accepted the request"
             ) from exc
         operation_id = self._extract_request_id(submitted)
 
@@ -678,11 +685,11 @@ class FalClient:
                 or getattr(payload, "requestId", None)
                 or getattr(payload, "id", None)
             )
-        if not value:
+        if not isinstance(value, str) or not value.strip():
             raise FalSubmissionAmbiguousError(
                 "FAL submission response did not include a provider request ID"
             )
-        return str(value)
+        return value
 
     def _normalize_status(self, payload: Any) -> str:
         # fal-client's queue `status()` returns type-discriminated dataclasses

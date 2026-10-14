@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 
+import httpx
 import pytest
 import importlib
 import os
@@ -2318,3 +2319,211 @@ def test_a_delete_with_a_body_gets_the_default_envelope():
     # A DELETE without a body is not touched.
     asyncio.run(middleware(_scope(method="DELETE", path="/items/1"), receive, send))
     assert reached == ["DELETE"]
+
+
+def _fal_confirmation(request_id="fal-owned-1"):
+    return {
+        "request_id": request_id,
+        "response_url": "https://example.invalid/result",
+        "status_url": "https://example.invalid/status",
+        "cancel_url": "https://example.invalid/cancel",
+    }
+
+
+@pytest.fixture
+def owned_fal_transport(monkeypatch):
+    sdk = importlib.import_module("fal_client.client")
+    real_client = httpx.AsyncClient
+    state = {"response": httpx.Response(200, json=_fal_confirmation()),
+             "requests": [], "clients": []}
+
+    def handler(request):
+        state["requests"].append(request)
+        return state["response"]
+
+    def client_factory(*args, **kwargs):
+        kwargs.update(transport=httpx.MockTransport(handler), trust_env=False)
+        client = real_client(*args, **kwargs)
+        if kwargs.get("headers", {}).get("Authorization") == "Key synthetic-owned-token":
+            state["clients"].append(client)
+        return client
+
+    monkeypatch.setattr(sdk.httpx, "AsyncClient", client_factory)
+    return state
+
+
+@pytest.mark.parametrize("confirmation", [
+    b"SENTINEL_UNUSABLE_FAL_CONFIRMATION", b"\xff", None, [], {},
+    {"request_id": "fal-owned-1"},
+    *[_fal_confirmation(value) for value in (None, "", "   ", True, 7)],
+])
+def test_pinned_fal_unusable_confirmation_is_ambiguous(
+    owned_fal_transport, confirmation,
+):
+    from fal_media_client import FalClient, FalSubmissionAmbiguousError
+
+    owned_fal_transport["response"] = (
+        httpx.Response(200, content=confirmation)
+        if isinstance(confirmation, bytes)
+        else httpx.Response(200, json=confirmation)
+    )
+
+    async def submit():
+        async with FalClient(api_key="synthetic-owned-token") as client:
+            await client.submit_media_operation(
+                modality="image", input={"prompt": "owned transport fixture"}
+            )
+
+    with pytest.raises(FalSubmissionAmbiguousError):
+        asyncio.run(submit())
+    assert len(owned_fal_transport["requests"]) == 1
+    assert owned_fal_transport["requests"][0].method == "POST"
+    assert owned_fal_transport["clients"]
+    assert all(client.is_closed for client in owned_fal_transport["clients"])
+
+
+@pytest.mark.parametrize("confirmation", [
+    b"SENTINEL_UNUSABLE_FAL_CONFIRMATION", {}, _fal_confirmation(True),
+])
+def test_pinned_fal_unusable_confirmation_retains_gateway_recovery(
+    monkeypatch, owned_fal_transport, confirmation,
+):
+    monkeypatch.setenv("MEDIA_BUDGET_ENABLED", "true")
+    monkeypatch.setenv("MEDIA_BUDGET_STORE", "memory")
+    monkeypatch.setenv("MEDIA_BUDGET_DEFAULT_USD", "10")
+    monkeypatch.setenv("MEDIA_BUDGET_ALLOW_UNKNOWN_COST", "true")
+    from tests.test_fal_media_provider import _fresh_main as _fresh_fal_main
+
+    main = _fresh_fal_main(
+        monkeypatch, fal_source="enabled", fal_api_key="synthetic-owned-token"
+    )
+    owned_fal_transport["response"] = (
+        httpx.Response(200, content=confirmation)
+        if isinstance(confirmation, bytes)
+        else httpx.Response(200, json=confirmation)
+    )
+    from fastapi.testclient import TestClient
+
+    response = TestClient(main.app).post("/media/generate", json={
+        "modality": "image", "provider": "fal", "consumer": "acme",
+        "input": {"prompt": "owned transport fixture"},
+    })
+    assert len(owned_fal_transport["requests"]) == 1
+    assert response.status_code == 504
+    detail = response.json()["detail"]
+    assert detail["submission_status"] == "unknown"
+    assert "SENTINEL_UNUSABLE_FAL_CONFIRMATION" not in response.text
+    local_id = detail["local_submission_id"]
+    record = asyncio.run(main.MEDIA_OPERATION_STORE.get(local_id))
+    assert record["last_payload"]["status"] == "submission_unknown"
+    ledger = asyncio.run(main.MEDIA_BUDGET_ENGINE.store.get(local_id))
+    assert ledger.status in {"reserved", "submitted"}
+    assert all(client.is_closed for client in owned_fal_transport["clients"])
+
+
+def test_pinned_fal_valid_confirmation_preserves_identifier(owned_fal_transport):
+    from fal_media_client import FalClient
+
+    owned_fal_transport["response"] = httpx.Response(
+        200, json=_fal_confirmation(" fal-owned-1 ")
+    )
+
+    async def submit():
+        async with FalClient(api_key="synthetic-owned-token") as client:
+            return await client.submit_media_operation(
+                modality="image", input={"prompt": "owned transport fixture"}
+            )
+
+    assert asyncio.run(submit())["operation_id"] == " fal-owned-1 "
+    assert len(owned_fal_transport["requests"]) == 1
+    assert all(client.is_closed for client in owned_fal_transport["clients"])
+
+
+def test_pinned_fal_http_rejection_is_known(owned_fal_transport):
+    from fal_client.client import FalClientHTTPError
+    from fal_media_client import FalClient
+
+    owned_fal_transport["response"] = httpx.Response(422, json={"detail": "invalid"})
+
+    async def submit():
+        async with FalClient(api_key="synthetic-owned-token") as client:
+            await client.submit_media_operation(
+                modality="image", input={"prompt": "owned transport fixture"}
+            )
+
+    with pytest.raises(FalClientHTTPError) as error:
+        asyncio.run(submit())
+    assert error.value.status_code == 422
+    assert len(owned_fal_transport["requests"]) == 1
+    assert all(client.is_closed for client in owned_fal_transport["clients"])
+
+
+def test_pinned_fal_request_encoding_failure_precedes_submission(owned_fal_transport):
+    from fal_media_client import FalClient, FalSubmissionAmbiguousError
+
+    async def submit():
+        async with FalClient(api_key="synthetic-owned-token") as client:
+            await client.submit_media_operation(
+                modality="image", model="fal-ai/custom",
+                input={"prompt": "atlas", "provider_arguments": {
+                    "prompt": "atlas", "numeric_option": float("nan"),
+                }},
+            )
+
+    with pytest.raises(ValueError) as error:
+        asyncio.run(submit())
+    assert not isinstance(error.value, FalSubmissionAmbiguousError)
+    assert owned_fal_transport["requests"] == []
+    assert all(client.is_closed for client in owned_fal_transport["clients"])
+
+
+@pytest.mark.parametrize("api_key,prompt", [
+    ("synthetic-owned-token", "\ud800"),
+    ("synthetic-owned-\u00f6", "owned transport fixture"),
+])
+def test_pinned_fal_unicode_encoding_failure_precedes_submission(
+    owned_fal_transport, api_key, prompt,
+):
+    from fal_media_client import FalClient
+
+    async def submit():
+        async with FalClient(api_key=api_key) as client:
+            await client.submit_media_operation(
+                modality="image", input={"prompt": prompt}
+            )
+
+    with pytest.raises(UnicodeEncodeError):
+        asyncio.run(submit())
+    assert owned_fal_transport["requests"] == []
+    assert all(client.is_closed for client in owned_fal_transport["clients"])
+
+
+def test_pinned_fal_unicode_encoding_failure_releases_gateway_reservation(
+    monkeypatch, owned_fal_transport,
+):
+    import json
+    from tests.test_fal_media_provider import _fresh_main as _fresh_fal_main
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setenv("MEDIA_BUDGET_ENABLED", "true")
+    monkeypatch.setenv("MEDIA_BUDGET_STORE", "memory")
+    monkeypatch.setenv("MEDIA_BUDGET_DEFAULT_USD", "10")
+    monkeypatch.setenv("MEDIA_BUDGET_ALLOW_UNKNOWN_COST", "true")
+    main = _fresh_fal_main(
+        monkeypatch, fal_source="enabled", fal_api_key="synthetic-owned-token"
+    )
+    body = json.dumps({
+        "modality": "image", "provider": "fal", "consumer": "acme",
+        "input": {"prompt": "\ud800"},
+    }, ensure_ascii=True).encode("ascii")
+    response = TestClient(main.app).post(
+        "/media/generate", content=body,
+        headers={"Content-Type": "application/json"},
+    )
+    assert response.status_code == 400
+    assert owned_fal_transport["requests"] == []
+    assert main.MEDIA_OPERATION_STORE._records == {}
+    ledger = asyncio.run(main.MEDIA_BUDGET_ENGINE.store.list(consumer="acme"))
+    assert len(ledger) == 1
+    assert ledger[0].status == "released"
+    assert all(client.is_closed for client in owned_fal_transport["clients"])
