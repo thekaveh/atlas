@@ -5,12 +5,14 @@
 Airflow schedules and runs Python-defined DAGs against the stack's data services: Spark, MinIO, Iceberg, Supabase Postgres and LiteLLM. It is disabled by default. The `data-eng` track prompts for it, or pass `--airflow-source container`.
 
 Airflow runs as four containers in the `agents` band:
+
 - `airflow-webserver`: Web UI and REST API (`airflow api-server`).
 - `airflow-scheduler`: LocalExecutor task runner. It starts after `airflow-webserver` is healthy, because tasks call the api-server's Execution API.
 - `airflow-dag-processor`: parses DAG files into the metadata DB. Airflow 3 requires it as a separate service.
 - `airflow-init`: runs on every start. It checks the database login, runs `airflow db migrate`, syncs the admin user and seeds Connections.
 
 Image: `apache/airflow:3.3.2` (Apache 2.0), extended by `services/airflow/build/Dockerfile` with:
+
 - nine providers: apache-spark, amazon, postgres, redis, common-sql, weaviate, neo4j, openai, fab;
 - `pyspark[connect]==4.1.2` for the sample DAG's Spark Connect step (the `[connect]` extra pulls grpcio);
 - Java 17, PySpark's `spark-submit` on `PATH`, and the S3A and Iceberg jars;
@@ -61,6 +63,7 @@ Auto-managed (resolved by the bootstrapper from `AIRFLOW_SOURCE`; do not hand-ed
 | `neo4j_default` | neo4j | host `neo4j-graph-db`, port `7687`, login `${GRAPH_DB_USER}`, password `${GRAPH_DB_PASSWORD}` (Hook prepends `bolt://`) | `NEO4J_GRAPH_DB_SOURCE=container` (same caveat) |
 
 Seeding is idempotent: `airflow-init` deletes and re-adds each Connection on every start, so credential changes apply on the next `./start.sh`. For a `localhost` source, create the Connection yourself (for example `weaviate_default` pointing at `host.docker.internal`); `airflow-init` leaves it alone. It removes a source-gated Connection only in these cases:
+
 - the source is `container` (the Connection is re-seeded) or `disabled`;
 - a `localhost` source still has the in-Compose Connection Atlas seeded earlier (host `weaviate` / `neo4j-graph-db`).
 
@@ -97,13 +100,14 @@ Use it as a template. Put your own DAGs in `services/airflow/dags/`. The folder 
 Cluster deploy mode is the default: the driver runs on a Spark worker, which already has the S3A and Iceberg jars. The Airflow image carries the same jars, so the submit client resolves S3A paths and client-mode runs do not fail on missing classes.
 
 **Driver status through `:6066`.** The provider polls post-submit driver status over the `spark_default` RPC port (`:7077`). The standalone master reports status only over REST on `spark-master:6066` (backend network only; no host port or Kong route). `AtlasSparkSubmitOperator` therefore wraps the provider hook in `RestConfirmingSparkHook` (`dags/atlas_spark_utils.py`). The wrapper:
+
 - turns off the `:7077` poll;
 - streams spark-submit output into the task log and reads the driver ID (`driver-YYYYMMDDHHMMSS-NNNN`);
 - fails the task if spark-submit exits non-zero or no driver ID is found;
 - fails the task unless `:6066` reports `FINISHED` with success;
 - kills the cluster driver through `:6066` when the task is killed, marked failed or times out (the smoke DAG sets a 30-minute `execution_timeout`).
 
-The wrapper uses internals of `apache-airflow-providers-apache-spark==5.6.0`, so the image pins that exact version. To reuse it, copy the `AtlasSparkSubmitOperator` class from `lakehouse_spark_submit_smoke.py`. The smoke DAG passes explicit S3A, Iceberg REST and event-log settings:
+The wrapper uses internals of `apache-airflow-providers-apache-spark==5.6.0`, so the image pins that exact version. To reuse it, copy the `AtlasSparkSubmitOperator` class from `lakehouse_spark_submit_smoke.py`. This partial configuration excerpt shows endpoint and event-log settings. Use the complete `services/airflow/dags/lakehouse_spark_submit_smoke.py` file in your checkout for catalog settings, credentials and application arguments:
 
 ```python
 AtlasSparkSubmitOperator(
@@ -133,6 +137,7 @@ Validation flow:
 ```
 
 New DAGs start paused, so unpause `lakehouse_spark_submit_smoke` first. Trigger it in the UI at `http://airflow.localhost:${KONG_HTTP_PORT}`, or use the REST flow in §6. A successful run writes `lakehouse.bronze.airflow_spark_submit_smoke` and leaves an event log in Spark History (`http://spark-history.localhost:${KONG_HTTP_PORT}`). If it fails:
+
 - before submission: check that `airflow-init` seeded `minio_default` and `spark_default`;
 - after Spark ran, with a status failure in Airflow: check that the scheduler can reach `http://spark-master:6066`;
 - during Spark execution: inspect the driver in the master UI and the app in Spark History.
@@ -212,8 +217,8 @@ _No high-confidence opportunities identified._
 - **DAG appears in the UI but does not run** — New DAGs start paused (Airflow default `dags_are_paused_at_creation=True`); unpause the DAG in the UI. If the DAG shows an import error, read `docker logs ${PROJECT_NAME}-airflow-dag-processor`. The DAG processor finds new files every 300 s (`[dag_processor] refresh_interval`) and re-parses known files every 30 s.
 - **`summarize_via_litellm` (OpenAIHook) fails with `auth required`** — `litellm_default` Connection has the wrong `LITELLM_MASTER_KEY`. Re-run `./start.sh` to re-sync the Connection; alternatively edit it in the Web UI under Admin → Connections.
 - **`spark_smoke` cannot reach `sc://spark-connect:15002`** (or a user DAG cannot reach `spark://spark-master:7077`):
-  - Spark is disabled (`SPARK_SOURCE=disabled`). Start with `--spark-source container`, or remove the Spark steps from the DAG.
-  - It is the first run after start-up, and spark-connect is still binding port 15002 (20-60 s). The DAG's `retries: 1` with `retry_delay: 2m` usually covers this. If not, trigger the DAG again.
+    - Spark is disabled (`SPARK_SOURCE=disabled`). Start with `--spark-source container`, or remove the Spark steps from the DAG.
+    - It is the first run after start-up, and spark-connect is still binding port 15002 (20-60 s). The DAG's `retries: 1` with `retry_delay: 2m` usually covers this. If not, trigger the DAG again.
 - **`ModuleNotFoundError: No module named 'pyspark'`** — the running container predates the current image. Run `./start.sh`; it rebuilds stale local images.
 
 ## 9. Capabilities & limitations

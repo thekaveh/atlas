@@ -131,6 +131,7 @@ def submit_and_confirm_via_rest(
     """
     # --- 1. Capture the spark-submit log (#880) ---
     captured_lines: list[str] = []
+    hook._atlas_driver_id = None
     original_log_processor = getattr(hook, "_process_spark_submit_log", None)
     if original_log_processor:
         hook._process_spark_submit_log = _log_tee(hook, original_log_processor, captured_lines)
@@ -158,6 +159,7 @@ def submit_and_confirm_via_rest(
         )
 
     # --- 5. Confirm via REST ---
+    hook._atlas_driver_id = driver_id
     confirm_driver_status_via_rest(driver_id, rest_host=rest_host)
     return driver_id
 
@@ -176,11 +178,19 @@ class RestConfirmingSparkHook:
         self._rest_host = rest_host
 
     def submit(self, application: str):
-        return submit_and_confirm_via_rest(
-            self._hook,
-            application,
-            rest_host=self._rest_host,
-        )
+        try:
+            return submit_and_confirm_via_rest(
+                self._hook,
+                application,
+                rest_host=self._rest_host,
+            )
+        except Exception:
+            # Ordinary task failures do not invoke Airflow's on_kill hook.
+            try:
+                self.on_kill()
+            except Exception as exc:
+                self._hook.log.warning("Could not clean up failed Spark submission: %s", exc)
+            raise
 
     def on_kill(self) -> None:
         # The provider kills only the local spark-submit here (it needs the
