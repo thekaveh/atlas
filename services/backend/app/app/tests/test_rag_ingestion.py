@@ -12,9 +12,11 @@ import asyncio
 import gc
 import json
 import os
+import re
 import subprocess
 import sys
 import threading
+import uuid
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -29,16 +31,18 @@ from rag_ingestion.clients import (
     LightRagClient,
     MinioCorpusReader,
     MountCorpusReader,
+    ParsedDocument,
     ParserAdapter,
+    ParserError,
     WeaviateClient,
 )
-from rag_ingestion.profiles import ProfileNotFoundError, load_profiles
+from rag_ingestion.profiles import LoadedProfile, ProfileNotFoundError, load_profiles
 from rag_ingestion.service import (
     Deps,
     IngestionExecutionLeaseLost,
     RagIngestionService,
 )
-from rag_ingestion.models import IngestionRecord
+from rag_ingestion.models import PHASES, IngestionRecord, PhaseRecord
 from rag_ingestion.store import (
     ExecutionClaim,
     InMemoryIngestionStore,
@@ -3083,7 +3087,8 @@ def test_a_rebuilt_class_does_not_claim_failed_sources_were_preserved(rebuilt_cl
     asyncio.run(service._reconcile_kept_sources(record, SimpleNamespace(name="p"), state, "Rag", []))
     note = record.phase("vector_write").note
     assert "bad.pdf" in note
-    assert ("preserved" not in note) is (rebuilt_class == "Rag")
+    assert "preserved existing vectors" not in note
+    assert ("vector availability is unverified" in note) is (rebuilt_class != "Rag")
 
 
 class RetryAfterClassCheck(FakeWeaviate):
@@ -3119,7 +3124,7 @@ def test_later_target_does_not_overwrite_an_earlier_rebuild_warning():
         asyncio.run(service._reconcile_kept_sources(record, SimpleNamespace(name="p"), state, class_name, []))
     note = record.phase("vector_write").note
     assert "earlier vectors were removed" in note
-    assert "preserved existing vectors" in note
+    assert "vector availability is unverified" in note
     assert "RagA" in note and "RagB" in note
 
 
@@ -3145,7 +3150,7 @@ def test_class_rebuild_note_survives_a_retried_worker(tmp_path, monkeypatch, reb
         assert "earlier vectors were removed" in note and "preserved" not in note
         assert "previous-bad" not in weaviate.object_ids
     else:
-        assert "preserved existing vectors" in note
+        assert "vector availability is unverified" in note
         assert "previous-bad" in weaviate.object_ids
 
 
@@ -3538,3 +3543,249 @@ def test_corpus_invalidation_survives_a_retry_that_rediscovers_original_bytes(
     final = asyncio.run(worker.run(submitted.id))
     assert final.status == "completed" and not final.is_dedup_candidate
     assert store.find_by_idempotency_key(submitted.idempotency_key).id == newer.id
+
+
+_PROVENANCE_BAD = "docs/bad.pdf"
+_PROVENANCE_BAD2 = "docs/bad2.pdf"
+_PROVENANCE_GOOD = "docs/good.txt"
+
+
+class _ProvenanceCorpus:
+    def discover(self, *_args):
+        return [CorpusFile(name, b"non-empty synthetic bytes") for name in (
+            _PROVENANCE_BAD, _PROVENANCE_BAD2, _PROVENANCE_GOOD,
+        )]
+
+
+class _ProvenanceParser:
+    def __init__(self, fail=(_PROVENANCE_BAD, _PROVENANCE_BAD2)):
+        self.fail = set(fail)
+        self.whitespace = set()
+
+    async def parse(self, file, _order):
+        if file.name in self.fail:
+            raise ParserError("synthetic parser failure")
+        text = "   " if file.name in self.whitespace else "synthetic " + file.name
+        return ParsedDocument(file.name, text, "fake")
+
+
+class _ProvenanceEmbedder(FakeEmbedder):
+    model = "new-model"
+
+
+class _ProvenanceHttpWorld:
+    """Stateful schema/object protocol; every effect comes from the real client."""
+
+    def __init__(self, classes=("Rag_p",), mode="normal", old=True):
+        self.mode = mode
+        self.schemas = {name: {"class": name, "description": WeaviateClient.embedding_identity(
+            "old-model" if old and index == 0 else "new-model", 3,
+        )} for index, name in enumerate(classes)}
+        self.objects = {name: {
+            str(uuid.uuid5(uuid.NAMESPACE_URL, f"{name}|p|{source}|0")): {
+                "properties": {"profile": "p", "source": source}, "vector": [0.0] * 3,
+            } for source in (_PROVENANCE_BAD, _PROVENANCE_BAD2, "docs/deleted.txt")
+        } for name in classes}
+        self.calls = []
+        self.failed_once = False
+        self.write_started = asyncio.Event()
+        self.write_cancelled = False
+
+    @staticmethod
+    def response(request, status=200, data=None):
+        return httpx.Response(status, json=data, request=request)
+
+    async def handle(self, request):
+        path = request.url.path
+        payload = json.loads(request.content) if request.content else {}
+        self.calls.append((request.method, path))
+        if path.startswith("/v1/schema"):
+            return self.schema(request, payload)
+        if path.startswith("/v1/objects"):
+            return await self.object_request(request, payload)
+        if request.method == "POST" and path == "/v1/graphql":
+            name = re.search(r"Get\s*\{\s*(\w+)\(", payload["query"]).group(1)
+            rows = [{**obj["properties"], "_additional": {"id": oid}}
+                    for oid, obj in self.objects[name].items()]
+            return self.response(request, data={"data": {"Get": {name: rows}}})
+        raise AssertionError(f"unexpected synthetic HTTP request: {request.method} {path}")
+
+    def schema(self, request, payload):
+        name = request.url.path.rsplit("/", 1)[-1]
+        if request.method == "GET":
+            return self.response(request, 200, self.schemas[name]) if name in self.schemas else self.response(request, 404)
+        if request.method == "DELETE":
+            self.schemas.pop(name, None)
+            self.objects[name] = {}
+            return self.response(request)
+        assert request.method == "POST" and request.url.path == "/v1/schema"
+        name = payload["class"]
+        if self.mode.startswith("schema-ack") and not self.failed_once:
+            self.failed_once = True
+            if self.mode == "schema-ack-after-create":
+                self.schemas[name] = payload
+            raise httpx.ConnectError("synthetic recreation acknowledgement lost", request=request)
+        self.schemas[name] = payload
+        self.objects.setdefault(name, {})
+        return self.response(request)
+
+    async def object_request(self, request, payload):
+        if request.method == "DELETE":
+            _, _, _, name, oid = request.url.path.split("/")
+            self.objects[name].pop(oid, None)
+            return self.response(request, 204)
+        assert request.method == "POST" and request.url.path == "/v1/objects"
+        if self.mode == "lease-block" and not self.failed_once:
+            self.failed_once = True
+            self.write_started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                self.write_cancelled = True
+                raise
+        if self.mode == "partial-write" and not self.failed_once and payload["properties"]["source"] == _PROVENANCE_GOOD:
+            self.failed_once = True
+            raise httpx.ConnectError("synthetic failure after partial write", request=request)
+        assert payload["id"] not in self.objects[payload["class"]]
+        self.objects[payload["class"]][payload["id"]] = payload
+        return self.response(request, 201)
+
+    def sources(self, name):
+        return sorted(obj["properties"]["source"] for obj in self.objects[name].values())
+
+
+def _provenance_setup(monkeypatch, world, parser=None):
+    monkeypatch.setattr("chunking_service.chunk_text", lambda request: SimpleNamespace(
+        chunks=[SimpleNamespace(index=0, content=request.text)],
+    ))
+    original_client = httpx.AsyncClient
+
+    class Client(original_client):
+        def __init__(self, **kwargs):
+            super().__init__(transport=httpx.MockTransport(world.handle), **kwargs)
+
+    monkeypatch.setattr(httpx, "AsyncClient", Client)
+    profile = LoadedProfile(
+        "synthetic-consumer", "p", "r", {"source": "mount", "path": "docs"},
+        ["plain_text"], {"strategy": "recursive", "chunk_size": 64, "overlap": 0},
+        [{"backend": "weaviate", "collection_prefix": name[:-2], "on_unavailable": "fail"}
+         for name in world.objects], [],
+    )
+    record = IngestionRecord(
+        "synthetic-ingestion", profile.consumer, "p", "r", "synthetic-key",
+        phases=[PhaseRecord(name) for name in PHASES], profile_snapshot=profile.to_dict(),
+        corpus=profile.corpus, counts={"files_discovered": 0, "documents_parsed": 0,
+        "chunks": 0, "vectors_written": 0, "documents_uploaded": 0},
+    )
+    store = InMemoryIngestionStore()
+    store.create_if_absent(record)
+    deps = Deps(corpus=_ProvenanceCorpus(), parser=parser or _ProvenanceParser(),
+                embedder=_ProvenanceEmbedder(), weaviate=WeaviateClient("http://synthetic-weaviate.invalid"),
+                lightrag=FakeLightrag(False))
+    return store, record, deps
+
+
+@pytest.mark.parametrize("mode", ["schema-ack-before-create", "schema-ack-after-create"])
+def test_provenance_after_lost_schema_ack_does_not_claim_preserved_vectors(monkeypatch, mode):
+    world = _ProvenanceHttpWorld(mode=mode)
+    store, record, deps = _provenance_setup(monkeypatch, world)
+    with pytest.raises(httpx.ConnectError):
+        asyncio.run(RagIngestionService(store=store, deps=deps).run(
+            record.id, retry_transient=True, execution_owner="worker-a",
+        ))
+    saved = store.get(record.id)
+    assert (saved.status, saved.counts.get("class_rebuilt:Rag_p"), world.sources("Rag_p")) == ("pending", None, [])
+    assert ("Rag_p" in world.schemas) is (mode == "schema-ack-after-create")
+    final = asyncio.run(RagIngestionService(store=store, deps=deps).run(
+        record.id, retry_transient=True, execution_owner="worker-b",
+    ))
+    assert (final.status, world.sources("Rag_p"), final.counts.get("class_rebuilt:Rag_p")) == (
+        "completed", [_PROVENANCE_GOOD], None,
+    )
+    note = final.phase("vector_write").note
+    assert "vector availability is unverified" in note
+    assert "preserved existing vectors" not in note
+    assert world.calls.count(("DELETE", "/v1/schema/Rag_p")) == 1
+
+
+async def _provenance_lose_owner(world, store, record, deps):
+    first = RagIngestionService(store=store, deps=deps)
+
+    async def handoff(ingestion_id, owner, *lifecycle):
+        await world.write_started.wait()
+        assert store.claim_execution(ingestion_id, ExecutionClaim("new-owner", 30, owner))
+        latest = store.get(ingestion_id)
+        latest.counts["new-owner-sentinel"] = 42
+        assert store.save_claimed(latest, "new-owner")
+        lifecycle[-1].set()  # actual lease_lost event supplied by run()
+
+    first._heartbeat_execution = handoff
+    with pytest.raises(IngestionExecutionLeaseLost):
+        await asyncio.wait_for(first.run(
+            record.id, retry_transient=True, execution_owner="worker-a",
+        ), 2)
+    return store.get(record.id)
+
+
+def test_provenance_after_lease_loss_preserves_new_owner_without_claiming_vectors(monkeypatch):
+    world = _ProvenanceHttpWorld(mode="lease-block")
+    store, record, deps = _provenance_setup(monkeypatch, world)
+    saved = asyncio.run(_provenance_lose_owner(world, store, record, deps))
+    assert (world.write_cancelled, saved.counts.get("class_rebuilt:Rag_p"),
+            saved.counts["new-owner-sentinel"], world.sources("Rag_p")) == (True, None, 42, [])
+    stale = store.get(record.id)
+    stale.counts.update({"new-owner-sentinel": -1, "class_rebuilt:Rag_p": 1})
+    assert (store.save_claimed(stale, "worker-a"), store.release_execution(record.id, "worker-a")) == (False, False)
+    assert store.get(record.id).counts["new-owner-sentinel"] == 42
+    assert store.release_execution(record.id, "new-owner")
+    final = asyncio.run(RagIngestionService(store=store, deps=deps).run(record.id, execution_owner="worker-c"))
+    assert (final.status, final.counts["new-owner-sentinel"], world.sources("Rag_p")) == (
+        "completed", 42, [_PROVENANCE_GOOD],
+    )
+    assert "vector availability is unverified" in final.phase("vector_write").note
+    assert "preserved existing vectors" not in final.phase("vector_write").note
+
+
+def test_provenance_partial_writes_and_multiple_classes_keep_real_survivors(monkeypatch):
+    world = _ProvenanceHttpWorld(("RagA_p", "RagB_p"), mode="partial-write")
+    parser = _ProvenanceParser((_PROVENANCE_BAD2,))
+    store, record, deps = _provenance_setup(monkeypatch, world, parser)
+    with pytest.raises(httpx.ConnectError):
+        asyncio.run(RagIngestionService(store=store, deps=deps).run(record.id, retry_transient=True))
+    assert store.get(record.id).counts.get("class_rebuilt:RagA_p") == 1
+    parser.fail = {_PROVENANCE_BAD, _PROVENANCE_BAD2}
+    final = asyncio.run(RagIngestionService(store=store, deps=deps).run(record.id, retry_transient=True))
+    assert {name: world.sources(name) for name in world.objects} == {
+        "RagA_p": [_PROVENANCE_BAD, _PROVENANCE_GOOD],
+        "RagB_p": [_PROVENANCE_BAD, _PROVENANCE_BAD2, _PROVENANCE_GOOD],
+    }
+    assert {key: value for key, value in final.counts.items() if key.startswith("class_rebuilt:")} == {"class_rebuilt:RagA_p": 1}
+    note = final.phase("vector_write").note
+    assert "RagA_p:" in note and "RagB_p:" in note
+    assert "earlier vectors were removed" in note and "may have no vectors" in note
+
+
+def test_provenance_unchanged_class_keeps_failed_sources_and_removes_stale_objects(monkeypatch):
+    world = _ProvenanceHttpWorld(old=False)
+    store, record, deps = _provenance_setup(monkeypatch, world)
+    final = asyncio.run(RagIngestionService(store=store, deps=deps).run(record.id))
+    assert (final.status, world.sources("Rag_p")) == (
+        "completed", [_PROVENANCE_BAD, _PROVENANCE_BAD2, _PROVENANCE_GOOD],
+    )
+    assert "class_rebuilt:Rag_p" not in final.counts
+    assert "class rebuilt during this job" not in final.phase("vector_write").note
+
+
+def test_provenance_whitespace_errors_do_not_predict_survival_before_rebuild(monkeypatch):
+    world = _ProvenanceHttpWorld()
+    parser = _ProvenanceParser(())
+    parser.whitespace = {_PROVENANCE_BAD, _PROVENANCE_BAD2}
+    store, record, deps = _provenance_setup(monkeypatch, world, parser)
+    final = asyncio.run(RagIngestionService(store=store, deps=deps).run(record.id))
+    assert (final.status, world.sources("Rag_p"), final.counts.get("class_rebuilt:Rag_p")) == (
+        "completed", [_PROVENANCE_GOOD], 1,
+    )
+    assert {error["file"] for error in final.errors} == {_PROVENANCE_BAD, _PROVENANCE_BAD2}
+    assert all("parsed to whitespace" in error["message"] for error in final.errors)
+    assert all("existing vectors preserved" not in error["message"] for error in final.errors)
+    assert "may have no vectors" in final.phase("vector_write").note
