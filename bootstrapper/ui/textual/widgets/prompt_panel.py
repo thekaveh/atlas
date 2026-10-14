@@ -311,9 +311,9 @@ class PromptStep:
     # changes. WizardScreen removes these before rendering the next step, so
     # dependent inputs resolve their defaults from the newly selected owner.
     invalidates_on_change: tuple[str, ...] = ()
-    # A value committed during this wizard session and restored after Back.
-    # Unlike ``default_value`` (persisted state), this is preloaded into the
-    # active input so pressing Enter reconfirms it instead of emitting KEEP.
+    # A concrete session answer restored after Back. Text and secret steps
+    # preload it into the active input; multiselects use its presence to keep
+    # an explicit answer from being augmented by first-visit preselection.
     restored_input_value: str | None = None
     # Initial checked values for ``kind="multiselect"`` steps. Each
     # entry must match an ``options[i].value``.
@@ -983,22 +983,23 @@ class PromptPanel(Container):
             self._checked_values = {
                 v for v in (step.default_values or []) if _maps_to_visible_row(v)
             }
-            # Auto-pre-check every variant the upstream Ollama has
-            # already pulled, in addition to explicit defaults. This
+            # On a first visit, pre-check every variant the upstream Ollama
+            # has already pulled, in addition to explicit defaults. This
             # mirrors the runtime litellm-init auto-import behaviour
             # (``OLLAMA_AUTO_IMPORT_LOCAL_MODELS``) so the wizard's UI
             # tells the same story as the rendered config will after
             # confirmation: "if it's on your host, it's in the stack".
-            # Operators who want a model hidden can still uncheck it
-            # — the post-confirm CSV is the final word.
+            # Explicit session choices survive a revisit, including an
+            # empty answer. Runtime auto-import remains a separate policy.
             #
             # ``pulled_variants`` is populated from /api/tags by the
             # wizard's options-provider for ollama-localhost / -external
             # modes; container modes leave it empty so this loop is a
             # no-op there.
-            for opt in step.options:
-                for tag in opt.pulled_variants:
-                    self._checked_values.add(f"{opt.value}:{tag}")
+            if step.restored_input_value is None:
+                for opt in step.options:
+                    for tag in opt.pulled_variants:
+                        self._checked_values.add(f"{opt.value}:{tag}")
             # Reset the filter + expansion + search state on every
             # (re-)entry into a multiselect step. The default
             # "show everything, all collapsed, empty query" is the

@@ -172,8 +172,8 @@
       {
         "path": "bootstrapper/ui/textual/widgets/prompt_panel.py",
         "symbol": "PromptPanel.load_step",
-        "cyclomatic_complexity": 41,
-        "rationale": "Prompt-type dispatcher that configures one panel for every supported wizard step; interaction tests cover each input-kind branch. Moved 43 -> 41 on #1181, which lifted the number-step hint text into the module-level _number_input_hint builder so on_input_changed can restore it after a refused entry; the two branches that composed that string left load_step with it. Measured, not assumed."
+        "cyclomatic_complexity": 42,
+        "rationale": "Prompt-type dispatcher that configures one panel for every supported wizard step; interaction tests cover each input-kind branch. Moved 43 -> 41 on #1181, which lifted the number-step hint text into the module-level _number_input_hint builder so on_input_changed can restore it after a refused entry; the two branches that composed that string left load_step with it. Measured, not assumed. The restored-answer guard adds one decision: initial pulled-model preselection must not replace an explicit session answer. Empty and partial choices have actual confirm/Back/confirm controls. Current measured complexity is 42; aggregate baseline ceilings and file count are unchanged."
       },
       {
         "path": "bootstrapper/utils/llm_catalog.py",
