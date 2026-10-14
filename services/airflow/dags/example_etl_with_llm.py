@@ -57,7 +57,7 @@ def spark_smoke(**_ctx):
     """Confirm spark://spark-master:7077 + sc://spark-connect:15002 are reachable.
 
     Uses Spark Connect (modern gRPC client) — no JAR submission, no
-    cluster-mode dependencies. Returns the master version.
+    cluster-mode dependencies. Prints the Spark Connect server version.
 
     Note: the gRPC endpoint lives on the dedicated `spark-connect` sidecar
     container (it runs apache/spark's start-connect-server.sh against
@@ -70,8 +70,10 @@ def spark_smoke(**_ctx):
         .appName("airflow-smoke")
         .getOrCreate()
     )
-    print(f"Spark Connect connected; version={spark.version}")
-    spark.stop()
+    try:
+        print(f"Spark Connect connected; version={spark.version}")
+    finally:
+        spark.stop()
 
 
 def summarize_via_litellm(**_ctx):
