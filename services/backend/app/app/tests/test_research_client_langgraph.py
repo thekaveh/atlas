@@ -551,3 +551,49 @@ def test_a_running_summary_stream_is_completed(monkeypatch, events):
     done, result = asyncio.run(scenario())
     assert done.status == ResearchStatus.COMPLETED
     assert result is not None and result.content == "Real report"
+
+
+@pytest.mark.parametrize(
+    ("payload", "expected_id"),
+    [
+        ({"thread_id": 123}, None),
+        ({"thread_id": 124.5}, None),
+        ({"thread_id": True}, None),
+        ({"thread_id": "valid-thread"}, "valid-thread"),
+        ({"id": "legacy-thread"}, "legacy-thread"),
+    ],
+)
+def test_thread_creation_registers_only_valid_responses(
+    monkeypatch, payload, expected_id
+):
+    import research_client
+
+    def handler(request):
+        assert request.method == "POST"
+        assert request.url.path == "/threads"
+        return httpx.Response(200, json=payload)
+
+    transport = httpx.MockTransport(handler)
+    real_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        research_client.httpx,
+        "AsyncClient",
+        lambda *args, **kwargs: real_client(*args, transport=transport, **kwargs),
+    )
+    client = ResearchClient(base_url="http://research.test")
+
+    async def scenario():
+        result = await client.start_research(ResearchRequest(query="controlled query"))
+        return result, await client.list_active_sessions()
+
+    result, active = asyncio.run(scenario())
+    if expected_id is None:
+        assert result.status == ResearchStatus.FAILED
+        assert result.session_id == ""
+        assert active == []
+    else:
+        assert result.status == ResearchStatus.PENDING
+        assert result.session_id == expected_id
+        assert result.message == "Research thread created (run not yet dispatched)"
+        assert result.data == payload
+        assert active == [{"session_id": expected_id}]
