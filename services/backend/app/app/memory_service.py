@@ -38,7 +38,7 @@ def _fact_confidence(raw) -> float:
     raise inside the extraction transaction and discard every fact of it."""
     try:
         value = float(raw)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return 0.8
     return 0.8 if value != value else max(0.0, min(1.0, value))
 
