@@ -1132,3 +1132,139 @@ def test_real_pgvector_same_dimension_model_change_requires_full_reembedding(
         """,
     ).stdout.strip().splitlines()
     assert ready == ["ready|provider-b/embed|provider-b/embed|2|2", "same-dimension semantic change"]
+
+
+_DIMENSION_WRITE_CHECKS = """
+DO $owned_write_checks$
+DECLARE
+    old_dimension integer := {old_dimension};
+    selected_dimension integer := {selected_dimension};
+    current_oid oid;
+    current_validated boolean;
+BEGIN
+    IF (SELECT embedding::text FROM public.memory_facts WHERE id=1)
+       IS DISTINCT FROM (SELECT original_embedding FROM owned_before) THEN
+        RAISE EXCEPTION 'legacy vector changed during expansion';
+    END IF;
+    INSERT INTO public.memory_facts VALUES
+        (2, array_fill(0.25::real, ARRAY[selected_dimension])::vector), (3, NULL);
+    UPDATE public.memory_facts
+       SET embedding=array_fill(0.5::real, ARRAY[selected_dimension])::vector
+     WHERE id=1;
+    IF old_dimension <> selected_dimension THEN
+        BEGIN
+            INSERT INTO public.memory_facts VALUES
+                (4, array_fill(0.125::real, ARRAY[old_dimension])::vector);
+            RAISE EXCEPTION 'old-dimension new write was accepted';
+        EXCEPTION WHEN check_violation THEN
+            NULL;
+        END;
+    END IF;
+    SELECT oid, convalidated INTO current_oid, current_validated
+      FROM pg_constraint WHERE conrelid='public.memory_facts'::regclass
+       AND conname='memory_facts_embedding_dimension';
+    IF old_dimension = selected_dimension THEN
+        IF current_oid IS DISTINCT FROM (SELECT target_oid FROM owned_before)
+           OR current_validated IS DISTINCT FROM
+              (SELECT target_validated FROM owned_before) THEN
+            RAISE EXCEPTION 'same-dimension constraint identity changed';
+        END IF;
+    ELSIF current_validated OR current_oid = (SELECT target_oid FROM owned_before) THEN
+        RAISE EXCEPTION 'changed dimension was not expanded as NOT VALID';
+    END IF;
+    IF (SELECT oid FROM pg_constraint
+         WHERE conrelid='public.other_facts'::regclass
+           AND conname='memory_facts_embedding_dimension')
+       IS DISTINCT FROM (SELECT other_oid FROM owned_before) THEN
+        RAISE EXCEPTION 'unrelated constraint identity changed';
+    END IF;
+    IF (SELECT count(*) FROM public.memory_facts) <> 3
+       OR (SELECT vector_dims(embedding) FROM public.memory_facts WHERE id=1)
+          <> selected_dimension THEN
+        RAISE EXCEPTION 'selected-dimension backfill or writes incomplete';
+    END IF;
+    RAISE WARNING 'OWNED_DIMENSION_WRITES_PASSED';
+END
+$owned_write_checks$;
+"""
+
+
+def _owned_dimension_constraint_sql(old_dimension, selected_dimension, validated):
+    sql = MIGRATION.read_text(encoding="utf-8")
+    start = sql.index("DO $add_embedding_constraint$")
+    end = sql.index("$add_embedding_constraint$;", start) + len("$add_embedding_constraint$;")
+    block = sql[start:end]
+    # Single-user -j consumes a statement until a blank line after its semicolon.
+    assert ";\n\n" not in block[:-1]
+    setup = f"""
+CREATE EXTENSION vector;
+CREATE TABLE public.memory_facts (id integer PRIMARY KEY, embedding vector);
+CREATE TABLE public.other_facts (embedding vector,
+    CONSTRAINT memory_facts_embedding_dimension CHECK (vector_dims(embedding)=10));
+INSERT INTO public.memory_facts VALUES
+    (1, array_fill(0.125::real, ARRAY[{old_dimension}])::vector);
+ALTER TABLE public.memory_facts ADD CONSTRAINT memory_facts_embedding_dimension
+    CHECK (embedding IS NULL OR vector_dims(embedding) = {old_dimension})
+    {'' if validated else 'NOT VALID'};
+CREATE TEMP TABLE owned_before AS SELECT c.oid AS target_oid,
+    c.convalidated AS target_validated, f.embedding::text AS original_embedding,
+    (SELECT oid FROM pg_constraint WHERE conrelid='public.other_facts'::regclass
+      AND conname='memory_facts_embedding_dimension') AS other_oid
+    FROM pg_constraint c, public.memory_facts f
+    WHERE c.conrelid='public.memory_facts'::regclass
+      AND c.conname='memory_facts_embedding_dimension';
+SET atlas.memory_embedding_dim = '{selected_dimension}';
+"""
+    writes = _DIMENSION_WRITE_CHECKS.format(
+        old_dimension=old_dimension, selected_dimension=selected_dimension,
+    )
+    remember = """CREATE TEMP TABLE owned_after AS SELECT oid, convalidated
+        FROM pg_constraint WHERE conrelid='public.memory_facts'::regclass
+        AND conname='memory_facts_embedding_dimension';"""
+    repeat = """DO $owned_repeat_checks$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint c JOIN owned_after a
+        ON c.oid=a.oid AND c.convalidated=a.convalidated
+        WHERE c.conrelid='public.memory_facts'::regclass
+        AND c.conname='memory_facts_embedding_dimension') THEN
+        RAISE EXCEPTION 'repeat changed constraint identity or validation';
+    END IF;
+    RAISE WARNING 'OWNED_DIMENSION_REPEAT_PASSED';
+END
+$owned_repeat_checks$;"""
+    return "\n\n".join((setup, block, writes, remember, block, repeat)) + "\n\n"
+
+
+@pytest.mark.parametrize("old_dimension,selected_dimension", [
+    (768, 76), (4000, 400), (76, 7), (768, 1536), (768, 768), (10, 1), (1, 4000),
+])
+@pytest.mark.parametrize("validated", [True, False])
+def test_owned_single_user_dimension_transition_preserves_backfill_contract(
+    old_dimension, selected_dimension, validated,
+):
+    image = os.environ.get("ATLAS_TEST_PGVECTOR_SINGLE_USER_IMAGE")
+    if not image:
+        pytest.skip("set ATLAS_TEST_PGVECTOR_SINGLE_USER_IMAGE to a cached immutable image")
+    assert re.fullmatch(r"sha256:[0-9a-f]{64}", image), "use an immutable cached image ID"
+    name = f"atlas-memory-owned-{uuid.uuid4().hex[:12]}"
+    result = _docker(
+        "run", "--rm", "--pull=never", "-i", "--name", name,
+        "--label", "com.atlas.maintenance.owner=dimension-constraint-regression",
+        "--network", "none", "--read-only", "--user", "postgres",
+        "--tmpfs", "/tmp:rw,nosuid,nodev,mode=1777,size=268435456",
+        "--cpus", "1", "--memory", "512m", "--pids-limit", "128",
+        "--entrypoint", "/bin/sh", image, "-c",
+        "set -eu; initdb -D /tmp/atlas-owned-pg --no-locale --encoding=UTF8 "
+        "--auth=trust --username=owned_admin >/tmp/owned-init.log; "
+        "exec postgres --single -D /tmp/atlas-owned-pg -j "
+        "-c shared_buffers=16MB -c max_connections=5 postgres",
+        input_text=_owned_dimension_constraint_sql(
+            old_dimension, selected_dimension, validated,
+        ), check=False,
+    )
+    gone = _docker("container", "inspect", name, check=False)
+    assert gone.returncode != 0 and "No such" in gone.stderr, "owned container remains"
+    assert result.returncode == 0, result.stderr or result.stdout
+    assert not re.search(r"\b(?:ERROR|FATAL|PANIC):", result.stderr), result.stderr
+    assert result.stderr.count("OWNED_DIMENSION_WRITES_PASSED") == 1, result.stderr
+    assert result.stderr.count("OWNED_DIMENSION_REPEAT_PASSED") == 1, result.stderr
