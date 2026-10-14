@@ -703,6 +703,23 @@ _HF_FILTERS: dict[str, list[dict]] = {
 _HF_SIZE_FETCH_MAX_WORKERS = 10
 
 
+def _hf_sibling_sizes(data: object) -> dict[str, int]:
+    """Extract optional sizes without trusting a successful response's shape."""
+    if not isinstance(data, dict):
+        return {}
+    siblings = data.get("siblings")
+    if not isinstance(siblings, list):
+        return {}
+    sizes: dict[str, int] = {}
+    for sibling in siblings:
+        if not isinstance(sibling, dict):
+            continue
+        name, size = sibling.get("rfilename"), sibling.get("size")
+        if isinstance(name, str) and isinstance(size, int):
+            sizes[name] = size
+    return sizes
+
+
 def _enrich_siblings_with_sizes(items: list[dict]) -> None:
     """In-place: enrich each item's siblings[] with real file sizes.
 
@@ -722,6 +739,8 @@ def _enrich_siblings_with_sizes(items: list[dict]) -> None:
     from concurrent.futures import ThreadPoolExecutor
 
     def _fetch_one(item: dict) -> tuple[dict, dict[str, int]]:
+        if not isinstance(item, dict):
+            return {}, {}
         model_id = item.get("id") or item.get("modelId")
         if not model_id:
             return item, {}
@@ -735,15 +754,7 @@ def _enrich_siblings_with_sizes(items: list[dict]) -> None:
             data = resp.json()
         except (_requests.RequestException, ConnectionError):
             return item, {}
-        sib_with_size: dict[str, int] = {}
-        for s in data.get("siblings") or []:
-            if not isinstance(s, dict):
-                continue
-            name = s.get("rfilename")
-            size = s.get("size")
-            if isinstance(name, str) and isinstance(size, int):
-                sib_with_size[name] = size
-        return item, sib_with_size
+        return item, _hf_sibling_sizes(data)
 
     if not items:
         return
