@@ -2,6 +2,10 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
+import json
+
+import pytest
 
 from scripts import exception_coverage as coverage
 
@@ -112,3 +116,117 @@ def test_finding_lines_do_not_disturb_the_row_summary() -> None:
 
     assert report[0] == "scanned 1 image-platforms; 0 failed"
     assert "ROW 2\tCVE-2\t1\tsvc/a [linux/amd64]" in report
+
+def _selected_policy_cli_probe(monkeypatch, tmp_path, ignore_form, mode):
+    root = tmp_path / "repository"
+    caller = tmp_path / "caller"
+    root.mkdir()
+    caller.mkdir()
+    policy = "vulnerabilities:\n  - id: CVE-SELECTED\n  - id: CVE-UNUSED\n"
+    default = root / ".trivyignore.yaml"
+    default.write_text(policy.replace("CVE-SELECTED", "CVE-DEFAULT"))
+    custom = caller / "custom policy.yaml"
+    custom.write_text(policy)
+    selected = default if ignore_form == "default" else custom
+    state = SimpleNamespace(root=root, selected=selected, calls=[], failures=0)
+    monkeypatch.setattr(coverage, "ROOT", root)
+    monkeypatch.chdir(caller)
+    monkeypatch.setattr(coverage, "load_image_scans", lambda _path: [
+        SimpleNamespace(image="controlled-image:1", platform="linux/arm64"),
+        SimpleNamespace(image="unselected-image:1", platform="linux/amd64"),
+    ])
+
+    def run(command, **kwargs):
+        state.calls.append(command)
+        supplied = command[command.index("--ignorefile") + 1]
+        actual = Path(supplied)
+        if not actual.is_absolute():
+            actual = kwargs["cwd"] / actual
+        assert actual.resolve() == selected.resolve(), "scanner selected a different policy"
+        assert kwargs["cwd"] == root
+        if len(state.calls) <= state.failures:
+            return SimpleNamespace(returncode=1, stderr="controlled scan refusal")
+        result = _finding("CVE-DEFAULT" if ignore_form == "default" else "CVE-SELECTED")
+        result["ExperimentalModifiedFindings"][0]["Source"] = Path(supplied).as_posix()
+        foreign = _finding("CVE-FOREIGN")
+        foreign["ExperimentalModifiedFindings"][0]["Source"] = (
+            caller / "other" / selected.name
+        ).as_posix()
+        result["ExperimentalModifiedFindings"] += foreign["ExperimentalModifiedFindings"]
+        if ignore_form != "default":
+            result["ExperimentalModifiedFindings"] += _finding("CVE-FOREIGN")["ExperimentalModifiedFindings"]
+        result["Vulnerabilities"] = [
+            {"VulnerabilityID": "CVE-OPEN", "Severity": "HIGH", "PkgName": "demo",
+             "InstalledVersion": "1", "FixedVersion": "2"},
+            {"VulnerabilityID": "CVE-MEDIUM", "Severity": "MEDIUM"},
+        ]
+        report = Path(command[command.index("--output") + 1])
+        report.write_text(json.dumps({"Results": [result]}))
+        return SimpleNamespace(returncode=0, stderr="")
+
+    monkeypatch.setattr(coverage, "subprocess", SimpleNamespace(run=run))
+    args = ["--local-image", "controlled-image:1", "--label", "controlled"] if mode == "local" else [
+        "--shard", "0", "--shards", "2",
+    ]
+    args += ["--platform", "linux/arm64"]
+    if ignore_form != "default":
+        args += ["--ignorefile", str(custom) if ignore_form == "absolute" else custom.name]
+    return args, state
+
+
+@pytest.mark.parametrize("case", [
+    (policy, mode, failures)
+    for policy in ("default", "absolute", "relative")
+    for mode in ("local", "shard")
+    for failures in (0, 2, 3)
+])
+def test_selected_policy_cli_uses_one_policy_through_scan_and_report(monkeypatch, tmp_path, capsys, case):
+    policy, mode, failures = case
+    args, state = _selected_policy_cli_probe(monkeypatch, tmp_path, policy, mode)
+    state.failures = failures
+    if failures == 2:
+        args += ["--ignore-unfixed"]
+
+    assert coverage.main(args) == 0
+
+    captured = capsys.readouterr()
+    label = "controlled" if mode == "local" else "controlled-image:1"
+    expected = f"COVERAGE\t{label}\tlinux/arm64\t"
+    if failures == 3:
+        assert captured.out.splitlines() == [
+            expected + "SCAN-FAILED\t-", "== COVERAGE summary (1 scans) ==",
+            expected + "SCAN-FAILED\t-",
+        ]
+    else:
+        finding = f"FINDING\t{label}\tlinux/arm64\tCVE-OPEN\tdemo\t1\t2\timg"
+        assert captured.out.splitlines() == [
+            expected + "0\t-", finding, "== COVERAGE summary (2 scans) ==",
+            expected + "0\t-", finding,
+        ]
+    assert len(state.calls) == min(failures + 1, 3)
+    assert captured.err.count("controlled scan refusal") == failures
+    _assert_policy_scan_commands(state, mode, failures)
+
+
+def _assert_policy_scan_commands(state, mode, failures):
+    for command in state.calls:
+        assert command[command.index("--image-src") + 1] == ("docker" if mode == "local" else "remote")
+        assert ("--platform" in command) == (mode == "shard")
+        if mode == "shard":
+            assert command[command.index("--platform") + 1] == "linux/arm64"
+        assert ("--ignore-unfixed" in command) == (failures == 2)
+
+
+def test_selected_policy_summary_reads_custom_rows_without_scanning(monkeypatch, tmp_path, capsys):
+    args, state = _selected_policy_cli_probe(monkeypatch, tmp_path, "relative", "local")
+    log = tmp_path / "scan.log"
+    log.write_text("timestamp COVERAGE\tcontrolled\tlinux/arm64\t0\t-\n")
+
+    assert coverage.main(["--ignorefile", state.selected.name, "--summarize", str(log)]) == 0
+
+    assert capsys.readouterr().out.splitlines() == [
+        "scanned 1 image-platforms; 0 failed",
+        "ROW 0\tCVE-SELECTED\t1\tcontrolled [linux/arm64]",
+        "ROW 1\tCVE-UNUSED\tUNUSED\t",
+    ]
+    assert state.calls == []
