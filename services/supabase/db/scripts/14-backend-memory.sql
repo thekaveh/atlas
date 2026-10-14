@@ -384,7 +384,7 @@ BEGIN
      WHERE conrelid = 'public.memory_facts'::regclass
        AND conname = 'memory_facts_embedding_dimension';
     IF existing_definition IS NOT NULL
-       AND position(format('vector_dims(embedding) = %s', desired)
+       AND position(format('vector_dims(embedding) = %s)', desired)
                     IN existing_definition) > 0 THEN
         RETURN;
     END IF;
