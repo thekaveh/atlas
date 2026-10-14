@@ -117,7 +117,13 @@ def render_all(
     for diagram in manifest.diagrams:
         master = repo_root / diagram.master
         svg = extract_svg(master.read_text(encoding="utf-8"))
-        (site_img_dir / f"{diagram.id}.svg").write_text(svg + "\n", encoding="utf-8")
+        standalone_svg = svg
+        if not re.search(r"\sxmlns\s*=", svg.partition(">")[0]):
+            standalone_svg = re.sub(
+                r"<svg\b", '<svg xmlns="http://www.w3.org/2000/svg"',
+                svg, count=1, flags=re.IGNORECASE,
+            )
+        (site_img_dir / f"{diagram.id}.svg").write_text(standalone_svg + "\n", encoding="utf-8")
         committed_png = png_dir / f"{diagram.id}.png"
         if check_png:
             expected = diagram_source_fingerprint(svg)
