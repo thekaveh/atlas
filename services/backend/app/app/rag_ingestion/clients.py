@@ -879,20 +879,43 @@ class LightRagClient:
         uploaded = 0
         async with httpx.AsyncClient(timeout=120.0) as client:
             for doc in documents:
+                file_source = self._file_source(doc)
                 resp = await client.post(
                     f"{self._endpoint}/documents/text",
                     headers=self._headers(),
                     json={
                         "text": doc["text"],
-                        "file_source": self._file_source(doc),
+                        "file_source": file_source,
                     },
                 )
-                if resp.status_code == 409:
+                if resp.status_code == 409 and self._conflict_is_admitted(resp, file_source):
                     uploaded += 1
                     continue
                 resp.raise_for_status()
                 uploaded += 1
         return uploaded
+
+    @staticmethod
+    def _conflict_is_admitted(response: Any, file_source: str) -> bool:
+        """Match the pinned server's duplicate contract; busy refusals can retry."""
+        try:
+            data = response.json()
+        except ValueError:
+            return False
+        detail = data.get("detail") if isinstance(data, dict) else None
+        if not isinstance(detail, str):
+            return False
+        if detail in (
+            "Document scan is classifying files. Wait for the classification phase to finish before submitting new work.",
+            "Pipeline is clearing or deleting documents. Wait for the running job to finish before submitting new work.",
+        ):
+            raise ConnectionError(f"LightRAG refused enqueue: {detail}")
+        admitted = ("pending", "parsing", "analyzing", "processing", "preprocessed", "processed")
+        return detail in {
+            f"Document storage already contains '{file_source}' "
+            f"(Status: {status}). Delete the existing record before re-inserting."
+            for status in admitted
+        }
 
     @staticmethod
     def _file_source(document: Dict[str, str]) -> str:

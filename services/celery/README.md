@@ -102,7 +102,8 @@ The Redis visibility timeout is longer than the hard task time limit. RAG ingest
 - A duplicate delivery that finds an active lease waits for it to expire, then retries.
 - A worker that loses its lease cancels the running phase, logs the failure and reschedules without overwriting state.
 - Transient upstream failures get three retries with exponential backoff, counted separately from lease waits. After that, the ingestion fails.
-- LightRAG replays are idempotent (deterministic document ids, duplicate-source handling).
+- LightRAG replays use deterministic document ids. Only a matching duplicate in an admitted or processed state counts as uploaded.
+- LightRAG scanning or deletion refusals use the transient retry budget. Failed records and unrecognized conflicts fail the upload phase.
 - Memory consolidation changes memory rows through existing service logic. Review any new task that changes external systems before you add it.
 
 ## 6. Dependencies & Integrations
