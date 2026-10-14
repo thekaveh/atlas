@@ -88,12 +88,12 @@ services/litellm/models.yaml  ├──► model_resolver.active_models(env) ─
 wizard selections in .env    ─┘
 ```
 
-On every `docker compose up`, **`litellm-init`** calls `model_resolver.active_models()`. It reads the YAML catalogs and the wizard's env vars: `LLM_PROVIDER_SOURCE`, `OLLAMA_USER_MODELS`, `OLLAMA_CUSTOM_MODELS`, `LITELLM_*_ENABLED`, cloud `*_API_KEY` and `*_USER_MODELS`. It then renders `volumes/litellm/config.yaml` with the per-provider routing rules below. Config rendering uses no database query.
+Whenever **`litellm-init`** starts, it calls `model_resolver.active_models()`. It reads the YAML catalogs and the wizard's env vars: `LLM_PROVIDER_SOURCE`, `OLLAMA_USER_MODELS`, `OLLAMA_CUSTOM_MODELS`, `LITELLM_*_ENABLED`, cloud `*_API_KEY` and `*_USER_MODELS`. It then renders `volumes/litellm/config.yaml` with the per-provider routing rules below. Config rendering uses no database query.
 
 - For `ollama-localhost` with `OLLAMA_AUTO_IMPORT_LOCAL_MODELS=true`, `litellm-init` also reads the upstream `/api/tags` and adds host-pulled models to the active set. If the host daemon does not answer within 10 s, the init log prints `auto-import: failed to fetch /api/tags`. Host-pulled tags are then not registered for this run.
 - Before `docker compose up`, the bootstrapper writes only a stub, for the bind mount. `services/litellm/init/scripts/init.py` fills in the real `model_list` before the LiteLLM proxy starts.
 
-To change the exposed models, run the wizard (`./start.sh`), or edit the env var in `.env` and restart. To add a model that is not in the curated catalog, set `OLLAMA_CUSTOM_MODELS` or add an entry to the YAML file. For an **embedding** entry, declare its output dimension with `dim:`. The wizard lists models with `dim: 768` first, and the chosen model's `dim` sets `LANGMEM_EMBEDDING_DIM` (see [Ollama §5](../ollama/README.md)).
+Change exposed models through the wizard (`./start.sh`), or edit their selection variables in `.env` before running it. For a model outside the curated catalog, set `OLLAMA_CUSTOM_MODELS` or add a YAML entry. For an **embedding** entry, declare its output dimension with `dim:`. The wizard lists models with `dim: 768` first, and the chosen model's `dim` sets `LANGMEM_EMBEDDING_DIM` (see [Ollama §5](../ollama/README.md)).
 
 At selection and warm repair, memory dimensions use the first active alias from catalog and explicit model selections. The order is Ollama, OpenAI, Anthropic, then OpenRouter. A custom winner without dimension metadata requires an explicit `LANGMEM_EMBEDDING_DIM`. Init’s host auto-import happens later.
 
@@ -118,7 +118,7 @@ The wizard's multiselect choices persist as comma-separated lists in `.env` so t
 | `ANTHROPIC_USER_MODELS` | Anthropic multiselect (after live `/v1/models` fetch). | Same synthesize-on-missing handling as OpenAI. |
 | `OPENROUTER_USER_MODELS` | OpenRouter multiselect (after live `/api/v1/models` fetch). | Same synthesize-on-missing handling. |
 
-To add a model outside the curated catalogs without the wizard, set the `*_USER_MODELS` or `OLLAMA_CUSTOM_MODELS` env var in `.env` and run `docker compose up`. `model_resolver` and `litellm-init` pick it up.
+To add a model outside the catalogs without the model picker, set `*_USER_MODELS` or `OLLAMA_CUSTOM_MODELS` in `.env`. Then run `./start.sh --no-tui` and select the intended track when prompted. Atlas recreates init and the gateway so the generated model list takes effect. Plain `docker compose up` can leave an unchanged gateway running with its previous model list.
 
 > Note: `model_resolver` activates a provider only when it is enabled and keyed. Enabled means `CLOUD_<PROVIDER>_SOURCE=enabled`; the bootstrapper derives `LITELLM_<PROVIDER>_ENABLED` from it at every start. Keyed means `<PROVIDER>_API_KEY` is set. To stop routing to a provider, set `CLOUD_<PROVIDER>_SOURCE=disabled`. Do not edit `LITELLM_<PROVIDER>_ENABLED`; the next start overwrites it.
 
@@ -155,7 +155,9 @@ LiteLLM ships two Ollama integrations and **they are not interchangeable**:
 | Adapter | Hits Ollama at | Use for | Notes |
 |---|---|---|---|
 | `ollama_chat/<model>` | `/api/chat` | Chat completions (`/v1/chat/completions`) | Real OpenAI-shaped: multi-turn history, tool calls, vision payloads, and the Ollama-native `think` parameter all flow through. |
-| `ollama/<model>` | `/api/generate` | Embeddings (`/v1/embeddings`) | Single-prompt completion. Tool calls do **not** work; multi-turn history is flattened to a single prompt; the `think` parameter is silently dropped. Required for embedding routes because `ollama_chat/` rejects `/v1/embeddings` with `Unmapped LLM provider for this endpoint`. |
+| `ollama/<model>` | `/api/embed` for embeddings; `/api/generate` for legacy completions | Embeddings (`/v1/embeddings`) | Required for embedding routes. Legacy chat calls flatten multi-turn history into one prompt; tool calls do **not** work and `think` is dropped. `ollama_chat/` rejects `/v1/embeddings` with `Unmapped LLM provider for this endpoint`. |
+
+Embedding endpoint source: the pinned [LiteLLM adapter](https://github.com/BerriAI/litellm/blob/b36fb1dc191620e8ff2b3a43854c05f5189cd813/litellm/llms/ollama/completion/handler.py).
 
 `services/litellm/init/scripts/init.py::render_model_list` uses the versioned catalog metadata below. Curated `kind: embedding` entries get `ollama/`; curated `kind: chat` entries get their declared adapter. A custom or live-discovered model without metadata uses the legacy name heuristic and logs a startup warning. Existing operator-defined models therefore keep working.
 
@@ -163,7 +165,7 @@ LiteLLM ships two Ollama integrations and **they are not interchangeable**:
 
 Catalog rows may declare `metadata_version: 1`. Its provider-neutral fields are `kind` (chat/embedding), `adapter`, `capabilities`, `request_defaults` (for example `think: false`), `recommended_roles` (`extract`, `keyword`, `query`, `judge`, `embedding`, `vision`) and an embedding's `dim`. The field schema is in the comments next to the loader in `llm_catalog.py`.
 
-LiteLLM receives the standard `model_info` fields and a namespaced `atlas_model_metadata` block. LightRAG and other consumers use it to assign roles without provider, model-family or hardware assumptions. A cloud model with no catalog row (for example one picked live from OpenAI) gets no top-level `model_info.mode`. LiteLLM's own model map then routes it, so a Responses-only model such as `gpt-5-pro` is not forced onto `/v1/chat/completions`.
+LiteLLM receives the standard `model_info` fields and a namespaced `atlas_model_metadata` block. Consumers can use it to select model roles without provider, model-family or hardware assumptions. A cloud model with no catalog row (for example one picked live from OpenAI) gets no top-level `model_info.mode`. LiteLLM's own model map then routes it, so a Responses-only model such as `gpt-5-pro` is not forced onto `/v1/chat/completions`.
 
 These `capabilities` are declarations. `./start.sh models probe` measures tool calling, JSON output, vision and embedding dimension through this gateway, on demand. It reports each declaration that does not hold and does not change model selection (see [Operations §1.2](../../docs/operations/index.md#12-model-capability-probe)).
 
@@ -174,7 +176,7 @@ curl -s http://localhost:${LITELLM_PORT}/v1/model/info \
   -H "Authorization: Bearer ${LITELLM_MASTER_KEY}"
 ```
 
-LightRAG and other consumers select a model for `extract`, `query` or another role as follows. The role-selection function in `model_resolver.py` has the same procedure in its docstring:
+For `extract`, `query` or another role, clients can choose a model from this metadata with the following procedure. Then configure the selected model through [LightRAG’s role bindings](../lightrag/README.md#3-configuration) or the consuming client’s settings:
 
 1. Keep rows with `inferred: false`, the required `kind` or capability, and the
    role in `atlas_model_metadata.recommended_roles`.
