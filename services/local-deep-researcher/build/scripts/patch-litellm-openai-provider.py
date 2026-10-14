@@ -91,7 +91,24 @@ def _patch_graph(text: str) -> str:
 
     text = _patch_get_llm(text)
     text = _patch_summarize_sources(text)
-    return text
+    return _patch_research_loop_bound(text)
+
+
+def _patch_research_loop_bound(text: str) -> str:
+    try:
+        start = text.index("def route_research(")
+    except ValueError:
+        return text  # Partial graph-helper fixtures have no routing function.
+    end = text.find("\ndef ", start + 1)
+    route = text[start:end if end >= 0 else len(text)]
+    old = "    if state.research_loop_count <= configurable.max_web_research_loops:\n"
+    new = "    if state.research_loop_count < configurable.max_web_research_loops:\n"
+    if new in route:
+        return text
+    if route.count(old) != 1:
+        raise RuntimeError("could not find the research loop routing comparison to patch")
+    # web_research has already incremented the completed-iteration count.
+    return text[:start] + route.replace(old, new, 1) + (text[end:] if end >= 0 else "")
 
 
 def _patch_get_llm(text: str) -> str:
@@ -166,6 +183,9 @@ def main() -> None:
 
     patched_configuration = _patch_run_config_precedence(_patch_configuration(configuration))
     patched_graph = _patch_graph(graph)
+
+    if "def route_research(" not in patched_graph:
+        raise RuntimeError("could not find the research loop routing function")
 
     if 'Literal["ollama", "lmstudio", "openai"]' not in patched_configuration:
         raise RuntimeError("could not patch Configuration.llm_provider for openai")

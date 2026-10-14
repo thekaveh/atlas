@@ -20,7 +20,7 @@ capabilities:
   - name: "Research thread persistence"
     status: partial
     verification: tested
-    note: "Backend session metadata persists in Postgres, but LDR's in-memory checkpointer loses direct thread state on restart and can grow without a durable shared bound."
+    note: "Backend session metadata persists in Postgres. LangGraph caches thread state in the container layer; recreation discards it. This cache is not durable shared storage, and retained thread state can grow without a bound."
   - name: "Full-page Crawl4AI extraction"
     status: partial
     verification: tested
