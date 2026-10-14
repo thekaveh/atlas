@@ -374,7 +374,11 @@ For CI, cron or parent-repo wrapper scripts, use the detached path. Do not backg
 
 `--detach` (alias `--no-follow`) runs the normal start, waits for health, prints a per-service status summary and exits. It exits `0` only when the summary is healthy. It starts only the enabled services (after tracks, overrides and consumer overlays), so a broken build of a disabled service cannot stop it.
 
-A service still in its health start period (`health=starting`) is polled again for up to about 120 s before it counts as failed. A real failure (unhealthy, exited non-zero, or still starting after that window) names the service and its exit code. Add `--json` for machine-readable status:
+A service still in its health start period (`health=starting`) is polled again for up to about 120 s before it counts as failed. A failed service is named in the summary, with its exit code when available. A stopped server fails even when it exits with code `0`.
+
+Successful one-shot completion requires a zero exit and a known finite role. Atlas recognizes its built-in jobs and consumer jobs referenced by `depends_on` with `condition: service_completed_successfully`. Unknown stopped services fail; `restart: no` alone does not prove a finite role. If Compose configuration cannot be inspected, exited services cannot count as successful.
+
+Add `--json` for machine-readable status:
 
 ```bash
 ./start.sh --no-tui --detach --json
