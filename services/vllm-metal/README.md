@@ -124,7 +124,13 @@ unsupported host.
 
 Before each new launch, install compares the recorded core and plugin versions
 and the installed distribution metadata. It rebuilds a stale environment
-without `--update`. Stop and status act on the whole process group, so worker
+without `--update`.
+
+If an existing venv cannot import vLLM, preflight warns because installation can repair it.
+Run `./start.sh vllm-metal install --update`, or retry the normal Atlas launch.
+Install verifies the API import before it accepts the repaired environment.
+
+Stop and status act on the whole process group, so worker
 subprocesses cannot survive their server.
 
 ## 5. Architecture & wiring

@@ -215,7 +215,11 @@ class VllmMetalManager:
             if importable is True:
                 result.add("vllm", _OK, "vllm imports in the managed venv")
             elif importable is False:
-                result.add("vllm", _FAIL, "the managed venv exists but vllm is not importable")
+                result.add(
+                    "vllm", _WARN,
+                    "the managed venv exists but vllm is not importable; "
+                    "run `./start.sh vllm-metal install --update` to repair it",
+                )
             else:
                 result.add("vllm", _WARN, "could not probe vllm in the venv")
         else:

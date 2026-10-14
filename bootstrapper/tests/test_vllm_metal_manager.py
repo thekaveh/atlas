@@ -1578,3 +1578,186 @@ def test_health_reads_a_foreign_json_shape_without_raising(monkeypatch, tmp_path
     monkeypatch.setattr(comfy_module.urllib.request, "urlopen", lambda *a, **k: _Resp(body.encode()))
     assert VllmMetalManager(tmp_path / "v", port=1).health()["reachable"] is True
     assert ComfyUiMpsManager(tmp_path / "c", port=1).health()["reachable"] is True
+
+
+def _recovery_core_archive():
+    stream = io.BytesIO()
+    with tarfile.open(fileobj=stream, mode="w:gz") as bundle:
+        for name, body in (("requirements/cpu.txt", b"setuptools\n"),
+                           ("pyproject.toml", b"[build-system]\nrequires=[]\n")):
+            info = tarfile.TarInfo(f"vllm-{mod._DEFAULT_CORE_VERSION}/{name}")
+            info.size = len(body)
+            bundle.addfile(info, io.BytesIO(body))
+    return stream.getvalue()
+
+
+@pytest.fixture
+def partial_vllm_install(tmp_path, monkeypatch):
+    platform_probe = _darwin_arm64(monkeypatch)
+    manager = _mgr(tmp_path)
+    state = {"fail_download": True, "reject_api": False, "installed": False,
+             "downloads": [], "commands": []}
+    archive = _recovery_core_archive()
+    monkeypatch.setattr(mod, "_DEFAULT_CORE_SHA256", hashlib.sha256(archive).hexdigest())
+
+    def probe(cmd, *args, **kwargs):
+        if len(cmd) > 2 and "importlib.metadata" in cmd[2]:
+            if not state["installed"]:
+                return _FakeCompleted(1, stderr="ModuleNotFoundError: vllm")
+            return _FakeCompleted(0, f"{manager.plugin_version}\n{manager.core_version}+cpu\n")
+        return platform_probe(cmd, *args, **kwargs)
+
+    def install_step(cmd, **_kwargs):
+        state["commands"].append(list(cmd))
+        if cmd[1:3] == ["-m", "venv"]:
+            manager.venv_python.parent.mkdir(parents=True, exist_ok=True)
+            manager.venv_python.write_text("synthetic interpreter; never executed")
+        if any("vllm_metal-" in token for token in cmd):
+            state["installed"] = not state["reject_api"]
+
+    def download(url, *, timeout):
+        assert timeout == 60
+        state["downloads"].append(url)
+        if state["fail_download"]:
+            raise mod.urllib.error.URLError("interrupted core download")
+        return io.BytesIO(archive)
+
+    monkeypatch.setattr(mod.subprocess, "run", probe)
+    monkeypatch.setattr(manager, "_run", install_step)
+    monkeypatch.setattr(mod.urllib.request, "urlopen", download)
+    return manager, state
+
+
+def _interrupt_vllm_install(manager, state):
+    with pytest.raises(VllmMetalError, match="failed to download pinned vLLM core"):
+        manager.install()
+    assert manager.venv_python.exists()
+    assert not manager.status_file.exists()
+    assert manager._vllm_importable() is False
+    state["fail_download"] = False
+
+
+@pytest.mark.parametrize("update", [False, True])
+def test_partial_install_retries_through_real_reconciliation(partial_vllm_install, update):
+    manager, state = partial_vllm_install
+    _interrupt_vllm_install(manager, state)
+
+    manager.install(update=update)
+
+    assert len(state["downloads"]) == 2
+    assert manager._installed_versions() == (manager.plugin_version, f"{manager.core_version}+cpu")
+    installed = json.loads(manager.status_file.read_text())
+    assert installed["installed_version"] == manager.plugin_version
+    assert installed["installed_core_version"] == manager.core_version
+    assert any(cmd[-1].endswith("requirements/cpu.txt") for cmd in state["commands"])
+    assert any("vllm_metal-" in token for cmd in state["commands"] for token in cmd)
+
+
+def test_partial_install_preflight_warns_without_claiming_readiness(partial_vllm_install):
+    manager, state = partial_vllm_install
+    _interrupt_vllm_install(manager, state)
+
+    result = manager.preflight()
+
+    check = next(c for c in result.checks if c["name"] == "vllm")
+    assert result.ok and result.status == check["status"] == "warn"
+    assert "not importable" in check["detail"]
+    assert "install" in check["detail"]
+    assert manager._vllm_importable() is False
+    assert not manager.status_file.exists()
+
+
+def test_partial_install_readonly_launch_blocker_allows_repair(partial_vllm_install, monkeypatch):
+    import start
+
+    manager, state = partial_vllm_install
+    _interrupt_vllm_install(manager, state)
+    monkeypatch.setattr(manager, "_port_in_use", lambda: False)
+    commands = list(state["commands"])
+
+    assert start._managed_host_launch_blocker(lambda _env: manager, {}, "vLLM (Metal)") is None
+
+    assert state["commands"] == commands
+    assert len(state["downloads"]) == 1
+    assert not manager.status_file.exists()
+
+
+def test_partial_install_failed_repair_never_marks_or_launches(partial_vllm_install, monkeypatch):
+    manager, state = partial_vllm_install
+    _interrupt_vllm_install(manager, state)
+    state["reject_api"] = True
+    monkeypatch.setattr(mod.subprocess, "Popen", lambda *_a, **_k: pytest.fail("unverified API launched"))
+
+    with pytest.raises(VllmMetalError, match="API server is not importable after installation"):
+        manager.ensure_running_with_ownership()
+
+    assert len(state["downloads"]) == 2
+    assert not manager.status_file.exists()
+    assert not manager.pid_file.exists()
+
+
+def test_partial_install_new_launch_repairs_before_spawn(partial_vllm_install, monkeypatch):
+    manager, state = partial_vllm_install
+    _interrupt_vllm_install(manager, state)
+    monkeypatch.setattr(manager, "_port_in_use", lambda: False)
+    monkeypatch.setattr("services.managed_host.ManagedHostManager._process_start_time",
+                        staticmethod(lambda _pid: "Mon Jan  1 00:00:00 2024"))
+
+    def spawn(args, **_kwargs):
+        assert state["installed"]
+        assert "vllm.entrypoints.openai.api_server" in args
+        return SimpleNamespace(pid=58585, poll=lambda: None)
+
+    monkeypatch.setattr(mod.subprocess, "Popen", spawn)
+
+    status, created = manager.ensure_running_with_ownership()
+
+    assert created and status.running and status.pid == 58585
+    assert manager._read_pid() == 58585
+    assert json.loads(manager.status_file.read_text())["installed_core_version"] == manager.core_version
+    assert len(state["downloads"]) == 2
+
+
+@pytest.mark.parametrize("constraint", ["os", "arch", "python"])
+def test_partial_install_still_refuses_unsupported_host(partial_vllm_install, monkeypatch, constraint):
+    manager, state = partial_vllm_install
+    _interrupt_vllm_install(manager, state)
+    if constraint == "os":
+        monkeypatch.setattr(mod.platform, "system", lambda: "Linux")
+    elif constraint == "arch":
+        monkeypatch.setattr(mod.platform, "machine", lambda: "x86_64")
+    else:
+        monkeypatch.setattr(manager, "_python_version", lambda _path: (3, 11, 9))
+    commands = list(state["commands"])
+
+    with pytest.raises(VllmMetalError, match=f"preflight failed: {constraint}:"):
+        manager.install(update=True)
+
+    assert state["commands"] == commands
+    assert len(state["downloads"]) == 1
+
+
+@pytest.mark.parametrize("field", ["plugin_version", "core_version"])
+def test_partial_install_still_refuses_unverified_release(partial_vllm_install, field):
+    manager, state = partial_vllm_install
+    _interrupt_vllm_install(manager, state)
+    setattr(manager, field, "unverified")
+
+    with pytest.raises(VllmMetalError, match="verified only"):
+        manager.install(update=True)
+
+    assert len(state["downloads"]) == 1
+    assert not manager.status_file.exists()
+
+
+def test_partial_install_controls_keep_healthy_environment_idempotent(partial_vllm_install):
+    manager, state = partial_vllm_install
+    state["fail_download"] = False
+    manager.install()
+    commands = list(state["commands"])
+
+    manager.install()
+
+    assert state["commands"] == commands
+    assert len(state["downloads"]) == 1
+    assert manager.preflight().status == "ok"
