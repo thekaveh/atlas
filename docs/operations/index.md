@@ -90,15 +90,19 @@ following logs. Add `--json` for machine-readable status in CI or parent-repo
 wrappers.
 
 **`./start.sh` exit codes and cancelling.** `0` means the stack started. `1`
-means it did not: a build, `up` or one-shot init container failed. The error
-line ends with the failed container's last 40 log lines. `Ctrl+C` differs by
-front end:
+means it did not: a build, `up` or one-shot init container failed. An init
+failure report includes up to 40 log lines when available, before cancellation.
+`Ctrl+C` differs by front end:
 
 - In the wizard (TUI), `130` means `Ctrl+C` interrupted a launch in progress.
   It prints what was left running, and whether this start had already stopped a
   previously running stack. `Ctrl+C` after the launch finished keeps
-  its result (`0` or `1`). The wait for one-shot init containers (up to 900 s)
-  stops within a few seconds of `Ctrl+C`.
+  its result (`0` or `1`).
+
+    One-shot init checks use a 900-second polling window. Cancellation stops
+    further checks. An active status command keeps its 10-second timeout;
+    an active log-tail command keeps its 20-second timeout.
+
 - With `--no-tui`, `Ctrl+C` during startup exits `1` with the same notice;
   after a successful start it only stops following the logs and exits `130`.
   `Ctrl+C` during a `--cold` teardown stops the start and says the teardown may
