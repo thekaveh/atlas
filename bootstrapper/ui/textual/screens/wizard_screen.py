@@ -855,6 +855,7 @@ def _restored_primary_defaults(original, selections: dict):
         # its stored key. Fall through to the .env-seeded defaults instead.
         if prior not in {SECRET_KEEP, SECRET_CLEAR}:
             default_values = [value for value in prior.split(",") if value]
+            restored_input_value = prior
     elif isinstance(prior, str):
         if original.kind in {"secret", "text"}:
             restored_input_value = _restored_free_text_input(prior)
