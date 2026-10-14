@@ -35,6 +35,7 @@ import os
 import datetime
 import re
 import tempfile
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
@@ -45,6 +46,14 @@ RETAINED_SESSIONS = 5
 
 #: Everything this module may ever delete matches this shape and nothing else.
 _SESSION_FILE_RE = re.compile(r"^atlas-launch-.+\.log(\.\d+)?$")
+
+
+def _utf8_window_end(data: bytes, start: int, capacity: int) -> int:
+    """End a bounded window before a partial UTF-8 code point."""
+    end = min(len(data), start + capacity)
+    while end > start and end < len(data) and data[end] & 0xC0 == 0x80:
+        end -= 1
+    return end
 
 
 def retention_summary() -> str:
@@ -77,10 +86,16 @@ class SessionLogTee:
         self._max_segments = config.max_segments
         self._on_degraded = on_degraded
         self._degraded = False
+        self._closed = False
+        self._lock = threading.RLock()
         self._segment_index = 0
         self._rolling: list[Path] = []
         self._bytes = 0
 
+        stamp = datetime.datetime.now().isoformat(timespec="seconds")
+        header = f"# atlas session log — started {stamp}\n"
+        if self._max_segments < 2 or len(header.encode("utf-8")) > self._segment_max_bytes:
+            raise OSError("session-log budget cannot retain the initial header and rolling files")
         directory = config.directory or tempfile.gettempdir()
         self._prune_old_sessions(Path(directory), config.retained_sessions)
 
@@ -88,6 +103,7 @@ class SessionLogTee:
             mode="w",
             buffering=1,
             encoding="utf-8",
+            newline="",  # LF stays literal, so UTF-8 accounting matches disk bytes.
             prefix=prefix,
             suffix=".log",
             dir=directory,
@@ -95,8 +111,11 @@ class SessionLogTee:
         )
         self._fh = fh
         self.base_path = Path(fh.name)
-        stamp = datetime.datetime.now().isoformat(timespec="seconds")
-        self._write_raw(f"# atlas session log — started {stamp}\n")
+        try:
+            self._write_raw(header)
+        except OSError:
+            self.close()
+            raise
 
     # -- retention across sessions -----------------------------------------
     @staticmethod
@@ -136,25 +155,62 @@ class SessionLogTee:
         self._bytes += len(text.encode("utf-8", errors="replace"))
 
     def write(self, text: str) -> None:
-        if self._degraded:
-            return
-        try:
-            if self._bytes >= self._segment_max_bytes:
+        failure = None
+        with self._lock:
+            if self._degraded:
+                return
+            if self._closed:
+                raise ValueError("I/O operation on closed session log")
+            if not text:
+                return
+            try:
+                self._write_bounded(text.encode("utf-8"))
+            except OSError as exc:
+                self._enter_degraded()
+                failure = exc
+        if failure is not None:
+            # External callbacks may reenter or wait for another thread.
+            self._notify_degraded(failure)
+
+    def _write_bounded(self, data: bytes) -> None:
+        offset = 0
+        while offset < len(data):
+            end = _utf8_window_end(data, offset, self._segment_max_bytes - self._bytes)
+            if end == offset:
                 self._rotate()
-            self._write_raw(text)
-        except OSError as exc:
-            self._enter_degraded(exc)
+                continue
+            self._write_raw(data[offset:end].decode("utf-8"))
+            offset = end
 
     def flush(self) -> None:
-        if self._degraded:
-            return
-        with contextlib.suppress(OSError):
-            self._fh.flush()
+        with self._lock:
+            if self._degraded:
+                return
+            with contextlib.suppress(OSError):
+                self._fh.flush()
 
     # -- rotation ----------------------------------------------------------
+    def _rotation_header(self, index: int) -> str:
+        stamp = datetime.datetime.now().isoformat(timespec="seconds")
+        return (
+            f"# atlas session log — rotated segment {index} at {stamp}\n"
+            f"# truncation point: earlier output beyond the retained rolling "
+            f"segments was deleted; segment 0 (session start + first "
+            f"diagnostics) is always kept at {self.base_path.name}\n"
+        )
+
     def _rotate(self) -> None:
+        index = self._segment_index + 1
+        header = self._rotation_header(index)
+        if len(header.encode("utf-8")) + 4 > self._segment_max_bytes:
+            raise OSError("session-log budget cannot retain a complete rolling marker and UTF-8 text")
         self._fh.close()
-        self._segment_index += 1
+        # Retire a full rolling slot before creating another file. Failed
+        # deletion keeps its bookkeeping and reaches write's degraded path.
+        while len(self._rolling) >= self._max_segments - 1:
+            self._rolling[0].unlink(missing_ok=True)
+            self._rolling.pop(0)
+        self._segment_index = index
         segment_path = self.base_path.with_name(
             f"{self.base_path.name}.{self._segment_index}"
         )
@@ -169,27 +225,18 @@ class SessionLogTee:
             | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)  # no CRT \r\r\n
         )
         self._fh = os.fdopen(  # noqa: SIM115 - lifetime managed by close()
-            os.open(segment_path, flags, 0o600), "w", buffering=1, encoding="utf-8"
+            os.open(segment_path, flags, 0o600), "w", buffering=1, encoding="utf-8", newline=""
         )
         self._rolling.append(segment_path)
-        while len(self._rolling) > self._max_segments - 1:
-            oldest = self._rolling.pop(0)
-            with contextlib.suppress(OSError):
-                oldest.unlink()
-        stamp = datetime.datetime.now().isoformat(timespec="seconds")
         self._bytes = 0
-        self._write_raw(
-            f"# atlas session log — rotated segment {self._segment_index} at {stamp}\n"
-            f"# truncation point: earlier output beyond the retained rolling "
-            f"segments was deleted; segment 0 (session start + first "
-            f"diagnostics) is always kept at {self.base_path.name}\n"
-        )
+        self._write_raw(header)
 
     # -- degradation -------------------------------------------------------
-    def _enter_degraded(self, exc: OSError) -> None:
+    def _enter_degraded(self) -> None:
         self._degraded = True
-        with contextlib.suppress(Exception):
-            self._fh.close()
+        self.close()
+
+    def _notify_degraded(self, exc: OSError) -> None:
         if self._on_degraded is not None:
             with contextlib.suppress(Exception):
                 self._on_degraded(
@@ -200,8 +247,11 @@ class SessionLogTee:
 
     @property
     def degraded(self) -> bool:
-        return self._degraded
+        with self._lock:
+            return self._degraded
 
     def close(self) -> None:
-        with contextlib.suppress(Exception):
-            self._fh.close()
+        with self._lock:
+            self._closed = True
+            with contextlib.suppress(Exception):
+                self._fh.close()
