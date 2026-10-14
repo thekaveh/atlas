@@ -47,6 +47,17 @@ configuration_error() {
   exit 1
 }
 
+validate_identifier_length() {
+  identifier_var=$1
+  identifier_value=$2
+  # Quoted PostgreSQL identifiers are also truncated beyond 63 bytes.
+  # Refuse before role changes; preserve spelling within the supported limit.
+  identifier_bytes=$(printf '%s' "$identifier_value" | wc -c)
+  if [ "$identifier_bytes" -gt 63 ]; then
+    configuration_error "$identifier_var exceeds PostgreSQL's limit of 63 bytes"
+  fi
+}
+
 validate_literal_database_name() {
   database_var=$1
   database_name=$2
@@ -59,8 +70,10 @@ validate_literal_database_name() {
         "$database_var must be a literal database name, not libpq connection parameters"
       ;;
   esac
+  validate_identifier_length "$database_var" "$database_name"
 }
 
+validate_identifier_length PGUSER "$PGUSER"
 validate_literal_database_name PGDATABASE "$PGDATABASE"
 
 # Validate the complete resolved identity set before defining or invoking the
@@ -77,6 +90,8 @@ MCP_POSTGRES_DB_USER JUPYTER_DB_USER ZEPPELIN_DB_USER'
 checked_role_vars=''
 for role_var in $role_vars; do
   eval "role_value=\${$role_var}"
+  # shellcheck disable=SC2154 # role_value is assigned by the eval above.
+  validate_identifier_length "$role_var" "$role_value"
   upstream_identity=false
   # shellcheck disable=SC2154 # role_value is assigned by the eval above.
   case "$role_var:$role_value" in
