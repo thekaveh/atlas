@@ -1,5 +1,7 @@
 from fastapi import FastAPI, HTTPException, status, UploadFile, File, Query, Request, Depends, Response
 from fastapi.responses import JSONResponse
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -483,6 +485,17 @@ app = FastAPI(
     version="0.1.0",
     lifespan=_lifespan,
 )
+
+
+@app.exception_handler(RequestValidationError)
+async def _invalid_request(_request: Request, exc: RequestValidationError):
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        content={"detail": jsonable_encoder(
+            exc.errors(),
+            custom_encoder={float: lambda value: value if math.isfinite(value) else str(value)},
+        )},
+    )
 
 
 @app.exception_handler(RedisError)

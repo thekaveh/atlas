@@ -1,11 +1,198 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import math
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+
+
+def _memory_validation_app(monkeypatch):
+    from tests.test_fal_media_provider import _fresh_main
+
+    monkeypatch.setenv("BACKEND_IDENTITY_AUTH", "disabled")
+    monkeypatch.setenv("BACKEND_STATE_STORE_MODE", "memory")
+    monkeypatch.setenv("MEDIA_BUDGET_STORE", "memory")
+    main = _fresh_main(monkeypatch, fal_source="disabled")
+    monkeypatch.setattr(main.memory_service, "recall", AsyncMock(return_value={
+        "memories": [], "context_summary": None,
+    }))
+    monkeypatch.setattr(main.memory_service, "update_memory", AsyncMock(return_value={
+        "id": "00000000-0000-4000-8000-000000000003",
+    }))
+    return main
+
+
+def _memory_confidence_request(client, kind, raw):
+    user_id = "00000000-0000-4000-8000-000000000002"
+    if kind == "recall":
+        return client.post("/memory/recall", content=(
+            '{"user_id":"' + user_id + '","query":"owned","min_confidence":' + raw + '}'
+        ).encode(), headers={"Content-Type": "application/json"})
+    return client.put("/memory/00000000-0000-4000-8000-000000000003",
+        params={"user_id": user_id}, content=('{"confidence":' + raw + '}').encode(),
+        headers={"Content-Type": "application/json"})
+
+
+@pytest.mark.parametrize("kind", ["recall", "update"])
+@pytest.mark.parametrize("raw, safe", [("1e999", "inf"), ("-1e999", "-inf"), ("NaN", "nan")])
+def test_memory_rejects_nonfinite_confidence_before_service_calls(monkeypatch, kind, raw, safe):
+    from fastapi.testclient import TestClient
+
+    main = _memory_validation_app(monkeypatch)
+    response = _memory_confidence_request(TestClient(main.app, raise_server_exceptions=False), kind, raw)
+
+    assert response.status_code == 422
+    error = response.json()["detail"][0]
+    assert error["loc"] == ["body", "min_confidence" if kind == "recall" else "confidence"]
+    assert error["type"] in {"less_than_equal", "greater_than_equal"}
+    assert error["input"] == safe
+    main.memory_service.recall.assert_not_awaited()
+    main.memory_service.update_memory.assert_not_awaited()
+
+
+@pytest.mark.parametrize("kind", ["recall", "update"])
+def test_memory_accepts_finite_confidence(monkeypatch, kind):
+    from fastapi.testclient import TestClient
+
+    main = _memory_validation_app(monkeypatch)
+    response = _memory_confidence_request(TestClient(main.app), kind, "0.7")
+
+    assert response.status_code == 200
+    method = main.memory_service.recall if kind == "recall" else main.memory_service.update_memory
+    method.assert_awaited_once()
+    value = (method.await_args.kwargs["min_confidence"] if kind == "recall"
+             else method.await_args.args[2]["confidence"])
+    assert value == 0.7
+
+
+@pytest.mark.parametrize("body", [
+    '{"query":"owned"}',
+    '{"user_id":"bad","query":"owned"}',
+    '{"user_id":"00000000-0000-4000-8000-000000000002","query":"","limit":0}',
+    '{"user_id":"00000000-0000-4000-8000-000000000002","query":"owned","min_confidence":1.7}',
+    '{"user_id":"00000000-0000-4000-8000-000000000002","query":"owned","min_confidence":"bad"}',
+    '{"query":"owned",}',
+])
+def test_memory_ordinary_validation_matches_framework_response(monkeypatch, body):
+    from fastapi.exception_handlers import request_validation_exception_handler
+    from fastapi.exceptions import RequestValidationError
+    from fastapi.testclient import TestClient
+
+    main = _memory_validation_app(monkeypatch)
+    client = TestClient(main.app)
+    args = {"content": body.encode(), "headers": {"Content-Type": "application/json"}}
+    actual = client.post("/memory/recall", **args)
+    main.app.add_exception_handler(RequestValidationError, request_validation_exception_handler)
+    main.app.middleware_stack = None
+    default = client.post("/memory/recall", **args)
+
+    assert actual.status_code == default.status_code == 422
+    assert actual.content == default.content
+    main.memory_service.recall.assert_not_awaited()
+
+
+def test_memory_invalid_nested_input_and_other_numeric_field_still_return_422(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    main = _memory_validation_app(monkeypatch)
+    body = ('{"user_id":"00000000-0000-4000-8000-000000000002",'
+            '"query":{"nested":[1e999,-1e999,NaN,0.7,null,true]},"limit":1e999}')
+    response = TestClient(main.app, raise_server_exceptions=False).post(
+        "/memory/recall", content=body.encode(), headers={"Content-Type": "application/json"},
+    )
+
+    assert response.status_code == 422
+    errors = response.json()["detail"]
+    assert errors[0]["input"]["nested"] == ["inf", "-inf", "nan", 0.7, None, True]
+    assert errors[1]["loc"] == ["body", "limit"]
+    assert errors[1]["input"] == "inf"
+    main.memory_service.recall.assert_not_awaited()
+
+
+def test_request_validation_normalizes_nested_context_without_mutating_errors(monkeypatch):
+    from fastapi.exceptions import RequestValidationError
+
+    main = _memory_validation_app(monkeypatch)
+    errors = [{"type": "owned", "loc": ("body", "query"), "msg": "unchanged",
+               "input": [float("inf"), float("-inf"), float("nan"), -0.0, 12, False, None],
+               "ctx": {"maximum": float("inf"), "finite": 0.7}}]
+    handler = main.app.exception_handlers[RequestValidationError]
+    response = asyncio.run(handler(None, RequestValidationError(errors)))
+    rendered = json.loads(response.body)["detail"][0]
+
+    assert response.status_code == 422
+    assert rendered["input"] == ["inf", "-inf", "nan", -0.0, 12, False, None]
+    assert math.copysign(1, rendered["input"][3]) == -1
+    assert rendered["ctx"] == {"maximum": "inf", "finite": 0.7}
+    assert rendered["type"] == "owned" and rendered["msg"] == "unchanged"
+    assert rendered["loc"] == ["body", "query"]
+    assert math.isinf(errors[0]["input"][0]) and math.isnan(errors[0]["input"][2])
+    assert math.isinf(errors[0]["ctx"]["maximum"])
+
+
+@pytest.mark.parametrize("kind, expected", [
+    ("http", 409), ("redis", 503), ("state", 503), ("pool", 503), ("runtime", 500),
+])
+def test_validation_handler_preserves_other_exception_boundaries(monkeypatch, kind, expected):
+    from fastapi import HTTPException
+    from fastapi.testclient import TestClient
+
+    main = _memory_validation_app(monkeypatch)
+    errors = {
+        "http": HTTPException(409, "conflict", headers={"Retry-After": "3"}),
+        "redis": main.RedisError("owned fault"),
+        "state": main.StateStoreUnavailable("owned fault"),
+        "pool": main.PoolSaturatedError(deadline=1, size=2, free=0),
+        "runtime": RuntimeError("owned fault"),
+    }
+
+    @main.app.get("/_owned_error_control")
+    async def fail():
+        raise errors[kind]
+
+    response = TestClient(main.app, raise_server_exceptions=False).get("/_owned_error_control")
+    assert response.status_code == expected
+    _assert_error_control_response(main, kind, errors[kind], response)
+    if kind == "runtime":
+        assert response.text == "Internal Server Error"
+
+
+def _assert_error_control_response(main, kind, error, response):
+    if kind in {"redis", "state"}:
+        assert response.json() == {"detail": main.state_store_detail()}
+    if kind == "http":
+        assert response.json() == {"detail": "conflict"}
+        assert response.headers["Retry-After"] == "3"
+    if kind == "pool":
+        assert response.json() == {"detail": str(error)}
+        assert response.headers["Retry-After"] == "1"
+
+
+def test_request_validation_does_not_relax_response_serialization(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    main = _memory_validation_app(monkeypatch)
+
+    @main.app.get("/_owned_response_control", response_model=int)
+    async def fail():
+        return "invalid response"
+
+    response = TestClient(main.app, raise_server_exceptions=False).get("/_owned_response_control")
+    assert response.status_code == 500
+
+
+def test_request_validation_preserves_memory_authentication(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    main = _memory_validation_app(monkeypatch)
+    monkeypatch.setenv("BACKEND_IDENTITY_AUTH", "required")
+    response = _memory_confidence_request(TestClient(main.app), "recall", "0.7")
+    assert response.status_code == 401
+    main.memory_service.recall.assert_not_awaited()
 
 
 @pytest.mark.parametrize("dimension", [768, 1536, 3072])
