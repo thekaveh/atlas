@@ -72,7 +72,13 @@ def test_init_waits_for_postgres_before_pgvector_migration():
     )
 
 
-def test_resolve_models_fails_when_chat_model_cannot_be_resolved(monkeypatch, capsys):
+@pytest.mark.parametrize("available", [
+    [], ["lightrag"], ["hermes-agent"], ["ollama/nomic-embed-text"],
+    ["lightrag", "hermes-agent", "ollama/nomic-embed-text"],
+    ["bge-m3"], ["ollama/bge-m3"], ["BAAI/bge-m3"],
+    ["bge-m3:latest"], ["ollama/bge-m3:latest"], ["BAAI/bge-m3:latest"],
+])
+def test_resolve_models_fails_when_chat_model_cannot_be_resolved(monkeypatch, capsys, available):
     """lightrag-init must not write LLM_MODEL= and exit 0 on a bad model list."""
     script = REPO_ROOT / "services/lightrag/init/scripts/resolve-models.py"
     spec = importlib.util.spec_from_file_location("lightrag_resolve_models", script)
@@ -83,13 +89,36 @@ def test_resolve_models_fails_when_chat_model_cannot_be_resolved(monkeypatch, ca
     monkeypatch.delenv("LIGHTRAG_LLM_MODEL", raising=False)
     monkeypatch.delenv("LITELLM_DEFAULT_MODEL", raising=False)
     monkeypatch.setenv("LITELLM_EMBEDDING_MODEL", "ollama/nomic-embed-text")
-    monkeypatch.setattr(module, "fetch_models", lambda: [])
+    monkeypatch.setattr(module, "fetch_models", lambda: available)
 
     with pytest.raises(SystemExit) as exc:
         module.main()
 
     assert exc.value.code == 1
-    assert "could not resolve a chat model" in capsys.readouterr().err
+    captured = capsys.readouterr()
+    assert "could not resolve a chat model" in captured.err
+    assert captured.out == ""
+
+
+@pytest.mark.parametrize("override", [None, "LIGHTRAG_LLM_MODEL", "LITELLM_DEFAULT_MODEL"])
+def test_resolve_models_preserves_chat_candidates_and_explicit_selection(monkeypatch, capsys, override):
+    script = REPO_ROOT / "services/lightrag/init/scripts/resolve-models.py"
+    spec = importlib.util.spec_from_file_location("lightrag_resolve_chat_controls", script)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    monkeypatch.delenv("LIGHTRAG_LLM_MODEL", raising=False)
+    monkeypatch.delenv("LITELLM_DEFAULT_MODEL", raising=False)
+    monkeypatch.setenv("LITELLM_EMBEDDING_MODEL", "ollama/nomic-embed-text")
+    monkeypatch.setattr(module, "fetch_models", lambda: ["lightrag", "ollama/nomic-embed-text", "owned-chat-model"])
+    if override:
+        monkeypatch.setenv(override, "owned-explicit-chat")
+    module.main()
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    assert captured.out.splitlines() == [
+        "LLM_MODEL=owned-explicit-chat" if override else "LLM_MODEL=owned-chat-model",
+        "EMBEDDING_MODEL=ollama/nomic-embed-text", "EMBEDDING_DIM=768",
+    ]
 
 
 def test_lightrag_knows_the_catalog_default_embedding_dimension(monkeypatch):
