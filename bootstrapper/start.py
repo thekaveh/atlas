@@ -196,25 +196,33 @@ def _embedding_replacement(env: Dict[str, str], stale: set) -> str:
     return best("embeddings", env) or ""
 
 
-def _default_model_replacements(env: Dict[str, str]) -> tuple[Dict[str, str], Dict[str, str]]:
-    """(replacements, reason per stale key) for default models this launch
-    will not route (see ``AtlasStarter.reconcile_default_models``). Blank
-    resolutions are dropped: the end-of-run backfill would only restore the
-    template's value in the same launch."""
+def _launch_model_env(env: Dict[str, str]) -> Dict[str, str]:
+    """Project this launch's cloud sources into resolver activation flags."""
     from utils.cloud_providers import CLOUD_PROVIDERS  # noqa: PLC0415
-    from utils.model_resolver import resolved_defaults  # noqa: PLC0415
 
-    # The LITELLM_<PROVIDER>_ENABLED flags the resolver reads are written
-    # later (generate_service_configuration); derive them from this run's
-    # CLOUD_*_SOURCE values so a first launch, or a provider just toggled,
-    # is judged by what this launch will route.
-    env = {
+    # The derived flags are written later, during service configuration.
+    # First launches and provider toggles must use this run's source values.
+    return {
         **env,
         **{
             p.enabled_flag_var: "true" if env.get(p.source_var) == "enabled" else "false"
             for p in CLOUD_PROVIDERS
         },
     }
+
+
+def _default_model_replacements(env: Dict[str, str]) -> tuple[Dict[str, str], Dict[str, str]]:
+    """(replacements, reason per stale key) for default models this launch
+    will not route (see ``AtlasStarter.reconcile_default_models``). Blank
+    resolutions are dropped: the end-of-run backfill would only restore the
+    template's value in the same launch."""
+    from utils.model_resolver import resolved_defaults  # noqa: PLC0415
+
+    # The LITELLM_<PROVIDER>_ENABLED flags the resolver reads are written
+    # later (generate_service_configuration); derive them from this run's
+    # CLOUD_*_SOURCE values so a first launch, or a provider just toggled,
+    # is judged by what this launch will route.
+    env = _launch_model_env(env)
     reasons = _stale_default_keys(env)
     stale = set(reasons)
     updates = {
@@ -563,10 +571,11 @@ def _catalog_embedding_dim_repair(env: dict) -> dict[str, str]:
     )
 
     model = (env.get("LANGMEM_EMBEDDING_MODEL") or env.get("LITELLM_EMBEDDING_MODEL") or "").strip()
-    dim = dim_for_model_id(model)
+    active_env = _launch_model_env(env)
+    dim = dim_for_model_id(model, env=active_env)
     if dim is None or str(dim) == (env.get("LANGMEM_EMBEDDING_DIM") or "").strip():
         return {}
-    return {"LANGMEM_EMBEDDING_DIM": str(embedding_dimension_contract(model, None))}
+    return {"LANGMEM_EMBEDDING_DIM": str(embedding_dimension_contract(model, None, env=active_env))}
 
 
 def _detect_env_image_drift(
@@ -1020,6 +1029,7 @@ class AtlasStarter:
             selections = dict(selections)
             parser = getattr(self, "config_parser", None)
             current = parser.parse_env_file() if parser is not None else {}
+            active_env = _launch_model_env({**current, **selections})
             current_override = (
                 current.get("LANGMEM_EMBEDDING_MODEL", "") or ""
             ).strip()
@@ -1040,7 +1050,7 @@ class AtlasStarter:
             configured_dimension = selections.get("LANGMEM_EMBEDDING_DIM")
             if (
                 configured_dimension is None
-                and dim_for_model_id(effective_embed) is None
+                and dim_for_model_id(effective_embed, env=active_env) is None
             ):
                 current_model = (
                     current.get("LANGMEM_EMBEDDING_MODEL")
@@ -1053,7 +1063,7 @@ class AtlasStarter:
                 if str(current_model).strip() == effective_embed:
                     configured_dimension = current.get("LANGMEM_EMBEDDING_DIM")
             selections["LANGMEM_EMBEDDING_DIM"] = str(
-                embedding_dimension_contract(effective_embed, configured_dimension)
+                embedding_dimension_contract(effective_embed, configured_dimension, env=active_env)
             )
         return self.source_override_manager.update_env_file(selections)
 

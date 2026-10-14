@@ -56,7 +56,7 @@ from ui.textual.widgets.prompt_panel import (
     PromptOption,
     PromptStep,
 )
-from wizard.model.cloud_rules import resolve_secret_verdict
+from wizard.model.cloud_rules import resolve_cloud_provider, resolve_secret_verdict
 from wizard.model.llm_rules import (
     LLM_ENGINE_TITLE,
     is_container_ollama as _is_container_ollama,
@@ -1084,13 +1084,23 @@ def build_default_model_steps(
         saved source when there is none) is enabled and a key remains.
         A saved key alone no longer promotes a disabled provider."""
         existing_key = (env_vars.get(p.api_key_var, "") or "").strip()
-        verdict = resolve_secret_verdict(
-            selections.get(cloud_secret_title(p.name)),
+        existing_source = (env_vars.get(p.source_var, "disabled") or "").strip().lower()
+        models = selections.get(cloud_models_title(p.name))
+        selected_models = None
+        if models not in (None, SECRET_KEEP):
+            # Match launch projection: blank CSV disables the provider;
+            # comma-only CSV is nonblank and retains the secret verdict.
+            selected_models = models.split(",") if models.strip() else []
+        verdict = resolve_cloud_provider(
+            provider_key=p.key,
+            secret_value=selections.get(cloud_secret_title(p.name)),
+            selected_models=selected_models,
             existing_key_set=bool(existing_key),
+            existing_source=existing_source,
         )
         source = verdict.source
         if source is None:
-            source = (env_vars.get(p.source_var, "disabled") or "").strip().lower()
+            source = existing_source
         key = existing_key if verdict.api_key is None else verdict.api_key
         return source == "enabled" and bool(key)
 
@@ -1152,6 +1162,28 @@ def build_default_model_steps(
                     pairs.append((p.key, name))
 
         return pairs
+
+    def _dimension_env(selections: dict) -> Dict[str, str]:
+        """Project wizard selections into the active alias dimension context."""
+        pairs = _gather_selected_models(selections)
+        env = {
+            **env_vars,
+            "LLM_PROVIDER_SOURCE": _selected_llm_source(env_vars, selections),
+            "OLLAMA_USER_MODELS": ",".join(name for provider, name in pairs if provider == "ollama"),
+        }
+        custom = selections.get(OLLAMA_CUSTOM_TITLE)
+        if custom in (None, SECRET_KEEP):
+            custom = env_vars.get("OLLAMA_CUSTOM_MODELS", "")
+        env["OLLAMA_CUSTOM_MODELS"] = "" if custom == SECRET_CLEAR else (custom or "")
+        for p in CLOUD_PROVIDERS:
+            # The verdict already checks source and key presence. Metadata
+            # resolution needs an activation marker, never the secret value.
+            env.update({
+                p.enabled_flag_var: str(_cloud_provider_active(p, selections)).lower(),
+                p.api_key_var: "metadata-only",
+                p.user_models_var: ",".join(name for provider, name in pairs if provider == p.key),
+            })
+        return env
 
     def _classify(provider: str, name: str, category: str) -> bool:
         """Return True if (provider, name) qualifies for ``category``.
@@ -1259,9 +1291,10 @@ def build_default_model_steps(
                     badges=["saved"],
                 )
             )
+        active_env = _dimension_env(selections)
         return sorted(
             opts,
-            key=lambda o: 0 if dim_for_model_id(o.value) == MEMORY_FACTS_EMBEDDING_DIM else 1,
+            key=lambda o: 0 if dim_for_model_id(o.value, env=active_env) == MEMORY_FACTS_EMBEDDING_DIM else 1,
         )
 
     def _skip_no_llm_or_no_embed(selections: dict) -> bool:
@@ -1282,14 +1315,14 @@ def build_default_model_steps(
         if _skip_no_llm_or_no_embed(selections):
             return True
         selected = _selected_embedding_model(selections)
-        return not selected or dim_for_model_id(selected) is not None
+        return not selected or dim_for_model_id(selected, env=_dimension_env(selections)) is not None
 
     def _saved_dimension_for_selected_model(selections: dict) -> str:
         selected = _selected_embedding_model(selections)
         if (
             selected == _saved_embedding
             and selected
-            and dim_for_model_id(selected) is None
+            and dim_for_model_id(selected, env=_dimension_env(selections)) is None
         ):
             return _saved_dimension
         return ""
