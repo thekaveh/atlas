@@ -37,6 +37,7 @@ the endpoint and rebuild the session.
 
 from __future__ import annotations
 
+import logging
 import time
 
 import boto3
@@ -55,6 +56,7 @@ def emr_serverless_session(
 
     Returns ``(spark, client, session_id)``. Pass ``client`` + ``session_id`` to
     :func:`terminate` when done so billing stops.
+    Setup failures attempt termination before raising; successful callers own cleanup.
     """
     client = boto3.client("emr-serverless", region_name=region)
     session_id = client.start_session(
@@ -62,33 +64,37 @@ def emr_serverless_session(
         executionRoleArn=execution_role_arn,
     )["sessionId"]
 
-    deadline = time.monotonic() + timeout_seconds
-    while True:
-        state = client.get_session(
-            applicationId=application_id, sessionId=session_id
-        )["session"]["state"]
-        if state in ("STARTED", "IDLE"):
-            break
-        if state in ("FAILED", "TERMINATED"):
-            raise RuntimeError(f"EMR Serverless session {session_id} -> {state}")
-        if time.monotonic() > deadline:
-            raise TimeoutError(
-                f"session {session_id} not ready after {timeout_seconds}s (state={state})"
-            )
-        time.sleep(poll_seconds)
+    try:
+        deadline = time.monotonic() + timeout_seconds
+        while True:
+            state = client.get_session(
+                applicationId=application_id, sessionId=session_id
+            )["session"]["state"]
+            if state in ("STARTED", "IDLE"):
+                break
+            if state in ("FAILED", "TERMINATED"):
+                raise RuntimeError(f"EMR Serverless session {session_id} -> {state}")
+            if time.monotonic() > deadline:
+                raise TimeoutError(
+                    f"session {session_id} not ready after {timeout_seconds}s (state={state})"
+                )
+            time.sleep(poll_seconds)
 
-    ep = client.get_session_endpoint(
-        applicationId=application_id, sessionId=session_id
-    )
-    # The endpoint URL has no port; append :443 (the client defaults to 15002,
-    # which is unreachable on EMR Serverless). Token is time-limited (~1h).
-    connect_url = (
-        ep["endpoint"].replace("https://", "sc://", 1)
-        + ":443/;use_ssl=true;x-aws-proxy-auth="
-        + ep["authToken"]
-    )
-    spark = SparkSession.builder.remote(connect_url).getOrCreate()
-    return spark, client, session_id
+        ep = client.get_session_endpoint(
+            applicationId=application_id, sessionId=session_id
+        )
+        # The endpoint URL has no port; append :443 (the client defaults to 15002,
+        # which is unreachable on EMR Serverless). Token is time-limited (~1h).
+        connect_url = (
+            ep["endpoint"].replace("https://", "sc://", 1)
+            + ":443/;use_ssl=true;x-aws-proxy-auth="
+            + ep["authToken"]
+        )
+        spark = SparkSession.builder.remote(connect_url).getOrCreate()
+        return spark, client, session_id
+    except BaseException:
+        _terminate_after_failed_setup(client, application_id, session_id)
+        raise
 
 
 def terminate(client, application_id: str, session_id: str) -> None:
@@ -98,6 +104,16 @@ def terminate(client, application_id: str, session_id: str) -> None:
     keeps running (and charging) until this is called or it times out.
     """
     client.terminate_session(applicationId=application_id, sessionId=session_id)
+
+
+def _terminate_after_failed_setup(client, application_id: str, session_id: str) -> None:
+    """Attempt owned-session cleanup without replacing the setup failure."""
+    try:
+        terminate(client, application_id, session_id)
+    except Exception:
+        logging.getLogger(__name__).warning(
+            "Could not terminate EMR Serverless session %s after setup failed.", session_id,
+        )
 
 
 if __name__ == "__main__":
@@ -112,6 +128,8 @@ if __name__ == "__main__":
         print("connected | Spark", spark.version)
         spark.sql("SELECT 1 + 1 AS result").show()
     finally:
-        spark.stop()
-        terminate(client, os.environ["EMR_APPLICATION_ID"], session_id)
+        try:
+            spark.stop()
+        finally:
+            terminate(client, os.environ["EMR_APPLICATION_ID"], session_id)
         print(f"session {session_id} terminated")

@@ -1,6 +1,7 @@
 # 5.2.47. Apache Spark (standalone cluster)
 
 Spark runs as a 5-container family in the stack's `data` band:
+
 - `spark-master`;
 - `spark-worker` (replicas via `SPARK_WORKER_COUNT`);
 - `spark-history`;
@@ -10,6 +11,7 @@ Spark runs as a 5-container family in the stack's `data` band:
 ## 1. Overview
 
 Image: locally built `${PROJECT_NAME}-spark:local`, `FROM apache/spark:4.1.2`. `services/spark/build/Dockerfile` adds jars the upstream image lacks:
+
 - hadoop-aws and AWS SDK v2 (S3A);
 - Iceberg (`iceberg-spark-runtime-4.1_2.13:1.11.0`, `iceberg-aws-bundle:1.11.0`);
 - the Spark 4.1.2 Kafka connector (`spark-sql-kafka-0-10_2.13`, `spark-token-provider-kafka-0-10_2.13`, `kafka-clients` 3.9.2, `commons-pool2`).
@@ -52,7 +54,12 @@ SPARK_WORKER_CPU_LIMIT=2.0
 - **MinIO credentials** — the worker, Spark Connect and history server authenticate with the scoped `MINIO_SPARK_ACCESS_KEY` / `MINIO_SPARK_SECRET_KEY` service account, not MinIO root. Its policy covers the Spark history, lakehouse, jars, checkpoints and landing buckets. Any other bucket returns Access Denied unless the job supplies its own credentials, as the Airflow lakehouse DAG does.
 - **Supabase Postgres** — Spark JDBC connector available; users add `--jars postgresql.jar` and point at `jdbc:postgresql://supabase-db:5432/${SUPABASE_DB_NAME}`. No pre-wired connection.
 - **Zeppelin** — Zeppelin's Spark interpreter points at `spark://spark-master:7077` (standalone Spark RPC). Spark Connect remains the JupyterHub/client path. See `services/zeppelin/README.md`.
-- **Airflow** — Airflow's `spark_default` Connection is seeded by `airflow-init` when `SPARK_SOURCE=container`. The `example_etl_with_llm.py` DAG uses `PythonOperator` and Spark Connect (`sc://spark-connect:15002`). `SparkSubmitOperator` (from the bundled `apache-airflow-providers-apache-spark`) is used by the manual `lakehouse_spark_submit_smoke` DAG and is available for user DAGs. Atlas enables the standalone master REST status API at `spark-master:6066` so cluster-mode `SparkSubmitOperator` can poll driver status after submission. The endpoint is backend-network-only and intentionally has no host port or Kong route. See `services/airflow/README.md`.
+- **Airflow** — `airflow-init` seeds `spark_default` when `SPARK_SOURCE=container`. The sample `example_etl_with_llm.py` DAG uses `PythonOperator` through Spark Connect (`sc://spark-connect:15002`).
+
+    The bundled Apache Spark provider supplies `SparkSubmitOperator` for user DAGs. The manual `lakehouse_spark_submit_smoke` DAG uses `AtlasSparkSubmitOperator` to disable the provider's incorrect :7077 polling and confirm driver status through REST.
+
+    Atlas enables that backend-only endpoint at `spark-master:6066`, with no host port or Kong route. See the [Airflow guide](../airflow/README.md#51-lakehouse-sparksubmit-smoke).
+
 - **Redpanda** — with Redpanda enabled, every Spark role receives `SPARK_KAFKA_BOOTSTRAP_SERVERS`. Use it as `kafka.bootstrap.servers` for `format("kafka")`.
 - **Prometheus + Grafana** — not wired. Spark exports no JMX metrics to Prometheus, and no Spark dashboard ships. Use the cAdvisor container metrics in Grafana.
 
@@ -91,6 +98,7 @@ scripts/smoke-iceberg-advanced-sql.sh zeppelin
 ```
 
 The advanced smoke is an opt-in check for the `data-eng` and `all` tracks. It adds no new service, no new SOURCE, and no new port; it uses the existing Spark, Iceberg REST, MinIO, JupyterHub, and Zeppelin topology. It covers:
+
 - `MERGE INTO`, `VERSION AS OF`, `rollback_to_snapshot`, and `CREATE BRANCH` with `spark.wap.branch`;
 - schema evolution and nested JSON;
 - Structured Streaming from `s3a://landing/` into Iceberg, with checkpoints under `s3a://checkpoints/`;
@@ -148,7 +156,7 @@ _No high-confidence opportunities identified._
 ## 6. Troubleshooting
 
 - **History UI shows no jobs** — first check producer config: a driver must set `spark.eventLog.enabled=true` + `spark.eventLog.dir=s3a://spark-history/`. The `spark-connect` sidecar and Zeppelin's `SPARK_SUBMIT_OPTIONS` already set these globally, so any sc://spark-connect:15002 client + Zeppelin `%spark` cell emits events automatically. User-driven `spark-submit` jobs need to pass the same `--conf` pair. Then confirm that `spark-init` created the bucket: `docker logs ${PROJECT_NAME}-spark-init` ends with `spark-init: spark-history bucket ready`.
-- **Airflow `SparkSubmitOperator` cluster-mode task succeeds in Spark but fails after submission**. Confirm that an in-stack container reaches the standalone master REST status API: `docker exec ${PROJECT_NAME}-airflow-scheduler curl -fsS http://spark-master:6066/`. Airflow's Spark provider uses this backend-network-only endpoint for post-submit driver status polling (`spark-submit --status <driverId>`); do not expose `6066` to the host.
+- **Airflow cluster-mode task fails after submission** — use the Atlas operator from [Airflow §5.1](../airflow/README.md#51-lakehouse-sparksubmit-smoke). The stock provider polls RPC `:7077`; Atlas confirms driver status through REST `:6066`. Check master readiness with `docker exec ${PROJECT_NAME}-airflow-scheduler curl -fsS http://spark-master:6066/v1/submissions/readyz`. For a task's driver status, query `http://spark-master:6066/v1/submissions/status/DRIVER_ID`, replacing `DRIVER_ID` with the ID from its task log. Keep port `6066` on the backend network; do not publish it.
 - **Standalone jobs stay `PENDING` while Spark Connect is running**. Check the master JSON (`docker exec ${PROJECT_NAME}-spark-master curl -fsS http://localhost:8080/json/`) and compare `coresused` with the active app list. If `Spark Connect server` is consuming too much of the cluster, lower `SPARK_CONNECT_CORES_MAX` or increase `SPARK_WORKER_COUNT` / worker CPU capacity. Do this before you run Airflow or Zeppelin standalone jobs.
 - **Workers don't appear in the master UI** — Compose's `depends_on: spark-master: condition: service_healthy` should serialize this. If a worker stays "lost", check `docker logs ${PROJECT_NAME}-spark-worker-1`.
 - **OOM in a worker** — Compose caps the worker container at `SPARK_WORKER_MEMORY_LIMIT` (default `4g`). `SPARK_WORKER_MEMORY` is unset, so Spark sizes worker memory without regard to that cap, and the container can be OOM-killed. Setting `SPARK_WORKER_MEMORY` or `SPARK_WORKER_CORES` in `.env` has no effect, because compose does not pass them. Add them to the `spark-worker` `environment:` block (or a compose override), below the cap, or keep executor memory requests under the cap.
