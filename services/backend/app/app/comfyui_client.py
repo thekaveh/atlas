@@ -203,14 +203,16 @@ class ComfyUIClient:
             raise ComfyUISubmissionUnknownError("ComfyUI did not confirm the prompt") from exc
         except ComfyUIResponseError as exc:
             cause = exc.__cause__
-            if isinstance(cause, httpx.HTTPStatusError) and cause.response.status_code == 400:
-                # /prompt's 400 is a bad node graph, not an outage: a 502
-                # invited n8n/Open WebUI retries and hid the cause.
-                raise ComfyUIWorkflowRejectedError("ComfyUI rejected the workflow") from exc
-            raise
+            if isinstance(cause, httpx.HTTPStatusError):
+                if cause.response.status_code == 400:
+                    # /prompt's 400 is a bad node graph, not an outage: a 502
+                    # invited n8n/Open WebUI retries and hid the cause.
+                    raise ComfyUIWorkflowRejectedError("ComfyUI rejected the workflow") from exc
+                raise
+            raise ComfyUISubmissionUnknownError("ComfyUI did not confirm the prompt") from exc
         prompt_id = result.get("prompt_id") if isinstance(result, dict) else None
         if not isinstance(prompt_id, str) or not prompt_id.strip():
-            raise ComfyUIResponseError("ComfyUI returned an invalid response")
+            raise ComfyUISubmissionUnknownError("ComfyUI did not confirm the prompt")
         return {
             "success": True,
             "prompt_id": prompt_id,

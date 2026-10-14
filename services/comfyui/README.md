@@ -206,6 +206,8 @@ docker run --rm -v <project>-comfyui-models:/m alpine \
 
 **Media gateway.** The backend's `POST /media/generate` with `provider=comfyui, modality=image` builds and submits a ComfyUI graph: an SD1.5/SDXL checkpoint graph, or the Krea 2 split-loader graph. It supports img2img (`image_url` and `strength` 0–1; init image at most 4096 px per side) and cancellation with `POST /media/operations/{id}/cancel`. The owner gets the result from `GET /media/operations/{operation_id}/artifacts/{index}`. `GET /comfyui/image/{filename}` remains for n8n and Open WebUI.
 
+If the submit reply is lost, malformed or lacks a usable prompt id, `/media/generate` returns `504` with a `local_submission_id`. Atlas keeps a `submission_unknown` operation for reconciliation. Inspect the ComfyUI queue before you retry. Settlement instructions are in [Backend §3.6](../backend/README.md#36-hosted-media-gateway).
+
 **Queue and monitor a workflow programmatically.** POST a workflow graph to `/prompt` to get a `prompt_id`. Then poll `/history/{prompt_id}`, or open `ws://comfyui:18188/ws` and filter events by that ID (`status`, `executing`, `executed`, `progress`, `execution_error`). This is stock ComfyUI API behavior; upstream ComfyUI documents the full contract.
 
 ## 7. Performance notes
@@ -424,9 +426,9 @@ ATLAS_COMFYUI_LIVE_ENDPOINT=http://localhost:8188 \
 
 **ComfyUI shows `health: starting` for several minutes on first run.** First the container checks out `COMFYUI_REF` and installs custom nodes (amd64-emulated on Apple Silicon). The healthcheck allows a 600 s start period.
 
-**`/comfyui/workflow` or `/comfyui/generate` returns 400.** ComfyUI rejected the graph (a missing node, wrong input or unknown model file). Fix the workflow; do not retry. A 502 means ComfyUI returned an invalid response; a 503 means it is unreachable.
+**`/comfyui/workflow` or `/comfyui/generate` returns 400.** ComfyUI rejected the graph (a missing node, wrong input or unknown model file). Fix the workflow; do not retry. A 502 reports an upstream rejection or an invalid reply during another ComfyUI call. A 503 means the connection failed.
 
-**`/comfyui/workflow` or `/comfyui/generate` returns 504.** ComfyUI did not confirm the prompt in time, but it can still have queued it. Check `GET /comfyui/queue` before you retry; a blind retry can run the workflow twice.
+**`/comfyui/workflow` or `/comfyui/generate` returns 504.** A lost or unusable prompt reply includes malformed JSON and missing or invalid prompt ids. ComfyUI can still have queued the workflow. Check `GET /comfyui/queue` before you retry; a blind retry can run the workflow twice.
 
 **`ws://comfyui:18188/ws` 502s through Kong.** Kong's WebSocket support is wired, but consumers that use `comfyui.localhost` can see timeout drops. From sibling containers, use the internal DNS name `comfyui:18188`.
 
