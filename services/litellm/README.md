@@ -95,6 +95,8 @@ On every `docker compose up`, **`litellm-init`** calls `model_resolver.active_mo
 
 To change the exposed models, run the wizard (`./start.sh`), or edit the env var in `.env` and restart. To add a model that is not in the curated catalog, set `OLLAMA_CUSTOM_MODELS` or add an entry to the YAML file. For an **embedding** entry, declare its output dimension with `dim:`. The wizard lists models with `dim: 768` first, and the chosen model's `dim` sets `LANGMEM_EMBEDDING_DIM` (see [Ollama §5](../ollama/README.md)).
 
+At selection and warm repair, memory dimensions use the first active alias from catalog and explicit model selections. The order is Ollama, OpenAI, Anthropic, then OpenRouter. A custom winner without dimension metadata requires an explicit `LANGMEM_EMBEDDING_DIM`. Init’s host auto-import happens later.
+
 `volumes/litellm/config.yaml` is rebuilt on every run, so direct edits there are overwritten. Per-provider routing rules baked into `litellm-init`:
 
 - **Ollama** rows: `model: ollama/<name>`, `api_base: $LITELLM_OLLAMA_UPSTREAM`. `render_model_list` registers **two** aliases per Ollama model: `ollama/<name>` and the bare `<name>`. Chat models use the `ollama_chat/` adapter and embeddings use `ollama/` (§7).
