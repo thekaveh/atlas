@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+import threading
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -27,6 +28,7 @@ sys.path.insert(0, str(REPO_ROOT / "bootstrapper"))
 
 import pytest  # noqa: E402
 from textual.app import App, ComposeResult  # noqa: E402
+from ui.session_log import SessionLogConfig, SessionLogTee  # noqa: E402
 
 from ui.textual.screens.wizard_screen import (  # noqa: E402
     SESSION_LOG_COPY_CAP_BYTES,
@@ -110,6 +112,149 @@ def test_reflow_is_a_no_op_when_nothing_was_written_while_hidden():
 
 
 # ─── read_session_log_tail (module-level helper backing action_copy_session_log) ──
+
+def _observed_log_path(path, *, before_open=None, before_read=None):
+    """Observe real file I/O, with deterministic writer boundary hooks."""
+    reads = []
+    opens = []
+
+    class Reader:
+        def __init__(self, raw):
+            self.raw = raw
+
+        def __getattr__(self, name):
+            return getattr(self.raw, name)
+
+        def __enter__(self):
+            self.raw.__enter__()
+            return self
+
+        def __exit__(self, *args):
+            return self.raw.__exit__(*args)
+
+        def read(self, size=-1):
+            if before_read is not None:
+                before_read()
+            data = self.raw.read(size)
+            reads.append((size, len(data)))
+            return data
+
+    class ObservedPath(type(Path())):
+        def open(self, *args, **kwargs):
+            opens.append(1)
+            if before_open is not None:
+                before_open()
+            return Reader(super().open(*args, **kwargs))
+
+    return ObservedPath(path), reads, opens
+
+
+def _assert_raw_read_budget(reads, cap):
+    assert all(0 <= requested <= cap for requested, _ in reads)
+    assert sum(returned for _, returned in reads) <= cap
+
+
+@pytest.mark.parametrize("case", [
+    (b"", 8, "", False),
+    (b"one\ntwo\n", 8, "one\ntwo\n", False),
+    (b"one\n", 8, "one\n", False),
+    (b"head\nlast\n", 6, "last\n", True),
+    (b"head\nlast", 7, "last", True),
+    (b"abcdefgh", 4, "efgh", True),
+    ("界界".encode("utf-8"), 4, "�界", True),
+    (b"\xff" * 64, 32, "�" * 32, True),
+    (b"", 0, "", False),
+    (b"nonempty", 0, "", True),
+])
+def test_session_log_snapshot_preserves_text_with_a_raw_byte_budget(tmp_path, case):
+    data, cap, payload, truncated = case
+    path = tmp_path / "session.log"
+    path.write_bytes(data)
+    observed, reads, opens = _observed_log_path(path)
+
+    text = read_session_log_tail(observed, cap_bytes=cap)
+
+    marker = f"… truncated, full log at {path}\n" if truncated else ""
+    assert text == marker + payload
+    assert opens == [1]
+    _assert_raw_read_budget(reads, cap)
+
+
+def test_session_log_negative_cap_is_rejected_before_file_io(tmp_path):
+    path, reads, opens = _observed_log_path(tmp_path / "does-not-exist.log")
+
+    with pytest.raises(ValueError):
+        read_session_log_tail(path, cap_bytes=-1)
+
+    assert opens == reads == []
+
+
+@pytest.mark.parametrize("initial_size", ["small", "large"])
+@pytest.mark.parametrize("timing", ["before_open", "before_read"])
+def test_session_log_copy_stays_bounded_while_the_real_tee_appends(
+    tmp_path, initial_size, timing,
+):
+    cap = 256
+    tee = SessionLogTee(
+        prefix="atlas-launch-copy-", config=SessionLogConfig(directory=str(tmp_path)),
+    )
+    tee.write("original line\n")
+    if initial_size == "large":
+        tee.write("old " + "x" * 1024 + "\nold tail\n")
+    original = tee.base_path.read_bytes()
+    ready, done = threading.Event(), threading.Event()
+    errors = []
+
+    def writer():
+        try:
+            assert ready.wait(5), "owned writer was not signalled"
+            tee.write("new " + "y" * 8192 + "\nnew tail\n")
+        except BaseException as exc:
+            errors.append(exc)
+        finally:
+            done.set()
+
+    def append_now():
+        ready.set()
+        assert done.wait(5), "owned writer did not finish"
+        assert not errors
+
+    observed, reads, _ = _observed_log_path(tee.base_path, **{timing: append_now})
+    thread = threading.Thread(target=writer, name="owned-session-log-writer")
+    thread.start()
+    try:
+        text = read_session_log_tail(observed, cap_bytes=cap)
+    finally:
+        ready.set()
+        thread.join(5)
+        tee.close()
+    assert not thread.is_alive()
+    assert not errors
+    assert done.is_set()
+    _assert_raw_read_budget(reads, cap)
+    marker = f"… truncated, full log at {tee.base_path}\n"
+    original_window = {
+        "small": original.decode("utf-8"), "large": marker + "old tail\n",
+    }[initial_size]
+    expected = marker + "new tail\n" if timing == "before_open" else original_window
+    assert text == expected
+
+
+@pytest.mark.parametrize("timing", ["before_open", "before_read"])
+def test_session_log_copy_stays_bounded_when_the_file_is_truncated(tmp_path, timing):
+    path = tmp_path / "session.log"
+    path.write_bytes(b"old line\n" * 100)
+    observed, reads, _ = _observed_log_path(
+        path, **{timing: lambda: path.write_bytes(b"replacement\n")},
+    )
+
+    text = read_session_log_tail(observed, cap_bytes=32)
+
+    _assert_raw_read_budget(reads, 32)
+    if timing == "before_open":
+        assert text == "replacement\n"
+    else:
+        assert text == f"… truncated, full log at {path}\n"
 
 def test_read_session_log_tail_returns_full_text_when_under_the_cap(tmp_path):
     log_file = tmp_path / "session.log"
@@ -283,7 +428,7 @@ def test_action_copy_session_log_oserror_notifies_without_raising_or_leaking(tmp
             scr._phase = "launch"
             scr.notify = lambda msg, **kw: notifications.append((msg, kw))
             pilot.app.copy_to_clipboard = clipboard.append
-            # A directory is not readable as a file: read_bytes() raises
+            # A directory is not readable as a file: opening it raises
             # IsADirectoryError, a subclass of OSError.
             scr._launch_log_path = tmp_path
             scr.action_copy_session_log()
@@ -368,6 +513,87 @@ def test_action_copy_session_log_copies_full_contents_when_under_the_cap(tmp_pat
     assert kw.get("severity") not in ("error", "warning")
 
 
+def test_session_log_worker_reads_off_the_ui_thread_and_keeps_it_responsive(
+    tmp_path, monkeypatch,
+):
+    from ui.textual.screens import wizard_screen
+
+    scr = _screen()
+    path = tmp_path / "session.log"
+    path.write_text("owned worker line\n", encoding="utf-8")
+    started, release = threading.Event(), threading.Event()
+    reader_threads = []
+    copied = []
+    actual_reader = read_session_log_tail
+
+    def slow_reader(value):
+        reader_threads.append(threading.get_ident())
+        started.set()
+        assert release.wait(5), "owned read was not released"
+        return actual_reader(value)
+
+    monkeypatch.setattr(wizard_screen, "read_session_log_tail", slow_reader)
+
+    async def scenario():
+        async with _WizardApp(scr).run_test(size=(140, 44)) as pilot:
+            await pilot.pause()
+            scr._phase = "launch"
+            scr._launch_log_path = path
+            scr.notify = lambda *args, **kwargs: None
+            pilot.app.copy_to_clipboard = copied.append
+            ui_thread = threading.get_ident()
+            scr.action_copy_session_log()
+            try:
+                assert await asyncio.to_thread(started.wait, 5)
+                heartbeat = asyncio.get_running_loop().create_future()
+                asyncio.get_running_loop().call_soon(heartbeat.set_result, True)
+                assert await asyncio.wait_for(heartbeat, 1)
+                assert reader_threads and reader_threads[0] != ui_thread
+                assert copied == []
+            finally:
+                release.set()
+                await pilot.app.workers.wait_for_complete()
+            await pilot.pause()
+
+    asyncio.run(scenario())
+    assert copied == ["owned worker line\n"]
+
+
+@pytest.mark.parametrize("read_fails", [False, True])
+def test_session_log_worker_contains_notification_failure(tmp_path, read_fails):
+    scr = _screen()
+    path = tmp_path / "session.log"
+    path.write_text("owned notification line\n", encoding="utf-8")
+    copied, notices, logged, launch_results = [], [], [], []
+    scr._on_launch_result = launch_results.append
+
+    def broken_notify(message, **kwargs):
+        notices.append((message, kwargs))
+        raise RuntimeError("owned notification double failed")
+
+    async def scenario():
+        async with _WizardApp(scr).run_test(size=(140, 44)) as pilot:
+            await pilot.pause()
+            scr._phase = "launch"
+            scr._launch_log_path = tmp_path if read_fails else path
+            scr.notify = broken_notify
+            scr._safe_log = lambda message, **kwargs: logged.append((message, kwargs))
+            pilot.app.copy_to_clipboard = copied.append
+            scr.action_copy_session_log()
+            await pilot.app.workers.wait_for_complete()
+            await pilot.pause()
+
+    asyncio.run(scenario())
+    assert launch_results == []
+    if read_fails:
+        assert copied == []
+        assert notices[0][0] == "Could not read the session log: IsADirectoryError"
+    else:
+        assert copied == ["owned notification line\n"]
+        assert notices[-1][0] == "Could not copy the session log: RuntimeError"
+        assert logged and "RuntimeError" in logged[0][0]
+
+
 def test_action_copy_session_log_truncates_when_over_the_cap(tmp_path):
     # ``_copy_session_log_worker`` calls read_session_log_tail(path) with no
     # explicit cap_bytes, so it always uses the real default
@@ -400,9 +626,10 @@ def test_action_copy_session_log_truncates_when_over_the_cap(tmp_path):
 
     assert len(clipboard) == 1
     text = clipboard[0]
-    assert text.startswith(f"… truncated, full log at {log_file}\n")
+    marker = f"… truncated, full log at {log_file}\n"
+    assert text.startswith(marker)
     assert f"{total_lines - 1:05d}" in text, "must contain the tail (end of file)"
     assert "00000 " not in text, "must NOT contain the head (start of file)"
-    assert len(text.encode("utf-8")) <= SESSION_LOG_COPY_CAP_BYTES + 200, (
-        "copied payload must stay close to the cap, not balloon back to full size"
+    assert len(text.removeprefix(marker).encode("utf-8")) <= SESSION_LOG_COPY_CAP_BYTES, (
+        "this ASCII fixture's log payload must stay within the raw byte cap"
     )
