@@ -319,3 +319,65 @@ def test_mcp_uses_discrete_connection_parameters_for_arbitrary_userinfo(
         "user": "atlas:user/@%?#",
         "password": "pw@:/%?# value",
     }
+
+
+
+@pytest.mark.parametrize("variable", sorted(
+    key for key in TEST_SECRETS if key.endswith(("_USER", "_DB_NAME"))
+) + ["PGUSER", "PGDATABASE"])
+@pytest.mark.parametrize("identifier", ["x" * 64, "é" * 32, "界" * 22])
+def test_role_provisioner_rejects_overlength_identifier_before_any_database_call(
+    tmp_path: Path, variable: str, identifier: str,
+) -> None:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    log = tmp_path / "psql.log"
+    fake_psql = bin_dir / "psql"
+    fake_psql.write_text('#!/bin/sh\nprintf called > "$PSQL_LOG"\nexit 74\n')
+    fake_psql.chmod(0o755)
+    environment = {
+        **os.environ, **TEST_SECRETS,
+        "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+        "PSQL_LOG": str(log), "PGHOST": "unused.invalid",
+        "PGUSER": "supabase_admin", "PGPASSWORD": "synthetic-owned-admin",
+        "PGDATABASE": "postgres", variable: identifier,
+    }
+    result = subprocess.run(
+        ["/bin/sh", str(ROLE_SCRIPT)], env=environment,
+        capture_output=True, text=True, timeout=10, check=False,
+    )
+    assert result.returncode == 1
+    assert "invalid database role configuration" in result.stderr
+    assert variable in result.stderr and "63 bytes" in result.stderr
+    assert identifier not in result.stderr
+    assert not log.exists(), "invalid identifier reached privileged psql"
+
+
+@pytest.mark.parametrize("variable", ["BACKEND_DB_USER", "PGUSER", "LITELLM_DB_NAME", "PGDATABASE"])
+@pytest.mark.parametrize("identifier", [
+    "x" * 63, "é" * 31 + "x", "界" * 21,
+    "atlas user:/@%?#", "atlas\nowned", "atlas \"quoted\" user",
+])
+def test_role_provisioner_preserves_valid_identifier_spellings_at_database_boundary(
+    tmp_path: Path, variable: str, identifier: str,
+) -> None:
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    log = tmp_path / "psql.log"
+    fake_psql = bin_dir / "psql"
+    fake_psql.write_text('#!/bin/sh\ncat >/dev/null\nprintf called > "$PSQL_LOG"\nexit 74\n')
+    fake_psql.chmod(0o755)
+    environment = {
+        **os.environ, **TEST_SECRETS,
+        "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+        "PSQL_LOG": str(log), "PGHOST": "unused.invalid",
+        "PGUSER": "supabase_admin", "PGPASSWORD": "synthetic-owned-admin",
+        "PGDATABASE": "postgres", variable: identifier,
+    }
+    result = subprocess.run(
+        ["/bin/sh", str(ROLE_SCRIPT)], env=environment,
+        capture_output=True, text=True, timeout=10, check=False,
+    )
+    assert result.returncode == 74, result.stderr
+    assert log.read_text() == "called"
+    assert "invalid database role configuration" not in result.stderr
