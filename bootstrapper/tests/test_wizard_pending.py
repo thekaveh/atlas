@@ -531,3 +531,65 @@ def test_kept_custom_dimension_stays_confirmable_on_revisit():
         if launch_log_path is not None:
             launch_log_path.unlink(missing_ok=True)
     assert error is None, error
+
+
+@pytest.mark.parametrize("pulled", [True, False])
+@pytest.mark.parametrize("keep_small", [True, False])
+def test_back_then_enter_keeps_ollama_model_deselections(pulled, keep_small):
+    from utils.ollama_library import OllamaVariant
+
+    target = PromptStep(
+        title="Ollama  ·  models", step_index=1, step_total=2,
+        heading="Models", kind="multiselect", filter_tags=("tools",),
+        default_values=["sample:latest", "sample:small"],
+        options=[PromptOption(
+            "sample", "sample", sizes=("latest", "small"),
+            pulled_variants=frozenset({"latest", "small"}) if pulled else frozenset(),
+        )],
+    )
+    next_step = PromptStep(
+        title="Next", step_index=2, step_total=2, heading="Next",
+        options=[PromptOption("next", "Next")], default_value="next",
+    )
+    screen = WizardScreen(steps=[target, next_step], services=[], no_splash=True)
+    launch_log_path = screen._launch_log_path
+    expected = "sample:small" if keep_small else ""
+
+    async def scenario():
+        async with _WizardApp(screen).run_test(size=(140, 44)) as pilot:
+            await pilot.pause()
+            panel = screen._prompt
+            assert panel.selected_option.value == "sample:latest,sample:small"
+            panel._variant_cache["sample"] = [
+                OllamaVariant("latest", "1GB", "8K", ("Text",), "today"),
+                OllamaVariant("small", "500MB", "8K", ("Text",), "today"),
+            ]
+            panel.toggle_focused()  # expand without a network fetch
+            await pilot.pause()
+            panel.move(1)
+            panel.toggle_focused()  # uncheck latest
+            if not keep_small:
+                panel.move(1)
+                panel.toggle_focused()
+            assert panel.selected_option.value == expected
+            screen.action_confirm()
+            await pilot.pause()
+            assert screen._selections[target.title] == expected
+            first_flags = list(screen._command_summary.flags)
+            screen.action_back()
+            await pilot.pause()
+            restored = panel.selected_option.value
+            screen.action_confirm()
+            await pilot.pause()
+            return restored, screen._selections[target.title], first_flags, screen._command_summary.flags
+
+    try:
+        restored, recommitted, before_flags, after_flags = asyncio.run(scenario())
+    finally:
+        screen._close_launch_log_tee()
+        if launch_log_path is not None:
+            launch_log_path.unlink(missing_ok=True)
+
+    assert restored == expected
+    assert recommitted == expected
+    assert after_flags == before_flags
