@@ -16,10 +16,11 @@ from utils.system import compose_env, project_volume_names, report_surviving_vol
 import time
 from typing import Callable, List, Optional
 
-from core.process_runner import poll_one_shots, sleep_unless_stopped
+from core.process_runner import (
+    one_shot_state, poll_one_shots, run_with_deadline, sleep_unless_stopped,
+)
 from pathlib import Path
 from core.config_parser import ConfigParser
-from core.process_runner import run_with_deadline
 
 
 _COMPOSE_PROBE_TIMEOUT_SECONDS = 60.0
@@ -922,15 +923,19 @@ class DockerManager:
     ) -> list[tuple[str, str]]:
         """Return enabled one-shot services that fail or never finish.
 
-        ``self.should_stop`` ends the wait within a fraction of a poll interval;
-        the services still pending are reported as "cancelled" (#1357)."""
+        Observe ``self.should_stop`` between inspection and retry attempts.
+        Pending services are reported as "cancelled". An active status command
+        retains its 10-second timeout."""
         should_stop = self.should_stop
         failures: list[tuple[str, str]] = []
         pending = list(services)
         last_reason = {service: "container not observed yet" for service in services}
         deadline = time.monotonic() + timeout_seconds
         while pending:
-            poll_one_shots(pending, failures, last_reason, self._compose_ps_json)
+            poll_one_shots(
+                pending, failures, last_reason,
+                lambda service: one_shot_state(service, self._compose_ps_json, should_stop),
+            )
             if not pending:
                 break
             if should_stop is not None and should_stop():

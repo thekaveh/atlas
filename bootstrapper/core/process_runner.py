@@ -780,15 +780,20 @@ def _classify_one_shot_rows(rows: list[dict]) -> tuple[str, str]:
     return "done", ""
 
 
-def one_shot_state(service: str, ps) -> tuple[str, str]:
-    """("done" | "failed" | "pending", reason) for one one-shot service. A
-    failed ``docker compose ps`` is retried twice before it counts."""
+def one_shot_state(service: str, ps, should_stop=None) -> tuple[str, str]:
+    """Return done, failed, pending or cancelled for one one-shot service.
+
+    Retry a failed inspection twice unless cancellation is requested."""
     for attempt in range(3):
+        if should_stop is not None and should_stop():
+            return "cancelled", ""
         rows, error = ps(service)
+        if should_stop is not None and should_stop():
+            return "cancelled", ""
         if error is None:
             break
         if attempt < 2:
-            time.sleep(0.5)
+            sleep_unless_stopped(0.5, should_stop)
     if error is not None:
         return "failed", error
     if not rows:
@@ -796,10 +801,12 @@ def one_shot_state(service: str, ps) -> tuple[str, str]:
     return _classify_one_shot_rows(rows)
 
 
-def poll_one_shots(pending: list, failures: list, last_reason: dict, ps) -> None:
-    """One pass: drop finished services from ``pending``, record failures."""
+def poll_one_shots(pending: list, failures: list, last_reason: dict, get_state) -> None:
+    """One pass: stop on cancellation, drop finished services, record failures."""
     for service in list(pending):
-        verdict, reason = one_shot_state(service, ps)
+        verdict, reason = get_state(service)
+        if verdict == "cancelled":
+            return
         if verdict == "pending":
             last_reason[service] = reason
             continue
