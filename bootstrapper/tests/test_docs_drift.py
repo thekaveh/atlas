@@ -90,6 +90,13 @@ _REVIEWED_README_CONTRACTS = {
             "optional gaps such as the current MCP endpoint remain explicit",
         ),
     },
+    "weaviate": {
+        "contains": ("`POST /api/rag/ingestions`", "`vectorizer=none`"),
+        "excludes": (
+            "today nothing routes that output into Weaviate",
+            "n8n/backend re-implement chunking ad hoc",
+        ),
+    },
 }
 
 
