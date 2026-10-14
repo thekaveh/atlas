@@ -113,11 +113,11 @@ Each cloud provider gets two consecutive steps. The API-key step is always shown
 
 1. **API key** (`secret` kind). A masked input; there are no option rows. Turning a provider on or off and storing or deleting its key are **separate actions** (§4.4.1). The hint under the input always says what Enter will do.
 2. **Models** (`multiselect`). Live fetch from the provider's models endpoint:
-   - **OpenAI** — `GET /v1/models` (filtered to the chat / o-series / `text-embedding-3-*` set).
-   - **Anthropic** — `GET /v1/models` (Anthropic's documented endpoint).
-   - **OpenRouter** — `GET /api/v1/models`. The listing needs no key. **Routing requests through OpenRouter still needs `OPENROUTER_API_KEY`**, so do not skip the key step.
+    - **OpenAI** — `GET /v1/models` (filtered to the chat / o-series / `text-embedding-3-*` set).
+    - **Anthropic** — `GET /v1/models` (Anthropic's documented endpoint).
+    - **OpenRouter** — `GET /api/v1/models`. The listing needs no key. **Routing requests through OpenRouter still needs `OPENROUTER_API_KEY`**, so do not skip the key step.
 
-   The default-active subset of `bootstrapper/utils/llm_catalog.py` is intersected with what your account returns, and the result is pre-checked. Selections persist as `OPENAI_USER_MODELS`, `ANTHROPIC_USER_MODELS`, `OPENROUTER_USER_MODELS`.
+    The default-active subset of `bootstrapper/utils/llm_catalog.py` is intersected with what your account returns, and the result is pre-checked. Selections persist as `OPENAI_USER_MODELS`, `ANTHROPIC_USER_MODELS`, `OPENROUTER_USER_MODELS`.
 
 #### 4.4.1. Turning a provider off is not the same as deleting its key
 
@@ -149,14 +149,14 @@ The caption above the list always names the source of the list. A listed model i
 
 - **`Live from the provider · key accepted · Space toggles, Enter confirms`.** The provider answered and these are its own models. Each row is badged `live`.
 - **`Curated catalog · credentials unverified · <reason> · Esc re-enters the key and retries · Space toggles, Enter confirms`**. The provider did not answer usefully, so the list is the bundled catalog from `bootstrapper/utils/llm_catalog.py`. Each row is badged `catalog`. The reason is one of:
-  - no API key was supplied
-  - the provider rejected the key
-  - the provider rate-limited the request
-  - the provider returned an error
-  - the request timed out
-  - the provider could not be reached
-  - the provider's reply could not be read
-  - the provider listed no usable models
+    - no API key was supplied
+    - the provider rejected the key
+    - the provider rate-limited the request
+    - the provider returned an error
+    - the request timed out
+    - the provider could not be reached
+    - the provider's reply could not be read
+    - the provider listed no usable models
 
 A rejected key, a timed-out request and an empty listing get three different captions. To recover, press **Esc** to return to the key step, correct the key, and press Enter. That clears the cached result and fetches again (§4.5). The key is never written to the caption or to the launch log.
 
@@ -175,7 +175,8 @@ After the cloud key/model pairs, the wizard asks for the **default model per rol
 1. **Chat / content** → `LITELLM_DEFAULT_MODEL`. The backend and Open WebUI use it when no model is named. It is pre-selected to your saved default if still offered, else to the highest-priority content-capable model in your selection.
 2. **Embedding** → `LITELLM_EMBEDDING_MODEL` and its dimension `LANGMEM_EMBEDDING_DIM`. For a curated model the wizard reads `dim:` from `services/*/models.yaml`. Backend and the Supabase memory migration use the same value. Every start re-derives the dimension if the catalog value changed (for example, `qwen3-embedding:0.6b` is 1024).
 
-   Existing 768-dimension deployments keep working. A 1024-, 1536- or 3072-dimension model starts a lossless expand, re-embed and validate rollout at the next start. Backend checks the model's real output before it accepts traffic. A custom model needs an explicit `LANGMEM_EMBEDDING_DIM` from 1 to 4,000 (pgvector's halfvec HNSW limit). The dimension step refuses `clear`, non-numbers and out-of-range values before launch. It refuses empty input when no dimension is saved; with a saved value, Enter keeps it.
+    Existing 768-dimension deployments keep working. A 1024-, 1536- or 3072-dimension model starts a lossless expand, re-embed and validate rollout at the next start. Backend checks the model's real output before it accepts traffic. A custom model needs an explicit `LANGMEM_EMBEDDING_DIM` from 1 to 4,000 (pgvector's halfvec HNSW limit). The dimension step refuses `clear`, non-numbers and out-of-range values before launch. It refuses empty input when no dimension is saved; with a saved value, Enter keeps it.
+
 3. **Vision** → `LITELLM_VISION_MODEL`. The first option is **— none / skip —** because vision routing is optional. The step is skipped when no vision-capable model is selected.
 
 All three persist to `.env`. `litellm-init` reads them (through `model_resolver`) on the next `docker compose up`. The three steps are skipped when no LLM provider is active.
@@ -243,7 +244,8 @@ The wizard also asks these stack-level questions. Track and profile come first, 
 - **Project name** prefixes every container, volume and the network, and is saved as `PROJECT_NAME`. Enter keeps the current name. Give a submodule consumer its own name so that it does not collide with another Atlas stack.
 - **Cold start** defaults to **No**. Press **Ctrl+R** to read every consequence first (§7.1). **Yes** removes this project's containers and Compose-managed volumes, with the database records, object files, workflow and chat history, models and caches stored there. It re-creates `.env` and regenerates keys and passwords. Bind-mounted files and external volumes remain. Back up needed data and configuration first.
 
-  Answers you kept with Enter are carried into the new `.env`. These are each cloud API key with its state and model list, the fal.ai key and state, and the Ollama and ComfyUI model lists. Answer `remove` to drop a key.
+    Answers you kept with Enter are carried into the new `.env`. These are each cloud API key with its state and model list, the fal.ai key and state, and the Ollama and ComfyUI model lists. Answer `remove` to drop a key.
+
 - **Hosts file** enables friendly URLs such as `chat.localhost` and `n8n.localhost` (§18).
 
 ### 7.1. Reading a destructive warning in full
@@ -354,7 +356,7 @@ The four ways out are distinct:
 | Stop (`Ctrl+S` twice, or `./stop.sh`) | containers stop | kept | not deleted (volumes kept) |
 | Cold stop (`Ctrl+X` twice, or `./stop.sh --cold`) | containers stop | kept | **deleted** (Compose-managed volumes) |
 
-Only cold stop deletes data, and only after the second `Ctrl+X` or with the `--cold` flag. Cancelling never deletes anything. Declining the `--no-tui` pre-launch summary starts nothing and keeps the configuration written so far. Under `--cold`, the cold cleanup has already run by then (volumes removed, `.env` recreated), and the cancel message says so.
+Of these four exit actions, only cold stop deletes data, and only after the second `Ctrl+X` or with the `--cold` flag. Cancelling never deletes anything. Declining the `--no-tui` pre-launch summary starts nothing and keeps the configuration written so far. Under `--cold`, the cold cleanup has already run by then (volumes removed, `.env` recreated), and the cancel message says so.
 
 ## 10. Navigation
 
@@ -430,9 +432,9 @@ The wizard uses your current `.env` values as defaults, with two exceptions. A s
 
 - **Wizard selections are persistent** in `.env` and carry over to future runs
 - **Configuration flags skip the whole wizard** and apply directly. These are:
-  - any `--*-source`, model-list or API-key flag;
-  - `--ray-worker-count`, `--spark-workers`, `--prometheus-retention-days` and `--comfyui-custom-models-file`;
-  - `--base-port`, `--cold`, `--setup-hosts`, `--skip-hosts`, `--detach` and `--json`.
+    - any `--*-source`, model-list or API-key flag;
+    - `--ray-worker-count`, `--spark-workers`, `--prometheus-retention-days` and `--comfyui-custom-models-file`;
+    - `--base-port`, `--cold`, `--setup-hosts`, `--skip-hosts`, `--detach` and `--json`.
 - **Selection flags keep the wizard.** `--track` and `--profile` pre-answer and hide their own steps; a consumer manifest's `profile:` hides the profile step too. `--project` and `--consumer` change no prompt.
 
 ## 14. Requirements
