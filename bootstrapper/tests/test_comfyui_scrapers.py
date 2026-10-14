@@ -280,3 +280,88 @@ def test_list_huggingface_models_requests_full_metadata(monkeypatch):
             f"Without it the siblings[] array is empty and _pick_primary_file "
             f"drops every entry."
         )
+
+
+@pytest.fixture
+def size_metadata_http(monkeypatch):
+    """Actual response decoding with synthetic list/detail transport replies."""
+    import requests
+    from utils import comfyui_library
+
+    monkeypatch.setattr(comfyui_library, "_HF_FILTERS", {"checkpoint": [{}]})
+    calls = []
+
+    def configure(payload, extra_rows=()):
+        items = [*extra_rows, {"id": "synthetic/bad", "siblings": [{"rfilename": "bad.safetensors"}]},
+                 {"id": "synthetic/good", "siblings": [{"rfilename": "good.safetensors"}]}]
+
+        def get(url, params=None, timeout=None):
+            calls.append((url, params, timeout))
+            replies = {
+                comfyui_library._HF_API_BASE: items,
+                comfyui_library._HF_API_BASE + "/synthetic/bad": payload,
+                comfyui_library._HF_API_BASE + "/synthetic/good": {
+                    "siblings": [{"rfilename": "good.safetensors", "size": 2 * 1024 ** 3}],
+                },
+                comfyui_library._CIVITAI_API_BASE: {"items": []},
+            }
+            assert url in replies, f"unexpected synthetic HTTP request: {url}"
+            reply = requests.Response()
+            reply.status_code = 200
+            reply._content = json.dumps(replies[url]).encode()
+            reply.headers["content-type"] = "application/json"
+            return reply
+
+        monkeypatch.setattr(comfyui_library._requests, "get", get)
+        return comfyui_library, calls
+
+    return configure
+
+
+@pytest.mark.parametrize("payload", [
+    None, [], True, 7, {"siblings": 7}, {"siblings": True},
+    {}, {"siblings": None}, {"siblings": []},
+    {"siblings": [None, {"rfilename": "bad.safetensors", "size": "unknown"}]},
+])
+def test_optional_size_metadata_keeps_healthy_and_curated_catalog(size_metadata_http, payload):
+    library, calls = size_metadata_http(payload)
+    curated = {entry.name for entry in library.list_curated()}
+    entries = {entry.name: entry for entry in library.assemble_wizard_catalog()}
+    assert curated <= set(entries)
+    assert (entries["synthetic--bad"].size_gb, entries["synthetic--good"].size_gb) == (0.0, 2.0)
+    assert any(params == {"blobs": "true"} and timeout == 15 for _, params, timeout in calls)
+
+
+@pytest.mark.parametrize("row", [None, "invalid list entry"])
+def test_optional_sizes_do_not_break_list_parser_skip_contract(size_metadata_http, row):
+    library, _ = size_metadata_http({"siblings": []}, extra_rows=[row])
+    entries = {entry.name: entry for entry in library.assemble_wizard_catalog()}
+    assert (entries["synthetic--bad"].size_gb, entries["synthetic--good"].size_gb) == (0.0, 2.0)
+
+
+def _offered_picker_values(options):
+    """Include both flat choices and selectable leaves of family groups."""
+    values = {option.value for option in options}
+    for option in options:
+        values.update(option.sizes or ())
+    return values
+
+
+def test_optional_size_failure_keeps_real_picker_choices_and_saved_selection(
+    size_metadata_http, monkeypatch, tmp_path,
+):
+    from wizard import comfyui_steps
+
+    library, _ = size_metadata_http([])
+    curated = {entry.name for entry in library.list_curated()}
+    monkeypatch.setattr(comfyui_steps, "_detect_gpu_memory_gb", lambda: None)
+    monkeypatch.setattr(comfyui_steps, "_remembered_selected", lambda *_args, **_kwargs: [])
+    step = comfyui_steps.build_comfyui_steps({
+        "COMFYUI_SOURCE": "container-cpu", "COMFYUI_USER_MODELS": "synthetic--bad,saved-missing",
+    }, volume_root=tmp_path)[0]
+    options = step.options_provider({})
+    offered = _offered_picker_values(options)
+    assert curated | {"synthetic--bad", "synthetic--good", "saved-missing"} <= offered
+    assert step.default_values == ["saved-missing", "synthetic--bad"]
+    bad = next(option for option in options if option.value == "synthetic--bad")
+    assert "0.00GB" in bad.badges
