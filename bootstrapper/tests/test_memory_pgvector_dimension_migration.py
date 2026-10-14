@@ -180,6 +180,7 @@ def disposable_pgvector():
         _docker(
             "run", "-d", "--pull=never", "--name", name,
             "--label", f"{seed_harness.SEED_OWNER_LABEL}={token}",
+            "--rm", "--network", "none",
             "--tmpfs", "/var/lib/postgresql/data:rw,noexec,nosuid,size=1536m",
             "-v", f"{seed_harness.SCRIPTS_DIR}:/scripts:ro",
             "-e", f"POSTGRES_USER={seed_harness.DB_USER}",
@@ -652,8 +653,9 @@ def test_real_pgvector_concurrent_foreign_index_name_collision_fails_closed(
             creator.communicate(timeout=5)
 
 
+@pytest.mark.parametrize("post_user_grant_replays", [0, 1, 2])
 def test_real_schema_state_rls_is_idempotent_and_backend_read_only(
-    disposable_pgvector,
+    disposable_pgvector, post_user_grant_replays,
 ):
     container = disposable_pgvector
     _apply_seed_scripts(container, 768)
@@ -676,6 +678,31 @@ def test_real_schema_state_rls_is_idempotent_and_backend_read_only(
     # revokes repair both default privileges and grants reapplied on restart.
     _apply_seed_scripts(container, 768)
     _apply_scoped_roles(container)
+
+    # The runner replays 06 after any user SQL, including a harmless script.
+    # Keep the no-user control and prove repeated post-user reconciliation.
+    for _ in range(post_user_grant_replays):
+        _psql(
+            container,
+            "SELECT 1; "
+            "CREATE TABLE IF NOT EXISTS public.user_rls_table (id integer); "
+            "ALTER TABLE public.user_rls_table ENABLE ROW LEVEL SECURITY; "
+            "CREATE TABLE IF NOT EXISTS public.user_private_table (id integer);",
+        )
+        _psql(
+            container,
+            (seed_harness.SCRIPTS_DIR / "06-permissions.sql").read_text(
+                encoding="utf-8"
+            ),
+        )
+        publication = _psql(
+            container,
+            "SELECT has_table_privilege('anon', 'public.user_rls_table', 'SELECT'), "
+            "has_table_privilege('authenticated', 'public.user_rls_table', 'UPDATE'), "
+            "has_table_privilege('anon', 'public.user_private_table', 'SELECT'), "
+            "has_table_privilege('authenticated', 'public.user_private_table', 'UPDATE');",
+        )
+        assert publication.stdout.strip() == "t|t|f|f"
 
     after = _psql(
         container,
@@ -734,6 +761,14 @@ def test_real_schema_state_rls_is_idempotent_and_backend_read_only(
         )
         assert client_read.returncode != 0
         assert "permission denied" in client_read.stderr
+        client_write = _psql(
+            container,
+            f"SET ROLE {role}; "
+            "UPDATE public.memory_embedding_schema_state SET phase = phase;",
+            check=False,
+        )
+        assert client_write.returncode != 0
+        assert "permission denied" in client_write.stderr
 
     service_function = _psql(
         container,
