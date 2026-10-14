@@ -400,7 +400,8 @@ A disabled optional service degrades only its feature:
 - **Lease loss:** a renewal that errors is retried until the lease would expire. A failed renewal carries the current owner into recovery. A lost lease counts against the same 20-attempt limit as a Redis outage.
 - **Redis failures:** an error reply that will not change (for example `WRONGTYPE`) fails the task and the job without retry. Other failures, including `READONLY` and `OOM` replies during recovery, retry with full-jitter backoff capped at 600 s.
 - **Retry limit:** at most 20 Redis retries (about an hour on average). They do not use the three-retry budget of the upstream phases. At the limit the job is marked `failed`, unless another live worker holds its lease, so a resubmit starts a fresh job.
-- **Exactly-once:** fencing stops two workers from persisting as the same owner. It does not make external services exactly-once. LightRAG uploads stay safe under retry through deterministic content-and-path identities.
+- **Exactly-once:** fencing stops two workers from persisting as the same owner. It does not make external services exactly-once. LightRAG retries use deterministic content-and-path identities.
+- **LightRAG conflicts:** only a matching duplicate in an admitted or processed state counts as uploaded. Celery retries scanning or deletion refusals within its transient budget. Synchronous ingestion fails without automatic retry. Failed records and unrecognized conflicts fail the upload phase.
 
 **Shared state store.**
 
