@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import runpy
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -307,6 +308,45 @@ def test_local_deep_researcher_crawl4ai_patch_parses_v090_sync_response() -> Non
         headers={"Authorization": "Bearer secret-token"},
     )
     response.raise_for_status.assert_called_once()
+
+
+def _crawl4ai_patch_namespace(overrides: dict[str, str]) -> dict:
+    values = {
+        "CRAWL4AI_ENDPOINT": "http://crawl4ai:11235",
+        "CRAWL4AI_API_TOKEN": "synthetic-owned-token",
+        "CRAWL4AI_TIMEOUT_SECONDS": "30",
+        "CRAWL4AI_MAX_CHARS": "12",
+        **overrides,
+    }
+    namespace = {
+        "os": SimpleNamespace(getenv=lambda name, default="": values.get(name, default)),
+        "httpx": MagicMock(),
+    }
+    response = namespace["httpx"].Client.return_value.__enter__.return_value.post.return_value
+    response.json.return_value = {"results": [{"success": True, "markdown": "hello rendered markdown"}]}
+    replacement = runpy.run_path(str(LDR_PATCH))["_crawl4ai_fetch_replacement"]()
+    exec(replacement, namespace)
+    return namespace
+
+
+@pytest.mark.parametrize("key, value", [
+    ("CRAWL4AI_TIMEOUT_SECONDS", "invalid"), ("CRAWL4AI_TIMEOUT_SECONDS", "0"),
+    ("CRAWL4AI_TIMEOUT_SECONDS", "-1"), ("CRAWL4AI_TIMEOUT_SECONDS", "nan"),
+    ("CRAWL4AI_TIMEOUT_SECONDS", "inf"), ("CRAWL4AI_MAX_CHARS", "invalid"),
+    ("CRAWL4AI_MAX_CHARS", "-1"),
+])
+def test_ldr_crawl4ai_invalid_settings_preserve_soft_failure(key, value, capsys):
+    namespace = _crawl4ai_patch_namespace({key: value})
+    assert namespace["fetch_raw_content"]("https://example.invalid/owned") is None
+    namespace["httpx"].Client.assert_not_called()
+    assert "Warning: Failed to fetch full page content via Crawl4AI" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("maximum, expected", [("0", ""), ("4", "hell"), ("12", "hello render")])
+def test_ldr_crawl4ai_valid_settings_keep_character_bound(maximum, expected):
+    namespace = _crawl4ai_patch_namespace({"CRAWL4AI_TIMEOUT_SECONDS": "0.5", "CRAWL4AI_MAX_CHARS": maximum})
+    assert namespace["fetch_raw_content"]("https://example.invalid/owned") == expected
+    namespace["httpx"].Client.assert_called_once_with(timeout=0.5)
 
 
 def test_n8n_receives_crawl4ai_runtime_env() -> None:
