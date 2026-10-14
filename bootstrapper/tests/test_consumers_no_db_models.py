@@ -10,6 +10,10 @@ pattern being removed in B5 (repoint consumers off public.llms to env vars).
 
 from pathlib import Path
 import importlib.util
+import ast
+from types import SimpleNamespace
+
+import pytest
 
 REPO_ROOT = Path(__file__).parent.parent.parent
 
@@ -25,6 +29,35 @@ def _load_ldr_provider_patcher():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def _ldr_loop_graph(comparison="state.research_loop_count <= configurable.max_web_research_loops"):
+    # Routing/increment contract from pinned upstream 38f769f84380f2065de76021ac7c5215f88aa39e.
+    return f'''from langchain_ollama import ChatOllama
+
+def get_llm(configurable):
+    if configurable.llm_provider == "lmstudio":
+        return ChatOpenAI(base_url=configurable.lmstudio_base_url)
+    return ChatOllama(model=configurable.local_llm)
+
+# Nodes
+def route_research(state, config):
+    configurable = Configuration.from_runnable_config(config)
+    if {comparison}:
+        return "web_research"
+    else:
+        return "finalize_summary"
+'''
+
+
+def _ldr_patched_router(graph):
+    patched = _load_ldr_provider_patcher()._patch_graph(graph)
+    route = next(node for node in ast.parse(patched).body
+                 if isinstance(node, ast.FunctionDef) and node.name == "route_research")
+    namespace = {"Configuration": SimpleNamespace(from_runnable_config=lambda cfg:
+                 SimpleNamespace(max_web_research_loops=cfg["configurable"]["max_web_research_loops"]))}
+    exec(compile(ast.Module(body=[route], type_ignores=[]), "patched-ldr-router", "exec"), namespace)
+    return namespace["route_research"]
 
 
 def test_weaviate_init_no_public_llms():
@@ -222,3 +255,41 @@ def test_ldr_run_config_wins_for_loops_and_search_api_only():
     assert "if name in _ATLAS_RUN_CONFIG_FIRST" in patched
     entry = _read("services/local-deep-researcher/build/scripts/patch-litellm-openai-provider.py")
     assert "_patch_run_config_precedence(_patch_configuration(configuration))" in entry
+
+
+@pytest.mark.parametrize("max_loops", [1, 2, 3, 10])
+def test_ldr_completed_iterations_honor_requested_maximum(max_loops):
+    route = _ldr_patched_router(_ldr_loop_graph())
+    state = SimpleNamespace(research_loop_count=0)
+    config = {"configurable": {"max_web_research_loops": max_loops}}
+    # web_research increments the completed count before reflect_on_summary routes.
+    for _ in range(max_loops + 2):
+        state.research_loop_count += 1
+        if route(state, config) == "finalize_summary":
+            break
+    assert state.research_loop_count == max_loops
+
+
+@pytest.mark.parametrize("count, maximum, expected", [
+    (0, 1, "web_research"), (1, 3, "web_research"),
+    (3, 1, "finalize_summary"), (11, 10, "finalize_summary"),
+])
+def test_ldr_loop_routing_preserves_other_boundaries(count, maximum, expected):
+    route = _ldr_patched_router(_ldr_loop_graph())
+    assert route(SimpleNamespace(research_loop_count=count),
+                 {"configurable": {"max_web_research_loops": maximum}}) == expected
+
+
+def test_ldr_loop_patch_is_idempotent_and_preserves_conforming_source():
+    patcher = _load_ldr_provider_patcher()
+    conforming = _ldr_loop_graph("state.research_loop_count < configurable.max_web_research_loops")
+    once = patcher._patch_graph(conforming)
+    assert patcher._patch_graph(once) == once
+    assert _ldr_patched_router(conforming)(SimpleNamespace(research_loop_count=3),
+            {"configurable": {"max_web_research_loops": 3}}) == "finalize_summary"
+
+
+def test_ldr_loop_patch_rejects_unknown_routing_comparison():
+    with pytest.raises(RuntimeError, match="research loop"):
+        _load_ldr_provider_patcher()._patch_graph(
+            _ldr_loop_graph("state.research_loop_count == configurable.max_web_research_loops"))
