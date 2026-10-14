@@ -91,7 +91,7 @@ A native LightRAG 1.5.4 binding does not send them. The Ollama binding forwards 
 - **A role that would inherit a native base stays on LiteLLM.** Example: `LIGHTRAG_LLM_BINDING` and `LIGHTRAG_LLM_BINDING_HOST` point at `ollama` on `http://host.docker.internal:11434` (`LLM_PROVIDER_SOURCE=ollama-localhost`). Take a role whose model declares catalog `request_defaults` and that sets no binding, host or key. Atlas binds it to `openai` at `http://litellm:4000/v1` with the LiteLLM master key.
   - LiteLLM applies the defaults, so the role sends the same request it would on the default path.
   - The cost is one gateway hop for that role, which also brings it back under Langfuse tracing.
-  - The role's model must be one LiteLLM serves. Every Ollama catalog model is served while an `ollama-*` `LLM_PROVIDER_SOURCE` is selected.
+  - The role's model must be one LiteLLM serves. Select catalog role models through `OLLAMA_USER_MODELS` and custom models through `OLLAMA_CUSTOM_MODELS`; see [Ollama §5](../ollama/README.md).
   - A routed `EXTRACT` is no longer bound to Ollama, so the `EXTRACT_OLLAMA_LLM_*` caps below do not apply to it.
 - **A role whose model declares none keeps the base binding.** Embedding entries, and chat entries without `request_defaults`, resolve as before. A role on such a model still goes native.
 - **Explicit role settings win.** A role that sets its own `LIGHTRAG_<ROLE>_LLM_BINDING`, `_BINDING_HOST` or `_BINDING_API_KEY` is never re-routed. If those settings put it on a native host, it cannot receive its model's defaults, and the start log and doctor say so.
@@ -163,7 +163,7 @@ LightRAG's default `WHITELIST_PATHS=/health,/api/*` leaves `/health` and the Oll
 - Browser access is limited to the Kong origin (`CORS_ORIGINS=http://lightrag.localhost:${KONG_HTTP_PORT}`). LightRAG's default `*` would let any web page read ingested documents through `/api/chat` on the direct port.
 - While `/api/*` is open, a blind cross-site POST can still spend model tokens without reading the reply.
 
-Without `LIGHTRAG_TOKEN_SECRET`, LightRAG uses a hardcoded default JWT key, which is a security risk. The bootstrapper generates both values only when they are absent, so values you set are kept. After you rotate `LIGHTRAG_API_KEY`, re-run `litellm-init`: it writes the key into LiteLLM's `lightrag` model.
+Without `LIGHTRAG_TOKEN_SECRET`, LightRAG uses a hardcoded default JWT key, which is a security risk. The bootstrapper generates both values only when they are absent, so values you set are kept. After rotating `LIGHTRAG_API_KEY`, run `./start.sh` to recreate init and the gateway with the new routing key.
 
 
 ## 4. Usage
@@ -272,7 +272,7 @@ The stack backup (`services/backup`) does not cover the KV and doc-status data i
 
 ## 7. Init container
 
-`lightrag-init` runs once per `docker compose up`. It:
+When `lightrag-init` starts, it:
 
 1. Runs after LiteLLM's Compose health gate and reads LiteLLM `/v1/models`.
 2. Resolves the base `LIGHTRAG_LLM_MODEL` / `LIGHTRAG_EMBEDDING_MODEL` / `LIGHTRAG_EMBEDDING_DIM` from explicit overrides, LiteLLM defaults, or LiteLLM's model list. Writes LightRAG's native `LLM_MODEL` / `EMBEDDING_MODEL` / `EMBEDDING_DIM` to `/app/data/.env`. If no chat model can be resolved, init exits non-zero instead of starting LightRAG with an empty `LLM_MODEL`. Role-specific `LIGHTRAG_EXTRACT_*`, `LIGHTRAG_KEYWORD_*`, and `LIGHTRAG_QUERY_*` variables are passed directly to the runtime container.
