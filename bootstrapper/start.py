@@ -2806,12 +2806,19 @@ class AtlasStarter:
         """
         from core.consumer_manifest import (
             MINIO_STORAGE_OVERLAY_PATH,
+            _validate_storage_collisions,
             compile_storage_exports,
             storage_credential_tokens,
         )
 
         try:
             config = self.config_parser.load_consumer_config()
+            if config.storage:
+                env = self.config_parser.parse_env_file()
+                if str(env.get("MINIO_SOURCE", "container")).strip() != "disabled":
+                    _validate_storage_collisions(
+                        config.storage, self.docker_manager.resolved_minio_environment(),
+                    )
         except Exception as exc:  # ConsumerManifestError etc. — surface + fail
             self.banner.show_status_message(
                 f"Consumer storage manifest error: {exc}", "error"
@@ -2830,7 +2837,6 @@ class AtlasStarter:
                 overlay_path.unlink()
             return True
 
-        env = self.config_parser.parse_env_file()
         if str(env.get("MINIO_SOURCE", "container")).strip() == "disabled":
             # A storage declaration against disabled MinIO can't be provisioned;
             # skip loudly rather than emit an unusable (empty-endpoint) contract.
