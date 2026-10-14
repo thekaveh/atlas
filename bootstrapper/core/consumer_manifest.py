@@ -921,13 +921,16 @@ _BUILTIN_BUCKET_NAMES = frozenset(
 )
 
 
-def _stack_minio_reservations() -> tuple[frozenset, frozenset]:
+def _stack_minio_reservations(
+    runtime_env: Mapping[str, str] | None = None,
+) -> tuple[frozenset, frozenset]:
     """(env var names, bucket defaults) the stack's own MinIO wiring uses.
 
     A store's generated MINIO_BUCKET_<KEY> / MINIO_<KEY>_ACCESS_KEY must not
     alias one (consumer "asset" + store "baker" took over asset-baker's
     credentials and policy). Read from .env.example so new stack buckets are
-    covered; the static bucket list is the fallback.
+    covered; the static bucket list is the fallback. Reserve effective bucket
+    names too when startup supplies its resolved environment.
     """
     import re
 
@@ -945,6 +948,12 @@ def _stack_minio_reservations() -> tuple[frozenset, frozenset]:
         names.add(name)
         if "BUCKET" in name and value.strip():
             buckets.add(value.strip())
+    if runtime_env is not None:
+        buckets.update(
+            str(runtime_env[name]).strip()
+            for name in names
+            if "BUCKET" in name and runtime_env.get(name)
+        )
     return frozenset(names), frozenset(buckets)
 
 _STORE_NAME_RE = __import__("re").compile(r"^[a-z0-9][a-z0-9-]*$")
@@ -1077,12 +1086,14 @@ def _claim_store_vars(store: StorageStore, claimed: set[str]) -> None:
         claimed.add(var)
 
 
-def _validate_storage_collisions(stores: Iterable[StorageStore]) -> None:
+def _validate_storage_collisions(
+    stores: Iterable[StorageStore], runtime_env: Mapping[str, str] | None = None,
+) -> None:
     """Reject bucket-name, key, and consumer-id collisions across all stores."""
     bucket_owner: dict[str, str] = {}
     keys: set[str] = set()
     consumer_ids: set[str] = set()
-    stack_vars, stack_buckets = _stack_minio_reservations()
+    stack_vars, stack_buckets = _stack_minio_reservations(runtime_env)
     generated_vars: set[str] = set(stack_vars)
     for store in stores:
         if store.key in keys:

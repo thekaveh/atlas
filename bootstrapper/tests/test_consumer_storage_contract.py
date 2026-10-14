@@ -218,6 +218,155 @@ def test_bucket_collision_with_builtin_rejected(tmp_path: Path) -> None:
         load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
 
 
+@pytest.fixture
+def storage_runtime_probe(tmp_path):
+    """Use the real manifest loader and finalizer with owned write boundaries."""
+    from types import SimpleNamespace
+
+    import yaml
+    from start import AtlasStarter
+
+    def make(case):
+        builtin_var, bucket, extras, source, _ = case
+        payload = {"name": "owned-consumer", "env": {"values": {
+            builtin_var: "shared-artifacts",
+        }}}
+        if bucket is not None:
+            payload["storage"] = {"buckets": [{
+                "name": "artifacts", "bucket": bucket, "extra_buckets": list(extras),
+            }]}
+        manifest = tmp_path / "atlas.consumer.yml"
+        manifest.write_text(yaml.safe_dump(payload), encoding="utf-8")
+        config = load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
+        env = {**config.env_overrides, "MINIO_SOURCE": source}
+        effects = []
+        starter = AtlasStarter.__new__(AtlasStarter)
+        starter.root_dir = tmp_path
+        starter.config_parser = SimpleNamespace(
+            load_consumer_config=lambda: config, parse_env_file=lambda: env,
+        )
+        starter.docker_manager = SimpleNamespace(resolved_minio_environment=lambda: env)
+        starter.key_generator = SimpleNamespace(
+            generate_and_update_extra_minio_consumer_keys=lambda tokens: effects.append("keys"),
+        )
+        starter.banner = SimpleNamespace(show_status_message=lambda *args: None)
+        starter._remove_env_keys_by_prefix = lambda prefix: effects.append("clear")
+        starter._merge_env_file_overrides = lambda values: effects.append("exports")
+        overlay = tmp_path / "volumes/minio/consumer-storage.compose.yml"
+        overlay.parent.mkdir(parents=True)
+        overlay.write_text("owned previous overlay\n", encoding="utf-8")
+        return starter, effects, overlay
+
+    return make
+
+
+@pytest.mark.parametrize("case", [
+    ("MINIO_BUCKET_BACKEND", "shared-artifacts", (), "container", False),
+    ("ASSET_WORKER_MINIO_BUCKET", "shared-artifacts", (), "container", False),
+    ("MINIO_BUCKET_BACKEND", "consumer-artifacts", ("shared-artifacts",), "container", False),
+    ("MINIO_BUCKET_BACKEND", "consumer-artifacts", (), "container", True),
+    ("MINIO_BUCKET_BACKEND", "shared-artifacts", (), "disabled", True),
+    ("MINIO_BUCKET_BACKEND", None, (), "container", True),
+], ids=["renamed-backend", "renamed-asset-output", "extra-bucket", "distinct", "disabled", "no-store"])
+def test_effective_builtin_bucket_collision_precedes_storage_writes(
+    storage_runtime_probe, case
+):
+    starter, effects, overlay = storage_runtime_probe(case)
+    expected = case[-1]
+
+    assert starter._finalize_consumer_storage() is expected
+    if not expected:
+        assert (effects, overlay.read_text(encoding="utf-8")) == (
+            [], "owned previous overlay\n",
+        )
+    elif case[1] is None or case[3] == "disabled":
+        assert (effects, overlay.exists()) == (["clear"], False)
+    else:
+        assert effects == ["clear", "keys", "exports"]
+        assert "consumer-artifacts" in overlay.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("mode", ["shell", "reference", "literal-compose"])
+def test_compose_bucket_resolution_precedes_storage_writes(tmp_path, monkeypatch, mode):
+    import shutil
+    from types import SimpleNamespace
+
+    from core.config_parser import ConfigParser
+    from core.docker_manager import DockerManager
+    from start import AtlasStarter
+
+    if shutil.which("docker") is None:
+        pytest.skip("daemon-free Compose CLI unavailable")
+    manifest = _write_manifest(tmp_path, "owned-consumer",
+        "storage:\n  buckets:\n    - {name: artifacts, bucket: shared-artifacts}\n")
+    _write_root(tmp_path)
+    bucket = "${RENAMED_BUCKET}" if mode == "reference" else "backend"
+    (tmp_path / ".env").write_text(
+        "PROJECT_NAME=owned-storage-probe\nMINIO_SOURCE=container\n"
+        f"RENAMED_BUCKET=shared-artifacts\nMINIO_BUCKET_BACKEND={bucket}\n",
+        encoding="utf-8",
+    )
+    if mode == "shell":
+        monkeypatch.setenv("MINIO_BUCKET_BACKEND", "shared-artifacts")
+    compose_bucket = "shared-artifacts" if mode == "literal-compose" else "${MINIO_BUCKET_BACKEND}"
+    (tmp_path / "docker-compose.yml").write_text(
+        "services:\n  minio-init:\n    image: scratch\n    environment:\n"
+        f"      MINIO_BUCKET_BACKEND: {compose_bucket}\n", encoding="utf-8",
+    )
+    config = load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
+    parser = ConfigParser(str(tmp_path))
+    effects = []
+    messages = []
+    starter = AtlasStarter.__new__(AtlasStarter)
+    starter.root_dir = tmp_path
+    starter.config_parser = SimpleNamespace(
+        load_consumer_config=lambda: config, parse_env_file=parser.parse_env_file,
+    )
+    starter.docker_manager = DockerManager(str(tmp_path))
+    starter.key_generator = SimpleNamespace(
+        generate_and_update_extra_minio_consumer_keys=lambda tokens: effects.append("keys"),
+    )
+    starter.banner = SimpleNamespace(show_status_message=lambda *args: messages.append(args))
+    starter._remove_env_keys_by_prefix = lambda prefix: effects.append("clear")
+    starter._merge_env_file_overrides = lambda values: effects.append("exports")
+
+    assert starter._finalize_consumer_storage() is False
+    assert any("collides with a built-in Atlas bucket" in text for text, _ in messages)
+    assert effects == []
+    assert not config.storage_overlay.path.exists()
+
+
+@pytest.mark.parametrize("failure", [
+    (1, "", "owned-private-marker"),
+    (0, "owned-private-marker", ""),
+    (0, '{"services":{"minio-init":{"environment":"owned-private-marker"}}}', ""),
+], ids=["command-failed", "invalid-json", "invalid-environment"])
+def test_unresolved_storage_projection_preserves_artifacts(
+    storage_runtime_probe, monkeypatch, failure, capsys
+):
+    import subprocess
+
+    from core.docker_manager import DockerManager
+
+    starter, effects, overlay = storage_runtime_probe(
+        ("MINIO_BUCKET_BACKEND", "consumer-artifacts", (), "container", True)
+    )
+    manager = DockerManager.__new__(DockerManager)
+    manager.root_dir = starter.root_dir
+    manager._build_compose_command = lambda args: ["docker", "compose", *args]
+    starter.docker_manager = manager
+    monkeypatch.setattr("core.process_runner.run_with_deadline", lambda command, **kwargs:
+        subprocess.CompletedProcess(command, failure[0], failure[1], failure[2]))
+    messages = []
+    starter.banner.show_status_message = lambda *args: messages.append(args)
+
+    assert starter._finalize_consumer_storage() is False
+    assert (effects, overlay.read_text(encoding="utf-8")) == ([], "owned previous overlay\n")
+    assert messages and "Consumer storage manifest error:" in messages[0][0]
+    captured = capsys.readouterr()
+    assert "owned-private-marker" not in repr((messages, captured.out, captured.err))
+
+
 def test_cross_store_bucket_collision_rejected(tmp_path: Path) -> None:
     _write_root(tmp_path)
     one = _write_manifest(
@@ -373,6 +522,8 @@ def test_finalize_consumer_storage_end_to_end(
     starter.config_parser.env_example_path = tmp_path / ".env.example"
     starter.key_generator.env_file_path = tmp_path / ".env"
 
+    starter.docker_manager.resolved_minio_environment = starter.config_parser.parse_env_file
+
     assert starter._finalize_consumer_storage() is True
 
     env_text = (tmp_path / ".env").read_text(encoding="utf-8")
@@ -401,6 +552,7 @@ def _starter_at(tmp_path: Path):
     starter.config_parser.env_file_path = tmp_path / ".env"
     starter.config_parser.env_example_path = tmp_path / ".env.example"
     starter.key_generator.env_file_path = tmp_path / ".env"
+    starter.docker_manager.resolved_minio_environment = starter.config_parser.parse_env_file
     return starter
 
 
