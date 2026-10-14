@@ -404,6 +404,15 @@ def test_lightrag_duplicate_file_source_is_idempotent(monkeypatch):
     class ConflictResponse:
         status_code = 409
 
+        def __init__(self, file_source):
+            self.file_source = file_source
+
+        def json(self):
+            return {"detail": (
+                f"Document storage already contains '{self.file_source}' "
+                "(Status: processed). Delete the existing record before re-inserting."
+            )}
+
         def raise_for_status(self):
             raise AssertionError("duplicate 409 must be accepted")
 
@@ -417,8 +426,8 @@ def test_lightrag_duplicate_file_source_is_idempotent(monkeypatch):
         async def __aexit__(self, *args):
             return None
 
-        async def post(self, _url, **_kwargs):
-            return ConflictResponse()
+        async def post(self, _url, **kwargs):
+            return ConflictResponse(kwargs["json"]["file_source"])
 
     monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
     client = LightRagClient(endpoint="http://lightrag:9621", api_key="secret")
@@ -426,6 +435,183 @@ def test_lightrag_duplicate_file_source_is_idempotent(monkeypatch):
     assert asyncio.run(
         client.upload([{"text": "same", "source": "a.txt"}])
     ) == 1
+
+
+_LIGHTRAG_BUSY_DETAILS = (
+    "Document scan is classifying files. Wait for the classification phase to finish before submitting new work.",
+    "Pipeline is clearing or deleting documents. Wait for the running job to finish before submitting new work.",
+)
+
+
+def _lightrag_duplicate_response(request, payload, status):
+    return httpx.Response(409, request=request, json={"detail": (
+        f"Document storage already contains '{payload['file_source']}' "
+        f"(Status: {status}). Delete the existing record before re-inserting."
+    )})
+
+
+def _mock_lightrag_transport(monkeypatch, handler):
+    original_client = httpx.AsyncClient
+
+    class MockClient(original_client):
+        def __init__(self, **kwargs):
+            super().__init__(transport=httpx.MockTransport(handler), **kwargs)
+
+    monkeypatch.setattr(httpx, "AsyncClient", MockClient)
+
+
+@pytest.mark.parametrize("detail", _LIGHTRAG_BUSY_DETAILS)
+def test_lightrag_busy_refusal_is_transient_not_uploaded(monkeypatch, detail):
+    requests = []
+
+    def respond(request):
+        requests.append(request)
+        return httpx.Response(409, request=request, json={"detail": detail})
+
+    _mock_lightrag_transport(monkeypatch, respond)
+    client = LightRagClient("http://lightrag:9621", "secret")
+    with pytest.raises(ConnectionError, match="LightRAG"):
+        asyncio.run(client.upload([{"source": "a.txt", "text": "same"}]))
+    assert len(requests) == 1
+    assert requests[0].url.path == "/documents/text"
+    assert requests[0].headers["X-API-Key"] == "secret"
+
+
+@pytest.mark.parametrize("status", [
+    "pending", "parsing", "analyzing", "processing", "preprocessed", "processed",
+])
+def test_lightrag_admitted_duplicate_counts_once(monkeypatch, status):
+    def respond(request):
+        return _lightrag_duplicate_response(request, json.loads(request.content), status)
+
+    _mock_lightrag_transport(monkeypatch, respond)
+    client = LightRagClient("http://lightrag:9621", "secret")
+    assert asyncio.run(client.upload([{"source": "a.txt", "text": "same"}])) == 1
+
+
+@pytest.mark.parametrize("case", [
+    "failed", "unknown", "foreign-source", "unrelated", "no-detail", "list",
+    "null", "integer-detail", "object-detail", "list-detail", "empty", "html",
+])
+def test_lightrag_unaccepted_conflict_raises_http_error(monkeypatch, case):
+    def respond(request):
+        payload = json.loads(request.content)
+        if case in ("failed", "unknown"):
+            return _lightrag_duplicate_response(request, payload, case)
+        if case == "foreign-source":
+            return _lightrag_duplicate_response(request, {"file_source": "foreign.txt"}, "processed")
+        data = {
+            "unrelated": {"detail": "another conflict"}, "no-detail": {}, "list": [],
+            "null": None, "integer-detail": {"detail": 1},
+            "object-detail": {"detail": {}}, "list-detail": {"detail": []},
+        }
+        if case in ("empty", "html"):
+            return httpx.Response(409, request=request, text="" if case == "empty" else "<html>conflict</html>")
+        return httpx.Response(409, request=request, content=json.dumps(data[case]))
+
+    _mock_lightrag_transport(monkeypatch, respond)
+    client = LightRagClient("http://lightrag:9621", "secret")
+    with pytest.raises(httpx.HTTPStatusError) as error:
+        asyncio.run(client.upload([{"source": "a.txt", "text": "same"}]))
+    assert error.value.response.status_code == 409
+
+
+def test_lightrag_partial_batch_retries_same_admitted_source(monkeypatch):
+    calls = []
+    accepted = set()
+    refused = False
+    documents = [{"source": name + ".txt", "text": name} for name in ("a", "b", "c")]
+
+    def respond(request):
+        nonlocal refused
+        payload = json.loads(request.content)
+        calls.append(payload)
+        assert request.headers["X-API-Key"] == "secret"
+        if payload["text"] == "b" and not refused:
+            refused = True
+            return httpx.Response(409, request=request, json={"detail": _LIGHTRAG_BUSY_DETAILS[0]})
+        if payload["file_source"] in accepted:
+            return _lightrag_duplicate_response(request, payload, "processed")
+        accepted.add(payload["file_source"])
+        return httpx.Response(200, request=request, json={"status": "success"})
+
+    _mock_lightrag_transport(monkeypatch, respond)
+    client = LightRagClient("http://lightrag:9621", "secret")
+    with pytest.raises(ConnectionError):
+        asyncio.run(client.upload(documents))
+    assert [call["text"] for call in calls] == ["a", "b"]
+    assert len(accepted) == 1
+    assert asyncio.run(client.upload(documents)) == 3
+    assert [call["text"] for call in calls] == ["a", "b", "a", "b", "c"]
+    assert calls[0] == calls[2] and calls[1] == calls[3]
+    assert accepted == {LightRagClient._file_source(doc) for doc in documents}
+
+
+def _lightrag_once_busy_handler(detail, calls):
+    post_attempts = 0
+
+    def respond(request):
+        nonlocal post_attempts
+        calls.append(request)
+        if request.method == "GET":
+            return httpx.Response(200, request=request, json={"busy": False})
+        post_attempts += 1
+        if post_attempts == 1:
+            return httpx.Response(409, request=request, json={"detail": detail})
+        return httpx.Response(200, request=request, json={"status": "success"})
+
+    return respond
+
+
+@pytest.mark.parametrize("detail", _LIGHTRAG_BUSY_DETAILS)
+def test_lightrag_busy_upload_persists_pending_then_retries(tmp_path, monkeypatch, detail):
+    _corpus(tmp_path, monkeypatch, {"a.txt": "content"})
+    calls = []
+    _mock_lightrag_transport(monkeypatch, _lightrag_once_busy_handler(detail, calls))
+    profiles = _profiles_file(tmp_path, graph=_drain_graph(1))
+    service = _service(tmp_path, Deps(
+        embedder=FakeEmbedder(), weaviate=FakeWeaviate(),
+        lightrag=LightRagClient("http://lightrag:9621", "secret"), poll_interval=0.01,
+    ), profiles)
+    record, _ = service.submit("showcase-default")
+    with pytest.raises(ConnectionError):
+        asyncio.run(service.run(record.id, retry_transient=True))
+    pending = service.store.get(record.id)
+    upload = pending.phase("lightrag_upload")
+    assert (pending.status, upload.status, upload.note, pending.counts["documents_uploaded"]) == (
+        "pending", "pending", "waiting for Celery retry", 0,
+    )
+    assert [request.method for request in calls] == ["POST"]
+    final = asyncio.run(service.run(record.id, retry_transient=True))
+    assert final.status == "completed" and not final.errors
+    assert final.counts["documents_uploaded"] == 1
+    assert final.phase("lightrag_upload").counts == {"uploaded": 1}
+    assert [request.method for request in calls] == ["POST", "POST", "GET"]
+    assert calls[0].content == calls[1].content
+
+
+@pytest.mark.parametrize("status", ["failed", "unknown"])
+def test_lightrag_refused_duplicate_fails_actual_job(tmp_path, monkeypatch, status):
+    _corpus(tmp_path, monkeypatch, {"a.txt": "content"})
+    calls = []
+
+    def respond(request):
+        calls.append(request)
+        return _lightrag_duplicate_response(request, json.loads(request.content), status)
+
+    _mock_lightrag_transport(monkeypatch, respond)
+    profiles = _profiles_file(tmp_path, graph=_drain_graph(1))
+    service = _service(tmp_path, Deps(
+        embedder=FakeEmbedder(), weaviate=FakeWeaviate(),
+        lightrag=LightRagClient("http://lightrag:9621", "secret"), poll_interval=0.01,
+    ), profiles)
+    _, _, final = _run(service)
+    assert final.status == "failed"
+    assert final.phase("lightrag_upload").status == "failed"
+    assert final.phase("lightrag_upload").error["http_status"] == 409
+    assert f"(Status: {status})" in final.phase("lightrag_upload").error["body"]
+    assert final.counts["documents_uploaded"] == 0
+    assert [request.method for request in calls] == ["POST"]
 
 
 def test_lightrag_failure_records_bounded_upstream_body(tmp_path, monkeypatch):
