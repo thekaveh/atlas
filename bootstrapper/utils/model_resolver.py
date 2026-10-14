@@ -294,10 +294,41 @@ MEMORY_FACTS_EMBEDDING_DIM = 768
 MAX_PGVECTOR_DIMENSION = 4000
 
 
-def dim_for_model_id(model_id: str | None) -> Optional[int]:
+def _catalog_dimension_entry(target: str) -> CatalogEntry | None:
+    """Match complete catalog identities before compatibility aliases."""
+    entries = llm_catalog.all_catalog_entries()
+    for entry in entries:
+        entry_id = (
+            f"ollama/{entry.name}" if entry.provider == "ollama" else entry.name
+        )
+        if target == entry_id:
+            return entry
+    for entry in entries:
+        if target == f"{entry.provider}/{entry.name}":
+            return entry
+    for entry in entries:
+        if target == entry.name:
+            return entry
+    return None
+
+
+def _active_dimension_entry(target: str, env: Mapping[str, str]) -> CatalogEntry | None:
+    """Find the first registration of an alias, including unknown dimensions."""
+    return next((
+        entry for entry in active_models(env)
+        if target == entry.name
+        or (entry.provider == "ollama" and target == f"ollama/{entry.name}")
+    ), None)
+
+
+def dim_for_model_id(
+    model_id: str | None, *, env: Mapping[str, str] | None = None,
+) -> Optional[int]:
     """Return the declared output dimension for a LiteLLM model id, or ``None``.
 
-    Looks the id up in the YAML catalogs (``utils.llm_catalog``) by reproducing
+    With ``env``, use the first active registration of the alias. An active
+    custom model with unknown dimensions must not borrow another catalog row.
+    Without an active match, look up the id in the YAML catalogs by reproducing
     the same id formatting :func:`best` uses — ``ollama/<name>`` for Ollama
     entries, the bare ``name`` for cloud providers — and returns that entry's
     ``dim`` field.  ``None`` for unknown ids, ids whose entry declares no
@@ -308,33 +339,25 @@ def dim_for_model_id(model_id: str | None) -> Optional[int]:
     target = model_id.strip()
     # Match canonical IDs before provider aliases and legacy bare names.
     # Preserve complete names so foreign namespaces cannot borrow a dimension.
-    entries = llm_catalog.all_catalog_entries()
-    for entry in entries:
-        entry_id = (
-            f"ollama/{entry.name}" if entry.provider == "ollama" else entry.name
-        )
-        if target == entry_id:
-            return entry.dim
-    for entry in entries:
-        if target == f"{entry.provider}/{entry.name}":
-            return entry.dim
-    for entry in entries:
-        if target == entry.name:
-            return entry.dim
-    return None
+    entry = _active_dimension_entry(target, env) if env is not None else None
+    if entry is None:
+        entry = _catalog_dimension_entry(target)
+    return entry.dim if entry is not None else None
 
 
 def embedding_dimension_contract(
-    model: str | None, configured_dimension: str | int | None
+    model: str | None, configured_dimension: str | int | None,
+    *, env: Mapping[str, str] | None = None,
 ) -> int:
     """Resolve and validate the one memory embedding-dimension contract.
 
-    Catalog ``dim:`` metadata remains the source for curated models.  The
+    Catalog ``dim:`` metadata remains the source for curated models. With
+    active context, the registered alias winner supplies that metadata. The
     explicit value exists so custom OpenAI-compatible models and the database
     initializer can share the same schema contract; when the catalog knows the
     model, the two values must agree.
     """
-    catalog_dimension = dim_for_model_id(model)
+    catalog_dimension = dim_for_model_id(model, env=env)
     if configured_dimension is None:
         if catalog_dimension is None:
             raise ValueError(

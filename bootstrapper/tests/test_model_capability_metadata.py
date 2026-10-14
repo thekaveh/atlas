@@ -701,3 +701,246 @@ def test_custom_model_dimension_is_not_replaced_by_a_catalog_suffix(
         assert starter._repair_catalog_embedding_dim(values)
         assert writes == []
     assert values == {"LITELLM_EMBEDDING_MODEL": model, "LANGMEM_EMBEDDING_DIM": "2048"}
+
+
+@pytest.fixture
+def active_alias_catalog(tmp_path, monkeypatch):
+    def render(case):
+        import importlib.util
+        import sys
+        from utils.model_resolver import active_models
+
+        flat = {"embeddings": [{
+            "name": "unrelated-embed" if case.get("custom") else "shared-embed", "metadata_version": 1,
+            "kind": "embedding", "adapter": "ollama", "dim": 768,
+        }]}
+        cloud = {provider: {"embeddings": [{
+            "name": case.get("router_catalog", "shared-embed") if provider == "openrouter" else "shared-embed", "metadata_version": 1,
+            "kind": "embedding", "adapter": provider, "dim": dimension,
+            "default": provider == "openai" and case.get("openai_default", False),
+        }]} for provider, dimension in (("openai", 1024), ("openrouter", 2048))}
+        jsonschema.validate(flat, SCHEMA)
+        jsonschema.validate(cloud, SCHEMA)
+        monkeypatch.setattr(llm_catalog, "OLLAMA_DEFAULT_CATALOG", _load_flat_catalog(tmp_path, flat))
+        monkeypatch.setattr(llm_catalog, "CLOUD_CATALOG", _load_cloud_catalog(tmp_path, cloud))
+        env = {
+            "LLM_PROVIDER_SOURCE": case.get("engine", "ollama-container-cpu"),
+            "OLLAMA_USER_MODELS": "" if case.get("custom") else "shared-embed",
+            "OLLAMA_CUSTOM_MODELS": "shared-embed" if case.get("custom") else "",
+            "CLOUD_OPENAI_SOURCE": case.get("openai", "enabled"),
+            "CLOUD_OPENROUTER_SOURCE": case.get("openrouter", "disabled"),
+            "CLOUD_ANTHROPIC_SOURCE": "disabled",
+            "OPENAI_USER_MODELS": "shared-embed", "OPENROUTER_USER_MODELS": "shared-embed",
+            "OPENAI_API_KEY": case.get("key", "owned-synthetic-key"),
+            "OPENROUTER_API_KEY": "owned-synthetic-key", "ANTHROPIC_API_KEY": "",
+            # These persisted flags describe the prior launch, not this one.
+            "LITELLM_OPENAI_ENABLED": "false", "LITELLM_OPENROUTER_ENABLED": "false",
+            "LITELLM_ANTHROPIC_ENABLED": "false",
+        }
+        effective = {**env, **case.get("pending", {})}
+        routed = {**effective, **case["flags"]}
+        for key, value in routed.items():
+            monkeypatch.setenv(key, value)
+        monkeypatch.setenv("ATLAS_CATALOG_DIR", str(ROOT / "bootstrapper/utils"))
+        monkeypatch.setenv("LITELLM_CONFIG_OUT", str(tmp_path / "owned-config.yaml"))
+        monkeypatch.setenv("LITELLM_CONSUMER_MODELS_FILE", str(tmp_path / "absent-models.yaml"))
+        monkeypatch.setitem(sys.modules, "llm_catalog", llm_catalog)
+        spec = importlib.util.spec_from_file_location("owned_alias_init", ROOT / "services/litellm/init/scripts/init.py")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        config = module.render_config(active_models(routed))
+        row = next(row for row in config["model_list"] if row["model_name"] == case.get("model", "shared-embed"))
+        return env, row
+    return render
+
+
+_ALIAS_CASES = [
+    {"id": "both-bare", "dimension": 768, "provider": "ollama", "flags": {"LITELLM_OPENAI_ENABLED": "true"}},
+    {"id": "ollama-alone", "openai": "disabled", "dimension": 768, "provider": "ollama", "flags": {}},
+    {"id": "cloud-alone", "engine": "none", "dimension": 1024, "provider": "openai", "flags": {"LITELLM_OPENAI_ENABLED": "true"}},
+    {"id": "openrouter-alone", "engine": "none", "openai": "disabled", "openrouter": "enabled", "dimension": 2048, "provider": "openrouter", "flags": {"LITELLM_OPENROUTER_ENABLED": "true"}},
+    {"id": "two-clouds", "engine": "none", "openrouter": "enabled", "dimension": 1024, "provider": "openai", "flags": {"LITELLM_OPENAI_ENABLED": "true", "LITELLM_OPENROUTER_ENABLED": "true"}},
+    {"id": "unkeyed-first-cloud", "engine": "none", "key": "", "openrouter": "enabled", "dimension": 2048, "provider": "openrouter", "flags": {"LITELLM_OPENAI_ENABLED": "true", "LITELLM_OPENROUTER_ENABLED": "true"}},
+    {"id": "ollama-canonical", "model": "ollama/shared-embed", "dimension": 768, "provider": "ollama", "flags": {"LITELLM_OPENAI_ENABLED": "true"}},
+    {"id": "pending-deselection", "pending": {"OLLAMA_USER_MODELS": ""}, "dimension": 1024, "provider": "openai", "flags": {"LITELLM_OPENAI_ENABLED": "true"}},
+]
+
+
+@pytest.mark.parametrize("case", _ALIAS_CASES, ids=lambda case: case["id"])
+@pytest.mark.parametrize("action", ["selection", "repair"])
+def test_memory_dimension_matches_actual_active_alias_registration(active_alias_catalog, case, action):
+    import start
+
+    current, row = active_alias_catalog(case)
+    dimension = row["model_info"]["output_vector_size"]
+    assert (dimension, row["model_info"]["atlas_model_metadata"]["provider"]) == (case["dimension"], case["provider"])
+    selections = {"LITELLM_EMBEDDING_MODEL": row["model_name"], **case.get("pending", {})}
+    current = {**current, "LITELLM_EMBEDDING_MODEL": row["model_name"], "LANGMEM_EMBEDDING_DIM": "1024"}
+    writes = []
+    starter = start.AtlasStarter.__new__(start.AtlasStarter)
+    starter.config_parser = SimpleNamespace(parse_env_file=lambda: current)
+    starter.source_override_manager = SimpleNamespace(update_env_file=lambda values: writes.append(dict(values)) or True)
+    if action == "selection":
+        assert starter.apply_user_model_selections(selections)
+        assert writes == [{**selections, "LANGMEM_EMBEDDING_DIM": str(dimension)}]
+    else:
+        assert starter._repair_catalog_embedding_dim({**current, **case.get("pending", {})})
+        assert writes == ([] if dimension == 1024 else [{"LANGMEM_EMBEDDING_DIM": str(dimension)}])
+
+
+@pytest.mark.parametrize("configured", [768, 1024])
+def test_selected_explicit_dimension_is_checked_against_registered_winner(active_alias_catalog, configured):
+    import start
+
+    current, row = active_alias_catalog(_ALIAS_CASES[0])
+    dimension = row["model_info"]["output_vector_size"]
+    assert dimension == 768
+    writes = []
+    starter = start.AtlasStarter.__new__(start.AtlasStarter)
+    starter.config_parser = SimpleNamespace(parse_env_file=lambda: current)
+    starter.source_override_manager = SimpleNamespace(update_env_file=lambda values: writes.append(dict(values)) or True)
+    selection = {"LITELLM_EMBEDDING_MODEL": "shared-embed", "LANGMEM_EMBEDDING_DIM": str(configured)}
+    if configured == dimension:
+        assert starter.apply_user_model_selections(selection)
+        assert writes == [selection]
+    else:
+        with pytest.raises(ValueError, match="produces 768-dim"):
+            starter.apply_user_model_selections(selection)
+        assert writes == []
+
+
+@pytest.mark.parametrize("action", ["selection", "repair", "new-selection"])
+def test_unknown_active_winner_keeps_its_custom_contract(active_alias_catalog, action):
+    import start
+
+    current, row = active_alias_catalog({**_ALIAS_CASES[0], "custom": True})
+    assert (
+        row["model_info"].get("output_vector_size"),
+        row["model_info"]["atlas_model_metadata"]["provider"],
+    ) == (None, "ollama")
+    current = {**current, "LITELLM_EMBEDDING_MODEL": "shared-embed", "LANGMEM_EMBEDDING_DIM": "3072"}
+    writes = []
+    starter = start.AtlasStarter.__new__(start.AtlasStarter)
+    starter.config_parser = SimpleNamespace(parse_env_file=lambda: current)
+    starter.source_override_manager = SimpleNamespace(update_env_file=lambda values: writes.append(dict(values)) or True)
+    if action == "repair":
+        assert starter._repair_catalog_embedding_dim(current)
+        assert writes == []
+    elif action == "selection":
+        assert starter.apply_user_model_selections({"LITELLM_EMBEDDING_MODEL": "shared-embed"})
+        assert writes == [{"LITELLM_EMBEDDING_MODEL": "shared-embed", "LANGMEM_EMBEDDING_DIM": "3072"}]
+    else:
+        current["LITELLM_EMBEDDING_MODEL"] = "another-model"
+        with pytest.raises(ValueError, match="must declare LANGMEM_EMBEDDING_DIM"):
+            starter.apply_user_model_selections({"LITELLM_EMBEDDING_MODEL": "shared-embed"})
+        assert writes == []
+
+
+_WIZARD_ALIAS_CASES = [
+    {"id": "known-fresh", "dim": 768, "contract": 768, "prefill": ""},
+    {"id": "known-saved", "saved": True, "dim": 768, "contract": 768, "prefill": ""},
+    {"id": "custom-fresh", "custom": True, "dim": None, "contract": 3072, "prefill": ""},
+    {"id": "custom-saved", "custom": True, "saved": True, "dim": None, "contract": 3072, "prefill": "3072"},
+    {"id": "pending-custom-add", "custom": True, "current_custom": "", "pending_title": "shared-embed", "pending": {"OLLAMA_CUSTOM_MODELS": "shared-embed"}, "dim": None, "contract": 3072, "prefill": ""},
+    {"id": "pending-custom-keep", "custom": True, "saved": True, "pending_title": "keep", "dim": None, "contract": 3072, "prefill": "3072"},
+    {"id": "pending-custom-clear", "custom": True, "saved": True, "pending_title": "clear", "pending": {"OLLAMA_CUSTOM_MODELS": ""}, "dim": 1024, "contract": 1024, "prefill": ""},
+]
+
+
+@pytest.mark.parametrize("case", _WIZARD_ALIAS_CASES, ids=lambda case: case["id"])
+def test_wizard_dimension_step_follows_registered_alias_contract(active_alias_catalog, case):
+    import start
+    from wizard.llm_steps import (
+        LLM_DEFAULT_EMBED_TITLE, LLM_DEFAULT_EMBED_DIM_TITLE,
+        OLLAMA_CUSTOM_TITLE, SECRET_CLEAR, SECRET_KEEP, build_default_model_steps,
+    )
+    from ui.textual.integration import _embedding_model_selections
+
+    current, row = active_alias_catalog({**_ALIAS_CASES[0], **case})
+    current.update({
+        "LITELLM_EMBEDDING_MODEL": "shared-embed" if case.get("saved") else "ollama/unrelated-embed",
+        "LANGMEM_EMBEDDING_DIM": "3072" if case.get("saved") else "768",
+        "OLLAMA_CUSTOM_MODELS": case.get("current_custom", current["OLLAMA_CUSTOM_MODELS"]),
+    })
+    selections = {LLM_DEFAULT_EMBED_TITLE: "shared-embed"}
+    if "pending_title" in case:
+        selections[OLLAMA_CUSTOM_TITLE] = {"keep": SECRET_KEEP, "clear": SECRET_CLEAR}.get(case["pending_title"], case["pending_title"])
+    steps = {step.title: step for step in build_default_model_steps(current)}
+    options = steps[LLM_DEFAULT_EMBED_TITLE].options_provider(selections)
+    dimension = steps[LLM_DEFAULT_EMBED_DIM_TITLE]
+    assert (
+        row["model_info"].get("output_vector_size"),
+        "shared-embed" in [option.value for option in options],
+        dimension.skip_if_prev(selections), dimension.default_value_provider(selections),
+    ) == (case["dim"], True, case["dim"] is not None, case["prefill"])
+    if case["dim"] is None:
+        selections[LLM_DEFAULT_EMBED_DIM_TITLE] = str(case["contract"])
+    payload = _embedding_model_selections(selections, current, LLM_DEFAULT_EMBED_TITLE, LLM_DEFAULT_EMBED_DIM_TITLE)
+    values = {**payload, **case.get("pending", {})}
+    writes = []
+    starter = start.AtlasStarter.__new__(start.AtlasStarter)
+    starter.config_parser = SimpleNamespace(parse_env_file=lambda: current)
+    starter.source_override_manager = SimpleNamespace(update_env_file=lambda value: writes.append(dict(value)) or True)
+    assert starter.apply_user_model_selections(values)
+    assert writes == [{**values, "LANGMEM_EMBEDDING_DIM": str(case["contract"])}]
+
+
+@pytest.mark.parametrize("secret", ["<KEEP>", "owned-new-synthetic-key"])
+@pytest.mark.parametrize("case", [
+    ("", None, "openrouter"),
+    (None, 1024, "openai"),
+    ("<KEEP>", 1024, "openai"),
+    ("shared-embed", 1024, "openai"),
+    (",", 1024, "openai"),
+])
+def test_wizard_cloud_models_verdict_matches_projected_alias(
+    active_alias_catalog, secret, case
+):
+    import importlib.util
+    import start
+    from ui.textual.integration import _selections_to_args
+    from utils.model_resolver import active_models
+    from wizard.llm_steps import (
+        LLM_DEFAULT_EMBED_TITLE, LLM_DEFAULT_EMBED_DIM_TITLE,
+        build_default_model_steps, cloud_models_title, cloud_secret_title,
+    )
+
+    models, dimension, provider = case
+    current, _ = active_alias_catalog({
+        **_ALIAS_CASES[0], "engine": "none", "openrouter": "enabled",
+        "openai_default": True, "router_catalog": "unrelated-embed",
+        "flags": {"LITELLM_OPENAI_ENABLED": "true", "LITELLM_OPENROUTER_ENABLED": "true"},
+    })
+    current.update({"LITELLM_EMBEDDING_MODEL": "old-embed", "LANGMEM_EMBEDDING_DIM": "768"})
+    selections = {
+        LLM_DEFAULT_EMBED_TITLE: "shared-embed",
+        cloud_secret_title("OpenAI"): secret,
+        cloud_models_title("OpenAI"): models,
+    }
+    steps = {step.title: step for step in build_default_model_steps(current)}
+    prompt = steps[LLM_DEFAULT_EMBED_DIM_TITLE]
+    assert prompt.skip_if_prev(selections) == (dimension is not None)
+    if dimension is None:
+        selections[LLM_DEFAULT_EMBED_DIM_TITLE] = "3072"
+    sources, options = _selections_to_args(selections, [], 63000, current)
+    effective = {**current, **{key.upper(): value for key, value in sources.items()},
+                 **options["cloud_api_keys"], **options["cloud_user_models"]}
+    launch_env = start._launch_model_env(effective)
+    spec = importlib.util.spec_from_file_location("owned_cloud_verdict_init", ROOT / "services/litellm/init/scripts/init.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    rendered = module.render_config(active_models(launch_env))
+    row = next(row for row in rendered["model_list"] if row["model_name"] == "shared-embed")
+    assert (row["model_info"].get("output_vector_size"),
+            row["model_info"]["atlas_model_metadata"]["provider"]) == (dimension, provider)
+    writes = []
+    starter = start.AtlasStarter.__new__(start.AtlasStarter)
+    starter.config_parser = SimpleNamespace(parse_env_file=lambda: effective)
+    starter.source_override_manager = SimpleNamespace(update_env_file=lambda values: writes.append(dict(values)) or True)
+    assert (
+        starter.apply_user_model_selections(options["default_model_selections"]),
+        writes, "metadata-only" in repr((sources, options, writes)), effective["OPENAI_API_KEY"],
+    ) == (
+        True, [{"LITELLM_EMBEDDING_MODEL": "shared-embed", "LANGMEM_EMBEDDING_DIM": str(dimension or 3072)}],
+        False, current["OPENAI_API_KEY"] if secret == "<KEEP>" or models == "" else secret,
+    )
