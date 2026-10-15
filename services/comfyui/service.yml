@@ -77,7 +77,7 @@ env:
     description: "Host port for the localhost source variant. URL is derived at compose-render time as http://host.docker.internal:8000."
   - name: COMFYUI_MPS_LOCALHOST_PORT
     default: "8188"
-    description: "Fixed host port the Atlas-managed Apple-Silicon/MPS ComfyUI listens on (source=managed-localhost-mps). Containers reach it as http://host.docker.internal:8188. Named with the _LOCALHOST_ host-port convention so the topology slot allocator leaves the fixed default intact."
+    description: "Fixed host port the Atlas-managed Apple-Silicon/MPS ComfyUI listens on (source=managed-localhost-mps). Containers reach it as http://host.docker.internal:8188. Named with the `_LOCALHOST_` host-port convention so the topology slot allocator leaves the fixed default intact."
   - name: COMFYUI_MPS_REF
     default: "v0.27.0"
     description: "Pinned upstream ComfyUI git ref the managed MPS host process checks out (mirrors COMFYUI_REF for the container path). A release tag or full commit SHA."
