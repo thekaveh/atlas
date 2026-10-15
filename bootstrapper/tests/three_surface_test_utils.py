@@ -55,3 +55,26 @@ def surface_text(source: str, surface: str) -> str:
     else:
         raise ValueError(f"Unknown documentation surface: {surface}")
     return path.read_text(encoding="utf-8")
+
+
+def markdown_block_shape(text: str) -> list[tuple[str, int]]:
+    """Record list, quote and code-block containers without their prose."""
+    from html.parser import HTMLParser
+
+    class Blocks(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.shape = []
+
+        def handle_starttag(self, tag, attrs):
+            if tag in {"ul", "ol", "li", "pre", "blockquote"}:
+                self.shape.append((tag, 1))
+
+        def handle_endtag(self, tag):
+            if tag in {"ul", "ol", "li", "pre", "blockquote"}:
+                self.shape.append((tag, -1))
+
+    parser = Blocks()
+    parser.feed(text)
+    parser.close()
+    return parser.shape

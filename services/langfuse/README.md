@@ -102,12 +102,13 @@ _No high-confidence opportunities identified._
 ## 6. Troubleshooting
 
 - **No traces appear and nothing errors.** The SDK fails silently. Check in this order:
-  1. `LANGFUSE_SOURCE=container`, and the regenerated LiteLLM config has the `langfuse` callback.
-  2. `docker exec <project>-litellm printenv LANGFUSE_HOST` prints your local endpoint (`http://langfuse-web:3000`). If the variable is missing, the SDK sends traces to `https://cloud.langfuse.com`. That host rejects your keys and drops the data without a log line. An empty value also keeps traces from local Langfuse.
-  3. `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` match the initial project keys.
-  4. The call went through LiteLLM (§4.2). A LightRAG role bound to a native provider never reaches it.
+    1. `LANGFUSE_SOURCE=container`, and the regenerated LiteLLM config has the `langfuse` callback.
+    2. `docker exec <project>-litellm printenv LANGFUSE_HOST` prints your local endpoint (`http://langfuse-web:3000`). If the variable is missing, the SDK sends traces to `https://cloud.langfuse.com`. That host rejects your keys and drops the data without a log line. An empty value also keeps traces from local Langfuse.
+    3. `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` match the initial project keys.
+    4. The call went through LiteLLM (§4.2). A LightRAG role bound to a native provider never reaches it.
 
-  To probe end to end, make one chat completion through LiteLLM. Then run `curl -u "$LANGFUSE_PUBLIC_KEY:$LANGFUSE_SECRET_KEY" http://localhost:${LANGFUSE_PORT}/api/public/traces` and check that `meta.totalItems` went up. Use the direct port: through Kong, the dashboard basic auth takes the `Authorization` header.
+    To probe end to end, make one chat completion through LiteLLM. Then run `curl -u "$LANGFUSE_PUBLIC_KEY:$LANGFUSE_SECRET_KEY" http://localhost:${LANGFUSE_PORT}/api/public/traces` and check that `meta.totalItems` went up. Use the direct port: through Kong, the dashboard basic auth takes the `Authorization` header.
+
 - **`langfuse-web` is `(unhealthy)` but the UI works.** Next.js binds `$HOSTNAME`, which Docker sets to the container ID, so loopback probes fail. Atlas sets `HOSTNAME=0.0.0.0`. If the problem returns, check `docker exec <project>-langfuse-web printenv HOSTNAME`.
 - **Langfuse is auto-disabled at start:** Langfuse needs MinIO for S3-compatible event storage. With `MINIO_SOURCE=disabled`, `./start.sh` reports a dependency violation and scales Langfuse to 0. Set `MINIO_SOURCE=container`.
 - **Rollback to direct LiteLLM behavior:** for a rollback, set `LANGFUSE_SOURCE=disabled` and rerun `./start.sh`. The Langfuse containers scale to zero, Kong stops routing `langfuse.localhost`, and LiteLLM no longer emits the Langfuse `success_callback` / `failure_callback`.

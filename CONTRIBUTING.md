@@ -83,14 +83,16 @@ Documentation is published to three surfaces (this repository, the documentation
 - **Open the pull request against `develop`.** Never target `main`: it only receives release pull requests that promote `develop` (see [Releasing](docs/operations/releasing.md)).
 - **Title it as a Conventional Commits subject**: `type: summary`. Add an optional `(scope)` after the type, and a `!` before the colon only for a breaking change. Examples: `fix(backend): report Redis as unavailable when the readiness probe times out`, `docs(contributing): link the backend test path`. [Releasing](docs/operations/releasing.md) §6 lists the accepted types.
 
-  Title edits rerun the full workflow. A single-commit pull request can default to its commit subject under the current squash policy. Before merging, ensure the final squash subject matches the checked title; the changelog generator reads that subject.
-- **Four required checks must pass**, all run by `.github/workflows/services-lint.yml`:
-  - `Manifest lint + unit tests`
-  - `Compose merge + byte-equivalence + source-permutation matrix`
-  - `Docs drift + audit scripts`
-  - `Build-validation (Dockerfile + requirements.txt installability)`
+    Title edits rerun the full workflow. A single-commit pull request can default to its commit subject under the current squash policy. Before merging, ensure the final squash subject matches the checked title; the changelog generator reads that subject.
 
-  [Adding a service](docs/CONTRIBUTING-services.md) §13.4 says what each one catches and lists a representative local subset. The first is a gate over four parallel jobs. A failing unit test shows up first as a red **Bootstrapper suite without Docker (fast)** check. A new commit or edit cancels the pull request's previous run.
+- **Four required checks must pass**, all run by `.github/workflows/services-lint.yml`:
+    - `Manifest lint + unit tests`
+    - `Compose merge + byte-equivalence + source-permutation matrix`
+    - `Docs drift + audit scripts`
+    - `Build-validation (Dockerfile + requirements.txt installability)`
+
+    [Adding a service](docs/CONTRIBUTING-services.md) §13.4 says what each one catches and lists a representative local subset. The first is a gate over four parallel jobs. A failing unit test shows up first as a red **Bootstrapper suite without Docker (fast)** check. A new commit or edit cancels the pull request's previous run.
+
 - **Before merge**, the branch must be up to date with `develop` (merge `develop` into it) and every review conversation must be resolved. A maintainer squash-merges it.
 - **Link the issue** in the pull request body. The pull request targets `develop`, not the default branch, so GitHub does not close the issue on merge. A maintainer closes it once the change lands.
 

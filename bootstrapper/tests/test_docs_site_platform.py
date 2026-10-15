@@ -920,3 +920,44 @@ def test_styled_homepage_links_keep_their_targets_on_every_surface() -> None:
     wiki_links = re.findall(r'<a class="atlas-[\w-]+" href="([^"]+)">', wiki)
     assert len(wiki_links) == len(links)
     assert not [href for href in wiki_links if href.endswith(".md")]
+
+
+@pytest.mark.parametrize("source", [
+    "services/parakeet/provider/mlx/README.md",
+    "docs/CONTRIBUTING-services.md",
+    "CONTRIBUTING.md",
+    "services/openclaw/README.md",
+    "services/kong/README.md",
+    "services/neo4j/README.md",
+    "services/ray/README.md",
+    "services/hermes/README.md",
+    "services/langfuse/README.md",
+    "docs/CHANGELOG.md",
+])
+def test_canonical_lists_form_semantic_html(source: str, tmp_path: Path) -> None:
+    import io
+    import markdown
+    from markdown_it import MarkdownIt
+    from mkdocs.config import load_config
+    from tests.three_surface_test_utils import markdown_block_shape
+
+    config = load_config(
+        io.StringIO(render_mkdocs_yml(_manifest())),
+        config_file_path=str(ROOT / "mkdocs.yml"),
+        docs_dir=str(DOCS_SITE),
+        site_dir=str(tmp_path / "site"),
+    )
+    canonical = (ROOT / source).read_text(encoding="utf-8")
+    rendered = markdown.markdown(
+        canonical,
+        extensions=config.markdown_extensions,
+        extension_configs=config.mdx_configs,
+    )
+    expected = []
+    for token in MarkdownIt("commonmark").parse(canonical):
+        if token.tag in {"ul", "ol", "li", "blockquote"}:
+            expected.append((token.tag, token.nesting))
+        elif token.type in {"fence", "code_block"}:
+            expected.extend([("pre", 1), ("pre", -1)])
+
+    assert markdown_block_shape(rendered) == expected, source

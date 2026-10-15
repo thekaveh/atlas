@@ -43,6 +43,7 @@ and the existing `GET`/`DELETE .../{job_id}` routes reconcile or stop it.
 ## 4. Architecture & wiring
 
 **Containers in the family:**
+
 - `ray-head` — the cluster controller. Runs `ray start --head`. Exposes ports 8265 (dashboard + REST), 6379 (GCS) and 10001 (client server). The GCS speaks the Redis protocol but is not the project's Redis cache. Healthcheck on `:8265/api/version`.
 - `ray-worker` — one or more replicas. Runs `ray start --address=ray-head:6379 --block`. No host ports.
 
@@ -53,6 +54,7 @@ and the existing `GET`/`DELETE .../{job_id}` routes reconcile or stop it.
 **No runtime dependencies.** Ray includes its own GCS (Redis-protocol cluster controller) and Plasma object store. The `supabase` and `redis` entries in `depends_on.required` only fix display order, so Kong wins the alphabetical tie in the infra port-slot block. Ray does not call them.
 
 **Consumers in the stack:**
+
 - **Backend** — exposes `POST /api/ray/jobs/submit`, `GET`/`DELETE /api/ray/jobs/{job_id}`, and `GET /api/ray/cluster/status`. It adapts via `RAY_ADDRESS` set by `_generate_ray_config()` and requires `RAY_JOB_API_TOKEN` as a bearer token on every route.
 - **JupyterHub** — receives `RAY_ADDRESS`, and `services/jupyterhub/build/notebooks/07_ray_cluster.ipynb` calls `ray.init()`. That call fails because the kernel runs Python 3.13 and the Ray image runs Python 3.10 (open issue #1374). Until that issue is resolved, submit notebook work through the Ray Jobs REST API at `http://ray-head:8265/api/jobs/`. §6 has an example.
 - **Hermes** — no Ray submission integration is wired today. A future integration must receive `RAY_JOB_API_TOKEN` through a scoped client contract before it can call Backend's protected Ray routes.
@@ -95,15 +97,16 @@ _No high-confidence opportunities identified._
 - **Workers stuck "starting"** — they `depends_on: ray-head: service_healthy`. The head's `start_period: 60s` allows up to 60s before health checks count. If still stuck after 2 minutes, check the head's healthcheck output: `docker exec ${PROJECT_NAME}-ray-head wget -qO- http://localhost:8265/api/version` (the image ships wget, not curl).
 - **`ray.init("ray://…")` fails with a version mismatch** — Ray Client needs the same `ray` version and the same Python minor version on both sides. `rayproject/ray:2.56.0` runs Python 3.10. From the host, use Python 3.10 with `ray>=2.56.0,<2.57`. The JupyterHub kernel runs Python 3.13, so `07_ray_cluster.ipynb` fails at `ray.init()` (open issue #1374). From a notebook, use the Ray Jobs REST API instead:
 
-  ```python
-  import time, requests
-  api = "http://ray-head:8265/api/jobs/"
-  entry = "python -c 'import ray; ray.init(); print(ray.cluster_resources())'"
-  job_id = requests.post(api, json={"entrypoint": entry}).json()["submission_id"]
-  while requests.get(api + job_id).json()["status"] not in ("SUCCEEDED", "FAILED", "STOPPED"):
-      time.sleep(2)
-  print(requests.get(api + job_id + "/logs").json()["logs"])
-  ```
+    ```python
+    import time, requests
+    api = "http://ray-head:8265/api/jobs/"
+    entry = "python -c 'import ray; ray.init(); print(ray.cluster_resources())'"
+    job_id = requests.post(api, json={"entrypoint": entry}).json()["submission_id"]
+    while requests.get(api + job_id).json()["status"] not in ("SUCCEEDED", "FAILED", "STOPPED"):
+        time.sleep(2)
+    print(requests.get(api + job_id + "/logs").json()["logs"])
+    ```
+
 - **Dashboard unreachable through Kong** — Kong's `ray.localhost` route requires `--setup-hosts` to have run AND basic-auth credentials match `DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD` in `.env`. The unauthenticated direct port works only from the Docker host because Compose binds it to `127.0.0.1`.
 
 ## 7. Capabilities & limitations
