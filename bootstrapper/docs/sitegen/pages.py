@@ -480,9 +480,11 @@ ARCHITECTURE_INTERPRETATIONS: dict[str, str] = {
     "data-engineering-lakehouse-flow": (
         (
             'Iceberg REST keeps its catalog metadata in Supabase Postgres through a JDBC '
-            'catalog, not a Hive metastore. If `CATALOG_URI` does not point at '
-            '`jdbc:postgresql://supabase-db:5432/iceberg`, the base image falls back to a'
-            ' local SQLite catalog that a restart loses. Trino runs one coordinator and '
+            'catalog, not a Hive metastore. Atlas sets `CATALOG_URI` to '
+            '`jdbc:postgresql://supabase-db:5432/iceberg`. The fixture uses in-memory '
+            'SQLite when the catalog URI is absent; a restart loses that metadata. '
+            'A supplied URI is used as configured; invalid connections can prevent '
+            'startup. Trino runs one coordinator and '
             'no workers, by design. Spark still starts with '
             '`ICEBERG_REST_SOURCE=disabled` for ML-only use; only lakehouse SQL fails.'
         )
