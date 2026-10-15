@@ -165,7 +165,7 @@ Note: backend, open-webui, n8n, jupyterhub, local-deep-researcher, hermes and we
 
 ### 6.5. Future — Candidate new services
 
-- **OpenLIT** ([details](https://github.com/thekaveh/atlas/blob/main/docs/research/candidates/openlit.md)) — *Headline:* OpenTelemetry-native observability for LLM + vector calls with first-class Ollama instrumentation. *Wires into:* backend, hermes, jupyterhub, weaviate, litellm.
+- **OpenLIT** ([details](../../docs/reference/candidate-decisions.md#candidate-openlit)) — *Headline:* OpenTelemetry-native observability for LLM + vector calls with first-class Ollama instrumentation. *Wires into:* backend, hermes, jupyterhub, weaviate, litellm.
 
 ### 6.6. Future — Unused features in this service
 

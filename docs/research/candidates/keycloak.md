@@ -5,6 +5,7 @@ generated: 2026-05-19
 license: Apache-2.0
 lifecycle: deferred
 name: Keycloak
+public-summary: Deferred pending an identity-provider choice. Consumer configuration, credential migration and route authentication require a coordinated design.
 referenced-by: [kong]
 slug: keycloak
 superseded-by: docs/strategy/authentik-sso-pilot-evaluation.md

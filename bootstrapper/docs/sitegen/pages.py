@@ -880,6 +880,7 @@ uv run --project bootstrapper python scripts/check-track-membership.py
 - [Service dependencies](service-dependencies.md)
 - [Manifest fields](manifest-fields.md)
 - [Supply-chain license inventory](license-inventory.md)
+- [Candidate decisions](candidate-decisions.md)
 
 ## 2. Hand-written References
 

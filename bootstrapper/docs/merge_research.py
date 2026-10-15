@@ -15,6 +15,8 @@ Deterministic and idempotent: re-running produces byte-identical output.
 from __future__ import annotations
 
 import argparse
+from datetime import date
+from urllib.parse import urlsplit
 import json
 import re
 import sys
@@ -90,6 +92,67 @@ def closed_candidate_slugs(root: Path = DEFAULT_ROOT) -> frozenset[str]:
         if parsed and parsed[0].get("lifecycle") in CLOSED_LIFECYCLES:
             closed.add(str(parsed[0].get("slug", path.stem)))
     return frozenset(closed)
+
+
+
+def _public_text(fields: dict, key: str, path: Path) -> str:
+    value = fields.get(key)
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{path}: {key} must be a non-empty string")
+    return value
+
+
+def _public_decision_date(fields: dict, path: Path) -> date | None:
+    value = fields.get("decided")
+    if value is None and fields["lifecycle"] == "proposed":
+        return None
+    if type(value) not in (str, date) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(value)):
+        raise ValueError(f"{path}: decided must be YYYY-MM-DD")
+    try:
+        return date.fromisoformat(str(value))
+    except ValueError as exc:
+        raise ValueError(f"{path}: decided must be a real calendar date") from exc
+
+
+def _public_decision(fields: dict, path: Path) -> dict:
+    record = {key: _public_text(fields, key, path) for key in (
+        "slug", "name", "lifecycle", "upstream", "public-summary",
+    )}
+    slug = record["slug"]
+    if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", slug) or slug != path.stem:
+        raise ValueError(f"{path}: slug must be safe and match the record basename")
+    if record["lifecycle"] not in {"proposed", "planned", "deferred", "shipped", "rejected"}:
+        raise ValueError(f"{path}: lifecycle is not a recognized candidate lifecycle")
+    upstream = record["upstream"]
+    try:
+        parsed = urlsplit(upstream)
+    except ValueError as exc:
+        raise ValueError(f"{path}: upstream must be an http(s) project URL") from exc
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc or re.search(r"\s", upstream):
+        raise ValueError(f"{path}: upstream must be an http(s) project URL")
+    record["decided"] = _public_decision_date(fields, path)
+    return record
+
+
+def load_public_decisions(root: Path = DEFAULT_ROOT) -> list[dict]:
+    """Load only opted-in decision metadata; internal research bodies stay private."""
+    records = {}
+    for path in sorted((root / "candidates").glob("*.md")):
+        if path.name == "README.md":
+            continue
+        text = path.read_text(encoding="utf-8")
+        parsed = _parse(text)
+        if parsed is None:
+            if re.search(r"(?m)^public-summary\s*:", text):
+                raise ValueError(f"{path}: public-summary has unparseable front matter")
+            continue
+        if "public-summary" not in parsed[0]:
+            continue
+        record = _public_decision(parsed[0], path)
+        if record["slug"] in records:
+            raise ValueError(f"{path}: duplicate public candidate slug {record['slug']}")
+        records[record["slug"]] = record
+    return [records[slug] for slug in sorted(records)]
 
 
 def _write_or_check(path: Path, text: str, check: bool) -> bool:

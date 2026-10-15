@@ -22,7 +22,7 @@
       "functions_over_100_physical_lines": 85,
       "functions_over_4_parameters": 156,
       "modules_over_600_logical_lines": 21,
-      "tracked_files": 1615,
+      "tracked_files": 1616,
       "v0.1.0_tracked_files": 667
     },
     "extended_python_baseline_snapshot": {
@@ -301,6 +301,7 @@
     "refresh_notes_2026_09_29_issue_1246": "Reviewed the exact #1246 branch from base batch/2026-09-next10 (47d3e4b2): tracked_files increases 1599->1602 for exactly three required artifacts: scripts/lint_review_ticket.py (the one implementation of the machine-generated review-ticket minimum bar, R1-R9 plus evidence re-resolution E1, blocking only on R1 and R3), .github/workflows/review-ticket-lint.yml (the filing-time issues workflow that labels and comments on marked tickets), and bootstrapper/tests/test_lint_review_ticket.py (rule, CLI and workflow-reconcile coverage; a new file because the module is new). COMPLEXITY, MEASURED NOT ASSUMED: core is 426/251/84/23/156/21 and extended Python 62/29/9/2/40/1, identical to the base; the first draft's C-grade budget check (13) was rewritten as a budget table instead of raising a ceiling. No file was excluded or deleted to fit any count.",
     "refresh_notes_2026_10_09_docs_repair": "Documentation repair branch docs/audit-repair-2026-10-09: tracked_files increases 1610->1613 for exactly three required artifacts: .docs-prose-baseline.json (the per-file ratchet baseline of the STE prose-length gate in scripts/check-docs-drift.py, regenerated with --write-prose-baseline), docs/superpowers/README.md (the repository-only home of the generated plan-archive range, which was a dead link on the published documentation map), and docs/reference/consumer-manifest.md (the Consumer Manifest Reference page, 10.8). COMPLEXITY, MEASURED NOT ASSUMED: the new prose-length helpers in scripts/docs/content_quality.py and scripts/check-docs-drift.py were split until every new function is below Radon C, under 60 lines and at most 4 parameters; no ceiling other than tracked_files moves. No file was excluded or deleted to fit any count.",
     "refresh_notes_2026_10_11": "Adds exactly one tracked file: docs/strategy/openshell-agent-sandbox-evaluation.md, an NVIDIA OpenShell agent-sandbox evaluation landed from an unmerged branch. tracked_files moves 1614->1615; no code changed, so all complexity ceilings are unchanged.",
+    "refresh_notes_2026_10_15_candidate_decisions": "tracked_files 1615->1616: exactly one generated public reference, docs/reference/candidate-decisions.md, publishes opted-in recorded candidate decisions for existing service-guide links. Existing research bodies remain private and unchanged. No complexity ceiling changes.",
     "refresh_notes_2026_10_14_backfill": "Canonical literal parsing replaces raw hash splitting in env backfill and its headless summary. AtlasStarter.backfill_missing_env_vars drops from E (33) to D (25); its former E disposition is retired. Cohesive helpers preserve encoded defaults, canonical keys, exported assignments, intentional empty selections, migration ownership, section placement and line boundaries. No baseline ceiling or tracked-file count changes."
   }
 }

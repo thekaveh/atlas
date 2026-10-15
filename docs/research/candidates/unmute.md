@@ -5,6 +5,7 @@ generated: 2026-07-04
 license: MIT
 lifecycle: deferred
 name: Unmute (Kyutai)
+public-summary: Deferred pending client compatibility and resource qualification. Authentication, session behavior and coexistence with existing speech providers need a design before adoption.
 referenced-by: [tts-provider]
 slug: unmute
 superseded-by: https://github.com/thekaveh/atlas/issues/237

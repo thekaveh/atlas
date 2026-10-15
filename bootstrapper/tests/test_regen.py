@@ -6,6 +6,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
@@ -324,3 +326,61 @@ def test_a_relative_out_root_naming_services_still_merges_the_matrix(monkeypatch
 
     assert regen._merge_research_index(args) == 0
     assert calls == [(regen.RESEARCH_ROOT, True)]
+
+
+
+def _public_candidate_link(slug):
+    return f"[details](../../docs/reference/candidate-decisions.md#candidate-{slug})"
+
+
+def test_public_candidate_lifecycle_preserves_commonmark_items():
+    from bootstrapper.docs.regen import _drop_closed_candidates
+
+    gone, kept = _public_candidate_link("gone"), _public_candidate_link("kept")
+    closed = frozenset({"gone"})
+    loose = f"- Gone {gone}\n\n  A continuation.\n\n- Kept {kept}"
+    fenced = f"```markdown\n- Example {gone}\n```\n\n- Gone {gone}"
+    mixed = f"- Both {gone} and {_link('kept')}"
+    assert _drop_closed_candidates(loose, closed) == f"- Kept {kept}"
+    assert _drop_closed_candidates(fenced, closed) == fenced.rsplit("\n\n", 1)[0]
+    assert _drop_closed_candidates(mixed, closed) == mixed
+    assert _drop_closed_candidates(f"- Open {kept}", closed) == f"- Open {kept}"
+    assert _drop_closed_candidates(f"- Gone {gone}", frozenset()) == f"- Gone {gone}"
+
+
+def test_public_closed_candidate_uses_placeholder():
+    from bootstrapper.docs.deps_resolver import build_doc_graph
+    from bootstrapper.docs.regen import PLACEHOLDER_LINE, _render_section_with_future
+
+    graph = build_doc_graph("hermes", REPO_ROOT / "services")
+    existing = _future_readme(f"- Gone {_public_candidate_link('gone')}")
+    block = _candidate_block(_render_section_with_future(graph, existing, frozenset({"gone"})))
+    assert PLACEHOLDER_LINE in block and "candidate-gone" not in block
+
+
+@pytest.mark.parametrize("lifecycle", ["shipped", "rejected"])
+def test_public_lifecycle_prunes_guide_and_matrix_but_retains_decision(tmp_path, lifecycle):
+    from bootstrapper.docs.merge_research import load_public_decisions
+
+    research = tmp_path / "research"
+    records = research / "candidates"
+    records.mkdir(parents=True)
+    record = records / "public-one.md"
+    record.write_text(
+        "---\nslug: public-one\nname: Fixture decision\nlifecycle: proposed\n"
+        "public-summary: A distinct recorded admission condition for this fixture.\n"
+        "upstream: https://example.org/fixture\n---\n\nPrivate body.\n"
+    )
+    services = tmp_path / "services"
+    guide = services / "hermes" / "README.md"
+    guide.parent.mkdir(parents=True)
+    guide.write_text(_future_readme(f"- Proposed {_public_candidate_link('public-one')}"))
+    _close(record, lifecycle)
+
+    result = _run("--all", "--out-root", str(services), "--research-root", str(research),
+                  "--section-only")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "candidate-public-one" not in guide.read_text()
+    assert "Fixture decision" not in (research / "integration-matrix.md").read_text()
+    assert load_public_decisions(research)[0]["lifecycle"] == lifecycle

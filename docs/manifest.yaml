@@ -651,6 +651,10 @@ sections:
     number: '10.8'
     title: Consumer Manifest Reference
     source: docs/reference/consumer-manifest.md
+  - id: candidate-decisions
+    number: '10.9'
+    title: Candidate Decisions
+    source: docs/reference/candidate-decisions.md
 diagrams:
 - id: atlas-platform
   master: docs/diagrams/architecture.html
