@@ -171,8 +171,8 @@ When `LIGHTRAG_SOURCE != disabled`, n8n containers receive `LIGHTRAG_ENDPOINT` a
 
 ### 6.5. Future — Candidate new services
 
-- **Browserless** ([details](https://github.com/thekaveh/atlas/blob/main/docs/research/candidates/browserless.md)) — *Headline:* headless-Chrome backend so n8n can scrape JS-rendered pages, render PDFs, screenshot. *Wires into:* searxng, doc-processor, backend.
-- **NocoDB** ([details](https://github.com/thekaveh/atlas/blob/main/docs/research/candidates/nocodb.md)) — *Headline:* spreadsheet UI over the existing Supabase Postgres, with a first-party n8n node for row CRUD. *Wires into:* supabase, backend.
+- **Browserless** ([details](../../docs/reference/candidate-decisions.md#candidate-browserless)) — *Headline:* headless-Chrome backend so n8n can scrape JS-rendered pages, render PDFs, screenshot. *Wires into:* searxng, doc-processor, backend.
+- **NocoDB** ([details](../../docs/reference/candidate-decisions.md#candidate-nocodb)) — *Headline:* spreadsheet UI over the existing Supabase Postgres, with a first-party n8n node for row CRUD. *Wires into:* supabase, backend.
 
 ### 6.6. Future — Unused features in this service
 

@@ -285,7 +285,7 @@ See §5.
 
 ### 12.5. Future — Candidate new services
 
-- **Honcho** ([details](https://github.com/thekaveh/atlas/blob/main/docs/research/candidates/honcho.md)) — *Headline:* hosted/self-hostable user-memory store explicitly listed as an OpenClaw memory-engine backend. *Wires into:* hermes, backend, local-deep-researcher.
+- **Honcho** ([details](../../docs/reference/candidate-decisions.md#candidate-honcho)) — *Headline:* hosted/self-hostable user-memory store explicitly listed as an OpenClaw memory-engine backend. *Wires into:* hermes, backend, local-deep-researcher.
 
 ### 12.6. Future — Unused features in this service
 

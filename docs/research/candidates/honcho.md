@@ -5,6 +5,7 @@ generated: 2026-07-04
 license: AGPL-3.0
 lifecycle: deferred
 name: Honcho
+public-summary: Deferred until existing memory options cannot meet a named cross-agent workflow. User isolation, consent, retention and deletion need an explicit design.
 referenced-by: [openclaw]
 slug: honcho
 superseded-by: https://github.com/thekaveh/atlas/issues/238

@@ -5,6 +5,7 @@ generated: 2026-05-19
 license: MIT
 lifecycle: deferred
 name: mcpo (MCP-to-OpenAPI Proxy)
+public-summary: Deferred pending a curated tool set and an authentication model. Secret delivery, token scope and writable tool storage need an integration design.
 referenced-by: [open-webui]
 slug: mcpo
 superseded-by: https://github.com/thekaveh/atlas/issues/195

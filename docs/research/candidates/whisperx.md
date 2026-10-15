@@ -5,6 +5,7 @@ generated: 2026-07-04
 license: BSD-2-Clause
 lifecycle: deferred
 name: WhisperX
+public-summary: Deferred until a named audio-ingestion workflow needs speaker labels and word timings. Model access, resource limits, retention and transcript provenance need an integration design.
 referenced-by: [stt-provider]
 slug: whisperx
 superseded-by: https://github.com/thekaveh/atlas/issues/223

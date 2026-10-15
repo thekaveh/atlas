@@ -5,6 +5,7 @@ generated: 2026-07-04
 license: Apache-2.0 (OSS) / proprietary (SaaS at omnivoice.app)
 lifecycle: deferred
 name: OmniVoice (k2-fsa)
+public-summary: Deferred until a maintained serving endpoint can support Atlas integration. A library proposal does not establish a supported HTTP service or selectable TTS source.
 referenced-by: []
 slug: omnivoice
 superseded-by: https://github.com/thekaveh/atlas/issues/237

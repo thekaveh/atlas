@@ -108,8 +108,8 @@ _No upstream calls._
 
 ### 6.5. Future — Candidate new services
 
-- **[RedisInsight](../../docs/research/candidates/redisinsight.md)** — *Headline:* official Redis GUI for browsing keys, profiling commands, and inspecting streams across all stack consumers. *Wires into:* backend, n8n, kong, litellm, open-webui, jupyterhub.
-- **[Redis Stack (`redis-stack-server`)](../../docs/research/candidates/redis-stack.md)** — *Headline:* drop-in Redis image bundling RediSearch, RedisJSON, RedisBloom, and RedisTimeSeries — unlocks vector + JSON queries without a second datastore. *Wires into:* backend, weaviate (overlap), n8n, hermes.
+- **[RedisInsight](../../docs/reference/candidate-decisions.md#candidate-redisinsight)** — *Headline:* official Redis GUI for browsing keys, profiling commands, and inspecting streams across all stack consumers. *Wires into:* backend, n8n, kong, litellm, open-webui, jupyterhub.
+- **[Redis Stack (`redis-stack-server`)](../../docs/reference/candidate-decisions.md#candidate-redis-stack)** — *Headline:* drop-in Redis image bundling RediSearch, RedisJSON, RedisBloom, and RedisTimeSeries — unlocks vector + JSON queries without a second datastore. *Wires into:* backend, weaviate (overlap), n8n, hermes.
 
 ### 6.6. Future — Unused features in this service
 

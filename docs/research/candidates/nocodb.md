@@ -5,6 +5,7 @@ generated: 2026-07-04
 license: AGPL-3.0
 lifecycle: deferred
 name: NocoDB
+public-summary: Deferred until a named human-review workflow needs editable operational rows. Review ownership, provenance and authentication must be defined before adding another user interface.
 referenced-by: [n8n]
 slug: nocodb
 superseded-by: https://github.com/thekaveh/atlas/issues/221
