@@ -51,7 +51,7 @@ A Kong gate applies only through the `*.localhost` alias. The service's direct p
 | JupyterHub | `jupyter.localhost` | Service-native | A Jupyter token (`?token=…`). With `JUPYTERHUB_TOKEN` empty, the default, Jupyter generates one and prints it in the container log on every start. | `services/jupyterhub/README.md` |
 | OpenClaw | `openclaw.localhost` | Atlas-generated secret | `OPENCLAW_GATEWAY_TOKEN`, generated into `.env` on start when empty and kept once set. | `services/openclaw/README.md` |
 | Prometheus | `prometheus.localhost` | No login | The route adds no auth; the scrape paths stay internal. | `services/prometheus/README.md` |
-| Hermes dashboard | `hermes.localhost` | Atlas-generated secret | Kong dashboard basic-auth. The dashboard itself runs in upstream's unauthenticated mode, so its direct host port has no login. | `services/hermes/README.md` |
+| Hermes dashboard | `hermes.localhost` | Atlas-generated secret | Kong dashboard basic-auth. No container dashboard host port is published. Backend-network peers remain unauthenticated in insecure mode. | `services/hermes/README.md` |
 | Spark | `spark.localhost`, `spark-history.localhost` | No login | Master and History Server UIs are open. | `services/spark/README.md` |
 | Zeppelin | direct `localhost:${ZEPPELIN_PORT}` (no Kong alias) | No login | Loopback-bound. | `services/zeppelin/README.md` |
 | Weaviate | `weaviate.localhost` | No login | Anonymous access is enabled. | `services/weaviate/README.md` |
@@ -64,6 +64,10 @@ A Kong gate applies only through the `*.localhost` alias. The service's direct p
 | Atlas dashboard | `localhost` | No login | Static page served by Kong. | `bootstrapper/utils/atlas_dashboard.py` |
 
 **Supabase routes without `apikey`.** Public-bucket, signed and signed-upload object URLs (`/storage/v1/object/public/`, `/storage/v1/object/sign/`, `/storage/v1/object/upload/sign/`) need no `apikey`. Storage checks the bucket flag or token; creating a signed URL still needs a user JWT. The GoTrue browser redirects `/auth/v1/verify`, `/auth/v1/callback` and `/auth/v1/authorize` are also routed without key-auth. Realtime is not functional (Supabase README §4.5). `/graphql/v1` returns 404 because `pg_graphql` is not installed.
+
+Hermes keeps its requested dashboard setting, but Atlas enables its container dashboard only with configured container Kong.
+Raw Compose defaults the effective flag to `false`. This checks configuration, not ongoing gateway health.
+For OAuth provider and provisioned-client requirements, see the [Hermes guide](../../services/hermes/README.md#4-configuration).
 
 All entry points are `http://<alias>:${KONG_HTTP_PORT}` (default `63000`); see [Ports and Routes](ports-and-routes.md) for the routing details.
 
