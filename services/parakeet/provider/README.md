@@ -77,12 +77,32 @@ readiness, even though consumers may start independently.
 
 Parakeet on macOS MLX:
 
+Before launch, prepare the active Atlas env file (`.env` by default; copy
+`.env.example` only if the target does not exist). Set a nonempty
+`PARAKEET_API_TOKEN` there; preserve an existing token. To generate a new value,
+run `python3.12 -c 'import secrets; print(secrets.token_urlsafe(32))'`.
+
+Run the preflight from the Atlas repository root. Use the same `ATLAS_ENV_FILE`
+setting in both terminals. The preflight reads the configured value and stops
+if it is missing or blank. Restart the native provider after changing its token.
+
 ```bash
 # Terminal 1 — run from repo root with the lock's certified interpreter
 python3.12 -m venv .venv-parakeet-mlx
 . .venv-parakeet-mlx/bin/activate
 python -m pip install -r services/parakeet/provider/mlx/requirements-locked.txt
-export PARAKEET_API_TOKEN='<same random value configured in repo-root .env>'
+PARAKEET_API_TOKEN=$(
+  PYTHONPATH=bootstrapper python - <<'PYTOKEN'
+import sys
+from core.config_parser import ConfigParser
+
+token = ConfigParser().parse_env_file().get("PARAKEET_API_TOKEN", "")
+if not token:
+    sys.exit("Set a nonempty PARAKEET_API_TOKEN in the active Atlas env file.")
+print(token, end="")
+PYTOKEN
+) || exit 1
+export PARAKEET_API_TOKEN
 export PARAKEET_LOCALHOST_BIND_HOST=0.0.0.0
 export PARAKEET_LOCALHOST_PORT=63042
 cd services/parakeet/provider && python -m mlx.api_server
