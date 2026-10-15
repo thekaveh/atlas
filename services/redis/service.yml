@@ -4,8 +4,8 @@
 # monolithic docker-compose.yml during the configuration modularization;
 # the migration is now complete and the bootstrapper reads manifests
 # directly (bootstrapper/service-configs.yml has been retired). Redis
-# has a single container, no source variants, and is consumed by half
-# the stack (n8n, litellm, open-webui, backend, local-deep-researcher).
+# has a single server container and no source variants. Consumers include
+# n8n, litellm, open-webui and backend.
 
 name: redis
 label: "Redis (cache & queue)"
@@ -57,10 +57,9 @@ env:
     default: redis_password
     secret: true
     description: |
-      Used by every consumer (n8n queue, litellm cache,
-      open-webui websocket store, backend session/queue, local-deep-
-      researcher worker queue). The default is for fresh-install
-      convenience only; rotate before any deployment.
+      Used by Redis consumers, including n8n queues, litellm cache,
+      open-webui websocket storage, and backend state and queues.
+      The default is for fresh-install convenience only; rotate before any deployment.
   - name: REDIS_URL
     default: "redis://:${REDIS_PASSWORD}@redis:6379/0"
     description: "Default connection string (database 0, also n8n's queue and LiteLLM's cache). Consumers that need another DB index build their own URL: open-webui and lightrag share /2, jupyterhub uses /3. Compose substitutes REDIS_PASSWORD."
