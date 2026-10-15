@@ -534,7 +534,8 @@ def documented_hermes_oauth_prerequisites(document, context):
     claim = _hermes_oauth_guidance_claim(document, context)
     patterns = [
         r"\b(?:requires?|needs?)\b[^.!?]*\bprovider\b[^.!?]*\bprovisioned\b[^.!?]*\bclient\b",
-        r"\bAtlas\b[^.!?]*\bdoes not\b[^.!?]*\bprovision\b[^.!?]*\bpass through\b",
+        r"\bAtlas\b[^.!?]*\bdoes not\b[^.!?]*\bprovision\b",
+        r"\bAtlas\b[^.!?]*\bpasses through\b[^.!?]*HERMES_DASHBOARD_OAUTH_CLIENT_ID",
         r"\bfalse\b[^.!?]*\b(?:no|without)\b[^.!?]*\bprovider\b[^.!?]*\brefus\w*\b[^.!?]*\bstartup\b",
     ]
     facts = [bool(re.search(pattern, claim, re.I)) for pattern in patterns]

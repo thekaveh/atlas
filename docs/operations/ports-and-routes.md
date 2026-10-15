@@ -31,7 +31,7 @@ Active aliases (every `*-localhost` source also routes through `host.docker.inte
 - `flower.localhost` → Flower Celery monitor (`CELERY_SOURCE=container`; Kong dashboard basic-auth/ACL plus Flower basic-auth)
 - `graph.localhost` → Neo4j Browser (`NEO4J_GRAPH_DB_SOURCE != disabled`)
 - `graphbuilder.localhost` / `graphbuilder-api.localhost` → LLM Graph Builder UI / API (`LLM_GRAPH_BUILDER_SOURCE != disabled`; Kong dashboard basic-auth/ACL)
-- `hermes.localhost` → Hermes Agent dashboard (`HERMES_SOURCE != disabled` AND `HERMES_DASHBOARD_ENABLED=true`; Kong requires the dashboard Basic credential)
+- `hermes.localhost` → Hermes Agent dashboard (`KONG_API_GATEWAY_SOURCE=container`, `HERMES_SOURCE != disabled`, requested dashboard enabled; Kong requires the dashboard Basic credential)
 - `jenkins.localhost` → Jenkins CI (`JENKINS_SOURCE != disabled`)
 - `jupyter.localhost` → JupyterHub (`JUPYTERHUB_SOURCE != disabled`)
 - `label-studio.localhost` → Label Studio (`LABEL_STUDIO_SOURCE != disabled`; Kong dashboard basic-auth/ACL, then the Label Studio login)
@@ -74,6 +74,14 @@ Active aliases (every `*-localhost` source also routes through `host.docker.inte
 The direct ports do not apply this filter.
 
 The Kong gateway listens on `KONG_HTTP_PORT`, which is `BASE_PORT + 0` (`63000` by default). All aliases above resolve to `http://<alias>:${KONG_HTTP_PORT}`.
+
+Hermes publishes only its API port, `HERMES_API_PORT` → 8642. `HERMES_DASHBOARD_PORT` remains a reserved compatibility allocation; no container host mapping reaches 9119.
+
+Atlas computes `HERMES_DASHBOARD_EFFECTIVE` from the request and configured sources; raw Compose defaults it to `false`.
+Container Hermes requires configured container Kong to enable its dashboard. This does not monitor gateway health; backend-network peers remain unauthenticated in insecure mode.
+
+Localhost Hermes stays operator-managed, and its Kong route uses `HERMES_LOCALHOST_DASHBOARD_PORT`.
+See the [Hermes guide](../../services/hermes/README.md#4-configuration) for OAuth provider and provisioned-client requirements.
 
 ## 3. Per-engine port quirks
 

@@ -66,7 +66,7 @@ services:
 
   # Hermes Agent — programmable AI agent runtime (Nous Research)
   # API:       http://localhost:${HERMES_API_PORT}
-  # Dashboard: http://localhost:${HERMES_DASHBOARD_PORT}  (when enabled)
+  # Dashboard: container port 9119 via configured Kong; no host publish.
   # Kong:      http://hermes.localhost:${KONG_HTTP_PORT}  (with --setup-hosts)
   #
   # File-based persistence — everything under /opt/data (mounted from
@@ -97,7 +97,9 @@ services:
       HERMES_UID: ${HERMES_UID:-10000}
       HERMES_GID: ${HERMES_GID:-10000}
       # Web dashboard
-      HERMES_DASHBOARD: ${HERMES_DASHBOARD_ENABLED:-true}
+      # Atlas computes this from the requested flag and configured sources.
+      # Raw Compose remains off until Atlas supplies the effective value.
+      HERMES_DASHBOARD: ${HERMES_DASHBOARD_EFFECTIVE:-false}
       HERMES_DASHBOARD_HOST: 0.0.0.0
       HERMES_DASHBOARD_PORT: "9119"
       # Inert in v2026.6.19: web_server.py hard-codes the embedded Chat tab
@@ -110,12 +112,14 @@ services:
       # mode from a non-loopback bind host, so the dashboard now fails closed
       # (s6 restart-loops it, spamming the log) unless this is set. The
       # dashboard then has no login: Kong's route adds dashboard Basic auth,
-      # but the direct host port and backend-network peers are unauthenticated.
+      # and no dashboard host port is published. Backend-network peers remain
+      # unauthenticated; this is configuration gating, not a health guarantee.
       # OAuth requires an upstream provider with a provisioned client ID
       # (HERMES_DASHBOARD_OAUTH_CLIENT_ID or dashboard.oauth.client_id).
-      # Atlas does not provision or pass through that client configuration.
+      # Atlas passes through the client ID but does not provision clients.
       # Setting false without a provider makes the dashboard refuse startup.
       HERMES_DASHBOARD_INSECURE: ${HERMES_DASHBOARD_INSECURE:-true}
+      HERMES_DASHBOARD_OAUTH_CLIENT_ID: ${HERMES_DASHBOARD_OAUTH_CLIENT_ID:-}
       # OpenAI-compatible API server (what LiteLLM and clients connect to)
       API_SERVER_ENABLED: "true"
       API_SERVER_HOST: 0.0.0.0
@@ -138,7 +142,6 @@ services:
       - hermes-data:/opt/data
     ports:
       - "${HOST_BIND_IP-127.0.0.1:}${HERMES_API_PORT:-63072}:8642"
-      - "${HOST_BIND_IP-127.0.0.1:}${HERMES_DASHBOARD_PORT:-63073}:9119"
     networks:
       - backend-network
     healthcheck:

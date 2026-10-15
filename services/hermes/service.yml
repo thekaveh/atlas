@@ -8,7 +8,7 @@
 #
 # Routes:
 #   API:       http://localhost:${HERMES_API_PORT}
-#   Dashboard: http://localhost:${HERMES_DASHBOARD_PORT}
+#   Dashboard: container port 9119 via configured Kong; no host publish.
 #   Kong:      http://hermes.localhost:${KONG_HTTP_PORT}  (after --setup-hosts)
 name: hermes
 label: "Hermes (programmable AI agent)"
@@ -31,7 +31,7 @@ capabilities:
   - name: "Hermes API and dashboard authentication"
     status: partial
     verification: documented
-    note: "The OpenAI-compatible API uses HERMES_API_KEY, and hermes.localhost requires the Kong dashboard Basic credential. The dashboard runs in upstream insecure mode, so the direct host port and backend-network peers reach it without authentication."
+    note: "The API uses HERMES_API_KEY. Configured container Kong protects the dashboard with Basic auth. No dashboard host port is published. Backend-network peers remain unauthenticated in insecure mode."
   - name: "Agent workspace persistence"
     status: partial
     verification: documented
@@ -78,7 +78,7 @@ env:
     description: "Host port for the Hermes Agent OpenAI-compatible API (in-container listen port is 8642)."
   - name: HERMES_DASHBOARD_PORT
     # default computed by services/topology.py slot allocator
-    description: "Host port for the Hermes Agent web dashboard (in-container listen port is 9119)."
+    description: "Reserved compatibility allocation; no container dashboard host publish. Kong reaches container port 9119."
   - name: HERMES_MEMORY_LIMIT
     description: "Memory limit of the hermes container."
     default: 4g
@@ -96,14 +96,21 @@ env:
     description: "Context length hermes-init writes into config.yaml for the default model. Hermes requires a model context window of at least 64K."
     default: 65536
   - name: HERMES_DASHBOARD_ENABLED
-    description: "Runs the Hermes web dashboard (passed as HERMES_DASHBOARD). Set false to remove the dashboard, including its Chat tab."
+    description: "Requested dashboard setting. Atlas forwards it only for container Hermes with configured container Kong. Empty retains the true default. Set false to remove the Chat tab."
     default: true
+  - name: HERMES_DASHBOARD_EFFECTIVE
+    default: false
+    auto_managed: true
+    description: "Auto-managed dashboard flag from requested setting and launch sources. Container-facing HERMES_DASHBOARD defaults false before Atlas computes it. This does not check gateway health."
   - name: HERMES_DASHBOARD_TUI
     default: 1
     description: "Inert: Hermes v2026.6.19 always embeds the dashboard Chat tab (PTY terminal) and ignores this value; disable the dashboard (HERMES_DASHBOARD_ENABLED=false) to remove it."
   - name: HERMES_DASHBOARD_INSECURE
     default: true
-    description: "True: unauthenticated 0.0.0.0 dashboard; direct port and backend-network peers. False requires an OAuth provider with a provisioned client ID (`HERMES_DASHBOARD_OAUTH_CLIENT_ID` or `dashboard.oauth.client_id`). Atlas does not provision or pass through client configuration. False without a provider: dashboard refuses startup and restarts."
+    description: "True permits unauthenticated backend-network access behind Kong. False requires an OAuth provider with a provisioned client ID (`HERMES_DASHBOARD_OAUTH_CLIENT_ID` or `dashboard.oauth.client_id`). Atlas passes through `HERMES_DASHBOARD_OAUTH_CLIENT_ID` but does not provision clients. False without a provider: dashboard refuses startup and restarts."
+  - name: HERMES_DASHBOARD_OAUTH_CLIENT_ID
+    default: ""
+    description: "Provisioned upstream OAuth client ID, passed through unchanged. A nonempty value takes precedence over dashboard.oauth.client_id. Atlas does not provision clients."
   - name: HERMES_UID
     default: 10000
     description: "Container user — match a host UID to read hermes-data from outside."
