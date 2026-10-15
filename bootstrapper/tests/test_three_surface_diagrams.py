@@ -196,3 +196,53 @@ def test_standalone_exports_have_svg_namespace_without_rewriting_pngs(tmp_path: 
         )
         for entry in manifest.diagrams
     }
+
+def _poster_contains(point, box):
+    x, y, width, height = box
+    return x <= point[0] <= x + width and y <= point[1] <= y + height
+
+
+def _poster_component_box(svg, label):
+    node, = (item for item in svg.findall(".//{*}text") if "".join(item.itertext()) == label)
+    point = float(node.get("x")), float(node.get("y"))
+    candidates = [
+        tuple(float(rect.get(key)) for key in ("x", "y", "width", "height"))
+        for rect in svg.findall(".//{*}rect[@rx='6']")
+    ]
+    boxes = {box for box in candidates if _poster_contains(point, box)}
+    assert len(boxes) == 1
+    return boxes.pop()
+
+
+def _poster_arrow_endpoints(svg):
+    routes = []
+    for element in svg.findall(".//*[@marker-end]"):
+        if element.tag.rsplit("}", 1)[-1] == "line":
+            points = [
+                (float(element.get("x1")), float(element.get("y1"))),
+                (float(element.get("x2")), float(element.get("y2"))),
+            ]
+        else:
+            coordinates = [float(value) for value in re.findall(r"-?\d+(?:\.\d+)?", element.get("d", ""))]
+            points = list(zip(coordinates[::2], coordinates[1::2]))
+        if points:
+            routes.append((points[0], points[-1]))
+    return routes
+
+
+@pytest.mark.parametrize("name", ["architecture.html", "architecture.svg"])
+@pytest.mark.parametrize("case", [
+    ("JupyterHub", "Hermes Agent", "OpenClaw"),
+    ("Backend API", "Weaviate", "Neo4j"),
+])
+def test_platform_current_arrows_reach_implemented_targets(name, case):
+    master = ROOT / "docs" / "diagrams" / name
+    svg = ET.fromstring(extract_svg(master.read_text(encoding="utf-8")))
+    source, target, unsupported = (_poster_component_box(svg, label) for label in case)
+    destinations = [
+        end for start, end in _poster_arrow_endpoints(svg)
+        if _poster_contains(start, source)
+    ]
+
+    assert any(_poster_contains(point, target) for point in destinations), case
+    assert not any(_poster_contains(point, unsupported) for point in destinations), case
