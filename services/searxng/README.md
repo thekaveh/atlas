@@ -1,6 +1,6 @@
 # 5.2.46. SearXNG
 
-Privacy-preserving metasearch engine. SearXNG aggregates results from many upstream engines, such as Google, DuckDuckGo, Brave, Wikipedia and arXiv. The pinned image defines over 300 engines, with about 86 on by default. It keeps no logs, does not fingerprint users and sends no API keys.
+Privacy-preserving metasearch engine. SearXNG aggregates results from many upstream engines, such as Google, DuckDuckGo, Brave, Wikipedia and arXiv. The pinned image defines over 300 engines, with about 86 on by default. It does not fingerprint users; the default engines need no API keys. See §9 for gateway logging and privacy limits.
 
 The stack uses it as the default search backend for Local Deep Researcher, Hermes and n8n's manually imported `searxng-research-workflow.json`. Open WebUI's web-search toggle is not wired (§5.4).
 
@@ -136,7 +136,10 @@ SearXNG queries the selected engines in parallel.
 
 ## 9. Security & privacy
 
-- **No request logging.** SearXNG forgets a query once the response goes out. The stack does not change that: there are no access logs and no per-user query history.
+- **Logging depends on the request path.** SearXNG does not offer a per-user query-history feature. Kong writes access metadata to stdout, including method, path, status, user agent and request ID. Its access format omits query parameters.
+
+    On upstream failure, Nginx's error log can include the full request line and query. Inspect and redact logs before sharing them. See [Kong log commands](../kong/README.md#101-view-generated-configuration); `services/kong/compose.yml` defines the format.
+
 - **Engine selection sets your exposure.** Default-on engines include Google, Brave and DuckDuckGo. SearXNG hides *you* from them (no referrer, server IP), but they still see the query. If that matters, keep only engines whose privacy policy you accept, for example DuckDuckGo, Brave, or Mojeek (off by default).
 - **No outbound proxy by default.** SearXNG calls each engine directly from its container. To route engine calls through Tor or another proxy, set `outgoing.proxies:` in `settings.yml`.
 - **Public-instance hardening.** Before you expose SearXNG to the internet, set `server.public_instance: true` and `server.limiter: true` in `config/settings.yml`. Point `valkey.url` at the stack Redis first. The `search.localhost` Kong route and the host port already exist and have no authentication. Without the limiter, the instance is an open relay for engine abuse.
