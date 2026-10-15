@@ -722,3 +722,138 @@ def test_native_parakeet_preflight_requires_matching_token(case, tmp_path, env_r
         assert result.returncode == 0, (case, result.stdout, result.stderr)
         assert json.loads(result.stdout) == token, (case, result.stdout)
         assert result.stderr == "", (case, result.stderr)
+
+
+
+def _ray_reader_document(surface, config):
+    from tests.three_surface_test_utils import ROOT, surface_text
+
+    source = "services/ray/README.md"
+    text = (ROOT / source).read_text() if surface == "repo" else surface_text(source, surface)
+    return _candidate_document(text, config)
+
+
+def _ray_reader_claim(document, marker, tag="p"):
+    claims = [" ".join(node.itertext()) for node in document.iter(tag)
+              if marker in " ".join(node.itertext())]
+    assert len(claims) == 1, (marker, claims)
+    return claims[0]
+
+
+@pytest.mark.parametrize("surface", ["repo", "site", "wiki"])
+def test_ray_shared_memory_guidance_is_conditional(surface, env_reference_config):
+    import re
+
+    claim = _ray_reader_claim(_ray_reader_document(surface, env_reference_config), "Shared memory.")
+    assert re.search(r"64\s*(?:MiB|MB)[^.!?]*(?:falls? back|fallback|temporary)", claim), claim
+    assert re.search(r"warn|performance", claim, re.I), claim
+    assert not re.search(r"64\s*(?:MiB|MB)[^.!?]*crash", claim, re.I), claim
+
+
+@pytest.mark.parametrize("surface", ["repo", "site", "wiki"])
+def test_ray_shared_memory_threshold_is_conditional(surface, env_reference_config):
+    import re
+
+    claim = _ray_reader_claim(_ray_reader_document(surface, env_reference_config),
+                              "RAY_OBJECT_STORE_ALLOW_SLOW_STORAGE")
+    assert re.search(r"10\s*GB", claim) and re.search(r"insufficient|too small", claim, re.I), claim
+    assert re.search(r"unless|except|override", claim, re.I), claim
+
+
+@pytest.mark.parametrize("surface", ["repo", "site", "wiki"])
+def test_ray_shared_memory_diagnosis_uses_logs(surface, env_reference_config):
+    import re
+
+    claim = _ray_reader_claim(_ray_reader_document(surface, env_reference_config), "docker inspect", "li")
+    assert re.search(r"logs?", claim, re.I), claim
+    assert re.search(r"memory limit", claim, re.I), claim
+
+
+def _ray_diagnostic_parts(document, command):
+    blocks = ["".join(code.itertext()) for code in document.findall(".//pre/code")]
+    preflights = [code for code in blocks if "get_project_name" in code]
+    assert len(preflights) <= 1, preflights
+    commands = ["".join(code.itertext()) for code in document.iter("code")
+                if "".join(code.itertext()).startswith("docker " + command + " ")]
+    assert len(commands) == 1, (command, commands)
+    return preflights[0] if preflights else "", commands[0]
+
+
+def _run_ray_doc_diagnostic(parts, content, directory, lookup="one"):
+    import json
+    import os
+    import subprocess
+    import sys
+    from tests.three_surface_test_utils import ROOT
+
+    env_file = directory / "active.env"
+    if content is not None:
+        env_file.write_text(content, encoding="utf-8")
+    (directory / ".env").write_text("PROJECT_NAME=decoy-file\n", encoding="utf-8")
+    (directory / "bootstrapper").symlink_to(ROOT / "bootstrapper", target_is_directory=True)
+    capture = directory / "docker-calls.jsonl"
+    fake = directory / "docker"
+    fake.write_text("#!" + sys.executable + "\n" +
+                    "import json,os,pathlib,sys\n" +
+                    "with pathlib.Path(os.environ['RAY_DOC_CAPTURE']).open('a') as stream:\n" +
+                    "    stream.write(json.dumps(sys.argv[1:])+'\\n')\n" +
+                    "if sys.argv[1] == 'ps':\n" +
+                    "    if os.environ['RAY_DOC_LOOKUP'] == 'error': sys.exit(17)\n" +
+                    "    print(os.environ['RAY_DOC_IDS'],end='')\n" +
+                    "elif sys.argv[1] == 'inspect': print('ShmSize: 0')\n" +
+                    "else: print('synthetic version')\n", encoding="utf-8")
+    fake.chmod(0o700)
+    ids = {"one": "a"*64+"\n", "none": "", "multiple": "a"*64+"\n"+"b"*64+"\n", "error": ""}[lookup]
+    environment = {"PATH": str(directory)+os.pathsep+str(Path(sys.executable).parent)+os.pathsep+os.defpath,
+                   "ATLAS_ENV_FILE": str(env_file), "PROJECT_NAME": "wrong-shell",
+                   "PYTHONPYCACHEPREFIX": str(directory / "pycache"), "RAY_DOC_CAPTURE": str(capture),
+                   "RAY_DOC_IDS": ids, "RAY_DOC_LOOKUP": lookup}
+    preflight, command = parts
+    result = subprocess.run(["bash", "-c", preflight+"\n"+command], cwd=directory,
+                            env=environment, capture_output=True, text=True, timeout=15)
+    calls = [json.loads(line) for line in capture.read_text().splitlines()] if capture.exists() else []
+    return result, calls
+
+
+@pytest.mark.parametrize("case", [
+    (surface, command, project_case)
+    for surface in ["repo", "site", "wiki"]
+    for command in ["inspect", "exec"]
+    for project_case in ["absent", "empty", "missing", "blank", "custom", "normalized", "invalid", "syntax"]
+])
+def test_ray_diagnostics_resolve_active_project(case, tmp_path, env_reference_config):
+    surface, command, project_case = case
+    content = {"absent": None, "empty": "", "missing": "RAY_SOURCE=ray-container-cpu\n",
+               "blank": "PROJECT_NAME=\n", "custom": "PROJECT_NAME=demo-stack\n",
+               "normalized": "PROJECT_NAME='MiXeD_Stack'\n", "invalid": "PROJECT_NAME=invalid name\n",
+               "syntax": "PROJECT_NAME=$UNSUPPORTED\n"}[project_case]
+    parts = _ray_diagnostic_parts(_ray_reader_document(surface, env_reference_config), command)
+    result, calls = _run_ray_doc_diagnostic(parts, content, tmp_path)
+    if project_case in {"absent", "invalid", "syntax"}:
+        assert result.returncode != 0 and result.stdout == "" and calls == [], (case, result, calls)
+        assert "env file" in result.stderr or "project name" in result.stderr or "PROJECT_NAME" in result.stderr
+    else:
+        project = {"custom": "demo-stack", "normalized": "mixed_stack"}.get(project_case, "atlas")
+        query = ["ps", "--all", "--quiet", "--filter", "label=com.docker.compose.project="+project,
+                 "--filter", "label=com.docker.compose.service=ray-head"]
+        diagnostic = ["inspect", "a"*64] if command == "inspect" else [
+            "exec", "a"*64, "wget", "-qO-", "http://localhost:8265/api/version"]
+        assert result.returncode == 0 and result.stderr == "", (case, result)
+        assert calls == [query, diagnostic], (case, calls)
+
+
+@pytest.mark.parametrize("case", [
+    (surface, command, lookup)
+    for surface in ["repo", "site", "wiki"]
+    for command in ["inspect", "exec"]
+    for lookup in ["none", "multiple", "error"]
+])
+def test_ray_diagnostics_refuse_ambiguous_or_failed_lookup(case, tmp_path, env_reference_config):
+    surface, command, lookup = case
+    parts = _ray_diagnostic_parts(_ray_reader_document(surface, env_reference_config), command)
+    result, calls = _run_ray_doc_diagnostic(parts, "PROJECT_NAME='MiXeD_Stack'\n", tmp_path, lookup)
+    assert result.returncode != 0 and result.stdout == "", (case, result)
+    assert len(calls) == 1 and calls[0] == [
+        "ps", "--all", "--quiet", "--filter", "label=com.docker.compose.project=mixed_stack",
+        "--filter", "label=com.docker.compose.service=ray-head"], (case, calls)
+    assert "Ray" in result.stderr, (case, result.stderr)

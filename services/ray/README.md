@@ -47,9 +47,17 @@ and the existing `GET`/`DELETE .../{job_id}` routes reconcile or stop it.
 - `ray-head` — the cluster controller. Runs `ray start --head`. Exposes ports 8265 (dashboard + REST), 6379 (GCS) and 10001 (client server). The GCS serves [gRPC](https://github.com/ray-project/ray/blob/637fd062205393b9e1929996bfe1d49bd3f8469d/src/ray/gcs/gcs_server.h#L245), independently of the project's Redis cache. Healthcheck on `:8265/api/version`.
 - `ray-worker` — one or more replicas. Runs `ray start --address=ray-head:6379 --block`. No host ports.
 
-**No `/tmp/ray` volume.** Ray keeps per-node session state under `/tmp/ray`. The image runs as the non-root `ray` user, and Docker would create a named volume there as `root:root`, which stops Ray from starting. Session state therefore lives in the container's writable layer and is lost when the container is replaced. `shm_size` gives the object store enough `/dev/shm` to avoid spilling.
+**No `/tmp/ray` volume.** Ray keeps per-node session state under `/tmp/ray`. The image runs as the non-root `ray` user, and Docker would create a named volume there as `root:root`, which stops Ray from starting. Session state therefore lives in the container's writable layer and is lost when the container is replaced.
 
-**Shared memory.** Both containers set `shm_size: 8gb`. Docker's default 64MB crashes Ray at once, because the Plasma object store uses shared memory. If port 8265 refuses connections within 60 seconds of start, check the shm size.
+**Shared memory.** Both containers set `shm_size: 8gb`. Ray uses `/dev/shm`
+for the Plasma object store when it fits. With Docker's default 64 MiB, a
+1 GiB store falls back to temporary-directory backing and emits a performance
+warning. A closed dashboard port alone does not establish a shared-memory failure.
+
+[Ray's backing check](https://github.com/ray-project/ray/blob/637fd062205393b9e1929996bfe1d49bd3f8469d/python/ray/_private/services.py#L2225-L2260)
+rejects stores larger than 10 GB when shared memory is insufficient, unless
+`RAY_OBJECT_STORE_ALLOW_SLOW_STORAGE` is enabled. The `/dev/shm` allocation
+counts against the container's memory limit; `8gb` does not reserve extra RAM.
 
 **No runtime dependencies.** Ray includes its own GCS (gRPC cluster controller) and Plasma object store. The `supabase` and `redis` entries in `depends_on.required` only fix display order, so Kong wins the alphabetical tie in the infra port-slot block. Ray does not call them.
 
@@ -93,8 +101,42 @@ _No high-confidence opportunities identified._
 
 ## 6. Troubleshooting
 
-- **Head container exits immediately with "Bus error" or "/dev/shm too small"** — Docker's default shared-memory size (64MB) is too small. Compose sets `shm_size: 8gb`, but some installs (rootless Podman, older Docker) ignore it. Verify with `docker inspect ${PROJECT_NAME}-ray-head | grep ShmSize`.
-- **Workers stuck "starting"** — they `depends_on: ray-head: service_healthy`. The head's `start_period: 60s` allows up to 60s before health checks count. If still stuck after 2 minutes, check the head's healthcheck output: `docker exec ${PROJECT_NAME}-ray-head wget -qO- http://localhost:8265/api/version` (the image ships wget, not curl).
+Before the container checks, run this preflight from the Atlas repository root with Python 3.10 or later.
+Use the running stack's Docker context and active env file; keep its `ATLAS_ENV_FILE` setting.
+The preflight finds the Ray head container by Compose labels, including when its name retains mixed-case spelling.
+It stops for an absent or invalid file, a failed Docker query, or a lookup without exactly one container.
+
+```bash
+RAY_HEAD_CONTAINER=$(
+  PYTHONPATH=bootstrapper python3 - <<'PYPROJECT'
+import subprocess
+import sys
+from core.config_parser import ConfigParser
+
+parser = ConfigParser()
+if not parser.env_file_exists():
+    sys.exit("Use the active Atlas env file for the running stack.")
+project = parser.get_project_name()
+try:
+    result = subprocess.run(
+        ["docker", "ps", "--all", "--quiet", "--filter",
+         f"label=com.docker.compose.project={project}", "--filter",
+         "label=com.docker.compose.service=ray-head"],
+        check=True, capture_output=True, text=True, timeout=10,
+    )
+except (OSError, subprocess.SubprocessError):
+    sys.exit("Could not query Ray containers; check Docker context and availability.")
+containers = result.stdout.split()
+if len(containers) != 1:
+    sys.exit(f"Expected one Ray head container; found {len(containers)}.")
+print(containers[0], end="")
+PYPROJECT
+) || exit 1
+export RAY_HEAD_CONTAINER
+```
+
+- **Head container exits immediately with "Bus error" or "/dev/shm too small"** — Check the head logs for the reported cause. Inspect the effective shared-memory size with `docker inspect "${RAY_HEAD_CONTAINER}" | grep ShmSize`. Compare the object-store size with shared memory and the container memory limit. Small shared memory can cause temporary-directory backing; large stores can fail the check described in §4.
+- **Workers stuck "starting"** — they `depends_on: ray-head: service_healthy`. The head's `start_period: 60s` allows up to 60s before health checks count. If still stuck after 2 minutes, check the head's healthcheck output: `docker exec "${RAY_HEAD_CONTAINER}" wget -qO- http://localhost:8265/api/version` (the image ships wget, not curl).
 - **`ray.init("ray://…")` fails with a version mismatch** — Ray Client needs the same `ray` version and the same Python minor version on both sides. `rayproject/ray:2.56.0` runs Python 3.10. From the host, use Python 3.10 with `ray>=2.56.0,<2.57`. The JupyterHub kernel runs Python 3.13, so `07_ray_cluster.ipynb` fails at `ray.init()` (open issue #1374). From a notebook, use the Ray Jobs REST API instead:
 
     ```python
