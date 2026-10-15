@@ -575,3 +575,32 @@ def test_ray_gcs_protocol_is_grpc(surface, context, env_reference_config):
               if "GCS" in " ".join(node.itertext()) and marker in " ".join(node.itertext())]
     assert claims, (surface, context, "missing GCS explanation")
     assert all(re.search(r"\bgRPC\b", claim) for claim in claims), (surface, context, claims)
+
+
+def _litellm_credential_claims(document, context):
+    if context == "future":
+        return [" ".join(node.itertext()) for node in document.iter("li")
+                if node.find("strong") is not None
+                and "Virtual keys" in "".join(node.find("strong").itertext())]
+    rows = document.findall(".//tr[td='Per-service gateway credentials and budgets']")
+    assert len(rows) == 1, "missing credential capability"
+    cells = rows[0].findall("td")
+    assert "".join(cells[1].itertext()).strip() == "partial", "existing partial provisioning"
+    return [" ".join(cells[-1].itertext())]
+
+
+@pytest.mark.parametrize("surface", ["repo", "site", "wiki"])
+@pytest.mark.parametrize("context", ["capability", "future"])
+def test_litellm_credentials_describe_trueforge_exception(surface, context, env_reference_config):
+    import re
+    from tests.three_surface_test_utils import ROOT, surface_text
+
+    source = "services/litellm/README.md"
+    text = (ROOT / source).read_text() if surface == "repo" else surface_text(source, surface)
+    claims = _litellm_credential_claims(_candidate_document(text, env_reference_config), context)
+    assert claims, (surface, context, "missing credential explanation")
+    for claim in claims:
+        assert re.search(r"\bTrueForge\b[^.!?]*\bvirtual key\b", claim, re.I), (surface, context, claim)
+        assert re.search(r"\bmaster.key\b[^.!?]*\bfall(?:back|s back)\b|\bfall(?:back|s back)\b[^.!?]*\bmaster.key\b", claim, re.I), (surface, context, claim)
+        for limitation in ["spend caps", "team budgets"]:
+            assert re.search(r"\bno\b[^.!?]*\b" + limitation + r"\b", claim, re.I), (surface, context, claim)
