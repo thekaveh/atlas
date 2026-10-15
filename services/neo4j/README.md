@@ -178,15 +178,24 @@ Current Bolt clients are LightRAG (§8), LLM Graph Builder, JupyterHub, mcp-serv
 ## 10. Performance Tuning
 
 ### 10.1. Memory Configuration
-`NEO4J_MEMORY_LIMIT` (default `2g`) caps the container. Without explicit settings, the JVM and Neo4j derive heap and page cache from the memory the container sees. Atlas does not forward `NEO4J_server_memory_*` settings from `.env`; to pin them, add them to the service's `environment:` through a Compose override, for example:
+`NEO4J_MEMORY_LIMIT` (default `2g`) caps the container.
+Without overrides, the image's memory defaults apply.
+Atlas does not forward `NEO4J_server_memory_*` settings from `.env`.
+To pin these settings, add them to the service's `environment:` through a Compose override:
 
 ```yaml
 services:
   neo4j-graph-db:
     environment:
-      NEO4J_server_memory_heap_max__size: 2G
-      NEO4J_server_memory_pagecache_size: 1G
+      NEO4J_server_memory_heap_initial__size: 512M
+      NEO4J_server_memory_heap_max__size: 512M
+      NEO4J_server_memory_pagecache_size: 512M
 ```
+
+This example allocates 512 MiB each to heap and page cache.
+With the default 2 GiB cap, 1 GiB remains for native allocations and JVM overhead.
+Measure your workload before using these values in production.
+See [Neo4j's memory guidance](https://neo4j.com/docs/operations-manual/5/performance/memory-configuration/).
 
 ### 10.2. Query Optimization
 - Use indexes for frequently queried properties
