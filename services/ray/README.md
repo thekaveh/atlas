@@ -44,14 +44,14 @@ and the existing `GET`/`DELETE .../{job_id}` routes reconcile or stop it.
 
 **Containers in the family:**
 
-- `ray-head` — the cluster controller. Runs `ray start --head`. Exposes ports 8265 (dashboard + REST), 6379 (GCS) and 10001 (client server). The GCS speaks the Redis protocol but is not the project's Redis cache. Healthcheck on `:8265/api/version`.
+- `ray-head` — the cluster controller. Runs `ray start --head`. Exposes ports 8265 (dashboard + REST), 6379 (GCS) and 10001 (client server). The GCS serves [gRPC](https://github.com/ray-project/ray/blob/637fd062205393b9e1929996bfe1d49bd3f8469d/src/ray/gcs/gcs_server.h#L245), independently of the project's Redis cache. Healthcheck on `:8265/api/version`.
 - `ray-worker` — one or more replicas. Runs `ray start --address=ray-head:6379 --block`. No host ports.
 
 **No `/tmp/ray` volume.** Ray keeps per-node session state under `/tmp/ray`. The image runs as the non-root `ray` user, and Docker would create a named volume there as `root:root`, which stops Ray from starting. Session state therefore lives in the container's writable layer and is lost when the container is replaced. `shm_size` gives the object store enough `/dev/shm` to avoid spilling.
 
 **Shared memory.** Both containers set `shm_size: 8gb`. Docker's default 64MB crashes Ray at once, because the Plasma object store uses shared memory. If port 8265 refuses connections within 60 seconds of start, check the shm size.
 
-**No runtime dependencies.** Ray includes its own GCS (Redis-protocol cluster controller) and Plasma object store. The `supabase` and `redis` entries in `depends_on.required` only fix display order, so Kong wins the alphabetical tie in the infra port-slot block. Ray does not call them.
+**No runtime dependencies.** Ray includes its own GCS (gRPC cluster controller) and Plasma object store. The `supabase` and `redis` entries in `depends_on.required` only fix display order, so Kong wins the alphabetical tie in the infra port-slot block. Ray does not call them.
 
 **Consumers in the stack:**
 
