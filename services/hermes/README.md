@@ -181,22 +181,42 @@ Hermes has no direct LightRAG tool. This release cannot declare an HTTP tool in 
 
 Hermes can trigger Airflow DAG runs through the Airflow REST API. Airflow
 3.x's public `/api/v2/` uses JWT bearer tokens, not HTTP basic auth.
-Exchange the admin password for a JWT, then trigger the run. Run from the
-repository root; the commands read the values from `.env`:
+Exchange the admin password for a JWT, then trigger the run.
+Run from the repository root with the bootstrapper dependencies available through `uv`.
+The parser reads `.env` by default; set `ATLAS_ENV_FILE` for a custom active file.
+It preserves literal values and stops before a request if the password is missing or blank:
 
 ```bash
-env_get() { grep "^$1=" .env | cut -d= -f2-; }
-KONG_HTTP_PORT=$(env_get KONG_HTTP_PORT)
-TOKEN=$(curl -fsS -X POST \
-  -H 'Content-Type: application/json' \
-  -d "{\"username\":\"admin\",\"password\":\"$(env_get AIRFLOW_ADMIN_PASSWORD)\"}" \
-  http://airflow.localhost:${KONG_HTTP_PORT}/auth/token | jq -r .access_token)
+PYTHONPATH=bootstrapper uv run --project bootstrapper python - <<'PYAIRFLOW'
+import json
+import subprocess
+import sys
+from core.config_parser import ConfigParser
 
-curl -fsS -X POST \
-  -H "Authorization: Bearer $TOKEN" \
-  -H 'Content-Type: application/json' \
-  -d '{"logical_date": null, "conf": {}}' \
-  http://airflow.localhost:${KONG_HTTP_PORT}/api/v2/dags/example_etl_with_llm/dagRuns
+parser = ConfigParser(root_dir=".")
+if not parser.env_file_path.is_file():
+    sys.exit("The active Atlas env file does not exist.")
+env = parser.parse_env_file()
+password = env.get("AIRFLOW_ADMIN_PASSWORD", "")
+if not password:
+    sys.exit("Set a nonempty AIRFLOW_ADMIN_PASSWORD in the active Atlas env file.")
+base = f"http://airflow.localhost:{env.get('KONG_HTTP_PORT') or '63000'}"
+auth = subprocess.run(
+    ["curl", "-fsS", "-X", "POST", "-H", "Content-Type: application/json",
+     "--data-binary", "@-", f"{base}/auth/token"],
+    input=json.dumps({"username": "admin", "password": password}),
+    text=True, stdout=subprocess.PIPE, check=True,
+)
+token = json.loads(auth.stdout).get("access_token")
+if not isinstance(token, str) or not token or any(c.isspace() for c in token):
+    sys.exit("Airflow did not return an access token; the DAG was not triggered.")
+subprocess.run(
+    ["curl", "-fsS", "-X", "POST", "-H", f"Authorization: Bearer {token}",
+     "-H", "Content-Type: application/json", "--data-binary", "@-",
+     f"{base}/api/v2/dags/example_etl_with_llm/dagRuns"],
+    input=json.dumps({"logical_date": None, "conf": {}}), text=True, check=True,
+)
+PYAIRFLOW
 ```
 
 In this pattern, Hermes decides that a request needs a long-running pipeline
@@ -264,10 +284,31 @@ _No high-confidence opportunities identified._
 
 ## 11. Troubleshooting
 
-Run from the repository root; the commands read keys and ports from `.env`.
+Run from the repository root with the bootstrapper dependencies available through `uv`.
+The HTTP checks read the active Atlas env file: `.env` by default, or `ATLAS_ENV_FILE`.
+Use your deployment’s usual Compose options for the Docker commands.
 
 ```bash
-env_get() { grep "^$1=" .env | cut -d= -f2-; }
+env_get() {
+  PYTHONPATH=bootstrapper uv run --project bootstrapper python - "$@" <<'PYENV'
+import sys
+from core.config_parser import ConfigParser
+
+parser = ConfigParser(root_dir=".")
+if not parser.env_file_path.is_file():
+    sys.exit("The active Atlas env file does not exist.")
+key = sys.argv[1]
+fallback = sys.argv[2] if len(sys.argv) == 3 else ""
+value = parser.parse_env_file().get(key) or fallback
+if not value:
+    sys.exit(f"Set a nonempty {key} in the active Atlas env file.")
+print(value)
+PYENV
+}
+HERMES_API_PORT=$(env_get HERMES_API_PORT 63072) || exit 1
+LITELLM_PORT=$(env_get LITELLM_PORT 63040) || exit 1
+HERMES_API_KEY=$(env_get HERMES_API_KEY) || exit 1
+LITELLM_MASTER_KEY=$(env_get LITELLM_MASTER_KEY) || exit 1
 
 # Service status
 docker compose ps hermes hermes-init
@@ -277,12 +318,12 @@ docker compose logs -f hermes
 docker compose logs hermes-init   # one-shot config rendering
 
 # Verify the OpenAI-compatible API is up
-curl -fsS http://localhost:$(env_get HERMES_API_PORT)/v1/models \
-  -H "Authorization: Bearer $(env_get HERMES_API_KEY)" | jq .
+curl -fsS http://localhost:${HERMES_API_PORT}/v1/models \
+  -H "Authorization: Bearer ${HERMES_API_KEY}" | jq .
 
 # Verify hermes-agent appears in LiteLLM's model_list
-curl -fsS http://localhost:$(env_get LITELLM_PORT)/v1/models \
-  -H "Authorization: Bearer $(env_get LITELLM_MASTER_KEY)" | jq '.data[].id' | grep hermes
+curl -fsS http://localhost:${LITELLM_PORT}/v1/models \
+  -H "Authorization: Bearer ${LITELLM_MASTER_KEY}" | jq '.data[].id' | grep hermes
 
 # Inspect the rendered config Hermes is using
 docker compose exec hermes cat /opt/data/config.yaml
