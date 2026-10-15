@@ -216,6 +216,7 @@ curl -H "Host: airflow.localhost" -H "Authorization: Bearer $TOKEN" \
 For advanced Kong configuration needs, modify the `KongConfigGenerator` class in `bootstrapper/utils/kong_config_generator.py`.
 
 Key methods:
+
 - `generate_kong_config()` - Main configuration generator
 - `check_localhost_service()` - Health check implementation
 - `generate_*_service()` - Service-specific route generators
@@ -310,16 +311,19 @@ Key methods:
 ### 14.1. Common Issues
 
 **Route not found (404)**
+
 - Check if service SOURCE is enabled
 - Verify service is running and healthy
 - Check hosts file configuration
 
 **Connection refused**
+
 - For localhost routes, ensure service is running on specified port
 - Check firewall settings for localhost services
 - Verify Docker network connectivity
 
 **Authentication errors**
+
 - Check if service requires API key authentication
 - Verify Supabase keys are properly generated
 - Ensure proper headers are sent

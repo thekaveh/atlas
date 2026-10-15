@@ -142,15 +142,16 @@ With `localhost`, LiteLLM's `hermes-agent` route sends Atlas's `HERMES_API_KEY` 
   per-platform allowlists (`TELEGRAM_ALLOWED_USERS=...`,
   `DISCORD_ALLOWED_USERS=...`).
 - **Image pin** — Atlas pins the dated release
-  `nousresearch/hermes-agent:v2026.6.19`. Upstream also publishes immutable
-  `sha-<commit>` tags. To pin one build, set `HERMES_IMAGE` to a `sha-` tag:
+    `nousresearch/hermes-agent:v2026.6.19`. Upstream also publishes immutable
+    `sha-<commit>` tags. To pin one build, set `HERMES_IMAGE` to a `sha-` tag:
 
-  ```bash
-  # In .env — pin a specific build
-  HERMES_IMAGE=nousresearch/hermes-agent:sha-e85592591e8028cceecb0ea2b4992a1643b52f93
-  ```
+    ```bash
+    # In .env — pin a specific build
+    HERMES_IMAGE=nousresearch/hermes-agent:sha-e85592591e8028cceecb0ea2b4992a1643b52f93
+    ```
 
-  Tags are listed at <https://hub.docker.com/r/nousresearch/hermes-agent/tags>.
+    Tags are listed at <https://hub.docker.com/r/nousresearch/hermes-agent/tags>.
+
 - **ComfyUI hard-coded URL** — the bundled `creative/comfyui` skill uses
   `127.0.0.1:8188`. The companion skill `creative/atlas-comfyui-host` under
   `/opt/data/skills/` gives the in-network host. If a workflow ignores it,

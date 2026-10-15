@@ -291,9 +291,9 @@ Also in this range: 160 fixes, 75 documentation, 4 build and ci, 42 maintenance,
 
 - **`apache/airflow` 3.3.0 → 3.3.1, and the locks that pin its provider graph.** The 3.3.0 image and the Airflow runtime lock carried advisories whose fix is a patch release: `apache-airflow`/`-core`/`-task-sdk` 3.3.0→3.3.1, `providers-common-compat` 1.17.0→1.18.0, `providers-common-sql` 2.0.3→2.1.0, `providers-amazon` 9.33.0→9.34.0, and `sqlparse` 0.5.5→0.6.0. The JupyterHub lock shares `sqlparse` and takes the same bump; it resolves byte-identically on both required platforms, so the lock stays single-file. Both locks were recompiled against themselves as a constraint with only the advisory packages released, so nothing else in either graph moved. The image pin moves in twenty places — `.env.example`, the service manifest, four `compose.yml` build blocks, the Dockerfile `ARG`, the CI build-validation invocation, three test files, the rendered-config golden ×4, and both READMEs.
 
-  The final Airflow 3.3.1 image runs Python 3.13, so its provider lock is now compiled byte-identically for amd64 and arm64 against Python 3.13 rather than the former Python 3.12 approximation. Compatibility with packages already present in the upstream image pins `botocore 1.43.56`, `importlib-metadata 8.9.0`, `protobuf 6.33.6`, and `websockets 16.1.1`; the corrected graph also adds its resolved `pyyaml-ft 8.0.0` dependency. Image construction runs `pip check` so future overlays cannot silently leave the combined environment inconsistent.
+    The final Airflow 3.3.1 image runs Python 3.13, so its provider lock is now compiled byte-identically for amd64 and arm64 against Python 3.13 rather than the former Python 3.12 approximation. Compatibility with packages already present in the upstream image pins `botocore 1.43.56`, `importlib-metadata 8.9.0`, `protobuf 6.33.6`, and `websockets 16.1.1`; the corrected graph also adds its resolved `pyyaml-ft 8.0.0` dependency. Image construction runs `pip check` so future overlays cannot silently leave the combined environment inconsistent.
 
-  Per the #850 lesson — CI-green is not functional correctness for a pinned-upstream bump — the external-contract ledger's two Airflow rows were re-verified against the pulled `3.3.1` image rather than carried forward: the local image ID is re-recorded, `amd64`/`arm64` manifests confirmed present, `ENTRYPOINT` confirmed still `/entrypoint`, and all three init CLI contracts re-executed (`db migrate`, `users create` with its six flags, `connections add` with its eight typed flags).
+    Per the #850 lesson — CI-green is not functional correctness for a pinned-upstream bump — the external-contract ledger's two Airflow rows were re-verified against the pulled `3.3.1` image rather than carried forward: the local image ID is re-recorded, `amd64`/`arm64` manifests confirmed present, `ENTRYPOINT` confirmed still `/entrypoint`, and all three init CLI contracts re-executed (`db migrate`, `users create` with its six flags, `connections add` with its eight typed flags).
 
 - **One exception instead of a bump, for a capped transitive.** `CVE-2026-68508` is RCE in `hydra-core` via `hydra.utils.instantiate()` resolving `_target_` out of a config the caller does not control. 1.3.4 ships the fix, but `nemo-toolkit` caps `hydra-core<=1.3.2` in every extra the Parakeet GPU lock pulls — including the newest 3.0.0 — so there is no reachable upgrade target. Atlas never imports hydra; the provider's only NeMo entry point is `ASRModel.from_pretrained` on the operator-pinned `PARAKEET_MODEL`, which no request payload can select. Recorded as a fail-closed reviewed exception with a 2026-11-27 re-review, alongside the `PYSEC-2026-3624` exception already carried on that lock.
 
@@ -938,14 +938,15 @@ User-visible changes that need action:
   write to the new path.
 
 - **JupyterHub Neo4j MERGE node**: notebook
-  `03_neo4j_graphs.ipynb` creates a graph node named `'Atlas'` on next
-  run. Existing graphs from prior runs still carry the
-  `'GenAI Vanilla Stack'` node; merge with a one-shot cypher:
-  ```cypher
-  MATCH (s:System {name: 'GenAI Vanilla Stack'}) SET s.name = 'Atlas'
-  ```
+    `03_neo4j_graphs.ipynb` creates a graph node named `'Atlas'` on next
+    run. Existing graphs from prior runs still carry the
+    `'GenAI Vanilla Stack'` node; merge with a one-shot cypher:
+    ```cypher
+    MATCH (s:System {name: 'GenAI Vanilla Stack'}) SET s.name = 'Atlas'
+    ```
 
 Internals (no operator action required):
+
 - Block art `_LOGO_ROWS` in `block_logo.py` redrawn; `_GRADIENT` and
   render pipeline unchanged. Linear `get_ascii_art_full()` is now a
   single 6-row ATLAS strip; the 15-color gradient applies per-character.
@@ -1611,7 +1612,7 @@ audit scripts and the docs-drift gate exit 0.
   285-line `build_ollama_steps`; four duplicated test env-splice loops
   replaced by a shared `env_with_overrides` conftest factory.
 - Docs/CI: CONTRIBUTING's CI-gates section now documents all four jobs
-  + the four-seam picker-flag rule; minio image note drops a
+  \+ the four-seam picker-flag rule; minio image note drops a
   placeholder CVE id; `.gitignore` sheds two dead personal-scratch
   entries; kong/comfyui READMEs lose claims invalidated this run.
 
@@ -1841,31 +1842,31 @@ audit scripts and the docs-drift gate exit 0.
   created — open-webui-init's 60-attempt retry loop then exited 1 with
   "No admin user found". Fix removes the duplicate kwarg.
 - **`services/grafana/config/provisioning/dashboards/*.json` shipped
-  with 12 metric names that don't exist in upstream LiteLLM / n8n /
-  postgres-exporter / Weaviate / Prometheus**. Every affected panel
-  rendered "No data" indefinitely. Verified firsthand against canonical
-  source files (LiteLLM `prometheus.py`, n8n `prometheus-metrics.service.ts`,
-  postgres-exporter `pg_stat_user_tables.go`, Weaviate monitoring docs,
-  Prometheus config docs):
-  - litellm.json: 4 panels — `litellm_requests_total`,
-    `litellm_total_tokens`, `litellm_request_latency_bucket`,
-    `litellm_failed_requests_metric` corrected to the upstream
-    `_metric` / `litellm_proxy_*` / `litellm_request_total_latency_metric_bucket`
-    names.
-  - n8n.json: complete rewrite (5 panels) — upstream emits
-    `n8n_workflow_execution_duration_seconds`, `n8n_active_workflow_count`,
-    `n8n_execution_data_writes_total`, not `n8n_workflow_executions_total`
-    / `n8n_active_workflows` / `n8n_total_workflows` / `n8n_process_start_time_seconds`.
-  - postgres-redis.json: `pg_relation_size_bytes` → `pg_stat_user_tables_table_size_bytes`.
-  - app-tier.json: `weaviate_queries_total` + `weaviate_objects_total`
-    → `weaviate_module_requests_total` + `weaviate_module_request_duration_seconds_bucket`;
-    `minio_bucket_usage_total_bytes` (only at `/metrics/bucket` which
-    we don't scrape) → `minio_cluster_usage_total_bytes`.
-  - stack-overview.json: `up{stack="atlas"}` → `up`. The Prometheus
-    docs explicitly note `global.external_labels` only apply to
-    `remote_write`/federation/Alertmanager, NEVER to locally-scraped TSDB
-    series — the selector matched zero series. Panel title also updated to
-    drop "Hermes" (Hermes ships no `/metrics`).
+    with 12 metric names that don't exist in upstream LiteLLM / n8n /
+    postgres-exporter / Weaviate / Prometheus**. Every affected panel
+    rendered "No data" indefinitely. Verified firsthand against canonical
+    source files (LiteLLM `prometheus.py`, n8n `prometheus-metrics.service.ts`,
+    postgres-exporter `pg_stat_user_tables.go`, Weaviate monitoring docs,
+    Prometheus config docs):
+    - litellm.json: 4 panels — `litellm_requests_total`,
+      `litellm_total_tokens`, `litellm_request_latency_bucket`,
+      `litellm_failed_requests_metric` corrected to the upstream
+      `_metric` / `litellm_proxy_*` / `litellm_request_total_latency_metric_bucket`
+      names.
+    - n8n.json: complete rewrite (5 panels) — upstream emits
+      `n8n_workflow_execution_duration_seconds`, `n8n_active_workflow_count`,
+      `n8n_execution_data_writes_total`, not `n8n_workflow_executions_total`
+      / `n8n_active_workflows` / `n8n_total_workflows` / `n8n_process_start_time_seconds`.
+    - postgres-redis.json: `pg_relation_size_bytes` → `pg_stat_user_tables_table_size_bytes`.
+    - app-tier.json: `weaviate_queries_total` + `weaviate_objects_total`
+      → `weaviate_module_requests_total` + `weaviate_module_request_duration_seconds_bucket`;
+      `minio_bucket_usage_total_bytes` (only at `/metrics/bucket` which
+      we don't scrape) → `minio_cluster_usage_total_bytes`.
+    - stack-overview.json: `up{stack="atlas"}` → `up`. The Prometheus
+      docs explicitly note `global.external_labels` only apply to
+      `remote_write`/federation/Alertmanager, NEVER to locally-scraped TSDB
+      series — the selector matched zero series. Panel title also updated to
+      drop "Hermes" (Hermes ships no `/metrics`).
 - **`services/lightrag/service.yml::runtime_adaptive.lightrag-init.failure_mode`
   contract was wrong** — declared "lightrag-init exits non-zero; LightRAG
   container does not start" when LiteLLM is unreachable, but
@@ -1892,7 +1893,7 @@ audit scripts and the docs-drift gate exit 0.
   at 15s, POST install at 120s).
 - `bootstrapper/utils/system.py` — 3 `subprocess.run` sites
   (`docker version`, `docker network inspect`, `docker run --rm alpine`)
-  + the generic `run_command()` helper gained explicit `timeout=` (10s
+  \+ the generic `run_command()` helper gained explicit `timeout=` (10s
   / 60s) with `subprocess.TimeoutExpired` added to the except clauses.
 
 ### 2.42. Fixed — Documentation drift (MinIO ports, TEI memory guide)
@@ -1944,6 +1945,7 @@ audit scripts and the docs-drift gate exit 0.
 view) refreshed to reflect the current 33-service stack. Eight services
 shipped since the diagram was last hand-authored were absent:
 **LightRAG** + **TEI Reranker** (2026-06-05, PR #62), **Apache Airflow**
+
 + **Apache Spark** + **Apache Zeppelin** (2026-06-05, PR #35), and
 **Ray** + **Prometheus** + **Grafana** (earlier in 2026).
 
@@ -2054,7 +2056,7 @@ and the hermes byte-equivalence golden fixtures.
   split was using `RedisKVStorage` in two of them).
 - `services/hermes/service.yml::runtime_adaptive.hermes-init.environment_adaptation`
   was missing `LIGHTRAG_API_KEY` — the compose env block + init script
-  + template all read it, but the manifest under-specified the
+  \+ template all read it, but the manifest under-specified the
   cross-service contract.
 
 ### 2.52. Fixed — Narrow broad except clauses in 3 bootstrapper modules
@@ -2167,7 +2169,7 @@ plan at
   `weaviate_default` (`WEAVIATE_SOURCE=container`), `neo4j_default`
   (`NEO4J_GRAPH_DB_SOURCE=container`). Sample
   `example_etl_with_llm` DAG ships in `services/airflow/dags/`. Web UI
-  + REST API at `airflow.localhost`. Hermes → Airflow integration via
+  \+ REST API at `airflow.localhost`. Hermes → Airflow integration via
   the REST API is documented in the per-service README §6.
 
 **Cross-stack integration coverage** (per the spec's integration matrix):
@@ -2210,7 +2212,7 @@ because rotating any of them mid-run breaks something.
 - **Spark × Supabase Postgres JDBC pre-wiring** — spec §5.1 listed
   `spark.jdbc.postgres.url` env-var pre-config on the master as CRITICAL
   (config only). Users wire JDBC manually today via `--jars postgresql.jar`
-  + a `jdbc:postgresql://supabase-db:5432/...` URL per job. See
+  \+ a `jdbc:postgresql://supabase-db:5432/...` URL per job. See
   [`services/spark/README.md`](https://github.com/thekaveh/atlas/blob/main/services/spark/README.md) §4.
 - **Zeppelin JDBC interpreter auto-binding** — the `ZEPPELIN_JDBC_POSTGRES_*`
   env vars are injected but Zeppelin doesn't auto-bind them to a JDBC
@@ -2396,6 +2398,7 @@ The JupyterHub container now ships three kernels and is configured for
 remote-kernel access from VS Code on the developer's host machine.
 
 **Scala kernels (Almond):**
+
 - Two new kernels installed at image build time via Coursier — `scala213`
   (Scala 2.13.16) and `scala3` (Scala 3.4.3), both running on Almond
   0.14.5 over OpenJDK 17. Pick from JupyterLab's launcher or VS Code's
@@ -2406,6 +2409,7 @@ remote-kernel access from VS Code on the developer's host machine.
   explicit and rebuild predictably.
 
 **VS Code remote-Jupyter:**
+
 - `services/jupyterhub/compose.yml` adds three `--ServerApp.*` flags to
   the container command — `allow_origin=*`, `allow_remote_access=True`,
   `disable_check_xsrf=False`. Token auth still gates every request; the
@@ -2432,6 +2436,7 @@ out of the box. Both services default to `disabled` — opt in with
 `--prometheus-source container --grafana-source container` or the wizard.
 
 **New services:**
+
 - **`services/prometheus/`** — metrics scraper + TSDB with bundled `node-exporter`
   (host metrics) and `cAdvisor` (container metrics) as co-lifecycled containers.
   Default retention: 7 days, user-configurable at wizard time via the new inline
@@ -2448,12 +2453,14 @@ out of the box. Both services default to `disabled` — opt in with
 
 **Sidecar exporters** (embedded in existing manifest families, scale 1↔0 with
 `PROMETHEUS_SOURCE`):
+
 - `postgres-exporter` (in `services/supabase/`) — reads `pg_stat_*` views,
   auto-discovers every Supabase database.
 - `redis-exporter` (in `services/redis/`) — Redis memory, ops/sec, hit ratio.
 
 **Cross-stack `/metrics` enablement** (always on; sit unscraped when
 `PROMETHEUS_SOURCE=disabled`):
+
 - **Kong** — global Prometheus plugin via `kong_config_generator`, Status API
   on `:8100` (internal-only), `KONG_STATUS_LISTEN=0.0.0.0:8100`.
 - **LiteLLM** — `'prometheus'` added to `litellm_settings.callbacks` (shared
@@ -2480,6 +2487,7 @@ job was dropped in the follow-up Fixed entry above and returns when upstream
 instrumentation lands.
 
 **Bootstrapper plumbing:**
+
 - `PROMETHEUS_SOURCE` / `GRAFANA_SOURCE` CLI flags + `source_mapping` entries.
 - `--prometheus-retention-days` CLI flag (default 7; wizard prompts via the
   new `secondary_number` row-schema field).
@@ -2496,6 +2504,7 @@ instrumentation lands.
 - `services.schema.json` extended with optional `secondary_number` on rows.
 
 **Audit + tests:**
+
 - `check-compose-source-deps.py::REQUIRED_DEPENDS_ON` adds
   `(postgres-exporter, supabase-db)`, `(redis-exporter, redis)`,
   `(grafana, prometheus)`.
@@ -2657,7 +2666,7 @@ Highlights:
   catches future drift between the two layers at CI time.
 
 - **Dead deps + dead code:** dropped `dspy>=2.4.6` + `dspy-ai>=2.4.6`
-  + `aioredis>=2.0.1` from `services/backend/app/app/requirements.txt`
+  \+ `aioredis>=2.0.1` from `services/backend/app/app/requirements.txt`
   (none imported anywhere); cleared 5 unused imports across
   `main.py` / `research_service.py` / `deps_section_writer.py` /
   `regen.py` / `research_subagent_prompt.py`; updated one stale
@@ -2893,10 +2902,10 @@ The cleanup PR documented at the top of this section deliberately defers three c
 
 ### 2.83. Added (Tests for Ollama-LiteLLM-wizard catalog-sync invariants)
 - **4 new test files / 19 regression tests** that codify the recent Ollama-discovery bugs as a permanent guard:
-  - `bootstrapper/tests/test_wizard_ollama_options.py` (5 tests) — exercises the wizard's `_merged_ollama_options` closure with mocked `/api/tags` + library scrape. Asserts: (a) every host-pulled tag lands in the family's `pulled_variants`; (b) family parent's `[pulled]` badge fires when ANY tag is on host (the "bare family name in pulled_set" bug); (c) bucket-1 fallback for tags whose family isn't in `ollama.com/library` at all; (d) options carry enough info for pre-check seeding.
-  - `bootstrapper/tests/test_prompt_panel_leaf_badges.py` (4 tests) — exercises `PromptPanel._leaf_render_data` on a stub. Asserts: per-leaf `[pulled]`/`[library]` reflects `opt.pulled_variants` independently of the parent's status; mixed-status leaves within one family render correctly; empty `pulled_variants` leaves the leaf status-less (fallback to parent).
-  - `bootstrapper/tests/test_live_catalog_sync.py` (3 tests, skip-aware) — integration: queries the live host Ollama `/api/tags` and the live LiteLLM `/v1/models`, asserts every host model is published by LiteLLM (auto-import fix), no phantom Ollama models in LiteLLM that aren't on the host or declared in `OLLAMA_USER_MODELS`/`OLLAMA_CUSTOM_MODELS`, AND runs the wizard's actual `options_provider` against the live host to confirm `pulled_variants` matches `/api/tags` reality. Skips cleanly when the stack isn't up.
-  - `bootstrapper/tests/test_catalog_init_auto_import.py` (7 tests) — unit tests for `services/litellm/catalog-init/scripts/sync-catalog.py::_fetch_ollama_tags`. Loads the script via `importlib.util.spec_from_file_location` with `psycopg2` stubbed in `sys.modules` so the test runs without the catalog-init container's deps. Covers: happy path, alternate `model` field name, empty upstream, unreachable upstream, malformed JSON, empty URL short-circuit, garbage-entry tolerance.
+    - `bootstrapper/tests/test_wizard_ollama_options.py` (5 tests) — exercises the wizard's `_merged_ollama_options` closure with mocked `/api/tags` + library scrape. Asserts: (a) every host-pulled tag lands in the family's `pulled_variants`; (b) family parent's `[pulled]` badge fires when ANY tag is on host (the "bare family name in pulled_set" bug); (c) bucket-1 fallback for tags whose family isn't in `ollama.com/library` at all; (d) options carry enough info for pre-check seeding.
+    - `bootstrapper/tests/test_prompt_panel_leaf_badges.py` (4 tests) — exercises `PromptPanel._leaf_render_data` on a stub. Asserts: per-leaf `[pulled]`/`[library]` reflects `opt.pulled_variants` independently of the parent's status; mixed-status leaves within one family render correctly; empty `pulled_variants` leaves the leaf status-less (fallback to parent).
+    - `bootstrapper/tests/test_live_catalog_sync.py` (3 tests, skip-aware) — integration: queries the live host Ollama `/api/tags` and the live LiteLLM `/v1/models`, asserts every host model is published by LiteLLM (auto-import fix), no phantom Ollama models in LiteLLM that aren't on the host or declared in `OLLAMA_USER_MODELS`/`OLLAMA_CUSTOM_MODELS`, AND runs the wizard's actual `options_provider` against the live host to confirm `pulled_variants` matches `/api/tags` reality. Skips cleanly when the stack isn't up.
+    - `bootstrapper/tests/test_catalog_init_auto_import.py` (7 tests) — unit tests for `services/litellm/catalog-init/scripts/sync-catalog.py::_fetch_ollama_tags`. Loads the script via `importlib.util.spec_from_file_location` with `psycopg2` stubbed in `sys.modules` so the test runs without the catalog-init container's deps. Covers: happy path, alternate `model` field name, empty upstream, unreachable upstream, malformed JSON, empty URL short-circuit, garbage-entry tolerance.
 - Tests are wired into the existing pytest infrastructure; total suite count grew from 126 to **145** (all passing).
 
 ### 2.84. Fixed (Wizard Ollama-models pre-check + per-variant pulled badge)
@@ -2988,16 +2997,16 @@ The cleanup PR documented at the top of this section deliberately defers three c
 - **`bootstrapper/utils/llm_catalog.py`**: single source of truth for curated cloud + Ollama catalog. Each entry carries capability flags (`content`, `structured_content`, `vision`, `embeddings`), `context_window`, `default_active`. Cloud catalog includes gpt-5 family, claude-4.x line, and OpenRouter aggregator routes.
 - **Schema migration** `supabase/db/scripts/05a-public-tables-migrations.sql`: drop `llms_name_key`, add composite `llms_provider_name_key UNIQUE (provider, name)` so models with the same bare name across providers can coexist.
 - **Live cloud model fetch** in the wizard:
-  - OpenAI `/v1/models` with the user's key + per-provider filter (see `bootstrapper/utils/cloud_models.py` for the current allow/deny lists; the filter is maintained there as new model families ship — DALL-E, Whisper, TTS, fine-tunes and snapshot variants are excluded).
-  - Anthropic `/v1/models` with `x-api-key` — uses `display_name` for label, dedups snapshots.
-  - OpenRouter `/api/v1/models` (no auth) — sorted alphabetically by label, capped at 50 entries to keep the picker usable.
-  - All three fall back to `CLOUD_CATALOG` on network/auth/timeout/empty failure.
+    - OpenAI `/v1/models` with the user's key + per-provider filter (see `bootstrapper/utils/cloud_models.py` for the current allow/deny lists; the filter is maintained there as new model families ship — DALL-E, Whisper, TTS, fine-tunes and snapshot variants are excluded).
+    - Anthropic `/v1/models` with `x-api-key` — uses `display_name` for label, dedups snapshots.
+    - OpenRouter `/api/v1/models` (no auth) — sorted alphabetically by label, capped at 50 entries to keep the picker usable.
+    - All three fall back to `CLOUD_CATALOG` on network/auth/timeout/empty failure.
 - **Live Ollama library scrape** of `https://ollama.com/library` (~230 entries) via `bootstrapper/utils/ollama_library.py`. Available for **every** ollama-* source (localhost, external, container) so users can browse and register additional models regardless of upstream type. Falls back to `OLLAMA_DEFAULT_CATALOG` on failure.
 - **Live Ollama upstream discovery**: for `ollama-localhost` / `ollama-external`, `bootstrapper/utils/ollama_discovery.py` queries `${LITELLM_OLLAMA_UPSTREAM}/api/tags` to list models already pulled on the user's host.
 - **Three new wizard prompt kinds** in `bootstrapper/ui/textual/widgets/prompt_panel.py`:
-  - `kind="secret"` — masked `Input(password=True)`, with `<KEEP>` / `<CLEAR>` sentinels for re-runs (existing key + Enter = keep current; type `clear` to remove). Live "selected N chars entered" counter via `on_input_changed` so the user can confirm a paste landed even when the dots scrolled out of view.
-  - `kind="multiselect"` — checkbox list with `[selected]` / `[ ]` indicators. Space toggles the focused row; Enter confirms. Comma-joined CSV value. Optional `options_provider` for lazy/live fetch with a `Fetching X models…` status row, worker, cache, and back-invalidation.
-  - `kind="text"` — free-text input with the same `<KEEP>` / `<CLEAR>` sentinels (used for `OLLAMA_CUSTOM_MODELS` so an empty Enter on re-run doesn't silently wipe an existing value).
+    - `kind="secret"` — masked `Input(password=True)`, with `<KEEP>` / `<CLEAR>` sentinels for re-runs (existing key + Enter = keep current; type `clear` to remove). Live "selected N chars entered" counter via `on_input_changed` so the user can confirm a paste landed even when the dots scrolled out of view.
+    - `kind="multiselect"` — checkbox list with `[selected]` / `[ ]` indicators. Space toggles the focused row; Enter confirms. Comma-joined CSV value. Optional `options_provider` for lazy/live fetch with a `Fetching X models…` status row, worker, cache, and back-invalidation.
+    - `kind="text"` — free-text input with the same `<KEEP>` / `<CLEAR>` sentinels (used for `OLLAMA_CUSTOM_MODELS` so an empty Enter on re-run doesn't silently wipe an existing value).
 - **CLI flags**: `--openai-models`, `--anthropic-models`, `--openrouter-models`, `--ollama-models`, `--ollama-custom-models` (comma-separated). Imply matching `--cloud-*-source=enabled` when paired with the corresponding `--*-api-key`.
 - **`/tmp/atlas-launch-<YYYYMMDDTHHMMSS>.log`** — every wizard launch tees pipeline + docker compose output to this file. The session log is now opened at wizard start (not launch), so cloud `/v1/models` fetch failures during the setup phase are persisted too. On `docker compose up` non-zero exit, automatically captures `docker compose logs --tail=200` for every service. The path is written as the first line in the wizard's log pane (`session log: /tmp/atlas-launch-<…>.log`).
 - **Per-service color-coded log pane**: `LogPane._write_record` now matches the compose `<container>   | <body>` pattern and colors the container-name prefix using `palette.color_for_source(rec.source)`. Hash-based fallback (md5) gives every service — including ones not in the curated `SOURCE_COLORS` map (jupyterhub, openclaw, local-deep-researcher, etc.) — a stable distinct hue.
@@ -3061,10 +3070,10 @@ The cleanup PR documented at the top of this section deliberately defers three c
 
 ### 2.103. Added
 - **LiteLLM Gateway** (mandatory core service): always-on OpenAI-compatible front door for every LLM provider. Pinned image `ghcr.io/berriai/litellm:v1.83.14-stable.patch.2`, listening on port 63012 (the slot formerly held by Ollama). Persistence on a dedicated `litellm` database in the existing Supabase Postgres (Prisma migrations run automatically); response caching + rate-limit state in Redis.
-  - **Wizard model**: LiteLLM is a locked tile (no source toggle). A separate **LLM Engine** tile single-selects the local Ollama upstream (`ollama-container-cpu`, `ollama-container-gpu`, `ollama-localhost`, `ollama-external`, `none`). Three new **Cloud APIs** (OpenAI / Anthropic / OpenRouter) appear in a dedicated overview block rather than as service tiles — each is a secret-input + multiselect pair that toggles the corresponding provider in LiteLLM's `model_list`. Bootstrapper refuses to start when no upstream is configured (engine=`none` + every cloud provider disabled).
-  - **CLI flags**: `--llm-provider-source` enum dropped `api`/`disabled`, added `none`. New flags `--cloud-openai-source`, `--cloud-anthropic-source`, `--cloud-openrouter-source` (each `enabled`/`disabled`).
-  - **Master key**: bootstrapper auto-generates `LITELLM_MASTER_KEY` (`sk-…`) on first start and never overwrites it on subsequent runs.
-  - **Documented backup**: Portkey AI Gateway (Apache-2.0) — switch path noted in `services/litellm/README.md`.
+    - **Wizard model**: LiteLLM is a locked tile (no source toggle). A separate **LLM Engine** tile single-selects the local Ollama upstream (`ollama-container-cpu`, `ollama-container-gpu`, `ollama-localhost`, `ollama-external`, `none`). Three new **Cloud APIs** (OpenAI / Anthropic / OpenRouter) appear in a dedicated overview block rather than as service tiles — each is a secret-input + multiselect pair that toggles the corresponding provider in LiteLLM's `model_list`. Bootstrapper refuses to start when no upstream is configured (engine=`none` + every cloud provider disabled).
+    - **CLI flags**: `--llm-provider-source` enum dropped `api`/`disabled`, added `none`. New flags `--cloud-openai-source`, `--cloud-anthropic-source`, `--cloud-openrouter-source` (each `enabled`/`disabled`).
+    - **Master key**: bootstrapper auto-generates `LITELLM_MASTER_KEY` (`sk-…`) on first start and never overwrites it on subsequent runs.
+    - **Documented backup**: Portkey AI Gateway (Apache-2.0) — switch path noted in `services/litellm/README.md`.
 - **`vllm-container-gpu` upstream** is deferred to a follow-up plan (tracked in ROADMAP).
 ### 2.104. Changed (LiteLLM migration)
 - **Consumer env-var rename (breaking)**: every service that talks to an LLM now reads `LITELLM_BASE_URL` + `LITELLM_API_KEY`. The legacy `OLLAMA_BASE_URL` / `OLLAMA_ENDPOINT` env vars are removed from all consumer compose blocks (`open-web-ui`, `backend`, `n8n`, `n8n-worker`, `n8n-init`, `jupyterhub`, `local-deep-researcher`, `openclaw-gateway`, `weaviate-init`, `weaviate`).
@@ -3077,22 +3086,22 @@ The cleanup PR documented at the top of this section deliberately defers three c
 - **`check-compose-source-deps.py`** gained 12 new `REQUIRED_DEPENDS_ON` tuples enforcing that every LLM consumer hard-depends on `litellm`. Ollama remains in `FORBIDDEN_OPTIONAL_DEPENDS_ON` (still source-replaceable).
 - **Migration note for existing users**: bump your `.env` by either copying the new `.env.example` or running `./start.sh --cold`. `OLLAMA_ENDPOINT` is gone; `LLM_PROVIDER_PORT` becomes `LITELLM_PORT` (same value).
 - **OpenClaw AI Agent**: AI agent for messaging platforms (WhatsApp, Telegram, Discord, etc.)
-  - Connects to messaging apps for AI-powered chat, file management, and task automation
-  - Web dashboard for administration at `openclaw.localhost`
-  - LLM integration: inherits stack's Ollama endpoint, supports Anthropic/OpenAI API keys
-  - SOURCE options: `container`, `localhost` (Node.js 22+), `disabled` (default)
-  - CLI option: `--openclaw-source [container|localhost|disabled]`
-  - Default ports: 63024 (gateway, offset +24), 63025 (bridge, offset +25)
-  - Kong routing via `openclaw.localhost` subdomain
+    - Connects to messaging apps for AI-powered chat, file management, and task automation
+    - Web dashboard for administration at `openclaw.localhost`
+    - LLM integration: inherits stack's Ollama endpoint, supports Anthropic/OpenAI API keys
+    - SOURCE options: `container`, `localhost` (Node.js 22+), `disabled` (default)
+    - CLI option: `--openclaw-source [container|localhost|disabled]`
+    - Default ports: 63024 (gateway, offset +24), 63025 (bridge, offset +25)
+    - Kong routing via `openclaw.localhost` subdomain
 - **JupyterHub Data Science IDE**: Interactive Jupyter Lab environment with pre-configured AI/ML libraries
-  - 7 sample notebooks demonstrating all service integrations (Ollama, Weaviate, Neo4j, Supabase, ComfyUI, n8n, SearxNG)
-  - Pre-installed libraries: Ollama, LangChain, LlamaIndex, Transformers, Weaviate client, Neo4j driver, and more
-  - Kong routing support via `jupyter.localhost` domain
-  - Persistent workspace with Docker volumes (`jupyterhub-data`)
-  - Adaptive service that auto-configures based on available AI services
-  - CLI option: `--jupyterhub-source [container|disabled]`
-  - Default port: 63048 (offset +48 from base port)
-  - Environment check notebook for service connectivity verification
+    - 7 sample notebooks demonstrating all service integrations (Ollama, Weaviate, Neo4j, Supabase, ComfyUI, n8n, SearxNG)
+    - Pre-installed libraries: Ollama, LangChain, LlamaIndex, Transformers, Weaviate client, Neo4j driver, and more
+    - Kong routing support via `jupyter.localhost` domain
+    - Persistent workspace with Docker volumes (`jupyterhub-data`)
+    - Adaptive service that auto-configures based on available AI services
+    - CLI option: `--jupyterhub-source [container|disabled]`
+    - Default port: 63048 (offset +48 from base port)
+    - Environment check notebook for service connectivity verification
 - **Textual-based bootstrapper TUI**: A single Textual app (`bootstrapper/ui/textual/`) now owns the entire interactive experience — wizard prompts, the CLI-flag launch screen, the pre-launch pipeline (apply overrides → validate → ports → kong → supabase keys → hosts → encryption → localhost), and the live `docker compose` build / up / verify / `logs -f` stream — all rendered in one screen with a pinned info-box, a service overview, and a bordered log pane with filter chips. Press `ctrl+q` to detach (the stack keeps running). `--no-tui` falls back to a linear stdout flow for CI / non-TTY shells.
 - **Brand customization via `BRAND_*` env vars**: The wizard's brand panel and info-box title / subtitle metadata (brand name, tagline, version, author, author email, license, repo URL) is overridable via `BRAND_NAME`, `BRAND_TAGLINE`, `BRAND_VERSION`, `BRAND_AUTHOR`, `BRAND_AUTHOR_EMAIL`, `BRAND_LICENSE`, `BRAND_REPO_URL` in `.env`. Defaults are Atlas; forks can rebrand without code changes.
 - **Always-on Supabase services in the bootstrapper overview**: `Supabase Auth`, `Supabase API`, `Supabase Realtime`, `Supabase Storage`, and `Supabase Meta` are now surfaced as rows in both the Textual `ServiceTable` and the `--no-tui` summary table, alongside Supabase DB and Studio.
@@ -3314,17 +3323,20 @@ To roll back: `cp .env.backup.<timestamp> .env && sed -i '' '/BOOTSTRAPPER_PORT_
 ### 7.1. From 1.x to 2.0 (Python Migration)
 
 **Required Actions:**
+
 1. **Update start/stop usage**: New CLI arguments available
 2. **Check SOURCE configurations**: Verify localhost support for your services
 3. **Update hosts file**: Run `./start.sh --setup-hosts` for *.localhost domains
 4. **Review Kong routes**: Routes now generated dynamically
 
 **Optional Improvements:**
+
 - Install UV package manager for better dependency management
 - Use new CLI SOURCE overrides for easier configuration
 - Leverage new troubleshooting documentation
 
 **Breaking Changes:**
+
 - Static `kong.yml` files no longer used (automatically migrated)
 - Some services no longer support localhost SOURCE (see documentation)
 - `generate_supabase_keys.sh` moved to `bootstrapper/` directory

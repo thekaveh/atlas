@@ -80,11 +80,11 @@ Once you understand the candidate, scan our existing service manifests (run `gre
 - **Upstream callers (who in our stack would call this new service).** Run `grep -l "^data_flow:" services/*/service.yml` and skim each service's `data_flow.calls` list. Which existing services would benefit from calling this new one? For a new vector DB: Backend, n8n, JupyterHub, possibly Hermes Agent. Add these edges to those EXISTING manifests' `data_flow.calls` lists, NOT to your new service's `depends_on`. (See [Decision 5](#9-decision-5--dependencies-depends_onrequired--optional) for why `data_flow.calls` is separate from `depends_on`.)
 - **Downstream callees (what this service calls).** Does the candidate make outbound calls to anything we already run? Most app-tier services touch Supabase (auth/storage), LiteLLM (LLM access), and Redis (caching). These would be entries in YOUR new service's `data_flow.calls`.
 - **Source-variant precedents.** Find the closest existing service that ships similar source variants and use its manifest as a template:
-  - New vector DB → `services/weaviate/service.yml`
-  - New LLM gateway / engine → `services/litellm/`, `services/ollama/`
-  - New STT/TTS engine → `services/parakeet/`, `services/speaches/`, plus the aggregator pattern in `services/stt-provider/` + `services/tts-provider/`
-  - New app-tier UI → `services/open-webui/`, `services/jupyterhub/`
-  - New cloud-API toggle (not a container) → `services/cloud-providers/service.yml`
+    - New vector DB → `services/weaviate/service.yml`
+    - New LLM gateway / engine → `services/litellm/`, `services/ollama/`
+    - New STT/TTS engine → `services/parakeet/`, `services/speaches/`, plus the aggregator pattern in `services/stt-provider/` + `services/tts-provider/`
+    - New app-tier UI → `services/open-webui/`, `services/jupyterhub/`
+    - New cloud-API toggle (not a container) → `services/cloud-providers/service.yml`
 
 ### 4.3. Worked example — Qdrant pre-flight
 
@@ -131,6 +131,7 @@ Three legitimate flavors of folder live under `services/`. Pick the right one be
 > **Worked example — Qdrant:** Qdrant ships as a container image (`qdrant/qdrant:v1.12.0`), exposes a real HTTP API, and has its own env vars → **container flavor**.
 
 **Common mistakes:**
+
 - Adding a virtual manifest with a compose fragment — the manifest validator rejects it (`unexpected_fragment`). Either remove `compose.yml` (if no container runs) or unset `virtual: true` and keep the compose fragment (container flavor).
 - Adding a doc-only folder when the role has env vars to manage — use a virtual manifest instead.
 
@@ -150,6 +151,7 @@ Every manifest declares one of six categories. The category drives two things: t
 | `apps` | Apps & UIs | Backend, Open WebUI, JupyterHub, Local Deep Researcher, Zeppelin | User-facing UIs |
 
 **Effects of the category:**
+
 - **Wizard placement.** Categories render in fixed order (`infra` → `data` → `llm` → `media` → `agents` → `apps`). Within a category, services follow topological order (driven by `depends_on.required`).
 - **Port-slot block.** Each category gets its own port-offset range — see [Decision 4](#8-decision-4--port-allocation).
 - **Architecture-diagram clustering.** The full-stack diagram at `docs/diagrams/architecture.svg` (hand-authored via the architecture-diagram skill) groups services by category band. Per-service architecture diagrams under `services/<name>/architecture.svg` use the same category palette but cluster the call graph instead.
@@ -181,17 +183,18 @@ Every user-configurable service has an `<SVC>_SOURCE` env var. The wizard reads 
 - **Locked vs. user-choice.** A service with only one source variant is "locked" — the wizard skips its prompt entirely. The `_is_locked` helper in `bootstrapper/services/topology.py` enforces this. Services like Backend, Kong, LiteLLM are locked because they're always-on.
 - **`requires:` per option.** Use `requires: [<ENV_VAR>]` on a source option to declare prerequisite env vars (e.g. `localhost` typically requires `<SVC>_LOCALHOST_PORT`).
 - **`profiles:` per option.** Mark each dev-only option `profiles: [default]`, especially `localhost`, because `host.docker.internal` is useless on a remote host. An option without `profiles:` is offered in every profile, which suits `container` and `disabled`. Under `--profile prod` the wizard hides dev-only options, and `bootstrapper/services/source_validator.py::validate_sources_for_profile` rejects them.
-  - The manifest-validator lint fails only when no prod-eligible option is left. Annotate each dev-only option yourself.
-  - The matching Python predicate is `option_in_profile` in `bootstrapper/services/manifests.py`.
-  - The profile bundles live in `bootstrapper/profiles.yml`: `default` and `prod` maps of `sources`, `env` and `host_bind_ip` that `apply_profile_overrides` applies at start. Consumers override fields with `profile_overrides:` in `atlas.consumer.yml` ([Reusing Atlas §6.1](operations/reusing-atlas.md#61-registering-a-parent-project-with-atlasconsumeryml)).
+    - The manifest-validator lint fails only when no prod-eligible option is left. Annotate each dev-only option yourself.
+    - The matching Python predicate is `option_in_profile` in `bootstrapper/services/manifests.py`.
+    - The profile bundles live in `bootstrapper/profiles.yml`: `default` and `prod` maps of `sources`, `env` and `host_bind_ip` that `apply_profile_overrides` applies at start. Consumers override fields with `profile_overrides:` in `atlas.consumer.yml` ([Reusing Atlas §6.1](operations/reusing-atlas.md#61-registering-a-parent-project-with-atlasconsumeryml)).
 - **`<SVC>_LOCALHOST_PORT` is the single source of truth.** If you offer `localhost`, declare `<SVC>_LOCALHOST_PORT` (an integer string, defaulting to the upstream host port). The URL is derived as `http://host.docker.internal:${<SVC>_LOCALHOST_PORT:-<default>}`. The in-container consumers (`runtime_sc.<svc>.localhost.environment`) and the Kong route generator (`bootstrapper/utils/kong_config_generator.py`) must read the same var. The wizard shows an inline port box on the `localhost` row. See also [Common gotchas](#14-common-gotchas--anti-patterns).
 - **`runtime_sc` slice per source.** Every source variant declared in `sources.options` must have a matching `runtime_sc.<key>.<source>` slice. By convention each slice sets `scale`, `environment`, `deploy` and `extra_hosts`. The manifest validator reports a missing slice as `runtime_sc_missing_variant`, so a declared option cannot silently scale to 0.
 - **`auto_prefer:` (optional).** This enables `<SVC>_SOURCE: auto` in `atlas.consumer.yml`. The resolver picks the first entry whose `requires_capability` (`apple_silicon`, `nvidia_gpu`, `host_ollama`; probed by `bootstrapper/services/host_capabilities.py`) holds on the host and whose option the active profile offers.
-  - Each id must be in `options[].id`. The last entry must have no `requires_capability`; it is the terminal fallback, usually the CPU container. The lint (`_check_auto_prefer_integrity`) enforces both rules.
-  - Without `auto_prefer`, `auto` resolves to `default` with a warning.
-  - Reference shapes: `services/comfyui/service.yml`, `services/ollama/service.yml`.
+    - Each id must be in `options[].id`. The last entry must have no `requires_capability`; it is the terminal fallback, usually the CPU container. The lint (`_check_auto_prefer_integrity`) enforces both rules.
+    - Without `auto_prefer`, `auto` resolves to `default` with a warning.
+    - Reference shapes: `services/comfyui/service.yml`, `services/ollama/service.yml`.
 
 > **Worked example — Qdrant:** Most users won't already run Qdrant locally, so `container` is the primary path. We offer three variants — `external` is deliberately omitted per the stack-wide moratorium noted above:
+>
 > - `container` — default, scale=1
 > - `localhost` — `QDRANT_LOCALHOST_PORT` defaults to `"6333"` (Qdrant's standard host port); the URL is derived at compose-render time as `http://host.docker.internal:6333`
 > - `disabled` — scale=0
@@ -203,17 +206,18 @@ Every user-configurable service has an `<SVC>_SOURCE` env var. The wizard reads 
 **The bootstrapper auto-assigns ports. You do not pick a port.**
 
 **How it works:**
+
 - `BASE_PORT` (default `63000`) is the bottom of the port range. Users can override with `./start.sh --base-port 64000`.
 - `CATEGORY_SLOTS` in `bootstrapper/services/topology.py` assigns each category an `(offset, block_size)` tuple. Current values:
 
-  | Category | Offset | Block size | Resolved range with default `BASE_PORT=63000` |
-  |---|---:|---:|---|
-  | `infra` | 0 | 10 | 63000-63009 |
-  | `data` | 10 | 30 | 63010-63039 |
-  | `llm` | 40 | 10 | 63040-63049 |
-  | `media` | 50 | 20 | 63050-63069 |
-  | `agents` | 70 | 20 | 63070-63089 |
-  | `apps` | 90 | 20 | 63090-63109 |
+    | Category | Offset | Block size | Resolved range with default `BASE_PORT=63000` |
+    |---|---:|---:|---|
+    | `infra` | 0 | 10 | 63000-63009 |
+    | `data` | 10 | 30 | 63010-63039 |
+    | `llm` | 40 | 10 | 63040-63049 |
+    | `media` | 50 | 20 | 63050-63069 |
+    | `agents` | 70 | 20 | 63070-63089 |
+    | `apps` | 90 | 20 | 63090-63109 |
 
 - Within each category block, services consume slots in **topological order** (driven by `depends_on.required` — see Decision 5). Multi-port services (e.g. Supabase's 8 port vars, Weaviate's HTTP + gRPC pair, MinIO's API + Console pair) get a contiguous run.
 - A category-overflow lint trips if you blow past your block. Fixes: move manifests to a different category (rare), or extend the block size in `CATEGORY_SLOTS` (also rare — coordinate with maintainers).
@@ -251,16 +255,16 @@ Removing a non-runtime edge can still break the wizard. `ollama` lists `litellm`
 - Use `required` for **genuine bootstrap blockers** AND for **cross-category display-ordering pins**.
 - Comment any non-runtime edge inline as a display-ordering pin so readers don't try to "fix" it. Example from `services/ollama/service.yml`:
 
-  ```yaml
-  depends_on:
-    # `litellm` is listed here NOT because the ollama container calls
-    # LiteLLM (the call direction is the opposite), but because the
-    # bootstrapper uses `depends_on.required` as the canonical-order
-    # backbone for the wizard / overview-box display. […]
-    required:
-      - supabase
-      - litellm
-  ```
+    ```yaml
+    depends_on:
+      # `litellm` is listed here NOT because the ollama container calls
+      # LiteLLM (the call direction is the opposite), but because the
+      # bootstrapper uses `depends_on.required` as the canonical-order
+      # backbone for the wizard / overview-box display. […]
+      required:
+        - supabase
+        - litellm
+    ```
 
 - A future schema change may add a separate `display_order:` field that takes over the ordering job; until then, comment the intent.
 
@@ -345,10 +349,10 @@ Two adjacent fields that occasionally apply:
 
 - **`runtime_adaptive`** — for services like `backend` that adapt their behavior based on which upstream services are enabled. Declares `adapts_to:` (a list of provider keys) and `environment_adaptation:` (env vars conditionally set when those providers are active). See `services/backend/service.yml` for the reference pattern.
 - **`runtime_deps`** — launch-time dependency rules keyed by container.
-  - `requires` names services this one cannot run without. If one is disabled, the bootstrapper prints `error_message` and auto-disables this service.
-  - `optional` only prints which of the listed services are enabled (`[INFO] <svc> will connect to: …`).
-  - `conditional_requires` adds rules that apply only when given env values are set.
-  - Reference: `services/n8n/service.yml`.
+    - `requires` names services this one cannot run without. If one is disabled, the bootstrapper prints `error_message` and auto-disables this service.
+    - `optional` only prints which of the listed services are enabled (`[INFO] <svc> will connect to: …`).
+    - `conditional_requires` adds rules that apply only when given env values are set.
+    - Reference: `services/n8n/service.yml`.
 
 Use these only if your service is genuinely adaptive. Today eight manifests declare `runtime_adaptive` (backend, comfyui, hermes, jupyterhub, lightrag, n8n, ollama, weaviate); backend is the most heavily adaptive and the canonical reference. Don't reach for these fields by default — start with declarative `runtime_sc` and only escalate when the adaptive behavior is non-trivial.
 
@@ -697,6 +701,7 @@ docker buildx build --load -f services/backend/app/Dockerfile services/backend/a
 
 A `--<svc>-models`-style flag (anything persisted via the wizard's
 user-model-selection path) needs FOUR coordinated edits, not two:
+
 1. the `@click.option` declaration in `start.py`,
 2. the `source_mapping` / collector-dict entry,
 3. the `user_model_selections[KEY] = kwarg` assignment in `main()`,
@@ -733,12 +738,12 @@ adding a picker.
 ### 14.3. Init-container patterns
 
 - **Init jobs never install OS packages at container startup.** Bake tools into a service-owned build context (for example `init/Dockerfile`). Pin the multi-architecture base and every Alpine package version, and give the image a project-local name. Runtime `apk add` makes startup depend on mutable repositories and can silently change a deployed revision.
-  - Application add-ons are the exception. `n8n-init` installs community nodes
-    with `npm ci` from a committed lockfile. ComfyUI provisioning runs
-    `pip install` for custom-node requirements.
-  - A Debian image takes security fixes through a reviewed pinned-base refresh.
-  - If the newest base still has fixable findings, a build-time `apt-get upgrade` is accepted, with the rationale written next to it.
-  - The non-required Final-image scan job rescans each refreshed image.
+    - Application add-ons are the exception. `n8n-init` installs community nodes
+      with `npm ci` from a committed lockfile. ComfyUI provisioning runs
+      `pip install` for custom-node requirements.
+    - A Debian image takes security fixes through a reviewed pinned-base refresh.
+    - If the newest base still has fixable findings, a build-time `apt-get upgrade` is accepted, with the rationale written next to it.
+    - The non-required Final-image scan job rescans each refreshed image.
 - **TTS/STT engine in-container ports are NOT all 8000.** Parakeet, Speaches, Docling listen on `8000`; Chatterbox listens on `4123`. Don't assume.
 
 ### 14.4. Regen / test gotchas
@@ -787,10 +792,10 @@ Short walk-throughs for the modifications you'll do most often:
 - **Add a new source variant to an existing service.** Edit `sources.options` + `runtime_sc.<key>` to include the new source. Regen `.env.example`. The source-permutation matrix in CI will exercise every variant — make sure your new variant has a valid `runtime_sc` slice.
 - **Rename a service's display name (`rows[].display_name`).** Update the row, then regen the README topology block. Search the test suite for the old name — `bootstrapper/tests/test_wizard_app_discovery.py::EXPECTED_DISCOVERED` is the most common dependency.
 - **Bump a container image version.** Edit `images[].default`. The fragment uses `${X_IMAGE}`, so it does not change. Also:
-  - regenerate `.env.example`;
-  - update the image line in the fragment baseline ([§20](#20-byte-equivalence));
-  - update the image's row in `docs/reference/license-inventory.yaml`, then run `make docs-check`;
-  - test the new image locally before you commit.
+    - regenerate `.env.example`;
+    - update the image line in the fragment baseline ([§20](#20-byte-equivalence));
+    - update the image's row in `docs/reference/license-inventory.yaml`, then run `make docs-check`;
+    - test the new image locally before you commit.
 - **Split a service family into multiple manifests.** Non-trivial. The supabase manifest (9 containers in one family) is the reference pattern; consult it before splitting.
 
 ## 17. Cross-referencing sections in service READMEs
@@ -1021,46 +1026,47 @@ A few fields on `service.yml` document ownership and capability contracts even
 though containers do not consume them directly:
 
 - `support:` — the family's support tier and its evidence.
-  - Required keys: `tier` (`stable`, `experimental`, `community`, `unsupported`), `evidence` and `evidence_revision`.
-  - `evidence` is a one-line pointer to the qualification run, or a plain statement that none exists. `evidence_revision` is the release tag or full commit. Optional keys: `owner` and one-line `limitations`.
-  - A selectable family is not thereby validated: every family starts `experimental`. `stable` needs cited cold-start, workflow and upgrade evidence from a release tag. The validator rejects a bare commit (`support_stable_without_release_evidence`), and a test checks that the tag is in the release record.
-  - The tier appears in the generated catalog's *Support* column and at the top of each README's *Capabilities & limitations* section. Every non-stable family also gets a `[support: …]` badge on its wizard prompt.
+    - Required keys: `tier` (`stable`, `experimental`, `community`, `unsupported`), `evidence` and `evidence_revision`.
+    - `evidence` is a one-line pointer to the qualification run, or a plain statement that none exists. `evidence_revision` is the release tag or full commit. Optional keys: `owner` and one-line `limitations`.
+    - A selectable family is not thereby validated: every family starts `experimental`. `stable` needs cited cold-start, workflow and upgrade evidence from a release tag. The validator rejects a bare commit (`support_stable_without_release_evidence`), and a test checks that the tag is in the release record.
+    - The tier appears in the generated catalog's *Support* column and at the top of each README's *Capabilities & limitations* section. Every non-stable family also gets a `[support: …]` badge on its wizard prompt.
 - `images[].notes` — free-form note on what the image is used for. Not read
   by any Python code.
 - `docs:` — repository-relative pointer to existing Markdown. The validator
   rejects missing, escaping, non-Markdown, directory, and symlink targets.
 - `docs_exception:` — a last-resort reason when a manifest has no docs and no
-  sibling `README.md`. Write one printable line with an explicit `because` clause
-  followed by at least four substantive rationale words, including at least three
-  distinct terms. The validator:
-  - applies NFKC and case-folding, and rejects every Unicode category-C character
-    (controls and zero-width formatting);
-  - removes generic boilerplate and link-like text before locating and scoring the
-    rationale. Link-like text is Markdown links/labels, angle autolinks, RFC URI
-    schemes, email-like tokens, validated IP links and dotted host candidates;
-  - treats as email-like an atom or quoted local part (spaces allowed) followed by
-    a Unicode dotted host or bracketed domain literal. This grammar is deliberately
-    not a full RFC email parser;
-  - for hosts: Host candidates are IDNA-normalized. A valid dotted host
-    with a port/path/query/fragment is stripped regardless of case, except invalid
-    all-numeric candidates. Bare lowercase hosts with an alphabetic 2–63 character final label
-    (or a punycode label) are also stripped. So an ambiguous lowercase identifier such as `module.foo` is removed;
-  - keeps as technical context: bare uppercase `module.Class`, digit-suffixed
-    identifiers and versions, single-label service DNS, numeric host-port pairs. It also
-    keeps bare `.local` / `.internal` / `.localhost` names, including `www`-prefixed service DNS.
-    Otherwise, suffix-bearing reserved DNS is stripped;
-  - strips Validated IPv4 and bracketed IPv6 only with a port/path/query/fragment;
-    bare IP mentions remain. Bracketed IPv6 may carry an optional non-empty zone identifier in
-    raw `%eth0` or RFC 6874 `%25eth0` form. The identifier is bounded to `[A-Za-z0-9._~-]+` and checked
-    by the IP address parser;
-  - strips, with a bounded fallback, malformed bracketed colon/address-like tokens
-    that carry a port/path/query/fragment, so suffix prose cannot be scored. It
-    does not assert that those fallbacks are valid addresses;
-  - accepts a tracking link after a real reason, but not as the reason, and rejects
-    an exception on a documented service.
+    sibling `README.md`. Write one printable line with an explicit `because` clause
+    followed by at least four substantive rationale words, including at least three
+    distinct terms. The validator:
+    - applies NFKC and case-folding, and rejects every Unicode category-C character
+      (controls and zero-width formatting);
+    - removes generic boilerplate and link-like text before locating and scoring the
+      rationale. Link-like text is Markdown links/labels, angle autolinks, RFC URI
+      schemes, email-like tokens, validated IP links and dotted host candidates;
+    - treats as email-like an atom or quoted local part (spaces allowed) followed by
+      a Unicode dotted host or bracketed domain literal. This grammar is deliberately
+      not a full RFC email parser;
+    - for hosts: Host candidates are IDNA-normalized. A valid dotted host
+      with a port/path/query/fragment is stripped regardless of case, except invalid
+      all-numeric candidates. Bare lowercase hosts with an alphabetic 2–63 character final label
+      (or a punycode label) are also stripped. So an ambiguous lowercase identifier such as `module.foo` is removed;
+    - keeps as technical context: bare uppercase `module.Class`, digit-suffixed
+      identifiers and versions, single-label service DNS, numeric host-port pairs. It also
+      keeps bare `.local` / `.internal` / `.localhost` names, including `www`-prefixed service DNS.
+      Otherwise, suffix-bearing reserved DNS is stripped;
+    - strips Validated IPv4 and bracketed IPv6 only with a port/path/query/fragment;
+      bare IP mentions remain. Bracketed IPv6 may carry an optional non-empty zone identifier in
+      raw `%eth0` or RFC 6874 `%25eth0` form. The identifier is bounded to `[A-Za-z0-9._~-]+` and checked
+      by the IP address parser;
+    - strips, with a bounded fallback, malformed bracketed colon/address-like tokens
+      that carry a port/path/query/fragment, so suffix prose cannot be scored. It
+      does not assert that those fallbacks are valid addresses;
+    - accepts a tracking link after a real reason, but not as the reason, and rejects
+      an exception on a documented service.
 
-  This is a bounded authoring gate, not proof that a rationale is semantically
-  correct; reviewers still assess the concrete claim.
+    This is a bounded authoring gate, not proof that a rationale is semantically
+    correct; reviewers still assess the concrete claim.
+
 - `exports[]` — declares the env-var contract this service offers to other
   services. The cross-manifest validator (`bootstrapper/services/manifest_validator.py`)
   checks closure (every consumer name resolves) but does NOT check that the
