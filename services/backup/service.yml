@@ -54,7 +54,7 @@ env:
     description: "Target bucket for backups."
   - name: BACKUP_S3_MODE
     default: local
-    description: "Credential/dependency mode: local uses on-stack MinIO and permits the documented MINIO_ROOT_* upgrade fallback; external requires dedicated BACKUP_S3_* credentials and has no MinIO runtime dependency."
+    description: "Credential/dependency mode: local uses on-stack MinIO and permits the documented `MINIO_ROOT_*` upgrade fallback; external requires dedicated `BACKUP_S3_*` credentials and has no MinIO runtime dependency."
   - name: BACKUP_S3_ENDPOINT
     default: "http://minio:9000"
     description: "S3 endpoint as a strict HTTP(S) origin: canonical DNS/IPv4 or bracketed IPv6, optional canonical port, and no userinfo/path/query/fragment. The default is on-stack MinIO."

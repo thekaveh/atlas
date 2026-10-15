@@ -79,7 +79,7 @@ env:
     default: speaches-container-cpu
   - name: STT_PROVIDER_PORT
     # default removed — computed by services/topology.py slot allocator
-    description: "Wizard display slot. Real per-engine ports live on their own manifests (PARAKEET_*, SPEACHES_*, etc.)."
+    description: "Wizard display slot. Real per-engine ports live on their own manifests (`PARAKEET_*`, `SPEACHES_*`, etc.)."
   - name: STT_PROVIDER_SCALE
     auto_managed: true
     description: "Set by ./start.sh; do not edit. 1 when a container engine serves speech-to-text, else 0. The wizard uses it to colour the STT row."
