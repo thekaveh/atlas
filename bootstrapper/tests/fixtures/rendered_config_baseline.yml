@@ -1229,9 +1229,10 @@ services:
       API_SERVER_ENABLED: 'true'
       API_SERVER_HOST: 0.0.0.0
       API_SERVER_KEY: ''
-      HERMES_DASHBOARD: 'true'
+      HERMES_DASHBOARD: 'false'
       HERMES_DASHBOARD_HOST: 0.0.0.0
       HERMES_DASHBOARD_INSECURE: 'true'
+      HERMES_DASHBOARD_OAUTH_CLIENT_ID: ''
       HERMES_DASHBOARD_PORT: '9119'
       HERMES_DASHBOARD_TUI: '1'
       HERMES_GID: '10000'
@@ -1269,11 +1270,6 @@ services:
       host_ip: 127.0.0.1
       target: 8642
       published: '63072'
-      protocol: tcp
-    - mode: ingress
-      host_ip: 127.0.0.1
-      target: 9119
-      published: '63073'
       protocol: tcp
     restart: unless-stopped
     volumes:

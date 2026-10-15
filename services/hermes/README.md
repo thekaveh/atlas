@@ -1,6 +1,6 @@
 # 5.2.19. Hermes Agent
 
-**Port:** 63072 (API), 63073 (dashboard)
+**Port:** 63072 (API); 63073 is reserved for dashboard compatibility, without a container host publish.
 **SOURCE variable:** `HERMES_SOURCE`
 **SOURCE options:** container, localhost, disabled
 
@@ -36,7 +36,7 @@ Key facts:
 | Path | URL | Notes |
 |---|---|---|
 | OpenAI-compatible API (direct) | `http://localhost:${HERMES_API_PORT}` (default 63072) | Bearer token: `${HERMES_API_KEY}`. Same surface as OpenAI's `/v1/chat/completions`. |
-| Dashboard (direct) | `http://localhost:${HERMES_DASHBOARD_PORT}` (default 63073) | Web admin UI for skills, sessions, model config. |
+| Dashboard (container) | `http://hermes:9119` on the backend network | Web admin UI for skills, sessions, model config. No container dashboard host port is published. |
 | Dashboard (Kong) | `http://hermes.localhost:${KONG_HTTP_PORT}` (default 63000) | Requires `./start.sh --setup-hosts`. Kong asks for the dashboard credential (`DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD`); the dashboard itself has no login. |
 | Internal DNS (other containers) | `http://hermes:8642` | Reachable from LiteLLM, n8n, jupyterhub; Backend and OpenClaw get the endpoint but do not call it yet (see §6). |
 
@@ -85,8 +85,10 @@ does not fail because an optional integration is omitted.
 HERMES_SOURCE=container             # container | localhost | disabled
 HERMES_IMAGE=nousresearch/hermes-agent:v2026.6.19
 HERMES_API_PORT=63072
-HERMES_DASHBOARD_PORT=63073
-HERMES_DASHBOARD_ENABLED=true
+HERMES_DASHBOARD_PORT=63073         # reserved compatibility allocation; no container host publish
+HERMES_DASHBOARD_ENABLED=true       # requested setting
+HERMES_DASHBOARD_INSECURE=true
+HERMES_DASHBOARD_OAUTH_CLIENT_ID=    # provisioned upstream client, if using OAuth
 HERMES_DASHBOARD_TUI=1              # inert in v2026.6.19 — the Chat tab is always on (see below)
 HERMES_DEFAULT_MODEL=               # blank = hermes-init auto-picks from LiteLLM's model_list
 HERMES_CONTEXT_LENGTH=65536         # hard floor; leave alone
@@ -105,22 +107,30 @@ and embedding models. If no chat model is available, `hermes-init` fails and
 Hermes does not start; set `HERMES_DEFAULT_MODEL`. An operator value is never
 overridden.
 
+**Dashboard launch policy.** Atlas recomputes `HERMES_DASHBOARD_EFFECTIVE` from the requested setting and launch sources.
+For container Hermes with `KONG_API_GATEWAY_SOURCE=container`, Atlas forwards `HERMES_DASHBOARD_ENABLED`; missing or empty requests retain the `true` default.
+Missing Kong source retains the fixed-container default. Other Kong sources, including blank or unsupported values, disable the managed dashboard.
+Localhost Hermes is an operator-run process; Atlas does not manage its dashboard.
+
+An ordinary Atlas launch enables the default dashboard through Kong. Raw Compose defaults the effective flag to `false` until Atlas computes it.
+This configuration check does not monitor gateway health. It preserves the requested flag when the managed dashboard cannot run.
+
 **Dashboard Chat tab.** Hermes v2026.6.19 always embeds a `hermes --tui`
 terminal as a Chat tab (`/api/pty`, `/api/ws`) and ignores
 `HERMES_DASHBOARD_TUI`. The tab is a full agent with a terminal tool. While
-`HERMES_DASHBOARD_INSECURE=true`, it needs no login on the direct port or from
-backend-network peers. The agent can read `LITELLM_MASTER_KEY` from its
+`HERMES_DASHBOARD_INSECURE=true`, backend-network peers need no login. Kong requires the dashboard credential;
+the container publishes no dashboard host port. The agent can read `LITELLM_MASTER_KEY` from its
 environment and from `/opt/data/config.yaml`.
 
 To remove the tab, set `HERMES_DASHBOARD_ENABLED=false`.
 Nous Portal OAuth requires an upstream authentication provider with a provisioned client ID before setting `HERMES_DASHBOARD_INSECURE=false`.
 
-The upstream provider reads `HERMES_DASHBOARD_OAUTH_CLIENT_ID` or `dashboard.oauth.client_id` in its configuration.
-Atlas does not provision or pass through this client configuration.
-With `HERMES_DASHBOARD_INSECURE=false` and no configured provider, the default container refuses dashboard startup.
+Atlas passes through `HERMES_DASHBOARD_OAUTH_CLIENT_ID` unchanged but does not provision clients.
+The upstream provider uses a nonempty environment client ID before `dashboard.oauth.client_id` in persistent configuration.
+With `HERMES_DASHBOARD_INSECURE=false` and no configured provider, the default container refuses dashboard startup and restarts.
 
-See [provider registration](https://github.com/NousResearch/hermes-agent/blob/2bd1977d8fad185c9b4be47884f7e87f1add0ce3/plugins/dashboard_auth/nous/__init__.py#L601-L667)
-and the [startup guard](https://github.com/NousResearch/hermes-agent/blob/2bd1977d8fad185c9b4be47884f7e87f1add0ce3/hermes_cli/web_server.py#L12776-L12825).
+See [provider registration](https://github.com/NousResearch/hermes-agent/blob/2bd1977d8fad185c9b4be47884f7e87f1add0ce3/plugins/dashboard_auth/nous/__init__.py#L601-L667),
+[client resolution](https://github.com/NousResearch/hermes-agent/blob/2bd1977d8fad185c9b4be47884f7e87f1add0ce3/plugins/dashboard_auth/nous/__init__.py#L565-L584), and the [startup guard](https://github.com/NousResearch/hermes-agent/blob/2bd1977d8fad185c9b4be47884f7e87f1add0ce3/hermes_cli/web_server.py#L12776-L12825).
 Reference: [upstream Web-Dashboard docs](https://hermes-agent.nousresearch.com/docs/user-guide/features/web-dashboard).
 
 Use `./start.sh` for the guided wizard, or pass `--hermes-source <option>`
@@ -136,6 +146,9 @@ for scripted changes.
 | Hermes operates your real machine (real shell, real browser) | `localhost` |
 | Microphone-driven live voice mode | `localhost` (container mic passthrough is non-trivial) |
 | Resource-constrained machine | `disabled` |
+
+With `localhost`, `hermes.localhost` targets `HERMES_LOCALHOST_DASHBOARD_PORT` (default 9119) when container Kong and the requested dashboard flag permit routing.
+Set the host dashboard port in `.env`; the wizard edits only `HERMES_LOCALHOST_PORT`.
 
 With `localhost`, LiteLLM's `hermes-agent` route sends Atlas's `HERMES_API_KEY` as the bearer token. Set `HERMES_API_KEY` in `.env` to the host instance's own `API_SERVER_KEY`, or every call through LiteLLM returns 401. Atlas renders none of the config above (TTS, STT, SearXNG, ComfyUI) for a host instance; configure it on the host.
 
@@ -348,7 +361,7 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 | LiteLLM-backed programmable agent | supported | tested | Atlas renders one usable default chat model from LiteLLM, filters recursive aliases, and exposes Hermes back through LiteLLM as hermes-agent. |
 | Source-aware agent tools | partial | tested | Init renders enabled speech and SearXNG settings in the shape Hermes reads, plus a ComfyUI host companion skill. Unavailable services are omitted. LightRAG is reachable only through LiteLLM. Airflow triggering remains a user-authored skill or curl pattern. |
 | Container and operator-host lifecycle | partial | tested | Atlas manages the container and its generated config. Localhost mode only resolves an operator-run API and dashboard, and cannot guarantee their setup, tools, or process supervision. |
-| Hermes API and dashboard authentication | partial | documented | The OpenAI-compatible API uses HERMES_API_KEY, and hermes.localhost requires the Kong dashboard Basic credential. The dashboard runs in upstream insecure mode, so the direct host port and backend-network peers reach it without authentication. |
+| Hermes API and dashboard authentication | partial | documented | The API uses HERMES_API_KEY. Configured container Kong protects the dashboard with Basic auth. No dashboard host port is published. Backend-network peers remain unauthenticated in insecure mode. |
 | Agent workspace persistence | partial | documented | Sessions, memories, skills, auth, and logs persist in one hermes-data volume, with no shared database, tenant isolation, replication, or cross-service artifact store. |
 | Backend and OpenClaw direct bridges | stubbed | tested | Atlas injects Hermes endpoint credentials into Backend and OpenClaw, but neither currently calls the promised direct bridge. Open WebUI and n8n use LiteLLM or manual HTTP paths instead. |
 | Untrusted autonomous tool isolation | not-supported | documented | Hermes skills can execute tools and code with the runtime's mounted workspace and network access. Atlas provides no per-user sandbox or policy engine for untrusted agent execution. |
