@@ -953,13 +953,15 @@ fixture stores. Redirecting `docker compose config` into the fixture does none o
 The result can never match the gate. That command also reads your live `.env`, so it
 writes real secrets into a tracked file.
 
+Run these commands from the repository root.
+
 ```bash
 # Inspect drift — the gate is the diff; it reports the first mismatching key path.
-cd bootstrapper && uv run pytest tests/test_fragment_equivalence.py -q
+(cd bootstrapper && uv run pytest tests/test_fragment_equivalence.py -q)
 
 # Refresh the baseline (only when the drift is intentional), reusing the gate's
 # own helpers so the refreshed fixture is what the gate will compare against.
-cd bootstrapper && uv run python -c "
+(cd bootstrapper && uv run python -c "
 import subprocess, yaml
 from tests.test_fragment_equivalence import _build_test_env, _normalize_paths, BASELINE, REPO_ROOT
 rendered = subprocess.run(
@@ -968,7 +970,7 @@ rendered = subprocess.run(
     capture_output=True, text=True, check=True,
 ).stdout
 BASELINE.write_text(yaml.safe_dump(_normalize_paths(yaml.safe_load(rendered)), sort_keys=True))
-"
+")
 ```
 
 A full refresh re-sorts and reflows the whole (5,000+ line) fixture, which buries the change you
