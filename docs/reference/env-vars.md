@@ -797,7 +797,7 @@
 | REDIS_MAXMEMORY | redis | 0 | Redis memory cap, e.g. 512mb. 0 means unlimited: Redis grows until the container is OOM-killed and loses in-flight queue state. A cap lets REDIS_MAXMEMORY_POLICY shed recomputable data instead. Size it to about 75% of the container memory budget. |
 | REDIS_MAXMEMORY_POLICY | redis | volatile-lru | volatile-lru evicts TTL keys, including LiteLLM cache and ordinary media records (seven-day default). Budget-tracked in-flight records, unresolved submissions and pending ledger intents persist until settlement. Without TTL keys, writes fail with OOM. |
 | REDIS_PORT | redis | 63025 | Host port. Container port is always 6379. |
-| REDIS_PASSWORD | redis | redis_password | Used by every consumer (n8n queue, litellm cache, open-webui websocket store, backend session/queue, local-deep- researcher worker queue). The default is for fresh-install convenience only; rotate before any deployment. |
+| REDIS_PASSWORD | redis | redis_password | Used by Redis consumers, including n8n queues, litellm cache, open-webui websocket storage, and backend state and queues. The default is for fresh-install convenience only; rotate before any deployment. |
 | REDIS_URL | redis | redis://:${REDIS_PASSWORD}@redis:6379/0 | Default connection string (database 0, also n8n's queue and LiteLLM's cache). Consumers that need another DB index build their own URL: open-webui and lightrag share /2, jupyterhub uses /3. Compose substitutes REDIS_PASSWORD. |
 | REDIS_EXPORTER_PORT | redis | 63026 | Host port for redis-exporter (in-container 9121). Sidecar gated by PROMETHEUS_SOURCE. |
 | REDIS_EXPORTER_SCALE | redis |  | Set by _generate_prometheus_config() to 1 when PROMETHEUS_SOURCE=container, 0 otherwise. |

@@ -336,3 +336,36 @@ def test_a_topology_failure_stops_the_assembler(tmp_path, monkeypatch):
     monkeypatch.setattr(assembler, "build_topology", overflow)
     with pytest.raises(RuntimeError, match="build_topology failed"):
         assembler.assemble_env_example([], services_root=tmp_path)
+
+
+def test_redis_password_consumer_examples_have_current_integrations():
+    """Named consumer examples must have an implemented Redis integration."""
+    import re
+    from services.manifests import call_edges
+
+    manifests = {
+        manifest.name: manifest
+        for manifest in load_manifests(_REPO_ROOT / "services")
+    }
+    password = next(
+        entry for entry in manifests["redis"].env
+        if entry.name == "REDIS_PASSWORD"
+    )
+    # A service ID can continue after a hyphen at a source line boundary.
+    description = re.sub(r"(?<=-)\s+", "", password.description.casefold())
+    service_ids = "|".join(re.escape(name) for name in sorted(manifests))
+    examples = set(re.findall(
+        rf"(?<![a-z0-9_-])(?:{service_ids})(?![a-z0-9_-])", description
+    ))
+    examples.discard("redis")
+    consumers = {
+        manifest.name for manifest in manifests.values()
+        if any(
+            edge.target == "redis" and edge.status in {"current", "optional"}
+            for edge in call_edges(manifest.data_flow)
+        )
+    }
+    assert examples <= consumers, (
+        "REDIS_PASSWORD names services without a current Redis integration: "
+        f"{sorted(examples - consumers)}"
+    )
