@@ -946,3 +946,14 @@ def test_documented_credentials_preserve_active_literal_values(case, tmp_path, e
 
     actual, expected = probe_documented_credential_case(case, tmp_path, env_reference_config)
     assert actual == expected, (case, actual, expected)
+
+
+@pytest.mark.parametrize("surface", ["repo", "site", "wiki"])
+@pytest.mark.parametrize("context", ["guide", "reference"])
+def test_hermes_dashboard_oauth_requires_upstream_setup(surface, context, env_reference_config):
+    from tests.three_surface_test_utils import ROOT, surface_text, documented_hermes_oauth_prerequisites
+
+    source = "services/hermes/README.md" if context == "guide" else "docs/reference/env-vars.md"
+    text = (ROOT / source).read_text() if surface == "repo" else surface_text(source, surface)
+    facts, claim = documented_hermes_oauth_prerequisites(_candidate_document(text, env_reference_config), context)
+    assert all(facts), (surface, context, facts, claim)

@@ -336,7 +336,7 @@
 | HERMES_CONTEXT_LENGTH | hermes | 65536 | Context length hermes-init writes into config.yaml for the default model. Hermes requires a model context window of at least 64K. |
 | HERMES_DASHBOARD_ENABLED | hermes | true | Runs the Hermes web dashboard (passed as HERMES_DASHBOARD). Set false to remove the dashboard, including its Chat tab. |
 | HERMES_DASHBOARD_TUI | hermes | 1 | Inert: Hermes v2026.6.19 always embeds the dashboard Chat tab (PTY terminal) and ignores this value; disable the dashboard (HERMES_DASHBOARD_ENABLED=false) to remove it. |
-| HERMES_DASHBOARD_INSECURE | hermes | true | Lets the dashboard bind 0.0.0.0 without a Nous Portal OAuth provider; without it the dashboard restart-loops. The dashboard then has no login: the direct port and backend-network peers reach it unauthenticated. Set false plus HERMES_DASHBOARD_OAUTH_CLIENT_ID to enforce OAuth. |
+| HERMES_DASHBOARD_INSECURE | hermes | true | True: unauthenticated 0.0.0.0 dashboard; direct port and backend-network peers. False requires an OAuth provider with a provisioned client ID (`HERMES_DASHBOARD_OAUTH_CLIENT_ID` or `dashboard.oauth.client_id`). Atlas does not provision or pass through client configuration. False without a provider: dashboard refuses startup and restarts. |
 | HERMES_UID | hermes | 10000 | Container user — match a host UID to read hermes-data from outside. |
 | HERMES_GID | hermes | 10000 | Container group ID; hermes-init chowns hermes-data to HERMES_UID:HERMES_GID. |
 | HERMES_LOCALHOST_PORT | hermes | 8642 | Host port for the Hermes API in the localhost source variant. Consumed by HERMES_ENDPOINT (in-container clients call this). Defaults to Hermes' native API port. |

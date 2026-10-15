@@ -111,8 +111,10 @@ services:
       # (s6 restart-loops it, spamming the log) unless this is set. The
       # dashboard then has no login: Kong's route adds dashboard Basic auth,
       # but the direct host port and backend-network peers are unauthenticated.
-      # Set false (+ HERMES_DASHBOARD_OAUTH_CLIENT_ID) to enforce the OAuth
-      # auth gate instead.
+      # OAuth requires an upstream provider with a provisioned client ID
+      # (HERMES_DASHBOARD_OAUTH_CLIENT_ID or dashboard.oauth.client_id).
+      # Atlas does not provision or pass through that client configuration.
+      # Setting false without a provider makes the dashboard refuse startup.
       HERMES_DASHBOARD_INSECURE: ${HERMES_DASHBOARD_INSECURE:-true}
       # OpenAI-compatible API server (what LiteLLM and clients connect to)
       API_SERVER_ENABLED: "true"
