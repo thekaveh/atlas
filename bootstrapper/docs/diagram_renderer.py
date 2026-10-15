@@ -14,6 +14,7 @@ Output is byte-deterministic for the same DepGraph.
 from __future__ import annotations
 
 import html as html_mod
+import math
 import sys
 from collections import OrderedDict
 from pathlib import Path
@@ -285,6 +286,8 @@ def _edges(graph: DepGraph, up_clusters: "OrderedDict[str, list[DepEdge]]",
           down_clusters: "OrderedDict[str, list[DepEdge]]", body_height: int) -> list[str]:
     """One edge per cluster. Edge connects focus side to cluster header."""
     parts: list[str] = []
+    annotations: list[tuple[int, int]] = []
+    markers: list[tuple[float, float, float, float]] = []
     focus_x = SIDE_MARGIN + LANE_W + LANE_GAP
     focus_y_center = LANE_TOP_Y + body_height // 2
 
@@ -299,6 +302,7 @@ def _edges(graph: DepGraph, up_clusters: "OrderedDict[str, list[DepEdge]]",
             f'<line x1="{x1}" y1="{y1}" x2="{focus_x}" y2="{focus_y_center}" '
             f'stroke="#64748b" stroke-width="1.5"{_arrow_dash(pills)} marker-end="url(#arrowhead)"/>'
         )
+        markers.append(_arrowhead_bounds(x1, y1, focus_x, focus_y_center))
         if bidirectional:
             names = {p.other for p in pills if p.bidirectional}
             reverse = [e for e in graph.downstream if e.other in names]
@@ -306,10 +310,8 @@ def _edges(graph: DepGraph, up_clusters: "OrderedDict[str, list[DepEdge]]",
                 f'<line x1="{focus_x}" y1="{focus_y_center + 6}" x2="{x1}" y2="{y1 + 6}" '
                 f'stroke="#64748b" stroke-width="1.5"{_arrow_dash(reverse)} marker-end="url(#arrowhead)"/>'
             )
-            parts.append(
-                f'<text x="{(x1 + focus_x) // 2}" y="{(y1 + focus_y_center) // 2 - 4}" '
-                f'fill="#94a3b8" font-size="9" text-anchor="middle">two-way</text>'
-            )
+            markers.append(_arrowhead_bounds(focus_x, focus_y_center + 6, x1, y1 + 6))
+            annotations.append(((x1 + focus_x) // 2, (y1 + focus_y_center) // 2 - 4))
         cy += ch + CLUSTER_GAP
 
     # Downstream: focus → cluster (arrow points right)
@@ -323,8 +325,35 @@ def _edges(graph: DepGraph, up_clusters: "OrderedDict[str, list[DepEdge]]",
             f'<line x1="{focus_x + FOCUS_W}" y1="{focus_y_center}" x2="{x2}" y2="{y2}" '
             f'stroke="#64748b" stroke-width="1.5"{_arrow_dash(pills)} marker-end="url(#arrowhead)"/>'
         )
+        markers.append(_arrowhead_bounds(focus_x + FOCUS_W, focus_y_center, x2, y2))
         cy += ch + CLUSTER_GAP
 
+    return parts + _two_way_annotations(annotations, markers)
+
+
+def _arrowhead_bounds(x1: int, y1: int, x2: int, y2: int) -> tuple[float, float, float, float]:
+    """Bound the _defs arrowhead at the connector's 1.5-unit stroke width."""
+    dx, dy = x2 - x1, y2 - y1
+    length = math.hypot(dx, dy)
+    points = [(x2 + (x * dx - y * dy) / length, y2 + (x * dy + y * dx) / length)
+              for x, y in ((-12, -4.5), (1.5, 0), (-12, 4.5))]
+    return (min(x for x, _ in points), min(y for _, y in points),
+            max(x for x, _ in points), max(y for _, y in points))
+
+
+def _two_way_annotations(annotations, markers) -> list[str]:
+    """Mask crossing strokes without covering any connector's arrowhead."""
+    parts: list[str] = []
+    # Descending top bounds make every upward move clear already-visited markers.
+    markers = sorted(markers, key=lambda bounds: bounds[1], reverse=True)
+    for x, y in annotations:
+        for left, top, right, bottom in markers:
+            if x - 22 < right and x + 22 > left and y - 10 < bottom and y + 4 > top:
+                y = math.floor(top - 4)
+        parts.append(
+            f'<rect x="{x - 22}" y="{y - 10}" width="44" height="14" rx="2" fill="#020617"/>'
+            f'<text x="{x}" y="{y}" fill="#94a3b8" font-size="9" text-anchor="middle">two-way</text>'
+        )
     return parts
 
 
