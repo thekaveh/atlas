@@ -396,3 +396,166 @@ def test_environment_description_literals_remain_visible(surface, case, env_refe
     description = _rendered_env_description(text, variable, env_reference_config)
     for literal in literals:
         assert literal in description, (surface, variable, literal, description)
+
+
+_CANDIDATE_GUIDE_LINKS = [
+    ("doc-processor", "docling-mcp"), ("kong", "keycloak"),
+    ("local-deep-researcher", "firecrawl"), ("n8n", "browserless"),
+    ("n8n", "nocodb"), ("ollama", "openlit"), ("open-webui", "mcpo"),
+    ("openclaw", "honcho"), ("redis", "redisinsight"), ("redis", "redis-stack"),
+    ("searxng", "perplexica"), ("searxng", "browserless"),
+    ("stt-provider", "whisperx"), ("supabase", "supabase-edge-functions"),
+    ("supabase", "imgproxy"), ("tts-provider", "unmute"), ("tts-provider", "omnivoice"),
+]
+
+
+def _candidate_document(text, config):
+    import html
+    import re
+    import xml.etree.ElementTree as ET
+    import markdown
+
+    rendered = markdown.markdown(
+        text, extensions=config.markdown_extensions, extension_configs=config.mdx_configs,
+    )
+    rendered = re.sub(r"&([A-Za-z][A-Za-z0-9]+);",
+                      lambda match: html.escape(html.unescape(match.group(0))), rendered)
+    return ET.fromstring("<div>" + rendered + "</div>")
+
+
+@pytest.mark.parametrize("surface", ["repo", "site", "wiki"])
+@pytest.mark.parametrize("guide,slug", _CANDIDATE_GUIDE_LINKS)
+def test_candidate_decision_navigation_reaches_recorded_section(
+    surface, guide, slug, env_reference_config,
+):
+    from docs.merge_research import load_public_decisions
+    from tests.three_surface_test_utils import ROOT, ensure_generated_docs, surface_text
+
+    source = f"services/{guide}/README.md"
+    text = (ROOT / source).read_text() if surface == "repo" else surface_text(source, surface)
+    document = _candidate_document(text, env_reference_config)
+    links = [node.get("href") for node in document.findall(".//a")
+             if node.get("href", "").endswith(f"#candidate-{slug}")]
+    assert links, (surface, source, slug, "missing clickable decision destination")
+    page = next(page for page in ensure_generated_docs().pages
+                if page.source == "docs/reference/candidate-decisions.md")
+    expected = {"repo": "../../docs/reference/candidate-decisions.md",
+                "site": "../reference/candidate-decisions.md", "wiki": page.wiki_path.stem}[surface]
+    assert all(link == expected + f"#candidate-{slug}" for link in links)
+    target = (ROOT / page.source).read_text() if surface == "repo" else surface_text(page.source, surface)
+    records = {record["slug"]: record for record in load_public_decisions(ROOT / "docs/research")}
+    _assert_recorded_candidate_section(target, records[slug], env_reference_config)
+
+
+def _candidate_section(nodes, slug):
+    anchor = next(i for i, node in enumerate(nodes)
+                  if node.find(f".//a[@id='candidate-{slug}']") is not None
+                  or node.get("id") == f"candidate-{slug}")
+    following = nodes[anchor + 1:]
+    end = next((i for i, node in enumerate(following[1:], 1) if node.tag == "h2"), len(following))
+    return following[:end]
+
+
+def _assert_recorded_candidate_section(target, record, config):
+    import re
+
+    section = _candidate_section(list(_candidate_document(target, config)), record["slug"])
+    assert section and section[0].tag == "h2", "missing candidate heading"
+    for permalink in section[0].findall("a[@class='headerlink']"):
+        section[0].remove(permalink)
+    heading = "".join(section[0].itertext())
+    assert re.sub(r"^\d+\.\s+", "", heading) == record["name"], "wrong candidate name"
+    content = " ".join("".join(node.itertext()) for node in section)
+    decided = str(record["decided"]) if record["decided"] is not None else "not recorded"
+    assert f'Lifecycle: {record["lifecycle"]}.' in content, "missing or wrong lifecycle"
+    assert f"Recorded decision date: {decided}." in content, "missing or wrong decision date"
+    assert any("".join(node.itertext()) == record["public-summary"] for node in section
+               if node.tag == "p"), "missing or wrong public summary"
+    _assert_candidate_upstream(section, record["upstream"])
+
+
+def _assert_candidate_upstream(section, upstream):
+    links = [link for node in section for link in node.findall(".//a")]
+    assert any(link.get("href") == upstream for link in links), "missing or wrong upstream URL"
+
+
+@pytest.mark.parametrize("changes", [
+    {"public-summary": "Authentication and ownership require an integration design."},
+    {"slug": "http-candidate", "name": "HTTP Candidate", "lifecycle": "planned",
+     "decided": "2025-02-03", "upstream": "http://example.org/project"},
+    {"slug": "brief", "name": "Brief & proposed", "lifecycle": "proposed", "decided": None,
+     "public-summary": "Deferred.", "upstream": "http://example.org/brief?owner=atlas&mode=review"},
+])
+def test_recorded_candidate_section_accepts_canonical_metadata(
+    changes, tmp_path, env_reference_config,
+):
+    import yaml
+    from docs.merge_research import load_public_decisions
+    from scripts.docs.canonical_references import render_candidate_decisions
+
+    expected = {"slug": "fixture-candidate", "name": "Fixture *Candidate* & review",
+                "lifecycle": "deferred", "decided": "2026-07-04",
+                "public-summary": "The recorded integration requires scoped credentials and a separate operational ownership review.",
+                "upstream": "https://example.org/short", **changes}
+    candidates = tmp_path / "candidates"
+    candidates.mkdir()
+    (candidates / f'{expected["slug"]}.md').write_text(
+        "---\n" + yaml.safe_dump(expected) + "---\n\nPrivate research body.\n",
+        encoding="utf-8",
+    )
+    target = render_candidate_decisions(load_public_decisions(tmp_path))
+    _assert_recorded_candidate_section(target, expected, env_reference_config)
+
+
+@pytest.mark.parametrize("original,replacement,failure", [
+    ("Expected Candidate", "Unrelated Candidate", "wrong candidate name"),
+    ("Expected Candidate", "", "wrong candidate name"),
+    ("Lifecycle: deferred.", "Lifecycle: planned.", "missing or wrong lifecycle"),
+    ("Lifecycle: deferred.", "", "missing or wrong lifecycle"),
+    ("Recorded decision date: 2026-07-04.", "Recorded decision date: 2025-02-03.", "missing or wrong decision date"),
+    ("Recorded decision date: 2026-07-04.", "", "missing or wrong decision date"),
+    ("The actual summary records authentication and ownership prerequisites for the future integration.",
+     "", "missing or wrong public summary"),
+    ("The actual summary records authentication and ownership prerequisites for the future integration.",
+     "An unrelated paragraph still contains more than ten words about a completely different decision.",
+     "missing or wrong public summary"),
+    ('<a href="https://example.org/expected">Upstream project</a>.', "", "missing or wrong upstream URL"),
+    ("https://example.org/expected", "https://example.org/unrelated", "missing or wrong upstream URL"),
+    ("## 1. Expected Candidate\n\nLifecycle: deferred. Recorded decision date: 2026-07-04.",
+     "", "missing candidate heading"),
+    ("section", "", "missing candidate heading"),
+])
+def test_recorded_candidate_section_rejects_missing_or_wrong_metadata(
+    original, replacement, failure, env_reference_config,
+):
+    expected = {"slug": "expected", "name": "Expected Candidate", "lifecycle": "deferred",
+                "decided": "2026-07-04", "upstream": "https://example.org/expected",
+                "public-summary": "The actual summary records authentication and ownership prerequisites for the future integration."}
+    body = (
+        "## 1. Expected Candidate\n\nLifecycle: deferred. Recorded decision date: 2026-07-04.\n\n"
+        "The actual summary records authentication and ownership prerequisites for the future integration.\n\n"
+        "Unrelated context supplies many extra words but cannot replace the expected canonical decision fields.\n\n"
+        '<a href="https://example.org/expected">Upstream project</a>.\n\n'
+    )
+    changed = "" if original == "section" else body.replace(original, replacement)
+    target = '<a id="candidate-expected"></a>\n\n' + changed
+    target += '<a id="candidate-decoy"></a>\n\n' + body
+    with pytest.raises(AssertionError, match=failure):
+        _assert_recorded_candidate_section(target, expected, env_reference_config)
+
+
+def test_candidate_decision_navigation_rejects_missing_guide_link(monkeypatch, env_reference_config):
+    monkeypatch.setattr("tests.three_surface_test_utils.surface_text", lambda *args: "# Guide\n")
+    with pytest.raises(AssertionError, match="missing clickable decision destination"):
+        test_candidate_decision_navigation_reaches_recorded_section(
+            "site", "kong", "keycloak", env_reference_config,
+        )
+
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _candidate_projection_lifetime():
+    yield
+    from tests.three_surface_test_utils import _PROJECTION_TEMP
+
+    _PROJECTION_TEMP.cleanup()

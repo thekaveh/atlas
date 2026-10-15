@@ -5,6 +5,7 @@ generated: 2026-07-04
 license: RSALv2 / SSPLv1 / AGPLv3 depending on Redis version/distribution
 lifecycle: deferred
 name: Redis Stack (redis-stack-server)
+public-summary: Deferred until a consumer demonstrates a tested need for module commands. Persistence, memory costs and distribution terms need review before changing the Redis variant.
 referenced-by: [redis]
 slug: redis-stack
 superseded-by: https://github.com/thekaveh/atlas/issues/239

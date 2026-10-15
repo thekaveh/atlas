@@ -13,7 +13,8 @@ README (including the three `Future — ...` subsections under "Dependencies &
 Integrations").
 
 Candidate bullets that link a shipped or rejected record under
-`docs/research/candidates/` are dropped from those Future blocks, and `--all`
+`docs/research/candidates/` or its public
+`docs/reference/candidate-decisions.md#candidate-<slug>` anchor are dropped from those Future blocks, and `--all`
 also regenerates `docs/research/integration-matrix.md` (unless `--out-root`
 points elsewhere), so a candidate's `lifecycle` change reaches every derived
 index in one pass (#1190).
@@ -64,7 +65,9 @@ FUTURE_HEADER_RE = re.compile(
     re.MULTILINE,
 )
 PLACEHOLDER_LINE = "_No high-confidence opportunities identified._"
-_CANDIDATE_LINK_RE = re.compile(r"research/candidates/([\w-]+)\.md")
+_CANDIDATE_LINK_RE = re.compile(
+    r"research/candidates/([\w-]+)\.md|reference/candidate-decisions\.md#candidate-([\w-]+)"
+)
 
 def _in_fence(pos: int, spans: list[tuple[int, int]]) -> bool:
     return any(a <= pos < b for a, b in spans)
@@ -190,7 +193,8 @@ def _closed_item_lines(body: str, lines: list[str], closed: frozenset[str]) -> s
     """Line numbers of the list items whose every candidate link is closed."""
     drop: set[int] = set()
     for first, end in top_level_list_items(body):
-        slugs = set(_CANDIDATE_LINK_RE.findall("\n".join(lines[first:end])))
+        slugs = {slug for match in _CANDIDATE_LINK_RE.findall("\n".join(lines[first:end]))
+                 for slug in match if slug}
         if slugs and slugs <= closed:
             drop.update(range(first, end))
     return drop

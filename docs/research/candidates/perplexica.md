@@ -5,6 +5,7 @@ generated: 2026-07-04
 license: MIT
 lifecycle: deferred
 name: Perplexica (Vane)
+public-summary: Deferred until Atlas chooses a distinct interface for cited web answers. Provider setup, route authentication, upload storage and overlap with existing applications need review.
 referenced-by: [searxng]
 slug: perplexica
 superseded-by: https://github.com/thekaveh/atlas/issues/240

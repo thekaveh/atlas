@@ -5,6 +5,7 @@ generated: 2026-05-19
 license: MIT
 lifecycle: deferred
 name: imgproxy
+public-summary: Deferred until an asset-browser or media workflow can issue signed preview URLs. The initial design must keep source access and transformation requests controlled.
 referenced-by: [supabase]
 slug: imgproxy
 superseded-by: https://github.com/thekaveh/atlas/issues/220

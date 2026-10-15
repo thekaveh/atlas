@@ -300,7 +300,7 @@ _No upstream calls._
 
 ### 13.5. Future — Candidate new services
 
-- **Docling MCP Server** ([details](https://github.com/thekaveh/atlas/blob/main/docs/research/candidates/docling-mcp.md)) — *Headline:* first-party MCP wrapper exposing Docling convert/extract tools to agent runtimes. *Wires into:* hermes, openclaw, backend.
+- **Docling MCP Server** ([details](../../docs/reference/candidate-decisions.md#candidate-docling-mcp)) — *Headline:* first-party MCP wrapper exposing Docling convert/extract tools to agent runtimes. *Wires into:* hermes, openclaw, backend.
 
 ### 13.6. Future — Unused features in this service
 

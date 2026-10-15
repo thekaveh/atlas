@@ -84,8 +84,8 @@ _No upstream calls._
 
 ### 5.5. Future — Candidate new services
 
-- **Perplexica** ([details](https://github.com/thekaveh/atlas/blob/main/docs/research/candidates/perplexica.md)) — *Headline:* self-hosted Perplexity-style AI answering engine that consumes SearXNG + an OpenAI-compatible LLM (LiteLLM). *Wires into:* searxng, litellm, ollama, kong.
-- **Browserless** ([details](https://github.com/thekaveh/atlas/blob/main/docs/research/candidates/browserless.md)) — *Headline:* headless-Chrome service that renders the JS-heavy URLs SearXNG returns so doc-processor/weaviate get the actual page text. *Wires into:* n8n, doc-processor, backend.
+- **Perplexica** ([details](../../docs/reference/candidate-decisions.md#candidate-perplexica)) — *Headline:* self-hosted Perplexity-style AI answering engine that consumes SearXNG + an OpenAI-compatible LLM (LiteLLM). *Wires into:* searxng, litellm, ollama, kong.
+- **Browserless** ([details](../../docs/reference/candidate-decisions.md#candidate-browserless)) — *Headline:* headless-Chrome service that renders the JS-heavy URLs SearXNG returns so doc-processor/weaviate get the actual page text. *Wires into:* n8n, doc-processor, backend.
 
 ### 5.6. Future — Unused features in this service
 

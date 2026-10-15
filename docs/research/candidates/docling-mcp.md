@@ -5,6 +5,7 @@ generated: 2026-05-19
 license: MIT
 lifecycle: planned
 name: Docling MCP Server
+public-summary: Planned as a document-tool bridge for agents. Transport, authentication, tool names and use of the existing Docling service need an integration design.
 referenced-by: [doc-processor]
 slug: docling-mcp
 superseded-by: https://github.com/thekaveh/atlas/issues/195
