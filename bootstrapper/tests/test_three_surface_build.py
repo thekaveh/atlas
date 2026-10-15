@@ -559,3 +559,19 @@ def _candidate_projection_lifetime():
     from tests.three_surface_test_utils import _PROJECTION_TEMP
 
     _PROJECTION_TEMP.cleanup()
+
+
+@pytest.mark.parametrize("surface", ["repo", "site", "wiki"])
+@pytest.mark.parametrize("context", ["head", "storage"])
+def test_ray_gcs_protocol_is_grpc(surface, context, env_reference_config):
+    import re
+    from tests.three_surface_test_utils import ROOT, surface_text
+
+    source = "services/ray/README.md"
+    text = (ROOT / source).read_text() if surface == "repo" else surface_text(source, surface)
+    document = _candidate_document(text, env_reference_config)
+    tag, marker = ("li", "ray start --head") if context == "head" else ("p", "Plasma")
+    claims = [" ".join(node.itertext()) for node in document.iter(tag)
+              if "GCS" in " ".join(node.itertext()) and marker in " ".join(node.itertext())]
+    assert claims, (surface, context, "missing GCS explanation")
+    assert all(re.search(r"\bgRPC\b", claim) for claim in claims), (surface, context, claims)
