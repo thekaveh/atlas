@@ -961,3 +961,36 @@ def test_canonical_lists_form_semantic_html(source: str, tmp_path: Path) -> None
             expected.extend([("pre", 1), ("pre", -1)])
 
     assert markdown_block_shape(rendered) == expected, source
+
+
+@pytest.mark.parametrize("surface", ["repository", "site", "wiki"])
+def test_baseline_inspect_then_refresh_keeps_repository_directory(
+    surface: str, tmp_path: Path
+) -> None:
+    from tests.three_surface_test_utils import (
+        documented_baseline_commands, probe_documented_shell_commands,
+    )
+
+    guide = {
+        "repository": ROOT / "docs/CONTRIBUTING-services.md",
+        "site": DOCS_SITE / "CONTRIBUTING-services.md",
+        "wiki": WIKI_DIR / "Contributing-Services.md",
+    }[surface]
+    result, calls, checkout = probe_documented_shell_commands(
+        documented_baseline_commands(guide.read_text(encoding="utf-8")), tmp_path
+    )
+    inspections = [
+        call for call in calls
+        if "pytest" in call["args"] and "tests/test_fragment_equivalence.py" in call["args"]
+    ]
+    refreshes = [
+        call for call in calls
+        if "python" in call["args"]
+        and any("BASELINE.write_text" in arg for arg in call["args"])
+    ]
+    assert (
+        result.returncode, bool(inspections), bool(refreshes),
+        {call["cwd"] for call in inspections + refreshes}, result.stdout,
+    ) == (0, True, True, {str(checkout / "bootstrapper")}, str(checkout)), (
+        result.stderr, calls
+    )
