@@ -27,9 +27,9 @@
 <line x1="360" y1="362" x2="420" y2="268" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
 <line x1="360" y1="430" x2="420" y2="268" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
 <line x1="420" y1="274" x2="360" y2="436" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-<text x="390" y="345" fill="#94a3b8" font-size="9" text-anchor="middle">two-way</text>
 <line x1="620" y1="268" x2="680" y2="80" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
 <line x1="620" y1="268" x2="680" y2="148" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+<rect x="368" y="335" width="44" height="14" rx="2" fill="#020617"/><text x="390" y="345" fill="#94a3b8" font-size="9" text-anchor="middle">two-way</text>
 <g>
 <g class="cluster">
   <rect x="120" y="64" width="240" height="84" rx="8"
