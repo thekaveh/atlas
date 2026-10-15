@@ -473,3 +473,40 @@ def probe_documented_credential_case(case, directory, config):
     if valid and context in {"openclaw-cli", "litellm-password"}:
         expected["printed"] = values[_CREDENTIAL_EXAMPLES[context][1]]
     return _credential_result(result, rows, context), expected
+
+
+def _hermes_oauth_guide_section(document, marker):
+    sections = []
+    for node in document:
+        if node.tag == "h2" or not sections:
+            sections.append([])
+        sections[-1].append(node)
+    matches = [section for section in sections
+               if any(marker in "".join(node.itertext()) for node in section)]
+    assert len(matches) == 1, "missing or ambiguous dashboard OAuth guidance"
+    return " ".join(" ".join(node.itertext()) for node in matches[0])
+
+
+def _hermes_oauth_guidance_claim(document, context):
+    key = "HERMES_DASHBOARD_INSECURE"
+    if context == "guide":
+        return _hermes_oauth_guide_section(document, key + "=false")
+    rows = [row for row in document.iter("tr") if row.find("td") is not None
+            and "".join(row.find("td").itertext()).strip() == key]
+    assert len(rows) == 1, "missing or ambiguous dashboard setting reference"
+    return " ".join(rows[0].findall("td")[-1].itertext())
+
+
+def documented_hermes_oauth_prerequisites(document, context):
+    """Check setup and fail-closed meaning without fixing wording or paragraph layout."""
+    import re
+
+    claim = _hermes_oauth_guidance_claim(document, context)
+    patterns = [
+        r"\b(?:requires?|needs?)\b[^.!?]*\bprovider\b[^.!?]*\bprovisioned\b[^.!?]*\bclient\b",
+        r"\bAtlas\b[^.!?]*\bdoes not\b[^.!?]*\bprovision\b[^.!?]*\bpass through\b",
+        r"\bfalse\b[^.!?]*\b(?:no|without)\b[^.!?]*\bprovider\b[^.!?]*\brefus\w*\b[^.!?]*\bstartup\b",
+    ]
+    facts = [bool(re.search(pattern, claim, re.I)) for pattern in patterns]
+    facts.append(all(key in claim for key in ["HERMES_DASHBOARD_OAUTH_CLIENT_ID", "dashboard.oauth.client_id"]))
+    return facts, claim
