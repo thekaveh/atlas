@@ -11,6 +11,8 @@ import re
 import shutil
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -137,26 +139,27 @@ def test_time_wait_is_not_a_conflict_but_a_live_listener_is(tmp_path):
     from core.port_manager import PortManager
 
     manager = PortManager(str(REPO_ROOT))
-    server = socket.socket()
-    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    server.bind(("127.0.0.1", 0))
-    server.listen(1)
-    port = server.getsockname()[1]
-    client = socket.create_connection(("127.0.0.1", port))
-    accepted, _ = server.accept()
-    server.close()
-    accepted.close()  # server side closes first -> TIME_WAIT on `port`
-    client.close()
+    with socket.socket() as server:
+        server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        server.bind(("127.0.0.1", 0))
+        server.listen(1)
+        port = server.getsockname()[1]
+        with socket.create_connection(("127.0.0.1", port)) as client:
+            accepted, _ = server.accept()
+            with accepted:
+                server.close()
+                accepted.close()  # server side closes first -> TIME_WAIT on `port`
+                client.close()
     assert manager.check_port_availability(port) is True
 
-    live = socket.socket()
-    live.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)  # as Docker does
-    live.bind(("127.0.0.1", port))
-    live.listen(1)
-    try:
-        assert manager.check_port_availability(port) is False
-    finally:
-        live.close()
+    with socket.socket() as live:
+        live.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)  # as Docker does
+        live.bind(("127.0.0.1", port))
+        live.listen(1)
+        try:
+            assert manager.check_port_availability(port) is False
+        finally:
+            live.close()
 
 
 
@@ -171,19 +174,20 @@ def test_ipv6_time_wait_is_not_a_conflict():
 
     if not socket.has_ipv6:
         pytest.skip("no IPv6")
-    server = socket.socket(socket.AF_INET6)
-    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    try:
-        server.bind(("::1", 0))
-    except OSError:
-        pytest.skip("no ::1")
-    server.listen(1)
-    port = server.getsockname()[1]
-    client = socket.create_connection(("::1", port))
-    accepted, _ = server.accept()
-    server.close()
-    accepted.close()
-    client.close()
+    with socket.socket(socket.AF_INET6) as server:
+        server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            server.bind(("::1", 0))
+        except OSError:
+            pytest.skip("no ::1")
+        server.listen(1)
+        port = server.getsockname()[1]
+        with socket.create_connection(("::1", port)) as client:
+            accepted, _ = server.accept()
+            with accepted:
+                server.close()
+                accepted.close()
+                client.close()
     assert PortManager(str(REPO_ROOT)).check_port_availability(port) is True
 
 
@@ -206,14 +210,14 @@ def test_listener_on_the_configured_host_bind_ip_is_a_conflict(tmp_path):
     if lan_ip.startswith("127."):
         pytest.skip("no non-loopback IPv4 address")
     manager = _manager(tmp_path, f"HOST_BIND_IP={lan_ip}:\n")
-    live = socket.socket()
-    live.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    live.bind((lan_ip, 0))
-    live.listen(1)
-    try:
-        assert manager.check_port_availability(live.getsockname()[1]) is False
-    finally:
-        live.close()
+    with socket.socket() as live:
+        live.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        live.bind((lan_ip, 0))
+        live.listen(1)
+        try:
+            assert manager.check_port_availability(live.getsockname()[1]) is False
+        finally:
+            live.close()
 
 
 def test_a_just_released_port_does_not_abort_the_warm_start(tmp_path, monkeypatch):
@@ -283,3 +287,38 @@ def test_a_successful_cold_cleanup_marks_the_project_stopped(monkeypatch):
                             lambda project_name=None, _s=success: _s)
         starter.perform_cold_start_cleanup("atlas")
         assert starter.project_stopped_this_run is success
+
+
+@pytest.mark.parametrize("ipv6", [False, True], ids=["ipv4-error", "ipv6-skip"])
+def test_socket_setup_failure_closes_owned_descriptor(tmp_path, monkeypatch, ipv6):
+    import errno
+    import socket
+
+    owned = []
+
+    class BindFailureSocket(socket.socket):
+        def bind(self, address):
+            raise OSError(errno.EADDRNOTAVAIL, "controlled bind failure")
+
+    def failing_socket(*args, **kwargs):
+        # IPv4 descriptors keep the forced IPv6 skip independent of host support.
+        descriptor = BindFailureSocket(socket.AF_INET)
+        owned.append(descriptor)
+        return descriptor
+
+    monkeypatch.setattr(socket, "socket", failing_socket)
+    if ipv6:
+        monkeypatch.setattr(socket, "has_ipv6", True)
+    try:
+        expected = pytest.skip.Exception if ipv6 else OSError
+        message = "no ::1" if ipv6 else "controlled bind failure"
+        with pytest.raises(expected, match=message):
+            if ipv6:
+                test_ipv6_time_wait_is_not_a_conflict()
+            else:
+                test_time_wait_is_not_a_conflict_but_a_live_listener_is(tmp_path)
+        assert len(owned) == 1
+        assert owned[0].fileno() == -1, "setup exit leaked its owned socket"
+    finally:
+        for descriptor in owned:
+            descriptor.close()
