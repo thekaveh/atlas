@@ -191,6 +191,8 @@ def _focus_box(x: int, y: int, w: int, h: int, graph: DepGraph) -> str:
     cx = x + w // 2
     title = graph.focus.upper()
     title_size = _fit_font_size(title, w - 16, preferred=15, minimum=10)
+    subtitle = f"{graph.category} · {graph.source}"
+    subtitle_size = _fit_font_size(subtitle, w - 4, preferred=10, minimum=7)
     # Two-rect pattern (per the architecture-diagram skill): opaque
     # slate-900 backdrop, then the category-themed semi-transparent fill on
     # top so any arrow drawn behind the box is fully masked.
@@ -201,8 +203,8 @@ def _focus_box(x: int, y: int, w: int, h: int, graph: DepGraph) -> str:
         f'        fill="{fill}" stroke="{color}" stroke-width="1.5"/>'
         f'  <text x="{cx}" y="{y + 28}" fill="white" font-size="{title_size}" font-weight="700" '
         f'        text-anchor="middle">{html_mod.escape(title)}</text>'
-        f'  <text x="{cx}" y="{y + 48}" fill="#94a3b8" font-size="10" '
-        f'        text-anchor="middle">{html_mod.escape(graph.category)} · {html_mod.escape(graph.source)}</text>'
+        f'  <text x="{cx}" y="{y + 48}" fill="#94a3b8" font-size="{subtitle_size}" '
+        f'        text-anchor="middle">{html_mod.escape(subtitle)}</text>'
         f'</g>'
     )
 

@@ -223,3 +223,18 @@ def test_optional_and_planned_pills_are_dashed_and_legended():
         [qualified.count(d) for d in dashes], ">optional<" in qualified, ">planned<" in qualified,
     ) == ([0, 0], False, False, [3, 3], True, True)
 
+
+def test_pointer_doc_subtitle_fits_focus_box():
+    from docs.deps_resolver import build_doc_graph
+    from docs.diagram_renderer import render_svg
+
+    svg = ET.fromstring(render_svg(build_doc_graph("multi2vec-clip", SERVICES_DIR)))
+    ns = {"svg": "http://www.w3.org/2000/svg"}
+    focus = svg.find("svg:g[@class='focus']", ns)
+    box = focus.find("svg:rect", ns)
+    subtitle = focus.findall("svg:text", ns)[-1]
+    half_width = len(subtitle.text) * float(subtitle.attrib["font-size"]) * 0.62 / 2
+    center = float(subtitle.attrib["x"])
+    left = float(box.attrib["x"])
+    right = left + float(box.attrib["width"])
+    assert left < center - half_width < center + half_width < right
