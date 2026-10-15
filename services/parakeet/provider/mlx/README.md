@@ -7,6 +7,7 @@ OpenAI-compatible Speech-to-Text API server for Apple Silicon using the official
 This server wraps the pinned `parakeet-mlx==0.5.2` [aligned-result API](https://github.com/senstella/parakeet-mlx) with a FastAPI-based OpenAI-compatible REST API.
 
 **Why not use parakeet-mlx CLI directly?**
+
 - `parakeet-mlx` is a batch transcription tool (processes files, outputs results)
 - The Atlas stack needs a persistent web server with REST API endpoints
 - Our services (n8n, open-web-ui, backend, etc.) expect OpenAI-compatible `/v1/audio/transcriptions` endpoint
@@ -22,6 +23,7 @@ python -m pip install -r requirements-locked.txt
 ```
 
 This installs:
+
 - `parakeet-mlx` - Official transcription library
 - `fastapi` - Web framework
 - `uvicorn` - ASGI server
@@ -96,6 +98,7 @@ Health check endpoint
 OpenAI-compatible transcription endpoint
 
 **Parameters:**
+
 - `file` (required): Audio file
 - `model`: Model name (informational)
 - `response_format`: `json`, `verbose_json`, or `text`
@@ -114,6 +117,7 @@ OpenAI-compatible transcription endpoint
 Advanced endpoint with timestamps
 
 **Parameters:**
+
 - `file` (required): Audio file
 - `return_timestamps`: Include segment timestamps (default: `false`, consistent across providers)
 - `word_timestamps`: Include word-level timestamps
@@ -142,6 +146,7 @@ Select this server as the STT engine:
 Atlas then sets `STT_ENDPOINT` to
 `http://host.docker.internal:${PARAKEET_LOCALHOST_PORT:-63042}`. These services
 receive it:
+
 - **open-web-ui** - voice input in chat
 - **n8n** - audio transcription workflows
 - **backend** - receives `STT_ENDPOINT` but does not call it
