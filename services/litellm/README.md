@@ -324,7 +324,7 @@ _No high-confidence opportunities identified._
 ### 14.6. Future — Unused features in this service
 
 - **Guardrails** — *Why pursue:* presidio PII redaction, lakera prompt-injection scanning, hide-secrets — all configurable per virtual key. Stack handles user data but has zero LLM-side PII controls today. *Effort:* medium.
-- **Virtual keys + team budgets** — *Why pursue:* the master key is the only credential; consumers all share it. Per-service virtual keys with spend caps would give n8n / jupyterhub / open-webui isolated budgets and revocable creds. *Effort:* small.
+- **Virtual keys + team budgets** — *Why pursue:* TrueForge already uses a dedicated virtual key, with a master-key fallback on mint failure. Other stock consumers use the master key by default. Atlas provisions no per-service spend caps or team budgets. Extending virtual keys to n8n / jupyterhub / open-webui would support separate budgets and credential revocation. *Effort:* small.
 - **Semantic caching + per-key cache controls** — *Why pursue:* basic Redis response caching is already enabled stack-wide; LiteLLM's embedding-similarity semantic cache and per-virtual-key TTL/namespace controls remain unused. *Effort:* small.
 - **`/v1/audio/transcriptions` + `/v1/audio/speech` routing** — *Why pursue:* see pair-integrations above. *Effort:* medium.
 - **Fallback model chains** — *Why pursue:* declare `fallbacks: [{"gpt-5": ["claude-opus", "ollama/qwen3.8"]}]` so a cloud outage degrades gracefully to local Ollama. *Effort:* small.
@@ -340,4 +340,4 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 | Gateway persistence and response caching | supported | tested | LiteLLM stores its control and spend data in a dedicated Supabase database and uses the authenticated shared Redis service for namespaced bounded-TTL response caching. |
 | Vision-model default consumption | stubbed | documented | Atlas resolves and persists LITELLM_VISION_MODEL for selection UX, but the manifest explicitly has no current consumer route for that default. |
 | Unified speech routing | not-supported | documented | STT and TTS consumers call their provider endpoints directly; LiteLLM does not register the stock audio transcription or speech routes. |
-| Per-service gateway credentials and budgets | not-supported | documented | Stock consumers share the master key; LiteLLM virtual keys, team budgets, and independently revocable per-service credentials are not provisioned. |
+| Per-service gateway credentials and budgets | partial | documented | TrueForge normally uses a dedicated virtual key, with a master-key fallback on mint failure. Other stock consumers use the master key by default. Atlas provisions no per-service spend caps or team budgets. |
