@@ -122,11 +122,12 @@ OPENCLAW_SOURCE=disabled
 
 ### 4.2. LLM Configuration
 
-By default OpenClaw is wired into the stack's LiteLLM gateway via:
+By default, OpenClaw uses these configuration and environment settings for LiteLLM:
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `LITELLM_BASE_URL` | OpenAI-compatible URL of the LiteLLM proxy | `http://litellm:4000` (in-network) |
+| Setting | Description | Default |
+|---------|-------------|---------|
+| `models.providers.litellm.baseUrl` | Provider URL in `openclaw.json`; `openclaw-init` sets it only when unset and keeps operator values | `http://litellm:4000` (in-network) |
+| `LITELLM_BASE_URL` | Compatibility environment value; OpenClaw does not read it | `http://litellm:4000` (in-network) |
 | `LITELLM_API_KEY` | Bearer key for LiteLLM (equals `LITELLM_MASTER_KEY`) | auto-generated |
 
 ### 4.3. Optional Direct-Provider Overrides
