@@ -369,9 +369,28 @@ ARCHITECTURE_ROUTES: dict[
     str,
     dict[
         tuple[str, str],
-        tuple[list[tuple[int, int]], tuple[int, int]],
+        tuple[list[tuple[int, int]], tuple[float, float]],
     ],
 ] = {
+    "security-auth-secrets-boundary": {
+        ("Runtime Secrets", "Protected APIs"): (
+            [(1250, 466), (1250, 279)],
+            (1250, 370),
+        ),
+    },
+    "service-admission-workflow": {
+        ("compose.yml", "CI"): (
+            [(190, 430), (260, 430), (260, 510), (1040, 510), (1040, 304)],
+            (640, 500),
+        ),
+    },
+    "bootstrapper-lifecycle": {
+        (source, target): (
+            [(180 + index * 175, 260), (215 + index * 175, 260)],
+            (197.5 + index * 175, 220),
+        )
+        for index, (source, target, _) in enumerate(ARCHITECTURE_EDGES["bootstrapper-lifecycle"])
+    },
     "observability-flow": {
         ("OTel Collector", "Loki"): (
             [(480, 150), (580, 150), (580, 440), (680, 440)],
@@ -882,7 +901,7 @@ def _architecture_diagram_html(
     positions: dict[str, tuple[int, int]],
     routes: dict[
         tuple[str, str],
-        tuple[list[tuple[int, int]], tuple[int, int]],
+        tuple[list[tuple[int, int]], tuple[float, float]],
     ] | None = None,
 ) -> str:
     boxes = []
