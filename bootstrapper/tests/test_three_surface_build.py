@@ -622,3 +622,38 @@ def test_hermes_omitted_integration_keeps_upstream_defaults(surface, env_referen
     assert re.search(r"default[^.!?]*\bedge\b", claim, re.I), (surface, claim)
     assert re.search(r"\bif\b[^.!?]*edge-tts[^.!?]*available", claim, re.I), (surface, claim)
     assert re.search(r"Microsoft[^.!?]*cloud", claim, re.I), (surface, claim)
+
+
+@pytest.mark.parametrize("surface", ["repo", "site", "wiki"])
+def test_openclaw_provider_table_uses_config_owner(surface, env_reference_config):
+    import re
+    from tests.three_surface_test_utils import ROOT, surface_text
+
+    source = "services/openclaw/README.md"
+    text = (ROOT / source).read_text() if surface == "repo" else surface_text(source, surface)
+    document = _candidate_document(text, env_reference_config)
+    rows = document.findall(".//tr[td='models.providers.litellm.baseUrl']")
+    assert len(rows) == 1, (surface, "missing provider configuration setting")
+    claim = " ".join(rows[0].itertext())
+    for meaning in [r"http://litellm:4000", r"\bunset\b", r"\bkeeps? operator\b"]:
+        assert re.search(meaning, claim, re.I), (surface, claim)
+    compatibility = document.findall(".//tr[td='LITELLM_BASE_URL']")
+    assert len(compatibility) == 1, (surface, "missing compatibility setting")
+    assert re.search(r"does not read", " ".join(compatibility[0].itertext()), re.I)
+
+
+@pytest.mark.parametrize("surface", ["repo", "site", "wiki"])
+def test_stt_future_openclaw_keeps_bridge_planned(surface, env_reference_config):
+    import re
+    from tests.three_surface_test_utils import ROOT, surface_text
+
+    source = "services/stt-provider/README.md"
+    text = (ROOT / source).read_text() if surface == "repo" else surface_text(source, surface)
+    document = _candidate_document(text, env_reference_config)
+    proposals = document.findall(".//li[strong='stt-provider ↔ openclaw']")
+    assert len(proposals) == 1, (surface, "missing OpenClaw speech proposal")
+    claim = " ".join(proposals[0].itertext())
+    assert re.search(r"default[^.!?]*\bLiteLLM\b", claim, re.I), (surface, claim)
+    assert re.search(r"Atlas[^.!?]*does not wire[^.!?]*Hermes", claim, re.I), (surface, claim)
+    assert re.search(r"proposed[^.!?]*middleware", claim, re.I), (surface, claim)
+    assert "${STT_ENDPOINT}/v1/audio/transcriptions" in claim, (surface, claim)
