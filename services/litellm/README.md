@@ -66,10 +66,24 @@ The dashboard at `/ui/` needs a login. Two env vars set the credentials on the L
 | `LITELLM_UI_USERNAME` | `admin` | Username for the dashboard login form. Override in `.env` to change. |
 | `LITELLM_MASTER_KEY` | auto-generated | Doubles as the dashboard **password**. The same `sk-…` value used as the proxy Bearer token. |
 
-To recover the password:
+To recover the password, run from the repository root with the bootstrapper dependencies available through `uv`.
+The parser reads `.env` by default; use `ATLAS_ENV_FILE` for a custom active file.
+It prints the literal value and stops if the key is missing or blank:
 
 ```bash
-grep '^LITELLM_MASTER_KEY=' .env | cut -d= -f2-
+PYTHONPATH=bootstrapper uv run --project bootstrapper python - <<'PYKEY'
+import sys
+from core.config_parser import ConfigParser
+
+parser = ConfigParser(root_dir=".")
+if not parser.env_file_path.is_file():
+    sys.exit("The active Atlas env file does not exist.")
+env = parser.parse_env_file()
+key = env.get("LITELLM_MASTER_KEY", "")
+if not key:
+    sys.exit("Set a nonempty LITELLM_MASTER_KEY in the active Atlas env file.")
+print(key)
+PYKEY
 ```
 
 Compose maps `LITELLM_UI_USERNAME` → `UI_USERNAME` and `LITELLM_MASTER_KEY` → `UI_PASSWORD`. LiteLLM requires both.

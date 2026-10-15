@@ -61,9 +61,33 @@ NVIDIA Parakeet (run from the repository root, which holds `.env`):
 
 ```bash
 ./start.sh --stt-provider-source parakeet-container-gpu
-curl -X POST http://localhost:63055/v1/audio/transcriptions \
-  -H "Authorization: Bearer $(grep '^PARAKEET_API_TOKEN=' .env | cut -d= -f2-)" \
-  -F file=@sample.wav -F model=whisper-1
+```
+
+After startup, read the configured token before the transcription request.
+Run from the repository root with the bootstrapper dependencies available through `uv`.
+The parser reads `.env` by default; use `ATLAS_ENV_FILE` for the active custom file.
+Missing or blank tokens stop the request:
+
+```bash
+PYTHONPATH=bootstrapper uv run --project bootstrapper python - <<'PYSTT'
+import subprocess
+import sys
+from core.config_parser import ConfigParser
+
+parser = ConfigParser(root_dir=".")
+if not parser.env_file_path.is_file():
+    sys.exit("The active Atlas env file does not exist.")
+env = parser.parse_env_file()
+token = env.get("PARAKEET_API_TOKEN", "")
+if not token:
+    sys.exit("Set a nonempty PARAKEET_API_TOKEN in the active Atlas env file.")
+port = env.get("STT_PROVIDER_PORT") or "63055"
+subprocess.run(
+    ["curl", "-X", "POST", f"http://localhost:{port}/v1/audio/transcriptions",
+     "-H", f"Authorization: Bearer {token}",
+     "-F", "file=@sample.wav", "-F", "model=whisper-1"], check=True,
+)
+PYSTT
 ```
 
 macOS native acceleration:

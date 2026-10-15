@@ -60,9 +60,24 @@ Or use CLI override:
 Open `http://localhost:${OPENCLAW_GATEWAY_PORT}` (default 63076) or `http://openclaw.localhost:${KONG_HTTP_PORT}` (via Kong; default port 63000).
 
 **Step 4: Run onboarding** (from the repository root)
+
+Use the active Atlas env file: `.env` by default, or `ATLAS_ENV_FILE`.
+The command uses the bootstrapper dependencies through `uv` and preserves the project name’s spelling.
+
 ```bash
-PROJECT_NAME=$(grep '^PROJECT_NAME=' .env | cut -d= -f2-)
-docker exec -it ${PROJECT_NAME}-openclaw-gateway openclaw onboard
+PROJECT_NAME=$(
+  PYTHONPATH=bootstrapper uv run --project bootstrapper python - <<'PYPROJECT'
+import sys
+from core.config_parser import ConfigParser, DEFAULT_PROJECT_NAME
+
+parser = ConfigParser(root_dir=".")
+if not parser.env_file_path.is_file():
+    sys.exit("The active Atlas env file does not exist.")
+env = parser.parse_env_file()
+print(env.get("PROJECT_NAME") or DEFAULT_PROJECT_NAME, end="")
+PYPROJECT
+) || exit 1
+docker exec -it "${PROJECT_NAME}-openclaw-gateway" openclaw onboard
 ```
 
 **Note:**
@@ -169,27 +184,48 @@ The dashboard provides:
 - Execution approvals
 - Channel status monitoring
 
-**Security**: The dashboard is an admin surface and requires `OPENCLAW_GATEWAY_TOKEN` (read it with `grep '^OPENCLAW_GATEWAY_TOKEN=' .env`). Atlas generates the token at startup when it is empty, because the gateway refuses to bind to the LAN without a token.
+**Security**: The dashboard is an admin surface and requires `OPENCLAW_GATEWAY_TOKEN` (read it with the parser helper in §7). Atlas generates the token at startup when it is empty, because the gateway refuses to bind to the LAN without a token.
 
 ## 7. Interactive CLI Usage
 
-Run OpenClaw CLI commands inside the container. Run from the repository root; the first line reads the values the later commands use from `.env`:
+Run OpenClaw CLI commands inside the container.
+From the repository root, define the helper and read the values before the remaining commands.
+It uses the bootstrapper dependencies through `uv` and reads the active Atlas env file.
+The default file is `.env`; use `ATLAS_ENV_FILE` for a custom file:
 
 ```bash
-env_get() { grep "^$1=" .env | cut -d= -f2-; }; PROJECT_NAME=$(env_get PROJECT_NAME)
+env_get() {
+  PYTHONPATH=bootstrapper uv run --project bootstrapper python - "$@" <<'PYENV'
+import sys
+from core.config_parser import ConfigParser
+
+parser = ConfigParser(root_dir=".")
+if not parser.env_file_path.is_file():
+    sys.exit("The active Atlas env file does not exist.")
+key = sys.argv[1]
+fallback = sys.argv[2] if len(sys.argv) == 3 else ""
+value = parser.parse_env_file().get(key) or fallback
+if not value:
+    sys.exit(f"Set a nonempty {key} in the active Atlas env file.")
+print(value)
+PYENV
+}
+PROJECT_NAME=$(env_get PROJECT_NAME atlas) || exit 1
+OPENCLAW_GATEWAY_PORT=$(env_get OPENCLAW_GATEWAY_PORT 63076) || exit 1
+OPENCLAW_GATEWAY_TOKEN=$(env_get OPENCLAW_GATEWAY_TOKEN) || exit 1
 
 # Run onboarding
-docker exec -it ${PROJECT_NAME}-openclaw-gateway openclaw onboard
+docker exec -it "${PROJECT_NAME}-openclaw-gateway" openclaw onboard
 
 # Point OpenClaw's OpenAI provider at LiteLLM (base URL and gateway key)
-docker exec -it ${PROJECT_NAME}-openclaw-gateway openclaw config set models.providers.openai.baseUrl "http://litellm:4000/v1"
-docker exec -it ${PROJECT_NAME}-openclaw-gateway sh -c 'openclaw config set models.providers.openai.apiKey "$LITELLM_API_KEY"'
+docker exec -it "${PROJECT_NAME}-openclaw-gateway" openclaw config set models.providers.openai.baseUrl "http://litellm:4000/v1"
+docker exec -it "${PROJECT_NAME}-openclaw-gateway" sh -c 'openclaw config set models.providers.openai.apiKey "$LITELLM_API_KEY"'
 
 # Check health
-docker exec -it ${PROJECT_NAME}-openclaw-gateway openclaw doctor
+docker exec -it "${PROJECT_NAME}-openclaw-gateway" openclaw doctor
 
 # View gateway status
-docker exec -it ${PROJECT_NAME}-openclaw-gateway openclaw gateway probe
+docker exec -it "${PROJECT_NAME}-openclaw-gateway" openclaw gateway probe
 
 # Read the gateway token
 env_get OPENCLAW_GATEWAY_TOKEN
@@ -201,7 +237,7 @@ Use the `env_get` helper and `PROJECT_NAME` from §7.
 
 ```bash
 # Direct health check
-curl http://localhost:$(env_get OPENCLAW_GATEWAY_PORT)/healthz
+curl http://localhost:${OPENCLAW_GATEWAY_PORT}/healthz
 
 # Deep health check (the container's environment supplies the token)
 docker exec ${PROJECT_NAME}-openclaw-gateway sh -c 'node openclaw.mjs health --token "$OPENCLAW_GATEWAY_TOKEN"'
@@ -327,7 +363,29 @@ See §5.
 **Solution**:
 
 1. Verify LiteLLM is healthy: `curl http://localhost:63040/health/liveliness` (63040 is the default `LITELLM_PORT`)
-2. List the models LiteLLM serves: `curl -H "Authorization: Bearer $(grep '^LITELLM_MASTER_KEY=' .env | cut -d= -f2-)" http://localhost:63040/v1/models`
+2. List the models LiteLLM serves. From the repository root, read the active file through the bootstrapper dependencies with `uv`:
+
+    ```bash
+    PYTHONPATH=bootstrapper uv run --project bootstrapper python - <<'PYMODELS'
+    import subprocess
+    import sys
+    from core.config_parser import ConfigParser
+
+    parser = ConfigParser(root_dir=".")
+    if not parser.env_file_path.is_file():
+        sys.exit("The active Atlas env file does not exist.")
+    env = parser.parse_env_file()
+    key = env.get("LITELLM_MASTER_KEY", "")
+    if not key:
+        sys.exit("Set a nonempty LITELLM_MASTER_KEY in the active Atlas env file.")
+    port = env.get("LITELLM_PORT") or "63040"
+    subprocess.run(
+        ["curl", "-H", f"Authorization: Bearer {key}",
+         f"http://localhost:{port}/v1/models"], check=True,
+    )
+    PYMODELS
+    ```
+
 3. Check the provider config (`baseUrl` must be `http://litellm:4000`; set `PROJECT_NAME` as in §7): `docker exec ${PROJECT_NAME}-openclaw-gateway openclaw config get models.providers.litellm`. Check `models.providers.openai` only if you repurposed it (§7).
 4. Confirm that `LITELLM_API_KEY` is set in the OpenClaw container environment
 5. For Ollama models, set `LLM_PROVIDER_SOURCE` to an `ollama-*` value (not `none`), so LiteLLM has an Ollama upstream
