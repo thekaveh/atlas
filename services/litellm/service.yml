@@ -30,9 +30,9 @@ capabilities:
     verification: documented
     note: "STT and TTS consumers call their provider endpoints directly; LiteLLM does not register the stock audio transcription or speech routes."
   - name: "Per-service gateway credentials and budgets"
-    status: not-supported
+    status: partial
     verification: documented
-    note: "Stock consumers share the master key; LiteLLM virtual keys, team budgets, and independently revocable per-service credentials are not provisioned."
+    note: "TrueForge normally uses a dedicated virtual key, with a master-key fallback on mint failure. Other stock consumers use the master key by default. Atlas provisions no per-service spend caps or team budgets."
 
 containers:
   - litellm
