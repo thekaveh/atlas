@@ -24,15 +24,15 @@
 <line x1="360" y1="80" x2="420" y2="208" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
 <line x1="360" y1="174" x2="420" y2="208" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
 <line x1="420" y1="214" x2="360" y2="180" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-<text x="390" y="187" fill="#94a3b8" font-size="9" text-anchor="middle">two-way</text>
 <line x1="360" y1="242" x2="420" y2="208" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
 <line x1="360" y1="310" x2="420" y2="208" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
 <line x1="420" y1="214" x2="360" y2="316" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-<text x="390" y="255" fill="#94a3b8" font-size="9" text-anchor="middle">two-way</text>
 <line x1="620" y1="208" x2="680" y2="80" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
 <line x1="620" y1="208" x2="680" y2="148" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
 <line x1="620" y1="208" x2="680" y2="216" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
 <line x1="620" y1="208" x2="680" y2="310" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+<rect x="368" y="165" width="44" height="14" rx="2" fill="#020617"/><text x="390" y="175" fill="#94a3b8" font-size="9" text-anchor="middle">two-way</text>
+<rect x="368" y="245" width="44" height="14" rx="2" fill="#020617"/><text x="390" y="255" fill="#94a3b8" font-size="9" text-anchor="middle">two-way</text>
 <g>
 <g class="cluster">
   <rect x="120" y="64" width="240" height="84" rx="8"

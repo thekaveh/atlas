@@ -27,11 +27,11 @@
 <line x1="360" y1="310" x2="420" y2="260" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
 <line x1="360" y1="378" x2="420" y2="260" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
 <line x1="420" y1="266" x2="360" y2="384" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-<text x="390" y="315" fill="#94a3b8" font-size="9" text-anchor="middle">two-way</text>
 <line x1="620" y1="260" x2="680" y2="80" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
 <line x1="620" y1="260" x2="680" y2="148" stroke="#64748b" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arrowhead)"/>
 <line x1="620" y1="260" x2="680" y2="216" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
 <line x1="620" y1="260" x2="680" y2="362" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+<rect x="368" y="305" width="44" height="14" rx="2" fill="#020617"/><text x="390" y="315" fill="#94a3b8" font-size="9" text-anchor="middle">two-way</text>
 <g>
 <g class="cluster">
   <rect x="120" y="64" width="240" height="58" rx="8"

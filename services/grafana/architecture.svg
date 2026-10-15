@@ -23,8 +23,8 @@
 <text x="800" y="36" fill="#94a3b8" font-size="10" font-weight="600" text-anchor="middle" letter-spacing="0.08em">Downstream (consumers)</text>
 <line x1="360" y1="80" x2="420" y2="119" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
 <line x1="420" y1="125" x2="360" y2="86" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-<text x="390" y="95" fill="#94a3b8" font-size="9" text-anchor="middle">two-way</text>
 <line x1="620" y1="119" x2="680" y2="80" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+<rect x="368" y="71" width="44" height="14" rx="2" fill="#020617"/><text x="390" y="81" fill="#94a3b8" font-size="9" text-anchor="middle">two-way</text>
 <g>
 <g class="cluster">
   <rect x="120" y="64" width="240" height="84" rx="8"

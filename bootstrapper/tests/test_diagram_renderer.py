@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import sys
+import math
 import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
+
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(REPO_ROOT / "bootstrapper"))
@@ -238,3 +241,162 @@ def test_pointer_doc_subtitle_fits_focus_box():
     left = float(box.attrib["x"])
     right = left + float(box.attrib["width"])
     assert left < center - half_width < center + half_width < right
+
+
+def _line_crosses_box(line, box):
+    x1, y1, x2, y2 = (float(line.get(k)) for k in ("x1", "y1", "x2", "y2"))
+    left, top, right, bottom = box
+    enter, leave = 0.0, 1.0
+    for origin, delta, low, high in ((x1, x2 - x1, left, right), (y1, y2 - y1, top, bottom)):
+        if delta == 0:
+            if not low <= origin <= high:
+                return False
+            continue
+        near, far = sorted(((low - origin) / delta, (high - origin) / delta))
+        enter, leave = max(enter, near), min(leave, far)
+    return enter <= leave
+
+
+def _opaque_rect_covers_box(rect, box):
+    left, top, right, bottom = box
+    x, y = float(rect.get("x", 0)), float(rect.get("y", 0))
+    return (
+        rect.get("fill") == "#020617"
+        and float(rect.get("opacity", 1)) == float(rect.get("fill-opacity", 1)) == 1
+        and x <= left - 1 and y <= top - 1
+        and x + float(rect.get("width")) >= right + 1
+        and y + float(rect.get("height")) >= bottom + 1
+    )
+
+
+def _label_box(label):
+    x, y, size = (float(label.get(k)) for k in ("x", "y", "font-size"))
+    half_width = len(label.text) * size * 0.62 / 2
+    return (x - half_width, y - size, x + half_width, y + 2)
+
+
+def _label_backings(elements, label):
+    first_connector = next((i for i, e in enumerate(elements) if e.get("marker-end")), -1)
+    index = elements.index(label)
+    box = _label_box(label)
+    return [(i, e) for i, e in enumerate(elements)
+            if first_connector < i < index and e.tag.endswith("}rect")
+            and _opaque_rect_covers_box(e, box)]
+
+
+def _annotation_is_clear(elements, label):
+    box = _label_box(label)
+    crossing = [i for i, e in enumerate(elements)
+                if e.tag.endswith("}line") and _line_crosses_box(e, box)]
+    if not crossing:
+        return True
+    return any(i > max(crossing) for i, _ in _label_backings(elements, label))
+
+
+@pytest.mark.parametrize("service", ["backend", "grafana", "hermes", "kong", "lightrag", "litellm", "n8n", "prometheus"])
+def test_two_way_annotations_have_clear_glyph_space(service):
+    from docs.deps_resolver import build_doc_graph
+    from docs.diagram_renderer import render_svg
+
+    elements = list(ET.fromstring(render_svg(build_doc_graph(service, SERVICES_DIR))).iter())
+    labels = [e for e in elements if e.tag.endswith("}text") and e.text == "two-way"]
+    assert labels, service
+    for label in labels:
+        assert _annotation_is_clear(elements, label), (service, label.attrib)
+
+
+def _marker_vertices(line, marker):
+    x1, y1, x2, y2 = (float(line.get(k)) for k in ("x1", "y1", "x2", "y2"))
+    dx, dy = x2 - x1, y2 - y1
+    length = math.hypot(dx, dy)
+    scale = float(line.get("stroke-width", 1)) if marker.get("markerUnits", "strokeWidth") == "strokeWidth" else 1
+    ref_x, ref_y = float(marker.get("refX", 0)), float(marker.get("refY", 0))
+    coordinates = iter(map(float, re.split(r"[\s,]+", marker[0].get("points"))))
+    points = zip(coordinates, coordinates)
+    return [(x2 + scale * ((x - ref_x) * dx - (y - ref_y) * dy) / length,
+             y2 + scale * ((x - ref_x) * dy + (y - ref_y) * dx) / length)
+            for x, y in points]
+
+
+def _polygons_overlap(first, second):
+    for polygon in (first, second):
+        for start, end in zip(polygon, polygon[1:] + polygon[:1]):
+            nx, ny = end[1] - start[1], start[0] - end[0]
+            projections = [[nx * x + ny * y for x, y in points] for points in (first, second)]
+            if max(projections[0]) <= min(projections[1]) or max(projections[1]) <= min(projections[0]):
+                return False
+    return True
+
+
+def _rect_vertices(rect):
+    x, y, w, h = (float(rect.get(k)) for k in ("x", "y", "width", "height"))
+    return [(x, y), (x + w, y), (x + w, y + h), (x, y + h)]
+
+
+def _assert_two_way_marker_clearance(root):
+    elements = list(root.iter())
+    marker = root.find("{http://www.w3.org/2000/svg}defs/{http://www.w3.org/2000/svg}marker")
+    triangles = [(i, _marker_vertices(e, marker)) for i, e in enumerate(elements) if e.get("marker-end")]
+    for label in (e for e in elements if e.text == "two-way"):
+        for backing_index, rect in _label_backings(elements, label):
+            for marker_index, triangle in triangles:
+                assert marker_index >= backing_index or not _polygons_overlap(_rect_vertices(rect), triangle), (label.attrib, triangle)
+
+
+@pytest.mark.parametrize("service", ["backend", "grafana", "hermes", "kong", "lightrag", "litellm", "n8n", "prometheus"])
+def test_two_way_backings_preserve_complete_arrowheads(service):
+    from docs.deps_resolver import build_doc_graph
+    from docs.diagram_renderer import render_svg
+
+    _assert_two_way_marker_clearance(ET.fromstring(render_svg(build_doc_graph(service, SERVICES_DIR))))
+
+
+def test_horizontal_two_way_annotation_clears_both_arrowheads():
+    from docs.deps_resolver import DepEdge, DepGraph
+    from docs.diagram_renderer import render_svg
+
+    graph = DepGraph(
+        focus="probe", category="apps", port_var=None, source="container",
+        upstream=(
+            *(DepEdge(name, "upstream", other_category="infra") for name in ("a", "b", "c")),
+            DepEdge("peer", "upstream", other_category="data", bidirectional=True),
+            DepEdge("d", "upstream", other_category="llm"),
+        ),
+        downstream=(DepEdge("peer", "downstream", other_category="data", bidirectional=True),),
+    )
+    root = ET.fromstring(render_svg(graph))
+    elements = list(root)
+    label = next(e for e in elements if e.text == "two-way")
+    assert any(e.get("marker-end") and e.get("x1") == "360" and e.get("y1") == e.get("y2")
+               for e in elements)
+    assert _annotation_is_clear(elements, label)
+    _assert_two_way_marker_clearance(root)
+
+
+def test_marker_clearance_allows_non_adjacent_grouped_annotation():
+    from docs.deps_resolver import build_doc_graph
+    from docs.diagram_renderer import render_svg
+
+    root = ET.fromstring(render_svg(build_doc_graph("hermes", SERVICES_DIR)))
+    label = next(e for e in root if e.text == "two-way")
+    position = list(root).index(label)
+    root.insert(position, ET.Element("{http://www.w3.org/2000/svg}g"))
+    _assert_two_way_marker_clearance(root)
+    root.remove(label)
+    group = ET.Element("{http://www.w3.org/2000/svg}g")
+    group.append(label)
+    root.insert(position + 1, group)
+    assert _annotation_is_clear(list(root.iter()), label)
+    _assert_two_way_marker_clearance(root)
+
+
+def test_marker_clearance_allows_routed_clear_annotation_without_backing():
+    from docs.deps_resolver import build_doc_graph
+    from docs.diagram_renderer import render_svg
+
+    root = ET.fromstring(render_svg(build_doc_graph("grafana", SERVICES_DIR)))
+    backing = next(e for e in root if e.get("width") == "44" and e.get("height") == "14")
+    root.remove(backing)
+    label = next(e for e in root if e.text == "two-way")
+    assert _annotation_is_clear(list(root), label)
+    _assert_two_way_marker_clearance(root)
