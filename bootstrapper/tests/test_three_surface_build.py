@@ -935,3 +935,14 @@ def test_litellm_database_diagnostics_use_the_configured_raw_name(case, tmp_path
     query = arguments[arguments.index(option) + 1]
     marker = "LiteLLM_VerificationTokenView" if context == "views" else "LiteLLM_SpendLogs"
     assert marker in query and query.lstrip().startswith("SELECT "), query
+
+
+from tests.three_surface_test_utils import documented_credential_cases
+
+
+@pytest.mark.parametrize("case", documented_credential_cases())
+def test_documented_credentials_preserve_active_literal_values(case, tmp_path, env_reference_config):
+    from tests.three_surface_test_utils import probe_documented_credential_case
+
+    actual, expected = probe_documented_credential_case(case, tmp_path, env_reference_config)
+    assert actual == expected, (case, actual, expected)
