@@ -332,3 +332,67 @@ def test_lakehouse_caption_qualifies_sqlite_fallback(surface: str) -> None:
     sentences = [part for part in re.split(r"[.!?]\s+", text) if "SQLite" in part]
     assert any(re.search(r"\b(absent|unset|missing|without)\b|\bnot (set|supplied|provided)\b", part, re.I) for part in sentences), sentences
     assert re.search(r"\b(supplied|provided|configured) URI\b[^.!?]*\b(used|retained|honored|kept)\b", text, re.I), text
+
+
+@pytest.fixture(scope="module")
+def env_reference_config(tmp_path_factory):
+    import io
+    from mkdocs.config import load_config
+    from scripts.docs.build_docs import render_mkdocs_yml
+    from tests.three_surface_test_utils import ROOT, PROJECTION_ROOT, ensure_generated_docs
+
+    return load_config(
+        io.StringIO(render_mkdocs_yml(ensure_generated_docs())),
+        config_file_path=str(ROOT / "mkdocs.yml"),
+        docs_dir=str(PROJECTION_ROOT / "site"),
+        site_dir=str(tmp_path_factory.mktemp("env-reference-site")),
+    )
+
+
+def _rendered_env_description(text, variable, config):
+    import html
+    import re
+    import xml.etree.ElementTree as ET
+    import markdown
+
+    rendered = markdown.markdown(
+        text, extensions=config.markdown_extensions, extension_configs=config.mdx_configs,
+    )
+    rendered = re.sub(
+        r"&([A-Za-z][A-Za-z0-9]+);",
+        lambda match: html.escape(html.unescape(match.group(0))), rendered,
+    )
+    document = ET.fromstring("<div>" + rendered + "</div>")
+    for table in document.findall(".//table"):
+        headers = ["".join(cell.itertext()).strip() for cell in table.findall("thead/tr/th")]
+        if not {"Variable", "Description"}.issubset(headers):
+            continue
+        for row in table.findall("tbody/tr"):
+            name = "".join(row[headers.index("Variable")].itertext()).strip()
+            if name == variable:
+                return "".join(row[headers.index("Description")].itertext())
+    raise AssertionError(f"No environment Description cell for {variable}")
+
+
+@pytest.mark.parametrize("surface", ["generator", "repo", "site", "wiki"])
+@pytest.mark.parametrize("case", [
+    ("BACKUP_S3_MODE", ("MINIO_ROOT_*", "BACKUP_S3_*")),
+    ("COMFYUI_MPS_LOCALHOST_PORT", ("_LOCALHOST_",)),
+    ("MINIO_IMAGE", ("MINIO_*", "/minio/*")),
+    ("STT_PROVIDER_PORT", ("PARAKEET_*", "SPEACHES_*")),
+])
+def test_environment_description_literals_remain_visible(surface, case, env_reference_config):
+    from scripts.docs.canonical_references import render_canonical_references
+    from tests.three_surface_test_utils import ROOT, surface_text
+
+    source = "docs/reference/env-vars.md"
+    if surface == "generator":
+        text = render_canonical_references(ROOT)[ROOT / source]
+    elif surface == "repo":
+        text = (ROOT / source).read_text(encoding="utf-8")
+    else:
+        text = surface_text(source, surface)
+    variable, literals = case
+    description = _rendered_env_description(text, variable, env_reference_config)
+    for literal in literals:
+        assert literal in description, (surface, variable, literal, description)

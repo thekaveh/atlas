@@ -145,7 +145,7 @@
 | BACKEND_IMAGE | backend | python:3.12.14-bookworm@sha256:581429e3df12d76e6af4be5ab7d0e7fc2013eb57dc23d2de691411c8efdbb970 | Container image for `backend`. |
 | BACKUP_SOURCE | backup | disabled | Deployment mode: container (enable the runner) or disabled (default). |
 | BACKUP_BUCKET | backup | atlas-backups | Target bucket for backups. |
-| BACKUP_S3_MODE | backup | local | Credential/dependency mode: local uses on-stack MinIO and permits the documented MINIO_ROOT_* upgrade fallback; external requires dedicated BACKUP_S3_* credentials and has no MinIO runtime dependency. |
+| BACKUP_S3_MODE | backup | local | Credential/dependency mode: local uses on-stack MinIO and permits the documented `MINIO_ROOT_*` upgrade fallback; external requires dedicated `BACKUP_S3_*` credentials and has no MinIO runtime dependency. |
 | BACKUP_S3_ENDPOINT | backup | http://minio:9000 | S3 endpoint as a strict HTTP(S) origin: canonical DNS/IPv4 or bracketed IPv6, optional canonical port, and no userinfo/path/query/fragment. The default is on-stack MinIO. |
 | BACKUP_S3_ACCESS_KEY | backup |  | Dedicated S3 access key. Required for external endpoints; local MinIO may fall back to MINIO_ROOT_USER for upgrade compatibility. |
 | BACKUP_S3_SECRET_KEY | backup |  | Dedicated S3 secret key. Required for external endpoints; local MinIO may fall back to MINIO_ROOT_PASSWORD for upgrade compatibility. |
@@ -218,7 +218,7 @@
 | COMFYUI_INIT_SOURCE | comfyui | container | Init-container selector listed in the SOURCE matrix (container or disabled). No code reads it: COMFYUI_INIT_SCALE follows COMFYUI_SOURCE. |
 | COMFYUI_PORT | comfyui | 63054 | Host port that publishes the comfyui container (in-container port 18188). |
 | COMFYUI_LOCALHOST_PORT | comfyui | 8000 | Host port for the localhost source variant. URL is derived at compose-render time as http://host.docker.internal:8000. |
-| COMFYUI_MPS_LOCALHOST_PORT | comfyui | 8188 | Fixed host port the Atlas-managed Apple-Silicon/MPS ComfyUI listens on (source=managed-localhost-mps). Containers reach it as http://host.docker.internal:8188. Named with the _LOCALHOST_ host-port convention so the topology slot allocator leaves the fixed default intact. |
+| COMFYUI_MPS_LOCALHOST_PORT | comfyui | 8188 | Fixed host port the Atlas-managed Apple-Silicon/MPS ComfyUI listens on (source=managed-localhost-mps). Containers reach it as http://host.docker.internal:8188. Named with the `_LOCALHOST_` host-port convention so the topology slot allocator leaves the fixed default intact. |
 | COMFYUI_MPS_REF | comfyui | v0.27.0 | Pinned upstream ComfyUI git ref the managed MPS host process checks out (mirrors COMFYUI_REF for the container path). A release tag or full commit SHA. |
 | COMFYUI_MPS_STATE_DIR | comfyui | ~/.atlas/comfyui-mps | Atlas-owned host state directory for the managed MPS ComfyUI: the pinned checkout, its venv, and the pid/log/status files. Never a container volume. |
 | COMFYUI_MPS_MODELS_PATH | comfyui | ~/Documents/ComfyUI/models | Host models directory the managed MPS process reuses via extra_model_paths, so weights are not duplicated. Shared with COMFYUI_LOCAL_MODELS_PATH by default. Under managed-localhost-mps, the host provisioner also downloads COMFYUI_USER_MODELS here at start. |
@@ -633,7 +633,7 @@
 | MINIO_BUCKET_ICEBERG_LANDING | minio | landing | Landing bucket. The spark and iceberg service accounts can write it; Airflow, Zeppelin and JupyterHub receive its name. |
 | MINIO_ICEBERG_ACCESS_KEY | minio |  | Auto-generated scoped MinIO access key for the Iceberg lakehouse buckets. |
 | MINIO_ICEBERG_SECRET_KEY | minio |  | Auto-generated scoped MinIO secret key for the Iceberg lakehouse buckets. |
-| MINIO_IMAGE | minio | pgsty/silo:RELEASE.2026-09-16T00-00-00Z@sha256:635197cb9f36d01bee221d34d1c7d7960f6a95c48b0b6c01d99cd13bdae51a46 | Silo, the Pigsty-maintained AGPL fork of the archived MinIO community server, pinned by tag and multi-arch digest. It keeps the MINIO_* environment, /minio/* routes, mc admin API and on-disk format. Its entrypoint maps `server` to `silo server`, so the compose command is unchanged. It carries the bounded S3 Select CSV reader fix for CVE-2026-39414. Review upstream security advisories before bumping. |
+| MINIO_IMAGE | minio | pgsty/silo:RELEASE.2026-09-16T00-00-00Z@sha256:635197cb9f36d01bee221d34d1c7d7960f6a95c48b0b6c01d99cd13bdae51a46 | Silo, the Pigsty-maintained AGPL fork of the archived MinIO community server, pinned by tag and multi-arch digest. It keeps the `MINIO_*` environment, `/minio/*` routes, mc admin API and on-disk format. Its entrypoint maps `server` to `silo server`, so the compose command is unchanged. It carries the bounded S3 Select CSV reader fix for CVE-2026-39414. Review upstream security advisories before bumping. |
 | MINIO_INIT_IMAGE | minio | pgsty/mc:RELEASE.2026-09-16T00-00-00Z@sha256:cfc83108c3abb371f8fb84d99c1fdc88f8c237e022409b0081fb7c0a3be634dd | Container image for `minio-init`. |
 | MLFLOW_SOURCE | mlflow | disabled | MLflow deployment source: container or disabled. container requires MINIO_SOURCE=container for artifact storage. |
 | MLFLOW_PORT | mlflow | 63092 | Host port for the MLflow UI/API (in-container 5000). |
@@ -748,7 +748,7 @@
 | ATLAS_OTEL_ENABLED | otel-collector |  | Boolean string consumed by backend and LiteLLM tracing toggles. |
 | OTEL_COLLECTOR_IMAGE | otel-collector | otel/opentelemetry-collector-contrib:0.154.0 | Container image for `otel-collector`. |
 | STT_PROVIDER_SOURCE | parakeet | speaches-container-cpu | Speech-to-text engine: speaches-container-cpu, speaches-container-gpu, parakeet-container-gpu, parakeet-localhost, whisper-cpp-localhost or disabled. Drives STT_ENDPOINT and the engine scales. |
-| STT_PROVIDER_PORT | parakeet | 63055 | Wizard display slot. Real per-engine ports live on their own manifests (PARAKEET_*, SPEACHES_*, etc.). |
+| STT_PROVIDER_PORT | parakeet | 63055 | Wizard display slot. Real per-engine ports live on their own manifests (`PARAKEET_*`, `SPEACHES_*`, etc.). |
 | STT_PROVIDER_SCALE | parakeet |  | Set by ./start.sh; do not edit. 1 when a container engine serves speech-to-text, else 0. The wizard uses it to colour the STT row. |
 | PARAKEET_MODEL | parakeet | nvidia/parakeet-tdt-0.6b-v3 | Model the Parakeet GPU container loads (NeMo model ID), passed as PARAKEET_MODEL. |
 | PARAKEET_GPU_DEVICE | parakeet | cuda | Torch device for the Parakeet GPU container, passed as PARAKEET_DEVICE. |
