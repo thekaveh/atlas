@@ -221,3 +221,45 @@ def test_build_check_detects_png_stale_after_master_changes(tmp_path: Path) -> N
 
     with pytest.raises(RuntimeError, match="diagram PNG is stale"):
         build(manifest, root, site=True, wiki=True, check=True)
+
+
+@pytest.mark.parametrize("variable", [
+    "RAY_WORKER_COUNT", "RAY_HEAD_MEMORY_LIMIT", "RAY_HEAD_CPU_LIMIT",
+])
+def test_ray_source_conditions_remain_visible(variable: str, tmp_path: Path) -> None:
+    import html
+    import io
+    import re
+    import xml.etree.ElementTree as ET
+    import markdown
+    from mkdocs.config import load_config
+    from scripts.docs.build_docs import render_mkdocs_yml
+    from tests.three_surface_test_utils import (
+        ROOT, PROJECTION_ROOT, ensure_generated_docs, surface_text,
+    )
+
+    config = load_config(
+        io.StringIO(render_mkdocs_yml(ensure_generated_docs())),
+        config_file_path=str(ROOT / "mkdocs.yml"),
+        docs_dir=str(PROJECTION_ROOT / "site"),
+        site_dir=str(tmp_path / "site"),
+    )
+    rendered = markdown.markdown(
+        surface_text("services/ray/README.md", "site"),
+        extensions=config.markdown_extensions,
+        extension_configs=config.mdx_configs,
+    )
+    rendered = re.sub(
+        r"&([A-Za-z][A-Za-z0-9]+);",
+        lambda match: html.escape(html.unescape(match.group(0))), rendered,
+    )
+    document = ET.fromstring("<div>" + rendered + "</div>")
+    row, table = next(
+        (row, table)
+        for table in document.findall(".//table")
+        for row in table.findall("tbody/tr")
+        if any(code.text == variable for code in row[0].findall("code"))
+    )
+    headers = ["".join(cell.itertext()).strip() for cell in table.findall("thead/tr/th")]
+    condition = " ".join(row[headers.index("When")].itertext()).casefold()
+    assert re.search(r"\bcpu\b", condition) and re.search(r"\bgpu\b", condition), (variable, condition)
