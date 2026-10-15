@@ -16,6 +16,8 @@ This server wraps the pinned `parakeet-mlx==0.5.2` [aligned-result API](https://
 
 ### 2.1. Install Dependencies
 
+Run these installation commands from `services/parakeet/provider/mlx`:
+
 ```bash
 python3.12 -m venv .venv
 . .venv/bin/activate
@@ -30,17 +32,38 @@ This installs:
 
 ### 2.2. Run Server
 
+Before launch, prepare the active Atlas env file (`.env` by default; copy
+`.env.example` only if the target does not exist). Set a nonempty
+`PARAKEET_API_TOKEN` there; preserve an existing token. To generate a new value,
+run `python3.12 -c 'import secrets; print(secrets.token_urlsafe(32))'`.
+
+Run the preflight from the Atlas repository root. Use the same `ATLAS_ENV_FILE`
+setting in both terminals. The preflight reads the configured value and stops
+if it is missing or blank. Restart the native provider after changing its token.
+
+Keep the MLX virtual environment active when you return to the repository root.
+
 ```bash
-# Use the PARAKEET_API_TOKEN value from the repo-root .env (./start.sh
-# generates it on first run).
-export PARAKEET_API_TOKEN='<PARAKEET_API_TOKEN value from repo-root .env>'
+PARAKEET_API_TOKEN=$(
+  PYTHONPATH=bootstrapper python - <<'PYTOKEN'
+import sys
+from core.config_parser import ConfigParser
+
+token = ConfigParser().parse_env_file().get("PARAKEET_API_TOKEN", "")
+if not token:
+    sys.exit("Set a nonempty PARAKEET_API_TOKEN in the active Atlas env file.")
+print(token, end="")
+PYTOKEN
+) || exit 1
+export PARAKEET_API_TOKEN
 export PARAKEET_LOCALHOST_BIND_HOST=0.0.0.0
 export PARAKEET_LOCALHOST_PORT=63042
 
-# From services/parakeet/provider directory. The module entry point respects
+# The module entry point respects
 # PARAKEET_LOCALHOST_BIND_HOST and PARAKEET_LOCALHOST_PORT. Atlas containers
 # reach this host service through host.docker.internal, so the integration
 # quickstart uses a non-loopback bind and requires the bearer token above.
+cd services/parakeet/provider
 python -m mlx.api_server
 ```
 
