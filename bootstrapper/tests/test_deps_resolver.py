@@ -173,3 +173,39 @@ def test_edge_status_comes_from_the_declaring_manifest():
         current, current, planned, "A; B",
     )
 
+
+
+def test_pointer_doc_includes_declared_weaviate_consumer():
+    from docs.deps_resolver import build_doc_graph
+
+    graph = build_doc_graph("multi2vec-clip", SERVICES_DIR)
+    consumers = {edge.other: edge for edge in graph.downstream}
+    assert "weaviate" in consumers
+    edge = consumers["weaviate"]
+    assert (edge.direction, edge.other_category, edge.status, edge.condition) == (
+        "downstream", "data", "current", "",
+    )
+    assert (graph.focus, graph.category, graph.port_var, graph.source, graph.upstream, graph.init_containers) == (
+        "multi2vec-clip", "data", None, "(pointer doc — see weaviate)", (), (),
+    )
+
+
+@pytest.mark.parametrize("case", [
+    ({"target": "multi2vec-clip", "status": "current"}, [("weaviate", "current", "")]),
+    ({"target": "multi2vec-clip", "status": "optional", "condition": "CLIP enabled"},
+     [("weaviate", "optional", "CLIP enabled")]),
+    ({"target": "multi2vec-clip", "status": "planned", "condition": "future caller"},
+     [("weaviate", "planned", "future caller")]),
+    ({"target": "litellm", "status": "current"}, []),
+])
+def test_pointer_doc_preserves_caller_qualification_and_filters_other_targets(case):
+    from dataclasses import replace
+    from docs.deps_resolver import build_doc_graph
+    from services.manifests import load_manifests
+
+    call, expected = case
+    owner = next(m for m in load_manifests(SERVICES_DIR) if m.name == "weaviate")
+    caller = replace(owner, data_flow={"calls": [call]})
+    graph = build_doc_graph("multi2vec-clip", SERVICES_DIR, manifests=[caller])
+    assert [(edge.other, edge.status, edge.condition) for edge in graph.downstream] == expected
+    assert graph.upstream == ()

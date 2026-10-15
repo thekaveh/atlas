@@ -148,6 +148,10 @@ def build_doc_graph(
             category="data",
             port_var=None,
             source="(pointer doc — see weaviate)",
+            downstream=tuple(sorted(
+                _downstream_edges(doc_folder, set(), manifests_by_name).values(),
+                key=_edge_sort_key,
+            )),
         )
 
     members = [manifests_by_name[n] for n in manifest_names if n in manifests_by_name]
@@ -193,32 +197,7 @@ def _build_for_manifests(
                 condition=call.condition,
             ))
 
-    # Downstream — every other manifest whose data_flow.calls names focus,
-    # any member, or the doc folder containing the focus. The last is
-    # load-bearing for aggregate MEMBERS: consumers call the role name
-    # (e.g. kong/n8n/open-webui/hermes call `stt-provider`, not `parakeet`),
-    # so without it a member like parakeet/chatterbox/speaches/docling
-    # rendered a misleading "No downstream consumers". The self-loop guard
-    # below keeps the focus's own folder from being drawn as a consumer.
-    downstream_keys: set[str] = {focus, *member_names, _manifest_to_doc_folder(focus)}
-    downstream: dict[str, DepEdge] = {}
-    for other_name, other_m in all_m.items():
-        if other_name in member_names:
-            continue
-        # Render the consumer under its doc-folder name where applicable, and
-        # never as a self-loop via doc-folder collapse.
-        rendered = _manifest_to_doc_folder(other_name)
-        if rendered == focus or rendered in member_names:
-            continue
-        for call in _calls_of(other_m):
-            if call.target in downstream_keys:
-                downstream[rendered] = _stronger(downstream.get(rendered), DepEdge(
-                    other=rendered,
-                    direction="downstream",
-                    other_category=_resolve_category(rendered, all_m),
-                    status=call.status,
-                    condition=call.condition,
-                ))
+    downstream = _downstream_edges(focus, member_names, all_m)
 
     # Bidirectional collapse: same name in both directions.
     both = set(upstream) & set(downstream)
@@ -254,6 +233,40 @@ def _build_for_manifests(
         downstream=tuple(sorted(downstream.values(), key=_edge_sort_key)),
         init_containers=init_containers,
     )
+
+
+def _downstream_edges(
+    focus: str, member_names: set[str], all_m: dict[str, Manifest],
+) -> dict[str, DepEdge]:
+    """Find declared callers for singleton, aggregate and pointer-only docs."""
+    # Downstream — every other manifest whose data_flow.calls names focus,
+    # any member, or the doc folder containing the focus. The last is
+    # load-bearing for aggregate MEMBERS: consumers call the role name
+    # (e.g. kong/n8n/open-webui/hermes call `stt-provider`, not `parakeet`),
+    # so without it a member like parakeet/chatterbox/speaches/docling
+    # rendered a misleading "No downstream consumers". The self-loop guard
+    # below keeps the focus's own folder from being drawn as a consumer.
+    downstream_keys: set[str] = {focus, *member_names, _manifest_to_doc_folder(focus)}
+    downstream: dict[str, DepEdge] = {}
+    for other_name, other_m in all_m.items():
+        if other_name in member_names:
+            continue
+        # Render the consumer under its doc-folder name where applicable, and
+        # never as a self-loop via doc-folder collapse.
+        rendered = _manifest_to_doc_folder(other_name)
+        if rendered == focus or rendered in member_names:
+            continue
+        for call in _calls_of(other_m):
+            if call.target in downstream_keys:
+                downstream[rendered] = _stronger(downstream.get(rendered), DepEdge(
+                    other=rendered,
+                    direction="downstream",
+                    other_category=_resolve_category(rendered, all_m),
+                    status=call.status,
+                    condition=call.condition,
+                ))
+
+    return downstream
 
 
 def _resolve_category(name: str, all_m: dict[str, Manifest]) -> str:

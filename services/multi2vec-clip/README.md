@@ -76,7 +76,7 @@ Content-Type: application/json
 
 Weaviate calls this endpoint internally on every `POST /v1/objects` against a collection whose `vectorizer: multi2vec-clip`. The CLIP module knows nothing about Weaviate — it's a pure embedding service.
 
-**Network.** Joined to `backend-network`. Any container on that network can `POST /vectorize` directly. The data-flow graph does not list this path because no service uses it.
+**Network.** Joined to `backend-network`. Any container on that network can `POST /vectorize` directly. Weaviate is the declared consumer. Other services have no direct integration.
 
 **Volumes / state.** None. The model is baked into the image; the container is stateless and trivially restartable.
 
@@ -90,7 +90,9 @@ _No upstream calls._
 
 ### 5.2. Current — Downstream (services that call this)
 
-_No downstream consumers._
+| Service | Category |
+|---|---|
+| weaviate | data |
 
 ### 5.3. Architecture diagram
 
