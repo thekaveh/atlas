@@ -957,3 +957,10 @@ def test_hermes_dashboard_oauth_requires_upstream_setup(surface, context, env_re
     text = (ROOT / source).read_text() if surface == "repo" else surface_text(source, surface)
     facts, claim = documented_hermes_oauth_prerequisites(_candidate_document(text, env_reference_config), context)
     assert all(facts), (surface, context, facts, claim)
+
+
+@pytest.mark.parametrize("surface", ["repo", "site", "wiki"])
+@pytest.mark.parametrize("variant", ["plain", "single-quoted", "double-quoted", "exported", "relative-file", "absolute-file", "missing-default", "missing-selected", "invalid-default", "invalid-selected", "missing-image", "empty-image", "whitespace-image", "backup-failure"])
+def test_redis_recovery_requires_active_image_and_successful_backup(surface, variant, tmp_path, env_reference_config):
+    from tests.three_surface_test_utils import probe_documented_redis_recovery
+    probe_documented_redis_recovery((surface, variant), tmp_path, env_reference_config)
