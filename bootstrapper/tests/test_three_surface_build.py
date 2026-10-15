@@ -657,3 +657,68 @@ def test_stt_future_openclaw_keeps_bridge_planned(surface, env_reference_config)
     assert re.search(r"Atlas[^.!?]*does not wire[^.!?]*Hermes", claim, re.I), (surface, claim)
     assert re.search(r"proposed[^.!?]*middleware", claim, re.I), (surface, claim)
     assert "${STT_ENDPOINT}/v1/audio/transcriptions" in claim, (surface, claim)
+
+
+def _parakeet_native_preflight(source, surface, config):
+    import re
+    from tests.three_surface_test_utils import ROOT, surface_text
+
+    text = (ROOT / source).read_text() if surface == "repo" else surface_text(source, surface)
+    document = _candidate_document(text, config)
+    snippets = ["".join(code.itertext()) for code in document.findall(".//pre/code")]
+    native = [code for code in snippets if "python -m mlx.api_server" in code
+              and "export PARAKEET_API_TOKEN" in code]
+    assert len(native) == 1, (source, surface, "native launch recipe")
+    prefix = native[0].split("export PARAKEET_LOCALHOST_BIND_HOST=", 1)[0]
+    lines = prefix.splitlines()
+    start = next(i for i, line in enumerate(lines)
+                 if re.match(r"^(?:export )?PARAKEET_API_TOKEN=", line))
+    return "\n".join(lines[start:])
+
+
+def _run_parakeet_doc_preflight(preflight, content, directory):
+    import os
+    import subprocess
+    import sys
+    from tests.three_surface_test_utils import ROOT
+
+    env_file = directory / ".env"
+    if content is not None:
+        env_file.write_text(content, encoding="utf-8")
+    (directory / "bootstrapper").symlink_to(ROOT / "bootstrapper", target_is_directory=True)
+    environment = {"PATH": str(Path(sys.executable).parent) + os.pathsep + os.defpath,
+                   "ATLAS_ENV_FILE": str(env_file),
+                   "PYTHONPYCACHEPREFIX": str(directory / "pycache")}
+    capture = '\npython -c \'import json,os; print(json.dumps(os.environ.get("PARAKEET_API_TOKEN")))\'\n'
+    return subprocess.run(["bash", "-c", preflight + capture], cwd=directory,
+                          env=environment, capture_output=True, text=True, timeout=15)
+
+
+@pytest.mark.parametrize("case", [
+    (guide, surface, token_case)
+    for guide in ["services/stt-provider/README.md", "services/parakeet/provider/README.md",
+                  "services/parakeet/provider/mlx/README.md"]
+    for surface in ["repo", "site", "wiki"]
+    for token_case in ["absent", "empty", "missing", "blank", "plain", "quoted", "invalid"]
+])
+def test_native_parakeet_preflight_requires_matching_token(case, tmp_path, env_reference_config):
+    import json
+    from utils.atomic_write import render_env_assignment
+
+    source, surface, token_case = case
+    token = {"plain": "synthetic-token", "quoted": "synthetic$dollar\\backslash"}.get(token_case)
+    content = {"absent": None, "empty": "", "missing": "PROJECT_NAME=synthetic\n",
+               "blank": "PARAKEET_API_TOKEN=\n", "invalid": "PARAKEET_API_TOKEN=$UNSUPPORTED\n"}.get(token_case)
+    if token is not None:
+        content = "PARAKEET_API_TOKEN=" + render_env_assignment("PARAKEET_API_TOKEN", token) + "\n"
+    result = _run_parakeet_doc_preflight(
+        _parakeet_native_preflight(source, surface, env_reference_config), content, tmp_path,
+    )
+    if token is None:
+        assert result.returncode != 0, (case, result.stdout, result.stderr)
+        assert "PARAKEET_API_TOKEN" in result.stderr, (case, result.stderr)
+        assert result.stdout == "", (case, result.stdout)
+    else:
+        assert result.returncode == 0, (case, result.stdout, result.stderr)
+        assert json.loads(result.stdout) == token, (case, result.stdout)
+        assert result.stderr == "", (case, result.stderr)
