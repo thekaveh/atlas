@@ -994,3 +994,17 @@ def test_baseline_inspect_then_refresh_keeps_repository_directory(
     ) == (0, True, True, {str(checkout / "bootstrapper")}, str(checkout)), (
         result.stderr, calls
     )
+
+
+@pytest.mark.parametrize("surface", ["repository", "site", "wiki"])
+def test_neo4j_documented_allocations_leave_native_memory(surface: str) -> None:
+    from tests.three_surface_test_utils import documented_neo4j_memory_budgets, surface_text
+
+    source = "services/neo4j/README.md"
+    text = (ROOT / source).read_text() if surface == "repository" else surface_text(source, surface)
+    budgets = documented_neo4j_memory_budgets(text)
+    assert budgets, surface
+    for initial, heap, page_cache, limit in budgets:
+        assert 0 < initial <= heap
+        assert page_cache > 0
+        assert heap + page_cache < limit, (surface, heap, page_cache, limit)

@@ -135,3 +135,44 @@ def probe_documented_shell_commands(snippets: list[str], tmp_path: Path):
     )
     calls = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
     return result, calls, checkout
+
+
+def memory_size_bytes(value: str | int) -> float:
+    """Interpret the binary size literals used by Neo4j and Compose examples."""
+    import re
+
+    match = re.fullmatch(r"(\d+(?:\.\d+)?)\s*([KMGT]?)(?:i?B)?", str(value).strip(), re.I)
+    assert match is not None, value
+    number, unit = match.groups()
+    powers = {"": 0, "K": 1, "M": 2, "G": 3, "T": 4}
+    return float(number) * 1024 ** powers[unit.upper()]
+
+
+def documented_neo4j_memory_budgets(markdown: str) -> list[tuple[float, ...]]:
+    """Read actual YAML tuning examples and their declared container budget."""
+    from markdown_it import MarkdownIt
+    import yaml
+
+    manifest = yaml.safe_load((ROOT / "services/neo4j/service.yml").read_text())
+    default_limit = next(
+        entry["default"] for entry in manifest["env"] if entry["name"] == "NEO4J_MEMORY_LIMIT"
+    )
+    heap_key = "NEO4J_server_memory_heap_max__size"
+    cache_key = "NEO4J_server_memory_pagecache_size"
+    budgets = []
+    for token in MarkdownIt("commonmark").parse(markdown):
+        if token.type != "fence" or token.info.strip() not in {"yaml", "yml"}:
+            continue
+        data = yaml.safe_load(token.content) or {}
+        spec = data.get("services", {}).get("neo4j-graph-db", {})
+        environment = spec.get("environment", {})
+        if not {heap_key, cache_key} <= environment.keys():
+            continue
+        limit = spec.get("deploy", {}).get("resources", {}).get("limits", {}).get(
+            "memory", default_limit
+        )
+        initial = environment.get("NEO4J_server_memory_heap_initial__size", environment[heap_key])
+        budgets.append(tuple(memory_size_bytes(value) for value in (
+            initial, environment[heap_key], environment[cache_key], limit
+        )))
+    return budgets
