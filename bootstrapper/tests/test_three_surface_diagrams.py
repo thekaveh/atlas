@@ -246,3 +246,154 @@ def test_platform_current_arrows_reach_implemented_targets(name, case):
 
     assert any(_poster_contains(point, target) for point in destinations), case
     assert not any(_poster_contains(point, unsupported) for point in destinations), case
+
+
+
+def _perspective_svg(slug):
+    from bootstrapper.docs.sitegen.model import load_docs_model
+    from bootstrapper.docs.sitegen.pages import architecture_pages
+
+    masters = architecture_pages(load_docs_model(ROOT))
+    return ET.fromstring(extract_svg(masters[ROOT / "docs" / "architecture" / f"{slug}.html"]))
+
+
+def _perspective_connector(svg, source, target):
+    connector, = (
+        item for item in svg.findall(".//*[@marker-end]")
+        if (item.get("data-source"), item.get("data-target")) == (source, target)
+    )
+    if connector.tag.rsplit("}", 1)[-1] == "line":
+        points = [tuple(float(connector.get(key)) for key in pair)
+                  for pair in (("x1", "y1"), ("x2", "y2"))]
+    else:
+        assert connector.tag.rsplit("}", 1)[-1] == "polyline"
+        values = list(map(float, re.findall(r"-?\d+(?:\.\d+)?", connector.get("points"))))
+        points = list(zip(values[::2], values[1::2]))
+    return connector, points
+
+
+def _perspective_box_polygon(box, padding=0):
+    x, y, width, height = box
+    left, top = x - padding, y - padding
+    right, bottom = x + width + padding, y + height + padding
+    return [(left, top), (right, top), (right, bottom), (left, bottom)]
+
+
+def _perspective_polygons_overlap(first, second):
+    # Separating axes work for both connector segments and convex marker triangles.
+    for polygon in (first, second):
+        for start, end in zip(polygon, polygon[1:] + polygon[:1]):
+            axis = end[1] - start[1], start[0] - end[0]
+            first_projection = [x * axis[0] + y * axis[1] for x, y in first]
+            second_projection = [x * axis[0] + y * axis[1] for x, y in second]
+            if max(first_projection) <= min(second_projection) or max(second_projection) <= min(first_projection):
+                return False
+    return True
+
+
+def _perspective_marker_polygon(svg, connector, points):
+    from math import hypot
+
+    marker_id = connector.get("marker-end").removeprefix("url(#").removesuffix(")")
+    marker, = svg.findall(f".//{{*}}marker[@id='{marker_id}']")
+    assert marker.get("orient") == "auto" and marker.get("viewBox") is None
+    scale = float(connector.get("stroke-width", "1")) if marker.get("markerUnits", "strokeWidth") == "strokeWidth" else 1
+    ref_x, ref_y = float(marker.get("refX", "0")), float(marker.get("refY", "0"))
+    start, end = points[-2:]
+    dx, dy = end[0] - start[0], end[1] - start[1]
+    length = hypot(dx, dy)
+    ux, uy = dx / length, dy / length
+    polygon, = marker.findall("{*}polygon")
+    values = list(map(float, re.findall(r"-?\d+(?:\.\d+)?", polygon.get("points"))))
+    return [
+        (end[0] + scale * ((x - ref_x) * ux - (y - ref_y) * uy),
+         end[1] + scale * ((x - ref_x) * uy + (y - ref_y) * ux))
+        for x, y in zip(values[::2], values[1::2])
+    ]
+
+
+def _perspective_glyph_box(svg, label, tmp_path):
+    from copy import deepcopy
+    from PIL import Image
+
+    isolated = ET.Element(svg.tag, svg.attrib)
+    isolated.append(deepcopy(label))
+    output = tmp_path / "label.png"
+    svg_to_png(ET.tostring(isolated, encoding="unicode"), output)
+    with Image.open(output) as image:
+        bounds = image.getchannel("A").getbbox()
+        scale = image.width / float(svg.get("viewBox").split()[2])
+    assert bounds is not None
+    left, top, right, bottom = (value / scale for value in bounds)
+    return left, top, right - left, bottom - top
+
+
+def _perspective_backing_box(svg, text, glyph_box):
+    from cairosvg.colors import color
+
+    left, top, width, height = glyph_box
+    corners = ((left, top), (left + width, top + height))
+    candidates = []
+    # Descendant order is SVG paint order even when labels use nested groups.
+    for node in svg.iter():
+        if node is text:
+            break
+        if node.tag.rsplit("}", 1)[-1] != "rect":
+            continue
+        fill = node.get("fill", "black")
+        if fill.startswith("url("):
+            continue
+        alpha = color(fill)[3] * float(node.get("opacity", "1")) * float(node.get("fill-opacity", "1"))
+        if alpha != 1:
+            continue
+        box = tuple(float(node.get(key, "0")) for key in ("x", "y", "width", "height"))
+        if all(_poster_contains(point, box) for point in corners):
+            candidates.append(box)
+    assert candidates, ("no opaque backing covers label glyphs", text.text, glyph_box)
+    return min(candidates, key=lambda box: box[2] * box[3])
+
+
+_PERSPECTIVE_CLEARANCE_CASES = [
+    ("security-auth-secrets-boundary", "Runtime Secrets", "Protected APIs"),
+    ("service-admission-workflow", "compose.yml", "CI"),
+]
+
+
+@pytest.mark.parametrize("slug,source,target", _PERSPECTIVE_CLEARANCE_CASES)
+def test_perspective_connectors_clear_all_opaque_cards(slug, source, target):
+    svg = _perspective_svg(slug)
+    _, points = _perspective_connector(svg, source, target)
+    cards = svg.findall(".//{*}rect[@rx='6'][@fill='#0f172a']")
+    assert cards
+    for card in cards:
+        box = tuple(float(card.get(key)) for key in ("x", "y", "width", "height"))
+        for start, end in zip(points, points[1:]):
+            assert not _perspective_polygons_overlap([start, end], _perspective_box_polygon(box)), (source, target, box, start, end)
+
+
+@pytest.mark.parametrize("slug,source,target", _PERSPECTIVE_CLEARANCE_CASES)
+def test_perspective_complete_markers_clear_card_strokes(slug, source, target):
+    svg = _perspective_svg(slug)
+    connector, points = _perspective_connector(svg, source, target)
+    triangle = _perspective_marker_polygon(svg, connector, points)
+    cards = svg.findall(".//{*}rect[@rx='6'][@stroke]")
+    assert cards
+    for card in cards:
+        box = tuple(float(card.get(key)) for key in ("x", "y", "width", "height"))
+        half_stroke = float(card.get("stroke-width", "1")) / 2
+        assert not _perspective_polygons_overlap(triangle, _perspective_box_polygon(box, half_stroke)), (source, target, box, triangle)
+
+
+@pytest.mark.parametrize("label", ["invoke", "normalize", "synthesize", "filter", "generate", "assemble", "launch"])
+def test_lifecycle_label_glyphs_and_backings_clear_cards(label, tmp_path):
+    svg = _perspective_svg("bootstrapper-lifecycle")
+    text, = (node for node in svg.findall(".//{*}text") if "".join(node.itertext()) == label)
+    glyph_box = _perspective_glyph_box(svg, text, tmp_path)
+    backing_box = _perspective_backing_box(svg, text, glyph_box)
+    cards = svg.findall(".//{*}rect[@rx='6'][@stroke]")
+    assert cards
+    for card in cards:
+        card_box = tuple(float(card.get(key)) for key in ("x", "y", "width", "height"))
+        padding = float(card.get("stroke-width", "1")) / 2 + 2
+        for envelope in (backing_box, glyph_box):
+            assert not _perspective_polygons_overlap(_perspective_box_polygon(envelope), _perspective_box_polygon(card_box, padding)), (label, envelope, card_box)
