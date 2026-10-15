@@ -1,4 +1,3 @@
-<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 1240" preserveAspectRatio="xMidYMid meet" font-family="'JetBrains Mono', 'Fira Code', Menlo, Consolas, monospace">
   <title>Atlas — Architecture</title>
   <desc>Topologically-ordered architecture diagram of Atlas: external clients enter via Kong, the gateway routes to Apps and Agents, which call the LLM Core (LiteLLM to Ollama, vLLM Metal, and cloud providers, plus TEI Reranker) and the Media + Data layers; Ray + Spark supply distributed compute; Prometheus + Grafana provide observability.</desc>
@@ -66,7 +65,8 @@
   <line x1="1140" y1="390" x2="1140" y2="428" stroke="#fb7185" stroke-width="1" marker-end="url(#arrow-rose)" opacity="0.7"/>
 
   <!-- Apps to Agents (cyan, partial) -->
-  <line x1="450" y1="360" x2="450" y2="428" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)" opacity="0.55"/>
+  <path data-source="JupyterHub" data-target="Hermes Agent" d="M 450 360 L 450 378 L 285 378 L 285 428" fill="none" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)" opacity="0.55"/>
+  <text x="365" y="387" fill="#67e8f9" font-size="9" text-anchor="middle">notebook code</text>
   <line x1="700" y1="360" x2="700" y2="428" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)" opacity="0.55"/>
 
   <!-- Apps to LLM (Open WebUI + Backend to LiteLLM) -->
@@ -90,7 +90,7 @@
   <path d="M 200 480 L 325 500 L 325 640 L 450 640 L 450 668" fill="none" stroke="#34d399" stroke-width="1.5" marker-end="url(#arrow-emerald)" opacity="0.5"/>
 
   <!-- Apps to Data (Backend writes to data tier; Zeppelin reads via JDBC/S3A) -->
-  <path d="M 700 360 L 825 380 L 825 510 L 700 510 L 700 620 L 825 620 L 825 770 L 700 770 L 700 788" fill="none" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)" opacity="0.45"/>
+  <path data-source="Backend API" data-target="Weaviate" d="M 700 360 L 825 380 L 825 510 L 700 510 L 700 620 L 825 620 L 825 770 L 575 770 L 575 788" fill="none" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)" opacity="0.45"/>
   <path d="M 1200 360 L 1325 380 L 1325 770 L 1200 770 L 1200 788" fill="none" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)" opacity="0.4"/>
 
   <!-- Agents to Data (n8n / LightRAG / Airflow writes) -->
