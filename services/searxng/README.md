@@ -107,10 +107,26 @@ _No upstream calls._
 
 **LDR / Hermes get empty results.** The reply is still 200. Read its `unresponsive_engines` list: it names each engine that failed and why (for example `HTTP connection error` or a rate limit). `engines=` also queries engines that are off by default, such as Crossref. If no named engine exists (a typo, or a removed engine such as `ahmia`), SearXNG queries its default general engines instead.
 
+Run this Bash example from the Atlas repository root with `uv`, `jq`, and the bootstrapper dependencies available.
+Use a running SearXNG instance. The example reads the active configuration file through Atlas's configuration reader.
+The default file is `.env`; set `ATLAS_ENV_FILE` to select another file.
+Missing files, invalid assignments, and a blank `SEARXNG_PORT` stop the example before its diagnostics and request.
+
 ```bash
+SEARXNG_PORT=$(PYTHONPATH=bootstrapper uv run --project bootstrapper python - <<'PYCONFIG'
+from core.config_parser import ConfigParser
+
+config = ConfigParser(root_dir=".")
+if not config.env_file_path.is_file():
+    raise SystemExit("Active configuration file is missing or is not a file")
+value = config.parse_env_file().get("SEARXNG_PORT", "")
+if not value.strip():
+    raise SystemExit("Set SEARXNG_PORT in the active configuration file")
+print(value, end="")
+PYCONFIG
+) || exit 1
 docker compose ps searxng
 docker compose logs -f searxng
-SEARXNG_PORT="$(sed -n 's/^SEARXNG_PORT=//p' .env)"   # run from the repository root
 curl -s "http://localhost:${SEARXNG_PORT}/search?q=test&format=json" | jq '.results[0]'
 ```
 

@@ -189,6 +189,14 @@ _CREDENTIAL_EXAMPLES = {
 }
 
 
+_REQUEST_EXAMPLES = {
+    "tei-direct": ("tei-reranker", "TEI_RERANKER_PORT"),
+    "tei-litellm": ("tei-reranker", "LITELLM_MASTER_KEY"),
+    "tei-health": ("tei-reranker", "TEI_RERANKER_PORT"),
+    "searxng-search": ("searxng", "SEARXNG_PORT"),
+}
+
+
 _CREDENTIAL_BAD_TOKENS = {
     "numeric-token": 123,
     "object-token": {"unexpected": "value"},
@@ -206,8 +214,9 @@ def documented_credential_cases():
              for context in _CREDENTIAL_EXAMPLES for variant in variants]
     auth_cases = [(surface, "hermes-airflow", variant) for surface in ["repo", "site", "wiki"]
                   for variant in _CREDENTIAL_AUTH_FAILURES[:3]]
-    return cases + auth_cases + [(surface, "hermes-airflow", variant) for surface in ["repo", "site", "wiki"]
-                                 for variant in _CREDENTIAL_BAD_TOKENS]
+    original = cases + auth_cases + [(surface, "hermes-airflow", variant) for surface in ["repo", "site", "wiki"]
+                                    for variant in _CREDENTIAL_BAD_TOKENS]
+    return original + _request_cases(variants)
 
 
 def _credential_document(surface, context, config):
@@ -216,7 +225,7 @@ def _credential_document(surface, context, config):
     import xml.etree.ElementTree as ET
     import markdown
 
-    source = f"services/{_CREDENTIAL_EXAMPLES[context][0]}/README.md"
+    source = f"services/{(_CREDENTIAL_EXAMPLES | _REQUEST_EXAMPLES)[context][0]}/README.md"
     text = (ROOT / source).read_text() if surface == "repo" else surface_text(source, surface)
     rendered = markdown.markdown(text, extensions=config.markdown_extensions,
                                  extension_configs=config.mdx_configs)
@@ -241,6 +250,10 @@ def _credential_example_script(document, context):
     nodes = document.findall(".//code" if context == "openclaw-models" else ".//pre/code")
     blocks = ["".join(node.itertext()) for node in nodes]
     markers = {
+        "tei-direct": (("/rerank", "What is graph-augmented RAG?"), ()),
+        "tei-litellm": (("/v1/rerank",), ()),
+        "tei-health": (("/health",), ()),
+        "searxng-search": (("/search?q=test&format=json",), ()),
         "hermes-airflow": (("example_etl_with_llm/dagRuns",), ()),
         "hermes-diagnostics": (("hermes-init", "/v1/models"), ()),
         "openclaw-cli": (("models.providers.openai.baseUrl",), ()),
@@ -280,9 +293,9 @@ def _credential_env_text(values, variant):
     rows = []
     for key, value in values.items():
         rendered = render_env_assignment(key, value)
-        if variant in {"dollar", "backslash"}:
+        if variant in {"dollar", "backslash", "single-quoted"}:
             rendered = f"'{value}'"
-        if variant == "space-hash":
+        if variant in {"space-hash", "double-quoted"}:
             rendered = f'"{value}"'
         prefix = "export " if variant == "exported" else ""
         separator = " = " if variant == "exported" else "="
@@ -349,7 +362,7 @@ else: print(json.dumps({"owned":"response"}))
         p = tools / name
         p.write_text("#!" + sys.executable + "\n" + recorder)
         p.chmod(0o700)
-    for name in ["uv", "jq", "grep", "cut"]:
+    for name in ["uv", "jq", "grep", "cut", "sed"]:
         path = shutil.which(name)
         assert path is not None, f"Required real executable not found: {name}"
         (tools / name).symlink_to(Path(path).resolve(strict=True))
@@ -367,6 +380,8 @@ def _credential_shell_environment(directory, tools, selector, variant):
                    "ATLAS_DOC_CAPTURE": str(directory / "calls.jsonl"),
                    "ATLAS_DOC_AUTH_MODE": variant, "PROJECT_NAME": "wrong-shell-project",
                    "LITELLM_MASTER_KEY": "sk-wrong-shell", "HERMES_API_KEY": "wrong-shell-key"}
+    environment.update(TEI_RERANKER_PORT="wrong-shell-tei", SEARXNG_PORT="wrong-shell-search",
+                       LITELLM_PORT="wrong-shell-litellm")
     if selector is not None:
         environment["ATLAS_ENV_FILE"] = selector
     return environment
@@ -390,7 +405,7 @@ def _credential_curl_observation(row):
         data = {"invalid_json": body}
     return {"url": next((a for a in args if a.startswith("http://")), ""),
             "headers": headers, "data": data,
-            "method": args[args.index("-X") + 1] if "-X" in args else "GET",
+            "method": args[args.index("-X") + 1] if "-X" in args else ("POST" if "-d" in args else "GET"),
             "forms": _credential_option_values(args, "-F")}
 
 
@@ -403,6 +418,8 @@ def _credential_request(url, key=None, data=None, method="GET"):
 
 def _credential_expected_requests(context, values, variant):
     request = _credential_request
+    if context in _REQUEST_EXAMPLES:
+        return _request_expected(context, values)
     if context == "hermes-airflow":
         base = "http://airflow.localhost:" + values["KONG_HTTP_PORT"]
         rows = [request(base + "/auth/token", data={"username": "admin",
@@ -427,6 +444,8 @@ def _credential_expected_requests(context, values, variant):
 
 
 def _credential_expected_docker(context, values):
+    if context == "searxng-search":
+        return [["compose", "ps", "searxng"], ["compose", "logs", "-f", "searxng"]]
     name = values["PROJECT_NAME"] + "-openclaw-gateway"
     if context == "openclaw-onboard":
         return [["exec", "-it", name, "openclaw", "onboard"]]
@@ -447,9 +466,12 @@ def _credential_result(result, rows, context):
     printed = None
     if context in {"openclaw-cli", "litellm-password"}:
         printed = result.stdout.splitlines()[0] if result.stdout else None
-    return {"success": result.returncode == 0,
+    observed = {"success": result.returncode == 0,
             "requests": [_credential_curl_observation(row) for row in rows if row["kind"] == "curl"],
             "docker": [row["args"] for row in rows if row["kind"] == "docker"], "printed": printed}
+    if context in _REQUEST_EXAMPLES:
+        observed["argv"] = [row["args"] for row in rows if row["kind"] == "curl"]
+    return observed
 
 
 def probe_documented_credential_case(case, directory, config):
@@ -459,7 +481,8 @@ def probe_documented_credential_case(case, directory, config):
     surface, context, variant = case
     document = _credential_document(surface, context, config)
     script = _credential_example_script(document, context)
-    checkout, values, valid, selector = _credential_fixture(case, directory)
+    fixture = dict.fromkeys(_REQUEST_EXAMPLES, _request_fixture).get(context, _credential_fixture)
+    checkout, values, valid, selector = fixture(case, directory)
     tools = _credential_boundary_tools(directory)
     environment = _credential_shell_environment(directory, tools, selector, variant)
     result = subprocess.run(["/bin/bash", "-c", script], cwd=checkout, env=environment,
@@ -470,8 +493,15 @@ def probe_documented_credential_case(case, directory, config):
     expected = {"success": valid and not failure,
                 "requests": _credential_expected_requests(context, values, variant) if valid else [],
                 "docker": _credential_expected_docker(context, values) if valid else [], "printed": None}
+    if context in _REQUEST_EXAMPLES:
+        expected["argv"] = _request_argv(context, values) if valid else []
     if valid and context in {"openclaw-cli", "litellm-password"}:
         expected["printed"] = values[_CREDENTIAL_EXAMPLES[context][1]]
+    (directory / "extracted-fence.txt").write_text(script)
+    (directory / "result.json").write_text(json.dumps({"case": case, "script": script,
+        "environment": environment, "values": values, "valid": valid, "selector": selector,
+        "returncode": result.returncode, "stdout": result.stdout, "stderr": result.stderr,
+        "calls": rows, "actual": _credential_result(result, rows, context), "expected": expected}, indent=2) + "\n")
     return _credential_result(result, rows, context), expected
 
 
@@ -619,3 +649,76 @@ def probe_documented_redis_recovery(case, directory, config):
     success = settings["valid"] and variant != "backup-failure"
     assert observed["calls"] == expected, (case, observed, expected)
     assert (observed["returncode"] == 0) == success, (case, observed)
+
+
+
+def _request_fixture(case, directory):
+    surface, context, variant = case
+    checkout = directory / "owned checkout"
+    checkout.mkdir()
+    (checkout / "bootstrapper").symlink_to(ROOT / "bootstrapper", target_is_directory=True)
+    expected = _credential_fixture_values(variant)
+    offset = {"relative-file": "642", "absolute-file": "642"}.get(variant, "631")
+    expected.update(TEI_RERANKER_PORT=offset + "41", SEARXNG_PORT=offset + "56", LITELLM_PORT=offset + "40")
+    actual = dict(expected)
+    key = "LITELLM_PORT" if variant.endswith("-port") else _REQUEST_EXAMPLES[context][1]
+    if variant in {"missing-key", "missing-port"}:
+        actual.pop(key)
+    blanks = {"blank-key": "", "blank-port": "", "whitespace-key": " \t "}
+    if variant in blanks:
+        actual[key] = blanks[variant]
+    custom = variant in {"relative-file", "absolute-file", "missing-selected", "invalid-selected"}
+    selected = checkout / ("selected active file.env" if custom else ".env")
+    if custom:
+        (checkout / ".env").write_text(_credential_env_text(_credential_fixture_values("plain"), "plain")
+                                      + "TEI_RERANKER_PORT=62241\nSEARXNG_PORT=62256\n")
+    if variant not in {"missing-file", "missing-selected"}:
+        selected.write_text(_credential_env_text(actual, variant)
+                            + ("BROKEN: invalid\n" if variant.startswith("invalid-") else ""))
+    selector = str(selected) if variant == "absolute-file" else selected.name
+    valid = variant not in {"missing-file", "invalid-file", "missing-key", "blank-key", "whitespace-key",
+                            "missing-port", "blank-port", "missing-selected", "invalid-selected"}
+    return checkout, expected, valid, selector if custom else None
+
+
+def _request_expected(context, values):
+    request = _credential_request
+    if context == "tei-direct":
+        return [request("http://localhost:" + values["TEI_RERANKER_PORT"] + "/rerank", data={
+            "query": "What is graph-augmented RAG?", "texts": [
+                "LightRAG combines knowledge graphs with dense vector retrieval.", "GraphQL is a query language.",
+                "Reranking improves RAG quality by ordering retrieved passages."]}, method="POST")]
+    if context == "tei-litellm":
+        return [request("http://localhost:" + values["LITELLM_PORT"] + "/v1/rerank", values["LITELLM_MASTER_KEY"],
+                        {"model": "tei-rerank", "query": "…", "documents": ["…", "…"]}, "POST")]
+    if context == "tei-health":
+        return [request("http://localhost:" + values["TEI_RERANKER_PORT"] + "/health")]
+    return [request("http://localhost:" + values["SEARXNG_PORT"] + "/search?q=test&format=json")]
+
+
+
+def _request_cases(variants):
+    ports = ["plain", "single-quoted", "double-quoted", "exported", "relative-file", "absolute-file",
+             "missing-file", "invalid-file", "missing-key", "blank-key", "whitespace-key"]
+    return [(surface, context, variant) for surface in ["repo", "site", "wiki"]
+                       for context in _REQUEST_EXAMPLES
+                       for variant in (variants + ["single-quoted", "double-quoted", "whitespace-key",
+                                                   "missing-port", "blank-port"] if context == "tei-litellm" else ports)]
+
+
+
+def _request_argv(context, values):
+    row = _request_expected(context, values)[0]
+    args = ["-fs" if context == "tei-health" else "-s", row["url"]]
+    for header in row["headers"]:
+        args += ["-H", header]
+    bodies = {
+        "tei-direct": '{\n    "query": "What is graph-augmented RAG?",\n    "texts": [\n'
+                      '      "LightRAG combines knowledge graphs with dense vector retrieval.",\n'
+                      '      "GraphQL is a query language.",\n'
+                      '      "Reranking improves RAG quality by ordering retrieved passages."\n    ]\n  }',
+        "tei-litellm": '{"model":"tei-rerank","query":"…","documents":["…","…"]}',
+    }
+    if context in bodies:
+        args += ["-d", bodies[context]]
+    return [args]
