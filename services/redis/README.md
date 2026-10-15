@@ -133,12 +133,35 @@ _No upstream calls._
 - A last command that was only cut off is not a failure. Redis drops it and starts (`aof-load-truncated` is on by default), so the check passes.
 - Back up first. `--fix` truncates the file at the first bad byte and drops every write after it, so keep the backup until the stack is verified.
 
+Run this Bash sequence from the Atlas repository root with `uv` and the bootstrapper dependencies installed.
+Keep `ATLAS_ENV_FILE` set to the deployment's active file, if configured.
+Relative paths start at the repository root; absolute paths are used directly.
+The default active file is `.env`.
+
+The selected file must exist and contain a nonblank `REDIS_IMAGE`.
+Replace `<project>` with the deployment's project name before running the sequence.
+The sequence stops if configuration loading or the backup fails.
+
 ```bash
+REDIS_IMAGE=$(PYTHONPATH=bootstrapper uv run --project bootstrapper python - <<'PY'
+from core.config_parser import ConfigParser
+
+parser = ConfigParser(root_dir=".")
+if not parser.env_file_path.is_file():
+    raise SystemExit("The active env file is missing or is not a file.")
+try:
+    image = parser.parse_env_file().get("REDIS_IMAGE", "")
+except (OSError, ValueError) as error:
+    raise SystemExit(str(error)) from None
+if not image.strip():
+    raise SystemExit("Set REDIS_IMAGE in the active env file before recovery.")
+print(image, end="")
+PY
+) || exit 1
 ./stop.sh
-REDIS_IMAGE=$(grep '^REDIS_IMAGE=' .env | cut -d= -f2-)
 VOLUME=<project>-redis-data
 docker run --rm -v "$VOLUME":/data -v "$PWD":/backup "$REDIS_IMAGE" \
-  tar czf /backup/redis-aof-backup.tgz -C /data appendonlydir
+  tar czf /backup/redis-aof-backup.tgz -C /data appendonlydir || exit 1
 docker run --rm -it -v "$VOLUME":/data -w /data/appendonlydir "$REDIS_IMAGE" \
   redis-check-aof --fix appendonly.aof.manifest   # answer y to truncate
 ./start.sh

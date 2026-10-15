@@ -510,3 +510,112 @@ def documented_hermes_oauth_prerequisites(document, context):
     facts = [bool(re.search(pattern, claim, re.I)) for pattern in patterns]
     facts.append(all(key in claim for key in ["HERMES_DASHBOARD_OAUTH_CLIENT_ID", "dashboard.oauth.client_id"]))
     return facts, claim
+
+
+def _redis_recovery_script(surface, config):
+    from tests.test_three_surface_build import _candidate_document
+
+    source = "services/redis/README.md"
+    text = (ROOT / source).read_text() if surface == "repo" else surface_text(source, surface)
+    document = _candidate_document(text, config)
+    blocks = ["".join(code.itertext()) for code in document.findall(".//pre/code")]
+    extracted = _credential_select_script(blocks, ("redis-check-aof --fix",))
+    # These exact lifecycle lines are deliberately outside the owned recorder boundary.
+    script = "\n".join(line for line in extracted.splitlines() if line not in {"./stop.sh", "./start.sh"})
+    return extracted, script.replace("VOLUME=<project>-redis-data", "VOLUME=owned-redis-data")
+
+
+def _redis_recovery_fixture(variant, directory):
+    checkout = directory / "owned checkout"
+    checkout.mkdir()
+    (checkout / "bootstrapper").symlink_to(ROOT / "bootstrapper", target_is_directory=True)
+    image = "redis:7.2.14-alpine" if variant == "plain" else "redis:owned-" + variant
+    content = "REDIS_IMAGE=" + image + "\n"
+    quoted = {"single-quoted": "'", "double-quoted": '"'}
+    if variant in quoted:
+        content = "REDIS_IMAGE=" + quoted[variant] + image + quoted[variant] + "\n"
+    if variant == "exported":
+        content = "export REDIS_IMAGE=" + image + "\n"
+    content = {"missing-image": "OTHER=owned\n", "empty-image": "REDIS_IMAGE=\n",
+               "whitespace-image": "REDIS_IMAGE=' \t '"}.get(variant, content)
+    if variant.startswith("invalid-"):
+        content += "BROKEN: invalid\n"
+    custom = variant in {"relative-file", "absolute-file", "missing-selected", "invalid-selected"}
+    selected = checkout / ("selected active file.env" if custom else ".env")
+    if custom:
+        (checkout / ".env").write_text("REDIS_IMAGE=redis:inactive-default\n")
+    if variant not in {"missing-default", "missing-selected"}:
+        selected.write_text(content)
+    selector = str(selected) if variant == "absolute-file" else selected.name
+    valid = variant in {"plain", "single-quoted", "double-quoted", "exported", "relative-file",
+                        "absolute-file", "backup-failure"}
+    return checkout, {"image": image, "selector": selector if custom else None, "valid": valid}
+
+
+def _redis_recovery_tools(directory):
+    import shutil
+    import sys
+
+    tools = directory / "owned-tools"
+    tools.mkdir()
+    recorder = """import json,os,sys
+from pathlib import Path
+args=sys.argv[1:]
+with Path(os.environ["ATLAS_DOC_CAPTURE"]).open("a") as stream:
+    stream.write(json.dumps(args)+"\\n")
+print("owned docker boundary: "+("backup" if "tar" in args else "fix"))
+if "tar" in args and os.environ["ATLAS_DOC_AUTH_MODE"]=="backup-failure": sys.exit(37)
+"""
+    docker = tools / "docker"
+    docker.write_text("#!" + sys.executable + "\n" + recorder)
+    docker.chmod(0o700)
+    for name in ["uv", "grep", "cut"]:
+        executable = shutil.which(name)
+        assert executable is not None, f"Required real executable not found: {name}"
+        (tools / name).symlink_to(Path(executable).resolve(strict=True))
+    return tools
+
+
+def _run_redis_recovery(script, directory, variant, selected):
+    import json
+    import subprocess
+
+    checkout, settings = selected
+    tools = _redis_recovery_tools(directory)
+    environment = _credential_shell_environment(directory, tools, settings["selector"], variant)
+    environment["REDIS_IMAGE"] = "redis:wrong-inherited-shell"
+    path = directory / "recovery.sh"
+    path.write_text(script)
+    result = subprocess.run(["/bin/bash", str(path)], cwd=checkout, env=environment,
+                            capture_output=True, text=True, timeout=20)
+    capture = directory / "calls.jsonl"
+    calls = [json.loads(line) for line in capture.read_text().splitlines()] if capture.exists() else []
+    observation = {"returncode": result.returncode, "stdout": result.stdout,
+                   "stderr": result.stderr, "calls": calls}
+    (directory / "result.json").write_text(json.dumps(observation, indent=2) + "\n")
+    return observation
+
+
+def _redis_recovery_expected(checkout, settings, variant):
+    image = settings["image"]
+    backup = ["run", "--rm", "-v", "owned-redis-data:/data", "-v", str(checkout) + ":/backup",
+              image, "tar", "czf", "/backup/redis-aof-backup.tgz", "-C", "/data", "appendonlydir"]
+    fix = ["run", "--rm", "-it", "-v", "owned-redis-data:/data", "-w", "/data/appendonlydir",
+           image, "redis-check-aof", "--fix", "appendonly.aof.manifest"]
+    if not settings["valid"]:
+        return []
+    return [backup] if variant == "backup-failure" else [backup, fix]
+
+
+def probe_documented_redis_recovery(case, directory, config):
+    """Execute actual rendered recovery fences using synthetic files and an owned Docker recorder."""
+    surface, variant = case
+    extracted, script = _redis_recovery_script(surface, config)
+    (directory / "extracted-fence.txt").write_text(extracted)
+    selected = _redis_recovery_fixture(variant, directory)
+    observed = _run_redis_recovery(script, directory, variant, selected)
+    checkout, settings = selected
+    expected = _redis_recovery_expected(checkout, settings, variant)
+    success = settings["valid"] and variant != "backup-failure"
+    assert observed["calls"] == expected, (case, observed, expected)
+    assert (observed["returncode"] == 0) == success, (case, observed)
