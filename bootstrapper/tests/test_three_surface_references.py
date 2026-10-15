@@ -41,6 +41,7 @@ def test_canonical_reference_projection_covers_dynamic_public_pages() -> None:
         "docs/reference/service-dependencies.md",
         "docs/reference/manifest-fields.md",
         "docs/reference/license-inventory.md",
+        "docs/reference/candidate-decisions.md",
     } | architecture
     assert "../services/comfyui/README.md" in rendered[ROOT / "docs/services.md"]
     assert "../../operations/" not in rendered[ROOT / "docs/reference/ports-routes.md"]
@@ -276,3 +277,22 @@ def test_docs_gate_reports_license_inventory_findings(monkeypatch) -> None:
     assert [(f.path, f.message) for f in check_docs.check_license_inventory(ROOT)] == [
         ("docs/reference/license-inventory.yaml", "pin moved")
     ]
+
+
+def test_candidate_decision_reference_propagates_fixture_metadata(tmp_path):
+    import datetime
+    from scripts.docs.canonical_references import render_candidate_decisions
+
+    fields = {"slug": "varied", "name": "A & B [project]", "lifecycle": "shipped",
+              "decided": datetime.date(2024, 1, 2), "upstream": "https://example.org/a_(b)",
+              "public-summary": "Keep *these* words, <tags>, [brackets] and # punctuation."}
+    text = render_candidate_decisions([fields])
+    import markdown
+    from html import unescape
+    rendered = markdown.markdown(text)
+    visible = unescape(re.sub(r"<[^>]+>", "", rendered))
+    assert fields["public-summary"] in visible and fields["name"] in visible
+    assert 'id="candidate-varied"' in rendered and "shipped" in visible and "2024-01-02" in visible
+    proposed = render_candidate_decisions([{**fields, "lifecycle": "proposed", "decided": None}])
+    assert "not recorded" in proposed and "2024-01-02" not in proposed
+    assert "Private body" not in text and "[Supported service catalog](../services.md)" in text

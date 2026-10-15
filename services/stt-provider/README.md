@@ -225,7 +225,7 @@ _No upstream calls._
 
 ### 9.5. Future — Candidate new services
 
-- **WhisperX** ([details](https://github.com/thekaveh/atlas/blob/main/docs/research/candidates/whisperx.md)) — *Headline:* fourth STT engine adding speaker diarization and word-aligned timestamps behind the existing OpenAI shape. *Wires into:* backend, n8n, open-webui, hermes, openclaw, minio, weaviate.
+- **WhisperX** ([details](../../docs/reference/candidate-decisions.md#candidate-whisperx)) — *Headline:* fourth STT engine adding speaker diarization and word-aligned timestamps behind the existing OpenAI shape. *Wires into:* backend, n8n, open-webui, hermes, openclaw, minio, weaviate.
 
 ### 9.6. Future — Unused features in this service
 

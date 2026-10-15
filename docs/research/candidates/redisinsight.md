@@ -5,6 +5,7 @@ generated: 2026-07-04
 license: SSPL-1.0 / Redis agreement terms
 lifecycle: deferred
 name: RedisInsight
+public-summary: Deferred until an operator workflow justifies another administration interface. Authentication, data exposure, credential handling and distribution terms require review.
 referenced-by: [redis]
 slug: redisinsight
 superseded-by: https://github.com/thekaveh/atlas/issues/239

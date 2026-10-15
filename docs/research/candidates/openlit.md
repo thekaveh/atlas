@@ -5,6 +5,7 @@ generated: 2026-07-04
 license: Apache-2.0
 lifecycle: deferred
 name: OpenLIT
+public-summary: Deferred until a named observability gap justifies another platform. Collector, storage, user-interface and retention ownership must be clear before adoption.
 referenced-by: [ollama]
 slug: openlit
 superseded-by: https://github.com/thekaveh/atlas/issues/233

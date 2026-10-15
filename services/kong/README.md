@@ -292,7 +292,7 @@ Key methods:
 
 ### 13.5. Future — Candidate new services
 
-- **[Keycloak](../../docs/research/candidates/keycloak.md)** — *Headline:* self-hosted OIDC/OAuth2 provider. It would replace per-service basic-auth with one SSO layer behind Kong. *Wires into:* kong, jupyterhub, open-webui, n8n, minio, neo4j, openclaw, backend.
+- **[Keycloak](../../docs/reference/candidate-decisions.md#candidate-keycloak)** — *Headline:* self-hosted OIDC/OAuth2 provider. It would replace per-service basic-auth with one SSO layer behind Kong. *Wires into:* kong, jupyterhub, open-webui, n8n, minio, neo4j, openclaw, backend.
 
 ### 13.6. Future — Unused features in this service
 

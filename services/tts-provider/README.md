@@ -229,8 +229,8 @@ _No upstream calls._
 
 ### 9.5. Future — Candidate new services
 
-- **Unmute (Kyutai)** ([details](https://github.com/thekaveh/atlas/blob/main/docs/research/candidates/unmute.md)) — *Headline:* WebSocket OpenAI-Realtime-compatible voice loop that wraps any text LLM behind streaming STT + TTS. *Wires into:* open-webui, backend, hermes, litellm, parakeet, chatterbox, speaches.
-- **OmniVoice (k2-fsa)** ([details](https://github.com/thekaveh/atlas/blob/main/docs/research/candidates/omnivoice.md)) — *Headline:* 0.6 B diffusion-LM TTS (Apache-2.0) with **600+ language coverage**, which the current Speaches/Chatterbox engines lack. *Status:* not adopted; upstream has no API server or container image yet.
+- **Unmute (Kyutai)** ([details](../../docs/reference/candidate-decisions.md#candidate-unmute)) — *Headline:* WebSocket OpenAI-Realtime-compatible voice loop that wraps any text LLM behind streaming STT + TTS. *Wires into:* open-webui, backend, hermes, litellm, parakeet, chatterbox, speaches.
+- **OmniVoice (k2-fsa)** ([details](../../docs/reference/candidate-decisions.md#candidate-omnivoice)) — *Headline:* 0.6 B diffusion-LM TTS (Apache-2.0) with **600+ language coverage**, which the current Speaches/Chatterbox engines lack. *Status:* not adopted; upstream has no API server or container image yet.
 
 ### 9.6. Future — Unused features in this service
 

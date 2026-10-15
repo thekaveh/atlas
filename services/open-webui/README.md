@@ -112,7 +112,7 @@ Atlas ships no Open WebUI Pipelines: upstream now marks Pipelines as legacy for 
 
 ### 5.5. Future — Candidate new services
 
-- **mcpo** ([details](https://github.com/thekaveh/atlas/blob/main/docs/research/candidates/mcpo.md)) — *Headline:* Open WebUI's MCP-to-OpenAPI proxy exposes any stdio/SSE MCP server as a REST tool server consumable by Open WebUI and LiteLLM. *Wires into:* open-webui, hermes, litellm, n8n, kong.
+- **mcpo** ([details](../../docs/reference/candidate-decisions.md#candidate-mcpo)) — *Headline:* Open WebUI's MCP-to-OpenAPI proxy exposes any stdio/SSE MCP server as a REST tool server consumable by Open WebUI and LiteLLM. *Wires into:* open-webui, hermes, litellm, n8n, kong.
 
 ### 5.6. Future — Unused features in this service
 

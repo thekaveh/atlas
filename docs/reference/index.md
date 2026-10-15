@@ -9,6 +9,7 @@
 - [Service dependencies](service-dependencies.md)
 - [Manifest fields](manifest-fields.md)
 - [Supply-chain license inventory](license-inventory.md)
+- [Candidate decisions](candidate-decisions.md)
 
 ## 2. Hand-written References
 

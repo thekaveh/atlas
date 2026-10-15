@@ -5,6 +5,7 @@ generated: 2026-07-04
 license: AGPL-3.0
 lifecycle: deferred
 name: Firecrawl
+public-summary: Deferred until a reproducible extraction gap justifies an additional crawler deployment. Operational ownership and license acceptance must be decided before adoption.
 referenced-by: [local-deep-researcher]
 slug: firecrawl
 superseded-by: https://github.com/thekaveh/atlas/issues/230

@@ -200,3 +200,58 @@ def test_emitted_frontmatter_round_trips_values_yaml_would_misread():
     text = _emit_frontmatter(fm)
     assert yaml.safe_load(text.strip().strip("-")) == fm
     assert "slug: dagster\n" in text
+
+
+def _public_record(**changes):
+    import yaml
+
+    fields = {"slug": "public-one", "name": "A public proposal", "lifecycle": "proposed",
+              "upstream": "https://example.org/project", "public-summary": "A varied summary: keep #2 and punctuation."}
+    fields.update(changes)
+    return "---\n" + yaml.safe_dump(fields) + "---\n\nPrivate body stays private.\n"
+
+
+def test_public_decisions_are_opted_in_sorted_and_body_free(tmp_path):
+    from docs.merge_research import load_public_decisions, run_merge, _parse
+
+    hidden = (FIXTURE_DIR / "example_candidate.md").read_text()
+    root = _build_research_tree(tmp_path, rows={}, candidates={
+        "public-one": _public_record(), "alpha": _public_record(slug="alpha", lifecycle="rejected", decided="2025-02-03"),
+        "example-candidate": hidden,
+    })
+    before = _parse((root / "candidates/public-one.md").read_text())
+    run_merge(root)
+    decisions = load_public_decisions(root)
+    after = _parse((root / "candidates/public-one.md").read_text())
+    assert [row["slug"] for row in decisions] == ["alpha", "public-one"]
+    assert decisions[1]["decided"] is None and str(decisions[0]["decided"]) == "2025-02-03"
+    assert after[1] == before[1] and after[0]["public-summary"] == before[0]["public-summary"]
+    assert "Private body" not in str(decisions) and decisions[0]["lifecycle"] == "rejected"
+
+
+@pytest.mark.parametrize("changes,field", [
+    ({"public-summary": "  "}, "public-summary"), ({"public-summary": None}, "public-summary"),
+    ({"public-summary": ["text"]}, "public-summary"), ({"slug": "../unsafe"}, "slug"),
+    ({"slug": "other"}, "slug"), ({"name": 12}, "name"),
+    ({"lifecycle": "maybe"}, "lifecycle"), ({"upstream": "javascript:alert(1)"}, "upstream"),
+    ({"upstream": "https://example.org/a b"}, "upstream"),
+    ({"upstream": "https://[broken"}, "upstream"), ({"decided": "2025-02-30"}, "decided"),
+    ({"decided": ["2025-02-03"]}, "decided"), ({"lifecycle": "shipped"}, "decided"),
+])
+def test_public_decisions_reject_malformed_consumed_fields(tmp_path, changes, field):
+    from docs.merge_research import load_public_decisions
+
+    root = _build_research_tree(tmp_path, rows={}, candidates={"public-one": _public_record(**changes)})
+    with pytest.raises(ValueError, match=rf"public-one.md.*{field}"):
+        load_public_decisions(root)
+
+
+
+def test_public_decisions_fail_clearly_on_unparseable_opt_in(tmp_path):
+    from docs.merge_research import load_public_decisions
+
+    root = _build_research_tree(tmp_path, rows={}, candidates={
+        "public-one": "---\npublic-summary: [unterminated\n---\nPrivate body.\n",
+    })
+    with pytest.raises(ValueError, match="public-one.md.*public-summary.*unparseable"):
+        load_public_decisions(root)

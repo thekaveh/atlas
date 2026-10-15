@@ -5,6 +5,7 @@ generated: 2026-07-04
 license: Apache-2.0
 lifecycle: deferred
 name: Supabase Edge Functions (Deno runtime)
+public-summary: Deferred until an edge-specific workflow needs another execution surface. Upgrade behavior, authentication and secret ownership need a design before adoption.
 referenced-by: [supabase]
 slug: supabase-edge-functions
 superseded-by: https://github.com/thekaveh/atlas/issues/232

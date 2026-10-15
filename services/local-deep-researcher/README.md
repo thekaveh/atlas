@@ -116,7 +116,7 @@ To upgrade:
 ### 5.5. Future — Candidate new services
 
 - **open_deep_research (langchain-ai)** — *Headline:* multi-agent deep-research engine (supervisor + parallel sub-researchers) evaluated as a disabled-by-default **opt-in second research engine complementing LDR** (LDR stays the fast/local/key-free tier). GO-conditional per [`docs/strategy/langchain-stack-evaluation.md`](https://github.com/thekaveh/atlas/blob/main/docs/strategy/langchain-stack-evaluation.md), gated on a key-free LiteLLM+SearXNG boot at acceptable cost; its `messages`/`final_report` schema needs a per-engine branch in the backend research client.
-- **Firecrawl** ([details](https://github.com/thekaveh/atlas/blob/main/docs/research/candidates/firecrawl.md)) — *Headline:* self-hosted JS-rendering scraper that returns clean markdown, replacing LDR's `builtin` / `crawl4ai` full-page fetch with structured extraction. *Wires into:* n8n, backend, hermes.
+- **Firecrawl** ([details](../../docs/reference/candidate-decisions.md#candidate-firecrawl)) — *Headline:* self-hosted JS-rendering scraper that returns clean markdown, replacing LDR's `builtin` / `crawl4ai` full-page fetch with structured extraction. *Wires into:* n8n, backend, hermes.
 
 ### 5.6. Future — Unused features in this service
 

@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import argparse
+import html
 import re
 from datetime import date
 from pathlib import Path
 
+from bootstrapper.docs.merge_research import load_public_decisions
 from bootstrapper.docs.sitegen.model import load_docs_model
 from bootstrapper.docs.sitegen.pages import architecture_pages, reference_pages, static_pages
 from bootstrapper.services.manifest_validator import VALIDATOR_RULES
@@ -123,6 +125,34 @@ def _apply_manifest_h1_numbers(
     return rendered
 
 
+
+def _decision_text(value: str) -> str:
+    """Escape metadata as visible Markdown text without changing its wording."""
+    return re.sub(r"([\\`*_{}\[\]#!|])", r"\\\1", html.escape(value, quote=False))
+
+
+def render_candidate_decisions(records: list[dict]) -> str:
+    lines = [
+        "# Candidate Decisions", "",
+        "Recorded decisions about proposed additions identify prerequisites for future integration. "
+        "A proposal does not enable a service.", "",
+        "Dates identify recorded decisions, not fresh upstream qualification. "
+        "See the [Supported service catalog](../services.md) for supported Atlas configuration.", "",
+    ]
+    for number, record in enumerate(records, 1):
+        decided = str(record["decided"]) if record["decided"] is not None else "not recorded"
+        upstream = html.escape(record["upstream"], quote=True)
+        lines.extend([
+            f'<a id="candidate-{record["slug"]}"></a>', "",
+            f'## {number}. {_decision_text(record["name"])}', "",
+            f'Lifecycle: {_decision_text(record["lifecycle"])}. '
+            f'Recorded decision date: {decided}.', "",
+            _decision_text(record["public-summary"]), "",
+            f'<a href="{upstream}">Upstream project</a>.', "",
+        ])
+    return "\n".join(lines)
+
+
 def render_canonical_references(repo_root: Path) -> dict[Path, str]:
     """Render the committed pages whose content comes from manifests and tracks."""
     model = load_docs_model(repo_root)
@@ -168,6 +198,9 @@ def render_canonical_references(repo_root: Path) -> dict[Path, str]:
         rendered[source] = _final_newline(content)
     rendered[repo_root / LICENSE_INVENTORY_PAGE] = render_license_inventory(
         load_inventory(repo_root), load_pins(repo_root)
+    )
+    rendered[repo_root / "docs/reference/candidate-decisions.md"] = render_candidate_decisions(
+        load_public_decisions(repo_root / "docs/research")
     )
     return _apply_manifest_h1_numbers(rendered, repo_root)
 

@@ -5,6 +5,7 @@ generated: 2026-07-04
 license: SSPL-1.0
 lifecycle: deferred
 name: Browserless
+public-summary: Deferred pending a reproducible workflow that needs persistent browser sessions. Resource limits, authentication and license acceptance need a design before adoption.
 referenced-by: [n8n, searxng]
 slug: browserless
 superseded-by: https://github.com/thekaveh/atlas/issues/231
