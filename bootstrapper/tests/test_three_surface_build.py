@@ -300,3 +300,35 @@ def test_neo4j_python_example_uses_source_credentials(surface: str, case) -> Non
     driver.assert_called_once_with(
         f"bolt://localhost:{port}", auth=(username, "owned-example-password"),
     )
+
+
+@pytest.mark.parametrize("surface", ["generator", "repo", "site", "wiki", "html"])
+def test_lakehouse_caption_qualifies_sqlite_fallback(surface: str) -> None:
+    import re
+    from html.parser import HTMLParser
+    from bootstrapper.docs.sitegen.pages import ARCHITECTURE_INTERPRETATIONS
+    from tests.three_surface_test_utils import ROOT, surface_text
+
+    source = "docs/architecture/data-engineering-lakehouse-flow.md"
+    if surface == "generator":
+        text = ARCHITECTURE_INTERPRETATIONS["data-engineering-lakehouse-flow"]
+    elif surface in {"repo", "html"}:
+        path = (ROOT / source).with_suffix(".html") if surface == "html" else ROOT / source
+        text = path.read_text(encoding="utf-8")
+    else:
+        text = surface_text(source, surface)
+    if surface == "html":
+        class Text(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.parts = []
+
+            def handle_data(self, data):
+                self.parts.append(data)
+
+        parser = Text()
+        parser.feed(text)
+        text = "".join(parser.parts)
+    sentences = [part for part in re.split(r"[.!?]\s+", text) if "SQLite" in part]
+    assert any(re.search(r"\b(absent|unset|missing|without)\b|\bnot (set|supplied|provided)\b", part, re.I) for part in sentences), sentences
+    assert re.search(r"\b(supplied|provided|configured) URI\b[^.!?]*\b(used|retained|honored|kept)\b", text, re.I), text
