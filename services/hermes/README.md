@@ -110,10 +110,18 @@ terminal as a Chat tab (`/api/pty`, `/api/ws`) and ignores
 `HERMES_DASHBOARD_TUI`. The tab is a full agent with a terminal tool. While
 `HERMES_DASHBOARD_INSECURE=true`, it needs no login on the direct port or from
 backend-network peers. The agent can read `LITELLM_MASTER_KEY` from its
-environment and from `/opt/data/config.yaml`. To remove the tab, set
-`HERMES_DASHBOARD_ENABLED=false`; to require Nous Portal OAuth, set
-`HERMES_DASHBOARD_INSECURE=false`. Reference: [upstream Web-Dashboard
-docs](https://hermes-agent.nousresearch.com/docs/user-guide/features/web-dashboard).
+environment and from `/opt/data/config.yaml`.
+
+To remove the tab, set `HERMES_DASHBOARD_ENABLED=false`.
+Nous Portal OAuth requires an upstream authentication provider with a provisioned client ID before setting `HERMES_DASHBOARD_INSECURE=false`.
+
+The upstream provider reads `HERMES_DASHBOARD_OAUTH_CLIENT_ID` or `dashboard.oauth.client_id` in its configuration.
+Atlas does not provision or pass through this client configuration.
+With `HERMES_DASHBOARD_INSECURE=false` and no configured provider, the default container refuses dashboard startup.
+
+See [provider registration](https://github.com/NousResearch/hermes-agent/blob/2bd1977d8fad185c9b4be47884f7e87f1add0ce3/plugins/dashboard_auth/nous/__init__.py#L601-L667)
+and the [startup guard](https://github.com/NousResearch/hermes-agent/blob/2bd1977d8fad185c9b4be47884f7e87f1add0ce3/hermes_cli/web_server.py#L12776-L12825).
+Reference: [upstream Web-Dashboard docs](https://hermes-agent.nousresearch.com/docs/user-guide/features/web-dashboard).
 
 Use `./start.sh` for the guided wizard, or pass `--hermes-source <option>`
 for scripted changes.

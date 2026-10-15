@@ -103,7 +103,7 @@ env:
     description: "Inert: Hermes v2026.6.19 always embeds the dashboard Chat tab (PTY terminal) and ignores this value; disable the dashboard (HERMES_DASHBOARD_ENABLED=false) to remove it."
   - name: HERMES_DASHBOARD_INSECURE
     default: true
-    description: "Lets the dashboard bind 0.0.0.0 without a Nous Portal OAuth provider; without it the dashboard restart-loops. The dashboard then has no login: the direct port and backend-network peers reach it unauthenticated. Set false plus HERMES_DASHBOARD_OAUTH_CLIENT_ID to enforce OAuth."
+    description: "True: unauthenticated 0.0.0.0 dashboard; direct port and backend-network peers. False requires an OAuth provider with a provisioned client ID (`HERMES_DASHBOARD_OAUTH_CLIENT_ID` or `dashboard.oauth.client_id`). Atlas does not provision or pass through client configuration. False without a provider: dashboard refuses startup and restarts."
   - name: HERMES_UID
     default: 10000
     description: "Container user — match a host UID to read hermes-data from outside."
