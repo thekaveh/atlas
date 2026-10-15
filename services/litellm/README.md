@@ -122,11 +122,16 @@ To add a model outside the catalogs without the model picker, set `*_USER_MODELS
 
 > Note: `model_resolver` activates a provider only when it is enabled and keyed. Enabled means `CLOUD_<PROVIDER>_SOURCE=enabled`; the bootstrapper derives `LITELLM_<PROVIDER>_ENABLED` from it at every start. Keyed means `<PROVIDER>_API_KEY` is set. To stop routing to a provider, set `CLOUD_<PROVIDER>_SOURCE=disabled`. Do not edit `LITELLM_<PROVIDER>_ENABLED`; the next start overwrites it.
 
-**Default models follow the routed set.** Before each launch the bootstrapper checks the default models against the models this launch registers. The defaults are `LITELLM_DEFAULT_MODEL`, `LITELLM_VISION_MODEL` and the embedding pair (`LITELLM_EMBEDDING_MODEL`, `LANGMEM_EMBEDDING_MODEL`). It replaces a default that this launch does not route with `model_resolver`'s best active pick, and prints `Default model KEY: old -> new (reason)`. The embedding pair moves together. Not routed means one of these:
+**Default models follow the routed set.** Before each launch, the bootstrapper checks defaults against this launch's registered models.
+The defaults are `LITELLM_DEFAULT_MODEL`, `LITELLM_VISION_MODEL` and the embedding pair (`LITELLM_EMBEDDING_MODEL`, `LANGMEM_EMBEDDING_MODEL`).
+
+If a default is known to be unrouted, Atlas selects `model_resolver`'s best active replacement.
+It prints `Default model KEY: old -> new (reason)`. The embedding pair moves together.
+Known unrouted cases include:
 
 - an `ollama/*` model while Ollama is not the engine;
 - an Ollama tag that is not selected;
-- a model of a disabled or unkeyed cloud provider;
+- a model of a disabled cloud provider;
 - a cloud model that is no longer selected.
 
 It never replaces a routed default. It also leaves a consumer-declared model, the managed vLLM Metal model, and an Ollama tag under `ollama-localhost` with host auto-import on. A model of an enabled provider whose API key is missing is kept too; fix the key. A stale default with no replacement is a warning.
@@ -211,11 +216,18 @@ curl -s -X POST http://localhost:${LITELLM_PORT}/v1/chat/completions \
 
 ### 9.1. Expected startup noise (cosmetic, self-resolves in milliseconds)
 
-On the first database connection after a cold boot, the `${PROJECT_NAME}-supabase-db` log shows a burst of `relation "<…>" does not exist` errors for the `litellm` database. This is an upstream LiteLLM race. Its 4 uvicorn workers each start Prisma and probe the dashboard views while the views are being created. The errors clear within tens of milliseconds and do not recur. Confirm that all 8 dashboard views exist:
+On the first database connection after a cold boot, the `${PROJECT_NAME}-supabase-db` log shows a burst of `relation "<…>" does not exist` errors.
+These concern the configured LiteLLM database. This is an upstream LiteLLM race.
+Its 4 uvicorn workers each start Prisma and probe dashboard views while the views are being created.
+The errors clear within tens of milliseconds and do not recur.
+
+Before both database checks, set `LITELLM_DB_NAME` to the value in the active env file.
+Unset or blank values use `litellm`. Use the raw name, not `LITELLM_DB_NAME_URI`.
+Confirm that all 8 dashboard views exist:
 
 ```bash
 docker exec -e PGPASSWORD="$SUPABASE_DB_PASSWORD" ${PROJECT_NAME}-supabase-db \
-  psql -U supabase_admin -d litellm -tAc "
+  psql -U supabase_admin -d "${LITELLM_DB_NAME:-litellm}" -tAc "
     SELECT count(*) FROM pg_views WHERE schemaname='public' AND viewname IN
       ('LiteLLM_VerificationTokenView','MonthlyGlobalSpend','Last30dKeysBySpend',
        'Last30dModelsBySpend','MonthlyGlobalSpendPerKey','MonthlyGlobalSpendPerUserPerKey',
@@ -223,7 +235,8 @@ docker exec -e PGPASSWORD="$SUPABASE_DB_PASSWORD" ${PROJECT_NAME}-supabase-db \
 # Expect: 8
 ```
 
-If the count is not 8, or the errors continue after startup, it is a real bug. Escalate it.
+First confirm that the query reached the configured database and completed successfully.
+If views stay missing or startup errors persist, collect the init and gateway logs before escalation.
 
 ## 10. Smoke tests
 
@@ -243,7 +256,10 @@ curl -s -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
 
 # Cache and spend audit
 redis-cli -h localhost -p ${REDIS_PORT} -a "$REDIS_PASSWORD" --scan --pattern "litellm*"
-psql -h localhost -p ${SUPABASE_DB_PORT} -U supabase_admin -d litellm -c "SELECT * FROM \"LiteLLM_SpendLogs\" ORDER BY \"startTime\" DESC LIMIT 5;"
+psql -h localhost -p ${SUPABASE_DB_PORT} -U supabase_admin \
+  -d "${LITELLM_DB_NAME:-litellm}" \
+  -c "SELECT * FROM \"LiteLLM_SpendLogs\"
+      ORDER BY \"startTime\" DESC LIMIT 5;"
 ```
 
 ## 11. Bypass paths
