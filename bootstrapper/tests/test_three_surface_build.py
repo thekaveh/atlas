@@ -263,3 +263,40 @@ def test_ray_source_conditions_remain_visible(variable: str, tmp_path: Path) -> 
     headers = ["".join(cell.itertext()).strip() for cell in table.findall("thead/tr/th")]
     condition = " ".join(row[headers.index("When")].itertext()).casefold()
     assert re.search(r"\bcpu\b", condition) and re.search(r"\bgpu\b", condition), (variable, condition)
+
+
+@pytest.mark.parametrize("surface", ["repo", "site", "wiki"])
+@pytest.mark.parametrize("case", [
+    ({"NEO4J_GRAPH_DB_SOURCE": "localhost", "GRAPH_DB_USER": "graph-reader",
+      "NEO4J_LOCALHOST_BOLT_PORT": "17687", "GRAPH_DB_PORT": "16323"}, "graph-reader", "17687"),
+    ({"NEO4J_GRAPH_DB_SOURCE": "localhost"}, "neo4j", "7687"),
+    ({"NEO4J_GRAPH_DB_SOURCE": "container", "GRAPH_DB_USER": "host-only-user",
+      "NEO4J_LOCALHOST_BOLT_PORT": "17687", "GRAPH_DB_PORT": "16323"}, "neo4j", "16323"),
+    ({"GRAPH_DB_USER": "host-only-user"}, "neo4j", "63023"),
+])
+def test_neo4j_python_example_uses_source_credentials(surface: str, case) -> None:
+    import ast
+    import os
+    import types
+    from unittest.mock import MagicMock, patch
+    from markdown_it import MarkdownIt
+    from tests.three_surface_test_utils import ROOT, surface_text
+
+    source = "services/neo4j/README.md"
+    text = (ROOT / source).read_text(encoding="utf-8") if surface == "repo" else surface_text(source, surface)
+    snippets = [
+        token.content for token in MarkdownIt("commonmark").parse(text)
+        if token.type == "fence" and token.info.strip() == "python"
+        and any(isinstance(node, ast.ImportFrom) and node.module == "neo4j"
+                for node in ast.walk(ast.parse(token.content)))
+    ]
+    assert snippets, "No executable Neo4j connection example found"
+    environment, username, port = case
+    environment = {**environment, "GRAPH_DB_PASSWORD": "owned-example-password"}
+    driver = MagicMock()
+    module = types.SimpleNamespace(GraphDatabase=types.SimpleNamespace(driver=driver))
+    with patch.dict("sys.modules", {"neo4j": module}), patch.dict(os.environ, environment, clear=True):
+        exec(compile(snippets[0], source, "exec"), {})
+    driver.assert_called_once_with(
+        f"bolt://localhost:{port}", auth=(username, "owned-example-password"),
+    )

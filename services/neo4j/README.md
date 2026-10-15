@@ -127,11 +127,19 @@ MATCH (n) DETACH DELETE n;  // Clear all data (use with caution)
 ```
 
 ### 7.2. Connect via Python
+
+Export `NEO4J_GRAPH_DB_SOURCE`, `GRAPH_DB_PASSWORD` and any username or port overrides from `.env` into your shell before running this example. Container mode uses `neo4j`; localhost mode uses `GRAPH_DB_USER` (default `neo4j`).
+
 ```python
 import os
 from neo4j import GraphDatabase
 
 source = os.getenv("NEO4J_GRAPH_DB_SOURCE", "container")
+username = (
+    os.getenv("GRAPH_DB_USER", "neo4j")
+    if source == "localhost"
+    else "neo4j"
+)
 bolt_port = (
     os.getenv("NEO4J_LOCALHOST_BOLT_PORT", "7687")
     if source == "localhost"
@@ -139,7 +147,7 @@ bolt_port = (
 )
 driver = GraphDatabase.driver(
     f"bolt://localhost:{bolt_port}",
-    auth=("neo4j", os.environ["GRAPH_DB_PASSWORD"])
+    auth=(username, os.environ["GRAPH_DB_PASSWORD"])
 )
 
 with driver.session() as session:
