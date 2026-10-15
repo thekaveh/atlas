@@ -78,3 +78,60 @@ def markdown_block_shape(text: str) -> list[tuple[str, int]]:
     parser.feed(text)
     parser.close()
     return parser.shape
+
+
+def documented_baseline_commands(markdown: str) -> list[str]:
+    """Find baseline command examples without fixing headings or fence grouping."""
+    import re
+    from markdown_it import MarkdownIt
+
+    snippets = [
+        token.content for token in MarkdownIt("commonmark").parse(markdown)
+        if token.type == "fence" and token.info.strip() in {"bash", "sh"}
+        and (
+            re.search(r"\bpytest\s+tests/test_fragment_equivalence\.py(?:\s|$)", token.content)
+            or "BASELINE.write_text" in token.content
+        )
+    ]
+    assert snippets, "No documented baseline commands found"
+    return snippets
+
+
+def probe_documented_shell_commands(snippets: list[str], tmp_path: Path):
+    """Record command directories and arguments without executing their payloads."""
+    import json
+    import shlex
+    import subprocess
+    import sys
+
+    checkout = tmp_path / "checkout with spaces"
+    (checkout / "bootstrapper").mkdir(parents=True)
+    tools = tmp_path / "owned-tools"
+    tools.mkdir()
+    log = tmp_path / "uv-calls.jsonl"
+    recorder = (
+        "import json, os, sys\n"
+        "from pathlib import Path\n"
+        "with Path(os.environ['ATLAS_DOC_COMMAND_LOG']).open('a') as stream:\n"
+        "    stream.write(json.dumps({'cwd': os.getcwd(), 'args': sys.argv[1:]}) + '\\n')\n"
+    )
+    uv = tools / "uv"
+    uv.write_text(
+        "#!/bin/sh\nexec "
+        + shlex.join([sys.executable, "-I", "-S", "-c", recorder])
+        + ' "$@"\n',
+        encoding="utf-8",
+    )
+    uv.chmod(0o755)
+    result = subprocess.run(
+        ["/bin/bash", "--noprofile", "--norc", "-e", "-c",
+         "\n".join(snippets) + '\nprintf "%s" "$PWD"\n'],
+        cwd=checkout,
+        env={"PATH": str(tools), "ATLAS_DOC_COMMAND_LOG": str(log)},
+        text=True,
+        capture_output=True,
+        timeout=10,
+        check=False,
+    )
+    calls = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
+    return result, calls, checkout
