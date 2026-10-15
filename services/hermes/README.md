@@ -72,8 +72,12 @@ environment. When the underlying service is enabled, Hermes gets:
 | Web search | SearXNG | `SEARXNG_URL=http://searxng:8080` on the hermes container plus `web.search_backend: searxng` |
 | Image generation | ComfyUI | Companion skill `/opt/data/skills/creative/atlas-comfyui-host/SKILL.md` tells the agent that ComfyUI is at `http://comfyui:18188`. The bundled `creative/comfyui` skill still uses `127.0.0.1:8188`, so this is guidance, not a config override. |
 
-When a dependency is `disabled`, init omits its block from `config.yaml` and
-Hermes does not offer that capability. Startup does not fail.
+When an optional speech or web-search dependency is `disabled`, init omits its
+integration block from `config.yaml`. Hermes can still use [upstream
+defaults](https://github.com/NousResearch/hermes-agent/blob/2bd1977d8fad185c9b4be47884f7e87f1add0ce3/tools/tts_tool.py#L347-L349).
+Without a TTS block, Hermes selects the default `edge` provider. If `edge-tts`
+is available, Edge synthesis sends text to Microsoft's cloud service. Startup
+does not fail because an optional integration is omitted.
 
 ## 4. Configuration
 

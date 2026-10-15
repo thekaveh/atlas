@@ -604,3 +604,21 @@ def test_litellm_credentials_describe_trueforge_exception(surface, context, env_
         assert re.search(r"\bmaster.key\b[^.!?]*\bfall(?:back|s back)\b|\bfall(?:back|s back)\b[^.!?]*\bmaster.key\b", claim, re.I), (surface, context, claim)
         for limitation in ["spend caps", "team budgets"]:
             assert re.search(r"\bno\b[^.!?]*\b" + limitation + r"\b", claim, re.I), (surface, context, claim)
+
+
+@pytest.mark.parametrize("surface", ["repo", "site", "wiki"])
+def test_hermes_omitted_integration_keeps_upstream_defaults(surface, env_reference_config):
+    import re
+    from tests.three_surface_test_utils import ROOT, surface_text
+
+    source = "services/hermes/README.md"
+    text = (ROOT / source).read_text() if surface == "repo" else surface_text(source, surface)
+    document = _candidate_document(text, env_reference_config)
+    claims = [" ".join(node.itertext()) for node in document.iter("p")
+              if re.search(r"\bomits\b.*config\.yaml", " ".join(node.itertext()), re.S)]
+    assert len(claims) == 1, (surface, "missing optional-integration explanation")
+    claim = claims[0]
+    assert re.search(r"upstream[^.!?]*defaults", claim, re.I), (surface, claim)
+    assert re.search(r"default[^.!?]*\bedge\b", claim, re.I), (surface, claim)
+    assert re.search(r"\bif\b[^.!?]*edge-tts[^.!?]*available", claim, re.I), (surface, claim)
+    assert re.search(r"Microsoft[^.!?]*cloud", claim, re.I), (surface, claim)
