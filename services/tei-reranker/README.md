@@ -41,12 +41,28 @@ TEI_RERANKER_HF_CACHE_DIR=/data
 
 ## 4. Usage
 
-Run the host commands from the repository root. `TEI_RERANKER_PORT` defaults to `63041`.
+Run these Bash examples from the Atlas repository root with `uv` and the bootstrapper dependencies available.
+Use a running endpoint for the selected source. `TEI_RERANKER_PORT` defaults to `63041`.
+
+Each example reads the active configuration file through Atlas's configuration reader.
+The default file is `.env`; set `ATLAS_ENV_FILE` to select another file.
+Missing files, invalid assignments, and blank required values stop the example before its request.
 
 ```bash
 # Rerank passages
-TEI_RERANKER_PORT="$(sed -n 's/^TEI_RERANKER_PORT=//p' .env)"
-curl -s http://localhost:${TEI_RERANKER_PORT}/rerank \
+TEI_RERANKER_PORT=$(PYTHONPATH=bootstrapper uv run --project bootstrapper python - <<'PYCONFIG'
+from core.config_parser import ConfigParser
+
+config = ConfigParser(root_dir=".")
+if not config.env_file_path.is_file():
+    raise SystemExit("Active configuration file is missing or is not a file")
+value = config.parse_env_file().get("TEI_RERANKER_PORT", "")
+if not value.strip():
+    raise SystemExit("Set TEI_RERANKER_PORT in the active configuration file")
+print(value, end="")
+PYCONFIG
+) || exit 1
+curl -s "http://localhost:${TEI_RERANKER_PORT}/rerank" \
   -H 'Content-Type: application/json' \
   -d '{
     "query": "What is graph-augmented RAG?",
@@ -64,9 +80,31 @@ curl -s http://localhost:${TEI_RERANKER_PORT}/rerank \
 When `TEI_RERANKER_SOURCE` is not `disabled` and the endpoint resolves, `litellm-init` registers a **`tei-rerank`** model on LiteLLM. Consumers then get a Cohere-shaped `POST /v1/rerank` in front of TEI, with LiteLLM's auth, cost logging and retries:
 
 ```bash
-LITELLM_PORT="$(sed -n 's/^LITELLM_PORT=//p' .env)"
-LITELLM_MASTER_KEY="$(sed -n 's/^LITELLM_MASTER_KEY=//p' .env)"
-curl -s http://localhost:${LITELLM_PORT}/v1/rerank \
+LITELLM_PORT=$(PYTHONPATH=bootstrapper uv run --project bootstrapper python - <<'PYCONFIG'
+from core.config_parser import ConfigParser
+
+config = ConfigParser(root_dir=".")
+if not config.env_file_path.is_file():
+    raise SystemExit("Active configuration file is missing or is not a file")
+value = config.parse_env_file().get("LITELLM_PORT", "")
+if not value.strip():
+    raise SystemExit("Set LITELLM_PORT in the active configuration file")
+print(value, end="")
+PYCONFIG
+) || exit 1
+LITELLM_MASTER_KEY=$(PYTHONPATH=bootstrapper uv run --project bootstrapper python - <<'PYCONFIG'
+from core.config_parser import ConfigParser
+
+config = ConfigParser(root_dir=".")
+if not config.env_file_path.is_file():
+    raise SystemExit("Active configuration file is missing or is not a file")
+value = config.parse_env_file().get("LITELLM_MASTER_KEY", "")
+if not value.strip():
+    raise SystemExit("Set LITELLM_MASTER_KEY in the active configuration file")
+print(value, end="")
+PYCONFIG
+) || exit 1
+curl -s "http://localhost:${LITELLM_PORT}/v1/rerank" \
   -H "Authorization: Bearer ${LITELLM_MASTER_KEY}" \
   -H 'Content-Type: application/json' \
   -d '{"model":"tei-rerank","query":"…","documents":["…","…"]}'
@@ -110,9 +148,22 @@ _No high-confidence opportunities identified._
 
 ## 6. Health checks
 
+Run this Bash example from the Atlas repository root with `uv` and the bootstrapper dependencies available.
+
 ```bash
-TEI_RERANKER_PORT="$(sed -n 's/^TEI_RERANKER_PORT=//p' .env)"
-curl -fs http://localhost:${TEI_RERANKER_PORT}/health   # 200 OK when up
+TEI_RERANKER_PORT=$(PYTHONPATH=bootstrapper uv run --project bootstrapper python - <<'PYCONFIG'
+from core.config_parser import ConfigParser
+
+config = ConfigParser(root_dir=".")
+if not config.env_file_path.is_file():
+    raise SystemExit("Active configuration file is missing or is not a file")
+value = config.parse_env_file().get("TEI_RERANKER_PORT", "")
+if not value.strip():
+    raise SystemExit("Set TEI_RERANKER_PORT in the active configuration file")
+print(value, end="")
+PYCONFIG
+) || exit 1
+curl -fs "http://localhost:${TEI_RERANKER_PORT}/health"   # 200 OK when up
 ```
 
 Container `start_period` is 300 s, because the first run downloads the model before the server binds.
