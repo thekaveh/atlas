@@ -857,3 +857,81 @@ def test_ray_diagnostics_refuse_ambiguous_or_failed_lookup(case, tmp_path, env_r
         "ps", "--all", "--quiet", "--filter", "label=com.docker.compose.project=mixed_stack",
         "--filter", "label=com.docker.compose.service=ray-head"], (case, calls)
     assert "Ray" in result.stderr, (case, result.stderr)
+
+
+def _litellm_diagnostic_document(surface, config):
+    from tests.three_surface_test_utils import ROOT, surface_text
+
+    source = "services/litellm/README.md"
+    text = (ROOT / source).read_text() if surface == "repo" else surface_text(source, surface)
+    return _candidate_document(text, config)
+
+
+@pytest.mark.parametrize("surface", ["repo", "site", "wiki"])
+def test_litellm_default_repair_keeps_missing_key_exception_consistent(surface, env_reference_config):
+    import re
+
+    document = _litellm_diagnostic_document(surface, env_reference_config)
+    claims = [" ".join(node.itertext()) for node in document.iter("li")
+              if "cloud provider" in " ".join(node.itertext())]
+    assert any("disabled" in claim for claim in claims), claims
+    assert not any(re.search(r"unkeyed|missing.*key", claim, re.I) for claim in claims), claims
+    text = " ".join(document.itertext())
+    assert re.search(r"enabled provider[^.!?]*key is missing[^.!?]*kept", text), text
+
+
+def _litellm_database_command(document, context):
+    import re
+
+    blocks = ["".join(code.itertext()) for code in document.findall(".//pre/code")]
+    marker = "LiteLLM_VerificationTokenView" if context == "views" else "LiteLLM_SpendLogs"
+    blocks = [block for block in blocks if marker in block]
+    assert len(blocks) == 1, (context, blocks)
+    if context == "views":
+        return blocks[0]
+    commands = re.findall(r"(?ms)^psql\b.*?(?=\n[ \t]*\n|\Z)", blocks[0])
+    assert len(commands) == 1 and marker in commands[0], commands
+    return commands[0]
+
+
+def _run_litellm_database_command(command, database, directory):
+    import json
+    import subprocess
+    import sys
+
+    script = ("#!" + sys.executable + "\nimport json,sys\n"
+              "print(json.dumps(sys.argv[1:]))\n")
+    for name in ["docker", "psql"]:
+        fake = directory / name
+        fake.write_text(script, encoding="utf-8")
+        fake.chmod(0o700)
+    environment = {"PATH": str(directory), "PROJECT_NAME": "doc-project",
+                   "SUPABASE_DB_PASSWORD": "synthetic-owned-password", "SUPABASE_DB_PORT": "65432",
+                   "PYTHONPYCACHEPREFIX": str(directory / "pycache")}
+    if database is not None:
+        environment["LITELLM_DB_NAME"] = database
+    result = subprocess.run(["/bin/bash", "-c", command], env=environment, cwd=directory,
+                            capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0 and result.stderr == "", result
+    return json.loads(result.stdout)
+
+
+@pytest.mark.parametrize("case", [
+    (surface, context, database)
+    for surface in ["repo", "site", "wiki"]
+    for context in ["views", "spend"]
+    for database in [None, "", "tenant_db", "tenant /?#% database", 'tenant "quoted" $name', "租户_db"]
+])
+def test_litellm_database_diagnostics_use_the_configured_raw_name(case, tmp_path, env_reference_config):
+    surface, context, database = case
+    document = _litellm_diagnostic_document(surface, env_reference_config)
+    command = _litellm_database_command(document, context)
+    arguments = _run_litellm_database_command(command, database, tmp_path)
+    start = arguments.index("psql") + 1 if context == "views" else 0
+    arguments = arguments[start:]
+    assert arguments[arguments.index("-d") + 1] == (database or "litellm"), (case, arguments)
+    assert arguments[arguments.index("-U") + 1] == "supabase_admin", arguments
+    option = "-tAc" if context == "views" else "-c"
+    query = arguments[arguments.index(option) + 1]
+    marker = "LiteLLM_VerificationTokenView" if context == "views" else "LiteLLM_SpendLogs"
+    assert marker in query and query.lstrip().startswith("SELECT "), query
