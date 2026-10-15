@@ -26,6 +26,7 @@ OpenClaw reaches models through LiteLLM. The container gets `LITELLM_API_KEY` (t
 Select models from the `litellm` provider. Its built-in default `litellm/claude-opus-4-6` works only if LiteLLM serves a model with that name. You can also point the `openai` provider at LiteLLM (§7). Keep `OPENCLAW_OPENAI_API_KEY` empty then, or a real OpenAI key goes to LiteLLM. `OPENCLAW_OPENAI_API_KEY` and `OPENCLAW_ANTHROPIC_API_KEY` bypass LiteLLM (§4.3).
 
 **Container Mode Initialization**: When running in container mode, an `openclaw-init` container runs first to:
+
 - Set correct volume permissions (uid 1000/node) on config and workspace volumes
 - Pre-configure the gateway for non-loopback binding (`gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback`)
 
@@ -65,6 +66,7 @@ docker exec -it ${PROJECT_NAME}-openclaw-gateway openclaw onboard
 ```
 
 **Note:**
+
 - OpenClaw is **disabled by default** - you must explicitly enable it
 - First run requires onboarding to configure messaging channels; the bundled `litellm` provider is pre-pointed at the gateway by `openclaw-init`
 
@@ -160,6 +162,7 @@ The OpenClaw gateway includes a built-in web dashboard for administration:
 - **Via Kong**: `http://openclaw.localhost:${KONG_HTTP_PORT}` (default port 63000)
 
 The dashboard provides:
+
 - Chat interface for interacting with the agent
 - Configuration management
 - Execution approvals
@@ -300,6 +303,7 @@ See §5.
 **Problem**: `EACCES: permission denied, open '/home/node/.openclaw/openclaw.json'`
 
 **Solution**:
+
 1. The `openclaw-init` container should fix this automatically on startup
 2. If it persists, set `PROJECT_NAME` as in §7 and run: `docker run --rm -v ${PROJECT_NAME}-openclaw-config:/data alpine chown -R 1000:1000 /data`
 3. Restart the gateway: `docker restart ${PROJECT_NAME}-openclaw-gateway`
@@ -309,6 +313,7 @@ See §5.
 **Problem**: OpenClaw container fails to start
 
 **Solution**:
+
 1. Check logs (set `PROJECT_NAME` as in §7): `docker logs ${PROJECT_NAME}-openclaw-gateway`
 2. Verify image is available: `docker pull ghcr.io/openclaw/openclaw:2026.6.10`
 3. Ensure ports 63076/63077 (the gateway and bridge defaults; `OPENCLAW_GATEWAY_PORT` / `OPENCLAW_BRIDGE_PORT`) are free
@@ -319,6 +324,7 @@ See §5.
 **Problem**: OpenClaw doesn't see any models
 
 **Solution**:
+
 1. Verify LiteLLM is healthy: `curl http://localhost:63040/health/liveliness` (63040 is the default `LITELLM_PORT`)
 2. List the models LiteLLM serves: `curl -H "Authorization: Bearer $(grep '^LITELLM_MASTER_KEY=' .env | cut -d= -f2-)" http://localhost:63040/v1/models`
 3. Check the provider config (`baseUrl` must be `http://litellm:4000`; set `PROJECT_NAME` as in §7): `docker exec ${PROJECT_NAME}-openclaw-gateway openclaw config get models.providers.litellm`. Check `models.providers.openai` only if you repurposed it (§7).
@@ -330,6 +336,7 @@ See §5.
 **Problem**: Web dashboard returns errors
 
 **Solution**:
+
 1. Check the health endpoint: `curl http://localhost:63076/healthz` (default `OPENCLAW_GATEWAY_PORT`)
 2. Wait for startup (20s start period)
 3. If using Kong, verify hosts file: `./start.sh --setup-hosts`

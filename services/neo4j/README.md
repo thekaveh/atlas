@@ -5,6 +5,7 @@ Neo4j provides graph database capabilities for Atlas, enabling relationship mode
 ## 1. Overview
 
 The Neo4j service provides:
+
 - Graph database for storing and querying relationships
 - Web-based browser interface for data visualization
 - Cypher query language support
@@ -79,6 +80,7 @@ For coordinated restores of the signed `system` + `neo4j` artifacts, use `servic
 ## 5. Container-mode data persistence
 
 With `NEO4J_GRAPH_DB_SOURCE=container`, Neo4j data is stored in Docker named volumes. In `localhost` mode, the host installation owns persistence:
+
 - **Volume Name**: `atlas-graph-db-data` (from `${PROJECT_NAME}-graph-db-data`)
 - **Mount Point**: `/data` (inside container)
 - **Backup Location**: `/snapshot` (named-volume mount)
