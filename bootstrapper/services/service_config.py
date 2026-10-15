@@ -775,7 +775,12 @@ class ServiceConfig:
         source_value = self.service_sources.get('HERMES_SOURCE', 'container')
         config = self.get_service_config('hermes', source_value)
 
-        env_vars: Dict[str, str] = {}
+        current_env = self.config_parser.parse_env_file()
+        env_vars: Dict[str, str] = {'HERMES_DASHBOARD_EFFECTIVE': 'false'}
+        # Launch configuration gates the managed dashboard; stale derived values
+        # never override the operator's request or prove gateway runtime health.
+        if source_value == 'container' and self.service_sources.get('KONG_API_GATEWAY_SOURCE', 'container') == 'container':
+            env_vars['HERMES_DASHBOARD_EFFECTIVE'] = current_env.get('HERMES_DASHBOARD_ENABLED') or 'true'
 
         if source_value == 'disabled':
             env_vars['HERMES_ENDPOINT'] = ''
@@ -786,7 +791,6 @@ class ServiceConfig:
             # always be the container's host-bound port, silently
             # stranding any port override — same asymmetric-override class
             # as docling above (feedback_localhost_url_override_symmetry.md).
-            current_env = self.config_parser.parse_env_file()
             hermes_port = current_env.get('HERMES_LOCALHOST_PORT', '8642')
             endpoint = f'http://{self.localhost_host}:{hermes_port}'
             env_vars['HERMES_ENDPOINT'] = endpoint

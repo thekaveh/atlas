@@ -1293,10 +1293,13 @@ class KongConfigGenerator:
         """
         source = self.get_env_value('HERMES_SOURCE')
 
+        if (self.get_env_value('KONG_API_GATEWAY_SOURCE', 'container') or '').strip() != 'container':
+            return None
+
         if source == 'disabled':
             return None
 
-        dashboard_enabled = self.get_env_value('HERMES_DASHBOARD_ENABLED', 'true').lower()
+        dashboard_enabled = (self.get_env_value('HERMES_DASHBOARD_ENABLED', 'true') or 'true').lower()
         if dashboard_enabled not in ('true', '1', 'yes', 'on'):
             return None
 
