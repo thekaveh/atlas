@@ -145,39 +145,19 @@ The worker performs three operations in order. Uploads are copied in chunks to b
 
 The service is intentionally separate from the media gateway. Image-to-3D provider adapters should send raw provider outputs to this worker rather than embed mesh normalization.
 
-## 6. Dependencies & Integrations
+## 6. Capabilities & limitations
 
-### 6.1. Current — Upstream (this service calls)
+<a id="8-capabilities-limitations"></a>
+<a id="8-capabilities--limitations"></a>
 
-| Service | Category |
-|---|---|
-| minio | data |
+Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
-### 6.2. Current — Downstream (services that call this)
-
-| Service | Category |
-|---|---|
-| kong | infra |
-| prometheus | infra |
-
-### 6.3. Architecture diagram
-
-![asset-worker architecture](./architecture.svg)
-
-[Open the full-size diagram](./architecture.html) for a full-screen view.
-
-### 6.4. Future — Missing pair integrations
-
-- Backend media operations should call Asset Worker after hosted image-to-3D providers return raw GLB outputs.
-- Blender and external pipelines should use the API for the same upright/normalize/optimize contract instead of carrying local duplicate scripts.
-
-### 6.5. Future — Candidate new services
-
-_No high-confidence opportunities identified._
-
-### 6.6. Future — Unused features in this service
-
-- A request can set both `draco` and `meshopt`; §4.1 gives the precedence. The response `optimization` block records both requested values, not only the applied one (§4.3).
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Mechanical glTF conditioning | supported | tested | Atlas normalizes scale and grounding and validates GLB input. It applies opt-in glTF-Transform simplification, Meshopt compression by default (opt-in Draco takes precedence), and WebP texture compression. KTX2 needs KTX-Software, which the image does not ship. |
+| Bounded authenticated post-processing API | supported | tested | Upload, MinIO-reference, and artifact routes require the generated bearer token and enforce admission, upload-size, and subprocess-timeout bounds; health and metrics remain public. |
+| Content-addressed optimized artifacts | supported | tested | Optimized GLBs use SHA-256 keys in the scoped MinIO bucket by default, with an explicitly selected local-artifact fallback. |
+| Semantic orientation correction | partial | tested | The default trusts glTF Y-up orientation; callers may request explicit-axis or bounded auto reorientation, but product-specific notions of upright remain consumer policy. |
 
 ## 7. Troubleshooting
 
@@ -189,13 +169,56 @@ _No high-confidence opportunities identified._
 - MinIO upload failure: confirm `MINIO_SOURCE=container`, `ASSET_WORKER_MINIO_BUCKET`, and the generated `MINIO_ASSET_WORKER_*` credentials.
 - Kong alias missing: confirm `ASSET_WORKER_SOURCE=container`, run `./start.sh --setup-hosts`, and regenerate routes through the normal startup flow.
 
-## 8. Capabilities & limitations
+## 8. Dependencies & Integrations
 
-Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+<a id="6-dependencies-integrations"></a>
+<a id="6-dependencies--integrations"></a>
 
-| Capability | Status | Verification | Notes |
-|---|---|---|---|
-| Mechanical glTF conditioning | supported | tested | Atlas normalizes scale and grounding and validates GLB input. It applies opt-in glTF-Transform simplification, Meshopt compression by default (opt-in Draco takes precedence), and WebP texture compression. KTX2 needs KTX-Software, which the image does not ship. |
-| Bounded authenticated post-processing API | supported | tested | Upload, MinIO-reference, and artifact routes require the generated bearer token and enforce admission, upload-size, and subprocess-timeout bounds; health and metrics remain public. |
-| Content-addressed optimized artifacts | supported | tested | Optimized GLBs use SHA-256 keys in the scoped MinIO bucket by default, with an explicitly selected local-artifact fallback. |
-| Semantic orientation correction | partial | tested | The default trusts glTF Y-up orientation; callers may request explicit-axis or bounded auto reorientation, but product-specific notions of upright remain consumer policy. |
+### 8.1. Current — Upstream (this service calls)
+
+<a id="61-current-upstream-this-service-calls"></a>
+<a id="61-current--upstream-this-service-calls"></a>
+
+| Service | Category |
+|---|---|
+| minio | data |
+
+### 8.2. Current — Downstream (services that call this)
+
+<a id="62-current-downstream-services-that-call-this"></a>
+<a id="62-current--downstream-services-that-call-this"></a>
+
+| Service | Category |
+|---|---|
+| kong | infra |
+| prometheus | infra |
+
+### 8.3. Architecture diagram
+
+<a id="63-architecture-diagram"></a>
+
+![asset-worker architecture](./architecture.svg)
+
+[Open the full-size diagram](./architecture.html) for a full-screen view.
+
+### 8.4. Future — Missing pair integrations
+
+<a id="64-future-missing-pair-integrations"></a>
+<a id="64-future--missing-pair-integrations"></a>
+
+- Backend media operations should call Asset Worker after hosted image-to-3D providers return raw GLB outputs.
+- Blender and external pipelines should use the API for the same upright/normalize/optimize contract instead of carrying local duplicate scripts.
+
+### 8.5. Future — Candidate new services
+
+<a id="65-future-candidate-new-services"></a>
+<a id="65-future--candidate-new-services"></a>
+
+_No high-confidence opportunities identified._
+
+### 8.6. Future — Unused features in this service
+
+<a id="66-future-unused-features-in-this-service"></a>
+<a id="66-future--unused-features-in-this-service"></a>
+
+- A request can set both `draco` and `meshopt`; §4.1 gives the precedence. The response `optimization` block records both requested values, not only the applied one (§4.3).

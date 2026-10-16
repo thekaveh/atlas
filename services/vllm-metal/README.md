@@ -155,38 +155,20 @@ subprocesses cannot survive their server.
 - `services/litellm/compose.yml` passes `VLLM_METAL_SOURCE` /
   `VLLM_METAL_ENDPOINT` / `VLLM_METAL_MODEL` to litellm-init.
 
-## 6. Dependencies & Integrations
+## 6. Capabilities & limitations
 
-### 6.1. Current — Upstream (this service calls)
+<a id="8-capabilities-limitations"></a>
+<a id="8-capabilities--limitations"></a>
 
-_No upstream calls._
+Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
-### 6.2. Current — Downstream (services that call this)
-
-| Service | Category |
-|---|---|
-| litellm | llm |
-
-### 6.3. Architecture diagram
-
-![vllm-metal architecture](./architecture.svg)
-
-[Open the full-size diagram](./architecture.html) for a full-screen view.
-
-### 6.4. Future — Missing pair integrations
-
-- **vllm-metal ↔ open-webui** — *Why:* show a per-request model picker and the served model's token and latency stats in the chat UI. Today only LiteLLM's flat `/v1/models` shows the model. *Mechanism:* a small backend passthrough reads vLLM's `/metrics` and exposes it in the Open WebUI admin panel. *Effort:* medium. *Confidence:* medium.
-- **vllm-metal ↔ prometheus** — *Why:* vLLM exports Prometheus metrics (queue depth, KV-cache utilization, throughput) for the Grafana dashboards. Nothing scrapes the host process. *Mechanism:* a host-gateway scrape target for `127.0.0.1:<port>/metrics` when the source is active. *Effort:* medium. *Confidence:* medium.
-
-### 6.5. Future — Candidate new services
-
-- **MLX-LM server** — *Headline:* Apple's first-party MLX inference server is another Apple-silicon-native OpenAI-compatible option. If `vllm-metal` upstream stalls, an MLX-LM managed source can use the same virtual-manifest and LiteLLM-registration pattern with no consumer changes. *Status:* not assessed; revisit if the `vllm-metal` plugin's releases lag vLLM core.
-
-### 6.6. Future — Unused features in this service
-
-- **Quantized (AWQ/GPTQ/FP8) weights** — *Why pursue:* they would cut memory pressure on 16 GB Macs. The MLX/Metal backend does not yet load them cleanly (the preflight warns). Revisit when `vllm-metal` adds MLX-quant support. *Effort:* small (flip the preflight once upstream supports it).
-- **Multi-model serving / LoRA adapters** — *Why pursue:* vLLM can host several models or hot-swappable LoRAs; Atlas pins a single `VLLM_METAL_MODEL`. A managed multi-model mode would let one host process back several LiteLLM aliases. *Effort:* medium.
-- **Speculative decoding / prefix caching flags** — *Why pursue:* the managed launcher does not set these vLLM throughput knobs. Env settings for them would let operators tune the host process. *Effort:* small.
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Managed Apple-Silicon model serving | partial | tested | Atlas fails non-macOS/non-arm64 hosts, a missing Python interpreter, and a detected non-3.12 interpreter; an unreadable Python version warns and does not block install or start. Memory below or unreadable against VLLM_METAL_MIN_MEMORY_GB also warns or skips, does not block lifecycle, and does not certify model fit or prevent OOM. |
+| Checksum-verified host runtime | supported | tested | The manager verifies the paired vLLM core archive and vllm-metal wheel, rejects unverified version overrides, and reconciles stale managed environments. |
+| LiteLLM-only consumer registration | supported | tested | The selected model appears as an authenticated LiteLLM alias while the upstream stays on a loopback host port with no Kong route or stack port. |
+| Single-model host lifecycle | partial | tested | One host-global process serves the model it was started with. Changing VLLM_METAL_MODEL does not restart or reconcile an already-running process, so stop it before restarting Atlas. Otherwise LiteLLM may advertise the new alias against the old model. Multi-model serving, LoRA adapters, project-scoped teardown and automatic quantized-weight support are unavailable. |
+| Direct upstream authentication | not-supported | tested | The loopback vLLM server has no API key and LiteLLM uses a no-auth placeholder upstream; do not bind or proxy the managed port beyond loopback. |
 
 ## 7. Troubleshooting
 
@@ -222,14 +204,55 @@ Confirm that the pid is the old vLLM host. Then run the `kill -TERM <pid>` and
 OS recycled the pid after the recorded process exited. The record is stale; the
 next start replaces it and never signals that process.
 
-## 8. Capabilities & limitations
+## 8. Dependencies & Integrations
 
-Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+<a id="6-dependencies-integrations"></a>
+<a id="6-dependencies--integrations"></a>
 
-| Capability | Status | Verification | Notes |
-|---|---|---|---|
-| Managed Apple-Silicon model serving | partial | tested | Atlas fails non-macOS/non-arm64 hosts, a missing Python interpreter, and a detected non-3.12 interpreter; an unreadable Python version warns and does not block install or start. Memory below or unreadable against VLLM_METAL_MIN_MEMORY_GB also warns or skips, does not block lifecycle, and does not certify model fit or prevent OOM. |
-| Checksum-verified host runtime | supported | tested | The manager verifies the paired vLLM core archive and vllm-metal wheel, rejects unverified version overrides, and reconciles stale managed environments. |
-| LiteLLM-only consumer registration | supported | tested | The selected model appears as an authenticated LiteLLM alias while the upstream stays on a loopback host port with no Kong route or stack port. |
-| Single-model host lifecycle | partial | tested | One host-global process serves the model it was started with. Changing VLLM_METAL_MODEL does not restart or reconcile an already-running process, so stop it before restarting Atlas. Otherwise LiteLLM may advertise the new alias against the old model. Multi-model serving, LoRA adapters, project-scoped teardown and automatic quantized-weight support are unavailable. |
-| Direct upstream authentication | not-supported | tested | The loopback vLLM server has no API key and LiteLLM uses a no-auth placeholder upstream; do not bind or proxy the managed port beyond loopback. |
+### 8.1. Current — Upstream (this service calls)
+
+<a id="61-current-upstream-this-service-calls"></a>
+<a id="61-current--upstream-this-service-calls"></a>
+
+_No upstream calls._
+
+### 8.2. Current — Downstream (services that call this)
+
+<a id="62-current-downstream-services-that-call-this"></a>
+<a id="62-current--downstream-services-that-call-this"></a>
+
+| Service | Category |
+|---|---|
+| litellm | llm |
+
+### 8.3. Architecture diagram
+
+<a id="63-architecture-diagram"></a>
+
+![vllm-metal architecture](./architecture.svg)
+
+[Open the full-size diagram](./architecture.html) for a full-screen view.
+
+### 8.4. Future — Missing pair integrations
+
+<a id="64-future-missing-pair-integrations"></a>
+<a id="64-future--missing-pair-integrations"></a>
+
+- **vllm-metal ↔ open-webui** — *Why:* show a per-request model picker and the served model's token and latency stats in the chat UI. Today only LiteLLM's flat `/v1/models` shows the model. *Mechanism:* a small backend passthrough reads vLLM's `/metrics` and exposes it in the Open WebUI admin panel. *Effort:* medium. *Confidence:* medium.
+- **vllm-metal ↔ prometheus** — *Why:* vLLM exports Prometheus metrics (queue depth, KV-cache utilization, throughput) for the Grafana dashboards. Nothing scrapes the host process. *Mechanism:* a host-gateway scrape target for `127.0.0.1:<port>/metrics` when the source is active. *Effort:* medium. *Confidence:* medium.
+
+### 8.5. Future — Candidate new services
+
+<a id="65-future-candidate-new-services"></a>
+<a id="65-future--candidate-new-services"></a>
+
+- **MLX-LM server** — *Headline:* Apple's first-party MLX inference server is another Apple-silicon-native OpenAI-compatible option. If `vllm-metal` upstream stalls, an MLX-LM managed source can use the same virtual-manifest and LiteLLM-registration pattern with no consumer changes. *Status:* not assessed; revisit if the `vllm-metal` plugin's releases lag vLLM core.
+
+### 8.6. Future — Unused features in this service
+
+<a id="66-future-unused-features-in-this-service"></a>
+<a id="66-future--unused-features-in-this-service"></a>
+
+- **Quantized (AWQ/GPTQ/FP8) weights** — *Why pursue:* they would cut memory pressure on 16 GB Macs. The MLX/Metal backend does not yet load them cleanly (the preflight warns). Revisit when `vllm-metal` adds MLX-quant support. *Effort:* small (flip the preflight once upstream supports it).
+- **Multi-model serving / LoRA adapters** — *Why pursue:* vLLM can host several models or hot-swappable LoRAs; Atlas pins a single `VLLM_METAL_MODEL`. A managed multi-model mode would let one host process back several LiteLLM aliases. *Effort:* medium.
+- **Speculative decoding / prefix caching flags** — *Why pursue:* the managed launcher does not set these vLLM throughput knobs. Env settings for them would let operators tune the host process. *Effort:* small.

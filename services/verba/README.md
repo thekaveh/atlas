@@ -40,38 +40,21 @@ Docling is optional: use it to pre-process PDFs and Office files. Atlas has no a
 
 Open WebUI is the primary Atlas chat surface. Verba is a reference RAG UI for inspecting Weaviate and LiteLLM behaviour.
 
-## 5. Dependencies & Integrations
+## 5. Capabilities & limitations
 
-### 5.1. Current — Upstream (this service calls)
+<a id="8-capabilities-limitations"></a>
+<a id="8-capabilities--limitations"></a>
 
-| Service | Category |
-|---|---|
-| weaviate | data |
-| litellm | llm |
+Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
-### 5.2. Current — Downstream (services that call this)
-
-| Service | Category |
-|---|---|
-| kong | infra |
-
-### 5.3. Architecture diagram
-
-![verba architecture](./architecture.svg)
-
-[Open the full-size diagram](./architecture.html) for a full-screen view.
-
-### 5.4. Future — Missing pair integrations
-
-_No high-confidence opportunities identified._
-
-### 5.5. Future — Candidate new services
-
-_No high-confidence opportunities identified._
-
-### 5.6. Future — Unused features in this service
-
-_No high-confidence opportunities identified._
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Reference Weaviate RAG workflow | partial | tested | Atlas wires the archived Verba UI to Weaviate and LiteLLM for isolated sample ingest and query. Atlas does not treat it as the primary maintained chat or RAG runtime. |
+| Verba-managed data isolation | partial | documented | Operators are directed to Verba-owned Weaviate classes, but Atlas cannot enforce namespace separation if users manually target shared classes or cleanup operations. |
+| Verba ingress authentication | partial | tested | verba.localhost is protected by Kong dashboard Basic Auth and ACL, while the host-published direct UI/API is ungated and intended only for local development. |
+| Docling preprocessing integration | not-supported | documented | Docling is only a manual companion workflow because Atlas does not rely on an unsupported external Verba ingestion API. |
+| Maintained secure production runtime | not-supported | documented | Upstream Verba is archived and receives no security fixes; Atlas keeps the digest-pinned reference UI disabled by default and does not certify it for production. |
+| RAG service high availability | not-supported | documented | Atlas runs one Verba replica with a local data volume and configures no application failover, backup workflow, or horizontally shared UI state. |
 
 ## 6. Sample Ingest/Query
 
@@ -93,15 +76,55 @@ For better document extraction, convert the file with Docling first, then paste 
 | Model list is empty | LiteLLM has no usable model configured | Check that `LITELLM_DEFAULT_MODEL` names a model LiteLLM serves, or set `VERBA_OPENAI_MODEL`. |
 | Imported data collides with other RAG demos | Reusing Verba classes manually | Treat Verba classes as namespaced/internal and keep other Atlas RAG collections separate. |
 
-## 8. Capabilities & limitations
+## 8. Dependencies & Integrations
 
-Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+<a id="5-dependencies-integrations"></a>
+<a id="5-dependencies--integrations"></a>
 
-| Capability | Status | Verification | Notes |
-|---|---|---|---|
-| Reference Weaviate RAG workflow | partial | tested | Atlas wires the archived Verba UI to Weaviate and LiteLLM for isolated sample ingest and query. Atlas does not treat it as the primary maintained chat or RAG runtime. |
-| Verba-managed data isolation | partial | documented | Operators are directed to Verba-owned Weaviate classes, but Atlas cannot enforce namespace separation if users manually target shared classes or cleanup operations. |
-| Verba ingress authentication | partial | tested | verba.localhost is protected by Kong dashboard Basic Auth and ACL, while the host-published direct UI/API is ungated and intended only for local development. |
-| Docling preprocessing integration | not-supported | documented | Docling is only a manual companion workflow because Atlas does not rely on an unsupported external Verba ingestion API. |
-| Maintained secure production runtime | not-supported | documented | Upstream Verba is archived and receives no security fixes; Atlas keeps the digest-pinned reference UI disabled by default and does not certify it for production. |
-| RAG service high availability | not-supported | documented | Atlas runs one Verba replica with a local data volume and configures no application failover, backup workflow, or horizontally shared UI state. |
+### 8.1. Current — Upstream (this service calls)
+
+<a id="51-current-upstream-this-service-calls"></a>
+<a id="51-current--upstream-this-service-calls"></a>
+
+| Service | Category |
+|---|---|
+| weaviate | data |
+| litellm | llm |
+
+### 8.2. Current — Downstream (services that call this)
+
+<a id="52-current-downstream-services-that-call-this"></a>
+<a id="52-current--downstream-services-that-call-this"></a>
+
+| Service | Category |
+|---|---|
+| kong | infra |
+
+### 8.3. Architecture diagram
+
+<a id="53-architecture-diagram"></a>
+
+![verba architecture](./architecture.svg)
+
+[Open the full-size diagram](./architecture.html) for a full-screen view.
+
+### 8.4. Future — Missing pair integrations
+
+<a id="54-future-missing-pair-integrations"></a>
+<a id="54-future--missing-pair-integrations"></a>
+
+_No high-confidence opportunities identified._
+
+### 8.5. Future — Candidate new services
+
+<a id="55-future-candidate-new-services"></a>
+<a id="55-future--candidate-new-services"></a>
+
+_No high-confidence opportunities identified._
+
+### 8.6. Future — Unused features in this service
+
+<a id="56-future-unused-features-in-this-service"></a>
+<a id="56-future--unused-features-in-this-service"></a>
+
+_No high-confidence opportunities identified._

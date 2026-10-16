@@ -64,36 +64,19 @@ Atlas models Blender MCP as a virtual media service:
 - Headless mechanism (`managed-localhost`, verified live on Blender 4.3.2): the stock add-on runs commands on Blender's main thread via `bpy.app.timers.register`. Those timers fire only when the GUI event loop pumps them, so upstream guards against `--background`. Atlas's generated launcher shims timer registration into a queue drained by its own main-thread loop: same main-thread execution contract, no GUI, no add-on patching. Caveat: `get_viewport_screenshot` has no viewport headless and will error; scene/object/code commands work fully.
 - Volumes and secrets: none by default. Asset-provider credentials such as Sketchfab, Poly Haven, Hyper3D, or Hunyuan-style keys remain host-side user configuration until Atlas adopts a dedicated integration.
 
-## 5. Dependencies & Integrations
+## 5. Capabilities & limitations
 
-### 5.1. Current — Upstream (this service calls)
+<a id="9-capabilities-limitations"></a>
+<a id="9-capabilities--limitations"></a>
 
-_No upstream calls._
+Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
-### 5.2. Current — Downstream (services that call this)
-
-_No downstream consumers._
-
-### 5.3. Architecture diagram
-
-![blender-mcp architecture](./architecture.svg)
-
-[Open the full-size diagram](./architecture.html) for a full-screen view.
-
-### 5.4. Future — Missing pair integrations
-
-- Optional MCP-client registration for Open WebUI or Hermes once Atlas has a policy for host-side code-execution tools.
-- Optional asset export path from ComfyUI-generated concepts to Blender scene construction, with explicit human approval before code execution.
-
-### 5.5. Future — Candidate new services
-
-- A drivable, in-network **`container` source** (headed-but-virtual Blender via Xvfb/EGL) for the agentic composition stage — under evaluation, gated behind a validation spike and go/no-go thresholds. See the [container-source evaluation](https://github.com/thekaveh/atlas/blob/main/docs/strategy/blender-mcp-container-source-evaluation.md). Until that spike passes, this service stays `localhost | managed-localhost | disabled`.
-- Asset validation queue that runs glTF-Transform checks on generated GLB files before publication.
-
-### 5.6. Future — Unused features in this service
-
-- Remote Blender MCP access is intentionally out of scope for this profile.
-- Asset-provider credentials are not projected into Atlas services yet.
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Host-only Blender MCP bridge | supported | documented | Atlas configures user-run GUI and managed headless host sources; it does not run Blender in a container. |
+| Managed headless scene control | partial | tested | Scene inspection and generated-code commands work through the managed bridge, but GUI-dependent operations are unavailable. |
+| Managed-bridge loopback guard for arbitrary Python execution | partial | tested | Atlas refuses non-loopback binds for managed-localhost without an explicit override; the user-run localhost GUI source remains operator-controlled. |
+| Viewport screenshots in managed headless mode | not-supported | documented | Headless Blender has no VIEW_3D context, so use the user-run GUI source when viewport screenshots are required. |
 
 ## 6. Security & Guardrails
 
@@ -130,13 +113,53 @@ Use this as a postprocess step for exported Blender assets, ComfyUI-assisted 3D 
 - If the managed source warns that its pid file "has no start_utc identity stamp", an older Atlas version wrote it. Atlas does not signal a process it cannot prove it launched. It leaves that Blender running and starts the rest of the stack. Confirm the pid is that Blender. Then run the `kill -TERM <pid>` and `rm -f <pid file>` commands from the warning, and re-run `./start.sh`.
 - If `./start.sh doctor` warns that the pid file names a pid that "now belongs to a different, younger process", the OS recycled the pid. The record is stale; the next start replaces it and never signals that process.
 
-## 9. Capabilities & limitations
+## 9. Dependencies & Integrations
 
-Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+<a id="5-dependencies-integrations"></a>
+<a id="5-dependencies--integrations"></a>
 
-| Capability | Status | Verification | Notes |
-|---|---|---|---|
-| Host-only Blender MCP bridge | supported | documented | Atlas configures user-run GUI and managed headless host sources; it does not run Blender in a container. |
-| Managed headless scene control | partial | tested | Scene inspection and generated-code commands work through the managed bridge, but GUI-dependent operations are unavailable. |
-| Managed-bridge loopback guard for arbitrary Python execution | partial | tested | Atlas refuses non-loopback binds for managed-localhost without an explicit override; the user-run localhost GUI source remains operator-controlled. |
-| Viewport screenshots in managed headless mode | not-supported | documented | Headless Blender has no VIEW_3D context, so use the user-run GUI source when viewport screenshots are required. |
+### 9.1. Current — Upstream (this service calls)
+
+<a id="51-current-upstream-this-service-calls"></a>
+<a id="51-current--upstream-this-service-calls"></a>
+
+_No upstream calls._
+
+### 9.2. Current — Downstream (services that call this)
+
+<a id="52-current-downstream-services-that-call-this"></a>
+<a id="52-current--downstream-services-that-call-this"></a>
+
+_No downstream consumers._
+
+### 9.3. Architecture diagram
+
+<a id="53-architecture-diagram"></a>
+
+![blender-mcp architecture](./architecture.svg)
+
+[Open the full-size diagram](./architecture.html) for a full-screen view.
+
+### 9.4. Future — Missing pair integrations
+
+<a id="54-future-missing-pair-integrations"></a>
+<a id="54-future--missing-pair-integrations"></a>
+
+- Optional MCP-client registration for Open WebUI or Hermes once Atlas has a policy for host-side code-execution tools.
+- Optional asset export path from ComfyUI-generated concepts to Blender scene construction, with explicit human approval before code execution.
+
+### 9.5. Future — Candidate new services
+
+<a id="55-future-candidate-new-services"></a>
+<a id="55-future--candidate-new-services"></a>
+
+- A drivable, in-network **`container` source** (headed-but-virtual Blender via Xvfb/EGL) for the agentic composition stage — under evaluation, gated behind a validation spike and go/no-go thresholds. See the [container-source evaluation](https://github.com/thekaveh/atlas/blob/main/docs/strategy/blender-mcp-container-source-evaluation.md). Until that spike passes, this service stays `localhost | managed-localhost | disabled`.
+- Asset validation queue that runs glTF-Transform checks on generated GLB files before publication.
+
+### 9.6. Future — Unused features in this service
+
+<a id="56-future-unused-features-in-this-service"></a>
+<a id="56-future--unused-features-in-this-service"></a>
+
+- Remote Blender MCP access is intentionally out of scope for this profile.
+- Asset-provider credentials are not projected into Atlas services yet.

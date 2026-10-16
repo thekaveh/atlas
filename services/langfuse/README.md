@@ -64,40 +64,18 @@ The exception is LightRAG's **per-role binding overrides**. `LIGHTRAG_EXTRACT_LL
 
 Direct ComfyUI traces, Hermes custom spans, backend custom spans, n8n step spans, and OpenTelemetry fan-out are out of scope. LiteLLM's OTel export (its `otel` callback, enabled with `ATLAS_OTEL_ENABLED`) is independent of the Langfuse callback.
 
-## 5. Dependencies & Integrations
+## 5. Capabilities & limitations
 
-### 5.1. Current — Upstream (this service calls)
+<a id="7-capabilities-limitations"></a>
+<a id="7-capabilities--limitations"></a>
 
-| Service | Category |
-|---|---|
-| minio | data |
-| redis | data |
-| supabase | data |
+Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
-### 5.2. Current — Downstream (services that call this)
-
-| Service | Category |
-|---|---|
-| kong | infra |
-| litellm | llm |
-
-### 5.3. Architecture diagram
-
-![langfuse architecture](./architecture.svg)
-
-[Open the full-size diagram](./architecture.html) for a full-screen view.
-
-### 5.4. Future — Missing pair integrations
-
-_No high-confidence opportunities identified._
-
-### 5.5. Future — Candidate new services
-
-_No high-confidence opportunities identified._
-
-### 5.6. Future — Unused features in this service
-
-_No high-confidence opportunities identified._
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Self-hosted LLM observability stack | supported | tested | Atlas configures the Langfuse web, worker, ClickHouse, Postgres, Redis, and MinIO dependencies as one optional self-hosted deployment. |
+| Automatic LiteLLM trace capture | partial | tested | LiteLLM success callbacks emit traces when Langfuse is enabled, but calls that bypass LiteLLM or use native provider bindings are not captured automatically. |
+| Highly available Langfuse deployment | not-supported | documented | The stock topology is a local low-scale deployment without replicated Langfuse, ClickHouse, or supporting data-store services. |
 
 ## 6. Troubleshooting
 
@@ -114,12 +92,57 @@ _No high-confidence opportunities identified._
 - **Rollback to direct LiteLLM behavior:** for a rollback, set `LANGFUSE_SOURCE=disabled` and rerun `./start.sh`. The Langfuse containers scale to zero, Kong stops routing `langfuse.localhost`, and LiteLLM no longer emits the Langfuse `success_callback` / `failure_callback`.
 - **ClickHouse timezone or empty queries:** keep ClickHouse and Postgres on UTC. The compose fragment sets ClickHouse `TZ=UTC`.
 
-## 7. Capabilities & limitations
+## 7. Dependencies & Integrations
 
-Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+<a id="5-dependencies-integrations"></a>
+<a id="5-dependencies--integrations"></a>
 
-| Capability | Status | Verification | Notes |
-|---|---|---|---|
-| Self-hosted LLM observability stack | supported | tested | Atlas configures the Langfuse web, worker, ClickHouse, Postgres, Redis, and MinIO dependencies as one optional self-hosted deployment. |
-| Automatic LiteLLM trace capture | partial | tested | LiteLLM success callbacks emit traces when Langfuse is enabled, but calls that bypass LiteLLM or use native provider bindings are not captured automatically. |
-| Highly available Langfuse deployment | not-supported | documented | The stock topology is a local low-scale deployment without replicated Langfuse, ClickHouse, or supporting data-store services. |
+### 7.1. Current — Upstream (this service calls)
+
+<a id="51-current-upstream-this-service-calls"></a>
+<a id="51-current--upstream-this-service-calls"></a>
+
+| Service | Category |
+|---|---|
+| minio | data |
+| redis | data |
+| supabase | data |
+
+### 7.2. Current — Downstream (services that call this)
+
+<a id="52-current-downstream-services-that-call-this"></a>
+<a id="52-current--downstream-services-that-call-this"></a>
+
+| Service | Category |
+|---|---|
+| kong | infra |
+| litellm | llm |
+
+### 7.3. Architecture diagram
+
+<a id="53-architecture-diagram"></a>
+
+![langfuse architecture](./architecture.svg)
+
+[Open the full-size diagram](./architecture.html) for a full-screen view.
+
+### 7.4. Future — Missing pair integrations
+
+<a id="54-future-missing-pair-integrations"></a>
+<a id="54-future--missing-pair-integrations"></a>
+
+_No high-confidence opportunities identified._
+
+### 7.5. Future — Candidate new services
+
+<a id="55-future-candidate-new-services"></a>
+<a id="55-future--candidate-new-services"></a>
+
+_No high-confidence opportunities identified._
+
+### 7.6. Future — Unused features in this service
+
+<a id="56-future-unused-features-in-this-service"></a>
+<a id="56-future--unused-features-in-this-service"></a>
+
+_No high-confidence opportunities identified._

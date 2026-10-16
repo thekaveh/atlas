@@ -65,57 +65,23 @@ The backup service owns backup and restore. `services/backup/run-consistent-back
 
 ## 4. Integration notes
 
-Consumers are listed in §5.2. Open WebUI is not wired to Weaviate.
+Consumers are listed in §7.2. Open WebUI is not wired to Weaviate.
 
 Optional consumers should read `WEAVIATE_URL` and check readiness at the feature level instead of declaring a hard Compose dependency. JupyterHub, the Backend and n8n still start when Weaviate is disabled or host-run.
 
-## 5. Dependencies & Integrations
+## 5. Capabilities & limitations
 
-### 5.1. Current — Upstream (this service calls)
+<a id="7-capabilities-limitations"></a>
+<a id="7-capabilities--limitations"></a>
 
-| Service | Category | Status |
-|---|---|---|
-| multi2vec-clip | data | current |
-| litellm | llm | optional: only collections whose text2vec-openai baseURL is LiteLLM, as the backend's are |
+Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
-### 5.2. Current — Downstream (services that call this)
-
-| Service | Category | Status |
-|---|---|---|
-| backup | infra | current |
-| kong | infra | current |
-| prometheus | infra | current |
-| airflow | agents | optional: an operator-authored DAG; airflow-init only seeds the Connection |
-| celery | agents | current |
-| n8n | agents | current |
-| backend | apps | current |
-| jupyterhub | apps | current |
-| verba | apps | current |
-
-### 5.3. Architecture diagram
-
-![weaviate architecture](./architecture.svg)
-
-[Open the full-size diagram](./architecture.html) for a full-screen view.
-
-### 5.4. Future — Missing pair integrations
-
-- **weaviate ↔ doc-processor** — The [Backend ingestion engine](../backend/README.md) already supports Docling extraction, shared chunking, LiteLLM embeddings and explicit-vector Weaviate writes (`vectorizer=none`). Use `POST /api/rag/ingestions` with a [consumer profile](../../docs/reference/consumer-manifest.md#11-rag_ingestion_profiles) for that path. *Remaining:* ship an n8n example for a `Document` collection vectorized by `text2vec-openai` through LiteLLM. *Mechanism:* read Docling JSON, chunk it, then `POST /v1/batch/objects`. *Effort:* medium. *Confidence:* high.
-- **weaviate ↔ n8n** — *Why:* n8n already receives `WEAVIATE_URL`. No shipped example workflow uses n8n's Weaviate node to ingest webhook payloads, search, and feed retrieval into the AI Agent nodes. *Mechanism:* seed an example workflow driving the n8n Weaviate node → `http://weaviate:8080` (REST) or gRPC on `:50051`. *Effort:* small. *Confidence:* high.
-- **weaviate ↔ hermes** — *Why:* Hermes has no long-term memory or retrieval tool. A Weaviate-backed memory skill lets Hermes recall past sessions, store tool outputs, and do semantic lookup over user docs. *Mechanism:* Hermes custom skill posts/queries via the Weaviate Python client to `http://weaviate:8080` with hybrid search; collection seeded by `weaviate-init`. *Effort:* medium. *Confidence:* medium.
-- **weaviate ↔ comfyui** — *Why:* ComfyUI generates images but they're write-only artifacts on disk. CLIP-vectorizing them into Weaviate enables similarity search over the user's own generation history ("more like this"). *Mechanism:* ComfyUI custom node or n8n post-execution hook → `POST /v1/objects` to a `Generation` collection vectorized by `multi2vec-clip` (already enabled). *Effort:* medium. *Confidence:* medium.
-
-### 5.5. Future — Candidate new services
-
-_No high-confidence opportunities identified._
-
-### 5.6. Future — Unused features in this service
-
-- **`backup-s3` module** — *Why pursue:* the current single-node filesystem module is exported by the backup runner; direct S3 backup would support a future multi-node Weaviate deployment. *Effort:* small.
-- **Named vectors (`vectorConfig` array)** — *Why pursue:* one collection could carry both a text2vec-openai vector and a multi2vec-clip vector, for hybrid text+image search without two collections. *Effort:* medium.
-- **Reranker modules (`reranker-transformers` or `reranker-cohere`)** — *Why pursue:* cheap quality lift on RAG queries; the transformers variant runs in-cluster with no extra API costs. *Effort:* medium.
-- **Multi-tenancy (per-collection tenant shards)** — *Why pursue:* backend/n8n/Hermes could share one Weaviate cluster with per-user isolation instead of single-tenant anonymous access. *Effort:* medium.
-- **Generative modules beyond OpenAI/Ollama** — *Why pursue:* LiteLLM already fronts Anthropic/Cohere; matching Weaviate's generative module list (`generative-anthropic`, `generative-cohere`) widens GraphQL-side RAG options. *Effort:* small.
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Persistent semantic vector storage | supported | tested | Atlas configures persistent Weaviate REST and gRPC storage. It wires backend consumers through container or operator-run localhost sources. Backend memory vectorizes through the in-network LiteLLM, so a localhost Weaviate leaves memory on pgvector. |
+| LiteLLM and CLIP vectorization | partial | tested | Text vectorization routes through LiteLLM and optional CLIP supports multimodal embeddings, but enabling SigLIP changes dimensions and requires collection revectorization. |
+| Authenticated multi-tenant isolation | not-supported | documented | The stock container enables anonymous access and Atlas does not provision tenant boundaries or per-consumer authorization policies. |
+| Automated vector database backups | supported | tested | Atlas enables Weaviate's native filesystem backup provider and the backup runner creates, polls, verifies, exports, and restores completed snapshots without archiving the live data volume. Scheduling and retention remain operator-owned. |
 
 ## 6. Troubleshooting
 
@@ -135,13 +101,70 @@ curl -fsS http://localhost:${WEAVIATE_PORT}/v1/.well-known/ready
 
 For general startup and routing issues, see [Troubleshooting](../../docs/quick-start/troubleshooting.md).
 
-## 7. Capabilities & limitations
+## 7. Dependencies & Integrations
 
-Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+<a id="5-dependencies-integrations"></a>
+<a id="5-dependencies--integrations"></a>
 
-| Capability | Status | Verification | Notes |
-|---|---|---|---|
-| Persistent semantic vector storage | supported | tested | Atlas configures persistent Weaviate REST and gRPC storage. It wires backend consumers through container or operator-run localhost sources. Backend memory vectorizes through the in-network LiteLLM, so a localhost Weaviate leaves memory on pgvector. |
-| LiteLLM and CLIP vectorization | partial | tested | Text vectorization routes through LiteLLM and optional CLIP supports multimodal embeddings, but enabling SigLIP changes dimensions and requires collection revectorization. |
-| Authenticated multi-tenant isolation | not-supported | documented | The stock container enables anonymous access and Atlas does not provision tenant boundaries or per-consumer authorization policies. |
-| Automated vector database backups | supported | tested | Atlas enables Weaviate's native filesystem backup provider and the backup runner creates, polls, verifies, exports, and restores completed snapshots without archiving the live data volume. Scheduling and retention remain operator-owned. |
+### 7.1. Current — Upstream (this service calls)
+
+<a id="51-current-upstream-this-service-calls"></a>
+<a id="51-current--upstream-this-service-calls"></a>
+
+| Service | Category | Status |
+|---|---|---|
+| multi2vec-clip | data | current |
+| litellm | llm | optional: only collections whose text2vec-openai baseURL is LiteLLM, as the backend's are |
+
+### 7.2. Current — Downstream (services that call this)
+
+<a id="52-current-downstream-services-that-call-this"></a>
+<a id="52-current--downstream-services-that-call-this"></a>
+
+| Service | Category | Status |
+|---|---|---|
+| backup | infra | current |
+| kong | infra | current |
+| prometheus | infra | current |
+| airflow | agents | optional: an operator-authored DAG; airflow-init only seeds the Connection |
+| celery | agents | current |
+| n8n | agents | current |
+| backend | apps | current |
+| jupyterhub | apps | current |
+| verba | apps | current |
+
+### 7.3. Architecture diagram
+
+<a id="53-architecture-diagram"></a>
+
+![weaviate architecture](./architecture.svg)
+
+[Open the full-size diagram](./architecture.html) for a full-screen view.
+
+### 7.4. Future — Missing pair integrations
+
+<a id="54-future-missing-pair-integrations"></a>
+<a id="54-future--missing-pair-integrations"></a>
+
+- **weaviate ↔ doc-processor** — The [Backend ingestion engine](../backend/README.md) already supports Docling extraction, shared chunking, LiteLLM embeddings and explicit-vector Weaviate writes (`vectorizer=none`). Use `POST /api/rag/ingestions` with a [consumer profile](../../docs/reference/consumer-manifest.md#11-rag_ingestion_profiles) for that path. *Remaining:* ship an n8n example for a `Document` collection vectorized by `text2vec-openai` through LiteLLM. *Mechanism:* read Docling JSON, chunk it, then `POST /v1/batch/objects`. *Effort:* medium. *Confidence:* high.
+- **weaviate ↔ n8n** — *Why:* n8n already receives `WEAVIATE_URL`. No shipped example workflow uses n8n's Weaviate node to ingest webhook payloads, search, and feed retrieval into the AI Agent nodes. *Mechanism:* seed an example workflow driving the n8n Weaviate node → `http://weaviate:8080` (REST) or gRPC on `:50051`. *Effort:* small. *Confidence:* high.
+- **weaviate ↔ hermes** — *Why:* Hermes has no long-term memory or retrieval tool. A Weaviate-backed memory skill lets Hermes recall past sessions, store tool outputs, and do semantic lookup over user docs. *Mechanism:* Hermes custom skill posts/queries via the Weaviate Python client to `http://weaviate:8080` with hybrid search; collection seeded by `weaviate-init`. *Effort:* medium. *Confidence:* medium.
+- **weaviate ↔ comfyui** — *Why:* ComfyUI generates images but they're write-only artifacts on disk. CLIP-vectorizing them into Weaviate enables similarity search over the user's own generation history ("more like this"). *Mechanism:* ComfyUI custom node or n8n post-execution hook → `POST /v1/objects` to a `Generation` collection vectorized by `multi2vec-clip` (already enabled). *Effort:* medium. *Confidence:* medium.
+
+### 7.5. Future — Candidate new services
+
+<a id="55-future-candidate-new-services"></a>
+<a id="55-future--candidate-new-services"></a>
+
+_No high-confidence opportunities identified._
+
+### 7.6. Future — Unused features in this service
+
+<a id="56-future-unused-features-in-this-service"></a>
+<a id="56-future--unused-features-in-this-service"></a>
+
+- **`backup-s3` module** — *Why pursue:* the current single-node filesystem module is exported by the backup runner; direct S3 backup would support a future multi-node Weaviate deployment. *Effort:* small.
+- **Named vectors (`vectorConfig` array)** — *Why pursue:* one collection could carry both a text2vec-openai vector and a multi2vec-clip vector, for hybrid text+image search without two collections. *Effort:* medium.
+- **Reranker modules (`reranker-transformers` or `reranker-cohere`)** — *Why pursue:* cheap quality lift on RAG queries; the transformers variant runs in-cluster with no extra API costs. *Effort:* medium.
+- **Multi-tenancy (per-collection tenant shards)** — *Why pursue:* backend/n8n/Hermes could share one Weaviate cluster with per-user isolation instead of single-tenant anonymous access. *Effort:* medium.
+- **Generative modules beyond OpenAI/Ollama** — *Why pursue:* LiteLLM already fronts Anthropic/Cohere; matching Weaviate's generative module list (`generative-anthropic`, `generative-cohere`) widens GraphQL-side RAG options. *Effort:* small.

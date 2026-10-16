@@ -19,7 +19,7 @@ Image: `ghcr.io/ai-dock/comfyui:v2-cpu-22.04-v0.2.7` (CPU default). `COMFYUI_REF
 
 **`container-gpu` is not GPU-accelerated.** `COMFYUI_IMAGE` stays the CPU image (which forces `--cpu`), and the fragment reserves no NVIDIA device. So `container-gpu` behaves like `container-cpu`, also when `COMFYUI_SOURCE=auto` selects it on NVIDIA hosts. A CUDA ai-dock image alone does not help without a GPU reservation.
 
-Generated images go to the `comfyui-output` volume, and the `/view` endpoint serves them. `COMFYUI_UPLOAD_TO_SUPABASE=true` and `COMFYUI_STORAGE_BUCKET=comfyui-images` are **reserved but inert**. No component in the stock ai-dock image, Atlas provisioning or the backend reads them, so outputs are *not* uploaded to Supabase (§5.4). The `comfyui-custom-nodes` volume holds the allowlisted community nodes from `services/comfyui/custom-nodes.yaml`.
+Generated images go to the `comfyui-output` volume, and the `/view` endpoint serves them. `COMFYUI_UPLOAD_TO_SUPABASE=true` and `COMFYUI_STORAGE_BUCKET=comfyui-images` are **reserved but inert**. No component in the stock ai-dock image, Atlas provisioning or the backend reads them, so outputs are *not* uploaded to Supabase (§12.4). The `comfyui-custom-nodes` volume holds the allowlisted community nodes from `services/comfyui/custom-nodes.yaml`.
 
 ## 2. Access
 
@@ -87,50 +87,25 @@ Selected models and nodes are required for readiness, whether or not they have a
 
 Each provisioner publishes `provisioning`, `ready` or `failed` for its exact plan into its volume. The healthcheck passes only on a matching `ready` and then probes `/system_stats`. A failed required model makes `comfyui-init` exit nonzero; optional failures only warn. Re-running `./start.sh` retries failed work and reuses verified files. The manifest and TSV formats are documented in the `comfyui_resolver` module and `services/comfyui/provisioning/provision_custom_nodes.sh`.
 
-**Hard dependencies** (`depends_on.required`): `supabase`, `litellm`, `ollama`. Compose gates `comfyui` on `supabase-db-init` and `comfyui-init`, and `comfyui-init` on `ollama-pull`. ComfyUI does not call LiteLLM; `litellm` is listed only for canonical wizard row ordering. The `supabase-storage` dependency is reserved for an output-upload path that is inert (§5.4). ComfyUI's only `runtime_adaptive` entry is `adapts_to: comfyui`.
+**Hard dependencies** (`depends_on.required`): `supabase`, `litellm`, `ollama`. Compose gates `comfyui` on `supabase-db-init` and `comfyui-init`, and `comfyui-init` on `ollama-pull`. ComfyUI does not call LiteLLM; `litellm` is listed only for canonical wizard row ordering. The `supabase-storage` dependency is reserved for an output-upload path that is inert (§12.4). ComfyUI's only `runtime_adaptive` entry is `adapts_to: comfyui`.
 
 **Volumes:** `comfyui-models` (checkpoints, VAEs, LoRAs), `comfyui-custom-nodes` (allowlisted community nodes cloned at pinned refs), `comfyui-input` (input images at `/opt/ComfyUI/input`), `comfyui-output` (generated images, served by `/view`).
 
 **Output deduplication.** None. The same workflow run twice writes two output files to the `comfyui-output` volume.
 
-## 5. Dependencies & Integrations
+## 5. Capabilities & limitations
 
-### 5.1. Current — Upstream (this service calls)
+<a id="12-capabilities-limitations"></a>
+<a id="12-capabilities--limitations"></a>
 
-_No upstream calls._
+Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
-### 5.2. Current — Downstream (services that call this)
-
-| Service | Category |
-|---|---|
-| kong | infra |
-| hermes | agents |
-| backend | apps |
-| jupyterhub | apps |
-| open-webui | apps |
-
-### 5.3. Architecture diagram
-
-![comfyui architecture](./architecture.svg)
-
-[Open the full-size diagram](./architecture.html) for a full-screen view.
-
-### 5.4. Future — Missing pair integrations
-
-- **comfyui ↔ minio** — *Why:* outputs stay in the `comfyui-output` volume only, and `COMFYUI_UPLOAD_TO_SUPABASE` and `COMFYUI_STORAGE_BUCKET` have no consumer. `services/minio/service.yml` already provisions a `comfyui` bucket and an unused `MINIO_COMFYUI_ACCESS_KEY`. *Mechanism:* a small custom node, or a sidecar that reads the `executed` event on `ws://comfyui:18188/ws`, pushes `/view` artifacts to `s3://comfyui` on `http://minio:9000`. Add `minio` to `runtime_deps.optional`. *Effort:* small. *Confidence:* high.
-- **comfyui ↔ weaviate (via multi2vec-clip)** — *Why:* each generation produces an image and its prompt. The weaviate family already runs `multi2vec-clip`, so outputs can be embedded for similarity search with no new infrastructure. *Mechanism:* a post-execution hook PUTs `{image, prompt, workflow_id}` into a `ComfyImage` class with `vectorizer: multi2vec-clip` on `http://weaviate:8080/v1/objects`. *Effort:* medium. *Confidence:* high.
-- **comfyui ↔ n8n** — *Why:* `services/n8n/service.yml` installs `n8n-nodes-comfyui` and the image-to-image package. The comfyui manifest has no `runtime_deps.optional` link to n8n, and no n8n credential is pre-seeded. *Mechanism:* pre-seed an n8n credential at startup (`POST /credentials`) that points at `${COMFYUI_ENDPOINT}`; add `n8n` to `runtime_deps.optional`. *Effort:* small. *Confidence:* medium.
-- **comfyui ↔ redis** — *Why:* compose lists `redis` in `depends_on`, but ComfyUI does not use it. A queue-state bridge would let n8n and the backend poll job status without one open websocket per request. *Mechanism:* a custom node mirrors `executing`/`executed`/`progress` events into Redis pub/sub channels `comfyui:job:<prompt_id>`. *Effort:* medium. *Confidence:* low (polling `/history` is cheaper).
-
-### 5.5. Future — Candidate new services
-
-_No high-confidence opportunities identified._
-
-### 5.6. Future — Unused features in this service
-
-- **ComfyUI-Manager + `cm-cli` for custom-node lifecycle** — *Why pursue:* Atlas clones pinned nodes from an allowlist. It does not use ComfyUI-Manager to enable, disable or remove nodes, or to reconcile their dependencies. Its GPL-3.0 license and runtime behavior need an explicit decision first. *Effort:* small.
-- **Video model support (Mochi / LTX-Video)** — *Why pursue:* upstream ComfyUI supports video diffusion. The picker has a `video` category filter, but the curated list is thin. Production-ready video checkpoints (Mochi, LTX-Video, Wan) would give GPU users video generation. *Effort:* medium.
-- **Authentication on the ComfyUI endpoint** — *Why pursue:* `server.py` ships no auth and Kong fronts ComfyUI on `comfyui.localhost`. A Kong basic-auth or JWT plugin would stop any LAN peer from queueing GPU jobs. *Effort:* small.
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Container and managed-MPS image generation | supported | tested | Atlas configures a CPU container and an Apple-Silicon Metal host process behind the same endpoint contract. `container-gpu` currently runs the same CPU image with no GPU device reservation, so it gets no CUDA acceleration. |
+| Workflow and model provisioning | partial | tested | Atlas stages selected catalog models and pinned custom nodes and gates container readiness on their exact required plan; arbitrary third-party workflow dependencies remain operator-managed. |
+| Supabase output upload | stubbed | documented | The upload flag and bucket variables are placeholders with no stock image, provisioning, or backend consumer. |
+| Authenticated ComfyUI ingress | not-supported | documented | The published container UI/API and CORS-only comfyui.localhost route run without Atlas authentication; keep HOST_BIND_IP=127.0.0.1:, remove the publish, or add an authentication proxy before remote exposure. |
 
 ## 6. Operations
 
@@ -440,13 +415,61 @@ curl -s http://localhost:${COMFYUI_PORT}/system_stats | jq .   # GPU/CPU info, q
 
 For general startup and routing issues, see [Troubleshooting](../../docs/quick-start/troubleshooting.md).
 
-## 12. Capabilities & limitations
+## 12. Dependencies & Integrations
 
-Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+<a id="5-dependencies-integrations"></a>
+<a id="5-dependencies--integrations"></a>
 
-| Capability | Status | Verification | Notes |
-|---|---|---|---|
-| Container and managed-MPS image generation | supported | tested | Atlas configures a CPU container and an Apple-Silicon Metal host process behind the same endpoint contract. `container-gpu` currently runs the same CPU image with no GPU device reservation, so it gets no CUDA acceleration. |
-| Workflow and model provisioning | partial | tested | Atlas stages selected catalog models and pinned custom nodes and gates container readiness on their exact required plan; arbitrary third-party workflow dependencies remain operator-managed. |
-| Supabase output upload | stubbed | documented | The upload flag and bucket variables are placeholders with no stock image, provisioning, or backend consumer. |
-| Authenticated ComfyUI ingress | not-supported | documented | The published container UI/API and CORS-only comfyui.localhost route run without Atlas authentication; keep HOST_BIND_IP=127.0.0.1:, remove the publish, or add an authentication proxy before remote exposure. |
+### 12.1. Current — Upstream (this service calls)
+
+<a id="51-current-upstream-this-service-calls"></a>
+<a id="51-current--upstream-this-service-calls"></a>
+
+_No upstream calls._
+
+### 12.2. Current — Downstream (services that call this)
+
+<a id="52-current-downstream-services-that-call-this"></a>
+<a id="52-current--downstream-services-that-call-this"></a>
+
+| Service | Category |
+|---|---|
+| kong | infra |
+| hermes | agents |
+| backend | apps |
+| jupyterhub | apps |
+| open-webui | apps |
+
+### 12.3. Architecture diagram
+
+<a id="53-architecture-diagram"></a>
+
+![comfyui architecture](./architecture.svg)
+
+[Open the full-size diagram](./architecture.html) for a full-screen view.
+
+### 12.4. Future — Missing pair integrations
+
+<a id="54-future-missing-pair-integrations"></a>
+<a id="54-future--missing-pair-integrations"></a>
+
+- **comfyui ↔ minio** — *Why:* outputs stay in the `comfyui-output` volume only, and `COMFYUI_UPLOAD_TO_SUPABASE` and `COMFYUI_STORAGE_BUCKET` have no consumer. `services/minio/service.yml` already provisions a `comfyui` bucket and an unused `MINIO_COMFYUI_ACCESS_KEY`. *Mechanism:* a small custom node, or a sidecar that reads the `executed` event on `ws://comfyui:18188/ws`, pushes `/view` artifacts to `s3://comfyui` on `http://minio:9000`. Add `minio` to `runtime_deps.optional`. *Effort:* small. *Confidence:* high.
+- **comfyui ↔ weaviate (via multi2vec-clip)** — *Why:* each generation produces an image and its prompt. The weaviate family already runs `multi2vec-clip`, so outputs can be embedded for similarity search with no new infrastructure. *Mechanism:* a post-execution hook PUTs `{image, prompt, workflow_id}` into a `ComfyImage` class with `vectorizer: multi2vec-clip` on `http://weaviate:8080/v1/objects`. *Effort:* medium. *Confidence:* high.
+- **comfyui ↔ n8n** — *Why:* `services/n8n/service.yml` installs `n8n-nodes-comfyui` and the image-to-image package. The comfyui manifest has no `runtime_deps.optional` link to n8n, and no n8n credential is pre-seeded. *Mechanism:* pre-seed an n8n credential at startup (`POST /credentials`) that points at `${COMFYUI_ENDPOINT}`; add `n8n` to `runtime_deps.optional`. *Effort:* small. *Confidence:* medium.
+- **comfyui ↔ redis** — *Why:* compose lists `redis` in `depends_on`, but ComfyUI does not use it. A queue-state bridge would let n8n and the backend poll job status without one open websocket per request. *Mechanism:* a custom node mirrors `executing`/`executed`/`progress` events into Redis pub/sub channels `comfyui:job:<prompt_id>`. *Effort:* medium. *Confidence:* low (polling `/history` is cheaper).
+
+### 12.5. Future — Candidate new services
+
+<a id="55-future-candidate-new-services"></a>
+<a id="55-future--candidate-new-services"></a>
+
+_No high-confidence opportunities identified._
+
+### 12.6. Future — Unused features in this service
+
+<a id="56-future-unused-features-in-this-service"></a>
+<a id="56-future--unused-features-in-this-service"></a>
+
+- **ComfyUI-Manager + `cm-cli` for custom-node lifecycle** — *Why pursue:* Atlas clones pinned nodes from an allowlist. It does not use ComfyUI-Manager to enable, disable or remove nodes, or to reconcile their dependencies. Its GPL-3.0 license and runtime behavior need an explicit decision first. *Effort:* small.
+- **Video model support (Mochi / LTX-Video)** — *Why pursue:* upstream ComfyUI supports video diffusion. The picker has a `video` category filter, but the curated list is thin. Production-ready video checkpoints (Mochi, LTX-Video, Wan) would give GPU users video generation. *Effort:* medium.
+- **Authentication on the ComfyUI endpoint** — *Why pursue:* `server.py` ships no auth and Kong fronts ComfyUI on `comfyui.localhost`. A Kong basic-auth or JWT plugin would stop any LAN peer from queueing GPU jobs. *Effort:* small.

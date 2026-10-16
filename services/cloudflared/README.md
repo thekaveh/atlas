@@ -68,37 +68,10 @@ If `CLOUDFLARE_TUNNEL_TOKEN` is empty when `CLOUDFLARED_SOURCE=container`, Atlas
 
 **Security posture.** Cloudflare Access is required for every public Atlas hostname. Use identity-aware, least-privilege policies; an unguessable hostname is not access control. The tunnel does not replace Kong controls. After Access admits a request, Kong still applies the matched route's plugins: authentication and ACL where the route has them, and rate limiting on `search.localhost`. Keep both layers, with an explicit `httpHostHeader` that selects the intended Kong route.
 
-## 5. Dependencies & Integrations
+## 5. Capabilities & limitations
 
-### 5.1. Current — Upstream (this service calls)
-
-| Service | Category | Status |
-|---|---|---|
-| kong | infra | optional: public hostnames configured in the Cloudflare dashboard |
-
-### 5.2. Current — Downstream (services that call this)
-
-_No downstream consumers._
-
-### 5.3. Architecture diagram
-
-![cloudflared architecture](./architecture.svg)
-
-[Open the full-size diagram](./architecture.html) for a full-screen view.
-
-### 5.4. Future — Missing pair integrations
-
-_No high-confidence opportunities identified._
-
-### 5.5. Future — Candidate new services
-
-_No high-confidence opportunities identified._
-
-### 5.6. Future — Unused features in this service
-
-_No high-confidence opportunities identified._
-
-## 6. Capabilities & limitations
+<a id="6-capabilities-limitations"></a>
+<a id="6-capabilities--limitations"></a>
 
 Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
@@ -107,3 +80,53 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 | Outbound named-tunnel edge | supported | tested | Atlas runs cloudflared as an egress-only named tunnel to Kong and validates the required tunnel-token configuration before launch. |
 | Atlas-managed public hostname routing | not-supported | documented | Public hostnames and their Origin Host Header mappings must be created in the Cloudflare dashboard; Atlas does not provision tunnel ingress rules. |
 | Atlas-managed Cloudflare Access policy | not-supported | documented | Identity, application, and Access policy configuration remains external to Atlas and must be applied by the Cloudflare account operator. |
+
+## 6. Dependencies & Integrations
+
+<a id="5-dependencies-integrations"></a>
+<a id="5-dependencies--integrations"></a>
+
+### 6.1. Current — Upstream (this service calls)
+
+<a id="51-current-upstream-this-service-calls"></a>
+<a id="51-current--upstream-this-service-calls"></a>
+
+| Service | Category | Status |
+|---|---|---|
+| kong | infra | optional: public hostnames configured in the Cloudflare dashboard |
+
+### 6.2. Current — Downstream (services that call this)
+
+<a id="52-current-downstream-services-that-call-this"></a>
+<a id="52-current--downstream-services-that-call-this"></a>
+
+_No downstream consumers._
+
+### 6.3. Architecture diagram
+
+<a id="53-architecture-diagram"></a>
+
+![cloudflared architecture](./architecture.svg)
+
+[Open the full-size diagram](./architecture.html) for a full-screen view.
+
+### 6.4. Future — Missing pair integrations
+
+<a id="54-future-missing-pair-integrations"></a>
+<a id="54-future--missing-pair-integrations"></a>
+
+_No high-confidence opportunities identified._
+
+### 6.5. Future — Candidate new services
+
+<a id="55-future-candidate-new-services"></a>
+<a id="55-future--candidate-new-services"></a>
+
+_No high-confidence opportunities identified._
+
+### 6.6. Future — Unused features in this service
+
+<a id="56-future-unused-features-in-this-service"></a>
+<a id="56-future--unused-features-in-this-service"></a>
+
+_No high-confidence opportunities identified._

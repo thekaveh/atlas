@@ -197,50 +197,28 @@ It also deletes `XTTS_ENDPOINT` from `.env`; `TTS_ENDPOINT` replaces it.
 - [chatterbox-tts-api server](https://github.com/travisvn/chatterbox-tts-api)
 - [OpenAI Audio API spec](https://platform.openai.com/docs/guides/text-to-speech)
 
-## 9. Dependencies & Integrations
+## 9. Capabilities & limitations
 
-### 9.1. Current — Upstream (this service calls)
+<a id="11-capabilities-limitations"></a>
+<a id="11-capabilities--limitations"></a>
 
-_No upstream calls._
+`chatterbox` — Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+`speaches` — Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+`tts-provider` — Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
-### 9.2. Current — Downstream (services that call this)
-
-| Service | Category |
-|---|---|
-| kong | infra |
-| hermes | agents |
-| n8n | agents |
-| jupyterhub | apps |
-| open-webui | apps |
-
-### 9.3. Architecture diagram
-
-![tts-provider architecture](./architecture.svg)
-
-[Open the full-size diagram](./architecture.html) for a full-screen view.
-
-### 9.4. Future — Missing pair integrations
-
-- **tts-provider ↔ minio** — *Why:* Chatterbox's `/voices` library lives on ephemeral container FS today, so a rebuild wipes user-registered voices; MinIO already hosts artifact buckets. *Mechanism:* fuse/rclone-mount a `tts-voices` bucket at `/app/voices`, or a sidecar that mirrors chatterbox `GET/POST /voices` to `s3://tts-voices/`. *Effort:* medium. *Confidence:* high.
-- **tts-provider ↔ redis** — *Why:* repeated UI/notification phrases (welcome lines, n8n alerts, hermes acks) burn CPU on Kokoro/Piper and hit Chatterbox's >2s cold weights load. *Mechanism:* small FastAPI shim in front of `TTS_ENDPOINT` that checks a cache before forwarding to `/v1/audio/speech`. The cache is keyed on `(model, voice, text-hash, knobs)` in a Redis database index that no other consumer uses. *Effort:* medium. *Confidence:* medium.
-- **tts-provider ↔ doc-processor** — *Why:* turns ingested PDFs/HTML into audiobook WAVs — a natural "read this document" feature for backend / Open WebUI that closes the doc-processor → narration loop. *Mechanism:* backend chunks doc-processor's markdown output, POSTs each chunk to `${TTS_ENDPOINT}/v1/audio/speech`, concatenates segments, writes to MinIO. *Effort:* medium. *Confidence:* high.
-- **tts-provider ↔ supabase** — *Why:* voice metadata (owner, language, source clip, registered-by user) belongs in a relational table, not in Chatterbox's in-memory `/voices` registry. Open WebUI users could then see their own voices, and admins could audit usage. *Mechanism:* backend writes a `tts_voices` row in Supabase on every chatterbox `POST /voices`; a startup reconciler re-POSTs registered voices from MinIO+Supabase back into chatterbox. *Effort:* medium. *Confidence:* medium.
-- **tts-provider ↔ openclaw** — *Why:* voice-message replies to Telegram/Discord/etc. dramatically lift presence over text-only bots, and pair naturally with stt-provider on the inbound side. *Mechanism:* openclaw calls `${TTS_ENDPOINT}/v1/audio/speech` per outgoing message and uploads the returned WAV via its platform adapters (ffmpeg transcode hop for Opus/OGG). *Effort:* small. *Confidence:* medium.
-
-### 9.5. Future — Candidate new services
-
-- **Unmute (Kyutai)** ([details](../../docs/reference/candidate-decisions.md#candidate-unmute)) — *Headline:* WebSocket OpenAI-Realtime-compatible voice loop that wraps any text LLM behind streaming STT + TTS. *Wires into:* open-webui, backend, hermes, litellm, parakeet, chatterbox, speaches.
-- **OmniVoice (k2-fsa)** ([details](../../docs/reference/candidate-decisions.md#candidate-omnivoice)) — *Headline:* 0.6 B diffusion-LM TTS (Apache-2.0) with **600+ language coverage**, which the current Speaches/Chatterbox engines lack. *Status:* not adopted; upstream has no API server or container image yet.
-
-### 9.6. Future — Unused features in this service
-
-- **Speaches Realtime API / speech-to-speech** — *Why pursue:* upstream advertises a Realtime API and async speech-to-speech. The stack uses only `/v1/audio/speech` and `/v1/audio/transcriptions`. Wiring it enables low-latency voice agents in Open WebUI and Hermes. *Effort:* large.
-- **Chatterbox streaming endpoints (`/v1/audio/speech/stream`, SSE)** — *Why pursue:* audio starts after the first chunk instead of the full WAV. Open WebUI's audio player supports streamed chunks. *Effort:* small.
-- **Chatterbox `/v1/audio/speech/upload` + `/voices` POST in Open WebUI** — *Why pursue:* end-users could clone their own voice from the chat UI; today only raw API callers can. *Effort:* medium.
-- **Chatterbox paralinguistic tags (`[laugh]`, `[cough]`)** — *Why pursue:* richer narration for doc-processor audiobooks and hermes responses, available on the Turbo model upstream. *Effort:* small.
-- **Speaches dynamic model load/unload** — *Why pursue:* Open WebUI defaults to one `SPEACHES_TTS_MODEL`. Upstream loads a requested downloaded model and unloads it when idle, so users could pick Kokoro or Piper per request. *Effort:* small.
-- **Chatterbox `exaggeration` / `cfg_weight` / `temperature` knobs** — *Why pursue:* emotion and pace controls (defaults 0.5 / 0.5 / 0.8) exist only in the raw API. Open WebUI does not show them. *Effort:* small.
-- **Chatterbox `/status`, `/memory`, `/config` introspection** — *Why pursue:* feeds the backend health dashboard (and future Grafana), surfacing VRAM pressure before OOM. *Effort:* small.
+| Service | Capability | Status | Verification | Notes |
+|---|---|---|---|---|
+| chatterbox | GPU voice-cloning text-to-speech | supported | documented | The TTS selector starts the digest-pinned NVIDIA container and exposes Chatterbox synthesis and voice cloning through the selected provider endpoint. |
+| chatterbox | Operator-run localhost Chatterbox | partial | documented | Atlas resolves a host Chatterbox endpoint selected by tts-provider, but installation, model downloads, process lifecycle, and hardware acceleration remain operator-owned. |
+| chatterbox | Persistent registered voice library | not-supported | documented | The container persists only the Hugging Face weight cache; registered voice samples have no Atlas-managed volume or object-store workflow and may disappear on replacement. |
+| chatterbox | Authenticated Chatterbox ingress | not-supported | documented | The host-published API and CORS-only tts.localhost Kong route have no Atlas authentication; use loopback or firewall controls, remove the publish, or add an authentication proxy. |
+| speaches | OpenAI-compatible text-to-speech | partial | tested | Speaches serves /v1/audio/speech, but Atlas does not preload Kokoro; the model must be downloaded before requests succeed. |
+| speaches | OpenAI-compatible speech-to-text | partial | untested | Speaches exposes /v1/audio/transcriptions, but Atlas has not validated the current preload and Open WebUI model path against a live container. |
+| speaches | Configurable STT model selection | stubbed | documented | SPEACHES_STT_MODEL is declared but does not alter the hard-coded PRELOAD_MODELS value or Open WebUI's STT model. |
+| tts-provider | Virtual text-to-speech engine selection | supported | tested | Atlas resolves Speaches CPU or NVIDIA, Chatterbox NVIDIA, or operator-run Chatterbox behind one TTS endpoint without running an aggregator container. |
+| tts-provider | Shared Speaches engine deduplication | supported | tested | When STT and TTS both select Speaches, Atlas runs one container and resolves mixed CPU/GPU selections to the GPU profile. |
+| tts-provider | Chatterbox voice cloning | partial | documented | GPU and localhost selections expose upstream voice-cloning calls, but model download, live inference, voice persistence, and host lifecycle are not certified by Atlas automation. |
+| tts-provider | Authenticated TTS provider ingress | not-supported | documented | Speaches and Chatterbox host ports and the CORS-only tts.localhost alias have no Atlas authentication. Use loopback or firewall controls, remove direct publishes, or add an authentication proxy. |
 
 ## 10. Troubleshooting
 
@@ -266,22 +244,67 @@ engine. Change it in Open WebUI admin → Audio. The bootstrapper rewrites
 `OPEN_WEB_UI_TTS_VOICE` in `.env` on every start, so an edit there does not
 persist.
 
-## 11. Capabilities & limitations
+## 11. Dependencies & Integrations
 
-`chatterbox` — Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
-`speaches` — Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
-`tts-provider` — Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+<a id="9-dependencies-integrations"></a>
+<a id="9-dependencies--integrations"></a>
 
-| Service | Capability | Status | Verification | Notes |
-|---|---|---|---|---|
-| chatterbox | GPU voice-cloning text-to-speech | supported | documented | The TTS selector starts the digest-pinned NVIDIA container and exposes Chatterbox synthesis and voice cloning through the selected provider endpoint. |
-| chatterbox | Operator-run localhost Chatterbox | partial | documented | Atlas resolves a host Chatterbox endpoint selected by tts-provider, but installation, model downloads, process lifecycle, and hardware acceleration remain operator-owned. |
-| chatterbox | Persistent registered voice library | not-supported | documented | The container persists only the Hugging Face weight cache; registered voice samples have no Atlas-managed volume or object-store workflow and may disappear on replacement. |
-| chatterbox | Authenticated Chatterbox ingress | not-supported | documented | The host-published API and CORS-only tts.localhost Kong route have no Atlas authentication; use loopback or firewall controls, remove the publish, or add an authentication proxy. |
-| speaches | OpenAI-compatible text-to-speech | partial | tested | Speaches serves /v1/audio/speech, but Atlas does not preload Kokoro; the model must be downloaded before requests succeed. |
-| speaches | OpenAI-compatible speech-to-text | partial | untested | Speaches exposes /v1/audio/transcriptions, but Atlas has not validated the current preload and Open WebUI model path against a live container. |
-| speaches | Configurable STT model selection | stubbed | documented | SPEACHES_STT_MODEL is declared but does not alter the hard-coded PRELOAD_MODELS value or Open WebUI's STT model. |
-| tts-provider | Virtual text-to-speech engine selection | supported | tested | Atlas resolves Speaches CPU or NVIDIA, Chatterbox NVIDIA, or operator-run Chatterbox behind one TTS endpoint without running an aggregator container. |
-| tts-provider | Shared Speaches engine deduplication | supported | tested | When STT and TTS both select Speaches, Atlas runs one container and resolves mixed CPU/GPU selections to the GPU profile. |
-| tts-provider | Chatterbox voice cloning | partial | documented | GPU and localhost selections expose upstream voice-cloning calls, but model download, live inference, voice persistence, and host lifecycle are not certified by Atlas automation. |
-| tts-provider | Authenticated TTS provider ingress | not-supported | documented | Speaches and Chatterbox host ports and the CORS-only tts.localhost alias have no Atlas authentication. Use loopback or firewall controls, remove direct publishes, or add an authentication proxy. |
+### 11.1. Current — Upstream (this service calls)
+
+<a id="91-current-upstream-this-service-calls"></a>
+<a id="91-current--upstream-this-service-calls"></a>
+
+_No upstream calls._
+
+### 11.2. Current — Downstream (services that call this)
+
+<a id="92-current-downstream-services-that-call-this"></a>
+<a id="92-current--downstream-services-that-call-this"></a>
+
+| Service | Category |
+|---|---|
+| kong | infra |
+| hermes | agents |
+| n8n | agents |
+| jupyterhub | apps |
+| open-webui | apps |
+
+### 11.3. Architecture diagram
+
+<a id="93-architecture-diagram"></a>
+
+![tts-provider architecture](./architecture.svg)
+
+[Open the full-size diagram](./architecture.html) for a full-screen view.
+
+### 11.4. Future — Missing pair integrations
+
+<a id="94-future-missing-pair-integrations"></a>
+<a id="94-future--missing-pair-integrations"></a>
+
+- **tts-provider ↔ minio** — *Why:* Chatterbox's `/voices` library lives on ephemeral container FS today, so a rebuild wipes user-registered voices; MinIO already hosts artifact buckets. *Mechanism:* fuse/rclone-mount a `tts-voices` bucket at `/app/voices`, or a sidecar that mirrors chatterbox `GET/POST /voices` to `s3://tts-voices/`. *Effort:* medium. *Confidence:* high.
+- **tts-provider ↔ redis** — *Why:* repeated UI/notification phrases (welcome lines, n8n alerts, hermes acks) burn CPU on Kokoro/Piper and hit Chatterbox's >2s cold weights load. *Mechanism:* small FastAPI shim in front of `TTS_ENDPOINT` that checks a cache before forwarding to `/v1/audio/speech`. The cache is keyed on `(model, voice, text-hash, knobs)` in a Redis database index that no other consumer uses. *Effort:* medium. *Confidence:* medium.
+- **tts-provider ↔ doc-processor** — *Why:* turns ingested PDFs/HTML into audiobook WAVs — a natural "read this document" feature for backend / Open WebUI that closes the doc-processor → narration loop. *Mechanism:* backend chunks doc-processor's markdown output, POSTs each chunk to `${TTS_ENDPOINT}/v1/audio/speech`, concatenates segments, writes to MinIO. *Effort:* medium. *Confidence:* high.
+- **tts-provider ↔ supabase** — *Why:* voice metadata (owner, language, source clip, registered-by user) belongs in a relational table, not in Chatterbox's in-memory `/voices` registry. Open WebUI users could then see their own voices, and admins could audit usage. *Mechanism:* backend writes a `tts_voices` row in Supabase on every chatterbox `POST /voices`; a startup reconciler re-POSTs registered voices from MinIO+Supabase back into chatterbox. *Effort:* medium. *Confidence:* medium.
+- **tts-provider ↔ openclaw** — *Why:* voice-message replies to Telegram/Discord/etc. dramatically lift presence over text-only bots, and pair naturally with stt-provider on the inbound side. *Mechanism:* openclaw calls `${TTS_ENDPOINT}/v1/audio/speech` per outgoing message and uploads the returned WAV via its platform adapters (ffmpeg transcode hop for Opus/OGG). *Effort:* small. *Confidence:* medium.
+
+### 11.5. Future — Candidate new services
+
+<a id="95-future-candidate-new-services"></a>
+<a id="95-future--candidate-new-services"></a>
+
+- **Unmute (Kyutai)** ([details](../../docs/reference/candidate-decisions.md#candidate-unmute)) — *Headline:* WebSocket OpenAI-Realtime-compatible voice loop that wraps any text LLM behind streaming STT + TTS. *Wires into:* open-webui, backend, hermes, litellm, parakeet, chatterbox, speaches.
+- **OmniVoice (k2-fsa)** ([details](../../docs/reference/candidate-decisions.md#candidate-omnivoice)) — *Headline:* 0.6 B diffusion-LM TTS (Apache-2.0) with **600+ language coverage**, which the current Speaches/Chatterbox engines lack. *Status:* not adopted; upstream has no API server or container image yet.
+
+### 11.6. Future — Unused features in this service
+
+<a id="96-future-unused-features-in-this-service"></a>
+<a id="96-future--unused-features-in-this-service"></a>
+
+- **Speaches Realtime API / speech-to-speech** — *Why pursue:* upstream advertises a Realtime API and async speech-to-speech. The stack uses only `/v1/audio/speech` and `/v1/audio/transcriptions`. Wiring it enables low-latency voice agents in Open WebUI and Hermes. *Effort:* large.
+- **Chatterbox streaming endpoints (`/v1/audio/speech/stream`, SSE)** — *Why pursue:* audio starts after the first chunk instead of the full WAV. Open WebUI's audio player supports streamed chunks. *Effort:* small.
+- **Chatterbox `/v1/audio/speech/upload` + `/voices` POST in Open WebUI** — *Why pursue:* end-users could clone their own voice from the chat UI; today only raw API callers can. *Effort:* medium.
+- **Chatterbox paralinguistic tags (`[laugh]`, `[cough]`)** — *Why pursue:* richer narration for doc-processor audiobooks and hermes responses, available on the Turbo model upstream. *Effort:* small.
+- **Speaches dynamic model load/unload** — *Why pursue:* Open WebUI defaults to one `SPEACHES_TTS_MODEL`. Upstream loads a requested downloaded model and unloads it when idle, so users could pick Kokoro or Piper per request. *Effort:* small.
+- **Chatterbox `exaggeration` / `cfg_weight` / `temperature` knobs** — *Why pursue:* emotion and pace controls (defaults 0.5 / 0.5 / 0.8) exist only in the raw API. Open WebUI does not show them. *Effort:* small.
+- **Chatterbox `/status`, `/memory`, `/config` introspection** — *Why pursue:* feeds the backend health dashboard (and future Grafana), surfacing VRAM pressure before OOM. *Effort:* small.

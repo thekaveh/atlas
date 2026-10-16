@@ -181,7 +181,7 @@ The backend declares a disabled Graphiti temporal graph memory experiment with `
 
 ## 9. Integration with Other Services
 
-Current Bolt clients are LightRAG (§8), LLM Graph Builder, JupyterHub, mcp-servers and the backup orchestrator (§13.2). Airflow seeds a `neo4j_default` Connection, and only operator-authored DAGs use it. The Backend receives `NEO4J_*` for planned graph endpoints but opens no Bolt connection (see `docs/maintenance/integration-claims-ledger.md`). n8n has no Neo4j wiring yet (§13.4).
+Current Bolt clients are LightRAG (§8), LLM Graph Builder, JupyterHub, mcp-servers and the backup orchestrator (§15.2). Airflow seeds a `neo4j_default` Connection, and only operator-authored DAGs use it. The Backend receives `NEO4J_*` for planned graph endpoints but opens no Bolt connection (see `docs/maintenance/integration-claims-ledger.md`). n8n has no Neo4j wiring yet (§15.4).
 
 ## 10. Performance Tuning
 
@@ -255,53 +255,18 @@ MATCH (p:Person) DETACH DELETE p
 - [Neo4j APOC Documentation](https://neo4j.com/docs/apoc/)
 - [Graph Modeling Tips](https://neo4j.com/docs/getting-started/data-modeling/modeling-tips/)
 
-## 13. Dependencies & Integrations
+## 13. Capabilities & limitations
 
-### 13.1. Current — Upstream (this service calls)
+<a id="15-capabilities-limitations"></a>
+<a id="15-capabilities--limitations"></a>
 
-_No upstream calls._
+Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
-### 13.2. Current — Downstream (services that call this)
-
-_Rows marked planned are documented or intended, not wired yet._
-
-| Service | Category | Status |
-|---|---|---|
-| backup | infra | current |
-| kong | infra | current |
-| airflow | agents | optional: an operator-authored DAG; airflow-init only seeds the Connection |
-| lightrag | agents | current |
-| mcp-servers | agents | current |
-| backend | apps | planned |
-| jupyterhub | apps | current |
-| llm-graph-builder | apps | current |
-
-### 13.3. Architecture diagram
-
-![neo4j architecture](./architecture.svg)
-
-[Open the full-size diagram](./architecture.html) for a full-screen view.
-
-### 13.4. Future — Missing pair integrations
-
-- **neo4j ↔ n8n** — *Why:* unlocks no-code graph automation (entity sync, alerting on graph patterns, hydrating workflows from Cypher). n8n `2.28.2` has no built-in Neo4j node. *Mechanism:* an HTTP Request node calls `http://neo4j-graph-db:7474/db/neo4j/tx/commit` as `neo4j` / `${GRAPH_DB_PASSWORD}`. A community Neo4j node can use `bolt://neo4j-graph-db:7687` instead. Add `NEO4J_URI` to `services/n8n/compose.yml` and a credential seed in n8n init. *Effort:* small. *Confidence:* medium.
-- **neo4j ↔ hermes** — *Why:* persistent agent memory + entity/relation recall across sessions; Hermes skills write structured episodic memory as a graph and traverse it for context. *Mechanism:* Hermes custom skill via Bolt at `bolt://neo4j-graph-db:7687` using the official neo4j Python driver; `GRAPH_DB_USER`/`GRAPH_DB_PASSWORD` from `.env`. *Effort:* medium. *Confidence:* medium.
-- **neo4j ↔ weaviate** — *Why:* GraphRAG patterns — Weaviate finds semantically similar chunks, Neo4j expands the neighbourhood (entities, citations, relationships) for grounded answers. *Mechanism:* backend orchestrator: Weaviate `nearText` → take payload `entity_ids` → Cypher `MATCH (e)-[*1..2]-(n) RETURN n`. *Effort:* medium. *Confidence:* medium.
-- **neo4j ↔ doc-processor** — *Why:* Docling extracts structured document elements (sections, tables, references); persisting them as a graph turns the doc corpus into a navigable knowledge graph. *Mechanism:* backend route or n8n flow: docling JSON → LiteLLM entity/relation extractor → Cypher `MERGE` over Bolt. *Effort:* medium. *Confidence:* medium.
-- **neo4j ↔ local-deep-researcher** — *Why:* LDR lists neo4j as optional in `runtime_deps` but no concrete wiring exists; research runs naturally produce claim/source/entity graphs that benefit later sessions. *Mechanism:* LDR LangGraph node emitting Cypher on each research step via `bolt://neo4j-graph-db:7687`. *Effort:* small. *Confidence:* medium.
-
-### 13.5. Future — Candidate new services
-
-- **Graphiti (Zep)** (`docs/research/candidates/graphiti.md`) — *Headline:* temporal knowledge-graph framework for agent memory, built on Neo4j. *Wires into:* hermes, backend, n8n, local-deep-researcher.
-- **NeoDash** (`docs/research/candidates/neodash.md`) — *Headline:* low-code Cypher dashboards over the existing Neo4j instance, no extra database. *Wires into:* kong (route at `dash.localhost`), backend.
-
-### 13.6. Future — Unused features in this service
-
-- **Native vector index (HNSW)** — *Why pursue:* Neo4j 5 ships an HNSW vector index. Embeddings could live on graph nodes, and one query could combine ANN search with graph traversal. *Effort:* small.
-- **GenAI plugin (`genai.vector.encode*`)** — *Why pursue:* embed text directly inside Cypher via OpenAI/Vertex/Bedrock — wire it to LiteLLM and ingestion becomes one query. *Effort:* small.
-- **APOC extended** — *Why pursue:* APOC core is loaded (`NEO4J_PLUGINS=["apoc"]` from the image's `labs/` jar); the extended library would add more JSON/HTTP, import and LLM procedures. *Effort:* small.
-- **Neosemantics (n10s)** — *Why pursue:* RDF/ontology import/export bridges Neo4j with external semantic-web sources (Wikidata, schema.org). *Effort:* medium.
-- **Read-only role for LLM-generated Cypher** — *Why pursue:* safe execution of model-authored queries from open-webui/hermes; mitigates prompt-injection-to-`DETACH DELETE`. *Effort:* small.
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Container and host graph storage | supported | tested | Atlas supports a persistent Neo4j container or an operator-run localhost endpoint and wires Bolt consumers through the selected source. |
+| Snapshot backup and restore | supported | tested | The backup orchestrator records whether Neo4j Community 5.26.31 is running and stops it for bounded system and neo4j database dumps. It restores the prior running state on success or failure, and provides an authenticated offline load path. |
+| Production access isolation | partial | documented | Password authentication is configured, but direct Bolt and Browser ports are plaintext and Atlas does not provision separate least-privilege service roles. |
 
 ## 14. Troubleshooting
 
@@ -345,12 +310,70 @@ docker compose up -d neo4j-graph-db
 
 For more troubleshooting help, see the [troubleshooting guide](../../docs/quick-start/troubleshooting.md).
 
-## 15. Capabilities & limitations
+## 15. Dependencies & Integrations
 
-Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+<a id="13-dependencies-integrations"></a>
+<a id="13-dependencies--integrations"></a>
 
-| Capability | Status | Verification | Notes |
-|---|---|---|---|
-| Container and host graph storage | supported | tested | Atlas supports a persistent Neo4j container or an operator-run localhost endpoint and wires Bolt consumers through the selected source. |
-| Snapshot backup and restore | supported | tested | The backup orchestrator records whether Neo4j Community 5.26.31 is running and stops it for bounded system and neo4j database dumps. It restores the prior running state on success or failure, and provides an authenticated offline load path. |
-| Production access isolation | partial | documented | Password authentication is configured, but direct Bolt and Browser ports are plaintext and Atlas does not provision separate least-privilege service roles. |
+### 15.1. Current — Upstream (this service calls)
+
+<a id="131-current-upstream-this-service-calls"></a>
+<a id="131-current--upstream-this-service-calls"></a>
+
+_No upstream calls._
+
+### 15.2. Current — Downstream (services that call this)
+
+<a id="132-current-downstream-services-that-call-this"></a>
+<a id="132-current--downstream-services-that-call-this"></a>
+
+_Rows marked planned are documented or intended, not wired yet._
+
+| Service | Category | Status |
+|---|---|---|
+| backup | infra | current |
+| kong | infra | current |
+| airflow | agents | optional: an operator-authored DAG; airflow-init only seeds the Connection |
+| lightrag | agents | current |
+| mcp-servers | agents | current |
+| backend | apps | planned |
+| jupyterhub | apps | current |
+| llm-graph-builder | apps | current |
+
+### 15.3. Architecture diagram
+
+<a id="133-architecture-diagram"></a>
+
+![neo4j architecture](./architecture.svg)
+
+[Open the full-size diagram](./architecture.html) for a full-screen view.
+
+### 15.4. Future — Missing pair integrations
+
+<a id="134-future-missing-pair-integrations"></a>
+<a id="134-future--missing-pair-integrations"></a>
+
+- **neo4j ↔ n8n** — *Why:* unlocks no-code graph automation (entity sync, alerting on graph patterns, hydrating workflows from Cypher). n8n `2.28.2` has no built-in Neo4j node. *Mechanism:* an HTTP Request node calls `http://neo4j-graph-db:7474/db/neo4j/tx/commit` as `neo4j` / `${GRAPH_DB_PASSWORD}`. A community Neo4j node can use `bolt://neo4j-graph-db:7687` instead. Add `NEO4J_URI` to `services/n8n/compose.yml` and a credential seed in n8n init. *Effort:* small. *Confidence:* medium.
+- **neo4j ↔ hermes** — *Why:* persistent agent memory + entity/relation recall across sessions; Hermes skills write structured episodic memory as a graph and traverse it for context. *Mechanism:* Hermes custom skill via Bolt at `bolt://neo4j-graph-db:7687` using the official neo4j Python driver; `GRAPH_DB_USER`/`GRAPH_DB_PASSWORD` from `.env`. *Effort:* medium. *Confidence:* medium.
+- **neo4j ↔ weaviate** — *Why:* GraphRAG patterns — Weaviate finds semantically similar chunks, Neo4j expands the neighbourhood (entities, citations, relationships) for grounded answers. *Mechanism:* backend orchestrator: Weaviate `nearText` → take payload `entity_ids` → Cypher `MATCH (e)-[*1..2]-(n) RETURN n`. *Effort:* medium. *Confidence:* medium.
+- **neo4j ↔ doc-processor** — *Why:* Docling extracts structured document elements (sections, tables, references); persisting them as a graph turns the doc corpus into a navigable knowledge graph. *Mechanism:* backend route or n8n flow: docling JSON → LiteLLM entity/relation extractor → Cypher `MERGE` over Bolt. *Effort:* medium. *Confidence:* medium.
+- **neo4j ↔ local-deep-researcher** — *Why:* LDR lists neo4j as optional in `runtime_deps` but no concrete wiring exists; research runs naturally produce claim/source/entity graphs that benefit later sessions. *Mechanism:* LDR LangGraph node emitting Cypher on each research step via `bolt://neo4j-graph-db:7687`. *Effort:* small. *Confidence:* medium.
+
+### 15.5. Future — Candidate new services
+
+<a id="135-future-candidate-new-services"></a>
+<a id="135-future--candidate-new-services"></a>
+
+- **Graphiti (Zep)** (`docs/research/candidates/graphiti.md`) — *Headline:* temporal knowledge-graph framework for agent memory, built on Neo4j. *Wires into:* hermes, backend, n8n, local-deep-researcher.
+- **NeoDash** (`docs/research/candidates/neodash.md`) — *Headline:* low-code Cypher dashboards over the existing Neo4j instance, no extra database. *Wires into:* kong (route at `dash.localhost`), backend.
+
+### 15.6. Future — Unused features in this service
+
+<a id="136-future-unused-features-in-this-service"></a>
+<a id="136-future--unused-features-in-this-service"></a>
+
+- **Native vector index (HNSW)** — *Why pursue:* Neo4j 5 ships an HNSW vector index. Embeddings could live on graph nodes, and one query could combine ANN search with graph traversal. *Effort:* small.
+- **GenAI plugin (`genai.vector.encode*`)** — *Why pursue:* embed text directly inside Cypher via OpenAI/Vertex/Bedrock — wire it to LiteLLM and ingestion becomes one query. *Effort:* small.
+- **APOC extended** — *Why pursue:* APOC core is loaded (`NEO4J_PLUGINS=["apoc"]` from the image's `labs/` jar); the extended library would add more JSON/HTTP, import and LLM procedures. *Effort:* small.
+- **Neosemantics (n10s)** — *Why pursue:* RDF/ontology import/export bridges Neo4j with external semantic-web sources (Wikidata, schema.org). *Effort:* medium.
+- **Read-only role for LLM-generated Cypher** — *Why pursue:* safe execution of model-authored queries from open-webui/hermes; mitigates prompt-injection-to-`DETACH DELETE`. *Effort:* small.

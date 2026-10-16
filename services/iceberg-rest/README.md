@@ -28,50 +28,10 @@ To exercise MERGE, time travel, branching, schema evolution, streaming and maint
 
 Atlas builds a small local image from `ICEBERG_REST_IMAGE`. The upstream fixture image has the Iceberg JDBC catalog but not the PostgreSQL JDBC driver that Supabase persistence needs. `ICEBERG_REST_POSTGRES_JDBC_VERSION` pins that driver.
 
-## 5. Dependencies & Integrations
+## 5. Capabilities & limitations
 
-### 5.1. Current — Upstream (this service calls)
-
-| Service | Category |
-|---|---|
-| minio | data |
-| supabase | data |
-
-### 5.2. Current — Downstream (services that call this)
-
-| Service | Category |
-|---|---|
-| spark | data |
-| trino | data |
-| airflow | agents |
-| jupyterhub | apps |
-| zeppelin | apps |
-
-### 5.3. Architecture diagram
-
-![iceberg-rest architecture](./architecture.svg)
-
-[Open the full-size diagram](./architecture.html) for a full-screen view.
-
-### 5.4. Future — Missing pair integrations
-
-_No high-confidence opportunities identified._
-
-### 5.5. Future — Candidate new services
-
-_No high-confidence opportunities identified._
-
-### 5.6. Future — Unused features in this service
-
-_No high-confidence opportunities identified._
-
-## 6. Troubleshooting
-
-- `curl -fsS http://localhost:${ICEBERG_REST_PORT}/v1/config` (host) or `http://iceberg-rest:8181/v1/config` (from a container) returns the catalog configuration when the service is healthy.
-- If metadata disappears after restart, verify `CATALOG_URI` points at `jdbc:postgresql://supabase-db:5432/iceberg` and not the fixture image's SQLite default.
-- If object writes fail, verify the `iceberg` MinIO service account exists and has access to the configured lakehouse buckets.
-
-## 7. Capabilities & limitations
+<a id="7-capabilities-limitations"></a>
+<a id="7-capabilities--limitations"></a>
 
 Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
@@ -81,3 +41,66 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 | Advanced Iceberg table operations | partial | untested | Atlas provides opt-in smoke scripts for merge, time travel, branching, evolution, streaming, and maintenance, but CI does not execute those operations against a live catalog. |
 | External catalog and warehouse sources | not-supported | documented | The stock manifest supports only the in-stack container and requires Atlas Supabase plus MinIO rather than selectable external catalog or object-store modes. |
 | Authenticated Iceberg REST API access | not-supported | documented | The Compose-network API and host-published ICEBERG_REST_PORT have no Atlas authentication. Keep the default HOST_BIND_IP=127.0.0.1:, or remove the iceberg-rest ports: publish, before use on shared hosts. |
+
+## 6. Troubleshooting
+
+- `curl -fsS http://localhost:${ICEBERG_REST_PORT}/v1/config` (host) or `http://iceberg-rest:8181/v1/config` (from a container) returns the catalog configuration when the service is healthy.
+- If metadata disappears after restart, verify `CATALOG_URI` points at `jdbc:postgresql://supabase-db:5432/iceberg` and not the fixture image's SQLite default.
+- If object writes fail, verify the `iceberg` MinIO service account exists and has access to the configured lakehouse buckets.
+
+## 7. Dependencies & Integrations
+
+<a id="5-dependencies-integrations"></a>
+<a id="5-dependencies--integrations"></a>
+
+### 7.1. Current — Upstream (this service calls)
+
+<a id="51-current-upstream-this-service-calls"></a>
+<a id="51-current--upstream-this-service-calls"></a>
+
+| Service | Category |
+|---|---|
+| minio | data |
+| supabase | data |
+
+### 7.2. Current — Downstream (services that call this)
+
+<a id="52-current-downstream-services-that-call-this"></a>
+<a id="52-current--downstream-services-that-call-this"></a>
+
+| Service | Category |
+|---|---|
+| spark | data |
+| trino | data |
+| airflow | agents |
+| jupyterhub | apps |
+| zeppelin | apps |
+
+### 7.3. Architecture diagram
+
+<a id="53-architecture-diagram"></a>
+
+![iceberg-rest architecture](./architecture.svg)
+
+[Open the full-size diagram](./architecture.html) for a full-screen view.
+
+### 7.4. Future — Missing pair integrations
+
+<a id="54-future-missing-pair-integrations"></a>
+<a id="54-future--missing-pair-integrations"></a>
+
+_No high-confidence opportunities identified._
+
+### 7.5. Future — Candidate new services
+
+<a id="55-future-candidate-new-services"></a>
+<a id="55-future--candidate-new-services"></a>
+
+_No high-confidence opportunities identified._
+
+### 7.6. Future — Unused features in this service
+
+<a id="56-future-unused-features-in-this-service"></a>
+<a id="56-future--unused-features-in-this-service"></a>
+
+_No high-confidence opportunities identified._

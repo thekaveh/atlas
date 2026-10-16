@@ -1,6 +1,6 @@
 # 5.2.4. Backend API (FastAPI)
 
-Always-on FastAPI service that orchestrates the stack. It serves memory, research, RAG chunking, evaluation and ingestion, media generation, Ray jobs, uploads and health checks. §6.1 lists every upstream service it calls. Neo4j, Hermes, STT and TTS settings are injected but no Backend code uses them yet.
+Always-on FastAPI service that orchestrates the stack. It serves memory, research, RAG chunking, evaluation and ingestion, media generation, Ray jobs, uploads and health checks. §8.1 lists every upstream service it calls. Neo4j, Hermes, STT and TTS settings are injected but no Backend code uses them yet.
 
 `BACKEND_SOURCE` has one value, `container`. The Backend adapts to the services around it instead. `runtime_adaptive.backend.adapts_to` turns capabilities on or off from `LLM_PROVIDER_SOURCE`, `WEAVIATE_SOURCE`, `STT_PROVIDER_SOURCE`, `TTS_PROVIDER_SOURCE`, `DOC_PROCESSOR_SOURCE`, `TIKA_SOURCE`, `RAY_SOURCE`, `LIGHTRAG_SOURCE`, `SUPAVISOR_SOURCE` and `OTEL_COLLECTOR_SOURCE`.
 
@@ -102,7 +102,7 @@ LANGMEM_EMBEDDING_MODEL=
 LANGMEM_EMBEDDING_DIM=768
 ```
 
-`LANGMEM_AUTO_CONSOLIDATE` and `LANGMEM_CONSOLIDATION_INTERVAL` are reserved. No scheduler reads them yet (§6.6).
+`LANGMEM_AUTO_CONSOLIDATE` and `LANGMEM_CONSOLIDATION_INTERVAL` are reserved. No scheduler reads them yet (§8.6).
 
 **Extraction.** The LLM call runs outside the database transaction. Accepted facts and the completed session then commit atomically. A per-user lock enforces `LANGMEM_MAX_FACTS_PER_USER`. A failed extraction records a terminal failed session, not partial facts. The LangMem extraction module's docstring documents the full transaction and lock sequence.
 
@@ -457,9 +457,50 @@ curl -X POST http://localhost:${BACKEND_PORT}/lightrag/rerank \
   -d '{"query": "what is graph-augmented RAG?", "documents": ["…", "…"], "top_n": 3}'
 ```
 
-## 6. Dependencies & Integrations
+## 6. Capabilities & limitations
 
-### 6.1. Current — Upstream (this service calls)
+<a id="8-capabilities-limitations"></a>
+<a id="8-capabilities--limitations"></a>
+
+Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Authenticated adaptive orchestration API | supported | tested | Protected routes enforce Supabase user identity or scoped internal caller tokens on both direct and Kong paths. Public health, readiness, metrics, schema, and docs remain intentionally unauthenticated. |
+| Memory research and RAG workflows | partial | tested | Atlas provides bounded memory, Local Deep Researcher, evaluation, and ingestion APIs. Availability and quality depend on the enabled databases, models, extractors, and optional Celery tier. |
+| Media generation gateway | partial | tested | The Backend normalizes bounded ComfyUI and FAL operations with durable operation and optional spend state, while provider availability, cloud retrieval, and synchronous deadlines remain source-specific. |
+| Asynchronous backend jobs | partial | tested | Celery can offload memory consolidation and RAG ingestion with owner-fenced leases, but research and other long-running routes retain separate in-process or database lifecycles. |
+| Trusted backend plugin seam | partial | tested | Atlas validates plugin manifests and route auth modes. It then installs and imports operator-supplied Python code at Backend startup without sandboxing. Recreate the container to apply changes. |
+| Adaptive proxy environment placeholders | stubbed | documented | STT, TTS, document-provider, Neo4j, and Hermes variables are injected for planned paths. No general Backend proxy or Hermes/Neo4j consumer uses all of those settings today. |
+| Backend horizontal availability | not-supported | documented | Atlas fixes the adaptive Backend to one container; PostgreSQL and Redis preserve selected state, but process-local concurrency guards and in-memory fallbacks are not replica-coordinated HA. |
+
+## 7. Troubleshooting
+
+**`/ready` returns 503 for a required upstream.** The response payload names which of `postgres`, `redis` or `litellm` is `unavailable`. Inspect that service's logs. `/health` stays a cheap liveness check, so orchestration can tell a running process from one ready for traffic.
+
+**LangMem extraction fails with "No content model available".** `./start.sh` resolves `LITELLM_DEFAULT_MODEL` from the YAML model catalogs and the enabled providers, then writes it to `.env`. If no content-capable model is active, it stays empty and every extraction call fails. Set `LANGMEM_EXTRACTION_MODEL` or `LITELLM_DEFAULT_MODEL` to a model id that LiteLLM serves (e.g. `ollama/qwen3:8b`), then recreate the Backend.
+
+**Cold start hangs on Supabase.** The Backend has `depends_on: supabase-db-init: { condition: service_completed_successfully }`. If `supabase-db-init` is stuck (usually a bad SQL script in `services/supabase/db/scripts/`), the Backend waits forever. Check `docker logs <project>-supabase-db-init`.
+
+**`HERMES_ENDPOINT` reachable but feature returns 404.** Hermes-native endpoints are not wired (see §8.4). Calls go through LiteLLM's `hermes-agent` model only.
+
+```bash
+docker compose ps backend
+docker compose logs -f backend
+docker exec <project>-backend env | grep -E 'LITELLM|WEAVIATE|HERMES|NEO4J|STT|TTS|DOCLING'
+```
+
+For general startup and routing issues, see [Troubleshooting](../../docs/quick-start/troubleshooting.md).
+
+## 8. Dependencies & Integrations
+
+<a id="6-dependencies-integrations"></a>
+<a id="6-dependencies--integrations"></a>
+
+### 8.1. Current — Upstream (this service calls)
+
+<a id="61-current-upstream-this-service-calls"></a>
+<a id="61-current--upstream-this-service-calls"></a>
 
 _Rows marked planned are documented or intended, not wired yet._
 
@@ -485,7 +526,10 @@ _Rows marked planned are documented or intended, not wired yet._
 | n8n ↔ | agents | current |
 | local-deep-researcher | apps | current |
 
-### 6.2. Current — Downstream (services that call this)
+### 8.2. Current — Downstream (services that call this)
+
+<a id="62-current-downstream-services-that-call-this"></a>
+<a id="62-current--downstream-services-that-call-this"></a>
 
 | Service | Category |
 |---|---|
@@ -496,13 +540,18 @@ _Rows marked planned are documented or intended, not wired yet._
 | jupyterhub | apps |
 | open-webui | apps |
 
-### 6.3. Architecture diagram
+### 8.3. Architecture diagram
+
+<a id="63-architecture-diagram"></a>
 
 ![backend architecture](./architecture.svg)
 
 [Open the full-size diagram](./architecture.html) for a full-screen view.
 
-### 6.4. Future — Missing pair integrations
+### 8.4. Future — Missing pair integrations
+
+<a id="64-future-missing-pair-integrations"></a>
+<a id="64-future--missing-pair-integrations"></a>
 
 - **backend ↔ minio (general artifact API)**
   - *Why:* RAG ingestion reads consumer-declared MinIO corpora through manifest-bound scoped credentials. Research results stay in PostgreSQL, ComfyUI outputs stay with ComfyUI, and `/storage/upload` uses Supabase Storage. These paths do not use the built-in `backend` bucket.
@@ -521,45 +570,19 @@ _Rows marked planned are documented or intended, not wired yet._
   - *Mechanism:* add `graph_service.py`. On memory extraction, mirror canonical entities into Neo4j via `bolt://neo4j-graph-db:7687`. Expose `GET /memory/user/{id}/graph` and `GET /research/{session_id}/entities`.
   - *Effort:* medium. *Confidence:* high.
 
-### 6.5. Future — Candidate new services
+### 8.5. Future — Candidate new services
+
+<a id="65-future-candidate-new-services"></a>
+<a id="65-future--candidate-new-services"></a>
 
 _No high-confidence opportunities identified._
 
-### 6.6. Future — Unused features in this service
+### 8.6. Future — Unused features in this service
+
+<a id="66-future-unused-features-in-this-service"></a>
+<a id="66-future--unused-features-in-this-service"></a>
 
 - **LangMem auto-consolidate scheduler** — *Why pursue:* `LANGMEM_AUTO_CONSOLIDATE` + `LANGMEM_CONSOLIDATION_INTERVAL` are declared and `apscheduler` is in `requirements.txt`, but no scheduler runs in `main.py`. Wiring it enables nightly fact consolidation. *Effort:* small.
 - **STT/TTS proxy endpoints** — *Why pursue:* `STT_ENDPOINT` and `TTS_ENDPOINT` reach the container, but no FastAPI route exposes them. Clients call the engines directly and bypass auth and quota. *Effort:* small.
 - **Supabase Realtime channels** — *Why pursue:* `supabase-realtime` is a `depends_on` of the Backend, but no WebSocket endpoint streams research logs or memory updates. *Effort:* medium.
 - **Per-user storage namespacing** — *Why pursue:* `/storage/upload` is limited to n8n and operator tokens and an allowlisted bucket (`BACKEND_STORAGE_ALLOWED_BUCKETS`). It has no per-user prefix or quota, so it cannot yet back user-facing uploads. *Effort:* small.
-
-## 7. Troubleshooting
-
-**`/ready` returns 503 for a required upstream.** The response payload names which of `postgres`, `redis` or `litellm` is `unavailable`. Inspect that service's logs. `/health` stays a cheap liveness check, so orchestration can tell a running process from one ready for traffic.
-
-**LangMem extraction fails with "No content model available".** `./start.sh` resolves `LITELLM_DEFAULT_MODEL` from the YAML model catalogs and the enabled providers, then writes it to `.env`. If no content-capable model is active, it stays empty and every extraction call fails. Set `LANGMEM_EXTRACTION_MODEL` or `LITELLM_DEFAULT_MODEL` to a model id that LiteLLM serves (e.g. `ollama/qwen3:8b`), then recreate the Backend.
-
-**Cold start hangs on Supabase.** The Backend has `depends_on: supabase-db-init: { condition: service_completed_successfully }`. If `supabase-db-init` is stuck (usually a bad SQL script in `services/supabase/db/scripts/`), the Backend waits forever. Check `docker logs <project>-supabase-db-init`.
-
-**`HERMES_ENDPOINT` reachable but feature returns 404.** Hermes-native endpoints are not wired (see §6.4). Calls go through LiteLLM's `hermes-agent` model only.
-
-```bash
-docker compose ps backend
-docker compose logs -f backend
-docker exec <project>-backend env | grep -E 'LITELLM|WEAVIATE|HERMES|NEO4J|STT|TTS|DOCLING'
-```
-
-For general startup and routing issues, see [Troubleshooting](../../docs/quick-start/troubleshooting.md).
-
-## 8. Capabilities & limitations
-
-Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
-
-| Capability | Status | Verification | Notes |
-|---|---|---|---|
-| Authenticated adaptive orchestration API | supported | tested | Protected routes enforce Supabase user identity or scoped internal caller tokens on both direct and Kong paths. Public health, readiness, metrics, schema, and docs remain intentionally unauthenticated. |
-| Memory research and RAG workflows | partial | tested | Atlas provides bounded memory, Local Deep Researcher, evaluation, and ingestion APIs. Availability and quality depend on the enabled databases, models, extractors, and optional Celery tier. |
-| Media generation gateway | partial | tested | The Backend normalizes bounded ComfyUI and FAL operations with durable operation and optional spend state, while provider availability, cloud retrieval, and synchronous deadlines remain source-specific. |
-| Asynchronous backend jobs | partial | tested | Celery can offload memory consolidation and RAG ingestion with owner-fenced leases, but research and other long-running routes retain separate in-process or database lifecycles. |
-| Trusted backend plugin seam | partial | tested | Atlas validates plugin manifests and route auth modes. It then installs and imports operator-supplied Python code at Backend startup without sandboxing. Recreate the container to apply changes. |
-| Adaptive proxy environment placeholders | stubbed | documented | STT, TTS, document-provider, Neo4j, and Hermes variables are injected for planned paths. No general Backend proxy or Hermes/Neo4j consumer uses all of those settings today. |
-| Backend horizontal availability | not-supported | documented | Atlas fixes the adaptive Backend to one container; PostgreSQL and Redis preserve selected state, but process-local concurrency guards and in-memory fallbacks are not replica-coordinated HA. |

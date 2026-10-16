@@ -45,6 +45,7 @@ from .capabilities_resolver import (
 )
 from .capabilities_section_writer import (
     CapabilitySectionError,
+    _preserve_heading_aliases,
     upsert_capabilities_section,
 )
 from .deps_section_writer import render_section
@@ -134,7 +135,8 @@ def _extract_future_blocks(deps_text: str) -> dict[str, str]:
             # real subsection heading.
             continue
         key = m.group(1)
-        body_start = m.end()
+        closing_hashes = re.match(r"[ \t]+#+[ \t]*(?=\r\n|\r|\n|$)", deps_text[m.end():])
+        body_start = m.end() + (closing_hashes.end() if closing_hashes else 0)
         # Block extends to the next ### or ## header that is NOT inside a fence.
         boundaries = [
             b.start()
@@ -145,9 +147,10 @@ def _extract_future_blocks(deps_text: str) -> dict[str, str]:
             if b is not None
         ]
         end = min(boundaries) if boundaries else len(deps_text)
-        body = deps_text[body_start:end].strip()
+        # Trim heading-line padding and outer separators, not authored body spaces.
+        body = deps_text[body_start:end].lstrip(" \t").strip("\r\n")
         # Strip placeholder
-        if body == PLACEHOLDER_LINE or not body:
+        if body.strip() == PLACEHOLDER_LINE or not body.strip():
             out[key] = ""
         else:
             out[key] = body
@@ -241,14 +244,14 @@ def _render_section_with_future(
         auto_section = placeholder_pattern.sub(
             lambda m: m.group(1) + body, auto_section, count=1
         )
-    return auto_section
+    return _preserve_heading_aliases(auto_section, existing_readme[sl[0]:sl[1]])
 
 
 def _upsert_section(readme_text: str, section: str) -> str:
     """Replace an existing Dependencies section, or append it if missing."""
     sl = _slice_deps_section(readme_text)
     if sl is not None:
-        return (readme_text[: sl[0]] + section.rstrip() + "\n\n" + readme_text[sl[1]:]).rstrip() + "\n"
+        return (readme_text[: sl[0]] + section.rstrip("\r\n") + "\n\n" + readme_text[sl[1]:]).rstrip("\r\n") + "\n"
     return readme_text.rstrip() + "\n\n" + section
 
 
