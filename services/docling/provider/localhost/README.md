@@ -49,10 +49,35 @@ Face, so it takes longer. Later runs reuse the cache.
 
 ### 1.4. Test the API
 
+Use Bash from the repository root after §1.1 installs the native dependencies.
+Use the same shell settings as the running provider.
+The loader reads repository `.env` with the server's shell precedence and ignores `ATLAS_ENV_FILE`.
+It preserves usable token bytes and refuses absent, empty or whitespace-only credentials before `curl`.
+An unset or empty native port uses `18159`.
+
 ```bash
 # Terminal 3, opened at the repository root while Atlas and the provider run
-export DOCLING_API_TOKEN="$(sed -n 's/^DOCLING_API_TOKEN=//p' .env)"
-curl -X POST http://localhost:18159/v1/document/convert \
+if ! docling_values="$(uv run --project services/docling/provider/localhost python - <<'PYTHON'
+import os
+import shlex
+from pathlib import Path
+from dotenv import load_dotenv
+
+if Path(".env").exists():
+    load_dotenv(Path(".env"))
+token = os.getenv("DOCLING_API_TOKEN", "")
+if not token.strip():
+    raise SystemExit("DOCLING_API_TOKEN must be set in the shell or repository .env.")
+port = int(os.getenv("DOCLING_LOCALHOST_PORT") or 18159)
+print(f"export DOCLING_API_TOKEN={shlex.quote(token)}")
+print(f"export DOCLING_LOCALHOST_PORT={shlex.quote(str(port))}")
+print(f"export DOCLING_URL={shlex.quote(f'http://localhost:{port}')}")
+PYTHON
+)"; then
+  exit 1
+fi
+eval "$docling_values"
+curl -X POST "${DOCLING_URL}/v1/document/convert" \
   -H "Authorization: Bearer ${DOCLING_API_TOKEN}" \
   -F "file=@document.pdf" \
   -F "output_format=markdown" \
@@ -63,12 +88,18 @@ curl -X POST http://localhost:18159/v1/document/convert \
 
 ### 2.1. Environment Variables
 
-The server reads these from the shell or from the repository `.env`:
+Atlas generates `DOCLING_API_TOKEN` in repository `.env` during §1.2.
+The server loads that file once at startup; exported shell values take precedence, including empty values.
+It ignores `ATLAS_ENV_FILE`.
+With required authentication, an absent or empty token leaves protected routes unavailable.
+
+Run this configuration block from `services/docling/provider/localhost` before starting the server.
+Keep the generated token in repository `.env`, or export a token for the server shell.
+These exports configure the server:
 
 ```bash
 export DOCLING_LOCALHOST_PORT=18159      # Server port (default: 18159)
 export DOCLING_LOCALHOST_BIND_HOST=127.0.0.1  # Listen address (see below)
-export DOCLING_API_TOKEN="$(sed -n 's/^DOCLING_API_TOKEN=//p' ../../../../.env)"
 export DOCLING_AUTH_MODE=required
 export DOCLING_MAX_FILE_SIZE=52428800
 export DOCLING_UPLOAD_TIMEOUT_SECONDS=120
@@ -123,13 +154,14 @@ count. The same rule applies to the GPU provider and LightRAG bundle.
 
 ## 4. API Examples
 
-The examples below assume `DOCLING_API_TOKEN` was exported from the generated
-repository `.env` as shown in §1.4.
+Run §1.4 first in the same shell to export the usable token and native URL.
+Before repeating §1.4, update or unset client-shell token and port exports to match the running provider.
+The loader preserves existing exports, so changing repository `.env` alone does not replace them.
 
 ### 4.1. Basic Conversion
 
 ```bash
-curl -X POST http://localhost:18159/v1/document/convert \
+curl -X POST "${DOCLING_URL}/v1/document/convert" \
   -H "Authorization: Bearer ${DOCLING_API_TOKEN}" \
   -F "file=@report.pdf" \
   -F "output_format=markdown"
@@ -138,7 +170,7 @@ curl -X POST http://localhost:18159/v1/document/convert \
 ### 4.2. With OCR and Table Extraction
 
 ```bash
-curl -X POST http://localhost:18159/v1/document/convert \
+curl -X POST "${DOCLING_URL}/v1/document/convert" \
   -H "Authorization: Bearer ${DOCLING_API_TOKEN}" \
   -F "file=@scanned.pdf" \
   -F "use_ocr=always" \
@@ -148,7 +180,7 @@ curl -X POST http://localhost:18159/v1/document/convert \
 ### 4.3. RAG Chunking
 
 ```bash
-curl -X POST http://localhost:18159/v1/document/convert \
+curl -X POST "${DOCLING_URL}/v1/document/convert" \
   -H "Authorization: Bearer ${DOCLING_API_TOKEN}" \
   -F "file=@document.docx" \
   -F "enable_chunking=true" \
@@ -290,13 +322,16 @@ The device comes from `DOCLING_DEVICE` only: `cpu` (default), `cuda` or
 
 ### 10.1. Python Integration
 
+Run §1.4 in the same shell first to export `DOCLING_API_TOKEN` and `DOCLING_URL`.
+Use those settings for the Python and batch examples below.
+
 ```python
 import requests
 import os
 
 with open("document.pdf", "rb") as f:
     response = requests.post(
-        "http://localhost:18159/v1/document/convert",
+        f"{os.environ['DOCLING_URL']}/v1/document/convert",
         headers={"Authorization": f"Bearer {os.environ['DOCLING_API_TOKEN']}"},
         files={"file": f},
         data={
@@ -318,7 +353,7 @@ print(f"Found {result['metadata']['tables']} tables")
 ```bash
 # Process multiple files; the response is JSON with the text in "content"
 for file in *.pdf; do
-  curl -X POST http://localhost:18159/v1/document/convert \
+  curl -X POST "${DOCLING_URL}/v1/document/convert" \
     -H "Authorization: Bearer ${DOCLING_API_TOKEN}" \
     -F "file=@$file" \
     -F "output_format=markdown" \

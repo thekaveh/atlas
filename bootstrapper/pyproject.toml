@@ -56,6 +56,7 @@ dev = [
     "mkdocs-material>=9.6,<10",
     "packaging>=23.0",      # Version parsing for tests/test_textual_floor.py; only ever
     # resolved transitively (via pytest) before, declare it directly.
+    "python-dotenv==1.2.2",
     "python-multipart==0.0.32",
     "pytest>=7.0.0",
     "pytest-cov>=7.1,<8",
