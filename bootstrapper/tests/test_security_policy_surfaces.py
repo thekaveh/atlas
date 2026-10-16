@@ -132,3 +132,13 @@ def test_policy_scan_wording_names_the_live_gate_jobs() -> None:
         assert job_name in policy, job_name
     assert ".trivyignore.yaml" in policy
     assert "not yet a required check" in policy
+
+
+def test_policy_parakeet_versions_match_gpu_runtime_lock() -> None:
+    policy = (ROOT / POLICY_SOURCE).read_text(encoding="utf-8")
+    example = next(part for part in re.split(r"\n(?=- )", policy)
+                   if "Parakeet GPU" in part)
+    lock = (ROOT / "services/parakeet/provider/gpu/requirements-locked.txt").read_text(encoding="utf-8")
+    for package, label in (("nemo-toolkit", "NeMo"), ("transformers", "Transformers")):
+        version = re.search(rf"^{package}==([^\s]+)$", lock, re.MULTILINE).group(1)
+        assert re.search(rf"\b{label}\s+`{re.escape(version)}`", example), label
