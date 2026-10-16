@@ -132,13 +132,43 @@ MinIO data lives in the `${PROJECT_NAME}-minio-data` named Docker volume mounted
 - **Rotate a service-account key:** edit `MINIO_<NAME>_ACCESS_KEY` and `MINIO_<NAME>_SECRET_KEY` in `.env`, then run `docker compose -p <PROJECT_NAME> up --force-recreate minio-init` to re-provision. If the stack uses overlays or a consumer manifest, run `./start.sh` again instead.
 - **Logs:** `docker logs ${PROJECT_NAME}-minio` and `docker logs ${PROJECT_NAME}-minio-init`.
 
-## 10. Dependencies & Integrations
+## 10. Capabilities & limitations
 
-### 10.1. Current — Upstream (this service calls)
+<a id="12-capabilities-limitations"></a>
+<a id="12-capabilities--limitations"></a>
+
+Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| S3-compatible artifact storage | supported | tested | Atlas exposes the MinIO S3 API and console directly and through Kong for in-stack artifacts, lakehouse data, traces, models, and backups. |
+| Scoped consumer bucket provisioning | supported | tested | The idempotent init service creates built-in and declared extra-consumer buckets, policies, and service-account credentials with scoped access. |
+| Highly available storage lifecycle controls | not-supported | documented | The stock single-node deployment configures no replication, object versioning, lifecycle retention, or server-side encryption policy. |
+
+## 11. Troubleshooting
+
+- **`SignatureDoesNotMatch`** — most often clock skew between host and container. Sync your host clock.
+- **Browser-based S3 client fails with CORS** — Atlas sets no MinIO CORS policy, and MinIO reflects any origin by default. A CORS failure usually comes from the client or a proxy between them; check the request's `Origin` and the Kong route. Restrict origins with `mc admin config` if needed.
+- **`403 AccessDenied`** — confirm the consumer credential's scoped policy matches the target bucket. Use root credentials to inspect: `mc admin policy info local <consumer>-policy`.
+- **Cross-path-style failures** — MinIO requires path-style addressing. In boto3 use `Config(s3={"addressing_style": "path"})`.
+- **`minio` container restart-loops** — usually `MINIO_ROOT_PASSWORD` is empty. If it is blank in `.env`, delete the line and rerun `./start.sh`, which generates a new value.
+
+## 12. Dependencies & Integrations
+
+<a id="10-dependencies-integrations"></a>
+<a id="10-dependencies--integrations"></a>
+
+### 12.1. Current — Upstream (this service calls)
+
+<a id="101-current-upstream-this-service-calls"></a>
+<a id="101-current--upstream-this-service-calls"></a>
 
 _No upstream calls._
 
-### 10.2. Current — Downstream (services that call this)
+### 12.2. Current — Downstream (services that call this)
+
+<a id="102-current-downstream-services-that-call-this"></a>
+<a id="102-current--downstream-services-that-call-this"></a>
 
 | Service | Category | Status |
 |---|---|---|
@@ -160,13 +190,18 @@ _No upstream calls._
 | mlflow | apps | current |
 | zeppelin | apps | current |
 
-### 10.3. Architecture diagram
+### 12.3. Architecture diagram
+
+<a id="103-architecture-diagram"></a>
 
 ![minio architecture](./architecture.svg)
 
 [Open the full-size diagram](./architecture.html) for a full-screen view.
 
-### 10.4. Future — Missing pair integrations
+### 12.4. Future — Missing pair integrations
+
+<a id="104-future-missing-pair-integrations"></a>
+<a id="104-future--missing-pair-integrations"></a>
 
 - **minio ↔ backend (general artifact API)** — *Why:* Backend RAG ingestion reads consumer-declared corpora with each store's scoped MinIO account. The built-in `backend` bucket is not yet a general destination for large blobs, model checkpoints or embedding caches. *Mechanism:* add an artifact client at `http://minio:9000` using `MINIO_BACKEND_ACCESS_KEY`/`SECRET_KEY`, with upload/download routes and path-style addressing. *Effort:* small. *Confidence:* high.
 - **minio ↔ n8n** — *Why:* the `n8n` bucket and keys are pre-provisioned, and n8n's S3 node supports a custom endpoint. Workflows could store files above Supabase Storage's 50 MB limit. *Mechanism:* n8n S3 credential at `http://minio:9000`; optional `N8N_EXTERNAL_BINARY_DATA_MODE=s3`. *Effort:* small. *Confidence:* high.
@@ -174,31 +209,19 @@ _No upstream calls._
 - **minio ↔ comfyui** — *Why:* ComfyUI outputs sit in an ephemeral volume, and a `comfyui` bucket exists. Uploaded renders would let backend, n8n and open-webui share artifacts across `./stop.sh --cold`. *Mechanism:* post-generation hook (custom node or sidecar) uploads `output/` to `s3://comfyui/` via `MINIO_COMFYUI_*`. *Effort:* medium. *Confidence:* medium.
 - **minio ↔ doc-processor** — *Why:* docling output has no persistent landing zone, and the `docling` bucket is unused. Downstream RAG flows cannot find outputs at stable URIs. *Mechanism:* doc-processor writes payloads to `s3://docling/<source-hash>/` via `MINIO_DOCLING_*` keys. *Effort:* small. *Confidence:* high.
 
-### 10.5. Future — Candidate new services
+### 12.5. Future — Candidate new services
+
+<a id="105-future-candidate-new-services"></a>
+<a id="105-future--candidate-new-services"></a>
 
 _No high-confidence opportunities identified._
 
-### 10.6. Future — Unused features in this service
+### 12.6. Future — Unused features in this service
+
+<a id="106-future-unused-features-in-this-service"></a>
+<a id="106-future--unused-features-in-this-service"></a>
 
 - **Bucket notifications (webhook/Redis/NATS targets)** — *Why pursue:* MinIO can POST object-created events to a webhook or Redis stream. Backend, n8n and Weaviate could react to uploads instead of polling. *Effort:* medium.
 - **Object lifecycle rules (expiration + versioning)** — *Why pursue:* the `comfyui` and `jupyter` buckets grow without limit. Per-bucket ILM rules (expire after N days, keep N versions) are one `mc ilm` config in `init-minio.sh`. *Effort:* small.
 - **Server-side encryption (SSE-S3 / SSE-KMS)** — *Why pursue:* the stack stores secrets and user uploads in plaintext on the host volume. SSE-S3 with a generated KEK encrypts at rest with no consumer change. *Effort:* medium.
 - **STS / AssumeRole for per-user JupyterHub creds** — *Why pursue:* replaces the single shared `MINIO_JUPYTER_*` credential with short-lived per-user tokens. *Effort:* large.
-
-## 11. Troubleshooting
-
-- **`SignatureDoesNotMatch`** — most often clock skew between host and container. Sync your host clock.
-- **Browser-based S3 client fails with CORS** — Atlas sets no MinIO CORS policy, and MinIO reflects any origin by default. A CORS failure usually comes from the client or a proxy between them; check the request's `Origin` and the Kong route. Restrict origins with `mc admin config` if needed.
-- **`403 AccessDenied`** — confirm the consumer credential's scoped policy matches the target bucket. Use root credentials to inspect: `mc admin policy info local <consumer>-policy`.
-- **Cross-path-style failures** — MinIO requires path-style addressing. In boto3 use `Config(s3={"addressing_style": "path"})`.
-- **`minio` container restart-loops** — usually `MINIO_ROOT_PASSWORD` is empty. If it is blank in `.env`, delete the line and rerun `./start.sh`, which generates a new value.
-
-## 12. Capabilities & limitations
-
-Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
-
-| Capability | Status | Verification | Notes |
-|---|---|---|---|
-| S3-compatible artifact storage | supported | tested | Atlas exposes the MinIO S3 API and console directly and through Kong for in-stack artifacts, lakehouse data, traces, models, and backups. |
-| Scoped consumer bucket provisioning | supported | tested | The idempotent init service creates built-in and declared extra-consumer buckets, policies, and service-account credentials with scoped access. |
-| Highly available storage lifecycle controls | not-supported | documented | The stock single-node deployment configures no replication, object versioning, lifecycle retention, or server-side encryption policy. |

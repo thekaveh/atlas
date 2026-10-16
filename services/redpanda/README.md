@@ -73,39 +73,19 @@ query = (
 )
 ```
 
-## 5. Dependencies & Integrations
+## 5. Capabilities & limitations
 
-### 5.1. Current — Upstream (this service calls)
+<a id="8-capabilities-limitations"></a>
+<a id="8-capabilities--limitations"></a>
 
-_No upstream calls._
+Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
-### 5.2. Current — Downstream (services that call this)
-
-| Service | Category | Status |
-|---|---|---|
-| kong | infra | current |
-| spark | data | current |
-| airflow | agents | optional: an operator-authored DAG; Atlas passes only SPARK_KAFKA_BOOTSTRAP_SERVERS |
-| jupyterhub | apps | current |
-| zeppelin | apps | optional: Kafka jars not bundled (#1376); Atlas passes only SPARK_KAFKA_BOOTSTRAP_SERVERS |
-
-### 5.3. Architecture diagram
-
-![redpanda architecture](./architecture.svg)
-
-[Open the full-size diagram](./architecture.html) for a full-screen view.
-
-### 5.4. Future — Missing pair integrations
-
-_No high-confidence opportunities identified._
-
-### 5.5. Future — Candidate new services
-
-_No high-confidence opportunities identified._
-
-### 5.6. Future — Unused features in this service
-
-_No high-confidence opportunities identified._
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Single-node Kafka-compatible streaming | supported | tested | Atlas runs a Redpanda broker in single-node development mode and exposes its Kafka API to in-stack and host clients. |
+| Topic bootstrap and broker console | supported | tested | An idempotent init container creates the declared Atlas topics and the bundled Console provides browser-based broker inspection. |
+| Production broker security and clustering | not-supported | documented | The stock deployment has one broker and configures no SASL, TLS, Schema Registry, Kafka Connect, or multi-broker replication. |
+| Broker and Console access control | partial | documented | The Kong Console route uses Basic authentication and the dashboard_user ACL. The direct Console and Kafka listener are ungated; keep the default HOST_BIND_IP=127.0.0.1: on shared hosts. |
 
 ## 6. Scope
 
@@ -117,13 +97,56 @@ Atlas does not include Kafka Connect, Debezium, Redpanda Connect, Schema Registr
 - Spark cannot find the `kafka` format: run `./start.sh` so it rebuilds the local Spark image (`services/spark/build/Dockerfile` installs the Kafka jars under `/opt/spark/jars`). Zeppelin and client-mode Airflow drivers need `--packages` (see §1).
 - Host Kafka clients cannot connect: use `localhost:${REDPANDA_KAFKA_PORT}`, not the Kong port. Kafka is a binary protocol and is intentionally not routed through Kong.
 
-## 8. Capabilities & limitations
+## 8. Dependencies & Integrations
 
-Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+<a id="5-dependencies-integrations"></a>
+<a id="5-dependencies--integrations"></a>
 
-| Capability | Status | Verification | Notes |
-|---|---|---|---|
-| Single-node Kafka-compatible streaming | supported | tested | Atlas runs a Redpanda broker in single-node development mode and exposes its Kafka API to in-stack and host clients. |
-| Topic bootstrap and broker console | supported | tested | An idempotent init container creates the declared Atlas topics and the bundled Console provides browser-based broker inspection. |
-| Production broker security and clustering | not-supported | documented | The stock deployment has one broker and configures no SASL, TLS, Schema Registry, Kafka Connect, or multi-broker replication. |
-| Broker and Console access control | partial | documented | The Kong Console route uses Basic authentication and the dashboard_user ACL. The direct Console and Kafka listener are ungated; keep the default HOST_BIND_IP=127.0.0.1: on shared hosts. |
+### 8.1. Current — Upstream (this service calls)
+
+<a id="51-current-upstream-this-service-calls"></a>
+<a id="51-current--upstream-this-service-calls"></a>
+
+_No upstream calls._
+
+### 8.2. Current — Downstream (services that call this)
+
+<a id="52-current-downstream-services-that-call-this"></a>
+<a id="52-current--downstream-services-that-call-this"></a>
+
+| Service | Category | Status |
+|---|---|---|
+| kong | infra | current |
+| spark | data | current |
+| airflow | agents | optional: an operator-authored DAG; Atlas passes only SPARK_KAFKA_BOOTSTRAP_SERVERS |
+| jupyterhub | apps | current |
+| zeppelin | apps | optional: Kafka jars not bundled (#1376); Atlas passes only SPARK_KAFKA_BOOTSTRAP_SERVERS |
+
+### 8.3. Architecture diagram
+
+<a id="53-architecture-diagram"></a>
+
+![redpanda architecture](./architecture.svg)
+
+[Open the full-size diagram](./architecture.html) for a full-screen view.
+
+### 8.4. Future — Missing pair integrations
+
+<a id="54-future-missing-pair-integrations"></a>
+<a id="54-future--missing-pair-integrations"></a>
+
+_No high-confidence opportunities identified._
+
+### 8.5. Future — Candidate new services
+
+<a id="55-future-candidate-new-services"></a>
+<a id="55-future--candidate-new-services"></a>
+
+_No high-confidence opportunities identified._
+
+### 8.6. Future — Unused features in this service
+
+<a id="56-future-unused-features-in-this-service"></a>
+<a id="56-future--unused-features-in-this-service"></a>
+
+_No high-confidence opportunities identified._

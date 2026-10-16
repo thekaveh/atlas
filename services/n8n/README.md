@@ -123,62 +123,22 @@ When `LIGHTRAG_SOURCE != disabled`, n8n containers receive `LIGHTRAG_ENDPOINT` a
 - Auth: header `X-API-Key: ={{$env.LIGHTRAG_API_KEY}}` only. Do not also send the key as `Authorization: Bearer`; LightRAG rejects that with 401.
 - Body (JSON): `{"query": "Your question", "mode": "hybrid"}`. `mode` is `local`, `global`, `hybrid`, `naive`, `mix` or `bypass`; the default is `mix`.
 
-<a id="6-dependencies--integrations"></a>
+## 6. Capabilities & limitations
 
-## 6. Dependencies & Integrations
+<a id="8-capabilities-limitations"></a>
+<a id="8-capabilities--limitations"></a>
 
-### 6.1. Current — Upstream (this service calls)
+Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
-| Service | Category |
-|---|---|
-| redis | data |
-| supabase | data |
-| supavisor | data |
-| weaviate | data |
-| litellm | llm |
-| crawl4ai | media |
-| doc-processor | media |
-| searxng | media |
-| stt-provider | media |
-| tika | media |
-| tts-provider | media |
-| hermes | agents |
-| lightrag | agents |
-| backend ↔ | apps |
-
-### 6.2. Current — Downstream (services that call this)
-
-| Service | Category |
-|---|---|
-| kong | infra |
-| prometheus | infra |
-| backend ↔ | apps |
-| jupyterhub | apps |
-
-### 6.3. Architecture diagram
-
-![n8n architecture](./architecture.svg)
-
-[Open the full-size diagram](./architecture.html) for a full-screen view.
-
-### 6.4. Future — Missing pair integrations
-
-- **n8n ↔ comfyui** — *Why:* `n8n-nodes-comfyui` is installed by `n8n-init`, but no `COMFYUI_ENDPOINT` env is injected into n8n's compose, so users hand-enter `http://comfyui:18188` in every workflow credential. *Mechanism:* inject `COMFYUI_ENDPOINT=${COMFYUI_ENDPOINT}` (matches the STT/TTS/DOCLING pattern); add `comfyui` to `runtime_deps.optional`. *Effort:* small. *Confidence:* high.
-- **n8n ↔ minio** — *Why:* MinIO provisions an `n8n` bucket and `MINIO_N8N_*` credentials. n8n receives neither the credentials nor the S3 endpoint, so the bucket is unused. *Mechanism:* env-inject `S3_ENDPOINT=http://minio:9000`, `S3_BUCKET=${MINIO_BUCKET_N8N}`, `S3_ACCESS_KEY`/`S3_SECRET_KEY`; add `minio` to `runtime_deps.optional`. Path-style addressing required. *Effort:* small. *Confidence:* high.
-- **n8n ↔ neo4j** — *Why:* Neo4j is the stack's graph store but has no first-party n8n node; KG-from-document flows can't write to Neo4j without custom HTTP-node calls. *Mechanism:* inject `NEO4J_URI=bolt://neo4j-graph-db:7687` + creds; use the HTTP Request node hitting `http://neo4j-graph-db:7474/db/neo4j/tx/commit` until a vetted community node is adopted. *Effort:* medium. *Confidence:* medium.
-- **n8n ↔ searxng** — *Why:* n8n advertises a `SearXNG Tool` sub-node for AI-agent workflows but the endpoint is not injected. *Mechanism:* inject `SEARXNG_ENDPOINT=http://searxng:8080`; add `searxng` to `runtime_deps.optional`. *Effort:* small. *Confidence:* high.
-- **n8n ↔ openclaw** — *Why:* OpenClaw is the messaging-platform gateway. Wiring it to n8n turns every n8n webhook into a chat-triggered automation. *Mechanism:* OpenClaw → n8n via webhook at `http://n8n:5678/webhook/<path>`; n8n → OpenClaw via HTTP Request node; shared bearer secret in both manifests. *Effort:* medium. *Confidence:* medium.
-
-### 6.5. Future — Candidate new services
-
-- **Browserless** ([details](../../docs/reference/candidate-decisions.md#candidate-browserless)) — *Headline:* headless-Chrome backend so n8n can scrape JS-rendered pages, render PDFs, screenshot. *Wires into:* searxng, doc-processor, backend.
-- **NocoDB** ([details](../../docs/reference/candidate-decisions.md#candidate-nocodb)) — *Headline:* spreadsheet UI over the existing Supabase Postgres, with a first-party n8n node for row CRUD. *Wires into:* supabase, backend.
-
-### 6.6. Future — Unused features in this service
-
-- **MCP Server Trigger node** — *Why pursue:* the pinned n8n runtime ships first-party MCP client, tool, registry and trigger nodes. No bundled workflow exposes an Atlas workflow as an MCP tool for Hermes or LiteLLM clients. *Effort:* small.
-- **Native Weaviate Vector Store cluster node** — *Why pursue:* upstream ships a native Weaviate vector-store node; workflows currently talk to Weaviate via raw HTTP. Switching unlocks embeddings + retrievers without custom code. *Effort:* small.
-- **Signed webhook verification** — *Why pursue:* staged Backend-calling examples use n8n Header Auth. Provider-native signature verification would also cover third-party event sources that sign request bodies. *Effort:* small.
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Queue-mode workflow execution | supported | tested | Atlas serializes database migrations, stores workflows in Postgres, and offloads manual and triggered executions through Redis to a dedicated worker. |
+| Bounded consumer workflow seeding | partial | tested | The bootstrapper validates, namespaces, imports, activates, and reconciles declared consumer workflows with time and size bounds, but continues best-effort when one workflow fails. |
+| Bundled AI workflow examples | partial | tested | Atlas ships structurally validated research, memory, and image examples, while operators must import staged examples and bind real credentials before production webhook activation. |
+| Workflow credential propagation | partial | tested | Both web and worker expose a scoped Backend token plus the stack-wide LiteLLM master key and provider service credentials to workflow expressions. Trusted authors must avoid returning them in outputs or webhooks. |
+| Editor and webhook access control | partial | tested | n8n supplies its own login, while direct and CORS-only Kong routes add no Atlas auth; staged privileged examples require operator-bound Header Auth. The legacy bundled /research fixture declares no authentication and must be secured before activation. |
+| Idempotent external side effects | not-supported | documented | Queue retries, manual re-runs, and webhook redelivery can repeat arbitrary workflow side effects; Atlas cannot make third-party nodes transactional or universally idempotent. |
+| Workflow execution high availability | partial | documented | Postgres and Redis preserve workflow and queue state across process restarts, but Atlas fixes one web and one worker replica with no multi-node failover certification. |
 
 ## 7. Troubleshooting
 
@@ -199,16 +159,77 @@ docker compose logs n8n-init        # one-shot; useful for first-run debug
 
 For general startup and routing issues, see [Troubleshooting](../../docs/quick-start/troubleshooting.md).
 
-## 8. Capabilities & limitations
+## 8. Dependencies & Integrations
 
-Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+<a id="6-dependencies-integrations"></a>
+<a id="6-dependencies--integrations"></a>
 
-| Capability | Status | Verification | Notes |
-|---|---|---|---|
-| Queue-mode workflow execution | supported | tested | Atlas serializes database migrations, stores workflows in Postgres, and offloads manual and triggered executions through Redis to a dedicated worker. |
-| Bounded consumer workflow seeding | partial | tested | The bootstrapper validates, namespaces, imports, activates, and reconciles declared consumer workflows with time and size bounds, but continues best-effort when one workflow fails. |
-| Bundled AI workflow examples | partial | tested | Atlas ships structurally validated research, memory, and image examples, while operators must import staged examples and bind real credentials before production webhook activation. |
-| Workflow credential propagation | partial | tested | Both web and worker expose a scoped Backend token plus the stack-wide LiteLLM master key and provider service credentials to workflow expressions. Trusted authors must avoid returning them in outputs or webhooks. |
-| Editor and webhook access control | partial | tested | n8n supplies its own login, while direct and CORS-only Kong routes add no Atlas auth; staged privileged examples require operator-bound Header Auth. The legacy bundled /research fixture declares no authentication and must be secured before activation. |
-| Idempotent external side effects | not-supported | documented | Queue retries, manual re-runs, and webhook redelivery can repeat arbitrary workflow side effects; Atlas cannot make third-party nodes transactional or universally idempotent. |
-| Workflow execution high availability | partial | documented | Postgres and Redis preserve workflow and queue state across process restarts, but Atlas fixes one web and one worker replica with no multi-node failover certification. |
+### 8.1. Current — Upstream (this service calls)
+
+<a id="61-current-upstream-this-service-calls"></a>
+<a id="61-current--upstream-this-service-calls"></a>
+
+| Service | Category |
+|---|---|
+| redis | data |
+| supabase | data |
+| supavisor | data |
+| weaviate | data |
+| litellm | llm |
+| crawl4ai | media |
+| doc-processor | media |
+| searxng | media |
+| stt-provider | media |
+| tika | media |
+| tts-provider | media |
+| hermes | agents |
+| lightrag | agents |
+| backend ↔ | apps |
+
+### 8.2. Current — Downstream (services that call this)
+
+<a id="62-current-downstream-services-that-call-this"></a>
+<a id="62-current--downstream-services-that-call-this"></a>
+
+| Service | Category |
+|---|---|
+| kong | infra |
+| prometheus | infra |
+| backend ↔ | apps |
+| jupyterhub | apps |
+
+### 8.3. Architecture diagram
+
+<a id="63-architecture-diagram"></a>
+
+![n8n architecture](./architecture.svg)
+
+[Open the full-size diagram](./architecture.html) for a full-screen view.
+
+### 8.4. Future — Missing pair integrations
+
+<a id="64-future-missing-pair-integrations"></a>
+<a id="64-future--missing-pair-integrations"></a>
+
+- **n8n ↔ comfyui** — *Why:* `n8n-nodes-comfyui` is installed by `n8n-init`, but no `COMFYUI_ENDPOINT` env is injected into n8n's compose, so users hand-enter `http://comfyui:18188` in every workflow credential. *Mechanism:* inject `COMFYUI_ENDPOINT=${COMFYUI_ENDPOINT}` (matches the STT/TTS/DOCLING pattern); add `comfyui` to `runtime_deps.optional`. *Effort:* small. *Confidence:* high.
+- **n8n ↔ minio** — *Why:* MinIO provisions an `n8n` bucket and `MINIO_N8N_*` credentials. n8n receives neither the credentials nor the S3 endpoint, so the bucket is unused. *Mechanism:* env-inject `S3_ENDPOINT=http://minio:9000`, `S3_BUCKET=${MINIO_BUCKET_N8N}`, `S3_ACCESS_KEY`/`S3_SECRET_KEY`; add `minio` to `runtime_deps.optional`. Path-style addressing required. *Effort:* small. *Confidence:* high.
+- **n8n ↔ neo4j** — *Why:* Neo4j is the stack's graph store but has no first-party n8n node; KG-from-document flows can't write to Neo4j without custom HTTP-node calls. *Mechanism:* inject `NEO4J_URI=bolt://neo4j-graph-db:7687` + creds; use the HTTP Request node hitting `http://neo4j-graph-db:7474/db/neo4j/tx/commit` until a vetted community node is adopted. *Effort:* medium. *Confidence:* medium.
+- **n8n ↔ searxng** — *Why:* n8n advertises a `SearXNG Tool` sub-node for AI-agent workflows but the endpoint is not injected. *Mechanism:* inject `SEARXNG_ENDPOINT=http://searxng:8080`; add `searxng` to `runtime_deps.optional`. *Effort:* small. *Confidence:* high.
+- **n8n ↔ openclaw** — *Why:* OpenClaw is the messaging-platform gateway. Wiring it to n8n turns every n8n webhook into a chat-triggered automation. *Mechanism:* OpenClaw → n8n via webhook at `http://n8n:5678/webhook/<path>`; n8n → OpenClaw via HTTP Request node; shared bearer secret in both manifests. *Effort:* medium. *Confidence:* medium.
+
+### 8.5. Future — Candidate new services
+
+<a id="65-future-candidate-new-services"></a>
+<a id="65-future--candidate-new-services"></a>
+
+- **Browserless** ([details](../../docs/reference/candidate-decisions.md#candidate-browserless)) — *Headline:* headless-Chrome backend so n8n can scrape JS-rendered pages, render PDFs, screenshot. *Wires into:* searxng, doc-processor, backend.
+- **NocoDB** ([details](../../docs/reference/candidate-decisions.md#candidate-nocodb)) — *Headline:* spreadsheet UI over the existing Supabase Postgres, with a first-party n8n node for row CRUD. *Wires into:* supabase, backend.
+
+### 8.6. Future — Unused features in this service
+
+<a id="66-future-unused-features-in-this-service"></a>
+<a id="66-future--unused-features-in-this-service"></a>
+
+- **MCP Server Trigger node** — *Why pursue:* the pinned n8n runtime ships first-party MCP client, tool, registry and trigger nodes. No bundled workflow exposes an Atlas workflow as an MCP tool for Hermes or LiteLLM clients. *Effort:* small.
+- **Native Weaviate Vector Store cluster node** — *Why pursue:* upstream ships a native Weaviate vector-store node; workflows currently talk to Weaviate via raw HTTP. Switching unlocks embeddings + retrievers without custom code. *Effort:* small.
+- **Signed webhook verification** — *Why pursue:* staged Backend-calling examples use n8n Header Auth. Provider-native signature verification would also cover third-party event sources that sign request bodies. *Effort:* small.

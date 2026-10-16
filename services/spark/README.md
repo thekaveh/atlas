@@ -116,53 +116,10 @@ It runs the boto3 session lifecycle (`start_session` → `get_session_endpoint` 
 
 EMR Serverless support is this helper, not a `SPARK_SOURCE` value. Its sessions are ephemeral, billed and IAM-gated. The client needs a separate Python environment that matches EMR's Spark version. Terminate each session to stop billing. The helper script lists the exact version pins, IAM actions and session rules.
 
-## 5. Dependencies & Integrations
+## 5. Capabilities & limitations
 
-### 5.1. Current — Upstream (this service calls)
-
-| Service | Category |
-|---|---|
-| iceberg-rest | data |
-| minio | data |
-| redpanda | data |
-
-### 5.2. Current — Downstream (services that call this)
-
-| Service | Category |
-|---|---|
-| kong | infra |
-| airflow | agents |
-| jupyterhub | apps |
-| zeppelin | apps |
-
-### 5.3. Architecture diagram
-
-![spark architecture](./architecture.svg)
-
-[Open the full-size diagram](./architecture.html) for a full-screen view.
-
-### 5.4. Future — Missing pair integrations
-
-_No high-confidence opportunities identified._
-
-### 5.5. Future — Candidate new services
-
-_No high-confidence opportunities identified._
-
-### 5.6. Future — Unused features in this service
-
-_No high-confidence opportunities identified._
-
-## 6. Troubleshooting
-
-- **History UI shows no jobs** — first check producer config: a driver must set `spark.eventLog.enabled=true` + `spark.eventLog.dir=s3a://spark-history/`. The `spark-connect` sidecar and Zeppelin's `SPARK_SUBMIT_OPTIONS` already set these globally, so any sc://spark-connect:15002 client + Zeppelin `%spark` cell emits events automatically. User-driven `spark-submit` jobs need to pass the same `--conf` pair. Then confirm that `spark-init` created the bucket: `docker logs ${PROJECT_NAME}-spark-init` ends with `spark-init: spark-history bucket ready`.
-- **Airflow cluster-mode task fails after submission** — use the Atlas operator from [Airflow §5.1](../airflow/README.md#51-lakehouse-sparksubmit-smoke). The stock provider polls RPC `:7077`; Atlas confirms driver status through REST `:6066`. Check master readiness with `docker exec ${PROJECT_NAME}-airflow-scheduler curl -fsS http://spark-master:6066/v1/submissions/readyz`. For a task's driver status, query `http://spark-master:6066/v1/submissions/status/DRIVER_ID`, replacing `DRIVER_ID` with the ID from its task log. Keep port `6066` on the backend network; do not publish it.
-- **Standalone jobs stay `PENDING` while Spark Connect is running**. Check the master JSON (`docker exec ${PROJECT_NAME}-spark-master curl -fsS http://localhost:8080/json/`) and compare `coresused` with the active app list. If `Spark Connect server` is consuming too much of the cluster, lower `SPARK_CONNECT_CORES_MAX` or increase `SPARK_WORKER_COUNT` / worker CPU capacity. Do this before you run Airflow or Zeppelin standalone jobs.
-- **Workers don't appear in the master UI** — Compose's `depends_on: spark-master: condition: service_healthy` should serialize this. If a worker stays "lost", check `docker logs ${PROJECT_NAME}-spark-worker-1`.
-- **OOM in a worker** — Compose caps the worker container at `SPARK_WORKER_MEMORY_LIMIT` (default `4g`). `SPARK_WORKER_MEMORY` is unset, so Spark sizes worker memory without regard to that cap, and the container can be OOM-killed. Setting `SPARK_WORKER_MEMORY` or `SPARK_WORKER_CORES` in `.env` has no effect, because compose does not pass them. Add them to the `spark-worker` `environment:` block (or a compose override), below the cap, or keep executor memory requests under the cap.
-- **Spark Connect refused** — the gRPC server runs on the `spark-connect` sidecar, not on `spark-master`. Clients must use `sc://spark-connect:15002` from the backend network; the port is not published to the host. Check readiness with the `docker inspect` command in §4.1: the status must be `healthy`.
-
-## 7. Capabilities & limitations
+<a id="7-capabilities-limitations"></a>
+<a id="7-capabilities--limitations"></a>
 
 Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
@@ -173,3 +130,69 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 | Iceberg and Kafka data paths | partial | tested | Atlas bakes and configures the Iceberg, S3A and Kafka connectors. Lakehouse and streaming operations require the optional Iceberg REST and Redpanda services. Live smoke remains opt-in. |
 | Highly available Spark control plane | not-supported | documented | The stock standalone topology has one master, no recovery directory, and no YARN or Kubernetes scheduler integration. |
 | Authenticated Spark web access | not-supported | tested | The direct SPARK_MASTER_UI_PORT and SPARK_HISTORY_PORT publishes are unauthenticated. The CORS-only Kong Spark routes are unauthenticated. The default HOST_BIND_IP=127.0.0.1: keeps direct ports loopback-bound. Set another value only for deliberate remote access. Before exposure beyond a trusted host, firewall or remove the direct ports, and use an authentication proxy or remove both Spark Kong routes. |
+
+## 6. Troubleshooting
+
+- **History UI shows no jobs** — first check producer config: a driver must set `spark.eventLog.enabled=true` + `spark.eventLog.dir=s3a://spark-history/`. The `spark-connect` sidecar and Zeppelin's `SPARK_SUBMIT_OPTIONS` already set these globally, so any sc://spark-connect:15002 client + Zeppelin `%spark` cell emits events automatically. User-driven `spark-submit` jobs need to pass the same `--conf` pair. Then confirm that `spark-init` created the bucket: `docker logs ${PROJECT_NAME}-spark-init` ends with `spark-init: spark-history bucket ready`.
+- **Airflow cluster-mode task fails after submission** — use the Atlas operator from [Airflow §5.1](../airflow/README.md#51-lakehouse-sparksubmit-smoke). The stock provider polls RPC `:7077`; Atlas confirms driver status through REST `:6066`. Check master readiness with `docker exec ${PROJECT_NAME}-airflow-scheduler curl -fsS http://spark-master:6066/v1/submissions/readyz`. For a task's driver status, query `http://spark-master:6066/v1/submissions/status/DRIVER_ID`, replacing `DRIVER_ID` with the ID from its task log. Keep port `6066` on the backend network; do not publish it.
+- **Standalone jobs stay `PENDING` while Spark Connect is running**. Check the master JSON (`docker exec ${PROJECT_NAME}-spark-master curl -fsS http://localhost:8080/json/`) and compare `coresused` with the active app list. If `Spark Connect server` is consuming too much of the cluster, lower `SPARK_CONNECT_CORES_MAX` or increase `SPARK_WORKER_COUNT` / worker CPU capacity. Do this before you run Airflow or Zeppelin standalone jobs.
+- **Workers don't appear in the master UI** — Compose's `depends_on: spark-master: condition: service_healthy` should serialize this. If a worker stays "lost", check `docker logs ${PROJECT_NAME}-spark-worker-1`.
+- **OOM in a worker** — Compose caps the worker container at `SPARK_WORKER_MEMORY_LIMIT` (default `4g`). `SPARK_WORKER_MEMORY` is unset, so Spark sizes worker memory without regard to that cap, and the container can be OOM-killed. Setting `SPARK_WORKER_MEMORY` or `SPARK_WORKER_CORES` in `.env` has no effect, because compose does not pass them. Add them to the `spark-worker` `environment:` block (or a compose override), below the cap, or keep executor memory requests under the cap.
+- **Spark Connect refused** — the gRPC server runs on the `spark-connect` sidecar, not on `spark-master`. Clients must use `sc://spark-connect:15002` from the backend network; the port is not published to the host. Check readiness with the `docker inspect` command in §4.1: the status must be `healthy`.
+
+## 7. Dependencies & Integrations
+
+<a id="5-dependencies-integrations"></a>
+<a id="5-dependencies--integrations"></a>
+
+### 7.1. Current — Upstream (this service calls)
+
+<a id="51-current-upstream-this-service-calls"></a>
+<a id="51-current--upstream-this-service-calls"></a>
+
+| Service | Category |
+|---|---|
+| iceberg-rest | data |
+| minio | data |
+| redpanda | data |
+
+### 7.2. Current — Downstream (services that call this)
+
+<a id="52-current-downstream-services-that-call-this"></a>
+<a id="52-current--downstream-services-that-call-this"></a>
+
+| Service | Category |
+|---|---|
+| kong | infra |
+| airflow | agents |
+| jupyterhub | apps |
+| zeppelin | apps |
+
+### 7.3. Architecture diagram
+
+<a id="53-architecture-diagram"></a>
+
+![spark architecture](./architecture.svg)
+
+[Open the full-size diagram](./architecture.html) for a full-screen view.
+
+### 7.4. Future — Missing pair integrations
+
+<a id="54-future-missing-pair-integrations"></a>
+<a id="54-future--missing-pair-integrations"></a>
+
+_No high-confidence opportunities identified._
+
+### 7.5. Future — Candidate new services
+
+<a id="55-future-candidate-new-services"></a>
+<a id="55-future--candidate-new-services"></a>
+
+_No high-confidence opportunities identified._
+
+### 7.6. Future — Unused features in this service
+
+<a id="56-future-unused-features-in-this-service"></a>
+<a id="56-future--unused-features-in-this-service"></a>
+
+_No high-confidence opportunities identified._

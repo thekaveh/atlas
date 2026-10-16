@@ -52,40 +52,18 @@ Loki keeps OTLP `trace_id` and `span_id` as structured metadata. Grafana's Loki 
 
 Trace correlation uses W3C `traceparent`. Backend spans start or continue request traces. The backend's instrumented httpx client sends `traceparent` on outbound calls. When `ATLAS_OTEL_ENABLED=true`, LiteLLM's `otel` callback continues the trace and excludes prompt and completion content. Kong emits no spans, so Kong access logs and request IDs are correlation clues only. A Kong `correlation-id` plugin is a candidate in the [Kong README](../kong/README.md).
 
-## 5. Dependencies & Integrations
+## 5. Capabilities & limitations
 
-### 5.1. Current — Upstream (this service calls)
+<a id="7-capabilities-limitations"></a>
+<a id="7-capabilities--limitations"></a>
 
-| Service | Category |
-|---|---|
-| loki | infra |
-| tempo | infra |
+Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
-### 5.2. Current — Downstream (services that call this)
-
-| Service | Category |
-|---|---|
-| litellm | llm |
-| celery | agents |
-| backend | apps |
-
-### 5.3. Architecture diagram
-
-![otel-collector architecture](./architecture.svg)
-
-[Open the full-size diagram](./architecture.html) for a full-screen view.
-
-### 5.4. Future — Missing pair integrations
-
-_No high-confidence opportunities identified._
-
-### 5.5. Future — Candidate new services
-
-_No high-confidence opportunities identified._
-
-### 5.6. Future — Unused features in this service
-
-_No high-confidence opportunities identified._
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| OTLP trace ingestion and Tempo export | supported | tested | Atlas accepts internal OTLP over gRPC and HTTP, batches traces, and exports them to the required Tempo service. |
+| Log export to Loki | supported | tested | Atlas redacts a documented top-level credential-key allowlist and sends OTLP logs through a bounded live retry queue. Accepted logs persist in the required local Loki service. |
+| Public telemetry ingestion | not-supported | tested | Collector receivers are backend-network only with no published host port or Kong route in the stock deployment. |
 
 ## 6. Troubleshooting
 
@@ -95,12 +73,57 @@ _No high-confidence opportunities identified._
 - If Grafana shows no traces, check the Tempo datasource and the collector logs.
 - Roll back by setting `OTEL_COLLECTOR_SOURCE=disabled`. `./start.sh` then sets `ATLAS_OTEL_ENABLED=false` and empty endpoints, so backend, Celery and LiteLLM stop exporting.
 
-## 7. Capabilities & limitations
+## 7. Dependencies & Integrations
 
-Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+<a id="5-dependencies-integrations"></a>
+<a id="5-dependencies--integrations"></a>
 
-| Capability | Status | Verification | Notes |
-|---|---|---|---|
-| OTLP trace ingestion and Tempo export | supported | tested | Atlas accepts internal OTLP over gRPC and HTTP, batches traces, and exports them to the required Tempo service. |
-| Log export to Loki | supported | tested | Atlas redacts a documented top-level credential-key allowlist and sends OTLP logs through a bounded live retry queue. Accepted logs persist in the required local Loki service. |
-| Public telemetry ingestion | not-supported | tested | Collector receivers are backend-network only with no published host port or Kong route in the stock deployment. |
+### 7.1. Current — Upstream (this service calls)
+
+<a id="51-current-upstream-this-service-calls"></a>
+<a id="51-current--upstream-this-service-calls"></a>
+
+| Service | Category |
+|---|---|
+| loki | infra |
+| tempo | infra |
+
+### 7.2. Current — Downstream (services that call this)
+
+<a id="52-current-downstream-services-that-call-this"></a>
+<a id="52-current--downstream-services-that-call-this"></a>
+
+| Service | Category |
+|---|---|
+| litellm | llm |
+| celery | agents |
+| backend | apps |
+
+### 7.3. Architecture diagram
+
+<a id="53-architecture-diagram"></a>
+
+![otel-collector architecture](./architecture.svg)
+
+[Open the full-size diagram](./architecture.html) for a full-screen view.
+
+### 7.4. Future — Missing pair integrations
+
+<a id="54-future-missing-pair-integrations"></a>
+<a id="54-future--missing-pair-integrations"></a>
+
+_No high-confidence opportunities identified._
+
+### 7.5. Future — Candidate new services
+
+<a id="55-future-candidate-new-services"></a>
+<a id="55-future--candidate-new-services"></a>
+
+_No high-confidence opportunities identified._
+
+### 7.6. Future — Unused features in this service
+
+<a id="56-future-unused-features-in-this-service"></a>
+<a id="56-future--unused-features-in-this-service"></a>
+
+_No high-confidence opportunities identified._

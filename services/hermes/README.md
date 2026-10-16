@@ -251,57 +251,22 @@ for the example DAG.
 - Open WebUI integration guide — <https://hermes-agent.nousresearch.com/docs/user-guide/messaging/open-webui>
 - Docker / bridged-network compose form — <https://hermes-agent.nousresearch.com/docs/user-guide/docker>
 
-## 10. Dependencies & Integrations
+## 10. Capabilities & limitations
 
-### 10.1. Current — Upstream (this service calls)
+<a id="12-capabilities-limitations"></a>
+<a id="12-capabilities--limitations"></a>
 
-_Rows marked planned are documented or intended, not wired yet._
+Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
-| Service | Category | Status |
-|---|---|---|
-| litellm ↔ | llm | current |
-| comfyui | media | current |
-| searxng | media | current |
-| stt-provider | media | current |
-| tts-provider | media | current |
-| airflow | agents | planned |
-| lightrag | agents | planned |
-
-### 10.2. Current — Downstream (services that call this)
-
-| Service | Category |
-|---|---|
-| kong | infra |
-| litellm ↔ | llm |
-| n8n | agents |
-| jupyterhub | apps |
-
-### 10.3. Architecture diagram
-
-![hermes architecture](./architecture.svg)
-
-[Open the full-size diagram](./architecture.html) for a full-screen view.
-
-### 10.4. Future — Missing pair integrations
-
-- **hermes ↔ neo4j** — *Why:* Adds durable cross-session episodic memory (entities, relations) queryable from other services, replacing flat-file state under `/opt/data`. *Mechanism:* Custom skill over `bolt://neo4j-graph-db:7687` exposed as a `memory.graph` tool. *Effort:* medium. *Confidence:* medium.
-- **hermes ↔ weaviate** — *Why:* Semantic recall across sessions and ingested docs, reusing the in-stack `multi2vec-clip` vectorizer. *Mechanism:* Skill calling `http://weaviate:8080/v1/objects` against a `HermesMemory` class. *Effort:* medium. *Confidence:* medium.
-- **hermes ↔ minio** — *Why:* Skill outputs (ComfyUI images, STT transcripts) get shareable URLs other services can fetch instead of being trapped in a bind mount. *Mechanism:* New `hermes-artifacts` bucket via the existing `minio-init` IAM pattern; S3 SigV4 against `http://minio:9000`. *Effort:* small. *Confidence:* high.
-- **hermes ↔ n8n** — *Why:* Reverses the one-way edge so Hermes can call n8n workflows as tools. The 400+ n8n connectors then become Hermes capabilities without per-platform skills. *Mechanism:* Generic "call-n8n" skill POSTing to `http://n8n:5678/webhook/<id>` with `N8N_WEBHOOK_TOKEN`. *Effort:* small. *Confidence:* high.
-- **hermes ↔ doc-processor** — *Why:* Lets Hermes answer questions about uploaded PDFs by routing them through the in-stack Docling parser before context or vector ingest. *Mechanism:* Skill POSTing multipart to `http://docling-gpu:8000/v1/document/convert`. *Effort:* small. *Confidence:* high.
-- **hermes ↔ supabase** — *Why:* A JWT-scoped shared session store lets one Hermes session follow a user across Open WebUI, JupyterHub and OpenClaw. Sessions are then not pinned to single-tenant `/opt/data`. *Mechanism:* Skill writing to `hermes_sessions` via PostgREST at `http://supabase-api:3000`, keyed by Supabase JWT `sub`. *Effort:* medium. *Confidence:* medium.
-
-### 10.5. Future — Candidate new services
-
-_No high-confidence opportunities identified._
-
-### 10.6. Future — Unused features in this service
-
-- **MCP server mode** — *Why pursue:* Unlocks tool-use over Neo4j/Weaviate/MinIO/n8n via a uniform protocol instead of bespoke skills, leveraging Hermes's existing MCP-client support. *Effort:* medium.
-- **Messaging-platform allowlists** — *Why pursue:* Wiring `GATEWAY_ALLOW_ALL_USERS`, `TELEGRAM_ALLOWED_USERS`, and `DISCORD_ALLOWED_USERS` is required before OpenClaw can safely bridge Hermes to Telegram/Discord/WhatsApp without an open relay. *Effort:* small.
-- **Per-user / multi-tenant sessions** — *Why pursue:* Needed for any shared deployment beyond a single developer's laptop; current `/opt/data` layout is single-tenant. *Effort:* large.
-- **Voice mode (mic passthrough)** — *Why pursue:* Enables true voice agent UX in-stack, currently gated on running Hermes via `localhost` SOURCE for mic access. *Effort:* large.
-- **Skill marketplace / dynamic skill install** — *Why pursue:* Lets users add capabilities without rebuilding the image; Hermes upstream already supports dynamic skill loading. *Effort:* medium.
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| LiteLLM-backed programmable agent | supported | tested | Atlas renders one usable default chat model from LiteLLM, filters recursive aliases, and exposes Hermes back through LiteLLM as hermes-agent. |
+| Source-aware agent tools | partial | tested | Init renders enabled speech and SearXNG settings in the shape Hermes reads, plus a ComfyUI host companion skill. Unavailable services are omitted. LightRAG is reachable only through LiteLLM. Airflow triggering remains a user-authored skill or curl pattern. |
+| Container and operator-host lifecycle | partial | tested | Atlas manages the container and its generated config. Localhost mode only resolves an operator-run API and dashboard, and cannot guarantee their setup, tools, or process supervision. |
+| Hermes API and dashboard authentication | partial | documented | The API uses HERMES_API_KEY. Configured container Kong protects the dashboard with Basic auth. No dashboard host port is published. Backend-network peers remain unauthenticated in insecure mode. |
+| Agent workspace persistence | partial | documented | Sessions, memories, skills, auth, and logs persist in one hermes-data volume, with no shared database, tenant isolation, replication, or cross-service artifact store. |
+| Backend and OpenClaw direct bridges | stubbed | tested | Atlas injects Hermes endpoint credentials into Backend and OpenClaw, but neither currently calls the promised direct bridge. Open WebUI and n8n use LiteLLM or manual HTTP paths instead. |
+| Untrusted autonomous tool isolation | not-supported | documented | Hermes skills can execute tools and code with the runtime's mounted workspace and network access. Atlas provides no per-user sandbox or policy engine for untrusted agent execution. |
 
 ## 11. Troubleshooting
 
@@ -352,16 +317,74 @@ docker compose exec hermes cat /opt/data/config.yaml
 
 For general startup and routing issues, see [Troubleshooting](../../docs/quick-start/troubleshooting.md).
 
-## 12. Capabilities & limitations
+## 12. Dependencies & Integrations
 
-Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+<a id="10-dependencies-integrations"></a>
+<a id="10-dependencies--integrations"></a>
 
-| Capability | Status | Verification | Notes |
-|---|---|---|---|
-| LiteLLM-backed programmable agent | supported | tested | Atlas renders one usable default chat model from LiteLLM, filters recursive aliases, and exposes Hermes back through LiteLLM as hermes-agent. |
-| Source-aware agent tools | partial | tested | Init renders enabled speech and SearXNG settings in the shape Hermes reads, plus a ComfyUI host companion skill. Unavailable services are omitted. LightRAG is reachable only through LiteLLM. Airflow triggering remains a user-authored skill or curl pattern. |
-| Container and operator-host lifecycle | partial | tested | Atlas manages the container and its generated config. Localhost mode only resolves an operator-run API and dashboard, and cannot guarantee their setup, tools, or process supervision. |
-| Hermes API and dashboard authentication | partial | documented | The API uses HERMES_API_KEY. Configured container Kong protects the dashboard with Basic auth. No dashboard host port is published. Backend-network peers remain unauthenticated in insecure mode. |
-| Agent workspace persistence | partial | documented | Sessions, memories, skills, auth, and logs persist in one hermes-data volume, with no shared database, tenant isolation, replication, or cross-service artifact store. |
-| Backend and OpenClaw direct bridges | stubbed | tested | Atlas injects Hermes endpoint credentials into Backend and OpenClaw, but neither currently calls the promised direct bridge. Open WebUI and n8n use LiteLLM or manual HTTP paths instead. |
-| Untrusted autonomous tool isolation | not-supported | documented | Hermes skills can execute tools and code with the runtime's mounted workspace and network access. Atlas provides no per-user sandbox or policy engine for untrusted agent execution. |
+### 12.1. Current — Upstream (this service calls)
+
+<a id="101-current-upstream-this-service-calls"></a>
+<a id="101-current--upstream-this-service-calls"></a>
+
+_Rows marked planned are documented or intended, not wired yet._
+
+| Service | Category | Status |
+|---|---|---|
+| litellm ↔ | llm | current |
+| comfyui | media | current |
+| searxng | media | current |
+| stt-provider | media | current |
+| tts-provider | media | current |
+| airflow | agents | planned |
+| lightrag | agents | planned |
+
+### 12.2. Current — Downstream (services that call this)
+
+<a id="102-current-downstream-services-that-call-this"></a>
+<a id="102-current--downstream-services-that-call-this"></a>
+
+| Service | Category |
+|---|---|
+| kong | infra |
+| litellm ↔ | llm |
+| n8n | agents |
+| jupyterhub | apps |
+
+### 12.3. Architecture diagram
+
+<a id="103-architecture-diagram"></a>
+
+![hermes architecture](./architecture.svg)
+
+[Open the full-size diagram](./architecture.html) for a full-screen view.
+
+### 12.4. Future — Missing pair integrations
+
+<a id="104-future-missing-pair-integrations"></a>
+<a id="104-future--missing-pair-integrations"></a>
+
+- **hermes ↔ neo4j** — *Why:* Adds durable cross-session episodic memory (entities, relations) queryable from other services, replacing flat-file state under `/opt/data`. *Mechanism:* Custom skill over `bolt://neo4j-graph-db:7687` exposed as a `memory.graph` tool. *Effort:* medium. *Confidence:* medium.
+- **hermes ↔ weaviate** — *Why:* Semantic recall across sessions and ingested docs, reusing the in-stack `multi2vec-clip` vectorizer. *Mechanism:* Skill calling `http://weaviate:8080/v1/objects` against a `HermesMemory` class. *Effort:* medium. *Confidence:* medium.
+- **hermes ↔ minio** — *Why:* Skill outputs (ComfyUI images, STT transcripts) get shareable URLs other services can fetch instead of being trapped in a bind mount. *Mechanism:* New `hermes-artifacts` bucket via the existing `minio-init` IAM pattern; S3 SigV4 against `http://minio:9000`. *Effort:* small. *Confidence:* high.
+- **hermes ↔ n8n** — *Why:* Reverses the one-way edge so Hermes can call n8n workflows as tools. The 400+ n8n connectors then become Hermes capabilities without per-platform skills. *Mechanism:* Generic "call-n8n" skill POSTing to `http://n8n:5678/webhook/<id>` with `N8N_WEBHOOK_TOKEN`. *Effort:* small. *Confidence:* high.
+- **hermes ↔ doc-processor** — *Why:* Lets Hermes answer questions about uploaded PDFs by routing them through the in-stack Docling parser before context or vector ingest. *Mechanism:* Skill POSTing multipart to `http://docling-gpu:8000/v1/document/convert`. *Effort:* small. *Confidence:* high.
+- **hermes ↔ supabase** — *Why:* A JWT-scoped shared session store lets one Hermes session follow a user across Open WebUI, JupyterHub and OpenClaw. Sessions are then not pinned to single-tenant `/opt/data`. *Mechanism:* Skill writing to `hermes_sessions` via PostgREST at `http://supabase-api:3000`, keyed by Supabase JWT `sub`. *Effort:* medium. *Confidence:* medium.
+
+### 12.5. Future — Candidate new services
+
+<a id="105-future-candidate-new-services"></a>
+<a id="105-future--candidate-new-services"></a>
+
+_No high-confidence opportunities identified._
+
+### 12.6. Future — Unused features in this service
+
+<a id="106-future-unused-features-in-this-service"></a>
+<a id="106-future--unused-features-in-this-service"></a>
+
+- **MCP server mode** — *Why pursue:* Unlocks tool-use over Neo4j/Weaviate/MinIO/n8n via a uniform protocol instead of bespoke skills, leveraging Hermes's existing MCP-client support. *Effort:* medium.
+- **Messaging-platform allowlists** — *Why pursue:* Wiring `GATEWAY_ALLOW_ALL_USERS`, `TELEGRAM_ALLOWED_USERS`, and `DISCORD_ALLOWED_USERS` is required before OpenClaw can safely bridge Hermes to Telegram/Discord/WhatsApp without an open relay. *Effort:* small.
+- **Per-user / multi-tenant sessions** — *Why pursue:* Needed for any shared deployment beyond a single developer's laptop; current `/opt/data` layout is single-tenant. *Effort:* large.
+- **Voice mode (mic passthrough)** — *Why pursue:* Enables true voice agent UX in-stack, currently gated on running Hermes via `localhost` SOURCE for mic access. *Effort:* large.
+- **Skill marketplace / dynamic skill install** — *Why pursue:* Lets users add capabilities without rebuilding the image; Hermes upstream already supports dynamic skill loading. *Effort:* medium.

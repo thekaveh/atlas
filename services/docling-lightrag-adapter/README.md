@@ -36,45 +36,10 @@ It reserves one of `DOCLING_ADAPTER_MAX_JOBS` slots before multipart parsing, re
 - `DOCLING_ADAPTER_TMPFS_SIZE` defaults to 512 MiB: two default jobs at 50 MiB upload and 100 MiB result, plus 64 MiB of staging. When you change limits, set it to at least `MAX_JOBS × max(2 × MAX_FILE_SIZE + 1 MiB, MAX_FILE_SIZE + MAX_RESULT_BYTES) + 64 MiB`. Startup checks the free space and fails if it is too small.
 - Error responses are generic and expose no provider details or document content. Logs keep only the task ID and the exception type.
 
-## 5. Dependencies & Integrations
+## 5. Capabilities & limitations
 
-### 5.1. Current — Upstream (this service calls)
-
-| Service | Category | Status |
-|---|---|---|
-| docling | media | optional: DOC_PROCESSOR_SOURCE=docling-container-gpu or docling-localhost |
-
-### 5.2. Current — Downstream (services that call this)
-
-| Service | Category |
-|---|---|
-| lightrag | agents |
-
-### 5.3. Architecture diagram
-
-![docling-lightrag-adapter architecture](./architecture.svg)
-
-[Open the full-size diagram](./architecture.html) for a full-screen view.
-
-### 5.4. Future — Missing pair integrations
-
-None planned. This adapter is deliberately narrow.
-
-### 5.5. Future — Candidate new services
-
-None.
-
-### 5.6. Future — Unused features in this service
-
-None. Broader conversion behavior belongs in Docling, not this protocol adapter.
-
-## 6. Troubleshooting
-
-- A submit returning `429` means all adapter job slots are occupied. To free a slot, retrieve a completed result, or wait for a transfer to end or an unclaimed result to expire. Failed and cancelled jobs release their slots automatically.
-- A result returning expired/not found means the TTL elapsed or the artifact was already downloaded; submit the original document again.
-- An empty adapter endpoint is expected for localhost LightRAG and whenever either LightRAG or Docling is disabled.
-
-## 7. Capabilities & limitations
+<a id="7-capabilities-limitations"></a>
+<a id="7-capabilities--limitations"></a>
 
 Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
@@ -84,3 +49,61 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 | Docling credential isolation | supported | tested | LightRAG receives only the internal adapter URL; on that isolated boundary, the adapter alone receives the Docling bearer token and authenticates the upstream call. There is no host-published adapter port. |
 | Bounded ephemeral adapter jobs | supported | tested | Admission, upload time, upstream retries, result size, download time, temporary capacity, cleanup, and completed-result TTL are explicitly bounded. |
 | Source-coupled adapter availability | partial | tested | The adapter runs only for container LightRAG with an enabled Docling source; localhost or disabled LightRAG and disabled Docling intentionally resolve no adapter endpoint. |
+
+## 6. Troubleshooting
+
+- A submit returning `429` means all adapter job slots are occupied. To free a slot, retrieve a completed result, or wait for a transfer to end or an unclaimed result to expire. Failed and cancelled jobs release their slots automatically.
+- A result returning expired/not found means the TTL elapsed or the artifact was already downloaded; submit the original document again.
+- An empty adapter endpoint is expected for localhost LightRAG and whenever either LightRAG or Docling is disabled.
+
+## 7. Dependencies & Integrations
+
+<a id="5-dependencies-integrations"></a>
+<a id="5-dependencies--integrations"></a>
+
+### 7.1. Current — Upstream (this service calls)
+
+<a id="51-current-upstream-this-service-calls"></a>
+<a id="51-current--upstream-this-service-calls"></a>
+
+| Service | Category | Status |
+|---|---|---|
+| docling | media | optional: DOC_PROCESSOR_SOURCE=docling-container-gpu or docling-localhost |
+
+### 7.2. Current — Downstream (services that call this)
+
+<a id="52-current-downstream-services-that-call-this"></a>
+<a id="52-current--downstream-services-that-call-this"></a>
+
+| Service | Category |
+|---|---|
+| lightrag | agents |
+
+### 7.3. Architecture diagram
+
+<a id="53-architecture-diagram"></a>
+
+![docling-lightrag-adapter architecture](./architecture.svg)
+
+[Open the full-size diagram](./architecture.html) for a full-screen view.
+
+### 7.4. Future — Missing pair integrations
+
+<a id="54-future-missing-pair-integrations"></a>
+<a id="54-future--missing-pair-integrations"></a>
+
+None planned. This adapter is deliberately narrow.
+
+### 7.5. Future — Candidate new services
+
+<a id="55-future-candidate-new-services"></a>
+<a id="55-future--candidate-new-services"></a>
+
+None.
+
+### 7.6. Future — Unused features in this service
+
+<a id="56-future-unused-features-in-this-service"></a>
+<a id="56-future--unused-features-in-this-service"></a>
+
+None. Broader conversion behavior belongs in Docling, not this protocol adapter.

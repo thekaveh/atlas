@@ -5,6 +5,7 @@ import re
 from pathlib import Path
 
 import yaml
+from markdown_it import MarkdownIt
 
 from tests.three_surface_test_utils import surface_text
 
@@ -134,12 +135,19 @@ def test_env_example_and_docs_site_include_blender_mcp_without_kong_alias() -> N
 def test_blender_mcp_readme_documents_security_and_setup_contract() -> None:
     text = README.read_text(encoding="utf-8")
 
+    tokens = MarkdownIt("commonmark").parse(text)
+    headings = [
+        token for index, token in enumerate(tokens)
+        if token.type == "heading_open" and token.tag == "h2" and token.level == 0
+        and re.fullmatch(r"[1-9]\d*\. Dependencies & Integrations", tokens[index + 1].content)
+    ]
+    assert len(headings) == 1
+
     for required in [
         "## 1. Overview",
         "## 2. Access",
         "## 3. Configuration",
         "## 4. Architecture & Wiring",
-        "## 5. Dependencies & Integrations",
         "## 6. Security & Guardrails",
         "BLENDER_MCP_SOURCE=disabled",
         "BLENDER_MCP_SOURCE=localhost",

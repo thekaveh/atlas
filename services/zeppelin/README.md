@@ -160,40 +160,21 @@ requires `SPARK_SOURCE`, `ICEBERG_REST_SOURCE`, `MINIO_SOURCE`, and
 [`docs/operations/iceberg-advanced-smoke.md`](../../docs/operations/iceberg-advanced-smoke.md)
 for the full feature list this smoke exercises.
 
-## 6. Dependencies & Integrations
+## 6. Capabilities & limitations
 
-### 6.1. Current — Upstream (this service calls)
+<a id="8-capabilities-limitations"></a>
+<a id="8-capabilities--limitations"></a>
 
-| Service | Category | Status |
-|---|---|---|
-| iceberg-rest | data | current |
-| minio | data | current |
-| redpanda | data | optional: Kafka jars not bundled (#1376); Atlas passes only SPARK_KAFKA_BOOTSTRAP_SERVERS |
-| spark | data | current |
-| supabase | data | current |
-| trino | data | current |
+Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
-### 6.2. Current — Downstream (services that call this)
-
-_No downstream consumers._
-
-### 6.3. Architecture diagram
-
-![zeppelin architecture](./architecture.svg)
-
-[Open the full-size diagram](./architecture.html) for a full-screen view.
-
-### 6.4. Future — Missing pair integrations
-
-_No high-confidence opportunities identified._
-
-### 6.5. Future — Candidate new services
-
-_No high-confidence opportunities identified._
-
-### 6.6. Future — Unused features in this service
-
-_No high-confidence opportunities identified._
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Spark-first interactive notebooks | supported | tested | Atlas bundles a matching Spark runtime and seeds the standalone Spark interpreter for Scala, PySpark and SQL paragraphs against the in-stack cluster. PySpark's driver runs a bundled CPython 3.10, the minor release the cluster's executors run. |
+| MinIO and Iceberg lakehouse notebooks | partial | tested | The interpreter receives scoped S3A and Iceberg REST settings and starter notebooks, while advanced operations remain an operator-run live smoke. |
+| Adaptive Trino and Postgres JDBC | partial | tested | Init seeds a Trino interpreter only when enabled, but Supabase Postgres variables still require one-time manual JDBC interpreter configuration. |
+| Notebook and log persistence | partial | documented | Notebooks bind to the repository and logs use a named volume, but concurrent edits, backup, restoration, and multi-replica writer coordination are operator-owned. |
+| Authenticated Zeppelin access | not-supported | tested | Zeppelin ships without authentication. It is deliberately exposed only on a fixed loopback port with no Kong route. Remote users must tunnel or configure auth before proxying it. |
+| Interpreter process isolation and HA | not-supported | documented | All interpreters run in one Zeppelin container with injected lakehouse credentials; Atlas configures neither per-user sandboxing nor a replicated notebook control plane. |
 
 ## 7. Troubleshooting
 
@@ -226,15 +207,57 @@ _No high-confidence opportunities identified._
 
 - **"Notebook won't save"** — `/notebook` is bind-mounted from `services/zeppelin/notebooks/`. Confirm `services/zeppelin/notebooks/` exists and is writable by the host user. Zeppelin writes new .zpln files there.
 
-## 8. Capabilities & limitations
+## 8. Dependencies & Integrations
 
-Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+<a id="6-dependencies-integrations"></a>
+<a id="6-dependencies--integrations"></a>
 
-| Capability | Status | Verification | Notes |
-|---|---|---|---|
-| Spark-first interactive notebooks | supported | tested | Atlas bundles a matching Spark runtime and seeds the standalone Spark interpreter for Scala, PySpark and SQL paragraphs against the in-stack cluster. PySpark's driver runs a bundled CPython 3.10, the minor release the cluster's executors run. |
-| MinIO and Iceberg lakehouse notebooks | partial | tested | The interpreter receives scoped S3A and Iceberg REST settings and starter notebooks, while advanced operations remain an operator-run live smoke. |
-| Adaptive Trino and Postgres JDBC | partial | tested | Init seeds a Trino interpreter only when enabled, but Supabase Postgres variables still require one-time manual JDBC interpreter configuration. |
-| Notebook and log persistence | partial | documented | Notebooks bind to the repository and logs use a named volume, but concurrent edits, backup, restoration, and multi-replica writer coordination are operator-owned. |
-| Authenticated Zeppelin access | not-supported | tested | Zeppelin ships without authentication. It is deliberately exposed only on a fixed loopback port with no Kong route. Remote users must tunnel or configure auth before proxying it. |
-| Interpreter process isolation and HA | not-supported | documented | All interpreters run in one Zeppelin container with injected lakehouse credentials; Atlas configures neither per-user sandboxing nor a replicated notebook control plane. |
+### 8.1. Current — Upstream (this service calls)
+
+<a id="61-current-upstream-this-service-calls"></a>
+<a id="61-current--upstream-this-service-calls"></a>
+
+| Service | Category | Status |
+|---|---|---|
+| iceberg-rest | data | current |
+| minio | data | current |
+| redpanda | data | optional: Kafka jars not bundled (#1376); Atlas passes only SPARK_KAFKA_BOOTSTRAP_SERVERS |
+| spark | data | current |
+| supabase | data | current |
+| trino | data | current |
+
+### 8.2. Current — Downstream (services that call this)
+
+<a id="62-current-downstream-services-that-call-this"></a>
+<a id="62-current--downstream-services-that-call-this"></a>
+
+_No downstream consumers._
+
+### 8.3. Architecture diagram
+
+<a id="63-architecture-diagram"></a>
+
+![zeppelin architecture](./architecture.svg)
+
+[Open the full-size diagram](./architecture.html) for a full-screen view.
+
+### 8.4. Future — Missing pair integrations
+
+<a id="64-future-missing-pair-integrations"></a>
+<a id="64-future--missing-pair-integrations"></a>
+
+_No high-confidence opportunities identified._
+
+### 8.5. Future — Candidate new services
+
+<a id="65-future-candidate-new-services"></a>
+<a id="65-future--candidate-new-services"></a>
+
+_No high-confidence opportunities identified._
+
+### 8.6. Future — Unused features in this service
+
+<a id="66-future-unused-features-in-this-service"></a>
+<a id="66-future--unused-features-in-this-service"></a>
+
+_No high-confidence opportunities identified._

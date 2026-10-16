@@ -19,12 +19,12 @@ This deliberately trades friendly Docker names and labels for isolation: contain
 | Surface | URL | Auth |
 |---|---|---|
 | Prometheus UI + API (direct) | `http://localhost:${PROMETHEUS_PORT}` | None |
-| Prometheus UI + API (Kong) | `http://prometheus.localhost:${KONG_HTTP_PORT}` | None. `/-/quit` and `/-/reload` return 403 here; the direct port still accepts them (see §7). |
+| Prometheus UI + API (Kong) | `http://prometheus.localhost:${KONG_HTTP_PORT}` | None. `/-/quit` and `/-/reload` return 403 here; the direct port still accepts them (see §5). |
 | Direct (internal) | `http://prometheus:9090` | None — backend-network only |
 | node-exporter (direct) | `http://localhost:${NODE_EXPORTER_PORT}/metrics` | None |
 | cAdvisor (direct) | `http://localhost:${CADVISOR_PORT}` | None |
 
-`prometheus.localhost` has no authentication. With the default `HOST_BIND_IP=127.0.0.1:`, Kong listens on loopback only; see §7 before exposing it further. Use Grafana as the user-facing dashboard surface.
+`prometheus.localhost` has no authentication. With the default `HOST_BIND_IP=127.0.0.1:`, Kong listens on loopback only; see §5 before exposing it further. Use Grafana as the user-facing dashboard surface.
 
 ## 3. Configuration
 
@@ -72,9 +72,36 @@ Ollama is **deliberately not scraped** — LiteLLM is its gateway and emits per-
 
 **Not scraped:** JupyterHub and Hermes. The JupyterHub image (`quay.io/jupyter/datascience-notebook`) runs a single-user server with no `/metrics` endpoint. The `nousresearch/hermes-agent` image has no `/metrics` endpoint either.
 
-## 5. Dependencies & Integrations
+## 5. Capabilities & limitations
 
-### 5.1. Current — Upstream (this service calls)
+<a id="7-capabilities-limitations"></a>
+<a id="7-capabilities--limitations"></a>
+
+Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Stack metrics scraping and local TSDB | supported | tested | Atlas ships a static fifteen-target scrape inventory, exporter lifecycle wiring, and configurable local Prometheus retention. |
+| Host and container resource metrics | partial | tested | node-exporter and hardened cAdvisor provide resource series, but cAdvisor omits Docker labels and host collectors are best-effort under Docker Desktop. |
+| Alert routing and long-term metrics storage | not-supported | documented | Atlas configures neither Alertmanager nor remote-write storage, and the shipped recording-rule file remains an empty placeholder. |
+| Authenticated Prometheus and exporter access | not-supported | tested | The direct PROMETHEUS_PORT, NODE_EXPORTER_PORT, and CADVISOR_PORT publishes have no authentication. The CORS-only Kong prometheus.localhost route has no authentication. --web.enable-lifecycle is enabled. Kong answers 403 to /-/quit and /-/reload, but the direct port accepts them, so any web page can POST /-/quit and stop Prometheus. The default HOST_BIND_IP=127.0.0.1: keeps direct ports loopback-bound. Before wider exposure, firewall or remove the direct ports, and add an authentication proxy or remove the Prometheus Kong route. |
+
+## 6. Troubleshooting
+
+- **Targets show `DOWN` for services that are running** — the service probably has not enabled its `/metrics` endpoint. Check the per-service flag (`N8N_METRICS=true`, `PROMETHEUS_MONITORING_ENABLED=true`, …). Visit `http://prometheus.localhost:${KONG_HTTP_PORT}/targets` (default port 63000) to see the `lastError` for each failing job.
+- **No metrics for postgres / redis** — the sidecar exporters scale to 0 when `PROMETHEUS_SOURCE=disabled`. Confirm `PROMETHEUS_SOURCE=container` is set in `.env` and re-run `./start.sh`.
+- **Disk pressure** — `prometheus-data` named volume grows roughly linearly with retention × scrape rate × series count. Lower `PROMETHEUS_RETENTION_DAYS` or trim scrape jobs in `config/prometheus.yml`.
+- **cAdvisor or node-exporter unable to start on macOS** — `/proc` and host filesystem mounts behave differently inside Docker Desktop's VM than on Linux. Some node-exporter collectors degrade gracefully, and cAdvisor's container metrics are platform-agnostic. Host-level metrics on macOS are best-effort.
+
+## 7. Dependencies & Integrations
+
+<a id="5-dependencies-integrations"></a>
+<a id="5-dependencies--integrations"></a>
+
+### 7.1. Current — Upstream (this service calls)
+
+<a id="51-current-upstream-this-service-calls"></a>
+<a id="51-current--upstream-this-service-calls"></a>
 
 | Service | Category |
 |---|---|
@@ -90,47 +117,43 @@ Ollama is **deliberately not scraped** — LiteLLM is its gateway and emits per-
 | n8n | agents |
 | backend | apps |
 
-### 5.2. Current — Downstream (services that call this)
+### 7.2. Current — Downstream (services that call this)
+
+<a id="52-current-downstream-services-that-call-this"></a>
+<a id="52-current--downstream-services-that-call-this"></a>
 
 | Service | Category |
 |---|---|
 | grafana ↔ | infra |
 | kong ↔ | infra |
 
-### 5.3. Architecture diagram
+### 7.3. Architecture diagram
+
+<a id="53-architecture-diagram"></a>
 
 ![prometheus architecture](./architecture.svg)
 
 [Open the full-size diagram](./architecture.html) for a full-screen view.
 
-### 5.4. Future — Missing pair integrations
+### 7.4. Future — Missing pair integrations
+
+<a id="54-future-missing-pair-integrations"></a>
+<a id="54-future--missing-pair-integrations"></a>
 
 _No high-confidence opportunities identified._
 
-### 5.5. Future — Candidate new services
+### 7.5. Future — Candidate new services
+
+<a id="55-future-candidate-new-services"></a>
+<a id="55-future--candidate-new-services"></a>
 
 - **Alertmanager** — paging and routing for Prometheus alerting rules. The bundle uses Grafana's unified alerting. A separate Alertmanager matters only for clustered HA alerting.
 
-### 5.6. Future — Unused features in this service
+### 7.6. Future — Unused features in this service
+
+<a id="56-future-unused-features-in-this-service"></a>
+<a id="56-future--unused-features-in-this-service"></a>
 
 - **Remote write to long-term storage** — `remote_write` to Mimir / Thanos / VictoriaMetrics for retention beyond the local TSDB, when local disk limits retention.
 - **Recording rules** — pre-aggregated time series for expensive Grafana queries; `config/rules/stack-recording.yml` is an empty placeholder ready to be populated.
 - **Native histograms** — Prometheus 2.40+ supports native histograms. LiteLLM and the FastAPI instrumentators can emit them with a smaller storage footprint than classic histograms.
-
-## 6. Troubleshooting
-
-- **Targets show `DOWN` for services that are running** — the service probably has not enabled its `/metrics` endpoint. Check the per-service flag (`N8N_METRICS=true`, `PROMETHEUS_MONITORING_ENABLED=true`, …). Visit `http://prometheus.localhost:${KONG_HTTP_PORT}/targets` (default port 63000) to see the `lastError` for each failing job.
-- **No metrics for postgres / redis** — the sidecar exporters scale to 0 when `PROMETHEUS_SOURCE=disabled`. Confirm `PROMETHEUS_SOURCE=container` is set in `.env` and re-run `./start.sh`.
-- **Disk pressure** — `prometheus-data` named volume grows roughly linearly with retention × scrape rate × series count. Lower `PROMETHEUS_RETENTION_DAYS` or trim scrape jobs in `config/prometheus.yml`.
-- **cAdvisor or node-exporter unable to start on macOS** — `/proc` and host filesystem mounts behave differently inside Docker Desktop's VM than on Linux. Some node-exporter collectors degrade gracefully, and cAdvisor's container metrics are platform-agnostic. Host-level metrics on macOS are best-effort.
-
-## 7. Capabilities & limitations
-
-Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
-
-| Capability | Status | Verification | Notes |
-|---|---|---|---|
-| Stack metrics scraping and local TSDB | supported | tested | Atlas ships a static fifteen-target scrape inventory, exporter lifecycle wiring, and configurable local Prometheus retention. |
-| Host and container resource metrics | partial | tested | node-exporter and hardened cAdvisor provide resource series, but cAdvisor omits Docker labels and host collectors are best-effort under Docker Desktop. |
-| Alert routing and long-term metrics storage | not-supported | documented | Atlas configures neither Alertmanager nor remote-write storage, and the shipped recording-rule file remains an empty placeholder. |
-| Authenticated Prometheus and exporter access | not-supported | tested | The direct PROMETHEUS_PORT, NODE_EXPORTER_PORT, and CADVISOR_PORT publishes have no authentication. The CORS-only Kong prometheus.localhost route has no authentication. --web.enable-lifecycle is enabled. Kong answers 403 to /-/quit and /-/reload, but the direct port accepts them, so any web page can POST /-/quit and stop Prometheus. The default HOST_BIND_IP=127.0.0.1: keeps direct ports loopback-bound. Before wider exposure, firewall or remove the direct ports, and add an authentication proxy or remove the Prometheus Kong route. |

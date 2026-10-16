@@ -53,39 +53,21 @@ with mlflow.start_run():
     mlflow.log_artifact("/tmp/atlas-mlflow-smoke.txt")
 ```
 
-## 5. Dependencies & Integrations
+## 5. Capabilities & limitations
 
-### 5.1. Current — Upstream (this service calls)
+<a id="7-capabilities-limitations"></a>
+<a id="7-capabilities--limitations"></a>
 
-| Service | Category |
-|---|---|
-| minio | data |
-| supabase | data |
+Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
-### 5.2. Current — Downstream (services that call this)
-
-| Service | Category |
-|---|---|
-| kong | infra |
-| jupyterhub | apps |
-
-### 5.3. Architecture diagram
-
-![mlflow architecture](./architecture.svg)
-
-[Open the full-size diagram](./architecture.html) for a full-screen view.
-
-### 5.4. Future — Missing pair integrations
-
-Backend and n8n could read the model registry over the MLflow REST API. Not implemented.
-
-### 5.5. Future — Candidate new services
-
-Label Studio can export reviewed datasets or metrics into MLflow in a later data/ML workflow.
-
-### 5.6. Future — Unused features in this service
-
-MLflow model serving, deployment plugins and promotion workflows are out of scope.
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Experiment and run tracking | supported | tested | Atlas runs an MLflow tracking server with a dedicated Postgres database and injects its tracking URI plus client into JupyterHub. |
+| Scoped MinIO artifact storage | supported | tested | MLflow proxies artifacts to a dedicated MinIO bucket with generated service credentials and refuses Atlas enablement when MinIO is unavailable. |
+| MLflow ingress authentication | partial | tested | mlflow.localhost is protected by Kong dashboard Basic Auth and ACL, but the host-published direct tracking UI/API has no MLflow application authentication. |
+| MLflow AI Gateway SSRF containment | supported | tested | Atlas accepts exactly reviewed MLflow 3.16.1, which closes CVE-2026-64849 and CVE-2026-71211. Every prefixed and unprefixed AI Gateway route family stays disabled at its ASGI boundary, because Atlas configures no gateway endpoints. The built image runs a required multi-architecture smoke. |
+| Model registry deployment automation | not-supported | documented | The first Atlas slice stores tracking and registry metadata only; it ships no model serving, promotion, deployment plugin, or Backend/n8n automation. |
+| Tracking service high availability | not-supported | documented | Postgres and MinIO persist state, but Atlas runs one MLflow server without replicas, failover routing, or a tested backup-and-restore workflow for the combined stores. |
 
 ## 6. Troubleshooting
 
@@ -98,15 +80,56 @@ MLflow model serving, deployment plugins and promotion workflows are out of scop
 - **AI Gateway endpoints return 404:** this is intentional. MLflow 3.16.1 fixes CVE-2026-71211, but Atlas configures no gateway endpoints and keeps that secrets-holding surface closed. Atlas supports MLflow tracking, registry metadata, and artifact APIs. It disables the native, REST, and AJAX AI Gateway route families at the outer ASGI boundary, also when `_MLFLOW_STATIC_PREFIX` is set.
 - **A custom `MLFLOW_IMAGE` exits at startup:** Atlas currently accepts exactly MLflow 3.16.1. Before the allowlist changes, review a new version with the route guard, private server environment, dependency image and the required multi-architecture smoke.
 
-## 7. Capabilities & limitations
+## 7. Dependencies & Integrations
 
-Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+<a id="5-dependencies-integrations"></a>
+<a id="5-dependencies--integrations"></a>
 
-| Capability | Status | Verification | Notes |
-|---|---|---|---|
-| Experiment and run tracking | supported | tested | Atlas runs an MLflow tracking server with a dedicated Postgres database and injects its tracking URI plus client into JupyterHub. |
-| Scoped MinIO artifact storage | supported | tested | MLflow proxies artifacts to a dedicated MinIO bucket with generated service credentials and refuses Atlas enablement when MinIO is unavailable. |
-| MLflow ingress authentication | partial | tested | mlflow.localhost is protected by Kong dashboard Basic Auth and ACL, but the host-published direct tracking UI/API has no MLflow application authentication. |
-| MLflow AI Gateway SSRF containment | supported | tested | Atlas accepts exactly reviewed MLflow 3.16.1, which closes CVE-2026-64849 and CVE-2026-71211. Every prefixed and unprefixed AI Gateway route family stays disabled at its ASGI boundary, because Atlas configures no gateway endpoints. The built image runs a required multi-architecture smoke. |
-| Model registry deployment automation | not-supported | documented | The first Atlas slice stores tracking and registry metadata only; it ships no model serving, promotion, deployment plugin, or Backend/n8n automation. |
-| Tracking service high availability | not-supported | documented | Postgres and MinIO persist state, but Atlas runs one MLflow server without replicas, failover routing, or a tested backup-and-restore workflow for the combined stores. |
+### 7.1. Current — Upstream (this service calls)
+
+<a id="51-current-upstream-this-service-calls"></a>
+<a id="51-current--upstream-this-service-calls"></a>
+
+| Service | Category |
+|---|---|
+| minio | data |
+| supabase | data |
+
+### 7.2. Current — Downstream (services that call this)
+
+<a id="52-current-downstream-services-that-call-this"></a>
+<a id="52-current--downstream-services-that-call-this"></a>
+
+| Service | Category |
+|---|---|
+| kong | infra |
+| jupyterhub | apps |
+
+### 7.3. Architecture diagram
+
+<a id="53-architecture-diagram"></a>
+
+![mlflow architecture](./architecture.svg)
+
+[Open the full-size diagram](./architecture.html) for a full-screen view.
+
+### 7.4. Future — Missing pair integrations
+
+<a id="54-future-missing-pair-integrations"></a>
+<a id="54-future--missing-pair-integrations"></a>
+
+Backend and n8n could read the model registry over the MLflow REST API. Not implemented.
+
+### 7.5. Future — Candidate new services
+
+<a id="55-future-candidate-new-services"></a>
+<a id="55-future--candidate-new-services"></a>
+
+Label Studio can export reviewed datasets or metrics into MLflow in a later data/ML workflow.
+
+### 7.6. Future — Unused features in this service
+
+<a id="56-future-unused-features-in-this-service"></a>
+<a id="56-future--unused-features-in-this-service"></a>
+
+MLflow model serving, deployment plugins and promotion workflows are out of scope.

@@ -106,47 +106,10 @@ DROP TABLE lakehouse.gold.atlas_trino_ctas_smoke;
 
 Atlas does not create bronze/silver/gold namespaces at stack startup; a downstream project or the operator owns those namespaces. The `CREATE SCHEMA` line is part of the live smoke only.
 
-## 5. Dependencies & Integrations
+## 5. Capabilities & limitations
 
-### 5.1. Current — Upstream (this service calls)
-
-| Service | Category |
-|---|---|
-| iceberg-rest | data |
-| minio | data |
-
-### 5.2. Current — Downstream (services that call this)
-
-| Service | Category |
-|---|---|
-| kong | infra |
-| zeppelin | apps |
-
-### 5.3. Architecture diagram
-
-![trino architecture](./architecture.svg)
-
-[Open the full-size diagram](./architecture.html) for a full-screen view.
-
-### 5.4. Future — Missing pair integrations
-
-Add richer notebook examples that create a Spark-written Iceberg table and query it through Trino.
-
-### 5.5. Future — Candidate new services
-
-Superset or another BI UI can sit downstream of Trino once the lakehouse query path is stable.
-
-### 5.6. Future — Unused features in this service
-
-Worker scaling, query resource groups, access-control files and additional catalogs are out of scope.
-
-## 6. Troubleshooting
-
-- **Catalog missing:** confirm `ICEBERG_REST_SOURCE=container` and that `iceberg-rest` is healthy before Trino starts.
-- **S3 access denied:** confirm `minio-init` completed (it creates the `iceberg` service account) and `.env` has non-empty `MINIO_ICEBERG_ACCESS_KEY` / `MINIO_ICEBERG_SECRET_KEY`.
-- **Kong alias does not load:** run `./start.sh --setup-hosts` so `trino.localhost` resolves locally.
-
-## 7. Capabilities & limitations
+<a id="7-capabilities-limitations"></a>
+<a id="7-capabilities--limitations"></a>
 
 Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
@@ -155,3 +118,63 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 | SQL over the Atlas Iceberg lakehouse | supported | tested | Atlas configures Trino's Iceberg REST catalog, MinIO S3 access, and required service ordering for querying the in-stack lakehouse. |
 | Coordinator access control | partial | tested | Kong applies Basic authentication to the browser route, but the directly published coordinator has no Trino authenticator and accepts operator-supplied user names. |
 | Distributed multi-catalog query cluster | not-supported | documented | The stock deployment is one coordinator with no workers and one Iceberg catalog; Atlas does not provision clustered execution or additional federation catalogs. |
+
+## 6. Troubleshooting
+
+- **Catalog missing:** confirm `ICEBERG_REST_SOURCE=container` and that `iceberg-rest` is healthy before Trino starts.
+- **S3 access denied:** confirm `minio-init` completed (it creates the `iceberg` service account) and `.env` has non-empty `MINIO_ICEBERG_ACCESS_KEY` / `MINIO_ICEBERG_SECRET_KEY`.
+- **Kong alias does not load:** run `./start.sh --setup-hosts` so `trino.localhost` resolves locally.
+
+## 7. Dependencies & Integrations
+
+<a id="5-dependencies-integrations"></a>
+<a id="5-dependencies--integrations"></a>
+
+### 7.1. Current — Upstream (this service calls)
+
+<a id="51-current-upstream-this-service-calls"></a>
+<a id="51-current--upstream-this-service-calls"></a>
+
+| Service | Category |
+|---|---|
+| iceberg-rest | data |
+| minio | data |
+
+### 7.2. Current — Downstream (services that call this)
+
+<a id="52-current-downstream-services-that-call-this"></a>
+<a id="52-current--downstream-services-that-call-this"></a>
+
+| Service | Category |
+|---|---|
+| kong | infra |
+| zeppelin | apps |
+
+### 7.3. Architecture diagram
+
+<a id="53-architecture-diagram"></a>
+
+![trino architecture](./architecture.svg)
+
+[Open the full-size diagram](./architecture.html) for a full-screen view.
+
+### 7.4. Future — Missing pair integrations
+
+<a id="54-future-missing-pair-integrations"></a>
+<a id="54-future--missing-pair-integrations"></a>
+
+Add richer notebook examples that create a Spark-written Iceberg table and query it through Trino.
+
+### 7.5. Future — Candidate new services
+
+<a id="55-future-candidate-new-services"></a>
+<a id="55-future--candidate-new-services"></a>
+
+Superset or another BI UI can sit downstream of Trino once the lakehouse query path is stable.
+
+### 7.6. Future — Unused features in this service
+
+<a id="56-future-unused-features-in-this-service"></a>
+<a id="56-future--unused-features-in-this-service"></a>
+
+Worker scaling, query resource groups, access-control files and additional catalogs are out of scope.

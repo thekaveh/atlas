@@ -24,36 +24,18 @@ The image is distroless (no shell, no `wget`), and the `loki` binary has no prob
 
 The OpenTelemetry Collector redacts application OTLP logs and exports them to Loki. Grafana queries Loki directly, and its datasource links trace IDs to Tempo. The Atlas-managed ingestion path goes through the Collector. Direct internal writes to Loki are possible but skip the Collector's redaction.
 
-## 5. Dependencies & Integrations
+## 5. Capabilities & limitations
 
-### 5.1. Current — Upstream (this service calls)
+<a id="7-capabilities-limitations"></a>
+<a id="7-capabilities--limitations"></a>
 
-_No upstream calls._
+Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
-### 5.2. Current — Downstream (services that call this)
-
-| Service | Category |
-|---|---|
-| grafana | infra |
-| otel-collector | infra |
-
-### 5.3. Architecture diagram
-
-![loki architecture](./architecture.svg)
-
-[Open the full-size diagram](./architecture.html) for a full-screen view.
-
-### 5.4. Future — Missing pair integrations
-
-_No high-confidence opportunities identified._
-
-### 5.5. Future — Candidate new services
-
-_No high-confidence opportunities identified._
-
-### 5.6. Future — Unused features in this service
-
-_No high-confidence opportunities identified._
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Local Grafana-queryable log storage | supported | tested | Atlas provisions a single local Loki store, accepts redacted OTLP logs from the required Collector, and exposes them through a trace-linked Grafana datasource. |
+| Automatic Atlas application log collection | not-supported | tested | The Collector persists logs that applications emit over OTLP, but Atlas does not scrape container stdout or install a Promtail/Docker logging driver automatically. |
+| Highly available long-term log retention | not-supported | documented | The bundled filesystem-backed single replica is intended for short local retention and has no replicated object-store deployment. |
 
 ## 6. Troubleshooting
 
@@ -63,12 +45,53 @@ _No high-confidence opportunities identified._
 - If storage grows unexpectedly, check `LOKI_RETENTION_PERIOD` and compactor logs.
 - Roll back by setting `LOKI_SOURCE=disabled`.
 
-## 7. Capabilities & limitations
+## 7. Dependencies & Integrations
 
-Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+<a id="5-dependencies-integrations"></a>
+<a id="5-dependencies--integrations"></a>
 
-| Capability | Status | Verification | Notes |
-|---|---|---|---|
-| Local Grafana-queryable log storage | supported | tested | Atlas provisions a single local Loki store, accepts redacted OTLP logs from the required Collector, and exposes them through a trace-linked Grafana datasource. |
-| Automatic Atlas application log collection | not-supported | tested | The Collector persists logs that applications emit over OTLP, but Atlas does not scrape container stdout or install a Promtail/Docker logging driver automatically. |
-| Highly available long-term log retention | not-supported | documented | The bundled filesystem-backed single replica is intended for short local retention and has no replicated object-store deployment. |
+### 7.1. Current — Upstream (this service calls)
+
+<a id="51-current-upstream-this-service-calls"></a>
+<a id="51-current--upstream-this-service-calls"></a>
+
+_No upstream calls._
+
+### 7.2. Current — Downstream (services that call this)
+
+<a id="52-current-downstream-services-that-call-this"></a>
+<a id="52-current--downstream-services-that-call-this"></a>
+
+| Service | Category |
+|---|---|
+| grafana | infra |
+| otel-collector | infra |
+
+### 7.3. Architecture diagram
+
+<a id="53-architecture-diagram"></a>
+
+![loki architecture](./architecture.svg)
+
+[Open the full-size diagram](./architecture.html) for a full-screen view.
+
+### 7.4. Future — Missing pair integrations
+
+<a id="54-future-missing-pair-integrations"></a>
+<a id="54-future--missing-pair-integrations"></a>
+
+_No high-confidence opportunities identified._
+
+### 7.5. Future — Candidate new services
+
+<a id="55-future-candidate-new-services"></a>
+<a id="55-future--candidate-new-services"></a>
+
+_No high-confidence opportunities identified._
+
+### 7.6. Future — Unused features in this service
+
+<a id="56-future-unused-features-in-this-service"></a>
+<a id="56-future--unused-features-in-this-service"></a>
+
+_No high-confidence opportunities identified._

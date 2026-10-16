@@ -165,48 +165,21 @@ curl -fsS -X POST \
 
 New DAGs start paused. Unpause the DAG in the UI before you trigger it.
 
-## 7. Dependencies & Integrations
+## 7. Capabilities & limitations
 
-### 7.1. Current — Upstream (this service calls)
+<a id="9-capabilities-limitations"></a>
+<a id="9-capabilities--limitations"></a>
 
-| Service | Category | Status |
-|---|---|---|
-| iceberg-rest | data | current |
-| minio | data | current |
-| neo4j | data | optional: an operator-authored DAG; airflow-init only seeds the Connection |
-| redis | data | optional: an operator-authored DAG; airflow-init only seeds the Connection |
-| redpanda | data | optional: an operator-authored DAG; Atlas passes only SPARK_KAFKA_BOOTSTRAP_SERVERS |
-| spark | data | current |
-| supabase | data | current |
-| weaviate | data | optional: an operator-authored DAG; airflow-init only seeds the Connection |
-| litellm | llm | current |
+Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
-### 7.2. Current — Downstream (services that call this)
-
-_Rows marked planned are documented or intended, not wired yet._
-
-| Service | Category | Status |
-|---|---|---|
-| kong | infra | current |
-| hermes | agents | planned |
-
-### 7.3. Architecture diagram
-
-![airflow architecture](./architecture.svg)
-
-[Open the full-size diagram](./architecture.html) for a full-screen view.
-
-### 7.4. Future — Missing pair integrations
-
-_No high-confidence opportunities identified._
-
-### 7.5. Future — Candidate new services
-
-_No high-confidence opportunities identified._
-
-### 7.6. Future — Unused features in this service
-
-_No high-confidence opportunities identified._
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Code-defined DAG orchestration | supported | tested | Atlas runs Airflow 3 with a separate API server, scheduler, DAG processor, and init path, using LocalExecutor for operator-authored DAGs. |
+| Untrusted DAG code isolation | not-supported | tested | LocalExecutor operator-authored DAGs execute unsandboxed. Their Airflow Connections hold MinIO root, LiteLLM master, Neo4j administrator, scoped Supabase reader, and Redis password credentials. Admit only trusted DAG authors. |
+| Seeded stack service connections | partial | tested | Init seeds LiteLLM, Redis, Supabase, and enabled container-only lakehouse or graph connections; localhost variants are deliberately not mapped to unusable Compose DNS names. |
+| Spark lakehouse job execution | partial | tested | Bundled DAGs and jars exercise SparkSubmit and lakehouse configuration, but live Spark, MinIO, Iceberg, and Redpanda execution remains an operator-run smoke path. |
+| Airflow UI and API authentication | supported | tested | Direct and CORS-only Kong surfaces rely on Airflow FAB login for the UI and JWT exchange for /api/v2. Kong adds routing but no second authentication gate. |
+| Distributed executor and control-plane HA | not-supported | documented | Atlas fixes one scheduler, API server, and DAG processor around LocalExecutor; it configures neither Celery/KubernetesExecutor nor a multi-replica Airflow control plane. |
 
 ## 8. Troubleshooting
 
@@ -221,15 +194,65 @@ _No high-confidence opportunities identified._
     - It is the first run after start-up, and spark-connect is still binding port 15002 (20-60 s). The DAG's `retries: 1` with `retry_delay: 2m` usually covers this. If not, trigger the DAG again.
 - **`ModuleNotFoundError: No module named 'pyspark'`** — the running container predates the current image. Run `./start.sh`; it rebuilds stale local images.
 
-## 9. Capabilities & limitations
+## 9. Dependencies & Integrations
 
-Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+<a id="7-dependencies-integrations"></a>
+<a id="7-dependencies--integrations"></a>
 
-| Capability | Status | Verification | Notes |
-|---|---|---|---|
-| Code-defined DAG orchestration | supported | tested | Atlas runs Airflow 3 with a separate API server, scheduler, DAG processor, and init path, using LocalExecutor for operator-authored DAGs. |
-| Untrusted DAG code isolation | not-supported | tested | LocalExecutor operator-authored DAGs execute unsandboxed. Their Airflow Connections hold MinIO root, LiteLLM master, Neo4j administrator, scoped Supabase reader, and Redis password credentials. Admit only trusted DAG authors. |
-| Seeded stack service connections | partial | tested | Init seeds LiteLLM, Redis, Supabase, and enabled container-only lakehouse or graph connections; localhost variants are deliberately not mapped to unusable Compose DNS names. |
-| Spark lakehouse job execution | partial | tested | Bundled DAGs and jars exercise SparkSubmit and lakehouse configuration, but live Spark, MinIO, Iceberg, and Redpanda execution remains an operator-run smoke path. |
-| Airflow UI and API authentication | supported | tested | Direct and CORS-only Kong surfaces rely on Airflow FAB login for the UI and JWT exchange for /api/v2. Kong adds routing but no second authentication gate. |
-| Distributed executor and control-plane HA | not-supported | documented | Atlas fixes one scheduler, API server, and DAG processor around LocalExecutor; it configures neither Celery/KubernetesExecutor nor a multi-replica Airflow control plane. |
+### 9.1. Current — Upstream (this service calls)
+
+<a id="71-current-upstream-this-service-calls"></a>
+<a id="71-current--upstream-this-service-calls"></a>
+
+| Service | Category | Status |
+|---|---|---|
+| iceberg-rest | data | current |
+| minio | data | current |
+| neo4j | data | optional: an operator-authored DAG; airflow-init only seeds the Connection |
+| redis | data | optional: an operator-authored DAG; airflow-init only seeds the Connection |
+| redpanda | data | optional: an operator-authored DAG; Atlas passes only SPARK_KAFKA_BOOTSTRAP_SERVERS |
+| spark | data | current |
+| supabase | data | current |
+| weaviate | data | optional: an operator-authored DAG; airflow-init only seeds the Connection |
+| litellm | llm | current |
+
+### 9.2. Current — Downstream (services that call this)
+
+<a id="72-current-downstream-services-that-call-this"></a>
+<a id="72-current--downstream-services-that-call-this"></a>
+
+_Rows marked planned are documented or intended, not wired yet._
+
+| Service | Category | Status |
+|---|---|---|
+| kong | infra | current |
+| hermes | agents | planned |
+
+### 9.3. Architecture diagram
+
+<a id="73-architecture-diagram"></a>
+
+![airflow architecture](./architecture.svg)
+
+[Open the full-size diagram](./architecture.html) for a full-screen view.
+
+### 9.4. Future — Missing pair integrations
+
+<a id="74-future-missing-pair-integrations"></a>
+<a id="74-future--missing-pair-integrations"></a>
+
+_No high-confidence opportunities identified._
+
+### 9.5. Future — Candidate new services
+
+<a id="75-future-candidate-new-services"></a>
+<a id="75-future--candidate-new-services"></a>
+
+_No high-confidence opportunities identified._
+
+### 9.6. Future — Unused features in this service
+
+<a id="76-future-unused-features-in-this-service"></a>
+<a id="76-future--unused-features-in-this-service"></a>
+
+_No high-confidence opportunities identified._

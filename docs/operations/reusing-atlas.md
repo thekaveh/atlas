@@ -6,7 +6,17 @@ The page is the overview and decision guide. It covers the choice of method, rea
 
 ---
 
-## 1. TL;DR
+<a id="1-tldr"></a>
+
+## 1. Choose, configure, verify
+
+1. **Choose.** Use the [method table](#2-choose-your-reuse-method): standalone Atlas serves separate projects; a pinned submodule bundles infrastructure with your product.
+2. **Configure.** Follow [Method A](#3-method-a--standalone--shared-network-the-rag-showcase-walkthrough) or the [consumer walkthrough](#41-stand-up-a-consumer-from-scratch-the-ordered-walkthrough). Pass any consumer manifest explicitly. Give multiple instances distinct project names and port blocks.
+3. **Verify.** Use [preflight](#614-preflight-and-ci-gates) before launch and [post-launch checks](#77-post-launch-verification) afterward. Preflight can write manifest values into `.env`. With `BASE_PORT: auto`, start Atlas before exporting endpoints.
+
+Detailed contracts: [schema](../reference/consumer-manifest.md), [legacy overlays](submodule-usage.md#42-parent-repo-consumer-reference-layout), [manifest migration](submodule-usage.md#421-migrating-to-atlasconsumeryml), and [warm upgrades](#76-upgrades-warm-starts-rebuild-stale-local-images). [Release conventions](releasing.md#2-pinning-from-a-submodule-consumer) cover pin changes.
+
+### 1.1. Reuse overview
 
 - **Atlas is designed for reuse.** `PROJECT_NAME` namespaces the stack, `BASE_PORT` moves all host ports as one block, and `*_SOURCE` turns each service on or off. All containers share one Docker network, `${PROJECT_NAME}-network`, which your project can join.
 - **Two methods are ready:**

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import yaml
+from markdown_it import MarkdownIt
 
 from core.config_parser import ConfigParser
 from tracks import is_in_track, load_tracks
@@ -156,13 +158,20 @@ def test_asset_baker_env_docs_and_site_surfaces() -> None:
 def test_asset_baker_readme_documents_api_and_bake_contract() -> None:
     text = README.read_text(encoding="utf-8")
 
+    tokens = MarkdownIt("commonmark").parse(text)
+    headings = [
+        token for index, token in enumerate(tokens)
+        if token.type == "heading_open" and token.tag == "h2" and token.level == 0
+        and re.fullmatch(r"[1-9]\d*\. Dependencies & Integrations", tokens[index + 1].content)
+    ]
+    assert len(headings) == 1
+
     for required in [
         "## 1. Overview",
         "## 2. Access",
         "## 3. Configuration",
         "## 4. API Contract",
         "## 5. Architecture & Wiring",
-        "## 6. Dependencies & Integrations",
         "POST /assets/bake",
         "POST /assets/bake/ref",
         "voxel-remesh",
