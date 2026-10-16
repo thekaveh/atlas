@@ -99,11 +99,10 @@ on their host.
   a later process reads. Keep this exception only while those adapters remain
   unused; remove it when upstream publishes a patched release or the transitive
   dependency disappears.
-- Transformers model-loading advisories below 5.3 in Parakeet GPU:
-  **operator-controlled**. NeMo 2.7.x requires Transformers 4.57.x, while
-  Atlas loads only the `PARAKEET_MODEL` chosen in process environment at
-  startup. Transcription requests cannot supply or change a model repository.
-  CI requires this exact exclusion and fails if the local package/version drifts.
+- Parakeet GPU model loading: **operator-controlled**. The GPU runtime lock
+  pins NeMo `3.0.0` and Transformers `5.16.1`. Atlas loads only the
+  `PARAKEET_MODEL` chosen in process environment at startup. Transcription
+  requests cannot supply or change a model repository.
 - setuptools source-distribution exclusion bypass (CVE-2026-59890):
   **remediated**. Shipped compiled graphs and the Docling localhost lock now
   resolve setuptools 83.0.0 or newer.
