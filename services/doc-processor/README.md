@@ -69,23 +69,76 @@ DOC_PROCESSOR_SOURCE=disabled
 
 ## 3. Test the API
 
-Export the generated credential from the repository root, then use the port for
-the selected source:
+Run these commands from the repository root after starting the selected source (§2).
+Use Bash and install `uv` and the dependencies for that source first.
+
+### 3.1. Container GPU source
+
+The Atlas parser reads the active environment file, including an `ATLAS_ENV_FILE` selection.
+The token and container port must be present in that file.
+Inherited shell values do not replace these file values.
 
 ```bash
-# repository root
-export DOCLING_API_TOKEN="$(sed -n 's/^DOCLING_API_TOKEN=//p' .env)"
+# Repository root; Bootstrapper dependencies must be installed.
+if ! docling_values="$(PYTHONPATH=bootstrapper uv run --project bootstrapper python - <<'PYTHON'
+import shlex
+from core.config_parser import ConfigParser
 
-# Container GPU source
-curl -X POST http://localhost:63051/v1/document/convert \
+parser = ConfigParser(root_dir=".")
+if not parser.env_file_path.is_file():
+    raise SystemExit("The selected Atlas environment file must exist.")
+values = parser.parse_env_file()
+for name in ("DOCLING_API_TOKEN", "DOC_PROCESSOR_PORT"):
+    value = values.get(name, "")
+    if not value.strip():
+        raise SystemExit(f"{name} must be set in the selected Atlas environment file.")
+    print(f"export {name}={shlex.quote(value)}")
+PYTHON
+)"; then
+  exit 1
+fi
+eval "$docling_values"
+curl -X POST "http://localhost:${DOC_PROCESSOR_PORT}/v1/document/convert" \
   -H "Authorization: Bearer ${DOCLING_API_TOKEN}" \
   -F "file=@document.pdf" \
   -F "output_format=markdown" \
   -F "use_ocr=auto" \
   -F "table_mode=accurate"
+```
 
-# Localhost source: use the native provider port instead
-curl -X POST http://localhost:18159/v1/document/convert \
+### 3.2. Native localhost source
+
+Install the native dependencies with `uv sync` as shown in §2.2 before this request.
+The native loader reads repository `.env` with shell exports taking precedence, including empty exports.
+It ignores `ATLAS_ENV_FILE` and uses `DOCLING_LOCALHOST_PORT`, or port `18159` when unset or empty.
+
+Use the same shell settings as the running provider.
+This request refuses an absent, empty or whitespace-only token before calling `curl`.
+It preserves every byte of a usable token.
+
+```bash
+# Repository root; Atlas and the native provider must already be running.
+if ! docling_values="$(uv run --project services/docling/provider/localhost python - <<'PYTHON'
+import os
+import shlex
+from pathlib import Path
+from dotenv import load_dotenv
+
+if Path(".env").exists():
+    load_dotenv(Path(".env"))
+token = os.getenv("DOCLING_API_TOKEN", "")
+if not token.strip():
+    raise SystemExit("DOCLING_API_TOKEN must be set in the shell or repository .env.")
+port = int(os.getenv("DOCLING_LOCALHOST_PORT") or 18159)
+print(f"export DOCLING_API_TOKEN={shlex.quote(token)}")
+print(f"export DOCLING_LOCALHOST_PORT={shlex.quote(str(port))}")
+print(f"export DOCLING_URL={shlex.quote(f'http://localhost:{port}')}")
+PYTHON
+)"; then
+  exit 1
+fi
+eval "$docling_values"
+curl -X POST "${DOCLING_URL}/v1/document/convert" \
   -H "Authorization: Bearer ${DOCLING_API_TOKEN}" \
   -F "file=@document.pdf" \
   -F "output_format=markdown"
