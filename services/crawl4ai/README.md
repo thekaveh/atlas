@@ -8,14 +8,52 @@ Crawl4AI is a local, token-protected web extraction API. It renders pages in a b
 - Kong URL: `http://crawl4ai.localhost:${KONG_HTTP_PORT}`
 - Internal URL: `http://crawl4ai:11235`
 
-The Kong route exists only when `CRAWL4AI_SOURCE=container`. Kong adds the dashboard-user `basic-auth`, `acl` and `cors` plugins, and Crawl4AI still requires its bearer token. The two credentials cannot share the `Authorization` header. Through Kong, send the dashboard credential as `Proxy-Authorization`, which Kong's basic-auth reads. Run from the repository root:
+The Kong route exists only when `CRAWL4AI_SOURCE=container`. Kong adds the dashboard-user `basic-auth`, `acl` and `cors` plugins, and Crawl4AI still requires its bearer token. The two credentials cannot share the `Authorization` header. Through Kong, send the dashboard credential as `Proxy-Authorization`, which Kong's basic-auth reads.
+
+Run this Bash example from the repository root with `uv` and the Bootstrapper dependencies installed.
+Use an existing configuration for the running stack, with its credentials already generated.
+
+The Atlas parser reads `.env`, or the file selected by `ATLAS_ENV_FILE`.
+Keep that selection consistent with the running stack. Relative selections resolve from the repository root.
+The selected file must exist and contain usable `DASHBOARD_USERNAME`, `DASHBOARD_PASSWORD`, `CRAWL4AI_API_TOKEN` and `KONG_HTTP_PORT` values.
+
+All four values must be configured for this request.
+Missing, empty or whitespace-only values stop the example before curl.
+The loader preserves usable bytes and replaces inherited shell values. Repeat the setup after configuration changes.
 
 ```bash
-set -a; . ./.env; set +a   # loads DASHBOARD_*, CRAWL4AI_API_TOKEN, KONG_HTTP_PORT
-curl -H "Proxy-Authorization: Basic $(printf '%s:%s' "$DASHBOARD_USERNAME" "$DASHBOARD_PASSWORD" | base64)" \
+if ! crawl4ai_values="$(PYTHONPATH=bootstrapper uv run --project bootstrapper python - <<'PYTHON'
+import base64
+import shlex
+from core.config_parser import ConfigParser
+
+parser = ConfigParser(root_dir=".")
+if not parser.env_file_path.is_file():
+    raise SystemExit("The selected Atlas environment file must exist.")
+values = parser.parse_env_file()
+for name in ("DASHBOARD_USERNAME", "DASHBOARD_PASSWORD", "CRAWL4AI_API_TOKEN", "KONG_HTTP_PORT"):
+    if not values.get(name, "").strip():
+        raise SystemExit(f"{name} must be set in the selected Atlas environment file.")
+basic = (values["DASHBOARD_USERNAME"] + ":" + values["DASHBOARD_PASSWORD"]).encode("utf-8")
+exports = {
+    "CRAWL4AI_BASIC_AUTH": base64.b64encode(basic).decode("ascii"),
+    "CRAWL4AI_API_TOKEN": values["CRAWL4AI_API_TOKEN"],
+    "KONG_HTTP_PORT": values["KONG_HTTP_PORT"],
+}
+for name, value in exports.items():
+    print(f"export {name}={shlex.quote(value)}")
+PYTHON
+)"; then
+  exit 1
+fi
+eval "$crawl4ai_values"
+curl -H "Proxy-Authorization: Basic $CRAWL4AI_BASIC_AUTH" \
      -H "Authorization: Bearer $CRAWL4AI_API_TOKEN" \
-     http://crawl4ai.localhost:${KONG_HTTP_PORT}/health
+     "http://crawl4ai.localhost:${KONG_HTTP_PORT}/health"
 ```
+
+The service permits `/health` without bearer authentication.
+This call checks the health route; it does not verify browser extraction or bearer acceptance.
 
 ## 3. Configuration
 - `CRAWL4AI_SOURCE=disabled|container` controls whether the service runs. The default is `disabled`.
