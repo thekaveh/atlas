@@ -253,6 +253,11 @@ async function fetchModelIds() {
     throw new BootstrapError("litellm model catalog read", new Error(`answered ${res.status}`));
   }
   const data = await responseJson(res, "litellm model catalog read");
+  if (!Array.isArray(data?.data)
+      || data.data.some((model) => model == null
+        || (model.id && typeof model.id !== "string"))) {
+    throw new BootstrapError("litellm model catalog read", new Error("invalid model catalog"));
+  }
   const ids = (data.data || []).map((m) => m.id).filter(Boolean);
   if (ids.length === 0) {
     throw new BootstrapError(
