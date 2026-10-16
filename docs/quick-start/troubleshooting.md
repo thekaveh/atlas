@@ -2,13 +2,35 @@
 
 This page lists common Atlas problems and their fixes. For a launch or stop that ran under `sudo`, see [Sudo Recovery](../TROUBLESHOOTING.md).
 
-Run these commands from the repository root. First, set the Compose project name once per shell. Plain `docker compose` uses the checkout folder name (or `COMPOSE_PROJECT_NAME`), not Atlas's `PROJECT_NAME`. Without this line, the commands miss the stack in a submodule checkout (such as `infra/`) or after `--project`:
+Use Bash from the repository root, with `uv` and the bootstrapper dependencies installed. Use the existing configuration for the running stack.
+
+Keep the configuration and naming environment unchanged from launch. The helper reads them on each call; it cannot discover resources from an earlier configuration or project name.
+
+Atlas selects `ATLAS_ENV_FILE`, or the legacy `GENAI_ENV_FILE`, before the default `.env`. Relative selected paths start at the repository root. For consumer deployments, set `ATLAS_CONSUMER_MANIFEST` to the same manifest used at launch. Keep the same user and generated overlays.
+
+Define this helper before the diagnostic commands. It validates the selected file and project, then uses Atlas's Compose execution owner for project, file and overlay selection.
 
 ```bash
-export COMPOSE_PROJECT_NAME="$(sed -n 's/^PROJECT_NAME=["'\'']\{0,1\}\([A-Za-z0-9_-]*\).*/\1/p' .env | tail -n1)"
+atlas_compose() {
+    PYTHONPATH=bootstrapper uv run --project bootstrapper python - "$@" <<'PYTHON'
+import sys
+from core.config_parser import ConfigParser
+from core.docker_manager import DockerManager
+
+parser = ConfigParser(root_dir=".")
+if not parser.env_file_path.is_file():
+    raise SystemExit("Selected configuration must be an existing file")
+parser.env_file_path = parser.env_file_path.resolve()
+parser.parse_env_file()
+project = parser.get_project_name()
+manager = DockerManager(root_dir=".")
+manager.config_parser = parser
+sys.exit(manager.execute_compose_command(sys.argv[1:], project_name=project))
+PYTHON
+}
 ```
 
-The commands then use the checked-out `docker-compose.yml` and your `.env`. Authenticated examples read values from `.env` without printing them. Ports assume the default `BASE_PORT=63000`. For a custom base port, get your endpoints from `./start.sh endpoints export --format env`.
+For file-inspection commands below, replace literal `.env` paths with your selected path when applicable. Authenticated examples read the selected file without printing credentials. Ports assume the default `BASE_PORT=63000`. For a custom base port, get your endpoints from `./start.sh endpoints export --format env`.
 
 ## 1. New or renamed variables after an upgrade
 
@@ -109,23 +131,23 @@ LITELLM_KEY=$(PYTHONPATH=bootstrapper uv run --project bootstrapper python -c 'f
 curl -H "Authorization: Bearer $LITELLM_KEY" http://localhost:63040/v1/models
 
 # Inspect LiteLLM logs
-docker compose logs --tail=100 -f litellm
+atlas_compose logs --tail=100 -f litellm
 ```
 
 **Ollama models not downloading:**
 ```bash
 # Check the ollama-pull init container
-docker compose logs --tail=100 -f ollama-pull
+atlas_compose logs --tail=100 -f ollama-pull
 
 # Or the Ollama container itself
-docker compose logs --tail=100 -f ollama
+atlas_compose logs --tail=100 -f ollama
 
 # For ollama-localhost, Atlas pulls the selected models onto the host
 # daemon at start. If a pull fails, pull it on the host:
 ollama pull qwen3.8:latest
 ```
 
-The Ollama container publishes no host port. Reach it through LiteLLM (`http://localhost:63040/v1`), or with `docker compose exec ollama` for direct `/api/*` calls.
+The Ollama container publishes no host port. Reach it through LiteLLM (`http://localhost:63040/v1`), or with `atlas_compose exec -T ollama` for direct `/api/*` calls.
 
 **Out of memory during model loading:**
 ```bash
@@ -141,7 +163,7 @@ ollama pull qwen3:1.7b  # Smaller model
 # The bootstrapper resolves COMFYUI_USER_MODELS at start and writes
 # volumes/comfyui/active-models.tsv. comfyui-init downloads each entry
 # via wget. If models you picked never show up, check these logs:
-docker compose logs --tail=100 -f comfyui-init
+atlas_compose logs --tail=100 -f comfyui-init
 
 # Verify the manifest was written at start (check volumes/comfyui/).
 # The manifests there are gitignored runtime artifacts — regenerated
@@ -149,7 +171,7 @@ docker compose logs --tail=100 -f comfyui-init
 ls volumes/comfyui/
 
 # Check ComfyUI service status
-docker compose logs --tail=100 -f comfyui
+atlas_compose logs --tail=100 -f comfyui
 ```
 
 **Can't access ComfyUI interface:**
@@ -166,7 +188,7 @@ curl http://localhost:63054  # Direct port access (COMFYUI_PORT)
 **n8n not accessible:**
 ```bash
 # Check n8n service status
-docker compose logs --tail=100 -f n8n
+atlas_compose logs --tail=100 -f n8n
 
 # Try direct access
 curl http://localhost:63075
@@ -178,10 +200,10 @@ curl -H "Host: n8n.localhost" http://localhost:63000/
 **Workflow execution fails:**
 ```bash
 # Check n8n worker logs
-docker compose logs --tail=100 -f n8n-worker
+atlas_compose logs --tail=100 -f n8n-worker
 
 # Check Redis connection
-docker compose logs --tail=100 -f redis
+atlas_compose logs --tail=100 -f redis
 ```
 
 ### 4.4. Database Issues
@@ -189,26 +211,28 @@ docker compose logs --tail=100 -f redis
 **Supabase services not starting:**
 ```bash
 # Check individual service logs
-docker compose logs --tail=100 -f supabase-db
-docker compose logs --tail=100 -f supabase-auth
-docker compose logs --tail=100 -f supabase-api
+atlas_compose logs --tail=100 -f supabase-db
+atlas_compose logs --tail=100 -f supabase-auth
+atlas_compose logs --tail=100 -f supabase-api
 
 # Check if database initialization completed
-docker compose logs --tail=100 supabase-db-init
+atlas_compose logs --tail=100 supabase-db-init
 ```
 
 **Database connection errors:**
+
+These probes are noninteractive. `exec -T` disables terminal allocation because the helper closes standard input.
 ```bash
 # Verify the server accepts connections (liveness only — proves nothing
 # about credentials or a specific database)
-docker compose exec supabase-db pg_isready
+atlas_compose exec -T supabase-db pg_isready
 
 # Run a real query through the Backend's own configured connection
 # (direct to supabase-db, or through Supavisor when it is enabled).
 # This proves the backend's credentials authenticate and a read-only
 # query returns — nothing more (not migrations, not app routes).
 # Bounded to 5 seconds per step; never prints the DSN.
-docker compose exec backend python -c "
+atlas_compose exec -T backend python -c "
 import asyncio, os, asyncpg
 async def main():
     conn = await asyncio.wait_for(asyncpg.connect(os.environ['DATABASE_URL']), 5)
@@ -229,7 +253,7 @@ asyncio.run(main())"
 cat bootstrapper/utils/kong_config_generator.py
 
 # Verify Kong is running
-docker compose logs --tail=100 -f kong-api-gateway
+atlas_compose logs --tail=100 -f kong-api-gateway
 
 # Test Kong routing end-to-end (proxies SearXNG's /healthz through Kong)
 curl -H 'Host: search.localhost' http://localhost:63000/healthz
@@ -242,7 +266,7 @@ grep -i "COMFYUI_SOURCE" .env
 grep -i "N8N_SOURCE" .env
 
 # Verify service is running
-docker compose ps | grep -E "(comfyui|n8n)"
+atlas_compose ps | grep -E "(comfyui|n8n)"
 ```
 
 ## 5. Resource Issues
@@ -323,11 +347,11 @@ sudo ufw status  # Ubuntu/Debian
 
 ```bash
 # Some services depend on others - check startup order
-docker compose ps
+atlas_compose ps
 
 # If services are failing, check dependency services first
-docker compose logs --tail=100 -f redis        # Many services need Redis
-docker compose logs --tail=100 -f supabase-db  # Backend needs database
+atlas_compose logs --tail=100 -f redis        # Many services need Redis
+atlas_compose logs --tail=100 -f supabase-db  # Backend needs database
 ```
 
 If Redis restart-loops with `Bad file format reading the append only file`, its append-only file is corrupt and nothing that depends on Redis will start. Run `./start.sh doctor`: the `redis-aof` check confirms it and prints the backup-first repair, documented in [Redis troubleshooting](../../services/redis/README.md#7-troubleshooting).
@@ -378,14 +402,14 @@ docker system df
 
 ```bash
 # Overall system health
-docker compose ps
+atlas_compose ps
 
 # Service logs (most recent)
-docker compose logs --tail=50
+atlas_compose logs --tail=50
 
 # Specific service investigation
-docker compose logs --tail=100 -f ollama
-docker compose logs --tail=100 -f backend
+atlas_compose logs --tail=100 -f ollama
+atlas_compose logs --tail=100 -f backend
 ```
 
 ### 8.2. Configuration Verification
@@ -413,9 +437,9 @@ grep -E "(LLM_PROVIDER|COMFYUI|N8N|WEAVIATE|CLOUD|MINIO)[A-Z_]*_SOURCE" .env
 ```bash
 # Test internal service connectivity (LLM goes through LiteLLM, not Ollama
 # directly). Inside the Compose network, services resolve by service name:
-docker compose exec backend curl -sf http://litellm:4000/health/liveliness
-docker compose exec litellm python -c "import urllib.request; print(urllib.request.urlopen('http://ollama:11434/api/tags', timeout=5).status)"   # the LiteLLM image has no curl
-docker compose exec backend curl -sf http://supabase-api:3000/   # PostgREST answers its OpenAPI root; /health is not a route (the Kong image has no curl)
+atlas_compose exec -T backend curl -sf http://litellm:4000/health/liveliness
+atlas_compose exec -T litellm python -c "import urllib.request; print(urllib.request.urlopen('http://ollama:11434/api/tags', timeout=5).status)"   # the LiteLLM image has no curl
+atlas_compose exec -T backend curl -sf http://supabase-api:3000/   # PostgREST answers its OpenAPI root; /health is not a route (the Kong image has no curl)
 
 # Test external access
 curl http://localhost:63096
@@ -484,23 +508,47 @@ Use `./start.sh --cold` only to also rebuild `.env` from `.env.example`. That re
 
 ### 10.2. Partial Reset
 
+To repair configuration without deleting data, copy only this action:
+
 ```bash
 # Repair environment configuration WITHOUT touching data — preserves
 # existing values, appends newly introduced keys, reports what changed:
 ./start.sh env backfill
-
-# Reset one volume's data (destructive). Stop the stack first: Docker
-# refuses to remove a volume a container (even a stopped one) still uses.
-# Volume names carry the PROJECT_NAME prefix from .env:
-./stop.sh
-# Uses COMPOSE_PROJECT_NAME from the setup line at the top of this page.
-docker volume rm "${COMPOSE_PROJECT_NAME}-supabase-db-data"  # the shared Postgres: every service database
-docker volume rm "${COMPOSE_PROJECT_NAME}-n8n-data"          # n8n's user folder only
 ```
+
+The optional volume reset below is destructive. Back up first (§10.3). Stop the stack before removing volumes. Docker refuses removal while any container, even a stopped one, uses a volume.
 
 `supabase-db-data` holds every database on the shared Postgres. These are Supabase, backend (memory, media ledger), n8n, Open WebUI, LiteLLM, LightRAG, Airflow, Langfuse, MLflow, Label Studio, Iceberg, JupyterHub, Zeppelin and TrueForge. Removing it resets all of them. n8n keeps its workflows and credentials in that Postgres (`DB_TYPE=postgresdb`). `n8n-data` holds only its user folder (`/home/node/.n8n`).
 
 Rebuilding `.env` from `.env.example` is **not** a partial reset. New secrets do not match the credentials already set in the existing volumes. A new `.env` therefore needs the full reset in §10.1, which deletes those volumes and re-initializes both together.
+
+The recipe uses the base volume declarations. If an overlay renames these volumes, use its actual names instead. Keep the selected configuration and naming environment from launch. A later configuration or project rename does not retarget old resources.
+
+Compose normalizes the project identity, but explicit volume names retain a compatible raw prefix. Stored `MyStack` uses `MyStack-*`; matching inherited `MYStack` uses `MYStack-*`. Atlas replaces foreign or empty inherited naming input with the normalized project.
+
+Copy this separate action only when you intend to delete these volumes. A failed stop or configuration lookup prevents volume removal.
+
+```bash
+(
+    ./stop.sh || exit "$?"
+    VOLUME_PREFIX=$(PYTHONPATH=bootstrapper uv run --project bootstrapper python - <<'PYTHON'
+from core.config_parser import ConfigParser
+from utils.system import compose_env
+
+parser = ConfigParser(root_dir=".")
+if not parser.env_file_path.is_file():
+    raise SystemExit("Selected configuration must be an existing file")
+values = parser.parse_env_file()
+project = parser.get_project_name()
+command = ["docker", "compose", "-p", project,
+           "--env-file=" + str(parser.env_file_path.resolve())]
+print(compose_env(command).get("PROJECT_NAME", values.get("PROJECT_NAME") or project))
+PYTHON
+    ) || exit "$?"
+    docker volume rm "${VOLUME_PREFIX}-supabase-db-data" || exit "$?"  # the shared Postgres: every service database
+    docker volume rm "${VOLUME_PREFIX}-n8n-data"                       # n8n's user folder only
+)
+```
 
 ### 10.3. Backup Before Reset
 
