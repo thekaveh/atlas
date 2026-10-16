@@ -54,7 +54,7 @@ Model, MCP, skill and sandbox configuration does **not** use env catalogs. `true
 
 ### 4.2. What trueforge-init seeds (idempotent, every start)
 
-1. Reads the gateway's live `/v1/models` catalog. An empty or failed read stops the init before any key rotates, so TrueForge keeps its working key.
+1. Reads the gateway's live `/v1/models` catalog. It rejects an empty or unusable catalog before key generation. A failed read also stops init. TrueForge keeps its working key.
 2. Reads all key-inventory pages and captures only settled generations with the exact Atlas ownership metadata and generation-alias format. If inventory is unavailable, it defers retirement and continues the mint/fallback path.
 3. Mints a **LiteLLM virtual key** with a unique `trueforge-<uuid>` alias and marks it `pending`. Previous keys stay valid. Mint failure retains the logged master-key fallback.
 4. Writes one `custom` provider (`atlas-litellm` → `http://litellm:4000/v1`) with the new key and catalog. It checks the provider confirmation before marking the key settled.

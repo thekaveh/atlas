@@ -751,3 +751,19 @@ def test_invalid_read_json_names_operation_without_logging_response_body(path, o
         assert f"FAILED at {operation}: invalid JSON response" in output
     finally:
         server.close()
+
+
+@pytest.mark.parametrize("catalog", [None, {"data": {}}, {"data": [None]},
+    *({"data": [{"id": value}]} for value in (17, True, [], {}))])
+def test_unusable_catalog_fails_before_key_generation(catalog):
+    server = _RotationStack()
+    read = server.read
+    server.read = lambda path: (200, catalog) if path == "/v1/models" else read(path)
+    try:
+        result = _run_rotation(server)
+        assert result.returncode != 0
+        assert "FAILED at litellm model catalog read: invalid model catalog" in result.stderr
+        assert server.generated == server.deleted == []
+        _assert_active_credential(server, "sk-legacy-do-not-print")
+    finally:
+        server.close()
