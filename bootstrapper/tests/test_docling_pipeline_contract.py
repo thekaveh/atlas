@@ -7,6 +7,9 @@ from pathlib import Path
 
 import pytest
 
+from tests.test_docling_guide_examples import probe
+from tests.test_three_surface_build import env_reference_config
+
 
 ROOT = Path(__file__).resolve().parents[2]
 MODULE_PATH = ROOT / "services/docling/provider/shared/pipeline_config.py"
@@ -236,7 +239,9 @@ def test_converter_construction_is_single_flight_across_threads(monkeypatch):
     assert calls == 1
 
 
-def test_docling_docs_keep_source_specific_launch_and_route_contracts():
+def test_docling_docs_keep_source_specific_launch_and_route_contracts(
+    tmp_path, env_reference_config,
+):
     aggregate = (ROOT / "services/doc-processor/README.md").read_text()
     quick_start = aggregate.split("## 2. Quick Start", 1)[1].split(
         "## 3. Test the API", 1
@@ -247,9 +252,13 @@ def test_docling_docs_keep_source_specific_launch_and_route_contracts():
         "### 2.3. Disable Document Processor", 1
     )[0]
 
-    assert aggregate.index("export DOCLING_API_TOKEN") < aggregate.index("curl -X POST")
-    assert "localhost:63051/v1/document/convert" in aggregate
-    assert "localhost:18159/v1/document/convert" in aggregate
+    for context in ("container", "aggregate-native"):
+        for variant in ("plain", "missing-token"):
+            observed, expected = probe(
+                ("repo", context, variant), tmp_path / context / variant,
+                env_reference_config,
+            )
+            assert observed == expected
     assert "container-GPU provider only" in aggregate
     assert "localhost provider does not advertise that route" in aggregate
     assert "Step 3: Start doc processor server on host (Terminal 2, repository root)" in localhost_flow
