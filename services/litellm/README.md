@@ -295,9 +295,31 @@ curl -sX POST http://localhost:${LITELLM_PORT}/v1/chat/completions \
   -d '{"model":"lightrag","messages":[{"role":"user","content":"/hybrid What is RAG?"}]}'
 ```
 
-## 14. Dependencies & Integrations
+## 14. Capabilities & limitations
 
-### 14.1. Current — Upstream (this service calls)
+<a id="15-capabilities-limitations"></a>
+<a id="15-capabilities--limitations"></a>
+
+Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Unified authenticated model gateway | supported | tested | Atlas exposes chat, embeddings, image generation, and reranking through one LiteLLM endpoint protected by the generated master key, with an explicitly credentialed admin UI. |
+| Catalog-driven provider routing | supported | tested | Startup deterministically renders Ollama, cloud, service-passthrough, and consumer-declared model rows from typed catalogs and enabled provider configuration. |
+| Gateway persistence and response caching | supported | tested | LiteLLM stores its control and spend data in a dedicated Supabase database and uses the authenticated shared Redis service for namespaced bounded-TTL response caching. |
+| Vision-model default consumption | stubbed | documented | Atlas resolves and persists LITELLM_VISION_MODEL for selection UX, but the manifest explicitly has no current consumer route for that default. |
+| Unified speech routing | not-supported | documented | STT and TTS consumers call their provider endpoints directly; LiteLLM does not register the stock audio transcription or speech routes. |
+| Per-service gateway credentials and budgets | partial | documented | TrueForge normally uses a dedicated virtual key, with a master-key fallback on mint failure. Other stock consumers use the master key by default. Atlas provisions no per-service spend caps or team budgets. |
+
+## 15. Dependencies & Integrations
+
+<a id="14-dependencies-integrations"></a>
+<a id="14-dependencies--integrations"></a>
+
+### 15.1. Current — Upstream (this service calls)
+
+<a id="141-current-upstream-this-service-calls"></a>
+<a id="141-current--upstream-this-service-calls"></a>
 
 | Service | Category |
 |---|---|
@@ -313,7 +335,10 @@ curl -sX POST http://localhost:${LITELLM_PORT}/v1/chat/completions \
 | hermes ↔ | agents |
 | lightrag ↔ | agents |
 
-### 14.2. Current — Downstream (services that call this)
+### 15.2. Current — Downstream (services that call this)
+
+<a id="142-current-downstream-services-that-call-this"></a>
+<a id="142-current--downstream-services-that-call-this"></a>
 
 | Service | Category | Status |
 |---|---|---|
@@ -334,40 +359,38 @@ curl -sX POST http://localhost:${LITELLM_PORT}/v1/chat/completions \
 | open-webui | apps | current |
 | verba | apps | current |
 
-### 14.3. Architecture diagram
+### 15.3. Architecture diagram
+
+<a id="143-architecture-diagram"></a>
 
 ![litellm architecture](./architecture.svg)
 
 [Open the full-size diagram](./architecture.html) for a full-screen view.
 
-### 14.4. Future — Missing pair integrations
+### 15.4. Future — Missing pair integrations
+
+<a id="144-future-missing-pair-integrations"></a>
+<a id="144-future--missing-pair-integrations"></a>
 
 - **litellm ↔ minio** — *Why:* LiteLLM ships a first-class S3 logger that persists full request/response payloads. MinIO is in the stack but unused for LLM telemetry — wiring it gives offline replay, prompt-regression diffs, and audit trails without a new dependency. *Mechanism:* `litellm_settings.success_callback: ["s3"]` + `s3_callback_params` pointing at `http://minio:9000`; provision a `litellm-logs` bucket via `minio-init`. *Effort:* small. *Confidence:* high.
 - **litellm ↔ stt-provider** — *Why:* LiteLLM exposes a unified `/v1/audio/transcriptions` endpoint, but consumers hit `STT_ENDPOINT` directly today, bypassing LiteLLM's auth/rate-limit/spend/Kong-alias affordances. *Mechanism:* add an `audio_transcription` row in `model_list` with `model: openai/<name>` + `api_base: ${STT_ENDPOINT}` (speaches is OpenAI-compatible; parakeet needs a thin shim). *Effort:* medium. *Confidence:* medium.
 - **litellm ↔ tts-provider** — *Why:* same argument as STT — LiteLLM has `/v1/audio/speech` routing; consumers hit TTS engines directly. *Mechanism:* TTS row in `model_list` with `model: openai/<voice>` + `api_base: ${TTS_ENDPOINT}` for speaches; chatterbox (port 4123) is also OpenAI-compatible on `/v1/audio/speech`. *Effort:* medium. *Confidence:* medium.
 - **litellm ↔ searxng** — *Why:* LiteLLM's MCP servers feature lets a tool be advertised to every chat-completions client. Wiring searxng as a built-in `search_web` tool gives open-webui/n8n/hermes/jupyterhub web search for free. *Mechanism:* define a LiteLLM MCP server in `litellm_settings.mcp_servers` calling `http://searxng:8080/search?format=json`. *Effort:* medium. *Confidence:* medium.
 
-### 14.5. Future — Candidate new services
+### 15.5. Future — Candidate new services
+
+<a id="145-future-candidate-new-services"></a>
+<a id="145-future--candidate-new-services"></a>
 
 _No high-confidence opportunities identified._
 
-### 14.6. Future — Unused features in this service
+### 15.6. Future — Unused features in this service
+
+<a id="146-future-unused-features-in-this-service"></a>
+<a id="146-future--unused-features-in-this-service"></a>
 
 - **Guardrails** — *Why pursue:* presidio PII redaction, lakera prompt-injection scanning, hide-secrets — all configurable per virtual key. Stack handles user data but has zero LLM-side PII controls today. *Effort:* medium.
 - **Virtual keys + team budgets** — *Why pursue:* TrueForge already uses a dedicated virtual key, with a master-key fallback on mint failure. Other stock consumers use the master key by default. Atlas provisions no per-service spend caps or team budgets. Extending virtual keys to n8n / jupyterhub / open-webui would support separate budgets and credential revocation. *Effort:* small.
 - **Semantic caching + per-key cache controls** — *Why pursue:* basic Redis response caching is already enabled stack-wide; LiteLLM's embedding-similarity semantic cache and per-virtual-key TTL/namespace controls remain unused. *Effort:* small.
 - **`/v1/audio/transcriptions` + `/v1/audio/speech` routing** — *Why pursue:* see pair-integrations above. *Effort:* medium.
 - **Fallback model chains** — *Why pursue:* declare `fallbacks: [{"gpt-5": ["claude-opus", "ollama/qwen3.8"]}]` so a cloud outage degrades gracefully to local Ollama. *Effort:* small.
-
-## 15. Capabilities & limitations
-
-Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
-
-| Capability | Status | Verification | Notes |
-|---|---|---|---|
-| Unified authenticated model gateway | supported | tested | Atlas exposes chat, embeddings, image generation, and reranking through one LiteLLM endpoint protected by the generated master key, with an explicitly credentialed admin UI. |
-| Catalog-driven provider routing | supported | tested | Startup deterministically renders Ollama, cloud, service-passthrough, and consumer-declared model rows from typed catalogs and enabled provider configuration. |
-| Gateway persistence and response caching | supported | tested | LiteLLM stores its control and spend data in a dedicated Supabase database and uses the authenticated shared Redis service for namespaced bounded-TTL response caching. |
-| Vision-model default consumption | stubbed | documented | Atlas resolves and persists LITELLM_VISION_MODEL for selection UX, but the manifest explicitly has no current consumer route for that default. |
-| Unified speech routing | not-supported | documented | STT and TTS consumers call their provider endpoints directly; LiteLLM does not register the stock audio transcription or speech routes. |
-| Per-service gateway credentials and budgets | partial | documented | TrueForge normally uses a dedicated virtual key, with a master-key fallback on mint failure. Other stock consumers use the master key by default. Atlas provisions no per-service spend caps or team budgets. |

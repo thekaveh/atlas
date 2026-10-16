@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
 import yaml
+from markdown_it import MarkdownIt
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -83,6 +85,29 @@ def test_jupyterhub_manifest_declares_lakehouse_topology() -> None:
     assert "lakehouse" in manifest["rows"][0]["description"].lower()
 
 
+def _future_pair_body(readme: str) -> str:
+    tokens = MarkdownIt("commonmark").parse(readme)
+    sections = []
+    future_sections = []
+    for index, token in enumerate(tokens):
+        if token.type != "heading_open" or token.level != 0:
+            continue
+        if token.tag in {"h1", "h2", "h3"}:
+            sections.append(token)
+        if token.tag == "h3" and re.fullmatch(
+            r"[1-9]\d*\.[1-9]\d*\. Future — Missing pair integrations",
+            tokens[index + 1].content,
+        ):
+            future_sections.append(token)
+    assert len(future_sections) == 1, "expected one Missing pair integrations Future subsection"
+    lines = readme.split("\n")
+    start = future_sections[0].map[1]
+    end = next(
+        (section.map[0] for section in sections if section.map[0] >= start), len(lines),
+    )
+    return "\n".join(lines[start:end])
+
+
 def test_jupyterhub_docs_cover_lakehouse_clients_and_validation() -> None:
     readme = (JUPYTERHUB_DIR / "README.md").read_text(encoding="utf-8")
     combined = readme
@@ -102,7 +127,7 @@ def test_jupyterhub_docs_cover_lakehouse_clients_and_validation() -> None:
     ]:
         assert expected in combined
 
-    future_pairs = readme.split("### 15.4. Future", 1)[1].split("### 15.5.", 1)[0]
+    future_pairs = _future_pair_body(readme)
     assert "jupyterhub ↔ minio" not in future_pairs
 
 

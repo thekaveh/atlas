@@ -2,7 +2,7 @@
 
 Privacy-preserving metasearch engine. SearXNG aggregates results from many upstream engines, such as Google, DuckDuckGo, Brave, Wikipedia and arXiv. The pinned image defines over 300 engines, with about 86 on by default. It does not fingerprint users; the default engines need no API keys. See §9 for gateway logging and privacy limits.
 
-The stack uses it as the default search backend for Local Deep Researcher, Hermes and n8n's manually imported `searxng-research-workflow.json`. Open WebUI's web-search toggle is not wired (§5.4).
+The stack uses it as the default search backend for Local Deep Researcher, Hermes and n8n's manually imported `searxng-research-workflow.json`. Open WebUI's web-search toggle is not wired (§11.4).
 
 ## 1. Overview
 
@@ -52,48 +52,19 @@ To change one engine, add a minimal `engines:` entry; SearXNG merges it over tha
 
 **Volumes / state.** One cache volume, `searxng-data`, at `/var/cache/searxng`. `./config` is bind-mounted at `/etc/searxng`. SearXNG keeps no other state.
 
-## 5. Dependencies & Integrations
+## 5. Capabilities & limitations
 
-### 5.1. Current — Upstream (this service calls)
+<a id="11-capabilities-limitations"></a>
+<a id="11-capabilities--limitations"></a>
 
-_No upstream calls._
+Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
-### 5.2. Current — Downstream (services that call this)
-
-| Service | Category |
-|---|---|
-| kong | infra |
-| hermes | agents |
-| mcp-servers | agents |
-| n8n | agents |
-| jupyterhub | apps |
-| local-deep-researcher | apps |
-
-### 5.3. Architecture diagram
-
-![searxng architecture](./architecture.svg)
-
-[Open the full-size diagram](./architecture.html) for a full-screen view.
-
-### 5.4. Future — Missing pair integrations
-
-- **searxng ↔ open-webui** — *Why:* Open WebUI's "Web Search" toggle supports SearXNG, but `services/open-webui/service.yml` sets none of its env vars. Chat has no live-web grounding without the side-loaded `research_tool.py` extra. *Mechanism:* add `searxng` to `runtime_adaptive.open-web-ui.adapts_to`; set `ENABLE_RAG_WEB_SEARCH=true`, `RAG_WEB_SEARCH_ENGINE=searxng`, `SEARXNG_QUERY_URL=http://searxng:8080/search?q=<query>` when `SEARXNG_SOURCE != disabled`. *Effort:* small. *Confidence:* high.
-- **searxng ↔ n8n** — *Why:* the repo ships `services/n8n/init/config/searxng-research-workflow.json` that calls `http://searxng:8080/search`, but n8n's manifest does not declare searxng in `runtime_deps.optional`. If the user disables SearXNG, the workflow imports fine and silently 404s on first run. *Mechanism:* add `searxng` to `services/n8n/service.yml` `runtime_deps.n8n.optional`; emit an info_message; optionally add the `n8n-nodes-langchain.toolSearXng` sub-node. *Effort:* small. *Confidence:* high.
-- **searxng ↔ weaviate** — *Why:* SearXNG results are ephemeral — every query re-hits external engines. Caching top-N hits in a Weaviate class lets backend / Hermes do hybrid retrieval over "what we've already searched" without re-burning engine quota or tripping CAPTCHAs. *Mechanism:* small fetcher calls `GET http://searxng:8080/search?format=json`, then POSTs each hit to `http://weaviate:8080/v1/objects` in a `WebSearchResult` class. *Effort:* medium. *Confidence:* medium.
-- **searxng ↔ comfyui** — *Why:* SearXNG's image category returns direct image URLs. ComfyUI workflows wanting a reference image for img2img currently require users to paste URLs by hand; an n8n bridge closes that loop. *Mechanism:* n8n HTTP Request → `searxng:8080/search?q=<q>&categories=images&format=json` → pipe top URL into ComfyUI's `LoadImage` node via `/prompt`. *Effort:* medium. *Confidence:* medium.
-
-### 5.5. Future — Candidate new services
-
-- **Perplexica** ([details](../../docs/reference/candidate-decisions.md#candidate-perplexica)) — *Headline:* self-hosted Perplexity-style AI answering engine that consumes SearXNG + an OpenAI-compatible LLM (LiteLLM). *Wires into:* searxng, litellm, ollama, kong.
-- **Browserless** ([details](../../docs/reference/candidate-decisions.md#candidate-browserless)) — *Headline:* headless-Chrome service that renders the JS-heavy URLs SearXNG returns so doc-processor/weaviate get the actual page text. *Wires into:* n8n, doc-processor, backend.
-
-### 5.6. Future — Unused features in this service
-
-- **`open_metrics` Prometheus endpoint** — *Why pursue:* `/metrics` stays off because the inherited `general.open_metrics` is empty. It would give engine-latency and error-rate stats to a Prometheus scraper. *Effort:* small.
-- **`server.image_proxy: true`** — *Why pursue:* currently off. Turning it on lets ComfyUI and Open WebUI fetch image results without third-party-host 403s, at the cost of RAM. *Effort:* small.
-- **Crossref and OpenAlex scholarly engines** — *Why pursue:* they are off in the image default. Enabling them adds to the default arXiv, PubMed and Semantic Scholar search for LDR and Hermes. *Effort:* small.
-- **`limiter: true` with Redis/Valkey bot detection** — *Why pursue:* the stack ships a Redis the limiter could use. It is not wired: `valkey.url: false`, and no compose dependency. Enabling it means pointing `valkey.url` at `redis://:${REDIS_PASSWORD}@redis:6379/<unused db>` and adding the compose dependency in one change. *Effort:* small.
-- **`engines=` query parameter** — *Why pursue:* callers send `/search` with no engine pinning, so a slow or failing engine drags p99. Pass `engines=duckduckgo,brave` from callers. *Effort:* small.
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| JSON privacy metasearch | supported | documented | Atlas pins SearXNG with a thin version-matched override that enables HTML and JSON results while removing Tor-only engines. |
+| Machine-consumer search integration | partial | tested | Hermes, MCP servers, n8n, JupyterHub, and Local Deep Researcher receive the search endpoint, but Open WebUI's native web-search toggle remains unwired. |
+| Authenticated metasearch access | not-supported | documented | The host-published UI/API and rate-limited CORS-only search.localhost route have no Atlas authentication; bind loopback, remove the publish, or add an authentication proxy before remote exposure. |
+| Public-instance abuse protection | not-supported | documented | Public-instance mode, the SearXNG limiter, and its Valkey store are disabled; operators must edit live settings and restore storage wiring before internet exposure. |
 
 ## 6. Troubleshooting
 
@@ -103,7 +74,7 @@ _No upstream calls._
 
 **Image results 403 on click.** The third-party host blocks hotlinking. Set `server.image_proxy: true` in `settings.yml` so SearXNG proxies the image.
 
-**Open WebUI's web-search toggle does nothing.** Expected: the wiring is a future integration (§5.4). Use the `research_tool.py` extra instead.
+**Open WebUI's web-search toggle does nothing.** Expected: the wiring is a future integration (§11.4). Use the `research_tool.py` extra instead.
 
 **LDR / Hermes get empty results.** The reply is still 200. Read its `unresponsive_engines` list: it names each engine that failed and why (for example `HTTP connection error` or a rate limit). `engines=` also queries engines that are off by default, such as Crossref. If no named engine exists (a typo, or a removed engine such as `ahmia`), SearXNG queries its default general engines instead.
 
@@ -167,13 +138,65 @@ SearXNG queries the selected engines in parallel.
 - [Engine settings reference](https://docs.searxng.org/admin/settings/settings_engines.html) — every engine's tunable knobs, useful when enabling scholarly engines.
 - [Limiter](https://docs.searxng.org/admin/searx.limiter.html) — explains the Valkey-backed bot protection (not wired in this stack).
 
-## 11. Capabilities & limitations
+## 11. Dependencies & Integrations
 
-Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+<a id="5-dependencies-integrations"></a>
+<a id="5-dependencies--integrations"></a>
 
-| Capability | Status | Verification | Notes |
-|---|---|---|---|
-| JSON privacy metasearch | supported | documented | Atlas pins SearXNG with a thin version-matched override that enables HTML and JSON results while removing Tor-only engines. |
-| Machine-consumer search integration | partial | tested | Hermes, MCP servers, n8n, JupyterHub, and Local Deep Researcher receive the search endpoint, but Open WebUI's native web-search toggle remains unwired. |
-| Authenticated metasearch access | not-supported | documented | The host-published UI/API and rate-limited CORS-only search.localhost route have no Atlas authentication; bind loopback, remove the publish, or add an authentication proxy before remote exposure. |
-| Public-instance abuse protection | not-supported | documented | Public-instance mode, the SearXNG limiter, and its Valkey store are disabled; operators must edit live settings and restore storage wiring before internet exposure. |
+### 11.1. Current — Upstream (this service calls)
+
+<a id="51-current-upstream-this-service-calls"></a>
+<a id="51-current--upstream-this-service-calls"></a>
+
+_No upstream calls._
+
+### 11.2. Current — Downstream (services that call this)
+
+<a id="52-current-downstream-services-that-call-this"></a>
+<a id="52-current--downstream-services-that-call-this"></a>
+
+| Service | Category |
+|---|---|
+| kong | infra |
+| hermes | agents |
+| mcp-servers | agents |
+| n8n | agents |
+| jupyterhub | apps |
+| local-deep-researcher | apps |
+
+### 11.3. Architecture diagram
+
+<a id="53-architecture-diagram"></a>
+
+![searxng architecture](./architecture.svg)
+
+[Open the full-size diagram](./architecture.html) for a full-screen view.
+
+### 11.4. Future — Missing pair integrations
+
+<a id="54-future-missing-pair-integrations"></a>
+<a id="54-future--missing-pair-integrations"></a>
+
+- **searxng ↔ open-webui** — *Why:* Open WebUI's "Web Search" toggle supports SearXNG, but `services/open-webui/service.yml` sets none of its env vars. Chat has no live-web grounding without the side-loaded `research_tool.py` extra. *Mechanism:* add `searxng` to `runtime_adaptive.open-web-ui.adapts_to`; set `ENABLE_RAG_WEB_SEARCH=true`, `RAG_WEB_SEARCH_ENGINE=searxng`, `SEARXNG_QUERY_URL=http://searxng:8080/search?q=<query>` when `SEARXNG_SOURCE != disabled`. *Effort:* small. *Confidence:* high.
+- **searxng ↔ n8n** — *Why:* the repo ships `services/n8n/init/config/searxng-research-workflow.json` that calls `http://searxng:8080/search`, but n8n's manifest does not declare searxng in `runtime_deps.optional`. If the user disables SearXNG, the workflow imports fine and silently 404s on first run. *Mechanism:* add `searxng` to `services/n8n/service.yml` `runtime_deps.n8n.optional`; emit an info_message; optionally add the `n8n-nodes-langchain.toolSearXng` sub-node. *Effort:* small. *Confidence:* high.
+- **searxng ↔ weaviate** — *Why:* SearXNG results are ephemeral — every query re-hits external engines. Caching top-N hits in a Weaviate class lets backend / Hermes do hybrid retrieval over "what we've already searched" without re-burning engine quota or tripping CAPTCHAs. *Mechanism:* small fetcher calls `GET http://searxng:8080/search?format=json`, then POSTs each hit to `http://weaviate:8080/v1/objects` in a `WebSearchResult` class. *Effort:* medium. *Confidence:* medium.
+- **searxng ↔ comfyui** — *Why:* SearXNG's image category returns direct image URLs. ComfyUI workflows wanting a reference image for img2img currently require users to paste URLs by hand; an n8n bridge closes that loop. *Mechanism:* n8n HTTP Request → `searxng:8080/search?q=<q>&categories=images&format=json` → pipe top URL into ComfyUI's `LoadImage` node via `/prompt`. *Effort:* medium. *Confidence:* medium.
+
+### 11.5. Future — Candidate new services
+
+<a id="55-future-candidate-new-services"></a>
+<a id="55-future--candidate-new-services"></a>
+
+- **Perplexica** ([details](../../docs/reference/candidate-decisions.md#candidate-perplexica)) — *Headline:* self-hosted Perplexity-style AI answering engine that consumes SearXNG + an OpenAI-compatible LLM (LiteLLM). *Wires into:* searxng, litellm, ollama, kong.
+- **Browserless** ([details](../../docs/reference/candidate-decisions.md#candidate-browserless)) — *Headline:* headless-Chrome service that renders the JS-heavy URLs SearXNG returns so doc-processor/weaviate get the actual page text. *Wires into:* n8n, doc-processor, backend.
+
+### 11.6. Future — Unused features in this service
+
+<a id="56-future-unused-features-in-this-service"></a>
+<a id="56-future--unused-features-in-this-service"></a>
+
+- **`open_metrics` Prometheus endpoint** — *Why pursue:* `/metrics` stays off because the inherited `general.open_metrics` is empty. It would give engine-latency and error-rate stats to a Prometheus scraper. *Effort:* small.
+- **`server.image_proxy: true`** — *Why pursue:* currently off. Turning it on lets ComfyUI and Open WebUI fetch image results without third-party-host 403s, at the cost of RAM. *Effort:* small.
+- **Crossref and OpenAlex scholarly engines** — *Why pursue:* they are off in the image default. Enabling them adds to the default arXiv, PubMed and Semantic Scholar search for LDR and Hermes. *Effort:* small.
+- **`limiter: true` with Redis/Valkey bot detection** — *Why pursue:* the stack ships a Redis the limiter could use. It is not wired: `valkey.url: false`, and no compose dependency. Enabling it means pointing `valkey.url` at `redis://:${REDIS_PASSWORD}@redis:6379/<unused db>` and adding the compose dependency in one change. *Effort:* small.
+- **`engines=` query parameter** — *Why pursue:* callers send `/search` with no engine pinning, so a slow or failing engine drags p99. Pass `engines=duckduckgo,brave` from callers. *Effort:* small.

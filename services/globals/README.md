@@ -60,35 +60,10 @@ Compose fragments bind published ports as `${HOST_BIND_IP-127.0.0.1:}`. An unset
 - Service manifest: `services/globals/service.yml`
 - Generated environment template: `.env.example`
 
-## 11. Dependencies & Integrations
+## 11. Capabilities & limitations
 
-### 11.1. Current — Upstream (this service calls)
-
-_No upstream calls._
-
-### 11.2. Current — Downstream (services that call this)
-
-_No downstream consumers._
-
-### 11.3. Architecture diagram
-
-![globals architecture](./architecture.svg)
-
-[Open the full-size diagram](./architecture.html) for a full-screen view.
-
-### 11.4. Future — Missing pair integrations
-
-_No high-confidence opportunities identified._
-
-### 11.5. Future — Candidate new services
-
-_No high-confidence opportunities identified._
-
-### 11.6. Future — Unused features in this service
-
-_No high-confidence opportunities identified._
-
-## 12. Capabilities & limitations
+<a id="12-capabilities-limitations"></a>
+<a id="12-capabilities--limitations"></a>
 
 Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
@@ -97,3 +72,51 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 | Project namespace and base-port ownership | supported | tested | This virtual manifest owns the Compose project namespace, the bind and gateway settings, and the base port from which service ports derive. It launches no container of its own. |
 | Branding and launch defaults | supported | tested | Atlas assembles the brand metadata, Compose profiles, GPU reservation flags, and shared logging defaults declared here into the generated environment. |
 | Generic production resource limits | partial | documented | The PROD_ENV limit variables are reserved shared configuration, but most service compose fragments do not yet consume them as generic runtime caps. |
+
+## 12. Dependencies & Integrations
+
+<a id="11-dependencies-integrations"></a>
+<a id="11-dependencies--integrations"></a>
+
+### 12.1. Current — Upstream (this service calls)
+
+<a id="111-current-upstream-this-service-calls"></a>
+<a id="111-current--upstream-this-service-calls"></a>
+
+_No upstream calls._
+
+### 12.2. Current — Downstream (services that call this)
+
+<a id="112-current-downstream-services-that-call-this"></a>
+<a id="112-current--downstream-services-that-call-this"></a>
+
+_No downstream consumers._
+
+### 12.3. Architecture diagram
+
+<a id="113-architecture-diagram"></a>
+
+![globals architecture](./architecture.svg)
+
+[Open the full-size diagram](./architecture.html) for a full-screen view.
+
+### 12.4. Future — Missing pair integrations
+
+<a id="114-future-missing-pair-integrations"></a>
+<a id="114-future--missing-pair-integrations"></a>
+
+_No high-confidence opportunities identified._
+
+### 12.5. Future — Candidate new services
+
+<a id="115-future-candidate-new-services"></a>
+<a id="115-future--candidate-new-services"></a>
+
+_No high-confidence opportunities identified._
+
+### 12.6. Future — Unused features in this service
+
+<a id="116-future-unused-features-in-this-service"></a>
+<a id="116-future--unused-features-in-this-service"></a>
+
+_No high-confidence opportunities identified._

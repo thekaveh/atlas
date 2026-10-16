@@ -25,13 +25,35 @@ Requests return `404` until you download the model (issue #799). See
 - **In-container port:** 8000
 - **Host port:** `${SPEACHES_PORT}` (computed from `BASE_PORT`)
 
-## 2. Dependencies & Integrations
+## 2. Capabilities & limitations
 
-### 2.1. Current — Upstream (this service calls)
+<a id="3-capabilities-limitations"></a>
+<a id="3-capabilities--limitations"></a>
+
+Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| OpenAI-compatible text-to-speech | partial | tested | Speaches serves /v1/audio/speech, but Atlas does not preload Kokoro; the model must be downloaded before requests succeed. |
+| OpenAI-compatible speech-to-text | partial | untested | Speaches exposes /v1/audio/transcriptions, but Atlas has not validated the current preload and Open WebUI model path against a live container. |
+| Configurable STT model selection | stubbed | documented | SPEACHES_STT_MODEL is declared but does not alter the hard-coded PRELOAD_MODELS value or Open WebUI's STT model. |
+
+## 3. Dependencies & Integrations
+
+<a id="2-dependencies-integrations"></a>
+<a id="2-dependencies--integrations"></a>
+
+### 3.1. Current — Upstream (this service calls)
+
+<a id="21-current-upstream-this-service-calls"></a>
+<a id="21-current--upstream-this-service-calls"></a>
 
 _No upstream calls._
 
-### 2.2. Current — Downstream (services that call this)
+### 3.2. Current — Downstream (services that call this)
+
+<a id="22-current-downstream-services-that-call-this"></a>
+<a id="22-current--downstream-services-that-call-this"></a>
 
 | Service | Category |
 |---|---|
@@ -41,30 +63,31 @@ _No upstream calls._
 | jupyterhub | apps |
 | open-webui | apps |
 
-### 2.3. Architecture diagram
+### 3.3. Architecture diagram
+
+<a id="23-architecture-diagram"></a>
 
 ![speaches architecture](./architecture.svg)
 
 [Open the full-size diagram](./architecture.html) for a full-screen view.
 
-### 2.4. Future — Missing pair integrations
+### 3.4. Future — Missing pair integrations
+
+<a id="24-future-missing-pair-integrations"></a>
+<a id="24-future--missing-pair-integrations"></a>
 
 _No high-confidence opportunities identified._
 
-### 2.5. Future — Candidate new services
+### 3.5. Future — Candidate new services
+
+<a id="25-future-candidate-new-services"></a>
+<a id="25-future--candidate-new-services"></a>
 
 _No high-confidence opportunities identified._
 
-### 2.6. Future — Unused features in this service
+### 3.6. Future — Unused features in this service
+
+<a id="26-future-unused-features-in-this-service"></a>
+<a id="26-future--unused-features-in-this-service"></a>
 
 _No high-confidence opportunities identified._
-
-## 3. Capabilities & limitations
-
-Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
-
-| Capability | Status | Verification | Notes |
-|---|---|---|---|
-| OpenAI-compatible text-to-speech | partial | tested | Speaches serves /v1/audio/speech, but Atlas does not preload Kokoro; the model must be downloaded before requests succeed. |
-| OpenAI-compatible speech-to-text | partial | untested | Speaches exposes /v1/audio/transcriptions, but Atlas has not validated the current preload and Open WebUI model path against a live container. |
-| Configurable STT model selection | stubbed | documented | SPEACHES_STT_MODEL is declared but does not alter the hard-coded PRELOAD_MODELS value or Open WebUI's STT model. |

@@ -59,43 +59,18 @@ The provisioned datasource reads `${PROMETHEUS_ENDPOINT}`. When Prometheus is `d
 
 All dashboards reference the Prometheus datasource by UID `Prometheus`, set explicitly in `provisioning/datasources/prometheus.yml`.
 
-## 5. Dependencies & Integrations
+## 5. Capabilities & limitations
 
-### 5.1. Current — Upstream (this service calls)
+<a id="7-capabilities-limitations"></a>
+<a id="7-capabilities--limitations"></a>
 
-| Service | Category |
-|---|---|
-| loki | infra |
-| prometheus ↔ | infra |
-| tempo | infra |
+Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
-### 5.2. Current — Downstream (services that call this)
-
-| Service | Category |
-|---|---|
-| kong | infra |
-| prometheus ↔ | infra |
-
-### 5.3. Architecture diagram
-
-![grafana architecture](./architecture.svg)
-
-[Open the full-size diagram](./architecture.html) for a full-screen view.
-
-### 5.4. Future — Missing pair integrations
-
-_No high-confidence opportunities identified._
-
-### 5.5. Future — Candidate new services
-
-- **Alertmanager** — only if Grafana's unified alerting hits a real limitation (HA, clustering).
-- **OAuth provider** — replace the admin-password model with Supabase Auth / GitHub OAuth via `GF_AUTH_GENERIC_OAUTH_*` env vars.
-
-### 5.6. Future — Unused features in this service
-
-- **Anonymous read mode** — `GF_AUTH_ANONYMOUS_ENABLED=true` would let teammates view dashboards without an account. It is off by default for safety.
-- **Postgres backend** — Supabase Postgres could replace the SQLite store and allow horizontal scaling. The single-replica deployment does not need it.
-- **Image renderer** — server-side panel-to-PNG rendering for alert notifications and reports. Adds a sidecar but unlocks rich alert payloads.
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Provisioned observability dashboards and datasources | supported | tested | Atlas provisions Prometheus, Tempo, and Loki datasources plus the bundled stack dashboards through committed Grafana configuration. |
+| Unified alerting workflows | partial | documented | Grafana unified alerting is enabled, but Atlas ships no alert rules, contact points, or notification policies for operators. |
+| Highly available dashboard persistence | not-supported | documented | The stock deployment is a single Grafana replica backed by a local SQLite volume rather than a shared highly available database. |
 
 ## 6. Troubleshooting
 
@@ -105,12 +80,60 @@ _No high-confidence opportunities identified._
 - **Dashboards missing** — Grafana's provisioner watches the directory every 30s (`updateIntervalSeconds: 30`). If a dashboard JSON has a syntax error, Grafana logs it under "Provisioning errors" and skips the file.
 - **Redirect URL contains internal `grafana` hostname instead of `grafana.localhost`** — Kong's `preserve_host: True` flag must be set on the Grafana route. The route generator handles this; verify with `curl -I http://grafana.localhost:${KONG_HTTP_PORT}` (default 63000).
 
-## 7. Capabilities & limitations
+## 7. Dependencies & Integrations
 
-Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+<a id="5-dependencies-integrations"></a>
+<a id="5-dependencies--integrations"></a>
 
-| Capability | Status | Verification | Notes |
-|---|---|---|---|
-| Provisioned observability dashboards and datasources | supported | tested | Atlas provisions Prometheus, Tempo, and Loki datasources plus the bundled stack dashboards through committed Grafana configuration. |
-| Unified alerting workflows | partial | documented | Grafana unified alerting is enabled, but Atlas ships no alert rules, contact points, or notification policies for operators. |
-| Highly available dashboard persistence | not-supported | documented | The stock deployment is a single Grafana replica backed by a local SQLite volume rather than a shared highly available database. |
+### 7.1. Current — Upstream (this service calls)
+
+<a id="51-current-upstream-this-service-calls"></a>
+<a id="51-current--upstream-this-service-calls"></a>
+
+| Service | Category |
+|---|---|
+| loki | infra |
+| prometheus ↔ | infra |
+| tempo | infra |
+
+### 7.2. Current — Downstream (services that call this)
+
+<a id="52-current-downstream-services-that-call-this"></a>
+<a id="52-current--downstream-services-that-call-this"></a>
+
+| Service | Category |
+|---|---|
+| kong | infra |
+| prometheus ↔ | infra |
+
+### 7.3. Architecture diagram
+
+<a id="53-architecture-diagram"></a>
+
+![grafana architecture](./architecture.svg)
+
+[Open the full-size diagram](./architecture.html) for a full-screen view.
+
+### 7.4. Future — Missing pair integrations
+
+<a id="54-future-missing-pair-integrations"></a>
+<a id="54-future--missing-pair-integrations"></a>
+
+_No high-confidence opportunities identified._
+
+### 7.5. Future — Candidate new services
+
+<a id="55-future-candidate-new-services"></a>
+<a id="55-future--candidate-new-services"></a>
+
+- **Alertmanager** — only if Grafana's unified alerting hits a real limitation (HA, clustering).
+- **OAuth provider** — replace the admin-password model with Supabase Auth / GitHub OAuth via `GF_AUTH_GENERIC_OAUTH_*` env vars.
+
+### 7.6. Future — Unused features in this service
+
+<a id="56-future-unused-features-in-this-service"></a>
+<a id="56-future--unused-features-in-this-service"></a>
+
+- **Anonymous read mode** — `GF_AUTH_ANONYMOUS_ENABLED=true` would let teammates view dashboards without an account. It is off by default for safety.
+- **Postgres backend** — Supabase Postgres could replace the SQLite store and allow horizontal scaling. The single-replica deployment does not need it.
+- **Image renderer** — server-side panel-to-PNG rendering for alert notifications and reports. Adds a sidecar but unlocks rich alert payloads.

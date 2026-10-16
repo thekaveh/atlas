@@ -59,50 +59,10 @@ annotations = response.json()
 
 MLflow and Weaviate exports are notebook-owned. The Label Studio service does not write model registry entries or vector collections.
 
-## 5. Dependencies & Integrations
+## 5. Capabilities & limitations
 
-### 5.1. Current — Upstream (this service calls)
-
-| Service | Category |
-|---|---|
-| minio | data |
-| supabase | data |
-
-### 5.2. Current — Downstream (services that call this)
-
-| Service | Category |
-|---|---|
-| kong | infra |
-| jupyterhub | apps |
-
-### 5.3. Architecture diagram
-
-![label-studio architecture](./architecture.svg)
-
-[Open the full-size diagram](./architecture.html) for a full-screen view.
-
-### 5.4. Future — Missing pair integrations
-
-- **backend ↔ label-studio** — *Why:* active-learning loops could enqueue model predictions and review tasks from backend workflows. *Mechanism:* backend REST client using `LABEL_STUDIO_API_URL` and `LABEL_STUDIO_USER_TOKEN`, with explicit project IDs and provenance fields. *Effort:* medium. *Confidence:* medium.
-- **label-studio ↔ weaviate** — *Why:* reviewed annotations should become curated vector metadata for retrieval/evaluation. *Mechanism:* notebook or backend export job reads Label Studio JSON and upserts namespaced Weaviate objects. *Effort:* small. *Confidence:* high.
-- **label-studio ↔ mlflow** — *Why:* reviewed datasets and evaluator labels should be attached to MLflow runs. *Mechanism:* notebook export logs JSON artifacts/metrics to `MLFLOW_TRACKING_URI`. *Effort:* small. *Confidence:* high.
-
-### 5.5. Future — Candidate new services
-
-Add SSO and permissions before you use Label Studio as a multi-user review platform. Label Studio CE has its own auth model; Atlas does not integrate it with Supabase Auth.
-
-### 5.6. Future — Unused features in this service
-
-Enterprise review workflows, role-based permissions and organization-wide SSO are out of scope.
-
-## 6. Troubleshooting
-
-- **Route missing:** confirm `LABEL_STUDIO_SOURCE=container`; Kong only emits `label-studio.localhost` when the service is enabled.
-- **Storage errors:** confirm `MINIO_SOURCE=container`; Label Studio requires MinIO.
-- **Login unavailable:** use `LABEL_STUDIO_USERNAME` and the generated `LABEL_STUDIO_PASSWORD` from `.env`.
-- **Project storage not visible:** add the provisioned MinIO bucket as a project-specific source or target storage connection in Label Studio.
-
-## 7. Capabilities & limitations
+<a id="7-capabilities-limitations"></a>
+<a id="7-capabilities--limitations"></a>
 
 Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
@@ -113,3 +73,66 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 | Notebook export integration | partial | tested | JupyterHub receives the Label Studio URL and legacy API token for REST exports, while MLflow, Weaviate, and Backend review loops remain notebook-owned or future work. |
 | Label Studio access control | partial | tested | The direct port relies on Label Studio login and disabled open signup. Kong adds dashboard Basic Auth and ACL. Atlas does not integrate Supabase SSO or enterprise roles. |
 | Annotation service high availability | not-supported | documented | Postgres and MinIO preserve metadata and assets. Atlas runs one Label Studio replica and one local data volume, without a tested backup or failover workflow. |
+
+## 6. Troubleshooting
+
+- **Route missing:** confirm `LABEL_STUDIO_SOURCE=container`; Kong only emits `label-studio.localhost` when the service is enabled.
+- **Storage errors:** confirm `MINIO_SOURCE=container`; Label Studio requires MinIO.
+- **Login unavailable:** use `LABEL_STUDIO_USERNAME` and the generated `LABEL_STUDIO_PASSWORD` from `.env`.
+- **Project storage not visible:** add the provisioned MinIO bucket as a project-specific source or target storage connection in Label Studio.
+
+## 7. Dependencies & Integrations
+
+<a id="5-dependencies-integrations"></a>
+<a id="5-dependencies--integrations"></a>
+
+### 7.1. Current — Upstream (this service calls)
+
+<a id="51-current-upstream-this-service-calls"></a>
+<a id="51-current--upstream-this-service-calls"></a>
+
+| Service | Category |
+|---|---|
+| minio | data |
+| supabase | data |
+
+### 7.2. Current — Downstream (services that call this)
+
+<a id="52-current-downstream-services-that-call-this"></a>
+<a id="52-current--downstream-services-that-call-this"></a>
+
+| Service | Category |
+|---|---|
+| kong | infra |
+| jupyterhub | apps |
+
+### 7.3. Architecture diagram
+
+<a id="53-architecture-diagram"></a>
+
+![label-studio architecture](./architecture.svg)
+
+[Open the full-size diagram](./architecture.html) for a full-screen view.
+
+### 7.4. Future — Missing pair integrations
+
+<a id="54-future-missing-pair-integrations"></a>
+<a id="54-future--missing-pair-integrations"></a>
+
+- **backend ↔ label-studio** — *Why:* active-learning loops could enqueue model predictions and review tasks from backend workflows. *Mechanism:* backend REST client using `LABEL_STUDIO_API_URL` and `LABEL_STUDIO_USER_TOKEN`, with explicit project IDs and provenance fields. *Effort:* medium. *Confidence:* medium.
+- **label-studio ↔ weaviate** — *Why:* reviewed annotations should become curated vector metadata for retrieval/evaluation. *Mechanism:* notebook or backend export job reads Label Studio JSON and upserts namespaced Weaviate objects. *Effort:* small. *Confidence:* high.
+- **label-studio ↔ mlflow** — *Why:* reviewed datasets and evaluator labels should be attached to MLflow runs. *Mechanism:* notebook export logs JSON artifacts/metrics to `MLFLOW_TRACKING_URI`. *Effort:* small. *Confidence:* high.
+
+### 7.5. Future — Candidate new services
+
+<a id="55-future-candidate-new-services"></a>
+<a id="55-future--candidate-new-services"></a>
+
+Add SSO and permissions before you use Label Studio as a multi-user review platform. Label Studio CE has its own auth model; Atlas does not integrate it with Supabase Auth.
+
+### 7.6. Future — Unused features in this service
+
+<a id="56-future-unused-features-in-this-service"></a>
+<a id="56-future--unused-features-in-this-service"></a>
+
+Enterprise review workflows, role-based permissions and organization-wide SSO are out of scope.

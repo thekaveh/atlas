@@ -68,37 +68,10 @@ The wizard asks for each provider on every track. CLI flags:
 - Service manifest: `services/cloud-providers/service.yml`
 - LiteLLM integration: [LiteLLM README](../litellm/README.md)
 
-## 11. Dependencies & Integrations
+## 11. Capabilities & limitations
 
-### 11.1. Current — Upstream (this service calls)
-
-_No upstream calls._
-
-### 11.2. Current — Downstream (services that call this)
-
-| Service | Category |
-|---|---|
-| litellm | llm |
-
-### 11.3. Architecture diagram
-
-![cloud-providers architecture](./architecture.svg)
-
-[Open the full-size diagram](./architecture.html) for a full-screen view.
-
-### 11.4. Future — Missing pair integrations
-
-_No high-confidence opportunities identified._
-
-### 11.5. Future — Candidate new services
-
-_No high-confidence opportunities identified._
-
-### 11.6. Future — Unused features in this service
-
-_No high-confidence opportunities identified._
-
-## 12. Capabilities & limitations
+<a id="12-capabilities-limitations"></a>
+<a id="12-capabilities--limitations"></a>
 
 Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
@@ -109,3 +82,53 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 | Uncatalogued cloud model metadata | partial | tested | User-selected names outside the curated catalogs are routable, but Atlas synthesizes generic capability metadata and cannot infer provider-specific limits or modalities. |
 | Live cloud completion validation | not-supported | untested | Atlas statically tests selection, key isolation, and rendered routing but performs no live credential, entitlement, model-availability, or provider certification. Successful requests still depend on external accounts and APIs. |
 | Direct cloud-provider service endpoint | not-supported | documented | This virtual manifest owns configuration only; applications must use LiteLLM because Atlas creates no cloud-provider container, port, or Kong route. |
+
+## 12. Dependencies & Integrations
+
+<a id="11-dependencies-integrations"></a>
+<a id="11-dependencies--integrations"></a>
+
+### 12.1. Current — Upstream (this service calls)
+
+<a id="111-current-upstream-this-service-calls"></a>
+<a id="111-current--upstream-this-service-calls"></a>
+
+_No upstream calls._
+
+### 12.2. Current — Downstream (services that call this)
+
+<a id="112-current-downstream-services-that-call-this"></a>
+<a id="112-current--downstream-services-that-call-this"></a>
+
+| Service | Category |
+|---|---|
+| litellm | llm |
+
+### 12.3. Architecture diagram
+
+<a id="113-architecture-diagram"></a>
+
+![cloud-providers architecture](./architecture.svg)
+
+[Open the full-size diagram](./architecture.html) for a full-screen view.
+
+### 12.4. Future — Missing pair integrations
+
+<a id="114-future-missing-pair-integrations"></a>
+<a id="114-future--missing-pair-integrations"></a>
+
+_No high-confidence opportunities identified._
+
+### 12.5. Future — Candidate new services
+
+<a id="115-future-candidate-new-services"></a>
+<a id="115-future--candidate-new-services"></a>
+
+_No high-confidence opportunities identified._
+
+### 12.6. Future — Unused features in this service
+
+<a id="116-future-unused-features-in-this-service"></a>
+<a id="116-future--unused-features-in-this-service"></a>
+
+_No high-confidence opportunities identified._

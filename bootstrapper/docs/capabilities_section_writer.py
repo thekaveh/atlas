@@ -15,6 +15,10 @@ _CAPABILITIES_HEADER_RE = re.compile(
 )
 _NUMBERED_TOP_HEADER_RE = re.compile(r"^##[ \t]+(\d+)\.[ \t]+", re.MULTILINE)
 _NEXT_TOP_HEADER_RE = re.compile(r"^##(?:[ \t]+|$)", re.MULTILINE)
+_ALIAS_HEADER_RE = re.compile(r"^#{2,3}[ \t]+[^\r\n]+", re.MULTILINE)
+_HEADING_ALIAS_RE = re.compile(
+    r""" {0,3}<a[ \t]+(?:id|name)=(?:"[^"]+"|'[^']+')[ \t]*></a>[ \t]*"""
+)
 
 
 class CapabilitySectionError(ValueError):
@@ -23,6 +27,54 @@ class CapabilitySectionError(ValueError):
 
 def _outside_fences(position: int, spans: list[tuple[int, int]]) -> bool:
     return not any(start <= position < end for start, end in spans)
+
+
+def _heading_identity(heading: str) -> str:
+    """Ignore ATX presentation spacing and optional closing hashes."""
+    title = re.sub(r"[ \t]+#+[ \t]*$", "", heading).rstrip(" \t")
+    title = re.sub(r"[ \t]+", " ", title)
+    numbered = _NUMBERED_TOP_HEADER_RE.match(title)
+    if numbered:
+        title = f"## {int(numbered.group(1))}. {title[numbered.end():]}"
+    return re.sub(r"\bDependencies *& *Integrations$", "Dependencies & Integrations", title)
+
+
+def _heading_aliases(section: str) -> dict[str, tuple[str, ...]]:
+    """Read explicit alias lines immediately following real section headings."""
+    aliases: dict[str, tuple[str, ...]] = {}
+    spans = _fenced_spans(section)
+    for heading in _ALIAS_HEADER_RE.finditer(section):
+        if not _outside_fences(heading.start(), spans):
+            continue
+        lines: list[str] = []
+        for line in re.split(r"\r\n|\r|\n", section[heading.end():]):
+            if not line.strip():
+                continue
+            if not _HEADING_ALIAS_RE.fullmatch(line):
+                break
+            lines.append(line)
+        if lines:
+            aliases[_heading_identity(heading.group())] = tuple(lines)
+    return aliases
+
+
+def _preserve_heading_aliases(section: str, previous: str) -> str:
+    """Keep each legacy fragment beside its own regenerated heading."""
+    retained = _heading_aliases(previous)
+    current = _heading_aliases(section)
+    spans = _fenced_spans(section)
+    for heading in reversed(list(_ALIAS_HEADER_RE.finditer(section))):
+        if not _outside_fences(heading.start(), spans):
+            continue
+        identity = _heading_identity(heading.group())
+        present = {line.strip(" \t") for line in current.get(identity, ())}
+        aliases = [line for line in retained.get(identity, ())
+                   if line.strip(" \t") not in present]
+        suffix = section[heading.end():]
+        if aliases:
+            suffix = "\n\n" + "\n".join(aliases) + suffix
+        section = section[:heading.end()] + suffix
+    return section
 
 
 def _first_outside_fences(
@@ -160,6 +212,7 @@ def upsert_capabilities_section(
         aggregate=aggregate,
         support=support,
     )
+    section = _preserve_heading_aliases(section, readme_text[start:end])
     suffix = readme_text[end:]
     if suffix:
         return readme_text[:start] + section.rstrip() + "\n\n" + suffix.lstrip("\n")

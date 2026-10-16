@@ -59,39 +59,18 @@ Direct Supabase consumers intentionally remain direct until session/native behav
 | Storage, Meta, Studio | Core Supabase internals stay on `supabase-db:5432`. |
 | `supabase-db-init`, postgres-exporter | Bootstrap and scrape paths stay direct. |
 
-## 5. Dependencies & Integrations
+## 5. Capabilities & limitations
 
-### 5.1. Current — Upstream (this service calls)
+<a id="8-capabilities-limitations"></a>
+<a id="8-capabilities--limitations"></a>
 
-| Service | Category |
-|---|---|
-| supabase | data |
+Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
-### 5.2. Current — Downstream (services that call this)
-
-| Service | Category |
-|---|---|
-| celery | agents |
-| n8n | agents |
-| backend | apps |
-
-### 5.3. Architecture diagram
-
-![supavisor architecture](./architecture.svg)
-
-[Open the full-size diagram](./architecture.html) for a full-screen view.
-
-### 5.4. Future — Missing pair integrations
-
-_No high-confidence opportunities identified._
-
-### 5.5. Future — Candidate new services
-
-_No high-confidence opportunities identified._
-
-### 5.6. Future — Unused features in this service
-
-_No high-confidence opportunities identified._
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Transaction pooling for selected application clients | partial | tested | Atlas routes backend, Celery, and n8n through Supavisor transaction pooling when enabled, while session-sensitive Supabase services remain on direct PostgreSQL connections. |
+| Zero-edit direct Postgres rollback | supported | tested | Disabling Supavisor restores the selected consumers to their existing direct Supabase endpoints without changing application code or credentials. |
+| Public pooler endpoint | not-supported | tested | The Supavisor port is backend-network only and Atlas publishes neither a host binding nor a Kong route for external database clients. |
 
 ## 6. Rollback
 
@@ -110,12 +89,56 @@ Set `SUPAVISOR_SOURCE=disabled` and rerun `./start.sh`. The bootstrapper resets 
 1. In the `supavisor` database on `supabase-db`, run `DELETE FROM _supavisor.tenants WHERE external_id = '<SUPAVISOR_TENANT_ID>';`. Its `_supavisor.users` rows cascade.
 2. Restart Supavisor.
 
-## 8. Capabilities & limitations
+## 8. Dependencies & Integrations
 
-Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+<a id="5-dependencies-integrations"></a>
+<a id="5-dependencies--integrations"></a>
 
-| Capability | Status | Verification | Notes |
-|---|---|---|---|
-| Transaction pooling for selected application clients | partial | tested | Atlas routes backend, Celery, and n8n through Supavisor transaction pooling when enabled, while session-sensitive Supabase services remain on direct PostgreSQL connections. |
-| Zero-edit direct Postgres rollback | supported | tested | Disabling Supavisor restores the selected consumers to their existing direct Supabase endpoints without changing application code or credentials. |
-| Public pooler endpoint | not-supported | tested | The Supavisor port is backend-network only and Atlas publishes neither a host binding nor a Kong route for external database clients. |
+### 8.1. Current — Upstream (this service calls)
+
+<a id="51-current-upstream-this-service-calls"></a>
+<a id="51-current--upstream-this-service-calls"></a>
+
+| Service | Category |
+|---|---|
+| supabase | data |
+
+### 8.2. Current — Downstream (services that call this)
+
+<a id="52-current-downstream-services-that-call-this"></a>
+<a id="52-current--downstream-services-that-call-this"></a>
+
+| Service | Category |
+|---|---|
+| celery | agents |
+| n8n | agents |
+| backend | apps |
+
+### 8.3. Architecture diagram
+
+<a id="53-architecture-diagram"></a>
+
+![supavisor architecture](./architecture.svg)
+
+[Open the full-size diagram](./architecture.html) for a full-screen view.
+
+### 8.4. Future — Missing pair integrations
+
+<a id="54-future-missing-pair-integrations"></a>
+<a id="54-future--missing-pair-integrations"></a>
+
+_No high-confidence opportunities identified._
+
+### 8.5. Future — Candidate new services
+
+<a id="55-future-candidate-new-services"></a>
+<a id="55-future--candidate-new-services"></a>
+
+_No high-confidence opportunities identified._
+
+### 8.6. Future — Unused features in this service
+
+<a id="56-future-unused-features-in-this-service"></a>
+<a id="56-future--unused-features-in-this-service"></a>
+
+_No high-confidence opportunities identified._

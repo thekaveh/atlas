@@ -172,40 +172,19 @@ The worker runs one headless Blender subprocess (`blender -b -P bake.py`) per re
 
 Outputs are SHA-256 content-addressed and written to MinIO (`bake/<sha256>.{glb,png}`) or the local artifact cache, with the Asset Worker schema. The service is separate from the media gateway. Image-to-3D flows send raw provider GLBs to this worker; adapters do not embed bake logic.
 
-## 6. Dependencies & Integrations
+## 6. Capabilities & limitations
 
-### 6.1. Current — Upstream (this service calls)
+<a id="8-capabilities-limitations"></a>
+<a id="8-capabilities--limitations"></a>
 
-| Service | Category |
-|---|---|
-| minio | data |
+Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
-### 6.2. Current — Downstream (services that call this)
-
-| Service | Category |
-|---|---|
-| kong | infra |
-| prometheus | infra |
-
-### 6.3. Architecture diagram
-
-![asset-baker architecture](./architecture.svg)
-
-[Open the full-size diagram](./architecture.html) for a full-screen view.
-
-### 6.4. Future — Missing pair integrations
-
-- Backend media operations should call Asset Baker after hosted image-to-3D providers return raw GLB, before Asset Worker's optimize pass. This forms the `generate → image→3D → bake → optimize` chain.
-- The backend media-operation contract (`/media/operations/{id}`, states `queued|running|succeeded|failed|cancelled|timeout`) exists. Asset Baker does not use it yet; bakes are synchronous, bounded requests.
-
-### 6.5. Future — Candidate new services
-
-- A `creative-3d` wizard track should split from `gen-ai-creative` once the 3D fleet (gateway, image→3D, bake, segment, terrain) reaches ~5+ services.
-
-### 6.6. Future — Unused features in this service
-
-- GPU baking (`container-gpu`, Cycles OPTIX/CUDA) is a fleet-scale optimization, deferred until separate performance evidence exists. The `bake.py` `--gpu` path exists but is not exposed as a source variant.
-- Managed host `localhost` (a `/Applications/Blender.app` on the developer machine, mirroring the ComfyUI managed-MPS pattern) is deferred until separate lifecycle evidence exists.
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Headless high-to-low-poly texture baking | supported | tested | Atlas runs the voxel-remesh, decimate, Smart-UV, color-bake, normal-bake, and black-output QA pipeline through pinned Blender on Cycles CPU. |
+| Bounded authenticated bake API | supported | tested | Upload, MinIO-reference, and artifact routes require the generated bearer token and enforce input-size, concurrency, and subprocess-timeout bounds; health and metrics remain public. |
+| Content-addressed bake artifacts | supported | tested | Successful GLBs and textures use SHA-256 keys in the scoped MinIO bucket by default, with an explicitly selected local-artifact fallback. |
+| GPU and native ARM64 baking | not-supported | tested | The only source is the CPU container and its pinned Blender archive is linux/amd64-only; the dormant bake-script GPU path is not an Atlas source variant. |
 
 ## 7. Troubleshooting
 
@@ -220,13 +199,57 @@ Outputs are SHA-256 content-addressed and written to MinIO (`bake/<sha256>.{glb,
 - MinIO upload failure: confirm `MINIO_SOURCE=container`, `ASSET_BAKER_MINIO_BUCKET`, and the generated `MINIO_ASSET_BAKER_*` credentials.
 - Kong alias missing: confirm `ASSET_BAKER_SOURCE=container-cpu`, run `./start.sh --setup-hosts`, and regenerate routes through the normal startup flow.
 
-## 8. Capabilities & limitations
+## 8. Dependencies & Integrations
 
-Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+<a id="6-dependencies-integrations"></a>
+<a id="6-dependencies--integrations"></a>
 
-| Capability | Status | Verification | Notes |
-|---|---|---|---|
-| Headless high-to-low-poly texture baking | supported | tested | Atlas runs the voxel-remesh, decimate, Smart-UV, color-bake, normal-bake, and black-output QA pipeline through pinned Blender on Cycles CPU. |
-| Bounded authenticated bake API | supported | tested | Upload, MinIO-reference, and artifact routes require the generated bearer token and enforce input-size, concurrency, and subprocess-timeout bounds; health and metrics remain public. |
-| Content-addressed bake artifacts | supported | tested | Successful GLBs and textures use SHA-256 keys in the scoped MinIO bucket by default, with an explicitly selected local-artifact fallback. |
-| GPU and native ARM64 baking | not-supported | tested | The only source is the CPU container and its pinned Blender archive is linux/amd64-only; the dormant bake-script GPU path is not an Atlas source variant. |
+### 8.1. Current — Upstream (this service calls)
+
+<a id="61-current-upstream-this-service-calls"></a>
+<a id="61-current--upstream-this-service-calls"></a>
+
+| Service | Category |
+|---|---|
+| minio | data |
+
+### 8.2. Current — Downstream (services that call this)
+
+<a id="62-current-downstream-services-that-call-this"></a>
+<a id="62-current--downstream-services-that-call-this"></a>
+
+| Service | Category |
+|---|---|
+| kong | infra |
+| prometheus | infra |
+
+### 8.3. Architecture diagram
+
+<a id="63-architecture-diagram"></a>
+
+![asset-baker architecture](./architecture.svg)
+
+[Open the full-size diagram](./architecture.html) for a full-screen view.
+
+### 8.4. Future — Missing pair integrations
+
+<a id="64-future-missing-pair-integrations"></a>
+<a id="64-future--missing-pair-integrations"></a>
+
+- Backend media operations should call Asset Baker after hosted image-to-3D providers return raw GLB, before Asset Worker's optimize pass. This forms the `generate → image→3D → bake → optimize` chain.
+- The backend media-operation contract (`/media/operations/{id}`, states `queued|running|succeeded|failed|cancelled|timeout`) exists. Asset Baker does not use it yet; bakes are synchronous, bounded requests.
+
+### 8.5. Future — Candidate new services
+
+<a id="65-future-candidate-new-services"></a>
+<a id="65-future--candidate-new-services"></a>
+
+- A `creative-3d` wizard track should split from `gen-ai-creative` once the 3D fleet (gateway, image→3D, bake, segment, terrain) reaches ~5+ services.
+
+### 8.6. Future — Unused features in this service
+
+<a id="66-future-unused-features-in-this-service"></a>
+<a id="66-future--unused-features-in-this-service"></a>
+
+- GPU baking (`container-gpu`, Cycles OPTIX/CUDA) is a fleet-scale optimization, deferred until separate performance evidence exists. The `bake.py` `--gpu` path exists but is not exposed as a source variant.
+- Managed host `localhost` (a `/Applications/Blender.app` on the developer machine, mirroring the ComfyUI managed-MPS pattern) is deferred until separate lifecycle evidence exists.

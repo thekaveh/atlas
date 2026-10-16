@@ -106,9 +106,30 @@ The Redis visibility timeout is longer than the hard task time limit. RAG ingest
 - LightRAG scanning or deletion refusals use the transient retry budget. Failed records and unrecognized conflicts fail the upload phase.
 - Memory consolidation changes memory rows through existing service logic. Review any new task that changes external systems before you add it.
 
-## 6. Dependencies & Integrations
+## 6. Capabilities & limitations
 
-### 6.1. Current — Upstream (this service calls)
+<a id="7-capabilities-limitations"></a>
+<a id="7-capabilities--limitations"></a>
+
+Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Backend asynchronous task execution | partial | tested | The worker offloads memory consolidation and phased RAG ingestion, but research, media generation, and arbitrary Backend routes are not Celery tasks in this slice. |
+| Bounded worker scheduling | supported | tested | Before Backend or worker startup, Atlas validates positive concurrency, prefetch, and soft and hard time limits. It also checks that the Redis visibility timeout exceeds the hard task limit. |
+| Retry-safe RAG ingestion ownership | partial | tested | Owner-fenced renewable leases and deterministic LightRAG identities limit duplicate phase effects, but Redis delivery is at-least-once and future side-effecting tasks still require idempotency review. |
+| Flower task monitoring access | supported | tested | Flower requires its own Basic authentication on the direct port and is additionally protected by Kong dashboard Basic Auth and ACL on flower.localhost. |
+| Durable queue high availability | not-supported | documented | Atlas runs one worker replica and one Flower process on the shared single Redis service. Result and broker state survive only as far as that Redis instance persists them. |
+
+## 7. Dependencies & Integrations
+
+<a id="6-dependencies-integrations"></a>
+<a id="6-dependencies--integrations"></a>
+
+### 7.1. Current — Upstream (this service calls)
+
+<a id="61-current-upstream-this-service-calls"></a>
+<a id="61-current--upstream-this-service-calls"></a>
 
 | Service | Category |
 |---|---|
@@ -123,40 +144,42 @@ The Redis visibility timeout is longer than the hard task time limit. RAG ingest
 | tika | media |
 | lightrag | agents |
 
-### 6.2. Current — Downstream (services that call this)
+### 7.2. Current — Downstream (services that call this)
+
+<a id="62-current-downstream-services-that-call-this"></a>
+<a id="62-current--downstream-services-that-call-this"></a>
 
 | Service | Category |
 |---|---|
 | kong | infra |
 | backend | apps |
 
-### 6.3. Architecture diagram
+### 7.3. Architecture diagram
+
+<a id="63-architecture-diagram"></a>
 
 ![celery architecture](./architecture.svg)
 
 [Open the full-size diagram](./architecture.html) for a full-screen view.
 
-### 6.4. Future — Missing pair integrations
+### 7.4. Future — Missing pair integrations
+
+<a id="64-future-missing-pair-integrations"></a>
+<a id="64-future--missing-pair-integrations"></a>
 
 - **celery ↔ research start** — Move the Local Deep Researcher start/wait loop into a task. First, the research session model must store the Celery job id without confusing remote and local session ids.
 - **celery ↔ ComfyUI generation** — Add async image-generation tasks for callers that currently use `wait_for_completion=true`.
 
-### 6.5. Future — Candidate new services
+### 7.5. Future — Candidate new services
+
+<a id="65-future-candidate-new-services"></a>
+<a id="65-future--candidate-new-services"></a>
 
 - **Celery Beat** — Add only when Atlas has scheduled jobs that cannot be expressed more clearly in Airflow or n8n.
 
-### 6.6. Future — Unused features in this service
+### 7.6. Future — Unused features in this service
+
+<a id="66-future-unused-features-in-this-service"></a>
+<a id="66-future--unused-features-in-this-service"></a>
 
 _No high-confidence opportunities identified._
-
-## 7. Capabilities & limitations
-
-Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
-
-| Capability | Status | Verification | Notes |
-|---|---|---|---|
-| Backend asynchronous task execution | partial | tested | The worker offloads memory consolidation and phased RAG ingestion, but research, media generation, and arbitrary Backend routes are not Celery tasks in this slice. |
-| Bounded worker scheduling | supported | tested | Before Backend or worker startup, Atlas validates positive concurrency, prefetch, and soft and hard time limits. It also checks that the Redis visibility timeout exceeds the hard task limit. |
-| Retry-safe RAG ingestion ownership | partial | tested | Owner-fenced renewable leases and deterministic LightRAG identities limit duplicate phase effects, but Redis delivery is at-least-once and future side-effecting tasks still require idempotency review. |
-| Flower task monitoring access | supported | tested | Flower requires its own Basic authentication on the direct port and is additionally protected by Kong dashboard Basic Auth and ACL on flower.localhost. |
-| Durable queue high availability | not-supported | documented | Atlas runs one worker replica and one Flower process on the shared single Redis service. Result and broker state survive only as far as that Redis instance persists them. |

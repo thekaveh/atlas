@@ -38,46 +38,10 @@ Every other file goes to Docling. Tika is also tried when Docling answers 415 or
 - Treat ZIP and other archive formats carefully. Tika can inspect embedded content. Atlas adds no malware scanning, recursive archive policy or persistent quarantine storage.
 - Preserve provenance in downstream indexing: filename, content type, byte size, selected extractor, and fallback reason.
 
-## 6. Dependencies & Integrations
+## 6. Capabilities & limitations
 
-### 6.1. Current — Upstream (this service calls)
-
-_No upstream calls._
-
-### 6.2. Current — Downstream (services that call this)
-
-| Service | Category |
-|---|---|
-| kong | infra |
-| celery | agents |
-| n8n | agents |
-| backend | apps |
-
-### 6.3. Architecture diagram
-
-![tika architecture](./architecture.svg)
-
-[Open the full-size diagram](./architecture.html) for a full-screen view.
-
-### 6.4. Future — Missing pair integrations
-
-_No high-confidence opportunities identified._
-
-### 6.5. Future — Candidate new services
-
-_No high-confidence opportunities identified._
-
-### 6.6. Future — Unused features in this service
-
-_No high-confidence opportunities identified._
-
-## 7. Troubleshooting
-- Kong route missing: confirm `TIKA_SOURCE` is `container` or `tika-localhost`, then rerun `./start.sh`.
-- Backend returns `503` "Tika fallback is disabled": set `TIKA_SOURCE` to `container` or `tika-localhost`, then rerun `./start.sh` so `TIKA_ENDPOINT` is generated.
-- Localhost mode cannot connect: ensure the host Tika server listens on `TIKA_LOCALHOST_PORT` and that `host.docker.internal` resolves from containers.
-- Empty or low-quality text: remember Tika is the degraded fallback path. Prefer Docling for formats it supports.
-
-## 8. Capabilities & limitations
+<a id="8-capabilities-limitations"></a>
+<a id="8-capabilities--limitations"></a>
 
 Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
@@ -88,3 +52,62 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 | Bounded backend fallback calls | partial | tested | Backend calls enforce configured file-size and finite timeout limits, while direct Tika and Kong requests bypass those application-layer bounds. |
 | Authenticated Tika access | partial | documented | Kong protects tika.localhost with dashboard Basic authentication and ACL, but the host-published container port and operator-run localhost server bypass that gate. |
 | Archive malware and recursion policy | not-supported | documented | Atlas provides no malware scanner, recursive archive policy, or quarantine store; keep Tika disabled or network-restricted unless long-tail extraction is required. |
+
+## 7. Troubleshooting
+- Kong route missing: confirm `TIKA_SOURCE` is `container` or `tika-localhost`, then rerun `./start.sh`.
+- Backend returns `503` "Tika fallback is disabled": set `TIKA_SOURCE` to `container` or `tika-localhost`, then rerun `./start.sh` so `TIKA_ENDPOINT` is generated.
+- Localhost mode cannot connect: ensure the host Tika server listens on `TIKA_LOCALHOST_PORT` and that `host.docker.internal` resolves from containers.
+- Empty or low-quality text: remember Tika is the degraded fallback path. Prefer Docling for formats it supports.
+
+## 8. Dependencies & Integrations
+
+<a id="6-dependencies-integrations"></a>
+<a id="6-dependencies--integrations"></a>
+
+### 8.1. Current — Upstream (this service calls)
+
+<a id="61-current-upstream-this-service-calls"></a>
+<a id="61-current--upstream-this-service-calls"></a>
+
+_No upstream calls._
+
+### 8.2. Current — Downstream (services that call this)
+
+<a id="62-current-downstream-services-that-call-this"></a>
+<a id="62-current--downstream-services-that-call-this"></a>
+
+| Service | Category |
+|---|---|
+| kong | infra |
+| celery | agents |
+| n8n | agents |
+| backend | apps |
+
+### 8.3. Architecture diagram
+
+<a id="63-architecture-diagram"></a>
+
+![tika architecture](./architecture.svg)
+
+[Open the full-size diagram](./architecture.html) for a full-screen view.
+
+### 8.4. Future — Missing pair integrations
+
+<a id="64-future-missing-pair-integrations"></a>
+<a id="64-future--missing-pair-integrations"></a>
+
+_No high-confidence opportunities identified._
+
+### 8.5. Future — Candidate new services
+
+<a id="65-future-candidate-new-services"></a>
+<a id="65-future--candidate-new-services"></a>
+
+_No high-confidence opportunities identified._
+
+### 8.6. Future — Unused features in this service
+
+<a id="66-future-unused-features-in-this-service"></a>
+<a id="66-future--unused-features-in-this-service"></a>
+
+_No high-confidence opportunities identified._

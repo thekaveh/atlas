@@ -86,41 +86,10 @@ The frontend and backend containers scale to zero. Kong removes `graphbuilder.lo
 - Neo4j connection fails: use in-stack `NEO4J_GRAPH_DB_SOURCE=container`.
 - Poor graph quality: choose a stronger structured-extraction model via `LLM_GRAPH_BUILDER_LLM_MODEL`.
 
-## 10. Dependencies & Integrations
+## 10. Capabilities & limitations
 
-### 10.1. Current — Upstream (this service calls)
-
-| Service | Category |
-|---|---|
-| neo4j | data |
-| litellm | llm |
-
-### 10.2. Current — Downstream (services that call this)
-
-| Service | Category |
-|---|---|
-| kong | infra |
-
-### 10.3. Architecture diagram
-
-![llm-graph-builder architecture](./architecture.svg)
-
-[Open the full-size diagram](./architecture.html) for a full-screen view.
-
-### 10.4. Future — Missing pair integrations
-
-- Add endpoint-compatible MinIO S3 source configuration once upstream supports or Atlas patches boto endpoint overrides cleanly.
-- Add a Docling handoff workflow for already-extracted text and metadata.
-
-### 10.5. Future — Candidate new services
-
-_No high-confidence opportunities identified._
-
-### 10.6. Future — Unused features in this service
-
-- Upstream token usage tracking can be revisited after Atlas has a shared token telemetry store.
-
-## 11. Capabilities & limitations
+<a id="11-capabilities-limitations"></a>
+<a id="11-capabilities--limitations"></a>
 
 Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
@@ -132,3 +101,57 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 | Optional Google Cloud features | partial | tested | Atlas validates complete logging or GCS-cache configuration and mounts ADC read-only, but the disabled default uses a placeholder and no live cloud operation is certified. |
 | Graph namespace and rollback isolation | partial | documented | Disabling containers preserves generated Neo4j data, while upstream labels share the selected database and Atlas cannot prevent collisions or destructive cleanup in a shared database. |
 | Turn-key MinIO and Docling ingestion | not-supported | documented | MinIO endpoint-compatible S3 ingestion and a direct Docling handoff are integration points only. In the stock Atlas path, operators must use local, wiki, or web sources. |
+
+## 11. Dependencies & Integrations
+
+<a id="10-dependencies-integrations"></a>
+<a id="10-dependencies--integrations"></a>
+
+### 11.1. Current — Upstream (this service calls)
+
+<a id="101-current-upstream-this-service-calls"></a>
+<a id="101-current--upstream-this-service-calls"></a>
+
+| Service | Category |
+|---|---|
+| neo4j | data |
+| litellm | llm |
+
+### 11.2. Current — Downstream (services that call this)
+
+<a id="102-current-downstream-services-that-call-this"></a>
+<a id="102-current--downstream-services-that-call-this"></a>
+
+| Service | Category |
+|---|---|
+| kong | infra |
+
+### 11.3. Architecture diagram
+
+<a id="103-architecture-diagram"></a>
+
+![llm-graph-builder architecture](./architecture.svg)
+
+[Open the full-size diagram](./architecture.html) for a full-screen view.
+
+### 11.4. Future — Missing pair integrations
+
+<a id="104-future-missing-pair-integrations"></a>
+<a id="104-future--missing-pair-integrations"></a>
+
+- Add endpoint-compatible MinIO S3 source configuration once upstream supports or Atlas patches boto endpoint overrides cleanly.
+- Add a Docling handoff workflow for already-extracted text and metadata.
+
+### 11.5. Future — Candidate new services
+
+<a id="105-future-candidate-new-services"></a>
+<a id="105-future--candidate-new-services"></a>
+
+_No high-confidence opportunities identified._
+
+### 11.6. Future — Unused features in this service
+
+<a id="106-future-unused-features-in-this-service"></a>
+<a id="106-future--unused-features-in-this-service"></a>
+
+- Upstream token usage tracking can be revisited after Atlas has a shared token telemetry store.

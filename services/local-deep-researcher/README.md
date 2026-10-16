@@ -74,7 +74,7 @@ To upgrade:
     - `finalize_summary` — outputs the final Markdown report.
 4. State (`running_summary`, `sources_gathered`, `research_loop_count`) lives in the development runtime's memory-backed checkpointer.
 
-**Checkpointer caveat.** The development runtime caches checkpoints under `/app/.langgraph_api` in the container layer. Atlas does not mount this cache; container recreation loses it. A crash can lose changes that have not been flushed. This cache is not a supported backup or run-resumption mechanism. A durable checkpointer remains a future integration (§5.4).
+**Checkpointer caveat.** The development runtime caches checkpoints under `/app/.langgraph_api` in the container layer. Atlas does not mount this cache; container recreation loses it. A crash can lose changes that have not been flushed. This cache is not a supported backup or run-resumption mechanism. A durable checkpointer remains a future integration (§9.4).
 
 **Search backend.** `LOCAL_DEEP_RESEARCHER_SEARCH_API=searxng` calls `http://searxng:8080/search?q=…&format=json`. SearXNG must have `formats: [json]` enabled (it does, in `services/searxng/config/settings.yml`).
 
@@ -82,49 +82,22 @@ To upgrade:
 
 **Backend integration.** `services/backend/app/app/research_client.py` calls `http://local-deep-researcher:2024` with a `ResearchRequest`/`ResearchResult` schema behind the backend's `/research/*` routes. Sessions persist to `public.research_sessions`. The client checks `/ok` and creates a thread with `POST /threads`. A backend background task then calls `POST /threads/{thread_id}/runs/stream` with `assistant_id=ollama_deep_researcher`, `on_disconnect=cancel` and `stream_mode=["values"]`.
 
-## 5. Dependencies & Integrations
+## 5. Capabilities & limitations
 
-### 5.1. Current — Upstream (this service calls)
+<a id="9-capabilities-limitations"></a>
+<a id="9-capabilities--limitations"></a>
 
-| Service | Category |
-|---|---|
-| litellm | llm |
-| crawl4ai | media |
-| searxng | media |
+Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
-### 5.2. Current — Downstream (services that call this)
-
-| Service | Category |
-|---|---|
-| kong | infra |
-| backend | apps |
-| open-webui | apps |
-
-### 5.3. Architecture diagram
-
-![local-deep-researcher architecture](./architecture.svg)
-
-[Open the full-size diagram](./architecture.html) for a full-screen view.
-
-### 5.4. Future — Missing pair integrations
-
-- **local-deep-researcher ↔ redis** — *Why:* The development cache stays in the container layer; recreation loses it. No durable shared checkpointer is wired today. *Mechanism:* swap checkpointer to `langgraph.checkpoint.redis.RedisSaver` pointed at a fresh index, such as `redis://:${REDIS_PASSWORD}@redis:6379/6` (see [Redis database-index convention](../redis/README.md#3-configuration)); add `REDIS_URL` to LDR env. *Effort:* small. *Confidence:* medium.
-- **local-deep-researcher ↔ neo4j** — *Why:* each research run yields `sources_gathered` + a `running_summary`. Writing these as `(Topic)-[CITES]->(Source)` triples lets later runs detect overlap and reuse evidence. *Mechanism:* post-`finalize_summary` callback writes Cypher `MERGE` via `bolt://neo4j-graph-db:7687`. *Effort:* medium. *Confidence:* medium.
-- **local-deep-researcher ↔ minio** — *Why:* the final markdown report lives only in LangGraph thread state and the Backend's `public.research_*` rows; no object store holds it. *Mechanism:* on `finalize_summary`, S3 `PutObject` to `${MINIO_ENDPOINT}` bucket `research-reports` keyed by `session_id`. *Effort:* small. *Confidence:* medium.
-- **local-deep-researcher ↔ hermes** — *Why:* Hermes has no path to invoke multi-step web research today. Exposing LDR as a Hermes tool turns "deep research" into a single tool call. *Mechanism:* a Hermes skill (`/opt/data/skills/<category>/<name>/SKILL.md`, installed by hermes-init) or an MCP server that POSTs to `http://local-deep-researcher:2024/threads/{id}/runs/stream` and returns the final summary. *Effort:* medium. *Confidence:* medium.
-
-### 5.5. Future — Candidate new services
-
-- **open_deep_research (langchain-ai)** — *Headline:* multi-agent deep-research engine (supervisor + parallel sub-researchers) evaluated as a disabled-by-default **opt-in second research engine complementing LDR** (LDR stays the fast/local/key-free tier). GO-conditional per [`docs/strategy/langchain-stack-evaluation.md`](https://github.com/thekaveh/atlas/blob/main/docs/strategy/langchain-stack-evaluation.md), gated on a key-free LiteLLM+SearXNG boot at acceptable cost; its `messages`/`final_report` schema needs a per-engine branch in the backend research client.
-- **Firecrawl** ([details](../../docs/reference/candidate-decisions.md#candidate-firecrawl)) — *Headline:* self-hosted JS-rendering scraper that returns clean markdown, replacing LDR's `builtin` / `crawl4ai` full-page fetch with structured extraction. *Wires into:* n8n, backend, hermes.
-
-### 5.6. Future — Unused features in this service
-
-- **Persistent LangGraph checkpointer** — *Why pursue:* the development cache does not survive container recreation or provide supported durable run recovery. *Effort:* small.
-- **Tavily / Perplexity search backends** — *Why pursue:* upstream supports both via `SEARCH_API=tavily|perplexity` plus API keys; Atlas injects no key for either. *Effort:* small.
-- **`USE_TOOL_CALLING` for gpt-oss models** — *Why pursue:* enables structured tool calls instead of JSON mode for gpt-oss family, improving reliability with LiteLLM-routed local models. *Effort:* small.
-- **`STRIP_THINKING_TOKENS` toggle** — *Why pursue:* Hermes-style reasoning models leak `<think>` blocks into the report; upstream env var hides them. *Effort:* small.
-- **LangSmith tracing** — *Why pursue:* `LANGSMITH_API_KEY` ships upstream; superseded if Langfuse lands but useful as a stopgap. *Effort:* small.
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Multi-step local research loop | supported | tested | Atlas pins the upstream LangGraph source and serving dependencies, then routes search through SearXNG and generation through LiteLLM without requiring a direct cloud key. |
+| Backend-managed research sessions | partial | tested | The authenticated Backend adds bounded concurrency, cancellation, logs, and Postgres session records around LDR, while direct LangGraph callers bypass that lifecycle. |
+| Research endpoint authentication | not-supported | tested | The host-published LangGraph API and CORS-only research.localhost route have no Atlas authentication; use the authenticated Backend research API or restrict direct ingress. Browser access is limited to the research.localhost origin (CORS_ALLOW_ORIGINS), so a web page cannot read threads through the direct port. |
+| Research thread persistence | partial | tested | Backend session metadata persists in Postgres. LangGraph caches thread state in the container layer; recreation discards it. This cache is not durable shared storage, and retained thread state can grow without a bound. |
+| Full-page Crawl4AI extraction | partial | tested | The opt-in crawl4ai mode is patched and source-gated, while disabled or builtin modes provide different extraction depth and no live web compatibility guarantee. |
+| Declared optional service integrations | stubbed | documented | Neo4j, n8n, Weaviate, speech, and document services appear as runtime hints, but the LDR research code consumes only LiteLLM, SearXNG, and optional Crawl4AI today. |
+| Parallel research worker control | stubbed | documented | LOCAL_DEEP_RESEARCHER_WORKERS is reserved because the entrypoint does not pass it to langgraph dev; one server process owns the in-memory research state. |
 
 ## 6. Troubleshooting
 
@@ -181,16 +154,66 @@ The `.values` object contains `running_summary`, `sources_gathered` and `researc
 - **No streaming to clients.** The backend's `research_client.py` reads the `/runs/stream` SSE channel asynchronously and does not forward events.
 - **Thread state.** Each thread keeps its summary and sources in the memory-backed development checkpointer. After completed result handling, the Backend attempts thread deletion. Direct callers must manage their own threads; threads from incomplete runs remain.
 
-## 9. Capabilities & limitations
+## 9. Dependencies & Integrations
 
-Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+<a id="5-dependencies-integrations"></a>
+<a id="5-dependencies--integrations"></a>
 
-| Capability | Status | Verification | Notes |
-|---|---|---|---|
-| Multi-step local research loop | supported | tested | Atlas pins the upstream LangGraph source and serving dependencies, then routes search through SearXNG and generation through LiteLLM without requiring a direct cloud key. |
-| Backend-managed research sessions | partial | tested | The authenticated Backend adds bounded concurrency, cancellation, logs, and Postgres session records around LDR, while direct LangGraph callers bypass that lifecycle. |
-| Research endpoint authentication | not-supported | tested | The host-published LangGraph API and CORS-only research.localhost route have no Atlas authentication; use the authenticated Backend research API or restrict direct ingress. Browser access is limited to the research.localhost origin (CORS_ALLOW_ORIGINS), so a web page cannot read threads through the direct port. |
-| Research thread persistence | partial | tested | Backend session metadata persists in Postgres. LangGraph caches thread state in the container layer; recreation discards it. This cache is not durable shared storage, and retained thread state can grow without a bound. |
-| Full-page Crawl4AI extraction | partial | tested | The opt-in crawl4ai mode is patched and source-gated, while disabled or builtin modes provide different extraction depth and no live web compatibility guarantee. |
-| Declared optional service integrations | stubbed | documented | Neo4j, n8n, Weaviate, speech, and document services appear as runtime hints, but the LDR research code consumes only LiteLLM, SearXNG, and optional Crawl4AI today. |
-| Parallel research worker control | stubbed | documented | LOCAL_DEEP_RESEARCHER_WORKERS is reserved because the entrypoint does not pass it to langgraph dev; one server process owns the in-memory research state. |
+### 9.1. Current — Upstream (this service calls)
+
+<a id="51-current-upstream-this-service-calls"></a>
+<a id="51-current--upstream-this-service-calls"></a>
+
+| Service | Category |
+|---|---|
+| litellm | llm |
+| crawl4ai | media |
+| searxng | media |
+
+### 9.2. Current — Downstream (services that call this)
+
+<a id="52-current-downstream-services-that-call-this"></a>
+<a id="52-current--downstream-services-that-call-this"></a>
+
+| Service | Category |
+|---|---|
+| kong | infra |
+| backend | apps |
+| open-webui | apps |
+
+### 9.3. Architecture diagram
+
+<a id="53-architecture-diagram"></a>
+
+![local-deep-researcher architecture](./architecture.svg)
+
+[Open the full-size diagram](./architecture.html) for a full-screen view.
+
+### 9.4. Future — Missing pair integrations
+
+<a id="54-future-missing-pair-integrations"></a>
+<a id="54-future--missing-pair-integrations"></a>
+
+- **local-deep-researcher ↔ redis** — *Why:* The development cache stays in the container layer; recreation loses it. No durable shared checkpointer is wired today. *Mechanism:* swap checkpointer to `langgraph.checkpoint.redis.RedisSaver` pointed at a fresh index, such as `redis://:${REDIS_PASSWORD}@redis:6379/6` (see [Redis database-index convention](../redis/README.md#3-configuration)); add `REDIS_URL` to LDR env. *Effort:* small. *Confidence:* medium.
+- **local-deep-researcher ↔ neo4j** — *Why:* each research run yields `sources_gathered` + a `running_summary`. Writing these as `(Topic)-[CITES]->(Source)` triples lets later runs detect overlap and reuse evidence. *Mechanism:* post-`finalize_summary` callback writes Cypher `MERGE` via `bolt://neo4j-graph-db:7687`. *Effort:* medium. *Confidence:* medium.
+- **local-deep-researcher ↔ minio** — *Why:* the final markdown report lives only in LangGraph thread state and the Backend's `public.research_*` rows; no object store holds it. *Mechanism:* on `finalize_summary`, S3 `PutObject` to `${MINIO_ENDPOINT}` bucket `research-reports` keyed by `session_id`. *Effort:* small. *Confidence:* medium.
+- **local-deep-researcher ↔ hermes** — *Why:* Hermes has no path to invoke multi-step web research today. Exposing LDR as a Hermes tool turns "deep research" into a single tool call. *Mechanism:* a Hermes skill (`/opt/data/skills/<category>/<name>/SKILL.md`, installed by hermes-init) or an MCP server that POSTs to `http://local-deep-researcher:2024/threads/{id}/runs/stream` and returns the final summary. *Effort:* medium. *Confidence:* medium.
+
+### 9.5. Future — Candidate new services
+
+<a id="55-future-candidate-new-services"></a>
+<a id="55-future--candidate-new-services"></a>
+
+- **open_deep_research (langchain-ai)** — *Headline:* multi-agent deep-research engine (supervisor + parallel sub-researchers) evaluated as a disabled-by-default **opt-in second research engine complementing LDR** (LDR stays the fast/local/key-free tier). GO-conditional per [`docs/strategy/langchain-stack-evaluation.md`](https://github.com/thekaveh/atlas/blob/main/docs/strategy/langchain-stack-evaluation.md), gated on a key-free LiteLLM+SearXNG boot at acceptable cost; its `messages`/`final_report` schema needs a per-engine branch in the backend research client.
+- **Firecrawl** ([details](../../docs/reference/candidate-decisions.md#candidate-firecrawl)) — *Headline:* self-hosted JS-rendering scraper that returns clean markdown, replacing LDR's `builtin` / `crawl4ai` full-page fetch with structured extraction. *Wires into:* n8n, backend, hermes.
+
+### 9.6. Future — Unused features in this service
+
+<a id="56-future-unused-features-in-this-service"></a>
+<a id="56-future--unused-features-in-this-service"></a>
+
+- **Persistent LangGraph checkpointer** — *Why pursue:* the development cache does not survive container recreation or provide supported durable run recovery. *Effort:* small.
+- **Tavily / Perplexity search backends** — *Why pursue:* upstream supports both via `SEARCH_API=tavily|perplexity` plus API keys; Atlas injects no key for either. *Effort:* small.
+- **`USE_TOOL_CALLING` for gpt-oss models** — *Why pursue:* enables structured tool calls instead of JSON mode for gpt-oss family, improving reliability with LiteLLM-routed local models. *Effort:* small.
+- **`STRIP_THINKING_TOKENS` toggle** — *Why pursue:* Hermes-style reasoning models leak `<think>` blocks into the report; upstream env var hides them. *Effort:* small.
+- **LangSmith tracing** — *Why pursue:* `LANGSMITH_API_KEY` ships upstream; superseded if Langfuse lands but useful as a stopgap. *Effort:* small.

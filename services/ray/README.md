@@ -67,37 +67,19 @@ counts against the container's memory limit; `8gb` does not reserve extra RAM.
 - **JupyterHub** — receives `RAY_ADDRESS`, and `services/jupyterhub/build/notebooks/07_ray_cluster.ipynb` calls `ray.init()`. That call fails because the kernel runs Python 3.13 and the Ray image runs Python 3.10 (open issue #1374). Until that issue is resolved, submit notebook work through the Ray Jobs REST API at `http://ray-head:8265/api/jobs/`. §6 has an example.
 - **Hermes** — no Ray submission integration is wired today. A future integration must receive `RAY_JOB_API_TOKEN` through a scoped client contract before it can call Backend's protected Ray routes.
 
-## 5. Dependencies & Integrations
+## 5. Capabilities & limitations
 
-### 5.1. Current — Upstream (this service calls)
+<a id="7-capabilities-limitations"></a>
+<a id="7-capabilities--limitations"></a>
 
-_No upstream calls._
+Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
-### 5.2. Current — Downstream (services that call this)
-
-| Service | Category | Status |
-|---|---|---|
-| kong | infra | optional: RAY_SOURCE=ray-container-cpu or ray-container-gpu |
-| backend | apps | current |
-| jupyterhub | apps | current |
-
-### 5.3. Architecture diagram
-
-![ray architecture](./architecture.svg)
-
-[Open the full-size diagram](./architecture.html) for a full-screen view.
-
-### 5.4. Future — Missing pair integrations
-
-_No high-confidence opportunities identified._
-
-### 5.5. Future — Candidate new services
-
-_No high-confidence opportunities identified._
-
-### 5.6. Future — Unused features in this service
-
-_No high-confidence opportunities identified._
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Containerized CPU distributed compute | supported | tested | Atlas configures a Ray head plus an operator-selected worker count and supplies the backend with the resulting cluster address. |
+| NVIDIA GPU worker execution | partial | tested | The GPU source selects the CUDA images only. The compose fragment requests no NVIDIA device, so GPU tasks stay pending until GPU reservations are wired (#1373). |
+| Remote Ray surface security | partial | tested | Kong protects the dashboard and the backend API uses bearer authentication, while native client and GCS ports remain unauthenticated loopback bindings. |
+| Persistent Ray session state | not-supported | documented | The stock Ray cluster has no named volume for session state, so jobs and cluster metadata do not survive container replacement. |
 
 ## 6. Troubleshooting
 
@@ -151,13 +133,54 @@ export RAY_HEAD_CONTAINER
 
 - **Dashboard unreachable through Kong** — Kong's `ray.localhost` route requires `--setup-hosts` to have run AND basic-auth credentials match `DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD` in `.env`. The unauthenticated direct port works only from the Docker host because Compose binds it to `127.0.0.1`.
 
-## 7. Capabilities & limitations
+## 7. Dependencies & Integrations
 
-Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+<a id="5-dependencies-integrations"></a>
+<a id="5-dependencies--integrations"></a>
 
-| Capability | Status | Verification | Notes |
-|---|---|---|---|
-| Containerized CPU distributed compute | supported | tested | Atlas configures a Ray head plus an operator-selected worker count and supplies the backend with the resulting cluster address. |
-| NVIDIA GPU worker execution | partial | tested | The GPU source selects the CUDA images only. The compose fragment requests no NVIDIA device, so GPU tasks stay pending until GPU reservations are wired (#1373). |
-| Remote Ray surface security | partial | tested | Kong protects the dashboard and the backend API uses bearer authentication, while native client and GCS ports remain unauthenticated loopback bindings. |
-| Persistent Ray session state | not-supported | documented | The stock Ray cluster has no named volume for session state, so jobs and cluster metadata do not survive container replacement. |
+### 7.1. Current — Upstream (this service calls)
+
+<a id="51-current-upstream-this-service-calls"></a>
+<a id="51-current--upstream-this-service-calls"></a>
+
+_No upstream calls._
+
+### 7.2. Current — Downstream (services that call this)
+
+<a id="52-current-downstream-services-that-call-this"></a>
+<a id="52-current--downstream-services-that-call-this"></a>
+
+| Service | Category | Status |
+|---|---|---|
+| kong | infra | optional: RAY_SOURCE=ray-container-cpu or ray-container-gpu |
+| backend | apps | current |
+| jupyterhub | apps | current |
+
+### 7.3. Architecture diagram
+
+<a id="53-architecture-diagram"></a>
+
+![ray architecture](./architecture.svg)
+
+[Open the full-size diagram](./architecture.html) for a full-screen view.
+
+### 7.4. Future — Missing pair integrations
+
+<a id="54-future-missing-pair-integrations"></a>
+<a id="54-future--missing-pair-integrations"></a>
+
+_No high-confidence opportunities identified._
+
+### 7.5. Future — Candidate new services
+
+<a id="55-future-candidate-new-services"></a>
+<a id="55-future--candidate-new-services"></a>
+
+_No high-confidence opportunities identified._
+
+### 7.6. Future — Unused features in this service
+
+<a id="56-future-unused-features-in-this-service"></a>
+<a id="56-future--unused-features-in-this-service"></a>
+
+_No high-confidence opportunities identified._

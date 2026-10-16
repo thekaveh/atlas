@@ -2,7 +2,7 @@
 
 - **Port:** `JUPYTERHUB_PORT` (default 63094 with `BASE_PORT=63000`)
 - **Category:** `apps`
-- **Primary dependencies:** PostgreSQL, Redis, LiteLLM (gateway to Ollama and cloud LLMs), Weaviate, Neo4j, MinIO, Iceberg REST and Spark. §15 lists the full upstream set.
+- **Primary dependencies:** PostgreSQL, Redis, LiteLLM (gateway to Ollama and cloud LLMs), Weaviate, Neo4j, MinIO, Iceberg REST and Spark. §17 lists the full upstream set.
 
 ---
 
@@ -190,7 +190,7 @@ Avoid direct `docker-compose.yml` edits for normal operation; local compose edit
 
 ### 9.2. Multi-user access
 
-Not supported. Despite the service name, the container runs one `start-notebook.sh` JupyterLab server, not a JupyterHub spawner. There is no authenticator to configure, and no `jupyterhub_config.py` is read. The only access control is the `JUPYTERHUB_TOKEN` token (passed to the server as `JUPYTER_TOKEN`); everyone who has it shares one server and one home directory. See §17 (Capabilities & limitations) for the full limitation.
+Not supported. Despite the service name, the container runs one `start-notebook.sh` JupyterLab server, not a JupyterHub spawner. There is no authenticator to configure, and no `jupyterhub_config.py` is read. The only access control is the `JUPYTERHUB_TOKEN` token (passed to the server as `JUPYTER_TOKEN`); everyone who has it shares one server and one home directory. See §15 (Capabilities & limitations) for the full limitation.
 
 ## 10. Connecting from VS Code (run local notebooks on this container)
 
@@ -317,62 +317,22 @@ For the stack-wide diagram, see [Platform architecture](../../docs/architecture/
 - **Issues**: [GitHub Issues](https://github.com/thekaveh/atlas/issues)
 - **Docs**: [Documentation map](../../docs/README.md)
 
-## 15. Dependencies & Integrations
+## 15. Capabilities & limitations
 
-### 15.1. Current — Upstream (this service calls)
+<a id="17-capabilities-limitations"></a>
+<a id="17-capabilities--limitations"></a>
 
-| Service | Category | Status |
-|---|---|---|
-| ray | infra | current |
-| iceberg-rest | data | current |
-| minio | data | current |
-| neo4j | data | current |
-| redis | data | current |
-| redpanda | data | current |
-| spark | data | current |
-| supabase | data | current |
-| weaviate | data | current |
-| litellm | llm | current |
-| comfyui | media | current |
-| docling | media | current |
-| searxng | media | current |
-| stt-provider | media | current |
-| tts-provider | media | current |
-| hermes | agents | current |
-| mcp-servers | agents | optional: MCP_SERVERS_SOURCE=container |
-| n8n | agents | current |
-| backend | apps | current |
-| label-studio | apps | current |
-| mlflow | apps | current |
+Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
-### 15.2. Current — Downstream (services that call this)
-
-| Service | Category |
-|---|---|
-| kong | infra |
-
-### 15.3. Architecture diagram
-
-![jupyterhub architecture](./architecture.svg)
-
-[Open the full-size diagram](./architecture.html) for a full-screen view.
-
-### 15.4. Future — Missing pair integrations
-
-- **jupyterhub ↔ local-deep-researcher** — *Why:* long LangGraph deep-research runs should be launchable from a notebook and streamable into a dataframe. *Mechanism:* `DEEP_RESEARCHER_BASE_URL=http://local-deep-researcher:2024` plus an SSE client snippet against LangGraph's `/runs/stream`. *Effort:* medium. *Confidence:* medium.
-- **jupyterhub ↔ openclaw** — *Why:* unattended notebook jobs (training, sweeps, embeddings) should ping Slack/Discord when they finish. *Mechanism:* inject `OPENCLAW_WEBHOOK_URL=http://openclaw-gateway:<port>/webhook/notify` and post JSON from a util helper. *Effort:* small. *Confidence:* medium.
-
-### 15.5. Future — Candidate new services
-
-_No high-confidence opportunities identified._
-
-### 15.6. Future — Unused features in this service
-
-- **Real multi-user JupyterHub (DockerSpawner + Authenticator)** — *Why pursue:* the container is single-user `jupyter/datascience-notebook` despite the service name. A Hub with `DockerSpawner` and `NativeAuthenticator`/OAuth would let several people share the stack. *Effort:* large.
-- **Jupyter AI extension wired to LiteLLM** — *Why pursue:* `jupyter-ai` accepts any OpenAI-compatible base URL. Pointed at `LITELLM_BASE_URL`, it exposes every gateway model through the `%ai` magic. *Effort:* small.
-- **GPU enablement for the notebook container** — *Why pursue:* the image ships PyTorch and PyG, but the manifest has no `container-gpu` source. Heavy training therefore runs on CPU even on a GPU host. *Effort:* medium.
-- **jupyter-server-proxy for ComfyUI/n8n** — *Why pursue:* `jupyter-server-proxy` is in `requirements.txt` but unused. Serving ComfyUI and n8n under `/proxy/<service>/` would embed their UIs in the lab. *Effort:* small.
-- **Persistent kernel state via ipyparallel** — *Why pursue:* long-running RAG/agent loops lose state on kernel restart; an `ipyparallel` cluster (workers as sidecars) would survive restarts. *Effort:* medium.
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Integrated data and AI notebooks | supported | tested | Atlas ships a synchronized Python and Scala notebook inventory with clients and environment seams for LLM, RAG, lakehouse, ML, and media experimentation. |
+| Spark Connect and lakehouse clients | partial | tested | Bundled notebooks configure Spark Connect, MinIO, and Iceberg clients, but service-dependent cells are static contracts until an operator runs the corresponding live smoke. |
+| Token-authenticated notebook access | partial | tested | The direct and CORS-only jupyter.localhost paths require one Jupyter token. Browser origins are limited to Jupyter's same-origin check by default (JUPYTER_ALLOW_ORIGIN is empty); do not set it to '*'. |
+| Operator-trusted credential environment | partial | documented | The server receives high-privilege database and service credentials and runs arbitrary user code. It is an engineering workspace, not a hostile multi-tenant sandbox. GRANT_SUDO is set but inert, because the container does not start as root. |
+| Notebook workspace persistence | supported | tested | User work persists in jupyterhub-data and bundled notebooks mount read-only, but cold volume removal still deletes the writable workspace. |
+| Curated MCP notebook endpoint | supported | tested | The bootstrapper injects MCP_SERVERS_URL only when MCP_SERVERS_SOURCE=container and leaves it empty when disabled; the bundled notebook exercises discovery, invocation, and error handling against that endpoint. The direct backend-network URL bypasses Kong authentication and is appropriate only for this operator-trusted notebook environment. |
+| Multi-user JupyterHub isolation and HA | not-supported | documented | Despite the service name, Atlas runs one start-notebook JupyterLab process with one token. It has no Hub spawner, per-user servers, replicated state, or HA control plane. |
 
 ## 16. Troubleshooting
 
@@ -409,16 +369,79 @@ Move the whole port block: `./start.sh --base-port 64000` (JupyterHub then uses 
 
 The jupyterhub container has no memory limit, so it can use all memory Docker has. Atlas has not measured a minimum. Increase Docker's memory in Docker Desktop → Settings → Resources → Memory, and check `docker stats ${PROJECT_NAME}-jupyterhub` while your workload runs.
 
-## 17. Capabilities & limitations
+## 17. Dependencies & Integrations
 
-Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+<a id="15-dependencies-integrations"></a>
+<a id="15-dependencies--integrations"></a>
 
-| Capability | Status | Verification | Notes |
-|---|---|---|---|
-| Integrated data and AI notebooks | supported | tested | Atlas ships a synchronized Python and Scala notebook inventory with clients and environment seams for LLM, RAG, lakehouse, ML, and media experimentation. |
-| Spark Connect and lakehouse clients | partial | tested | Bundled notebooks configure Spark Connect, MinIO, and Iceberg clients, but service-dependent cells are static contracts until an operator runs the corresponding live smoke. |
-| Token-authenticated notebook access | partial | tested | The direct and CORS-only jupyter.localhost paths require one Jupyter token. Browser origins are limited to Jupyter's same-origin check by default (JUPYTER_ALLOW_ORIGIN is empty); do not set it to '*'. |
-| Operator-trusted credential environment | partial | documented | The server receives high-privilege database and service credentials and runs arbitrary user code. It is an engineering workspace, not a hostile multi-tenant sandbox. GRANT_SUDO is set but inert, because the container does not start as root. |
-| Notebook workspace persistence | supported | tested | User work persists in jupyterhub-data and bundled notebooks mount read-only, but cold volume removal still deletes the writable workspace. |
-| Curated MCP notebook endpoint | supported | tested | The bootstrapper injects MCP_SERVERS_URL only when MCP_SERVERS_SOURCE=container and leaves it empty when disabled; the bundled notebook exercises discovery, invocation, and error handling against that endpoint. The direct backend-network URL bypasses Kong authentication and is appropriate only for this operator-trusted notebook environment. |
-| Multi-user JupyterHub isolation and HA | not-supported | documented | Despite the service name, Atlas runs one start-notebook JupyterLab process with one token. It has no Hub spawner, per-user servers, replicated state, or HA control plane. |
+### 17.1. Current — Upstream (this service calls)
+
+<a id="151-current-upstream-this-service-calls"></a>
+<a id="151-current--upstream-this-service-calls"></a>
+
+| Service | Category | Status |
+|---|---|---|
+| ray | infra | current |
+| iceberg-rest | data | current |
+| minio | data | current |
+| neo4j | data | current |
+| redis | data | current |
+| redpanda | data | current |
+| spark | data | current |
+| supabase | data | current |
+| weaviate | data | current |
+| litellm | llm | current |
+| comfyui | media | current |
+| docling | media | current |
+| searxng | media | current |
+| stt-provider | media | current |
+| tts-provider | media | current |
+| hermes | agents | current |
+| mcp-servers | agents | optional: MCP_SERVERS_SOURCE=container |
+| n8n | agents | current |
+| backend | apps | current |
+| label-studio | apps | current |
+| mlflow | apps | current |
+
+### 17.2. Current — Downstream (services that call this)
+
+<a id="152-current-downstream-services-that-call-this"></a>
+<a id="152-current--downstream-services-that-call-this"></a>
+
+| Service | Category |
+|---|---|
+| kong | infra |
+
+### 17.3. Architecture diagram
+
+<a id="153-architecture-diagram"></a>
+
+![jupyterhub architecture](./architecture.svg)
+
+[Open the full-size diagram](./architecture.html) for a full-screen view.
+
+### 17.4. Future — Missing pair integrations
+
+<a id="154-future-missing-pair-integrations"></a>
+<a id="154-future--missing-pair-integrations"></a>
+
+- **jupyterhub ↔ local-deep-researcher** — *Why:* long LangGraph deep-research runs should be launchable from a notebook and streamable into a dataframe. *Mechanism:* `DEEP_RESEARCHER_BASE_URL=http://local-deep-researcher:2024` plus an SSE client snippet against LangGraph's `/runs/stream`. *Effort:* medium. *Confidence:* medium.
+- **jupyterhub ↔ openclaw** — *Why:* unattended notebook jobs (training, sweeps, embeddings) should ping Slack/Discord when they finish. *Mechanism:* inject `OPENCLAW_WEBHOOK_URL=http://openclaw-gateway:<port>/webhook/notify` and post JSON from a util helper. *Effort:* small. *Confidence:* medium.
+
+### 17.5. Future — Candidate new services
+
+<a id="155-future-candidate-new-services"></a>
+<a id="155-future--candidate-new-services"></a>
+
+_No high-confidence opportunities identified._
+
+### 17.6. Future — Unused features in this service
+
+<a id="156-future-unused-features-in-this-service"></a>
+<a id="156-future--unused-features-in-this-service"></a>
+
+- **Real multi-user JupyterHub (DockerSpawner + Authenticator)** — *Why pursue:* the container is single-user `jupyter/datascience-notebook` despite the service name. A Hub with `DockerSpawner` and `NativeAuthenticator`/OAuth would let several people share the stack. *Effort:* large.
+- **Jupyter AI extension wired to LiteLLM** — *Why pursue:* `jupyter-ai` accepts any OpenAI-compatible base URL. Pointed at `LITELLM_BASE_URL`, it exposes every gateway model through the `%ai` magic. *Effort:* small.
+- **GPU enablement for the notebook container** — *Why pursue:* the image ships PyTorch and PyG, but the manifest has no `container-gpu` source. Heavy training therefore runs on CPU even on a GPU host. *Effort:* medium.
+- **jupyter-server-proxy for ComfyUI/n8n** — *Why pursue:* `jupyter-server-proxy` is in `requirements.txt` but unused. Serving ComfyUI and n8n under `/proxy/<service>/` would embed their UIs in the lab. *Effort:* small.
+- **Persistent kernel state via ipyparallel** — *Why pursue:* long-running RAG/agent loops lose state on kernel restart; an `ipyparallel` cluster (workers as sidecars) would survive restarts. *Effort:* medium.
