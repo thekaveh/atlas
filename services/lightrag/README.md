@@ -211,49 +211,18 @@ curl -sX POST http://localhost:${LITELLM_PORT}/v1/chat/completions \
   }'
 ```
 
-## 5. Dependencies & Integrations
+## 5. Capabilities & limitations
 
-### 5.1. Current — Upstream (this service calls)
+<a id="9-capabilities-limitations"></a>
+<a id="9-capabilities--limitations"></a>
 
-| Service | Category |
-|---|---|
-| neo4j | data |
-| redis | data |
-| supabase | data |
-| litellm ↔ | llm |
-| docling-lightrag-adapter | media |
-| backend ↔ | apps |
+Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
-### 5.2. Current — Downstream (services that call this)
-
-_Rows marked planned are documented or intended, not wired yet._
-
-| Service | Category | Status |
-|---|---|---|
-| kong | infra | current |
-| litellm ↔ | llm | current |
-| celery | agents | current |
-| hermes | agents | planned |
-| n8n | agents | current |
-| backend ↔ | apps | current |
-
-### 5.3. Architecture diagram
-
-![lightrag architecture](./architecture.svg)
-
-[Open the full-size diagram](./architecture.html) for a full-screen view.
-
-### 5.4. Future — Missing pair integrations
-
-_No high-confidence opportunities identified._
-
-### 5.5. Future — Candidate new services
-
-_No high-confidence opportunities identified._
-
-### 5.6. Future — Unused features in this service
-
-_No high-confidence opportunities identified._
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Graph-augmented retrieval through LiteLLM | supported | tested | Atlas resolves LightRAG chat and embedding models through LiteLLM and exposes graph-aware query modes. |
+| External persistent storage | partial | tested | Atlas wires Supabase pgvector, Neo4j, and Redis when enabled; disabling them clears connection URIs without selecting file-backed storage implementations. |
+| LightRAG reranking | partial | tested | Reranking requires TEI plus the opt-in backend adapter because direct LightRAG-to-TEI request payloads are incompatible. |
 
 ## 6. Storage backend matrix
 
@@ -308,12 +277,66 @@ When `lightrag-init` starts, it:
 
   Do not drop the `lightrag` schema. It holds only Atlas's `lightrag.vectors_meta` marker, not the vector tables, so the drop removes no vectors.
 
-## 9. Capabilities & limitations
+## 9. Dependencies & Integrations
 
-Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+<a id="5-dependencies-integrations"></a>
+<a id="5-dependencies--integrations"></a>
 
-| Capability | Status | Verification | Notes |
-|---|---|---|---|
-| Graph-augmented retrieval through LiteLLM | supported | tested | Atlas resolves LightRAG chat and embedding models through LiteLLM and exposes graph-aware query modes. |
-| External persistent storage | partial | tested | Atlas wires Supabase pgvector, Neo4j, and Redis when enabled; disabling them clears connection URIs without selecting file-backed storage implementations. |
-| LightRAG reranking | partial | tested | Reranking requires TEI plus the opt-in backend adapter because direct LightRAG-to-TEI request payloads are incompatible. |
+### 9.1. Current — Upstream (this service calls)
+
+<a id="51-current-upstream-this-service-calls"></a>
+<a id="51-current--upstream-this-service-calls"></a>
+
+| Service | Category |
+|---|---|
+| neo4j | data |
+| redis | data |
+| supabase | data |
+| litellm ↔ | llm |
+| docling-lightrag-adapter | media |
+| backend ↔ | apps |
+
+### 9.2. Current — Downstream (services that call this)
+
+<a id="52-current-downstream-services-that-call-this"></a>
+<a id="52-current--downstream-services-that-call-this"></a>
+
+_Rows marked planned are documented or intended, not wired yet._
+
+| Service | Category | Status |
+|---|---|---|
+| kong | infra | current |
+| litellm ↔ | llm | current |
+| celery | agents | current |
+| hermes | agents | planned |
+| n8n | agents | current |
+| backend ↔ | apps | current |
+
+### 9.3. Architecture diagram
+
+<a id="53-architecture-diagram"></a>
+
+![lightrag architecture](./architecture.svg)
+
+[Open the full-size diagram](./architecture.html) for a full-screen view.
+
+### 9.4. Future — Missing pair integrations
+
+<a id="54-future-missing-pair-integrations"></a>
+<a id="54-future--missing-pair-integrations"></a>
+
+_No high-confidence opportunities identified._
+
+### 9.5. Future — Candidate new services
+
+<a id="55-future-candidate-new-services"></a>
+<a id="55-future--candidate-new-services"></a>
+
+_No high-confidence opportunities identified._
+
+### 9.6. Future — Unused features in this service
+
+<a id="56-future-unused-features-in-this-service"></a>
+<a id="56-future--unused-features-in-this-service"></a>
+
+_No high-confidence opportunities identified._

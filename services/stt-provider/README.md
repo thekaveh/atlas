@@ -239,48 +239,24 @@ until inference is available. Speaches `/health` reports process liveness only.
 - [whisper.cpp](https://github.com/ggml-org/whisper.cpp)
 - [OpenAI Whisper API spec](https://platform.openai.com/docs/guides/speech-to-text)
 
-## 9. Dependencies & Integrations
+## 9. Capabilities & limitations
 
-### 9.1. Current — Upstream (this service calls)
+<a id="11-capabilities-limitations"></a>
+<a id="11-capabilities--limitations"></a>
 
-_No upstream calls._
+`parakeet` — Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+`speaches` — Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
-### 9.2. Current — Downstream (services that call this)
-
-| Service | Category |
-|---|---|
-| kong | infra |
-| hermes | agents |
-| n8n | agents |
-| jupyterhub | apps |
-| open-webui | apps |
-
-### 9.3. Architecture diagram
-
-![stt-provider architecture](./architecture.svg)
-
-[Open the full-size diagram](./architecture.html) for a full-screen view.
-
-### 9.4. Future — Missing pair integrations
-
-- **stt-provider ↔ minio** — *Why:* transcripts vanish with the HTTP response — nothing persists source audio or transcript JSON. Pushing both to MinIO gives every service a stable URL and enables re-transcription on engine swap. *Mechanism:* new `stt-transcripts` bucket provisioned by `minio-init`; post-transcribe hook puts `s3://stt-transcripts/<sha256>.wav` plus sidecar `.json` via S3 SigV4 over `http://minio:9000`. *Effort:* small. *Confidence:* high.
-- **stt-provider ↔ weaviate** — *Why:* indexing durable transcripts turns long-form audio (meetings, podcasts, voice notes) into a semantically searchable corpus alongside the docling pipeline. *Mechanism:* `Transcript` class with `text`, `start_ms`, `end_ms`, `source_audio_uri`, vectorized by the active `text2vec-openai` module via `http://weaviate:8080/v1/objects`. *Effort:* medium. *Confidence:* medium.
-- **stt-provider ↔ redis** — *Why:* transcription is expensive and deterministic in `(audio-sha256, model, language)`. A cache cuts repeat cost to ~zero for n8n loops, re-runs, demos. *Mechanism:* a Redis database index that no other consumer uses ([Redis README](../redis/README.md)), with key `stt:{sha256}:{model}:{lang}` → transcript JSON, TTL 30d. A backend wrapper or a Kong plugin in front of `STT_ENDPOINT` does the lookup. *Effort:* small. *Confidence:* medium.
-- **stt-provider ↔ doc-processor** — *Why:* docling parses PDFs/Office docs but does not handle audio. Composing `stt → docling` gives a unified "any media → markdown" ingest. *Mechanism:* caller hits `STT_ENDPOINT`, then POSTs transcript text to `${DOCLING_ENDPOINT}/v1/document/convert` as `text/plain`. No new service. *Effort:* small. *Confidence:* medium.
-- **stt-provider ↔ openclaw** — *Why:* Telegram/WhatsApp/Discord deliver voice notes as audio. OpenClaw's default text path uses LiteLLM. Atlas does not wire a direct Hermes bridge. *Mechanism:* Proposed OpenClaw middleware would POST incoming audio to `${STT_ENDPOINT}/v1/audio/transcriptions` (multipart), then forward the transcript to its configured LLM path. *Effort:* small. *Confidence:* medium.
-- **stt-provider ↔ supabase** — *Why:* transcript metadata (user, session, source URI, model, language, duration) belongs in a relational store. It gives open-webui and backend a "my transcripts" view keyed by Supabase JWT `sub`. *Mechanism:* `transcripts` table via PostgREST at `http://supabase-api:3000`, RLS on `auth.uid()`; post-transcribe hook writes rows pointing at MinIO URIs. *Effort:* medium. *Confidence:* medium.
-
-### 9.5. Future — Candidate new services
-
-- **WhisperX** ([details](../../docs/reference/candidate-decisions.md#candidate-whisperx)) — *Headline:* fourth STT engine adding speaker diarization and word-aligned timestamps behind the existing OpenAI shape. *Wires into:* backend, n8n, open-webui, hermes, openclaw, minio, weaviate.
-
-### 9.6. Future — Unused features in this service
-
-- **Streaming / Realtime SSE+WebSocket** — *Why pursue:* Speaches ships SSE-streamed transcription and a WebSocket realtime API; we only expose the batch `/v1/audio/transcriptions`. Enables live captions in open-webui and live agent voice loops in Hermes. *Effort:* medium.
-- **Translation endpoint** — *Why pursue:* Speaches serves `/v1/audio/translations`, but no Atlas consumer calls it. Cheap multilingual UX gain. *Effort:* small.
-- **Per-engine model hot-swap** — *Why pursue:* Speaches loads/unloads models on demand; we hard-pin one model per engine. Lets users A/B `distil-large-v3` vs `large-v3` without restarting. *Effort:* small.
-- **Word/segment timestamps in API responses** — *Why pursue:* Parakeet and Speaches both expose them; open-webui wiring requests plain `json` and discards them. Needed for click-to-seek UX and for Weaviate chunking by utterance. *Effort:* small.
-- **Diarization** — *Why pursue:* Speaches 0.9.0-rc.3 serves `/v1/audio/diarization`, but Atlas preloads no diarization model and no consumer calls it. It is a prerequisite for meeting-grade transcripts (see also the WhisperX candidate). *Effort:* medium.
+| Service | Capability | Status | Verification | Notes |
+|---|---|---|---|---|
+| parakeet | NVIDIA Parakeet transcription | supported | tested | The GPU source loads the configured Parakeet-TDT checkpoint and serves standard and advanced OpenAI-shaped transcription routes with truthful readiness. |
+| parakeet | Host speech-to-text variants | partial | tested | Atlas can route to operator-run Parakeet MLX or whisper.cpp endpoints, but installation, model provisioning, process supervision, and host acceleration remain operator-owned. |
+| parakeet | Timestamp-rich transcription | partial | tested | Atlas-managed Parakeet providers expose segment and word timing when the selected implementation returns alignment data; plain results honestly report timestamps unavailable. |
+| parakeet | Provider authentication and workload bounds | partial | tested | Atlas Parakeet requires a bearer token and bounds uploads, admission, and inference by default; those guarantees do not extend to selected Speaches or whisper.cpp upstreams. |
+| parakeet | Cross-architecture Parakeet container | not-supported | tested | The only Parakeet container is NVIDIA GPU. Apple Silicon uses the separately installed MLX localhost provider; no CPU container or GPU quantization knob is advertised. |
+| speaches | OpenAI-compatible text-to-speech | partial | tested | Speaches serves /v1/audio/speech, but Atlas does not preload Kokoro; the model must be downloaded before requests succeed. |
+| speaches | OpenAI-compatible speech-to-text | partial | untested | Speaches exposes /v1/audio/transcriptions, but Atlas has not validated the current preload and Open WebUI model path against a live container. |
+| speaches | Configurable STT model selection | stubbed | documented | SPEACHES_STT_MODEL is declared but does not alter the hard-coded PRELOAD_MODELS value or Open WebUI's STT model. |
 
 ## 10. Troubleshooting
 
@@ -306,18 +282,65 @@ is downloaded.
 **whisper.cpp not detected as localhost** — make sure it's serving the
 `/v1/audio/transcriptions` path (use `--inference-path`).
 
-## 11. Capabilities & limitations
+## 11. Dependencies & Integrations
 
-`parakeet` — Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
-`speaches` — Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+<a id="9-dependencies-integrations"></a>
+<a id="9-dependencies--integrations"></a>
 
-| Service | Capability | Status | Verification | Notes |
-|---|---|---|---|---|
-| parakeet | NVIDIA Parakeet transcription | supported | tested | The GPU source loads the configured Parakeet-TDT checkpoint and serves standard and advanced OpenAI-shaped transcription routes with truthful readiness. |
-| parakeet | Host speech-to-text variants | partial | tested | Atlas can route to operator-run Parakeet MLX or whisper.cpp endpoints, but installation, model provisioning, process supervision, and host acceleration remain operator-owned. |
-| parakeet | Timestamp-rich transcription | partial | tested | Atlas-managed Parakeet providers expose segment and word timing when the selected implementation returns alignment data; plain results honestly report timestamps unavailable. |
-| parakeet | Provider authentication and workload bounds | partial | tested | Atlas Parakeet requires a bearer token and bounds uploads, admission, and inference by default; those guarantees do not extend to selected Speaches or whisper.cpp upstreams. |
-| parakeet | Cross-architecture Parakeet container | not-supported | tested | The only Parakeet container is NVIDIA GPU. Apple Silicon uses the separately installed MLX localhost provider; no CPU container or GPU quantization knob is advertised. |
-| speaches | OpenAI-compatible text-to-speech | partial | tested | Speaches serves /v1/audio/speech, but Atlas does not preload Kokoro; the model must be downloaded before requests succeed. |
-| speaches | OpenAI-compatible speech-to-text | partial | untested | Speaches exposes /v1/audio/transcriptions, but Atlas has not validated the current preload and Open WebUI model path against a live container. |
-| speaches | Configurable STT model selection | stubbed | documented | SPEACHES_STT_MODEL is declared but does not alter the hard-coded PRELOAD_MODELS value or Open WebUI's STT model. |
+### 11.1. Current — Upstream (this service calls)
+
+<a id="91-current-upstream-this-service-calls"></a>
+<a id="91-current--upstream-this-service-calls"></a>
+
+_No upstream calls._
+
+### 11.2. Current — Downstream (services that call this)
+
+<a id="92-current-downstream-services-that-call-this"></a>
+<a id="92-current--downstream-services-that-call-this"></a>
+
+| Service | Category |
+|---|---|
+| kong | infra |
+| hermes | agents |
+| n8n | agents |
+| jupyterhub | apps |
+| open-webui | apps |
+
+### 11.3. Architecture diagram
+
+<a id="93-architecture-diagram"></a>
+
+![stt-provider architecture](./architecture.svg)
+
+[Open the full-size diagram](./architecture.html) for a full-screen view.
+
+### 11.4. Future — Missing pair integrations
+
+<a id="94-future-missing-pair-integrations"></a>
+<a id="94-future--missing-pair-integrations"></a>
+
+- **stt-provider ↔ minio** — *Why:* transcripts vanish with the HTTP response — nothing persists source audio or transcript JSON. Pushing both to MinIO gives every service a stable URL and enables re-transcription on engine swap. *Mechanism:* new `stt-transcripts` bucket provisioned by `minio-init`; post-transcribe hook puts `s3://stt-transcripts/<sha256>.wav` plus sidecar `.json` via S3 SigV4 over `http://minio:9000`. *Effort:* small. *Confidence:* high.
+- **stt-provider ↔ weaviate** — *Why:* indexing durable transcripts turns long-form audio (meetings, podcasts, voice notes) into a semantically searchable corpus alongside the docling pipeline. *Mechanism:* `Transcript` class with `text`, `start_ms`, `end_ms`, `source_audio_uri`, vectorized by the active `text2vec-openai` module via `http://weaviate:8080/v1/objects`. *Effort:* medium. *Confidence:* medium.
+- **stt-provider ↔ redis** — *Why:* transcription is expensive and deterministic in `(audio-sha256, model, language)`. A cache cuts repeat cost to ~zero for n8n loops, re-runs, demos. *Mechanism:* a Redis database index that no other consumer uses ([Redis README](../redis/README.md)), with key `stt:{sha256}:{model}:{lang}` → transcript JSON, TTL 30d. A backend wrapper or a Kong plugin in front of `STT_ENDPOINT` does the lookup. *Effort:* small. *Confidence:* medium.
+- **stt-provider ↔ doc-processor** — *Why:* docling parses PDFs/Office docs but does not handle audio. Composing `stt → docling` gives a unified "any media → markdown" ingest. *Mechanism:* caller hits `STT_ENDPOINT`, then POSTs transcript text to `${DOCLING_ENDPOINT}/v1/document/convert` as `text/plain`. No new service. *Effort:* small. *Confidence:* medium.
+- **stt-provider ↔ openclaw** — *Why:* Telegram/WhatsApp/Discord deliver voice notes as audio. OpenClaw's default text path uses LiteLLM. Atlas does not wire a direct Hermes bridge. *Mechanism:* Proposed OpenClaw middleware would POST incoming audio to `${STT_ENDPOINT}/v1/audio/transcriptions` (multipart), then forward the transcript to its configured LLM path. *Effort:* small. *Confidence:* medium.
+- **stt-provider ↔ supabase** — *Why:* transcript metadata (user, session, source URI, model, language, duration) belongs in a relational store. It gives open-webui and backend a "my transcripts" view keyed by Supabase JWT `sub`. *Mechanism:* `transcripts` table via PostgREST at `http://supabase-api:3000`, RLS on `auth.uid()`; post-transcribe hook writes rows pointing at MinIO URIs. *Effort:* medium. *Confidence:* medium.
+
+### 11.5. Future — Candidate new services
+
+<a id="95-future-candidate-new-services"></a>
+<a id="95-future--candidate-new-services"></a>
+
+- **WhisperX** ([details](../../docs/reference/candidate-decisions.md#candidate-whisperx)) — *Headline:* fourth STT engine adding speaker diarization and word-aligned timestamps behind the existing OpenAI shape. *Wires into:* backend, n8n, open-webui, hermes, openclaw, minio, weaviate.
+
+### 11.6. Future — Unused features in this service
+
+<a id="96-future-unused-features-in-this-service"></a>
+<a id="96-future--unused-features-in-this-service"></a>
+
+- **Streaming / Realtime SSE+WebSocket** — *Why pursue:* Speaches ships SSE-streamed transcription and a WebSocket realtime API; we only expose the batch `/v1/audio/transcriptions`. Enables live captions in open-webui and live agent voice loops in Hermes. *Effort:* medium.
+- **Translation endpoint** — *Why pursue:* Speaches serves `/v1/audio/translations`, but no Atlas consumer calls it. Cheap multilingual UX gain. *Effort:* small.
+- **Per-engine model hot-swap** — *Why pursue:* Speaches loads/unloads models on demand; we hard-pin one model per engine. Lets users A/B `distil-large-v3` vs `large-v3` without restarting. *Effort:* small.
+- **Word/segment timestamps in API responses** — *Why pursue:* Parakeet and Speaches both expose them; open-webui wiring requests plain `json` and discards them. Needed for click-to-seek UX and for Weaviate chunking by utterance. *Effort:* small.
+- **Diarization** — *Why pursue:* Speaches 0.9.0-rc.3 serves `/v1/audio/diarization`, but Atlas preloads no diarization model and no consumer calls it. It is a prerequisite for meeting-grade transcripts (see also the WhisperX candidate). *Effort:* medium.

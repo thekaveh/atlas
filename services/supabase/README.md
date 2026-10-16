@@ -341,7 +341,7 @@ superuser too: qualify calls the same way.
 
 ## 6. Integration Points
 
-§9 lists the services that call Supabase, generated from the manifests.
+§11 lists the services that call Supabase, generated from the manifests.
 
 ## 7. Common Operations
 
@@ -376,13 +376,49 @@ docker logs ${PROJECT_NAME}-supabase-studio -f
 
 When `LIGHTRAG_SOURCE != disabled` and `SUPABASE_DB_SOURCE != disabled`, `lightrag-init` runs `migrate-pgvector.sql`. It runs `CREATE EXTENSION IF NOT EXISTS vector` and creates a `lightrag` schema. LightRAG's `PGVectorStorage` manages tables under that schema at runtime.
 
-## 9. Dependencies & Integrations
+## 9. Capabilities & limitations
 
-### 9.1. Current — Upstream (this service calls)
+<a id="11-capabilities-limitations"></a>
+<a id="11-capabilities--limitations"></a>
+
+Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Integrated Postgres application platform | supported | tested | Atlas runs PostgreSQL with Auth, PostgREST, Storage, Realtime, Meta, Studio, database initialization, and optional metrics export as one required family. Realtime runs but serves no tenant yet (§4.5). |
+| Idempotent schema and RLS initialization | supported | tested | Ordered Atlas and downstream SQL runners initialize extensions, service schemas, grants, identity synchronization, and row-level-security policies with failure gating. |
+| Least-privilege application database role | supported | tested | Atlas creates idempotent per-service logins and dedicated database/schema ownership or read grants; application containers do not receive the Supabase owner credential. |
+| Production email authentication | partial | documented | GoTrue issues and validates JWTs, but the stock local-development defaults auto-confirm email and point SMTP at localhost rather than a configured delivery service. |
+| pg-meta administrative access control | supported | tested | The Kong /pg/ route uses Basic authentication and the dashboard_user ACL. The pg-meta service itself has no application authentication, executes as a dedicated dashboard_user member and allows any browser origin. It is therefore not published on the host. SUPABASE_META_PORT is reserved but unused. |
+| Supabase Studio access control | supported | tested | The Kong route uses Basic authentication and the dashboard_user ACL. Studio has no application authentication. Its pg-meta proxy accepts form-encoded POSTs that a web page can send cross-site. Studio is therefore not published on the host. SUPABASE_STUDIO_PORT is reserved but unused. |
+| Authenticated remote PostgreSQL access | supported | tested | Host TCP uses SCRAM-SHA-256 with generated scoped passwords under the image's own pg_hba.conf. An upgrade-time HBA rewrite for legacy volumes covers their data-directory rules. Publication is loopback by default. Explicit remote exposure still requires firewall and TLS planning. |
+
+## 10. Troubleshooting
+
+- **Database connection issues**: Verify SUPABASE_DB_USER is set to `supabase_admin`.
+- **`password authentication failed for user "supabase_admin"`**: see §2.2.
+- **Auth service errors**: Check JWT secret consistency across services.
+- **Studio access issues**: Check the dashboard credentials for the Kong hostname, and that `./start.sh --setup-hosts` added `supabase-studio.localhost`. Studio has no direct host port.
+- **Initialization failures**: Check supabase-db-init logs for SQL script errors.
+
+For more help, see [Troubleshooting](../../docs/quick-start/troubleshooting.md).
+
+## 11. Dependencies & Integrations
+
+<a id="9-dependencies-integrations"></a>
+<a id="9-dependencies--integrations"></a>
+
+### 11.1. Current — Upstream (this service calls)
+
+<a id="91-current-upstream-this-service-calls"></a>
+<a id="91-current--upstream-this-service-calls"></a>
 
 _No upstream calls._
 
-### 9.2. Current — Downstream (services that call this)
+### 11.2. Current — Downstream (services that call this)
+
+<a id="92-current-downstream-services-that-call-this"></a>
+<a id="92-current--downstream-services-that-call-this"></a>
 
 | Service | Category | Status |
 |---|---|---|
@@ -406,13 +442,18 @@ _No upstream calls._
 | open-webui | apps | current |
 | zeppelin | apps | current |
 
-### 9.3. Architecture diagram
+### 11.3. Architecture diagram
+
+<a id="93-architecture-diagram"></a>
 
 ![supabase architecture](./architecture.svg)
 
 [Open the full-size diagram](./architecture.html) for a full-screen view.
 
-### 9.4. Future — Missing pair integrations
+### 11.4. Future — Missing pair integrations
+
+<a id="94-future-missing-pair-integrations"></a>
+<a id="94-future--missing-pair-integrations"></a>
 
 - **supabase ↔ hermes** — *Why:* Hermes persists agent state only to a `hermes-data` volume; its manifest declares no Postgres or Redis dependency. Postgres-backed sessions, skills and tool-call history would survive restarts, allow several replicas, and be queryable across the stack. *Mechanism:* a scoped `HERMES_DB_USER` role created by `05-scoped-roles.sh`, owning a `hermes` schema; `hermes-init` creates tables with `IF NOT EXISTS`. *Effort:* medium. *Confidence:* medium.
 - **supabase ↔ doc-processor** — *Why:* docling extracts structured chunks that today flow only into Weaviate as vectors. Raw chunk text and source metadata in Postgres would give RLS-scoped tenant isolation, exact-match search, and a source row to rebuild Weaviate from. *Mechanism:* docling writes via PostgREST at `http://supabase-api:3000/rest/v1/doc_chunks` using `SUPABASE_SERVICE_KEY`; embeddings still go to Weaviate. *Effort:* medium. *Confidence:* medium.
@@ -420,12 +461,18 @@ _No upstream calls._
 - **supabase ↔ tts-provider** — *Why:* generated audio is ephemeral. Storing TTS output in `supabase-storage` keyed by `(user_id, text_hash, voice)` gives a cache that skips re-synthesis of identical input, and a per-user history. *Mechanism:* `PUT http://supabase-storage:5000/object/tts/<user>/<hash>.wav` with `SUPABASE_SERVICE_KEY`; metadata row via PostgREST. *Effort:* small. *Confidence:* high.
 - **supabase ↔ stt-provider** — *Why:* parakeet/speaches transcripts vanish after the response. A `transcripts` table keyed by the caller's JWT `sub` enables history search, RAG over meetings, and per-user RLS isolation. *Mechanism:* stt-provider POSTs to PostgREST `/rest/v1/transcripts` with the forwarded `Authorization: Bearer <jwt>` header so RLS picks up the user. *Effort:* small. *Confidence:* medium.
 
-### 9.5. Future — Candidate new services
+### 11.5. Future — Candidate new services
+
+<a id="95-future-candidate-new-services"></a>
+<a id="95-future--candidate-new-services"></a>
 
 - **[Supabase Edge Functions (Deno)](../../docs/reference/candidate-decisions.md#candidate-supabase-edge-functions)** — *Headline:* self-hosted Deno serverless layer that lets Postgres triggers and Kong routes invoke short TypeScript handlers without n8n. *Wires into:* litellm, n8n, supabase-storage, kong.
 - **[imgproxy](../../docs/reference/candidate-decisions.md#candidate-imgproxy)** — *Headline:* on-the-fly image transform and resize sidecar; Supabase Storage's `IMGPROXY_URL` setting is built to call it. *Wires into:* supabase-storage, minio, comfyui, open-webui, backend.
 
-### 9.6. Future — Unused features in this service
+### 11.6. Future — Unused features in this service
+
+<a id="96-future-unused-features-in-this-service"></a>
+<a id="96-future--unused-features-in-this-service"></a>
 
 - **`pg_cron` + `pg_net` extensions** — *Why pursue:* enables scheduled jobs and outbound HTTP from inside Postgres (database webhooks to Hermes/n8n/Edge Functions); `01-extensions.sql` enables only `vector`/`postgis`/`pgcrypto`. *Effort:* small.
 - **Database Webhooks** — *Why pursue:* lets row-level changes trigger LiteLLM calls or n8n flows without a polling worker; depends on `pg_net`. *Effort:* small.
@@ -434,27 +481,3 @@ _No upstream calls._
 - **`pg_graphql` endpoint** — *Why pursue:* Kong already routes `/graphql/v1` to PostgREST `rpc/graphql`, but it returns 404 until `01-extensions.sql` installs `pg_graphql` and `graphql_public` is exposed. Wiring n8n or the backend to it would give a typed GraphQL surface. *Effort:* small.
 - **Realtime broadcast + presence channels** — *Why pursue:* `supabase-realtime` runs but nothing subscribes; broadcast channels would let backend push job-status updates to open-webui without polling. *Effort:* medium.
 - **Storage image transformation** — *Why pursue:* prerequisite for the imgproxy candidate; enables resize URLs once `IMGPROXY_URL` is set. *Effort:* small.
-
-## 10. Troubleshooting
-
-- **Database connection issues**: Verify SUPABASE_DB_USER is set to `supabase_admin`.
-- **`password authentication failed for user "supabase_admin"`**: see §2.2.
-- **Auth service errors**: Check JWT secret consistency across services.
-- **Studio access issues**: Check the dashboard credentials for the Kong hostname, and that `./start.sh --setup-hosts` added `supabase-studio.localhost`. Studio has no direct host port.
-- **Initialization failures**: Check supabase-db-init logs for SQL script errors.
-
-For more help, see [Troubleshooting](../../docs/quick-start/troubleshooting.md).
-
-## 11. Capabilities & limitations
-
-Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
-
-| Capability | Status | Verification | Notes |
-|---|---|---|---|
-| Integrated Postgres application platform | supported | tested | Atlas runs PostgreSQL with Auth, PostgREST, Storage, Realtime, Meta, Studio, database initialization, and optional metrics export as one required family. Realtime runs but serves no tenant yet (§4.5). |
-| Idempotent schema and RLS initialization | supported | tested | Ordered Atlas and downstream SQL runners initialize extensions, service schemas, grants, identity synchronization, and row-level-security policies with failure gating. |
-| Least-privilege application database role | supported | tested | Atlas creates idempotent per-service logins and dedicated database/schema ownership or read grants; application containers do not receive the Supabase owner credential. |
-| Production email authentication | partial | documented | GoTrue issues and validates JWTs, but the stock local-development defaults auto-confirm email and point SMTP at localhost rather than a configured delivery service. |
-| pg-meta administrative access control | supported | tested | The Kong /pg/ route uses Basic authentication and the dashboard_user ACL. The pg-meta service itself has no application authentication, executes as a dedicated dashboard_user member and allows any browser origin. It is therefore not published on the host. SUPABASE_META_PORT is reserved but unused. |
-| Supabase Studio access control | supported | tested | The Kong route uses Basic authentication and the dashboard_user ACL. Studio has no application authentication. Its pg-meta proxy accepts form-encoded POSTs that a web page can send cross-site. Studio is therefore not published on the host. SUPABASE_STUDIO_PORT is reserved but unused. |
-| Authenticated remote PostgreSQL access | supported | tested | Host TCP uses SCRAM-SHA-256 with generated scoped passwords under the image's own pg_hba.conf. An upgrade-time HBA rewrite for legacy volumes covers their data-directory rules. Publication is loopback by default. Explicit remote exposure still requires firewall and TLS planning. |

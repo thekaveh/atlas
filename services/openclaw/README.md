@@ -291,47 +291,22 @@ See §5.
 - [Hermes Agent](../hermes/README.md) — the agent runtime. `HERMES_ENDPOINT` and `HERMES_API_KEY` are set in this container, but no OpenClaw-to-Hermes bridge exists yet.
 - [OpenClaw GitHub Repository](https://github.com/openclaw/openclaw)
 
-## 12. Dependencies & Integrations
+## 12. Capabilities & limitations
 
-### 12.1. Current — Upstream (this service calls)
+<a id="14-capabilities-limitations"></a>
+<a id="14-capabilities--limitations"></a>
 
-| Service | Category | Status |
-|---|---|---|
-| litellm | llm | optional: openclaw-init sets models.providers.litellm.baseUrl when unset; an operator value is kept |
+Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
-### 12.2. Current — Downstream (services that call this)
-
-| Service | Category |
-|---|---|
-| kong | infra |
-
-### 12.3. Architecture diagram
-
-![openclaw architecture](./architecture.svg)
-
-[Open the full-size diagram](./architecture.html) for a full-screen view.
-
-### 12.4. Future — Missing pair integrations
-
-- **openclaw ↔ hermes** — *Why:* OpenClaw is positioned as a channel adapter (40+ messaging surfaces); Hermes is the programmable agent runtime already in the stack. The compose file already passes `HERMES_ENDPOINT`/`HERMES_API_KEY` — only the bridge wiring is missing. *Mechanism:* OpenClaw skill or webhook plugin forwarding inbound messages to `http://hermes:8642/v1/chat/completions`; replies posted back via OpenClaw's `send` RPC. *Effort:* medium. *Confidence:* high.
-- **openclaw ↔ n8n** — *Why:* OpenClaw webhooks name n8n as a main trigger. n8n gives non-developers a visual way to connect messaging events to stack workflows. *Mechanism:* n8n HTTP Request node → `POST http://openclaw-gateway:18789/webhooks/<route>` with `Authorization: Bearer <route-secret>`. *Effort:* small. *Confidence:* high.
-- **openclaw ↔ minio** — *Why:* Workspace files, voice notes, and media attachments live only in the `openclaw-workspace` Docker volume — not addressable by other stack services. *Mechanism:* configure S3 backend with `endpoint=http://minio:9000`, dedicated `openclaw` bucket alongside the existing `MINIO_BUCKET_*` set. *Effort:* small. *Confidence:* medium.
-- **openclaw ↔ doc-processor** — *Why:* OpenClaw handles chat PDF and Office attachments poorly. doc-processor (Docling) produces structured Markdown and chunks that the rest of the stack uses. *Mechanism:* custom OpenClaw skill posting attachments to `${DOCLING_ENDPOINT}/v1/document/convert`; persist markdown to workspace + MinIO. *Effort:* medium. *Confidence:* high.
-- **openclaw ↔ weaviate** — *Why:* OpenClaw lists "memory search across persistent knowledge bases" but has no backend wired; Weaviate is the stack's vector DB. *Mechanism:* skill or MCP server bridging to `http://weaviate:8080/v1/objects` (REST) or `:50051` (gRPC); embedding via LiteLLM's embeddings endpoint. *Effort:* medium. *Confidence:* medium.
-- **openclaw ↔ searxng** — *Why:* OpenClaw ships web-search tools with multiple providers but defaults to commercial APIs; SearXNG is the stack's privacy-preserving metasearch. *Mechanism:* set OpenClaw's web-search provider to a custom HTTP backend pointing at `${SEARXNG_INTERNAL_URL}/search?format=json&q=...`. *Effort:* small. *Confidence:* medium.
-
-### 12.5. Future — Candidate new services
-
-- **Honcho** ([details](../../docs/reference/candidate-decisions.md#candidate-honcho)) — *Headline:* hosted/self-hostable user-memory store explicitly listed as an OpenClaw memory-engine backend. *Wires into:* hermes, backend, local-deep-researcher.
-
-### 12.6. Future — Unused features in this service
-
-- **MCP CLI / external MCP server support** — *Why pursue:* lets OpenClaw use any MCP server (Neo4j, Weaviate, GitHub) over stdio, SSE or streamable HTTP. RAG and graph tools then need no bespoke skills. *Effort:* medium.
-- **Webhooks plugin (inbound TaskFlow trigger)** — *Why pursue:* standard surface for n8n/CI/external triggers; auth model already defined. *Effort:* small.
-- **Sandbox runners (Docker/SSH backends)** — *Why pursue:* non-main sessions can run tools in Docker sandboxes — meaningfully safer than current host-bound execution. *Effort:* medium.
-- **Local TTS/STT providers** — *Why pursue:* stack already runs `tts-provider` and `stt-provider`; swap OpenClaw's cloud STT/TTS for local providers to keep voice fully on-device. *Effort:* small.
-- **Memory engines (Honcho / QMD search)** — *Why pursue:* persistent cross-session memory currently absent. *Effort:* medium.
-- **S3 / object-storage backend** — *Why pursue:* wire workspace + media to MinIO for cross-service file sharing. *Effort:* small.
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| LiteLLM-backed messaging agent gateway | partial | tested | Atlas injects the LiteLLM key, and openclaw-init points the bundled litellm provider at http://litellm:4000 when its baseUrl is unset. Messaging channels and approvals require onboarding and are not exercised against live platforms. |
+| Container and operator-host sources | partial | tested | Atlas initializes and runs the container source, while localhost mode only resolves an existing operator-managed gateway and cannot guarantee its version, onboarding, or supervision. |
+| Direct cloud-provider overrides | partial | tested | Optional OpenClaw-specific Anthropic or OpenAI keys can bypass LiteLLM, which also bypasses Atlas gateway accounting and centralized provider routing. |
+| OpenClaw gateway authentication | partial | tested | OPENCLAW_GATEWAY_TOKEN, generated at startup, protects the gateway API and dashboard; the CORS-only Kong route adds no Atlas authentication of its own. Direct gateway ports are loopback-only by default; an operator who deliberately publishes them remotely must secure that exposure separately. |
+| Agent configuration and workspace persistence | partial | tested | Config and workspace data persist in local named volumes, with no MinIO sharing, backup workflow, replication, or tenant-isolated workspace topology. |
+| Hermes and n8n message bridges | stubbed | tested | Hermes endpoint variables are injected and OpenClaw webhooks are documented, but Atlas ships no live forwarding implementation between OpenClaw, Hermes, or n8n. |
+| Untrusted agent command isolation | not-supported | documented | OpenClaw can manage files and execute commands from messaging workflows, while Atlas configures no mandatory sandbox runner or per-channel authorization policy. |
 
 ## 13. Troubleshooting
 
@@ -414,16 +389,64 @@ See §5.
 lsof -i :63076
 ```
 
-## 14. Capabilities & limitations
+## 14. Dependencies & Integrations
 
-Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+<a id="12-dependencies-integrations"></a>
+<a id="12-dependencies--integrations"></a>
 
-| Capability | Status | Verification | Notes |
-|---|---|---|---|
-| LiteLLM-backed messaging agent gateway | partial | tested | Atlas injects the LiteLLM key, and openclaw-init points the bundled litellm provider at http://litellm:4000 when its baseUrl is unset. Messaging channels and approvals require onboarding and are not exercised against live platforms. |
-| Container and operator-host sources | partial | tested | Atlas initializes and runs the container source, while localhost mode only resolves an existing operator-managed gateway and cannot guarantee its version, onboarding, or supervision. |
-| Direct cloud-provider overrides | partial | tested | Optional OpenClaw-specific Anthropic or OpenAI keys can bypass LiteLLM, which also bypasses Atlas gateway accounting and centralized provider routing. |
-| OpenClaw gateway authentication | partial | tested | OPENCLAW_GATEWAY_TOKEN, generated at startup, protects the gateway API and dashboard; the CORS-only Kong route adds no Atlas authentication of its own. Direct gateway ports are loopback-only by default; an operator who deliberately publishes them remotely must secure that exposure separately. |
-| Agent configuration and workspace persistence | partial | tested | Config and workspace data persist in local named volumes, with no MinIO sharing, backup workflow, replication, or tenant-isolated workspace topology. |
-| Hermes and n8n message bridges | stubbed | tested | Hermes endpoint variables are injected and OpenClaw webhooks are documented, but Atlas ships no live forwarding implementation between OpenClaw, Hermes, or n8n. |
-| Untrusted agent command isolation | not-supported | documented | OpenClaw can manage files and execute commands from messaging workflows, while Atlas configures no mandatory sandbox runner or per-channel authorization policy. |
+### 14.1. Current — Upstream (this service calls)
+
+<a id="121-current-upstream-this-service-calls"></a>
+<a id="121-current--upstream-this-service-calls"></a>
+
+| Service | Category | Status |
+|---|---|---|
+| litellm | llm | optional: openclaw-init sets models.providers.litellm.baseUrl when unset; an operator value is kept |
+
+### 14.2. Current — Downstream (services that call this)
+
+<a id="122-current-downstream-services-that-call-this"></a>
+<a id="122-current--downstream-services-that-call-this"></a>
+
+| Service | Category |
+|---|---|
+| kong | infra |
+
+### 14.3. Architecture diagram
+
+<a id="123-architecture-diagram"></a>
+
+![openclaw architecture](./architecture.svg)
+
+[Open the full-size diagram](./architecture.html) for a full-screen view.
+
+### 14.4. Future — Missing pair integrations
+
+<a id="124-future-missing-pair-integrations"></a>
+<a id="124-future--missing-pair-integrations"></a>
+
+- **openclaw ↔ hermes** — *Why:* OpenClaw is positioned as a channel adapter (40+ messaging surfaces); Hermes is the programmable agent runtime already in the stack. The compose file already passes `HERMES_ENDPOINT`/`HERMES_API_KEY` — only the bridge wiring is missing. *Mechanism:* OpenClaw skill or webhook plugin forwarding inbound messages to `http://hermes:8642/v1/chat/completions`; replies posted back via OpenClaw's `send` RPC. *Effort:* medium. *Confidence:* high.
+- **openclaw ↔ n8n** — *Why:* OpenClaw webhooks name n8n as a main trigger. n8n gives non-developers a visual way to connect messaging events to stack workflows. *Mechanism:* n8n HTTP Request node → `POST http://openclaw-gateway:18789/webhooks/<route>` with `Authorization: Bearer <route-secret>`. *Effort:* small. *Confidence:* high.
+- **openclaw ↔ minio** — *Why:* Workspace files, voice notes, and media attachments live only in the `openclaw-workspace` Docker volume — not addressable by other stack services. *Mechanism:* configure S3 backend with `endpoint=http://minio:9000`, dedicated `openclaw` bucket alongside the existing `MINIO_BUCKET_*` set. *Effort:* small. *Confidence:* medium.
+- **openclaw ↔ doc-processor** — *Why:* OpenClaw handles chat PDF and Office attachments poorly. doc-processor (Docling) produces structured Markdown and chunks that the rest of the stack uses. *Mechanism:* custom OpenClaw skill posting attachments to `${DOCLING_ENDPOINT}/v1/document/convert`; persist markdown to workspace + MinIO. *Effort:* medium. *Confidence:* high.
+- **openclaw ↔ weaviate** — *Why:* OpenClaw lists "memory search across persistent knowledge bases" but has no backend wired; Weaviate is the stack's vector DB. *Mechanism:* skill or MCP server bridging to `http://weaviate:8080/v1/objects` (REST) or `:50051` (gRPC); embedding via LiteLLM's embeddings endpoint. *Effort:* medium. *Confidence:* medium.
+- **openclaw ↔ searxng** — *Why:* OpenClaw ships web-search tools with multiple providers but defaults to commercial APIs; SearXNG is the stack's privacy-preserving metasearch. *Mechanism:* set OpenClaw's web-search provider to a custom HTTP backend pointing at `${SEARXNG_INTERNAL_URL}/search?format=json&q=...`. *Effort:* small. *Confidence:* medium.
+
+### 14.5. Future — Candidate new services
+
+<a id="125-future-candidate-new-services"></a>
+<a id="125-future--candidate-new-services"></a>
+
+- **Honcho** ([details](../../docs/reference/candidate-decisions.md#candidate-honcho)) — *Headline:* hosted/self-hostable user-memory store explicitly listed as an OpenClaw memory-engine backend. *Wires into:* hermes, backend, local-deep-researcher.
+
+### 14.6. Future — Unused features in this service
+
+<a id="126-future-unused-features-in-this-service"></a>
+<a id="126-future--unused-features-in-this-service"></a>
+
+- **MCP CLI / external MCP server support** — *Why pursue:* lets OpenClaw use any MCP server (Neo4j, Weaviate, GitHub) over stdio, SSE or streamable HTTP. RAG and graph tools then need no bespoke skills. *Effort:* medium.
+- **Webhooks plugin (inbound TaskFlow trigger)** — *Why pursue:* standard surface for n8n/CI/external triggers; auth model already defined. *Effort:* small.
+- **Sandbox runners (Docker/SSH backends)** — *Why pursue:* non-main sessions can run tools in Docker sandboxes — meaningfully safer than current host-bound execution. *Effort:* medium.
+- **Local TTS/STT providers** — *Why pursue:* stack already runs `tts-provider` and `stt-provider`; swap OpenClaw's cloud STT/TTS for local providers to keep voice fully on-device. *Effort:* small.
+- **Memory engines (Honcho / QMD search)** — *Why pursue:* persistent cross-session memory currently absent. *Effort:* medium.
+- **S3 / object-storage backend** — *Why pursue:* wire workspace + media to MinIO for cross-service file sharing. *Effort:* small.

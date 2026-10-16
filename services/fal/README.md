@@ -122,38 +122,10 @@ When `FAL_SOURCE=enabled` and `FAL_API_KEY` is set, `litellm-init` also register
 - **Provenance boundary.** The LiteLLM route returns raw image data (b64/URL) and does **not** perform Atlas provenance or storage. The Backend media gateway (`POST /media/generate`) is authoritative for provenance and spend accounting. It does not copy artifacts: `artifact_url` is FAL's own CDN URL, which expires, so download results you need to keep. The two paths **complement** each other.
 - **Key wiring.** The `fal-image` row references `os.environ/FAL_AI_API_KEY`, which the LiteLLM *server* resolves at request time. The compose fragment sets `FAL_AI_API_KEY=${FAL_API_KEY}` on the litellm container. The key is never written into `config.yaml`.
 
-## 5. Dependencies & Integrations
+## 5. Capabilities & limitations
 
-### 5.1. Current — Upstream (this service calls)
-
-_No upstream calls._
-
-### 5.2. Current — Downstream (services that call this)
-
-| Service | Category |
-|---|---|
-| litellm | llm |
-| backend | apps |
-
-### 5.3. Architecture diagram
-
-![fal architecture](./architecture.svg)
-
-[Open the full-size diagram](./architecture.html) for a full-screen view.
-
-### 5.4. Future — Missing pair integrations
-
-- Optional FAL model catalog prompts if Atlas adopts a curated cloud-media model list.
-
-### 5.5. Future — Candidate new services
-
-- Additional cloud media providers such as Replicate, RunPod Serverless, or provider-specific video generation APIs behind the same backend provider seam.
-
-### 5.6. Future — Unused features in this service
-
-- FAL queue webhooks are not wired; the backend uses submit/poll operations.
-
-## 6. Capabilities & limitations
+<a id="6-capabilities-limitations"></a>
+<a id="6-capabilities--limitations"></a>
 
 Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
@@ -164,3 +136,54 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 | Durable media-operation accounting | partial | tested | Redis operation state and the Postgres recovery ledger handle polling and ambiguous submissions, while spend-budget enforcement remains disabled unless explicitly configured. |
 | Automatic 3D post-processing | not-supported | documented | Image-to-3D returns a normalized GLB reference but never invokes Asset Baker or Asset Worker; callers must submit the artifact to those services explicitly. |
 | Provider webhook completion | not-supported | documented | Atlas uses bounded submit-and-poll operations rather than FAL queue webhooks, so no webhook ingress or signature-validation path is configured. |
+
+## 6. Dependencies & Integrations
+
+<a id="5-dependencies-integrations"></a>
+<a id="5-dependencies--integrations"></a>
+
+### 6.1. Current — Upstream (this service calls)
+
+<a id="51-current-upstream-this-service-calls"></a>
+<a id="51-current--upstream-this-service-calls"></a>
+
+_No upstream calls._
+
+### 6.2. Current — Downstream (services that call this)
+
+<a id="52-current-downstream-services-that-call-this"></a>
+<a id="52-current--downstream-services-that-call-this"></a>
+
+| Service | Category |
+|---|---|
+| litellm | llm |
+| backend | apps |
+
+### 6.3. Architecture diagram
+
+<a id="53-architecture-diagram"></a>
+
+![fal architecture](./architecture.svg)
+
+[Open the full-size diagram](./architecture.html) for a full-screen view.
+
+### 6.4. Future — Missing pair integrations
+
+<a id="54-future-missing-pair-integrations"></a>
+<a id="54-future--missing-pair-integrations"></a>
+
+- Optional FAL model catalog prompts if Atlas adopts a curated cloud-media model list.
+
+### 6.5. Future — Candidate new services
+
+<a id="55-future-candidate-new-services"></a>
+<a id="55-future--candidate-new-services"></a>
+
+- Additional cloud media providers such as Replicate, RunPod Serverless, or provider-specific video generation APIs behind the same backend provider seam.
+
+### 6.6. Future — Unused features in this service
+
+<a id="56-future-unused-features-in-this-service"></a>
+<a id="56-future--unused-features-in-this-service"></a>
+
+- FAL queue webhooks are not wired; the backend uses submit/poll operations.

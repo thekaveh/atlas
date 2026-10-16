@@ -72,47 +72,10 @@ Local Deep Researcher uses Crawl4AI when `LOCAL_DEEP_RESEARCHER_FULL_PAGE_MODE=c
 
 n8n receives `CRAWL4AI_ENDPOINT` and `CRAWL4AI_API_TOKEN` for HTTP Request nodes. Atlas does not add a custom n8n community node for Crawl4AI.
 
-## 5. Dependencies & Integrations
+## 5. Capabilities & limitations
 
-### 5.1. Current — Upstream (this service calls)
-
-_No upstream calls._
-
-### 5.2. Current — Downstream (services that call this)
-
-| Service | Category |
-|---|---|
-| kong | infra |
-| n8n | agents |
-| local-deep-researcher | apps |
-
-### 5.3. Architecture diagram
-
-![crawl4ai architecture](./architecture.svg)
-
-[Open the full-size diagram](./architecture.html) for a full-screen view.
-
-### 5.4. Future — Missing pair integrations
-
-_No high-confidence opportunities identified._
-
-### 5.5. Future — Candidate new services
-
-_No high-confidence opportunities identified._
-
-### 5.6. Future — Unused features in this service
-
-_No high-confidence opportunities identified._
-
-## 6. MCP
-Crawl4AI 0.9.0 exposes MCP endpoints at `/mcp/sse`, `/mcp/ws` and `/mcp/schema` on the same token-protected server. Atlas does not register them in the curated MCP package.
-
-## 7. Troubleshooting
-- `401 Unauthorized`: include `Authorization: Bearer ${CRAWL4AI_API_TOKEN}`.
-- Kong route missing: confirm `CRAWL4AI_SOURCE=container` and rerun `./start.sh`.
-- Local Deep Researcher still using snippets: set `LOCAL_DEEP_RESEARCHER_FULL_PAGE_MODE=crawl4ai`, ensure `CRAWL4AI_SOURCE=container`, and restart the stack.
-
-## 8. Capabilities & limitations
+<a id="8-capabilities-limitations"></a>
+<a id="8-capabilities--limitations"></a>
 
 Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
@@ -122,3 +85,63 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 | Layered extraction-route authentication | supported | tested | The direct and internal APIs require the generated Crawl4AI bearer token, while the Kong alias adds dashboard Basic authentication and ACL; only health is public. |
 | Conservative crawl isolation | supported | tested | Internal-URL access defaults off and the container is read-only with dropped capabilities, no-new-privileges, bounded processes, and ephemeral working directories. |
 | Curated MCP package registration | not-supported | documented | The upstream server exposes MCP transports, but Atlas does not register them in its curated MCP package or provide transport-specific discovery. |
+
+## 6. MCP
+Crawl4AI 0.9.0 exposes MCP endpoints at `/mcp/sse`, `/mcp/ws` and `/mcp/schema` on the same token-protected server. Atlas does not register them in the curated MCP package.
+
+## 7. Troubleshooting
+- `401 Unauthorized`: include `Authorization: Bearer ${CRAWL4AI_API_TOKEN}`.
+- Kong route missing: confirm `CRAWL4AI_SOURCE=container` and rerun `./start.sh`.
+- Local Deep Researcher still using snippets: set `LOCAL_DEEP_RESEARCHER_FULL_PAGE_MODE=crawl4ai`, ensure `CRAWL4AI_SOURCE=container`, and restart the stack.
+
+## 8. Dependencies & Integrations
+
+<a id="5-dependencies-integrations"></a>
+<a id="5-dependencies--integrations"></a>
+
+### 8.1. Current — Upstream (this service calls)
+
+<a id="51-current-upstream-this-service-calls"></a>
+<a id="51-current--upstream-this-service-calls"></a>
+
+_No upstream calls._
+
+### 8.2. Current — Downstream (services that call this)
+
+<a id="52-current-downstream-services-that-call-this"></a>
+<a id="52-current--downstream-services-that-call-this"></a>
+
+| Service | Category |
+|---|---|
+| kong | infra |
+| n8n | agents |
+| local-deep-researcher | apps |
+
+### 8.3. Architecture diagram
+
+<a id="53-architecture-diagram"></a>
+
+![crawl4ai architecture](./architecture.svg)
+
+[Open the full-size diagram](./architecture.html) for a full-screen view.
+
+### 8.4. Future — Missing pair integrations
+
+<a id="54-future-missing-pair-integrations"></a>
+<a id="54-future--missing-pair-integrations"></a>
+
+_No high-confidence opportunities identified._
+
+### 8.5. Future — Candidate new services
+
+<a id="55-future-candidate-new-services"></a>
+<a id="55-future--candidate-new-services"></a>
+
+_No high-confidence opportunities identified._
+
+### 8.6. Future — Unused features in this service
+
+<a id="56-future-unused-features-in-this-service"></a>
+<a id="56-future--unused-features-in-this-service"></a>
+
+_No high-confidence opportunities identified._

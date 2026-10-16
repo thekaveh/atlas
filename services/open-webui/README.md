@@ -75,52 +75,22 @@ When enabled, the filter runs inside Open WebUI before requests reach LiteLLM. I
 
 Atlas ships no Open WebUI Pipelines: upstream now marks Pipelines as legacy for new deployments and recommends in-process Functions, Tools, OpenAPI servers or MCP servers. So standalone Pipelines are intentionally not added, and the middleware runs in Open WebUI with no extra worker container, port, Kong alias or SOURCE variable.
 
-## 5. Dependencies & Integrations
+## 5. Capabilities & limitations
 
-### 5.1. Current — Upstream (this service calls)
+<a id="7-capabilities-limitations"></a>
+<a id="7-capabilities--limitations"></a>
 
-| Service | Category |
-|---|---|
-| redis | data |
-| supabase | data |
-| litellm | llm |
-| comfyui | media |
-| stt-provider | media |
-| tts-provider | media |
-| backend | apps |
-| local-deep-researcher | apps |
+Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
-### 5.2. Current — Downstream (services that call this)
-
-| Service | Category |
-|---|---|
-| kong | infra |
-
-### 5.3. Architecture diagram
-
-![open-webui architecture](./architecture.svg)
-
-[Open the full-size diagram](./architecture.html) for a full-screen view.
-
-### 5.4. Future — Missing pair integrations
-
-- **open-webui ↔ searxng** — *Why:* Open WebUI consumes SearXNG as a first-class web-search provider for in-chat grounding, but the stack only wires SearXNG to local-deep-researcher today. *Mechanism:* `ENABLE_WEB_SEARCH=true` + `WEB_SEARCH_ENGINE=searxng` + `SEARXNG_QUERY_URL=http://searxng:8080/search?q=<query>&format=json`. *Effort:* small. *Confidence:* high.
-- **open-webui ↔ jupyterhub** — *Why:* Open WebUI ships a Jupyter-backed code-execution engine. It runs LLM-emitted Python in a real kernel with persistent state, instead of the in-browser Pyodide sandbox. *Mechanism:* `CODE_EXECUTION_ENGINE=jupyter` + `CODE_EXECUTION_JUPYTER_URL=http://jupyterhub:8888` + `CODE_EXECUTION_JUPYTER_AUTH=token` (mirror for `CODE_INTERPRETER_*`). *Effort:* medium. *Confidence:* high.
-- **open-webui ↔ minio** — *Why:* Chat uploads, generated images and TTS audio live in a Docker volume and vanish on `--cold`. Open WebUI supports S3 storage natively, and MinIO is already in the stack. *Mechanism:* `STORAGE_PROVIDER=s3` + `S3_ENDPOINT_URL=http://minio:9000` + `S3_BUCKET_NAME=openwebui` with MinIO credentials, plus an `mc mb` init step. *Effort:* small. *Confidence:* high.
-- **open-webui ↔ n8n** — *Why:* n8n workflows could appear in chat as Open WebUI Tools. Users could then trigger automations ("email this summary", "create a Jira ticket") without writing Python. *Mechanism:* register an OpenAPI tool server pointing at an n8n webhook that serves `openapi.json` (via a workflow-to-schema wrapper). *Effort:* medium. *Confidence:* medium.
-- **open-webui ↔ neo4j** — *Why:* The existing `memory_tool.py` writes flat memories to Postgres; a Neo4j-backed graph would link entity → fact → source-conversation and power richer recall. *Mechanism:* extend `extras/tools/memory_tool.py` to call a backend endpoint that writes Cypher to `bolt://neo4j-graph-db:7687`. *Effort:* medium. *Confidence:* medium.
-
-### 5.5. Future — Candidate new services
-
-- **mcpo** ([details](../../docs/reference/candidate-decisions.md#candidate-mcpo)) — *Headline:* Open WebUI's MCP-to-OpenAPI proxy exposes any stdio/SSE MCP server as a REST tool server consumable by Open WebUI and LiteLLM. *Wires into:* open-webui, hermes, litellm, n8n, kong.
-
-### 5.6. Future — Unused features in this service
-
-- **OIDC / SSO via Supabase Auth** — *Why pursue:* Supabase GoTrue is already running, and Open WebUI supports generic OAuth/OIDC. One login could unify Open WebUI, n8n and JupyterHub identity. *Effort:* medium.
-- **Native MCP client** — *Why pursue:* Open WebUI ships a built-in MCP client. Wiring it to stack-local MCP servers (filesystem, git) gives chat real tools without per-tool Python glue. *Effort:* small.
-- **Hybrid BM25 + vector reranking** — *Why pursue:* Open WebUI's built-in hybrid search and cross-encoder reranker are off, leaving knowledge-base recall worse than it needs to be. *Effort:* small.
-- **Channels / multi-user workspaces** — *Why pursue:* Channels turn the WebUI into a team space with `@model` mentions and pair naturally with the Supabase auth gap above. *Effort:* medium.
-- **Notes with agentic access** — *Why pursue:* The built-in rich-text notes editor that LLMs can read and write replaces ad-hoc scratchpads with zero new infrastructure. *Effort:* small.
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Unified browser chat through LiteLLM | supported | tested | Atlas initializes an Open WebUI administrator and routes its OpenAI-compatible model traffic through the LiteLLM catalog, including Hermes when enabled. |
+| Source-aware speech and image features | partial | tested | Open WebUI receives the selected speech endpoints and ComfyUI settings. Model readiness, disabled providers, source-specific credentials, saved admin settings, and the unconfigured built-in ComfyUI workflow can leave individual features unavailable. |
+| Backend memory and research tools | partial | tested | Bundled server-side tools use scoped Backend tokens and synchronized user identities, but extraction is bounded best-effort and research depends on Local Deep Researcher availability. |
+| Safe prompt secret redaction | partial | tested | The registered filter redacts common secret patterns only after an administrator enables its default-off valve. It covers Open WebUI user messages, not stack-wide traffic. |
+| Open WebUI access control | supported | tested | Direct and CORS-only chat.localhost paths rely on Open WebUI's own account and session authentication; Kong provides routing but no additional login layer. |
+| Chat data and upload persistence | partial | documented | Application state uses Postgres and a named Open WebUI data volume, but MinIO/S3 storage, replicated file state, and a tested restore workflow are not configured. |
+| Shared multi-replica WebUI availability | not-supported | documented | Redis backs websocket coordination, but Atlas runs one Open WebUI process and one init job without a certified horizontally scaled application or file-storage topology. |
 
 ## 6. Troubleshooting
 
@@ -134,16 +104,69 @@ docker compose logs -f open-web-ui open-webui-init
 
 For general startup and routing issues, see [Troubleshooting](../../docs/quick-start/troubleshooting.md).
 
-## 7. Capabilities & limitations
+## 7. Dependencies & Integrations
 
-Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+<a id="5-dependencies-integrations"></a>
+<a id="5-dependencies--integrations"></a>
 
-| Capability | Status | Verification | Notes |
-|---|---|---|---|
-| Unified browser chat through LiteLLM | supported | tested | Atlas initializes an Open WebUI administrator and routes its OpenAI-compatible model traffic through the LiteLLM catalog, including Hermes when enabled. |
-| Source-aware speech and image features | partial | tested | Open WebUI receives the selected speech endpoints and ComfyUI settings. Model readiness, disabled providers, source-specific credentials, saved admin settings, and the unconfigured built-in ComfyUI workflow can leave individual features unavailable. |
-| Backend memory and research tools | partial | tested | Bundled server-side tools use scoped Backend tokens and synchronized user identities, but extraction is bounded best-effort and research depends on Local Deep Researcher availability. |
-| Safe prompt secret redaction | partial | tested | The registered filter redacts common secret patterns only after an administrator enables its default-off valve. It covers Open WebUI user messages, not stack-wide traffic. |
-| Open WebUI access control | supported | tested | Direct and CORS-only chat.localhost paths rely on Open WebUI's own account and session authentication; Kong provides routing but no additional login layer. |
-| Chat data and upload persistence | partial | documented | Application state uses Postgres and a named Open WebUI data volume, but MinIO/S3 storage, replicated file state, and a tested restore workflow are not configured. |
-| Shared multi-replica WebUI availability | not-supported | documented | Redis backs websocket coordination, but Atlas runs one Open WebUI process and one init job without a certified horizontally scaled application or file-storage topology. |
+### 7.1. Current — Upstream (this service calls)
+
+<a id="51-current-upstream-this-service-calls"></a>
+<a id="51-current--upstream-this-service-calls"></a>
+
+| Service | Category |
+|---|---|
+| redis | data |
+| supabase | data |
+| litellm | llm |
+| comfyui | media |
+| stt-provider | media |
+| tts-provider | media |
+| backend | apps |
+| local-deep-researcher | apps |
+
+### 7.2. Current — Downstream (services that call this)
+
+<a id="52-current-downstream-services-that-call-this"></a>
+<a id="52-current--downstream-services-that-call-this"></a>
+
+| Service | Category |
+|---|---|
+| kong | infra |
+
+### 7.3. Architecture diagram
+
+<a id="53-architecture-diagram"></a>
+
+![open-webui architecture](./architecture.svg)
+
+[Open the full-size diagram](./architecture.html) for a full-screen view.
+
+### 7.4. Future — Missing pair integrations
+
+<a id="54-future-missing-pair-integrations"></a>
+<a id="54-future--missing-pair-integrations"></a>
+
+- **open-webui ↔ searxng** — *Why:* Open WebUI consumes SearXNG as a first-class web-search provider for in-chat grounding, but the stack only wires SearXNG to local-deep-researcher today. *Mechanism:* `ENABLE_WEB_SEARCH=true` + `WEB_SEARCH_ENGINE=searxng` + `SEARXNG_QUERY_URL=http://searxng:8080/search?q=<query>&format=json`. *Effort:* small. *Confidence:* high.
+- **open-webui ↔ jupyterhub** — *Why:* Open WebUI ships a Jupyter-backed code-execution engine. It runs LLM-emitted Python in a real kernel with persistent state, instead of the in-browser Pyodide sandbox. *Mechanism:* `CODE_EXECUTION_ENGINE=jupyter` + `CODE_EXECUTION_JUPYTER_URL=http://jupyterhub:8888` + `CODE_EXECUTION_JUPYTER_AUTH=token` (mirror for `CODE_INTERPRETER_*`). *Effort:* medium. *Confidence:* high.
+- **open-webui ↔ minio** — *Why:* Chat uploads, generated images and TTS audio live in a Docker volume and vanish on `--cold`. Open WebUI supports S3 storage natively, and MinIO is already in the stack. *Mechanism:* `STORAGE_PROVIDER=s3` + `S3_ENDPOINT_URL=http://minio:9000` + `S3_BUCKET_NAME=openwebui` with MinIO credentials, plus an `mc mb` init step. *Effort:* small. *Confidence:* high.
+- **open-webui ↔ n8n** — *Why:* n8n workflows could appear in chat as Open WebUI Tools. Users could then trigger automations ("email this summary", "create a Jira ticket") without writing Python. *Mechanism:* register an OpenAPI tool server pointing at an n8n webhook that serves `openapi.json` (via a workflow-to-schema wrapper). *Effort:* medium. *Confidence:* medium.
+- **open-webui ↔ neo4j** — *Why:* The existing `memory_tool.py` writes flat memories to Postgres; a Neo4j-backed graph would link entity → fact → source-conversation and power richer recall. *Mechanism:* extend `extras/tools/memory_tool.py` to call a backend endpoint that writes Cypher to `bolt://neo4j-graph-db:7687`. *Effort:* medium. *Confidence:* medium.
+
+### 7.5. Future — Candidate new services
+
+<a id="55-future-candidate-new-services"></a>
+<a id="55-future--candidate-new-services"></a>
+
+- **mcpo** ([details](../../docs/reference/candidate-decisions.md#candidate-mcpo)) — *Headline:* Open WebUI's MCP-to-OpenAPI proxy exposes any stdio/SSE MCP server as a REST tool server consumable by Open WebUI and LiteLLM. *Wires into:* open-webui, hermes, litellm, n8n, kong.
+
+### 7.6. Future — Unused features in this service
+
+<a id="56-future-unused-features-in-this-service"></a>
+<a id="56-future--unused-features-in-this-service"></a>
+
+- **OIDC / SSO via Supabase Auth** — *Why pursue:* Supabase GoTrue is already running, and Open WebUI supports generic OAuth/OIDC. One login could unify Open WebUI, n8n and JupyterHub identity. *Effort:* medium.
+- **Native MCP client** — *Why pursue:* Open WebUI ships a built-in MCP client. Wiring it to stack-local MCP servers (filesystem, git) gives chat real tools without per-tool Python glue. *Effort:* small.
+- **Hybrid BM25 + vector reranking** — *Why pursue:* Open WebUI's built-in hybrid search and cross-encoder reranker are off, leaving knowledge-base recall worse than it needs to be. *Effort:* small.
+- **Channels / multi-user workspaces** — *Why pursue:* Channels turn the WebUI into a team space with `@model` mentions and pair naturally with the Supabase auth gap above. *Effort:* medium.
+- **Notes with agentic access** — *Why pursue:* The built-in rich-text notes editor that LLMs can read and write replaces ad-hoc scratchpads with zero new infrastructure. *Effort:* small.

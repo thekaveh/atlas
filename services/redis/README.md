@@ -1,6 +1,6 @@
 # 5.2.44. Redis
 
-Shared cache, queue and pub/sub broker. Redis is the most cross-cutting service in the stack: one instance serves every consumer in §6.2. It has one container, one source variant (`container`), no GPU path and no init container.
+Shared cache, queue and pub/sub broker. Redis is the most cross-cutting service in the stack: one instance serves every consumer in §12.2. It has one container, one source variant (`container`), no GPU path and no init container.
 
 Consumers are separated by **database index**, not by service. The §3 table lists which consumer uses which index.
 
@@ -49,12 +49,12 @@ A consumer that needs its own namespace builds a URL from `${REDIS_PASSWORD}` an
 
 **Startup ordering.** The manifest lists `depends_on.required: supabase` only to pin topology port slots; removing it would renumber later services' ports. Redis has no functional Postgres dependency. The only compose-level `depends_on` in this fragment is `redis-exporter` waiting for a healthy `redis`.
 
-**Consumers.** §6.2 lists every service that reaches Redis at runtime. Notes:
+**Consumers.** §12.2 lists every service that reaches Redis at runtime. Notes:
 
 - The Backend and Celery use db 0 through `REDIS_URL` for hosted-media operations, RAG ingestion state and memory consolidation leases. The Backend readiness probe checks it too.
 - Kong does not use Redis. Its only rate limiter runs with `policy: local`, and its `depends_on: redis` is start ordering only.
 - Airflow receives `REDIS_PASSWORD` for DAGs that use `RedisHook`.
-- Local Deep Researcher is not wired (§6.4).
+- Local Deep Researcher is not wired (§12.4).
 
 **Failure mode.** No consumer has a fallback. A Redis outage stops n8n queue execution and Open WebUI live updates. It also breaks LiteLLM caching and stalls LightRAG's KV layer.
 
@@ -70,54 +70,18 @@ A consumer that needs its own namespace builds a URL from `${REDIS_PASSWORD}` an
 
 When `LIGHTRAG_SOURCE != disabled` AND `REDIS_SOURCE != disabled`, LightRAG uses Redis `db=2` as its KV and doc-status backend (via `RedisKVStorage`). Use `redis-cli -a "$REDIS_PASSWORD" -n 2 --scan --pattern '*'` to inspect.
 
-## 6. Dependencies & Integrations
+## 6. Capabilities & limitations
 
-### 6.1. Current — Upstream (this service calls)
+<a id="12-capabilities-limitations"></a>
+<a id="12-capabilities--limitations"></a>
 
-_No upstream calls._
+Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
-### 6.2. Current — Downstream (services that call this)
-
-| Service | Category | Status |
-|---|---|---|
-| langfuse | infra | current |
-| prometheus | infra | current |
-| litellm | llm | current |
-| airflow | agents | optional: an operator-authored DAG; airflow-init only seeds the Connection |
-| celery | agents | current |
-| lightrag | agents | current |
-| n8n | agents | current |
-| trueforge | agents | current |
-| backend | apps | current |
-| jupyterhub | apps | current |
-| open-webui | apps | current |
-
-### 6.3. Architecture diagram
-
-![redis architecture](./architecture.svg)
-
-[Open the full-size diagram](./architecture.html) for a full-screen view.
-
-### 6.4. Future — Missing pair integrations
-
-- **redis ↔ comfyui** — *Why:* ComfyUI's compose declares `depends_on: redis` (startup ordering only) but the container receives no `REDIS_URL`. A real link would let n8n or the Backend queue generation jobs in a Redis list or stream. A sidecar publisher would return `progress`/`executed` events and replace the per-caller websocket pattern. *Mechanism:* ComfyUI custom node + `redis-py` writing `XADD comfyui:events` on progress; producers `BLPOP comfyui:jobs` from a tiny worker that calls `/prompt`. *Effort:* medium. *Confidence:* medium.
-- **redis ↔ local-deep-researcher** — *Why:* LDR's compose has no `REDIS_URL`. Dbs `/3`, `/4` and `/5` belong to JupyterHub, Celery and TrueForge, so an LDR checkpointer would take a new index such as `/6`. LangGraph's Redis checkpointer would let long-running research runs survive container restarts and let backend stream node-by-node progress. *Mechanism:* `redis://:${REDIS_PASSWORD}@redis:6379/6` consumed by `langgraph.checkpoint.redis.RedisSaver`; `PUBSUB` channel `ldr:run:<id>` for progress. *Effort:* small. *Confidence:* high.
-- **redis ↔ hermes** — *Why:* Hermes has no shared state between requests; conversation memory, tool-call rate-limits, and per-user budget counters live in process. *Mechanism:* Hermes custom skill reads/writes `hermes:session:<id>` hashes and `hermes:ratelimit:<user>` counters via `redis-py`. *Effort:* small. *Confidence:* medium.
-- **redis ↔ doc-processor** — *Why:* document parsing is expensive and idempotent on file SHA. A Redis cache keyed on `sha256(file)` lets repeat ingests (common during n8n flow iteration) short-circuit; a Redis stream broadcasts `doc:parsed` events to backend + weaviate ingest. *Mechanism:* cache: `SETEX doc:parsed:<sha> 86400 <json>`; event bus: `XADD doc:events`. *Effort:* small. *Confidence:* medium.
-- **redis ↔ weaviate** — *Why:* embedding generation dominates ingest latency; a content-hash → vector cache cuts repeat-ingest cost dramatically and de-duplicates concurrent embeddings across n8n/backend. *Mechanism:* `GET emb:<model>:<sha>` before calling Weaviate's vectorizer; `SETEX` on miss. Lives behind a tiny helper in backend. *Effort:* medium. *Confidence:* medium.
-
-### 6.5. Future — Candidate new services
-
-- **[RedisInsight](../../docs/reference/candidate-decisions.md#candidate-redisinsight)** — *Headline:* official Redis GUI for browsing keys, profiling commands, and inspecting streams across all stack consumers. *Wires into:* backend, n8n, kong, litellm, open-webui, jupyterhub.
-- **[Redis Stack (`redis-stack-server`)](../../docs/reference/candidate-decisions.md#candidate-redis-stack)** — *Headline:* drop-in Redis image bundling RediSearch, RedisJSON, RedisBloom, and RedisTimeSeries — unlocks vector + JSON queries without a second datastore. *Wires into:* backend, weaviate (overlap), n8n, hermes.
-
-### 6.6. Future — Unused features in this service
-
-- **Redis Streams (`XADD`/`XREAD`/consumer groups)** — *Why pursue:* one durable event bus, already in the image, could replace ad-hoc HTTP fan-out between backend, n8n, ComfyUI and doc-processor. *Effort:* medium.
-- **Pub/Sub channels** — *Why pursue:* live progress streaming for ComfyUI and LDR to the Open WebUI chat surface without polling. *Effort:* small.
-- **Redis ACL users** — *Why pursue:* replace the single shared `REDIS_PASSWORD` with per-service users so a compromised n8n container cannot read LiteLLM's budget counters. *Effort:* small.
-- **Workload-specific memory classes** — *Why pursue:* separate cache and queue instances could each have their own cap and policy, not one shared budget and `volatile-lru`. *Effort:* medium.
-- **RDB snapshots alongside AOF** — *Why pursue:* faster cold-start restore; current `--appendonly yes` is durable but slow to replay on large datasets. *Effort:* small.
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Authenticated cache and queue substrate | supported | tested | Atlas runs password-protected Redis as the shared cache, queue, coordination, and transient-state substrate for multiple service families. |
+| AOF persistence and bounded eviction | partial | tested | Append-only persistence and volatile-LRU are configured, but the default zero maxmemory is unbounded and only expiring keys become eviction candidates after a cap is set. |
+| Per-service ACL and transport isolation | not-supported | documented | Consumers share one password and logical database convention over plaintext Redis; Atlas provisions neither per-service ACL users nor TLS. |
 
 ## 7. Troubleshooting
 
@@ -231,12 +195,71 @@ Set `REDIS_MAXMEMORY` and `REDIS_MAXMEMORY_POLICY` in `.env`. The remaining low-
 - [BullMQ on Redis](https://docs.bullmq.io/) — n8n's queue layer; explains the `bull:*` key shape.
 - [LiteLLM caching](https://docs.litellm.ai/docs/caching/all_caches) — Redis cache integration LiteLLM uses (already enabled in this stack).
 
-## 12. Capabilities & limitations
+## 12. Dependencies & Integrations
 
-Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+<a id="6-dependencies-integrations"></a>
+<a id="6-dependencies--integrations"></a>
 
-| Capability | Status | Verification | Notes |
-|---|---|---|---|
-| Authenticated cache and queue substrate | supported | tested | Atlas runs password-protected Redis as the shared cache, queue, coordination, and transient-state substrate for multiple service families. |
-| AOF persistence and bounded eviction | partial | tested | Append-only persistence and volatile-LRU are configured, but the default zero maxmemory is unbounded and only expiring keys become eviction candidates after a cap is set. |
-| Per-service ACL and transport isolation | not-supported | documented | Consumers share one password and logical database convention over plaintext Redis; Atlas provisions neither per-service ACL users nor TLS. |
+### 12.1. Current — Upstream (this service calls)
+
+<a id="61-current-upstream-this-service-calls"></a>
+<a id="61-current--upstream-this-service-calls"></a>
+
+_No upstream calls._
+
+### 12.2. Current — Downstream (services that call this)
+
+<a id="62-current-downstream-services-that-call-this"></a>
+<a id="62-current--downstream-services-that-call-this"></a>
+
+| Service | Category | Status |
+|---|---|---|
+| langfuse | infra | current |
+| prometheus | infra | current |
+| litellm | llm | current |
+| airflow | agents | optional: an operator-authored DAG; airflow-init only seeds the Connection |
+| celery | agents | current |
+| lightrag | agents | current |
+| n8n | agents | current |
+| trueforge | agents | current |
+| backend | apps | current |
+| jupyterhub | apps | current |
+| open-webui | apps | current |
+
+### 12.3. Architecture diagram
+
+<a id="63-architecture-diagram"></a>
+
+![redis architecture](./architecture.svg)
+
+[Open the full-size diagram](./architecture.html) for a full-screen view.
+
+### 12.4. Future — Missing pair integrations
+
+<a id="64-future-missing-pair-integrations"></a>
+<a id="64-future--missing-pair-integrations"></a>
+
+- **redis ↔ comfyui** — *Why:* ComfyUI's compose declares `depends_on: redis` (startup ordering only) but the container receives no `REDIS_URL`. A real link would let n8n or the Backend queue generation jobs in a Redis list or stream. A sidecar publisher would return `progress`/`executed` events and replace the per-caller websocket pattern. *Mechanism:* ComfyUI custom node + `redis-py` writing `XADD comfyui:events` on progress; producers `BLPOP comfyui:jobs` from a tiny worker that calls `/prompt`. *Effort:* medium. *Confidence:* medium.
+- **redis ↔ local-deep-researcher** — *Why:* LDR's compose has no `REDIS_URL`. Dbs `/3`, `/4` and `/5` belong to JupyterHub, Celery and TrueForge, so an LDR checkpointer would take a new index such as `/6`. LangGraph's Redis checkpointer would let long-running research runs survive container restarts and let backend stream node-by-node progress. *Mechanism:* `redis://:${REDIS_PASSWORD}@redis:6379/6` consumed by `langgraph.checkpoint.redis.RedisSaver`; `PUBSUB` channel `ldr:run:<id>` for progress. *Effort:* small. *Confidence:* high.
+- **redis ↔ hermes** — *Why:* Hermes has no shared state between requests; conversation memory, tool-call rate-limits, and per-user budget counters live in process. *Mechanism:* Hermes custom skill reads/writes `hermes:session:<id>` hashes and `hermes:ratelimit:<user>` counters via `redis-py`. *Effort:* small. *Confidence:* medium.
+- **redis ↔ doc-processor** — *Why:* document parsing is expensive and idempotent on file SHA. A Redis cache keyed on `sha256(file)` lets repeat ingests (common during n8n flow iteration) short-circuit; a Redis stream broadcasts `doc:parsed` events to backend + weaviate ingest. *Mechanism:* cache: `SETEX doc:parsed:<sha> 86400 <json>`; event bus: `XADD doc:events`. *Effort:* small. *Confidence:* medium.
+- **redis ↔ weaviate** — *Why:* embedding generation dominates ingest latency; a content-hash → vector cache cuts repeat-ingest cost dramatically and de-duplicates concurrent embeddings across n8n/backend. *Mechanism:* `GET emb:<model>:<sha>` before calling Weaviate's vectorizer; `SETEX` on miss. Lives behind a tiny helper in backend. *Effort:* medium. *Confidence:* medium.
+
+### 12.5. Future — Candidate new services
+
+<a id="65-future-candidate-new-services"></a>
+<a id="65-future--candidate-new-services"></a>
+
+- **[RedisInsight](../../docs/reference/candidate-decisions.md#candidate-redisinsight)** — *Headline:* official Redis GUI for browsing keys, profiling commands, and inspecting streams across all stack consumers. *Wires into:* backend, n8n, kong, litellm, open-webui, jupyterhub.
+- **[Redis Stack (`redis-stack-server`)](../../docs/reference/candidate-decisions.md#candidate-redis-stack)** — *Headline:* drop-in Redis image bundling RediSearch, RedisJSON, RedisBloom, and RedisTimeSeries — unlocks vector + JSON queries without a second datastore. *Wires into:* backend, weaviate (overlap), n8n, hermes.
+
+### 12.6. Future — Unused features in this service
+
+<a id="66-future-unused-features-in-this-service"></a>
+<a id="66-future--unused-features-in-this-service"></a>
+
+- **Redis Streams (`XADD`/`XREAD`/consumer groups)** — *Why pursue:* one durable event bus, already in the image, could replace ad-hoc HTTP fan-out between backend, n8n, ComfyUI and doc-processor. *Effort:* medium.
+- **Pub/Sub channels** — *Why pursue:* live progress streaming for ComfyUI and LDR to the Open WebUI chat surface without polling. *Effort:* small.
+- **Redis ACL users** — *Why pursue:* replace the single shared `REDIS_PASSWORD` with per-service users so a compromised n8n container cannot read LiteLLM's budget counters. *Effort:* small.
+- **Workload-specific memory classes** — *Why pursue:* separate cache and queue instances could each have their own cap and policy, not one shared budget and `volatile-lru`. *Effort:* medium.
+- **RDB snapshots alongside AOF** — *Why pursue:* faster cold-start restore; current `--appendonly yes` is durable but slow to replay on large datasets. *Effort:* small.

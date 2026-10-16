@@ -91,40 +91,20 @@ TrueForge is not wired to Langfuse directly — and does not need to be. All mod
 
 Schedules run **agents** (goal-seeking, tool-using, non-deterministic) hourly, daily or weekly. Neither n8n (event-driven deterministic workflows) nor Airflow (data DAGs) covers this. Deterministic multi-step automation belongs in n8n. Data pipelines belong in Airflow. n8n's MCP Server Trigger can expose a workflow as an agent tool; that is the intended bridge.
 
-## 5. Dependencies & Integrations
+## 5. Capabilities & limitations
 
-### 5.1. Current — Upstream (this service calls)
+<a id="7-capabilities-limitations"></a>
+<a id="7-capabilities--limitations"></a>
 
-| Service | Category |
-|---|---|
-| redis | data |
-| supabase | data |
-| litellm | llm |
-| mcp-servers | agents |
+Support tier: **experimental** — Capability contract declared for upstream v0.2.0; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
-### 5.2. Current — Downstream (services that call this)
-
-| Service | Category | Status |
-|---|---|---|
-| kong | infra | optional: TRUEFORGE_SOURCE=container |
-
-### 5.3. Architecture diagram
-
-![trueforge architecture](./architecture.svg)
-
-[Open the full-size diagram](./architecture.html) for a full-screen view.
-
-### 5.4. Future — Missing pair integrations
-
-_No high-confidence opportunities identified._
-
-### 5.5. Future — Candidate new services
-
-_No high-confidence opportunities identified._
-
-### 5.6. Future — Unused features in this service
-
-_No high-confidence opportunities identified._
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| User-composable saved agents over LiteLLM models | supported | documented | trueforge-init seeds a single `custom` model provider pointed at the in-stack LiteLLM gateway. Every enabled Ollama and cloud model is therefore available to agents. Keys never live in agent configs. Live qualification run pending (#1159). |
+| MCP tool calling with per-call human approvals | supported | documented | Remote streamable-HTTP MCP connectors with per-tool-call approvals and @write/@destructive gating. trueforge-init registers the in-stack mcp-servers endpoint when that family is enabled; other connectors are user-added. |
+| Scheduled unattended agent runs | supported | documented | The trueforge-controller container dispatches hourly/daily/weekly schedules through the server API. Raw cron expressions and webhook/event triggers are not part of upstream v0.2. |
+| Git-backed skills and code sandbox execution | not-supported | documented | Atlas configures no skill sources or sandbox provider. The pinned settings API exposes Daytona only. TrueForge rejects agent specs that request skills or a sandbox at session creation, so the boundary is explicit rather than silently degraded. |
+| Authenticated multi-user access | not-supported | documented | The OIDC triple is unset, so TrueForge runs with a fixed local admin identity. Anyone who reaches the server or the Kong route is admin, like the other Atlas UIs. The seeded provider normally holds a dedicated LiteLLM virtual key. If key minting fails at init, for example before LiteLLM's database is ready, init uses the LiteLLM master key until the next start. Meanwhile anyone reaching TrueForge holds LiteLLM admin rights. |
 
 ## 6. Troubleshooting
 
@@ -136,14 +116,57 @@ _No high-confidence opportunities identified._
 - **Schedules never fire**: the controller is a separate container. Check `docker logs ${PROJECT_NAME}-trueforge-controller`. Check that `TRUEFORGE_API_KEY` is the same for server and controller; it is, unless `.env` was edited by hand.
 - **Slow first boot on Apple Silicon**: the amd64 image runs emulated; allow extra start-up time before the healthcheck settles (the compose healthcheck budgets for this).
 
-## 7. Capabilities & limitations
+## 7. Dependencies & Integrations
 
-Support tier: **experimental** — Capability contract declared for upstream v0.2.0; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+<a id="5-dependencies-integrations"></a>
+<a id="5-dependencies--integrations"></a>
 
-| Capability | Status | Verification | Notes |
-|---|---|---|---|
-| User-composable saved agents over LiteLLM models | supported | documented | trueforge-init seeds a single `custom` model provider pointed at the in-stack LiteLLM gateway. Every enabled Ollama and cloud model is therefore available to agents. Keys never live in agent configs. Live qualification run pending (#1159). |
-| MCP tool calling with per-call human approvals | supported | documented | Remote streamable-HTTP MCP connectors with per-tool-call approvals and @write/@destructive gating. trueforge-init registers the in-stack mcp-servers endpoint when that family is enabled; other connectors are user-added. |
-| Scheduled unattended agent runs | supported | documented | The trueforge-controller container dispatches hourly/daily/weekly schedules through the server API. Raw cron expressions and webhook/event triggers are not part of upstream v0.2. |
-| Git-backed skills and code sandbox execution | not-supported | documented | Atlas configures no skill sources or sandbox provider. The pinned settings API exposes Daytona only. TrueForge rejects agent specs that request skills or a sandbox at session creation, so the boundary is explicit rather than silently degraded. |
-| Authenticated multi-user access | not-supported | documented | The OIDC triple is unset, so TrueForge runs with a fixed local admin identity. Anyone who reaches the server or the Kong route is admin, like the other Atlas UIs. The seeded provider normally holds a dedicated LiteLLM virtual key. If key minting fails at init, for example before LiteLLM's database is ready, init uses the LiteLLM master key until the next start. Meanwhile anyone reaching TrueForge holds LiteLLM admin rights. |
+### 7.1. Current — Upstream (this service calls)
+
+<a id="51-current-upstream-this-service-calls"></a>
+<a id="51-current--upstream-this-service-calls"></a>
+
+| Service | Category |
+|---|---|
+| redis | data |
+| supabase | data |
+| litellm | llm |
+| mcp-servers | agents |
+
+### 7.2. Current — Downstream (services that call this)
+
+<a id="52-current-downstream-services-that-call-this"></a>
+<a id="52-current--downstream-services-that-call-this"></a>
+
+| Service | Category | Status |
+|---|---|---|
+| kong | infra | optional: TRUEFORGE_SOURCE=container |
+
+### 7.3. Architecture diagram
+
+<a id="53-architecture-diagram"></a>
+
+![trueforge architecture](./architecture.svg)
+
+[Open the full-size diagram](./architecture.html) for a full-screen view.
+
+### 7.4. Future — Missing pair integrations
+
+<a id="54-future-missing-pair-integrations"></a>
+<a id="54-future--missing-pair-integrations"></a>
+
+_No high-confidence opportunities identified._
+
+### 7.5. Future — Candidate new services
+
+<a id="55-future-candidate-new-services"></a>
+<a id="55-future--candidate-new-services"></a>
+
+_No high-confidence opportunities identified._
+
+### 7.6. Future — Unused features in this service
+
+<a id="56-future-unused-features-in-this-service"></a>
+<a id="56-future--unused-features-in-this-service"></a>
+
+_No high-confidence opportunities identified._

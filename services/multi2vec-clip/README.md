@@ -4,8 +4,6 @@ Multimodal CLIP vectorizer module for Weaviate. It runs the [`semitechnologies/m
 
 Weaviate is the only consumer, through its `multi2vec-clip` module (`CLIP_INFERENCE_API=http://multi2vec-clip:8080`). Every container on `backend-network` can also reach `/vectorize`.
 
-The default model is `sentence-transformers-clip-ViT-B-32` (English-only ViT-B/32). One endpoint embeds both text and images, so one call can vectorize a `{texts, images}` batch for cross-modal similarity search.
-
 ## 1. Overview
 
 Image: `semitechnologies/multi2vec-clip:sentence-transformers-clip-ViT-B-32-1.5.1` (the `MULTI2VEC_CLIP_IMAGE` default in `.env.example`). Tags name the model. The `-1.5.1` suffix pins the inference-server build; the un-suffixed `…-ViT-B-32` tag moves to the newest build.
@@ -82,44 +80,14 @@ Weaviate calls this endpoint internally on every `POST /v1/objects` against a co
 
 **Manifest layout.** `services/multi2vec-clip/` holds only documentation. The container, image, env vars and wizard row belong to the `weaviate` family (`services/weaviate/service.yml`, `services/weaviate/compose.yml`).
 
-## 5. Dependencies & Integrations
+## 5. Capabilities & limitations
 
-### 5.1. Current — Upstream (this service calls)
+<a id="8-performance-notes"></a>
 
-_No upstream calls._
+The default model is `sentence-transformers-clip-ViT-B-32` (English-only ViT-B/32). One endpoint embeds both text and images, so one call can vectorize a `{texts, images}` batch for cross-modal similarity search.
 
-### 5.2. Current — Downstream (services that call this)
-
-| Service | Category |
-|---|---|
-| weaviate | data |
-
-### 5.3. Architecture diagram
-
-![multi2vec-clip architecture](./architecture.svg)
-
-[Open the full-size diagram](./architecture.html) for a full-screen view.
-
-### 5.4. Future — Missing pair integrations
-
-- **multi2vec-clip ↔ backend** — *Why:* backend has no direct path to multimodal embeddings; today it can only reach CLIP indirectly by writing through Weaviate. Direct `/vectorize` calls unlock zero-shot image tagging, image-vs-text similarity scoring, and ad-hoc embedding without round-tripping through a collection. *Mechanism:* `POST http://multi2vec-clip:8080/vectorize` with `{texts, images}`. *Effort:* small. *Confidence:* high.
-- **multi2vec-clip ↔ minio** — *Why:* MinIO hosts artifact buckets (comfyui, backend, n8n, jupyter, docling) but none of those image artifacts are indexed for semantic retrieval. A small ingest worker streams new objects through CLIP into Weaviate. *Mechanism:* MinIO bucket-notification webhook → fetch object → base64 → `POST /vectorize` → upsert into a `MediaAssets` Weaviate collection. *Effort:* medium. *Confidence:* medium.
-- **multi2vec-clip ↔ comfyui** — *Why:* ComfyUI images stay unindexed in volumes. Embedding each one into Weaviate enables prompt-similarity search, dedup and "find prior renders that look like X". *Mechanism:* ComfyUI custom SaveImage post-hook → call backend ingest endpoint → backend forwards bytes to `multi2vec-clip:8080/vectorize` and upserts. *Effort:* medium. *Confidence:* medium.
-- **multi2vec-clip ↔ jupyterhub** — *Why:* notebook users today spin up their own CLIP model to experiment with multimodal embeddings; the stack already runs one. *Mechanism:* JupyterHub user pods reach `http://multi2vec-clip:8080/vectorize` over `backend-network`; document a one-cell helper in the notebook starter image. *Effort:* small. *Confidence:* high.
-- **multi2vec-clip ↔ n8n** — *Why:* n8n workflows handling inbound email/Slack attachments or webhook-uploaded images can vectorize on-the-fly for routing, classification, or RAG. *Mechanism:* n8n HTTP Request node → `POST http://multi2vec-clip:8080/vectorize` → branch on cosine-similarity to label-vectors. *Effort:* small. *Confidence:* high.
-- **multi2vec-clip ↔ doc-processor** — *Why:* docling extracts figures/diagrams from PDFs but discards the visual signal. CLIP-embedding extracted figures alongside text chunks enables true multimodal RAG over document corpora. *Mechanism:* docling post-extraction step → for each figure, base64 → `POST /vectorize` → store with parent-chunk metadata. *Effort:* medium. *Confidence:* medium.
-
-### 5.5. Future — Candidate new services
-
-_No high-confidence opportunities identified._
-
-### 5.6. Future — Unused features in this service
-
-- **GPU mode (`MULTI2VEC_CLIP_SOURCE=container-gpu`)** — *Why pursue:* the variant sets `ENABLE_CUDA=1` but gets no GPU; wire the NVIDIA device request ([#1373](https://github.com/thekaveh/atlas/issues/1373)). *Effort:* small.
-- **Model variant selection beyond ViT-B-32** — *Why pursue:* upstream ships SigLIP 2, multilingual XLM-R+ViT, LAION ViT-B-16; we hard-pin `sentence-transformers-clip-ViT-B-32`. Exposing `MULTI2VEC_CLIP_IMAGE` choices in the wizard unlocks multilingual + higher-recall regimes. *Effort:* small.
-- **Multi-field weighted vectors** — *Why pursue:* the CLIP module supports per-field weights (`image_fields` weight 0.9, `text_fields` weight 0.1); no collection in `weaviate-init` exercises this. *Effort:* small.
-- **`/meta` health surfacing** — *Why pursue:* container exposes `/meta` with model config; not scraped or shown in the wizard's service-table health column. *Effort:* small.
-- **`trust_remote_code` for custom CLIP variants** — *Why pursue:* enables loading community models (Qwen3-VL, ColPali) already supported by the upstream loader. *Effort:* medium (security review needed).
+- **Vector dimension is fixed by the model.** ViT-B/32 gives 512; SigLIP 2 gives 1152. Changing the model needs a new or revectorized collection.
+- **Measure before sizing.** Latency depends on hardware, image size and batch shape. Benchmark the exact image and payload before you set capacity or timeout budgets.
 
 ## 6. Troubleshooting
 
@@ -163,7 +131,61 @@ Output vectors are 512-d for ViT-B/32. Cosine similarity between a text vector a
 
 **Restart without rebuilding.** Stateless — `docker compose restart multi2vec-clip` is safe. The model file is in the image, so restart reuses the same packaged weights without a rebuild.
 
-## 8. Performance notes
+## 8. Dependencies & Integrations
 
-- **Vector dimension is fixed by the model.** ViT-B/32 gives 512; SigLIP 2 gives 1152. Changing the model needs a new or revectorized collection.
-- **Measure before sizing.** Latency depends on hardware, image size and batch shape. Benchmark the exact image and payload before you set capacity or timeout budgets.
+<a id="5-dependencies-integrations"></a>
+<a id="5-dependencies--integrations"></a>
+
+### 8.1. Current — Upstream (this service calls)
+
+<a id="51-current-upstream-this-service-calls"></a>
+<a id="51-current--upstream-this-service-calls"></a>
+
+_No upstream calls._
+
+### 8.2. Current — Downstream (services that call this)
+
+<a id="52-current-downstream-services-that-call-this"></a>
+<a id="52-current--downstream-services-that-call-this"></a>
+
+| Service | Category |
+|---|---|
+| weaviate | data |
+
+### 8.3. Architecture diagram
+
+<a id="53-architecture-diagram"></a>
+
+![multi2vec-clip architecture](./architecture.svg)
+
+[Open the full-size diagram](./architecture.html) for a full-screen view.
+
+### 8.4. Future — Missing pair integrations
+
+<a id="54-future-missing-pair-integrations"></a>
+<a id="54-future--missing-pair-integrations"></a>
+
+- **multi2vec-clip ↔ backend** — *Why:* backend has no direct path to multimodal embeddings; today it can only reach CLIP indirectly by writing through Weaviate. Direct `/vectorize` calls unlock zero-shot image tagging, image-vs-text similarity scoring, and ad-hoc embedding without round-tripping through a collection. *Mechanism:* `POST http://multi2vec-clip:8080/vectorize` with `{texts, images}`. *Effort:* small. *Confidence:* high.
+- **multi2vec-clip ↔ minio** — *Why:* MinIO hosts artifact buckets (comfyui, backend, n8n, jupyter, docling) but none of those image artifacts are indexed for semantic retrieval. A small ingest worker streams new objects through CLIP into Weaviate. *Mechanism:* MinIO bucket-notification webhook → fetch object → base64 → `POST /vectorize` → upsert into a `MediaAssets` Weaviate collection. *Effort:* medium. *Confidence:* medium.
+- **multi2vec-clip ↔ comfyui** — *Why:* ComfyUI images stay unindexed in volumes. Embedding each one into Weaviate enables prompt-similarity search, dedup and "find prior renders that look like X". *Mechanism:* ComfyUI custom SaveImage post-hook → call backend ingest endpoint → backend forwards bytes to `multi2vec-clip:8080/vectorize` and upserts. *Effort:* medium. *Confidence:* medium.
+- **multi2vec-clip ↔ jupyterhub** — *Why:* notebook users today spin up their own CLIP model to experiment with multimodal embeddings; the stack already runs one. *Mechanism:* JupyterHub user pods reach `http://multi2vec-clip:8080/vectorize` over `backend-network`; document a one-cell helper in the notebook starter image. *Effort:* small. *Confidence:* high.
+- **multi2vec-clip ↔ n8n** — *Why:* n8n workflows handling inbound email/Slack attachments or webhook-uploaded images can vectorize on-the-fly for routing, classification, or RAG. *Mechanism:* n8n HTTP Request node → `POST http://multi2vec-clip:8080/vectorize` → branch on cosine-similarity to label-vectors. *Effort:* small. *Confidence:* high.
+- **multi2vec-clip ↔ doc-processor** — *Why:* docling extracts figures/diagrams from PDFs but discards the visual signal. CLIP-embedding extracted figures alongside text chunks enables true multimodal RAG over document corpora. *Mechanism:* docling post-extraction step → for each figure, base64 → `POST /vectorize` → store with parent-chunk metadata. *Effort:* medium. *Confidence:* medium.
+
+### 8.5. Future — Candidate new services
+
+<a id="55-future-candidate-new-services"></a>
+<a id="55-future--candidate-new-services"></a>
+
+_No high-confidence opportunities identified._
+
+### 8.6. Future — Unused features in this service
+
+<a id="56-future-unused-features-in-this-service"></a>
+<a id="56-future--unused-features-in-this-service"></a>
+
+- **GPU mode (`MULTI2VEC_CLIP_SOURCE=container-gpu`)** — *Why pursue:* the variant sets `ENABLE_CUDA=1` but gets no GPU; wire the NVIDIA device request ([#1373](https://github.com/thekaveh/atlas/issues/1373)). *Effort:* small.
+- **Model variant selection beyond ViT-B-32** — *Why pursue:* upstream ships SigLIP 2, multilingual XLM-R+ViT, LAION ViT-B-16; we hard-pin `sentence-transformers-clip-ViT-B-32`. Exposing `MULTI2VEC_CLIP_IMAGE` choices in the wizard unlocks multilingual + higher-recall regimes. *Effort:* small.
+- **Multi-field weighted vectors** — *Why pursue:* the CLIP module supports per-field weights (`image_fields` weight 0.9, `text_fields` weight 0.1); no collection in `weaviate-init` exercises this. *Effort:* small.
+- **`/meta` health surfacing** — *Why pursue:* container exposes `/meta` with model config; not scraped or shown in the wizard's service-table health column. *Effort:* small.
+- **`trust_remote_code` for custom CLIP variants** — *Why pursue:* enables loading community models (Qwen3-VL, ColPali) already supported by the upstream loader. *Effort:* medium (security review needed).

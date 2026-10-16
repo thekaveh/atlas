@@ -311,7 +311,7 @@ No document processing service.
 
 ## 11. Required Services
 
-No service requires the Document Processor. For the services that call it, see §13.2.
+No service requires the Document Processor. For the services that call it, see §15.2.
 
 ## 12. References
 
@@ -320,48 +320,20 @@ No service requires the Document Processor. For the services that call it, see �
 - [TableFormer Paper](https://arxiv.org/abs/2203.01017)
 - [DocLayNet Dataset](https://github.com/DS4SD/DocLayNet)
 
-## 13. Dependencies & Integrations
+## 13. Capabilities & limitations
 
-### 13.1. Current — Upstream (this service calls)
+<a id="15-capabilities-limitations"></a>
+<a id="15-capabilities--limitations"></a>
 
-_No upstream calls._
+`docling` — Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
-### 13.2. Current — Downstream (services that call this)
-
-| Service | Category | Status |
-|---|---|---|
-| kong | infra | current |
-| docling-lightrag-adapter | media | optional: DOC_PROCESSOR_SOURCE=docling-container-gpu or docling-localhost |
-| celery | agents | current |
-| n8n | agents | current |
-| backend | apps | current |
-| jupyterhub | apps | current |
-
-### 13.3. Architecture diagram
-
-![doc-processor architecture](./architecture.svg)
-
-[Open the full-size diagram](./architecture.html) for a full-screen view.
-
-### 13.4. Future — Missing pair integrations
-
-- **doc-processor ↔ weaviate** — *Why:* closes the RAG loop. Atlas emits character-based chunks; direct vector-store persistence would remove per-consumer write logic. *Mechanism:* a proposed post-convert callback writes to `http://weaviate:8080/v1/objects`. Upstream's `rag_weaviate.ipynb` illustrates this pattern. *Effort:* medium. *Confidence:* high.
-- **doc-processor ↔ minio** — *Why:* conversion is slow and the same source is frequently re-requested. Caching `(sha256 → DocTags JSON)` in MinIO removes re-processing cost and gives stable S3 URIs that n8n/backend can reference. *Mechanism:* sidecar writes `s3://docling-cache/<sha>.json` via boto3 on convert; subsequent requests short-circuit. *Effort:* medium. *Confidence:* medium.
-- **doc-processor ↔ n8n** — *Why:* README invites this pattern but no shipped workflow exists. A first-party "PDF → markdown → Weaviate" workflow makes RAG ingest a two-click setup. *Mechanism:* `services/n8n/init/workflows/docling-rag.json` doing HTTP Request → `POST http://docling-gpu:8000/v1/document/convert` → Weaviate node. *Effort:* small. *Confidence:* high.
-- **doc-processor ↔ hermes** — *Why:* Hermes agents lack a "read this document" tool. Docling-MCP exposes convert/extract directly to MCP-capable runtimes. *Mechanism:* run `docling-mcp` as a streamable-HTTP MCP endpoint registered as a Hermes custom provider. *Effort:* medium. *Confidence:* medium.
-- **doc-processor ↔ redis** — *Why:* response-cache the slow conversions in the stack's already-deployed cache. *Mechanism:* keyed on `sha256(file)+options`, TTL 24h, stored in an unused Redis database (`redis://:${REDIS_PASSWORD}@redis:6379/<db>`; the index table is in the [Redis README](../redis/README.md)) with compressed JSON. *Effort:* small. *Confidence:* medium.
-
-### 13.5. Future — Candidate new services
-
-- **Docling MCP Server** ([details](../../docs/reference/candidate-decisions.md#candidate-docling-mcp)) — *Headline:* first-party MCP wrapper exposing Docling convert/extract tools to agent runtimes. *Wires into:* hermes, openclaw, backend.
-
-### 13.6. Future — Unused features in this service
-
-- **Audio/ASR pipeline** — *Why pursue:* Docling natively parses WAV/MP3/WebVTT to DoclingDocument with timestamps + sections, more structured than raw STT output. *Effort:* medium.
-- **HybridChunker (tokenizer-aware)** — *Why pursue:* replaces naive `chunk_size`/`chunk_overlap` with embedding-model-aware boundaries, materially improving RAG recall. *Effort:* small.
-- **DocTags lossless output** — *Why pursue:* build editing and full-fidelity caching around the provider's existing `doctags` output. *Effort:* small.
-- **VLM pipeline (GraniteDocling 258M)** — *Why pursue:* better layout + chart understanding than the default DocLayNet/TableFormer pair, at low VRAM cost. *Effort:* medium.
-- **Structured information extraction (beta)** — *Why pursue:* enables doc → entities/relations without a separate LLM step, feeding the proposed Neo4j integration. *Effort:* large.
+| Service | Capability | Status | Verification | Notes |
+|---|---|---|---|---|
+| docling | Docling document conversion sources | partial | tested | Atlas provides an NVIDIA GPU container and an existing-host endpoint, but no CPU container or Atlas-managed native Docling lifecycle. |
+| docling | Structured extraction and bounded chunking | supported | tested | The provider converts documents once and renders structured markdown or JSON with validated OCR, table, formula, code, chunk-size, overlap, and total-chunk controls. |
+| docling | Authenticated bounded provider API | partial | tested | Atlas-managed Docling routes require a generated bearer token and enforce upload, admission, and inference deadlines by default, but AUTH_MODE=disabled is an explicit rollback. |
+| docling | Truthful model readiness | partial | tested | Health stays unavailable until converter construction succeeds, but it does not certify every lazily loaded model artifact needed by a later document. |
+| docling | LightRAG conversion bundle | supported | tested | An authenticated internal route renders the JSON and Markdown bundle consumed by the isolated asynchronous LightRAG compatibility adapter. |
 
 ## 14. Troubleshooting
 
@@ -416,14 +388,65 @@ _No upstream calls._
 - Split large documents into smaller files
 - Compress images in PDF documents
 
-## 15. Capabilities & limitations
+## 15. Dependencies & Integrations
 
-`docling` — Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+<a id="13-dependencies-integrations"></a>
+<a id="13-dependencies--integrations"></a>
 
-| Service | Capability | Status | Verification | Notes |
-|---|---|---|---|---|
-| docling | Docling document conversion sources | partial | tested | Atlas provides an NVIDIA GPU container and an existing-host endpoint, but no CPU container or Atlas-managed native Docling lifecycle. |
-| docling | Structured extraction and bounded chunking | supported | tested | The provider converts documents once and renders structured markdown or JSON with validated OCR, table, formula, code, chunk-size, overlap, and total-chunk controls. |
-| docling | Authenticated bounded provider API | partial | tested | Atlas-managed Docling routes require a generated bearer token and enforce upload, admission, and inference deadlines by default, but AUTH_MODE=disabled is an explicit rollback. |
-| docling | Truthful model readiness | partial | tested | Health stays unavailable until converter construction succeeds, but it does not certify every lazily loaded model artifact needed by a later document. |
-| docling | LightRAG conversion bundle | supported | tested | An authenticated internal route renders the JSON and Markdown bundle consumed by the isolated asynchronous LightRAG compatibility adapter. |
+### 15.1. Current — Upstream (this service calls)
+
+<a id="131-current-upstream-this-service-calls"></a>
+<a id="131-current--upstream-this-service-calls"></a>
+
+_No upstream calls._
+
+### 15.2. Current — Downstream (services that call this)
+
+<a id="132-current-downstream-services-that-call-this"></a>
+<a id="132-current--downstream-services-that-call-this"></a>
+
+| Service | Category | Status |
+|---|---|---|
+| kong | infra | current |
+| docling-lightrag-adapter | media | optional: DOC_PROCESSOR_SOURCE=docling-container-gpu or docling-localhost |
+| celery | agents | current |
+| n8n | agents | current |
+| backend | apps | current |
+| jupyterhub | apps | current |
+
+### 15.3. Architecture diagram
+
+<a id="133-architecture-diagram"></a>
+
+![doc-processor architecture](./architecture.svg)
+
+[Open the full-size diagram](./architecture.html) for a full-screen view.
+
+### 15.4. Future — Missing pair integrations
+
+<a id="134-future-missing-pair-integrations"></a>
+<a id="134-future--missing-pair-integrations"></a>
+
+- **doc-processor ↔ weaviate** — *Why:* closes the RAG loop. Atlas emits character-based chunks; direct vector-store persistence would remove per-consumer write logic. *Mechanism:* a proposed post-convert callback writes to `http://weaviate:8080/v1/objects`. Upstream's `rag_weaviate.ipynb` illustrates this pattern. *Effort:* medium. *Confidence:* high.
+- **doc-processor ↔ minio** — *Why:* conversion is slow and the same source is frequently re-requested. Caching `(sha256 → DocTags JSON)` in MinIO removes re-processing cost and gives stable S3 URIs that n8n/backend can reference. *Mechanism:* sidecar writes `s3://docling-cache/<sha>.json` via boto3 on convert; subsequent requests short-circuit. *Effort:* medium. *Confidence:* medium.
+- **doc-processor ↔ n8n** — *Why:* README invites this pattern but no shipped workflow exists. A first-party "PDF → markdown → Weaviate" workflow makes RAG ingest a two-click setup. *Mechanism:* `services/n8n/init/workflows/docling-rag.json` doing HTTP Request → `POST http://docling-gpu:8000/v1/document/convert` → Weaviate node. *Effort:* small. *Confidence:* high.
+- **doc-processor ↔ hermes** — *Why:* Hermes agents lack a "read this document" tool. Docling-MCP exposes convert/extract directly to MCP-capable runtimes. *Mechanism:* run `docling-mcp` as a streamable-HTTP MCP endpoint registered as a Hermes custom provider. *Effort:* medium. *Confidence:* medium.
+- **doc-processor ↔ redis** — *Why:* response-cache the slow conversions in the stack's already-deployed cache. *Mechanism:* keyed on `sha256(file)+options`, TTL 24h, stored in an unused Redis database (`redis://:${REDIS_PASSWORD}@redis:6379/<db>`; the index table is in the [Redis README](../redis/README.md)) with compressed JSON. *Effort:* small. *Confidence:* medium.
+
+### 15.5. Future — Candidate new services
+
+<a id="135-future-candidate-new-services"></a>
+<a id="135-future--candidate-new-services"></a>
+
+- **Docling MCP Server** ([details](../../docs/reference/candidate-decisions.md#candidate-docling-mcp)) — *Headline:* first-party MCP wrapper exposing Docling convert/extract tools to agent runtimes. *Wires into:* hermes, openclaw, backend.
+
+### 15.6. Future — Unused features in this service
+
+<a id="136-future-unused-features-in-this-service"></a>
+<a id="136-future--unused-features-in-this-service"></a>
+
+- **Audio/ASR pipeline** — *Why pursue:* Docling natively parses WAV/MP3/WebVTT to DoclingDocument with timestamps + sections, more structured than raw STT output. *Effort:* medium.
+- **HybridChunker (tokenizer-aware)** — *Why pursue:* replaces naive `chunk_size`/`chunk_overlap` with embedding-model-aware boundaries, materially improving RAG recall. *Effort:* small.
+- **DocTags lossless output** — *Why pursue:* build editing and full-fidelity caching around the provider's existing `doctags` output. *Effort:* small.
+- **VLM pipeline (GraniteDocling 258M)** — *Why pursue:* better layout + chart understanding than the default DocLayNet/TableFormer pair, at low VRAM cost. *Effort:* medium.
+- **Structured information extraction (beta)** — *Why pursue:* enables doc → entities/relations without a separate LLM step, feeding the proposed Neo4j integration. *Effort:* large.

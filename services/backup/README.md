@@ -330,41 +330,19 @@ Arbitrary authenticated archives generally require superuser-equivalent restore 
 
 **Network.** Attached to `backend-network` only — reaches `supabase-db:5432` and, in local mode, `minio:9000` via Docker DNS. External mode reaches the configured S3 origin without a Compose `depends_on` edge to MinIO.
 
-## 5. Dependencies & Integrations
+## 5. Capabilities & limitations
 
-### 5.1. Current — Upstream (this service calls)
+<a id="7-capabilities-limitations"></a>
+<a id="7-capabilities--limitations"></a>
 
-| Service | Category | Status |
-|---|---|---|
-| minio | data | current |
-| neo4j | data | current |
-| supabase | data | optional: BACKUP_SOURCE=container; runs on demand, not resident |
-| weaviate | data | current |
+Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
-### 5.2. Current — Downstream (services that call this)
-
-_No downstream consumers._
-
-### 5.3. Architecture diagram
-
-![backup architecture](./architecture.svg)
-
-[Open the full-size diagram](./architecture.html) for a full-screen view.
-
-### 5.4. Future — Missing pair integrations
-
-- **backup -> airflow** — *Why:* schedule `services/backup/run-consistent-backup.sh` from an Airflow DAG for cron-based automation without a cron daemon. The wrapper must run on the host to stop and restart Neo4j, so the DAG needs host command access. *Effort:* small.
-- **backup -> n8n** — *Why:* n8n's Execute Command node can trigger backup runs and send Slack/email alerts on failure. It needs the same host command access. *Effort:* small.
-
-### 5.5. Future — Candidate new services
-
-- **Restic** — *Why:* restic provides incremental, deduplicated, encrypted backups with retention policies, replacing the full-tar approach. *Effort:* medium.
-
-### 5.6. Future — Unused features in this service
-
-- **Supabase Storage restore** — *Why:* database restores are executable, but the read-only Supabase Storage archive still needs a bounded, maintenance-mode restore workflow. *Effort:* small.
-- **Remote retention / pruning** — *Why:* local native snapshot and rollback retention is bounded, but S3 objects still require an operator-owned lifecycle rule. *Effort:* small.
-- **Post-upload backup verification** — *Why:* restore preflight checks an archive only when it is consumed; checking immediately after upload would detect corruption earlier. *Effort:* small.
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| On-demand Postgres and consistency-safe snapshot export | supported | documented | The orchestrated runner creates a snapshot-consistent PostgreSQL custom-format dump, an offline Neo4j Community dump, and a native online Weaviate snapshot. Deployment-key-authenticated manifests cover these three. It also archives Supabase Storage, outside the signed manifest and with no restore procedure yet. It uploads everything to constrained on-stack MinIO or external S3. |
+| Postgres restore workflow | partial | tested | The tested PostgreSQL workflow fail-closes on missing, unauthenticated, or mismatched deployment/identity/integrity inventories. It preserves target database attributes, ACLs, and settings. It restores and validates a temporary database, then performs a recoverable maintenance-mode cutover that retains the original. Supabase Storage volume archives still have no restore workflow. |
+| Consistent Neo4j and Weaviate backup/restore | supported | tested | The host orchestrator captures Neo4j Community 5.26.31 offline and restores both databases into a disposable exact-version stage. For Weaviate 1.38.17 it uses the native online backup and an isolated exact-version restore stage. Snapshots from the previous pins (Neo4j 5.26.30, Weaviate 1.38.13) stay restorable. Live cutover is quiesced, copy-based, query-validated, and protected by retained rollback volumes. |
+| Scheduled and remote retention | partial | documented | Atlas has no scheduler and does not delete S3 objects. Bounded local native-snapshot and rollback-volume retention runs only after successful publication or cutover. Operators provide scheduling and an S3 lifecycle. |
 
 ## 6. Troubleshooting
 
@@ -396,13 +374,58 @@ services/backup/run-consistent-backup.sh
 
 For general startup and routing issues, see [Troubleshooting](../../docs/quick-start/troubleshooting.md).
 
-## 7. Capabilities & limitations
+## 7. Dependencies & Integrations
 
-Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+<a id="5-dependencies-integrations"></a>
+<a id="5-dependencies--integrations"></a>
 
-| Capability | Status | Verification | Notes |
-|---|---|---|---|
-| On-demand Postgres and consistency-safe snapshot export | supported | documented | The orchestrated runner creates a snapshot-consistent PostgreSQL custom-format dump, an offline Neo4j Community dump, and a native online Weaviate snapshot. Deployment-key-authenticated manifests cover these three. It also archives Supabase Storage, outside the signed manifest and with no restore procedure yet. It uploads everything to constrained on-stack MinIO or external S3. |
-| Postgres restore workflow | partial | tested | The tested PostgreSQL workflow fail-closes on missing, unauthenticated, or mismatched deployment/identity/integrity inventories. It preserves target database attributes, ACLs, and settings. It restores and validates a temporary database, then performs a recoverable maintenance-mode cutover that retains the original. Supabase Storage volume archives still have no restore workflow. |
-| Consistent Neo4j and Weaviate backup/restore | supported | tested | The host orchestrator captures Neo4j Community 5.26.31 offline and restores both databases into a disposable exact-version stage. For Weaviate 1.38.17 it uses the native online backup and an isolated exact-version restore stage. Snapshots from the previous pins (Neo4j 5.26.30, Weaviate 1.38.13) stay restorable. Live cutover is quiesced, copy-based, query-validated, and protected by retained rollback volumes. |
-| Scheduled and remote retention | partial | documented | Atlas has no scheduler and does not delete S3 objects. Bounded local native-snapshot and rollback-volume retention runs only after successful publication or cutover. Operators provide scheduling and an S3 lifecycle. |
+### 7.1. Current — Upstream (this service calls)
+
+<a id="51-current-upstream-this-service-calls"></a>
+<a id="51-current--upstream-this-service-calls"></a>
+
+| Service | Category | Status |
+|---|---|---|
+| minio | data | current |
+| neo4j | data | current |
+| supabase | data | optional: BACKUP_SOURCE=container; runs on demand, not resident |
+| weaviate | data | current |
+
+### 7.2. Current — Downstream (services that call this)
+
+<a id="52-current-downstream-services-that-call-this"></a>
+<a id="52-current--downstream-services-that-call-this"></a>
+
+_No downstream consumers._
+
+### 7.3. Architecture diagram
+
+<a id="53-architecture-diagram"></a>
+
+![backup architecture](./architecture.svg)
+
+[Open the full-size diagram](./architecture.html) for a full-screen view.
+
+### 7.4. Future — Missing pair integrations
+
+<a id="54-future-missing-pair-integrations"></a>
+<a id="54-future--missing-pair-integrations"></a>
+
+- **backup -> airflow** — *Why:* schedule `services/backup/run-consistent-backup.sh` from an Airflow DAG for cron-based automation without a cron daemon. The wrapper must run on the host to stop and restart Neo4j, so the DAG needs host command access. *Effort:* small.
+- **backup -> n8n** — *Why:* n8n's Execute Command node can trigger backup runs and send Slack/email alerts on failure. It needs the same host command access. *Effort:* small.
+
+### 7.5. Future — Candidate new services
+
+<a id="55-future-candidate-new-services"></a>
+<a id="55-future--candidate-new-services"></a>
+
+- **Restic** — *Why:* restic provides incremental, deduplicated, encrypted backups with retention policies, replacing the full-tar approach. *Effort:* medium.
+
+### 7.6. Future — Unused features in this service
+
+<a id="56-future-unused-features-in-this-service"></a>
+<a id="56-future--unused-features-in-this-service"></a>
+
+- **Supabase Storage restore** — *Why:* database restores are executable, but the read-only Supabase Storage archive still needs a bounded, maintenance-mode restore workflow. *Effort:* small.
+- **Remote retention / pruning** — *Why:* local native snapshot and rollback retention is bounded, but S3 objects still require an operator-owned lifecycle rule. *Effort:* small.
+- **Post-upload backup verification** — *Why:* restore preflight checks an archive only when it is consumed; checking immediately after upload would detect corruption earlier. *Effort:* small.

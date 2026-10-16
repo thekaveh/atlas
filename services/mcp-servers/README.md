@@ -49,41 +49,21 @@ Open WebUI and Hermes should consume the service directly as HTTP MCP clients wh
 
 MetaMCP, Docker MCP Gateway, and `mcpo` remain later or conditional tools. MetaMCP becomes attractive once Atlas needs namespaces and per-consumer policy across several MCP servers. Docker MCP Gateway fits broad vendor connector catalogs better than this internal-service-first slice. `mcpo` is a translator for stdio-only or OpenAPI-only cases, not the Atlas default architecture.
 
-## 5. Dependencies & Integrations
+## 5. Capabilities & limitations
 
-### 5.1. Current — Upstream (this service calls)
+<a id="8-capabilities-limitations"></a>
+<a id="8-capabilities--limitations"></a>
 
-| Service | Category |
-|---|---|
-| neo4j | data |
-| supabase | data |
-| searxng | media |
+Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
-### 5.2. Current — Downstream (services that call this)
-
-| Service | Category | Status |
-|---|---|---|
-| kong | infra | current |
-| trueforge | agents | current |
-| jupyterhub | apps | optional: MCP_SERVERS_SOURCE=container |
-
-### 5.3. Architecture diagram
-
-![mcp-servers architecture](./architecture.svg)
-
-[Open the full-size diagram](./architecture.html) for a full-screen view.
-
-### 5.4. Future — Missing pair integrations
-
-_No high-confidence opportunities identified._
-
-### 5.5. Future — Candidate new services
-
-- Docling MCP is the first candidate for a specialist MCP server, because upstream supports remote Docling Serve and Streamable HTTP. It needs its own disabled SOURCE and a decision on document-upload authorization.
-
-### 5.6. Future — Unused features in this service
-
-_No high-confidence opportunities identified._
+| Capability | Status | Verification | Notes |
+|---|---|---|---|
+| Curated Streamable HTTP tools | supported | tested | Atlas serves FastMCP tools for bounded Postgres reads, Neo4j schema/read Cypher, and SearXNG search through one stateless /mcp endpoint. |
+| Database query guardrails | partial | tested | Regex filters, Postgres read-only transactions, Neo4j READ_ACCESS, and row/time caps block common direct mutation syntax. They do not prevent privileged function or procedure side effects within the rights of the connecting role. Postgres runs as the restricted atlas_mcp login; Neo4j runs with its admin credentials. |
+| Tenant-scoped Postgres reads | partial | tested | MCP uses a dedicated read-only login without object ownership or BYPASSRLS and permits bounded SELECT/WITH/SHOW/EXPLAIN. It reads the public, n8n and storage schemas minus a credential deny list. There is no schema, table, or column allowlist or redaction, so access remains operator-scoped rather than tenant-scoped. |
+| MCP ingress authentication | partial | tested | 127.0.0.1 protects only the host publish. Inside Docker, all backend-network containers can call unauthenticated http://mcp-servers:8000/mcp with the allowed mcp-servers Host. They bypass Kong Basic Auth and ACL. Host/Origin checks are not authentication. |
+| Write and administration prevention | partial | tested | Atlas ships no dedicated write or administration tool. Accepted `CALL db.*` procedures run with the Neo4j admin credentials and can cause administration or write side effects. Neo4j loads APOC unrestricted, but the validator admits only argument-free `apoc.meta.*` calls. Accepted SELECT functions run as the restricted atlas_mcp Postgres login. |
+| Per-consumer MCP authorization | not-supported | tested | Unauthenticated backend-network callers bypass Kong. All Kong dashboard consumers reach the same tool set and administrator credentials for Neo4j, and the shared atlas_mcp Postgres login. Atlas configures no application credential, OAuth scopes, tenant namespaces, or tool policy. |
 
 ## 6. Security & Guardrails
 
@@ -115,15 +95,58 @@ _No high-confidence opportunities identified._
 - If SearXNG search returns 403, confirm the in-stack SearXNG instance has JSON output enabled.
 - If Open WebUI cannot call the Kong URL, configure the MCP server as Streamable HTTP and include the required Kong Basic Auth credentials.
 
-## 8. Capabilities & limitations
+## 8. Dependencies & Integrations
 
-Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
+<a id="5-dependencies-integrations"></a>
+<a id="5-dependencies--integrations"></a>
 
-| Capability | Status | Verification | Notes |
-|---|---|---|---|
-| Curated Streamable HTTP tools | supported | tested | Atlas serves FastMCP tools for bounded Postgres reads, Neo4j schema/read Cypher, and SearXNG search through one stateless /mcp endpoint. |
-| Database query guardrails | partial | tested | Regex filters, Postgres read-only transactions, Neo4j READ_ACCESS, and row/time caps block common direct mutation syntax. They do not prevent privileged function or procedure side effects within the rights of the connecting role. Postgres runs as the restricted atlas_mcp login; Neo4j runs with its admin credentials. |
-| Tenant-scoped Postgres reads | partial | tested | MCP uses a dedicated read-only login without object ownership or BYPASSRLS and permits bounded SELECT/WITH/SHOW/EXPLAIN. It reads the public, n8n and storage schemas minus a credential deny list. There is no schema, table, or column allowlist or redaction, so access remains operator-scoped rather than tenant-scoped. |
-| MCP ingress authentication | partial | tested | 127.0.0.1 protects only the host publish. Inside Docker, all backend-network containers can call unauthenticated http://mcp-servers:8000/mcp with the allowed mcp-servers Host. They bypass Kong Basic Auth and ACL. Host/Origin checks are not authentication. |
-| Write and administration prevention | partial | tested | Atlas ships no dedicated write or administration tool. Accepted `CALL db.*` procedures run with the Neo4j admin credentials and can cause administration or write side effects. Neo4j loads APOC unrestricted, but the validator admits only argument-free `apoc.meta.*` calls. Accepted SELECT functions run as the restricted atlas_mcp Postgres login. |
-| Per-consumer MCP authorization | not-supported | tested | Unauthenticated backend-network callers bypass Kong. All Kong dashboard consumers reach the same tool set and administrator credentials for Neo4j, and the shared atlas_mcp Postgres login. Atlas configures no application credential, OAuth scopes, tenant namespaces, or tool policy. |
+### 8.1. Current — Upstream (this service calls)
+
+<a id="51-current-upstream-this-service-calls"></a>
+<a id="51-current--upstream-this-service-calls"></a>
+
+| Service | Category |
+|---|---|
+| neo4j | data |
+| supabase | data |
+| searxng | media |
+
+### 8.2. Current — Downstream (services that call this)
+
+<a id="52-current-downstream-services-that-call-this"></a>
+<a id="52-current--downstream-services-that-call-this"></a>
+
+| Service | Category | Status |
+|---|---|---|
+| kong | infra | current |
+| trueforge | agents | current |
+| jupyterhub | apps | optional: MCP_SERVERS_SOURCE=container |
+
+### 8.3. Architecture diagram
+
+<a id="53-architecture-diagram"></a>
+
+![mcp-servers architecture](./architecture.svg)
+
+[Open the full-size diagram](./architecture.html) for a full-screen view.
+
+### 8.4. Future — Missing pair integrations
+
+<a id="54-future-missing-pair-integrations"></a>
+<a id="54-future--missing-pair-integrations"></a>
+
+_No high-confidence opportunities identified._
+
+### 8.5. Future — Candidate new services
+
+<a id="55-future-candidate-new-services"></a>
+<a id="55-future--candidate-new-services"></a>
+
+- Docling MCP is the first candidate for a specialist MCP server, because upstream supports remote Docling Serve and Streamable HTTP. It needs its own disabled SOURCE and a decision on document-upload authorization.
+
+### 8.6. Future — Unused features in this service
+
+<a id="56-future-unused-features-in-this-service"></a>
+<a id="56-future--unused-features-in-this-service"></a>
+
+_No high-confidence opportunities identified._

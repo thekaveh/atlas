@@ -57,44 +57,10 @@ Atlas does not ship downstream project job definitions. Mount or seed project jo
 
 Jenkins calls MinIO to publish built artifacts. Airflow, Spark, notebooks, and downstream labs consume those artifacts later via `s3a://jars/...`; Jenkins does not need direct startup dependencies on those consumers.
 
-## 6. Dependencies & Integrations
+## 6. Capabilities & limitations
 
-### 6.1. Current — Upstream (this service calls)
-
-| Service | Category | Status |
-|---|---|---|
-| minio | data | optional: an operator-authored Jenkins job; none ships with Atlas |
-
-### 6.2. Current — Downstream (services that call this)
-
-| Service | Category |
-|---|---|
-| kong | infra |
-
-### 6.3. Architecture diagram
-
-![jenkins architecture](./architecture.svg)
-
-[Open the full-size diagram](./architecture.html) for a full-screen view.
-
-### 6.4. Future — Missing pair integrations
-
-_No high-confidence opportunities identified._
-
-### 6.5. Future — Candidate new services
-
-_No high-confidence opportunities identified._
-
-### 6.6. Future — Unused features in this service
-
-_No high-confidence opportunities identified._
-
-## 7. Troubleshooting
-
-- **Login rejected** — check `JENKINS_ADMIN_USER` and `JENKINS_ADMIN_PASSWORD` in `.env`. After a change, rerun `./start.sh`: the container must be recreated to receive the new values, and JCasC applies them at startup. A plain `docker restart` keeps the old values.
-- **Artifact upload fails** — verify MinIO is enabled, `minio-init` completed, and `MINIO_ICEBERG_ACCESS_KEY` / `MINIO_ICEBERG_SECRET_KEY` are populated.
-
-## 8. Capabilities & limitations
+<a id="8-capabilities-limitations"></a>
+<a id="8-capabilities--limitations"></a>
 
 Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
@@ -105,3 +71,60 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 | Jenkins UI authentication | supported | tested | JCasC disables signup and creates the generated admin login. Direct and Kong paths rely on that Jenkins login, because the Kong route adds no separate auth layer. |
 | Controller state persistence | partial | tested | JENKINS_HOME persists in one named volume, but Atlas configures one controller without backup, restore, external database, or replicated control-plane state. |
 | Distributed and containerized build agents | not-supported | tested | Atlas ships no agents, seed jobs, Docker socket, or privileged build executor; builds run on the bounded controller unless operators add their own Jenkins infrastructure. |
+
+## 7. Troubleshooting
+
+- **Login rejected** — check `JENKINS_ADMIN_USER` and `JENKINS_ADMIN_PASSWORD` in `.env`. After a change, rerun `./start.sh`: the container must be recreated to receive the new values, and JCasC applies them at startup. A plain `docker restart` keeps the old values.
+- **Artifact upload fails** — verify MinIO is enabled, `minio-init` completed, and `MINIO_ICEBERG_ACCESS_KEY` / `MINIO_ICEBERG_SECRET_KEY` are populated.
+
+## 8. Dependencies & Integrations
+
+<a id="6-dependencies-integrations"></a>
+<a id="6-dependencies--integrations"></a>
+
+### 8.1. Current — Upstream (this service calls)
+
+<a id="61-current-upstream-this-service-calls"></a>
+<a id="61-current--upstream-this-service-calls"></a>
+
+| Service | Category | Status |
+|---|---|---|
+| minio | data | optional: an operator-authored Jenkins job; none ships with Atlas |
+
+### 8.2. Current — Downstream (services that call this)
+
+<a id="62-current-downstream-services-that-call-this"></a>
+<a id="62-current--downstream-services-that-call-this"></a>
+
+| Service | Category |
+|---|---|
+| kong | infra |
+
+### 8.3. Architecture diagram
+
+<a id="63-architecture-diagram"></a>
+
+![jenkins architecture](./architecture.svg)
+
+[Open the full-size diagram](./architecture.html) for a full-screen view.
+
+### 8.4. Future — Missing pair integrations
+
+<a id="64-future-missing-pair-integrations"></a>
+<a id="64-future--missing-pair-integrations"></a>
+
+_No high-confidence opportunities identified._
+
+### 8.5. Future — Candidate new services
+
+<a id="65-future-candidate-new-services"></a>
+<a id="65-future--candidate-new-services"></a>
+
+_No high-confidence opportunities identified._
+
+### 8.6. Future — Unused features in this service
+
+<a id="66-future-unused-features-in-this-service"></a>
+<a id="66-future--unused-features-in-this-service"></a>
+
+_No high-confidence opportunities identified._

@@ -38,42 +38,10 @@ from other input formats keep their existing handling.
 - Kong cuts `api.localhost` requests at 300 s. The HTTP client gets a 504 while the conversion continues.
 - A Celery RAG ingestion has its own limits, `RAG_INGESTION_TASK_SOFT_TIME_LIMIT_SECONDS` and `RAG_INGESTION_TASK_TIME_LIMIT_SECONDS`. By default they are the larger of 3840 / 3900 s and the global Celery limits.
 
-## 2. Dependencies & Integrations
+## 2. Capabilities & limitations
 
-### 2.1. Current — Upstream (this service calls)
-
-_No upstream calls._
-
-### 2.2. Current — Downstream (services that call this)
-
-| Service | Category | Status |
-|---|---|---|
-| kong | infra | current |
-| docling-lightrag-adapter | media | optional: DOC_PROCESSOR_SOURCE=docling-container-gpu or docling-localhost |
-| celery | agents | current |
-| n8n | agents | current |
-| backend | apps | current |
-| jupyterhub | apps | current |
-
-### 2.3. Architecture diagram
-
-![docling architecture](./architecture.svg)
-
-[Open the full-size diagram](./architecture.html) for a full-screen view.
-
-### 2.4. Future — Missing pair integrations
-
-_No high-confidence opportunities identified._
-
-### 2.5. Future — Candidate new services
-
-_No high-confidence opportunities identified._
-
-### 2.6. Future — Unused features in this service
-
-_No high-confidence opportunities identified._
-
-## 3. Capabilities & limitations
+<a id="3-capabilities-limitations"></a>
+<a id="3-capabilities--limitations"></a>
 
 Support tier: **experimental** — Capability contract declared; no cited cold-start, workflow, or upgrade qualification run yet (evidence at `v0.1.0`).
 
@@ -84,3 +52,58 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 | Authenticated bounded provider API | partial | tested | Atlas-managed Docling routes require a generated bearer token and enforce upload, admission, and inference deadlines by default, but AUTH_MODE=disabled is an explicit rollback. |
 | Truthful model readiness | partial | tested | Health stays unavailable until converter construction succeeds, but it does not certify every lazily loaded model artifact needed by a later document. |
 | LightRAG conversion bundle | supported | tested | An authenticated internal route renders the JSON and Markdown bundle consumed by the isolated asynchronous LightRAG compatibility adapter. |
+
+## 3. Dependencies & Integrations
+
+<a id="2-dependencies-integrations"></a>
+<a id="2-dependencies--integrations"></a>
+
+### 3.1. Current — Upstream (this service calls)
+
+<a id="21-current-upstream-this-service-calls"></a>
+<a id="21-current--upstream-this-service-calls"></a>
+
+_No upstream calls._
+
+### 3.2. Current — Downstream (services that call this)
+
+<a id="22-current-downstream-services-that-call-this"></a>
+<a id="22-current--downstream-services-that-call-this"></a>
+
+| Service | Category | Status |
+|---|---|---|
+| kong | infra | current |
+| docling-lightrag-adapter | media | optional: DOC_PROCESSOR_SOURCE=docling-container-gpu or docling-localhost |
+| celery | agents | current |
+| n8n | agents | current |
+| backend | apps | current |
+| jupyterhub | apps | current |
+
+### 3.3. Architecture diagram
+
+<a id="23-architecture-diagram"></a>
+
+![docling architecture](./architecture.svg)
+
+[Open the full-size diagram](./architecture.html) for a full-screen view.
+
+### 3.4. Future — Missing pair integrations
+
+<a id="24-future-missing-pair-integrations"></a>
+<a id="24-future--missing-pair-integrations"></a>
+
+_No high-confidence opportunities identified._
+
+### 3.5. Future — Candidate new services
+
+<a id="25-future-candidate-new-services"></a>
+<a id="25-future--candidate-new-services"></a>
+
+_No high-confidence opportunities identified._
+
+### 3.6. Future — Unused features in this service
+
+<a id="26-future-unused-features-in-this-service"></a>
+<a id="26-future--unused-features-in-this-service"></a>
+
+_No high-confidence opportunities identified._
