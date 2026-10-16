@@ -172,6 +172,11 @@
   font-weight: 600;
 }
 
+/* Legacy topic anchors follow their corresponding heading. */
+.md-typeset :is(h2, h3) + p > a[id]:empty:not([href]):target {
+  --md-scroll-offset: -4rem;
+}
+
 /* -----------------------------------------------------------------------
    Tables — hairline borders, generous spacing
    ----------------------------------------------------------------------- */

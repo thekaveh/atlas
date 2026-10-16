@@ -247,3 +247,132 @@ def test_the_docs_check_treats_a_missing_mkdocs_yml_as_not_stale(tmp_path, monke
     (tmp_path / "mkdocs.yml").write_text("site_name: old\n")
     with pytest.raises(RuntimeError, match="stale"):
         build_docs.build(tmp_path / "m.yaml", tmp_path, site=True, wiki=False, check=True)
+
+
+def _legacy_alias_offset_rules():
+    import tinycss2
+
+    css = (_R / "docs/assets/stylesheets/atlas.css").read_text(encoding="utf-8")
+    for rule in tinycss2.parse_stylesheet(css, skip_comments=True, skip_whitespace=True):
+        if rule.type != "qualified-rule":
+            continue
+        declarations = tinycss2.parse_declaration_list(
+            rule.content, skip_comments=True, skip_whitespace=True,
+        )
+        offsets = [declaration for declaration in declarations
+                   if declaration.type == "declaration" and declaration.name == "--md-scroll-offset"]
+        if offsets:
+            assert len(declarations) == len(offsets) == 1, declarations
+            yield rule.prelude, offsets[0]
+
+
+def _legacy_alias_structural_selectors(prelude):
+    import cssselect2
+    import tinycss2
+
+    # cssselect2 cannot model dynamic :target; require it on the selected element.
+    tokens = list(prelude)
+    while tokens and tokens[-1].type == "whitespace":
+        tokens.pop()
+    assert [tinycss2.serialize([token]) for token in tokens[-2:]] == [":", "target"]
+    # Remove only that pseudo, preserving all structural selector tokens and spaces.
+    return cssselect2.compile_selector_list(tinycss2.serialize(tokens[:-2]))
+
+
+def _assert_legacy_alias_relative_offset(declaration):
+    import math
+
+    values = [token for token in declaration.value if token.type != "whitespace"]
+    assert len(values) == 1 and values[0].type == "dimension", values
+    offset = values[0]
+    assert math.isfinite(offset.value) and offset.value < 0, offset
+    assert offset.lower_unit in {"em", "rem", "ex", "ch", "lh", "rlh"}, offset
+
+
+@pytest.mark.parametrize("element_id,is_target,receives_offset", [
+    ("h2-alias", True, True),
+    ("h3-alias", True, True),
+    ("h2-first", True, True),
+    ("h2-second", True, True),
+    ("h3-first", True, True),
+    ("h3-second", True, True),
+    ("h3-first", False, False),
+    ("current-h2", True, False),
+    ("current-h3", True, False),
+    ("permalink", True, False),
+    ("href-link", True, False),
+    ("nonempty-alias", True, False),
+    ("child-alias", True, False),
+    ("later-alias", True, False),
+    ("h1-alias", True, False),
+    ("outside-alias", True, False),
+    ("footnote-alias", True, False),
+])
+def test_legacy_alias_scroll_offset_targets_only_heading_adjacent_empty_anchors(
+    element_id: str, is_target: bool, receives_offset: bool,
+) -> None:
+    import xml.etree.ElementTree as ET
+
+    import cssselect2
+
+    document = ET.fromstring("""
+        <html><body><article class="md-typeset">
+          <h2 id="current-h2">Topic<a id="permalink" href="#current-h2">¶</a></h2>
+          <p><a id="h2-alias"></a></p>
+          <h3 id="current-h3">Subtopic</h3><p><a id="h3-alias"></a></p>
+          <h2>Topic</h2><p><a id="h2-first"></a><a id="h2-second"></a></p>
+          <h3>Subtopic</h3><p><a id="h3-first"></a><a id="h3-second"></a></p>
+          <h2>Linked topic</h2><p><a id="href-link" href="#current-h2"></a></p>
+          <h3>Text topic</h3><p><a id="nonempty-alias">Content</a></p>
+          <h2>Nested topic</h2><p><a id="child-alias"><span></span></a></p>
+          <h2>Later topic</h2><p>Introduction</p><p><a id="later-alias"></a></p>
+          <h1>Document title</h1><p><a id="h1-alias"></a></p>
+          <h2>Notes</h2><div class="footnote"><ol><li>
+            <p><a id="footnote-alias"></a></p>
+          </li></ol></div>
+        </article><aside><h2>Elsewhere</h2><p><a id="outside-alias"></a></p></aside>
+        </body></html>
+    """)
+    element = next(
+        node for node in cssselect2.ElementWrapper.from_html_root(document).iter_subtree()
+        if node.id == element_id
+    )
+    matching_offsets = [
+        declaration for prelude, declaration in _legacy_alias_offset_rules()
+        if is_target and any(selector.test(element)
+                             for selector in _legacy_alias_structural_selectors(prelude))
+    ]
+    assert bool(matching_offsets) == receives_offset, (element_id, is_target, matching_offsets)
+    if receives_offset:
+        assert len(matching_offsets) == 1
+        _assert_legacy_alias_relative_offset(matching_offsets[0])
+
+
+def test_canonical_stylesheet_propagates_exact_bytes_and_loaded_site_wiring(tmp_path):
+    from mkdocs.config import load_config
+    from scripts.docs.build_docs import build
+
+    docs = tmp_path / "docs"
+    canonical = docs / "assets" / "stylesheets" / "atlas.css"
+    canonical.parent.mkdir(parents=True)
+    stylesheet = b"/* Synthetic canonical CSS. */\n:root { --atlas-probe: 3em; }\n"
+    canonical.write_bytes(stylesheet)
+    (docs / "index.md").write_text("# 1. Overview\n\nSynthetic canonical page.\n", encoding="utf-8")
+    manifest = docs / "manifest.yaml"
+    manifest.write_text(
+        "surfaces: [repo, site, wiki]\nnumbering: baked\nindex: overview\nsections:\n"
+        '  - {id: overview, number: "1", title: Overview, source: docs/index.md}\n'
+        "diagrams: []\n", encoding="utf-8",
+    )
+
+    for check in (False, True):
+        build(manifest, tmp_path, site=True, wiki=True, check=check)
+        for path in (
+            "generated/site/stylesheets/atlas.css",
+            "generated/site/assets/stylesheets/atlas.css",
+            "generated/wiki/assets/stylesheets/atlas.css",
+        ):
+            assert (tmp_path / path).read_bytes() == stylesheet, (check, path)
+        config = load_config(config_file=str(tmp_path / "mkdocs.yml"))
+        assert config.extra_css == ["stylesheets/atlas.css"]
+        assert (Path(config.docs_dir) / config.extra_css[0]).read_bytes() == stylesheet
