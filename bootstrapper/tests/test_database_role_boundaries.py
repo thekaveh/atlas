@@ -1216,6 +1216,80 @@ def test_upgrade_transfers_legacy_schema_objects_to_scoped_role(
     assert owners == ["function=atlas_n8n", "table=atlas_n8n"]
 
 
+# One admin-owned legacy table per ownership loop in 05-scoped-roles.sh, each with a serial and an
+# identity column (#1743): (database, schema, table, the role init must hand it to).
+_LEGACY_SEQUENCE_TABLES = (
+    ("litellm", "public", "Legacy1743", "litellm"),
+    ("postgres", "storage", "legacy1743", "supabase_storage_admin"),
+    ("postgres", "realtime", "legacy1743", "atlas_realtime"),
+    ("postgres", "public", "tenants_legacy1743", "atlas_realtime"),
+    ("postgres", "n8n", "legacy1743", "atlas_n8n"),
+    ("postgres", "lightrag", "legacy1743", "atlas_lightrag"),
+    ("postgres", "public", "lightrag_legacy1743", "atlas_lightrag"),
+)
+
+
+def _owners(disposable_postgres: DisposablePostgres, database: str, schema: str,
+            prefix: str) -> list[str]:
+    return disposable_postgres.sql(
+        "SELECT c.relname || '=' || pg_get_userbyid(c.relowner) "
+        "FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+        f"WHERE n.nspname = '{schema}' AND c.relname LIKE '{prefix}%' "
+        "AND c.relkind IN ('r', 'p', 'S') ORDER BY 1",
+        password=disposable_postgres.admin_password, database=database,
+    ).stdout.splitlines()
+
+
+def test_upgrade_transfers_a_legacy_tables_column_sequences_with_it(
+    disposable_postgres: DisposablePostgres,
+) -> None:
+    """A volume from before #991, where a service ran as the admin: its serial and identity
+    columns' sequences belong to supabase_admin. Postgres refuses ALTER SEQUENCE ... OWNER on a
+    sequence a column owns; it follows its table. Init stopped there (#1743). Partitions carry an
+    auto dependency on their parent too, and must still be transferred one by one."""
+    admin = disposable_postgres.admin_password
+    created = []
+    # The loops have no ORDER BY, and the failure needs the sequence's row scanned before its
+    # table's: once the table's owner moves, the sequence's has moved with it. Compacting
+    # pg_class makes the rows below land in creation order, sequence first, as on a volume whose
+    # service created its tables; earlier tests here leave free space that can reorder them.
+    for database in sorted({database for database, *_ in _LEGACY_SEQUENCE_TABLES}):
+        disposable_postgres.sql("VACUUM FULL pg_catalog.pg_class", password=admin,
+                                database=database)
+    try:
+        for database, schema, table, _role in _LEGACY_SEQUENCE_TABLES:
+            disposable_postgres.sql(
+                f'CREATE TABLE "{schema}"."{table}" (id bigserial PRIMARY KEY, '
+                f'n bigint GENERATED ALWAYS AS IDENTITY); '
+                f'ALTER TABLE "{schema}"."{table}" OWNER TO supabase_admin',
+                password=admin, database=database,
+            )
+            created.append((database, f'"{schema}"."{table}"'))
+        disposable_postgres.sql(
+            "CREATE TABLE n8n.parted1743 (id bigserial, at date) PARTITION BY RANGE (at); "
+            "CREATE TABLE n8n.parted1743_2026 PARTITION OF n8n.parted1743 "
+            "FOR VALUES FROM ('2026-01-01') TO ('2027-01-01'); "
+            "ALTER TABLE n8n.parted1743 OWNER TO supabase_admin; "
+            "ALTER TABLE n8n.parted1743_2026 OWNER TO supabase_admin",
+            password=admin,
+        )
+        created.append(("postgres", "n8n.parted1743"))
+
+        disposable_postgres.run_init()
+
+        for database, schema, table, role in _LEGACY_SEQUENCE_TABLES:
+            assert _owners(disposable_postgres, database, schema, table) == [
+                f"{table}={role}", f"{table}_id_seq={role}", f"{table}_n_seq={role}",
+            ], (database, schema, table)
+        assert _owners(disposable_postgres, "postgres", "n8n", "parted1743") == [
+            "parted1743=atlas_n8n", "parted1743_2026=atlas_n8n", "parted1743_id_seq=atlas_n8n",
+        ]
+    finally:
+        for database, qualified in reversed(created):
+            disposable_postgres.sql(f"DROP TABLE IF EXISTS {qualified} CASCADE",
+                                    password=admin, database=database, check=False)
+
+
 def _scoped_role_verifiers(disposable_postgres: DisposablePostgres) -> str:
     role_names = ",".join(f"'{role}'" for role, _, _ in SCOPED_AUTH_TARGETS)
     return disposable_postgres.sql(
