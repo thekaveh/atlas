@@ -1,4 +1,4 @@
-"""Configuration-validation and URI-safety regressions for Task 3."""
+"""Scoped-role provisioning regressions: validation, connection safety and ownership."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ import pytest
 
 from core.config_parser import ConfigParser
 from services.service_config import ServiceConfig
-from tests.test_database_role_boundaries import TEST_SECRETS
+from tests.test_database_role_boundaries import TEST_SECRETS, _add_exception_note
 from utils.key_generator import KeyGenerator
 
 
@@ -381,3 +381,152 @@ def test_role_provisioner_preserves_valid_identifier_spellings_at_database_bound
     assert result.returncode == 74, result.stderr
     assert log.read_text() == "called"
     assert "invalid database role configuration" not in result.stderr
+
+@pytest.fixture
+def native_ownership_postgres():
+    """Opt-in isolated SQL drill; no Docker, Atlas volumes or TCP listener.
+
+    Set ATLAS_TEST_NATIVE_POSTGRES_BIN to a local PostgreSQL bin directory.
+    These catalog/ownership tests do not qualify the pinned Supabase image.
+    """
+    import tempfile
+
+    configured = os.environ.get("ATLAS_TEST_NATIVE_POSTGRES_BIN")
+    if not configured:
+        pytest.skip("set ATLAS_TEST_NATIVE_POSTGRES_BIN for isolated ownership SQL")
+    binaries = Path(configured)
+    for name in ("initdb", "pg_ctl", "psql"):
+        if not (binaries / name).is_file():
+            pytest.fail(f"native PostgreSQL executable unavailable: {binaries / name}")
+    environment = {key: value for key, value in os.environ.items()
+                   if not key.startswith("PG")}
+    with tempfile.TemporaryDirectory(prefix="atlas-role-", dir="/tmp") as temporary:
+        root = Path(temporary)
+        data = root / "data"
+        socket = root / "socket"
+        socket.mkdir()
+        subprocess.run(
+            [str(binaries / "initdb"), "-D", str(data), "-U", "atlas_test_admin",
+             "--auth-local=trust", "--auth-host=reject", "--no-locale", "--no-sync"],
+            check=True, capture_output=True, text=True, timeout=30, env=environment,
+        )
+        try:
+            subprocess.run(
+                [str(binaries / "pg_ctl"), "-D", str(data), "-l", str(root / "server.log"),
+                 "-o", f"-k {socket} -h ''", "-w", "start"],
+                check=True, capture_output=True, text=True, timeout=30, env=environment,
+            )
+            def sql(statement: str):
+                return subprocess.run(
+                    [str(binaries / "psql"), "-X", "-At", "-v", "ON_ERROR_STOP=1",
+                     "-h", str(socket), "-U", "atlas_test_admin", "-d", "postgres"],
+                    input=statement, capture_output=True, text=True, timeout=15,
+                    env=environment,
+                )
+            yield sql
+        finally:
+            _stop_native_ownership_postgres(binaries, data, environment, sys.exc_info()[1])
+
+
+def _stop_native_ownership_postgres(binaries, data, environment, failure) -> None:
+    if not (data / "postmaster.pid").exists():
+        return
+    try:
+        subprocess.run(
+            [str(binaries / "pg_ctl"), "-D", str(data), "-m", "immediate", "-w", "stop"],
+            check=True, capture_output=True, text=True, timeout=30, env=environment,
+        )
+    except (OSError, subprocess.SubprocessError) as cleanup_error:
+        if failure is None:
+            raise
+        _add_exception_note(failure, f"native PostgreSQL cleanup failed: {cleanup_error}")
+
+
+def _ownership_loop(marker: str) -> str:
+    """Extract executable relation-transfer SQL, including its actual predicate."""
+    script = ROLE_SCRIPT.read_text()
+    start = script.index(marker)
+    start = script.rfind("FOR item IN", 0, start)
+    assert start >= 0
+    end = script.index("END LOOP;", start) + len("END LOOP;")
+    return script[start:end]
+
+
+@pytest.mark.parametrize("sequences_first", (True, False), ids=("sequences-first", "tables-first"))
+@pytest.mark.parametrize(
+    "scope",
+    (
+        ("FROM pg_class c\n    JOIN pg_namespace n ON n.oid = c.relnamespace", "public", "legacy_service"),
+        ("WHERE n.nspname=schema_name", "storage", "legacy_storage"),
+        ("WHERE n.nspname=schema_name", "realtime", "legacy_realtime"),
+        ("c.relname = ANY (ARRAY['tenants'", "public", "tenants_legacy"),
+        ("WHERE n.nspname = 'n8n' AND c.relkind", "n8n", "legacy_n8n"),
+        ("WHERE n.nspname = 'lightrag'\n      AND c.relkind", "lightrag", "legacy_lightrag"),
+        ("WHERE n.nspname = 'public' AND lower(c.relname) LIKE 'lightrag%'", "public", "LIGHTRAG_legacy"),
+    ),
+    ids=("dedicated", "storage", "realtime", "realtime-public", "n8n", "lightrag", "lightrag-public"),
+)
+def test_native_legacy_ownership_transfers_attached_and_free_sequences(
+    native_ownership_postgres, scope: tuple[str, str, str], sequences_first: bool,
+) -> None:
+    """Attached sequences follow tables; free sequences and partitions still move."""
+    marker, schema, table = scope
+    sql = native_ownership_postgres
+    loop = _ownership_loop(marker)
+    # Force both SQL cursor orders instead of trusting heap layout or prior GRANTs.
+    direction = "DESC" if sequences_first else "ASC"
+    loop = loop.replace("\n  LOOP", f"\n    ORDER BY (c.relkind = 'S') {direction}, c.oid\n  LOOP", 1)
+    if "ORDER BY" not in loop:
+        loop = loop.replace("\n    LOOP", f"\n      ORDER BY (c.relkind = 'S') {direction}, c.oid\n    LOOP", 1)
+    assert "ORDER BY" in loop
+    _seed_legacy_ownership_relations(sql, schema, table)
+    statement = (
+        "SET search_path = pg_catalog, pg_temp; DO $body$ "
+        f"DECLARE target name := 'scoped_owner'; schema_name text := '{schema}'; "
+        "item record; kind text; BEGIN " + loop + " END $body$;"
+    )
+    for _ in range(2):
+        transferred = sql(statement)
+        assert transferred.returncode == 0, transferred.stderr
+        _assert_legacy_relation_owners(sql, schema, table)
+    # Dedicated databases own all non-system schemas; other loops remain selective.
+    unrelated = sql("SELECT pg_catalog.pg_get_userbyid(relowner) FROM pg_catalog.pg_class "
+                    "WHERE oid='unrelated.keep'::regclass")
+    expected = "scoped_owner" if table == "legacy_service" else "legacy_owner"
+    assert unrelated.stdout.strip() == expected
+
+
+def _assert_legacy_relation_owners(sql, schema: str, table: str) -> None:
+    owners = sql(
+        "SELECT c.relname || '=' || pg_catalog.pg_get_userbyid(c.relowner) "
+        "FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace "
+        f"WHERE n.nspname='{schema}' AND c.relname LIKE '{table}%' "
+        "AND c.relkind IN ('r','p','S') ORDER BY c.relname"
+    )
+    assert owners.returncode == 0, owners.stderr
+    assert len(owners.stdout.splitlines()) == 6, owners.stdout
+    assert all(row.endswith("=scoped_owner") for row in owners.stdout.splitlines()), owners.stdout
+
+
+def _seed_legacy_ownership_relations(sql, schema: str, table: str) -> None:
+    qualified = f'"{schema}"."{table}"'
+    free = f'"{schema}"."{table}_free"'
+    partitioned = f'"{schema}"."{table}_partitioned"'
+    child = f'"{schema}"."{table}_partitioned_child"'
+    setup = sql(
+        "CREATE ROLE legacy_owner; CREATE ROLE scoped_owner; "
+        f'CREATE SCHEMA IF NOT EXISTS "{schema}"; '
+        f"CREATE TABLE {qualified} (id bigserial, identity_id bigint GENERATED ALWAYS AS IDENTITY); "
+        f"ALTER TABLE {qualified} OWNER TO legacy_owner; "
+        f"CREATE SEQUENCE {free}; ALTER SEQUENCE {free} OWNER TO legacy_owner; "
+        f"CREATE TABLE {partitioned} (id int) PARTITION BY RANGE (id); "
+        f"CREATE TABLE {child} PARTITION OF {partitioned} FOR VALUES FROM (0) TO (10); "
+        f"ALTER TABLE {partitioned} OWNER TO legacy_owner; "
+        f"ALTER TABLE {child} OWNER TO legacy_owner; "
+        # Existing ACLs must not mask the dependency bug by changing heap order.
+        f'GRANT ALL ON ALL TABLES IN SCHEMA "{schema}" TO scoped_owner; '
+        f'GRANT ALL ON ALL SEQUENCES IN SCHEMA "{schema}" TO scoped_owner; '
+        "CREATE SCHEMA unrelated; CREATE SEQUENCE unrelated.keep; "
+        "ALTER SEQUENCE unrelated.keep OWNER TO legacy_owner;"
+    )
+    assert setup.returncode == 0, setup.stderr
