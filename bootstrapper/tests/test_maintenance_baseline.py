@@ -21,8 +21,8 @@ EXPECTED_BASELINE_SNAPSHOT = {
     "functions_over_100_physical_lines": 85,
     "functions_over_4_parameters": 156,
     "modules_over_600_logical_lines": 21,
-    # #1755 reconciliation helper and #1756 admission tests; code ceilings stay fixed.
-    "tracked_files": 1622,
+    # One focused #1778 deployment-lock regression module; code ceilings stay fixed.
+    "tracked_files": 1623,
     "v0.1.0_tracked_files": 667,
 }
 EXPECTED_EXTENDED_PYTHON_SNAPSHOT = {
