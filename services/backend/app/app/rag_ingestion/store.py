@@ -12,6 +12,7 @@ reads it. Two implementations:
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -22,7 +23,7 @@ from typing import Dict, List, Optional
 
 from shared_state import StateStoreUnavailable, backend_state_store_mode, redis_url
 
-from .models import IngestionRecord
+from .models import IngestionRecord, weaviate_class_name
 
 _DEFAULT_TTL_SECONDS = 7 * 24 * 3600
 _MIN_TTL_SECONDS = 60
@@ -34,6 +35,7 @@ _INDEX_ZSET = "atlas:rag:ingestion-ids:v2"
 _INDEX_SEQUENCE = "atlas:rag:ingestion-ids:v2:sequence"
 _INDEX_MIGRATION_CURSOR = "atlas:rag:ingestion-ids:v2:migration-cursor"
 _LEASE_PREFIX = "atlas:rag:execution:"
+_PUBLICATION_PREFIX = "atlas:rag:publication:"
 _DEFAULT_LIST_LIMIT = 100
 _MAX_LIST_LIMIT = 200
 _MAX_CURSOR = 2**53 - 1
@@ -59,6 +61,18 @@ def _carry_dispatch_fields(record: "IngestionRecord", current: "IngestionRecord"
     and a worker saving its stale copy must not undo a later acceptance."""
     for field in _DISPATCH_FIELDS:
         setattr(record, field, getattr(current, field))
+
+
+def publication_target(class_name: str) -> str:
+    """One physical class, including historical consumer/profile aliases."""
+    scope = json.dumps(["weaviate", class_name], separators=(",", ":"))
+    return hashlib.sha256(scope.encode()).hexdigest()
+
+
+def publication_targets(profile) -> List[str]:
+    return sorted({publication_target(
+        weaviate_class_name(target["collection_prefix"], profile.name),
+    ) for target in profile.vector_targets})
 
 
 @dataclass(frozen=True)
@@ -155,6 +169,11 @@ class IngestionStore:
     def save_claimed(self, record: IngestionRecord, owner: str) -> bool:
         raise NotImplementedError
 
+    def mark_publication(
+        self, ingestion_id: str, owner: str, publication: tuple[str, bool]
+    ) -> bool:
+        raise NotImplementedError
+
     def release_execution(self, ingestion_id: str, owner: str) -> bool:
         raise NotImplementedError
 
@@ -164,6 +183,7 @@ class InMemoryIngestionStore(IngestionStore):
         self._records: Dict[str, str] = {}
         self._index: Dict[str, str] = {}
         self._leases: Dict[str, tuple[str, float]] = {}
+        self._publications: Dict[str, str] = {}
         self._record_sequence: Dict[str, int] = {}
         self._next_sequence = 0
         self._lock = threading.Lock()
@@ -174,7 +194,8 @@ class InMemoryIngestionStore(IngestionStore):
             self._record_sequence[record.id] = self._next_sequence
         self._records[record.id] = json.dumps(record.to_dict())
         if record.is_dedup_candidate:
-            self._index[record.idempotency_key] = record.id
+            if self._index.get(record.idempotency_key) in (None, record.id):
+                self._index[record.idempotency_key] = record.id
         elif self._index.get(record.idempotency_key) == record.id:
             del self._index[record.idempotency_key]
 
@@ -188,6 +209,8 @@ class InMemoryIngestionStore(IngestionStore):
                 if current.cancel_requested:
                     record.cancel_requested = True
                 _carry_dispatch_fields(record, current)
+            if not current_blob and record.publication_targets is not None:
+                return  # Expired managed jobs are never recreated by a stale save.
             self._save_locked(record)
 
     def create_if_absent(self, record: IngestionRecord) -> tuple[IngestionRecord, bool]:
@@ -196,7 +219,14 @@ class InMemoryIngestionStore(IngestionStore):
             current_blob = self._records.get(current_id) if current_id else None
             if current_blob:
                 current = IngestionRecord.from_dict(json.loads(current_blob))
-                if current.is_dedup_candidate:
+                reusable = current.is_dedup_candidate
+                if current.status == "completed":
+                    targets = current.publication_targets
+                    reusable = reusable and targets is not None and (
+                        targets == record.publication_targets
+                        and all(self._publications.get(target) == current.id for target in targets)
+                    )
+                if reusable:
                     return current, False
             if current_id:
                 self._index.pop(record.idempotency_key, None)
@@ -367,6 +397,8 @@ class InMemoryIngestionStore(IngestionStore):
             ):
                 return False
             current_blob = self._records.get(record.id)
+            if not current_blob:
+                return False
             if current_blob:
                 current = IngestionRecord.from_dict(json.loads(current_blob))
                 if current.is_terminal:
@@ -375,6 +407,26 @@ class InMemoryIngestionStore(IngestionStore):
                     record.cancel_requested = True
                 _carry_dispatch_fields(record, current)
             self._save_locked(record)
+            return True
+
+    def mark_publication(
+        self, ingestion_id: str, owner: str, publication: tuple[str, bool]
+    ) -> bool:
+        target, published = publication
+        with self._lock:
+            lease = self._leases.get(ingestion_id)
+            blob = self._records.get(ingestion_id)
+            if not blob or not lease or lease[0] != owner or lease[1] <= time.monotonic():
+                return False
+            record = IngestionRecord.from_dict(json.loads(blob))
+            if record.is_terminal or target not in (record.publication_targets or []):
+                return False
+            token = f"{ingestion_id}:{owner}"
+            if not published:
+                self._publications[target] = token
+            elif self._publications.get(target) == token:
+                self._publications[target] = ingestion_id
+            # A competing publication keeps this job unproven; never overwrite it.
             return True
 
     def release_execution(self, ingestion_id: str, owner: str) -> bool:
@@ -453,9 +505,24 @@ if current_id then
     local current_blob = redis.call('GET', ARGV[1] .. current_id)
     if current_blob then
         local current = cjson.decode(current_blob)
-        if is_dedup_candidate(current) then
-            return {0, current_blob}
+        local reusable = is_dedup_candidate(current)
+        if current.status == 'completed' then
+            local targets = current.publication_targets
+            local incoming = cjson.decode(ARGV[2])
+            local requested = incoming.publication_targets
+            reusable = reusable and targets ~= nil and targets ~= cjson.null
+                and requested ~= nil and requested ~= cjson.null
+            if reusable then
+                reusable = #targets == #requested
+                for i, target in ipairs(targets) do
+                    if requested[i] ~= target
+                       or redis.call('GET', ARGV[5] .. target) ~= current.id then
+                        reusable = false
+                    end
+                end
+            end
         end
+        if reusable then return {0, current_blob} end
     end
 end
 local score, score_error = reserve_score(KEYS[3], KEYS[4], KEYS[5], ARGV[4])
@@ -471,6 +538,8 @@ return {1, ARGV[2]}
     _SAVE_SCRIPT = _SCORE_RESERVATION_SCRIPT + """
 local incoming = cjson.decode(ARGV[1])
 local current_blob = redis.call('GET', KEYS[1])
+if not current_blob and incoming.publication_targets ~= nil
+   and incoming.publication_targets ~= cjson.null then return false end
 if current_blob then
     local current = cjson.decode(current_blob)
     if current.status == 'completed' or current.status == 'failed'
@@ -493,7 +562,10 @@ redis.call('SET', KEYS[1], blob, 'EX', ARGV[2])
 redis.call('SADD', KEYS[3], incoming.id)
 if score then redis.call('ZADD', KEYS[4], 'NX', score, incoming.id) end
 if is_dedup_candidate(incoming) then
-    redis.call('SET', KEYS[2], incoming.id, 'EX', ARGV[2])
+    local index_owner = redis.call('GET', KEYS[2])
+    if not index_owner or index_owner == incoming.id then
+        redis.call('SET', KEYS[2], incoming.id, 'EX', ARGV[2])
+    end
 elseif redis.call('GET', KEYS[2]) == incoming.id then
     redis.call('DEL', KEYS[2])
 end
@@ -625,7 +697,10 @@ redis.call('SET', KEYS[1], blob, 'EX', ARGV[2])
 redis.call('SADD', KEYS[3], incoming.id)
 if score then redis.call('ZADD', KEYS[5], 'NX', score, incoming.id) end
 if is_dedup_candidate(incoming) then
-    redis.call('SET', KEYS[2], incoming.id, 'EX', ARGV[2])
+    local index_owner = redis.call('GET', KEYS[2])
+    if not index_owner or index_owner == incoming.id then
+        redis.call('SET', KEYS[2], incoming.id, 'EX', ARGV[2])
+    end
 elseif redis.call('GET', KEYS[2]) == incoming.id then
     redis.call('DEL', KEYS[2])
 end
@@ -706,6 +781,29 @@ end
 return 1
 """
 
+    _PUBLICATION_SCRIPT = """
+if redis.call('GET', KEYS[2]) ~= ARGV[1] then return 0 end
+local blob = redis.call('GET', KEYS[1])
+if not blob then return 0 end
+local record = cjson.decode(blob)
+if record.status == 'completed' or record.status == 'failed'
+   or record.status == 'cancelled' then return 0 end
+local declared = false
+if record.publication_targets and record.publication_targets ~= cjson.null then
+    for _, target in ipairs(record.publication_targets) do
+        if target == ARGV[2] then declared = true end
+    end
+end
+if not declared then return 0 end
+local token = record.id .. ':' .. ARGV[1]
+if ARGV[3] == '0' then
+    redis.call('SET', KEYS[3], token, 'EX', ARGV[4])
+elseif redis.call('GET', KEYS[3]) == token then
+    redis.call('SET', KEYS[3], record.id, 'EX', ARGV[4])
+end
+return 1
+"""
+
     _RELEASE_EXECUTION_SCRIPT = """
 if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
 redis.call('DEL', KEYS[1])
@@ -740,6 +838,7 @@ return 1
             blob,
             self._ttl_seconds,
             record.id,
+            _PUBLICATION_PREFIX,
         )
         return IngestionRecord.from_dict(json.loads(persisted)), bool(created)
 
@@ -944,6 +1043,17 @@ return 1
                 owner,
             )
         )
+
+    def mark_publication(
+        self, ingestion_id: str, owner: str, publication: tuple[str, bool]
+    ) -> bool:
+        target, published = publication
+        return bool(self._redis.eval(
+            self._PUBLICATION_SCRIPT, 3,
+            _KEY_PREFIX + ingestion_id, _LEASE_PREFIX + ingestion_id,
+            _PUBLICATION_PREFIX + target,
+            owner, target, "1" if published else "0", self._ttl_seconds,
+        ))
 
     def release_execution(self, ingestion_id: str, owner: str) -> bool:
         return bool(

@@ -70,12 +70,16 @@ class FakeWeaviate:
         self.reconciled = []
         self.preserved = []
         self.source_of = {}
+        self.objects = {}
+        self.class_of = {}
     def available(self):
         return self._available
     async def ensure_class(self, class_name, embedding=None):
         self.classes.append(class_name)
     async def write_objects(self, class_name, objects):
         self.written.extend(objects)
+        self.objects.update((obj["id"], obj) for obj in objects)
+        self.class_of.update((obj["id"], class_name) for obj in objects)
         self.object_ids.update(obj["id"] for obj in objects)
         # Track each object's source so the fake can model per-source
         # preservation the way the real client does.
@@ -88,10 +92,12 @@ class FakeWeaviate:
         keep_sources = set(preserve_sources or ())
         self.reconciled.append((class_name, profile_name, list(desired_ids)))
         self.preserved.append(sorted(keep_sources))
-        survivors = set(desired_ids) | {
+        survivors = {oid for oid in self.object_ids if self.class_of.get(oid) != class_name
+                     or self.objects[oid]["properties"].get("profile") != profile_name} | set(desired_ids) | {
             oid for oid in self.object_ids if self.source_of.get(oid) in keep_sources
         }
         self.object_ids.intersection_update(survivors)
+        self.objects = {oid: obj for oid, obj in self.objects.items() if oid in survivors}
         return 0
 
 
@@ -3789,3 +3795,519 @@ def test_provenance_whitespace_errors_do_not_predict_survival_before_rebuild(mon
     assert all("parsed to whitespace" in error["message"] for error in final.errors)
     assert all("existing vectors preserved" not in error["message"] for error in final.errors)
     assert "may have no vectors" in final.phase("vector_write").note
+
+
+@pytest.mark.parametrize("live_redis", [False, True])
+@pytest.mark.parametrize("generations", [("A", "B", "A"), ("A", None, "A"), (None, "B", None)])
+def test_completed_generation_rollback_publishes_current_contents(
+    tmp_path, monkeypatch, live_redis, generations
+):
+    store = _ingestion_regression_store(live_redis)
+    corpus, _ = _mutable_ingestion_corpus(tmp_path, monkeypatch, "mount")
+    service = _corpus_change_service(tmp_path, corpus, store)
+    source = tmp_path / "corpus-root/docs/a.txt"
+    records = []
+    for content in generations:
+        source.unlink(missing_ok=True)
+        if content is not None:
+            source.write_text(content)
+        record, created = service.submit("showcase-default")
+        assert created, "a retained historical completion must not suppress restoration"
+        assert not service.submit("showcase-default")[1], "pending duplicates fold"
+        final = asyncio.run(service.run(record.id))
+        assert final.status == "completed", final.errors
+        records.append(record)
+        repeated, created = service.submit("showcase-default")
+        assert not created and repeated.id == record.id, "current completion is reusable"
+        assert _current_fake_contents(service.deps.weaviate) == (
+            {content} if content is not None else set()
+        )
+        assert service.deps.weaviate.object_ids == set(service.deps.weaviate.objects)
+    _assert_three_publications(store, records, service.deps.weaviate)
+
+
+def _assert_three_publications(store, records, weaviate):
+    assert len(weaviate.reconciled) == 3
+    assert len({r.id for r in records}) == 3
+    assert all(store.get(r.id).status == "completed" for r in records)
+
+
+@pytest.mark.parametrize("live_redis", [False, True])
+def test_completed_model_rollback_reembeds_and_reuses_current_model(tmp_path, monkeypatch, live_redis):
+    corpus, _ = _mutable_ingestion_corpus(tmp_path, monkeypatch, "mount")
+    service = _corpus_change_service(tmp_path, corpus, _ingestion_regression_store(live_redis))
+    models = []
+    async def embed(texts):
+        models.append(service.deps.embedder.model)
+        return [[float(len(models)), 0.0, 0.0] for _ in texts]
+    service.deps.embedder.embed = embed
+    for model in ("model-A", "model-B", "model-A"):
+        service.deps.embedder.model = model
+        record, created = service.submit("showcase-default")
+        assert created, "restored embedding identity must replace the current model"
+        assert asyncio.run(service.run(record.id)).status == "completed"
+        assert not service.submit("showcase-default")[1]
+    assert models == ["model-A", "model-B", "model-A"]
+    assert all(obj["vector"] == [3.0, 0.0, 0.0] for obj in service.deps.weaviate.objects.values())
+
+
+@pytest.mark.parametrize("live_redis", [False, True])
+@pytest.mark.parametrize("outcome", ["failure", "cancel", "retry", "partial", "rebuild", "reconcile"])
+def test_vector_mutation_supersedes_history_before_later_outcomes(
+    tmp_path, monkeypatch, live_redis, outcome
+):
+    corpus, change = _mutable_ingestion_corpus(tmp_path, monkeypatch, "mount")
+    service = _corpus_change_service(tmp_path, corpus, _ingestion_regression_store(live_redis))
+    first, _, final = _run(service)
+    assert final.status == "completed"
+    change(b"B")
+    second, _ = service.submit("showcase-default")
+    weaviate = service.deps.weaviate
+    originals = (weaviate.ensure_class, weaviate.write_objects, weaviate.reconcile_objects,
+                 service._phase_lightrag_upload)
+    if outcome == "rebuild":
+        async def destructive_rebuild(*_args, **_kwargs):
+            service.deps.weaviate.objects.clear()
+            service.deps.weaviate.object_ids.clear()
+            raise httpx.ConnectError("class deleted before recreation acknowledgement")
+        service.deps.weaviate.ensure_class = destructive_rebuild
+    elif outcome == "reconcile":
+        async def partial_reconcile(*_args, **_kwargs):
+            service.deps.weaviate.objects.clear()
+            service.deps.weaviate.object_ids.clear()
+            raise httpx.ConnectError("reconciliation deletion acknowledgement lost")
+        service.deps.weaviate.reconcile_objects = partial_reconcile
+    elif outcome == "partial":
+        original = service.deps.weaviate.write_objects
+        async def fail_after_write(*args):
+            await original(*args)
+            raise httpx.ConnectError("write acknowledgement lost")
+        service.deps.weaviate.write_objects = fail_after_write
+    else:
+        async def after_vectors(*_args):
+            if outcome == "cancel":
+                service.store.request_cancel(second.id)
+                return
+            raise httpx.ConnectError("later graph phase unavailable")
+        service._phase_lightrag_upload = after_vectors
+    if outcome == "retry":
+        with pytest.raises(httpx.ConnectError):
+            asyncio.run(service.run(second.id, retry_transient=True))
+        assert service.store.get(second.id).status == "pending"
+        assert not service.submit("showcase-default")[1], "pending retry remains folded"
+    else:
+        assert asyncio.run(service.run(second.id)).status == ("cancelled" if outcome == "cancel" else "failed")
+    change(b"A")
+    restored, created = service.submit("showcase-default")
+    assert created and restored.id != first.id, "actual mutation supersedes A even when B never completes"
+    _restore_after_failed_generation(service, restored, originals)
+
+
+def _restore_after_failed_generation(service, restored, originals):
+    weaviate = service.deps.weaviate
+    (weaviate.ensure_class, weaviate.write_objects, weaviate.reconcile_objects,
+     service._phase_lightrag_upload) = originals
+    final = asyncio.run(service.run(restored.id))
+    assert final.status == "completed", final.errors
+    assert _current_fake_contents(weaviate) == {"A"}
+
+
+@pytest.mark.parametrize("live_redis", [False, True])
+def test_parse_refusal_preserves_current_generation(tmp_path, monkeypatch, live_redis):
+    corpus, change = _mutable_ingestion_corpus(tmp_path, monkeypatch, "mount")
+    service = _corpus_change_service(tmp_path, corpus, _ingestion_regression_store(live_redis))
+    first, _, _ = _run(service)
+    change(b"B")
+    async def broken(*_args):
+        raise ParserError("synthetic parse failure")
+    service.deps.parser.parse = broken
+    failed, _, final = _run(service)
+    assert final.status == "failed"
+    assert service.deps.weaviate.objects[next(iter(service.deps.weaviate.object_ids))]["properties"]["content"] == "A"
+    change(b"A")
+    current, created = service.submit("showcase-default")
+    assert not created and current.id == first.id
+    assert len(service.deps.weaviate.reconciled) == 1
+
+
+def _generation_record(targets=None):
+    record = _dedup_record(str(uuid.uuid4()))
+    record.idempotency_key = str(uuid.uuid4())
+    record.publication_targets = targets if targets is not None else [str(uuid.uuid4())]
+    return record
+
+
+def _pending_copy(record):
+    incoming = IngestionRecord.from_dict(record.to_dict())
+    incoming.id, incoming.status = str(uuid.uuid4()), "pending"
+    return incoming
+
+
+def _publish_for_test(store, record):
+    assert store.create_if_absent(record)[1]
+    assert store.claim_execution(record.id, ExecutionClaim("owner", 60))
+    for target in record.publication_targets:
+        assert store.mark_publication(record.id, "owner", (target, False))
+        assert store.mark_publication(record.id, "owner", (target, True))
+    record.status = "completed"
+    assert store.save_claimed(record, "owner")
+
+
+def _remove_retained_authority(store, record, boundary):
+    if isinstance(store, RedisIngestionStore):
+        from rag_ingestion.store import _PUBLICATION_PREFIX, _KEY_PREFIX, _IDX_PREFIX
+        key = {"missing-marker": _PUBLICATION_PREFIX + record.publication_targets[0],
+               "missing-index": _IDX_PREFIX + record.idempotency_key,
+               "missing-record": _KEY_PREFIX + record.id}[boundary]
+        store._redis.expire(key, 0)
+    elif boundary == "missing-marker":
+        store._publications.clear()
+    elif boundary == "missing-index":
+        store._index.pop(record.idempotency_key)
+    else:
+        store._records.pop(record.id)
+
+
+@pytest.mark.parametrize("live_redis", [False, True])
+@pytest.mark.parametrize("boundary", ["missing-marker", "missing-index", "missing-record"])
+def test_publication_currentness_fails_closed_across_retention_and_stale_saves(live_redis, boundary):
+    store = _ingestion_regression_store(live_redis)
+    old = _generation_record()
+    _publish_for_test(store, old)
+    assert not store.create_if_absent(_pending_copy(old))[1]
+    _remove_retained_authority(store, old, boundary)
+    store.save(IngestionRecord.from_dict(old.to_dict()))
+    assert not store.mark_publication(old.id, "owner", (old.publication_targets[0], True))
+    assert store.create_if_absent(_pending_copy(old))[1]
+
+
+@pytest.mark.parametrize("live_redis", [False, True])
+def test_publication_transitions_are_fenced_and_declared(live_redis):
+    store = _ingestion_regression_store(live_redis)
+    record = _generation_record()
+    target = record.publication_targets[0]
+    assert store.create_if_absent(record)[1]
+    assert store.claim_execution(record.id, ExecutionClaim("owner", 60))
+    assert not store.mark_publication(record.id, "wrong-owner", (target, False))
+    assert not store.mark_publication(record.id, "owner", ("undeclared-target", False))
+    assert store.mark_publication(record.id, "owner", (target, False))
+    record.status = "completed"
+    assert store.save_claimed(record, "owner")
+    assert not store.mark_publication(record.id, "owner", (target, True))
+
+
+@pytest.mark.parametrize("live_redis", [False, True])
+def test_publication_transitions_are_target_independent(live_redis):
+    store = _ingestion_regression_store(live_redis)
+    shared = str(uuid.uuid4())
+    records = [_generation_record(targets) for targets in (
+        [shared, str(uuid.uuid4())], [str(uuid.uuid4())], [shared],
+    )]
+    for record in records:
+        _publish_for_test(store, record)
+    assert store.create_if_absent(_pending_copy(records[0]))[1]
+    assert not store.create_if_absent(_pending_copy(records[1]))[1]
+    assert not store.create_if_absent(_pending_copy(records[2]))[1]
+
+
+@pytest.mark.parametrize("live_redis", [False, True])
+def test_legacy_completed_record_without_currentness_proof_is_reexecuted(live_redis):
+    store = _ingestion_regression_store(live_redis)
+    old = _generation_record()
+    old.publication_targets, old.status = None, "completed"
+    store.save(old)
+    assert store.create_if_absent(_pending_copy(old))[1]
+
+
+def _change_generation_targets(profile, variant):
+    target = profile["vector_targets"][0]
+    if variant in ("intersecting", "target-set-only"):
+        profile["vector_targets"] = [{**target, "collection_prefix": prefix} for prefix in ("Y", "Z")]
+    elif variant in ("disjoint", "consumer"):
+        profile["vector_targets"] = [{**target, "collection_prefix": "Z"}]
+    if variant in ("consumer", "consumer-alias"):
+        profile["consumer"] += "-other"
+    if variant == "profile":
+        profile["name"] += "-other"
+    if variant == "profile-alias":
+        profile["name"] = profile["name"].replace("-", ".")
+
+
+def _current_fake_contents(weaviate, classes=None):
+    return {obj["properties"]["content"] for oid, obj in weaviate.objects.items()
+            if obj["properties"]["profile"] == "showcase-default"
+            and (classes is None or weaviate.class_of[oid] in classes)}
+
+
+@pytest.mark.parametrize("live_redis", [False, True])
+@pytest.mark.parametrize("variant", [
+    ("intersecting", True), ("disjoint", False), ("consumer", False),
+    ("profile", False), ("target-set-only", True), ("consumer-alias", True), ("profile-alias", True),
+])
+def test_generation_currentness_uses_individual_consumer_profile_targets(
+    tmp_path, monkeypatch, live_redis, variant
+):
+    variant, superseded = variant
+    corpus, change = _mutable_ingestion_corpus(tmp_path, monkeypatch, "mount")
+    service = _corpus_change_service(tmp_path, corpus, _ingestion_regression_store(live_redis))
+    path = Path(service._profiles_path)
+    document = json.loads(path.read_text())
+    profile = document["profiles"][0]
+    target = profile["vector_targets"][0]
+    profile["vector_targets"] = [{**target, "collection_prefix": prefix} for prefix in ("X", "Y")]
+    path.write_text(json.dumps(document))
+    first, _, _ = _run(service)
+    original = json.loads(path.read_text())
+    _change_generation_targets(profile, variant)
+    path.write_text(json.dumps(document))
+    change(b"A" if variant == "target-set-only" else b"B")
+    changed, created = service.submit(profile["name"])
+    assert created
+    assert asyncio.run(service.run(changed.id)).status == "completed"
+    path.write_text(json.dumps(original))
+    change(b"A")
+    restored, created = service.submit("showcase-default")
+    assert created is superseded
+    assert asyncio.run(service.run(restored.id)).status == "completed"
+    assert _current_fake_contents(service.deps.weaviate, {"X_showcase_default", "Y_showcase_default"}) == {"A"}
+
+
+def _lose_publication_ownership(store, record, boundary):
+    target = record.publication_targets[0]
+    if boundary == "lease-replaced":
+        assert store.claim_execution(record.id, ExecutionClaim("replacement", 60, "owner"))
+    elif isinstance(store, RedisIngestionStore):
+        from rag_ingestion.store import _PUBLICATION_PREFIX, _LEASE_PREFIX
+        key = (_LEASE_PREFIX + record.id) if boundary == "lease-expired" else (_PUBLICATION_PREFIX + target)
+        if boundary == "begin-replaced":
+            store._redis.set(key, "another-job:owner", ex=60)
+        else:
+            store._redis.expire(key, 0)
+    elif boundary == "lease-expired":
+        store._leases[record.id] = ("owner", 0)
+    elif boundary == "begin-expired":
+        store._publications.pop(target)
+    else:
+        store._publications[target] = "another-job:owner"
+
+
+@pytest.mark.parametrize("live_redis", [False, True])
+@pytest.mark.parametrize("boundary", ["lease-expired", "lease-replaced", "begin-expired", "begin-replaced"])
+def test_publication_finish_cannot_restore_authority_after_ownership_loss(live_redis, boundary):
+    store = _ingestion_regression_store(live_redis)
+    record = _generation_record()
+    target = record.publication_targets[0]
+    assert store.create_if_absent(record)[1]
+    assert store.claim_execution(record.id, ExecutionClaim("owner", 60))
+    assert store.mark_publication(record.id, "owner", (target, False))
+    _lose_publication_ownership(store, record, boundary)
+    store.mark_publication(record.id, "owner", (target, True))
+    if boundary == "lease-expired":
+        assert store.claim_execution(record.id, ExecutionClaim("replacement", 60))
+    owner = "replacement" if boundary.startswith("lease-") else "owner"
+    record.status = "completed"
+    assert store.save_claimed(record, owner)
+    assert store.create_if_absent(_pending_copy(record))[1], "a stale finish cannot prove current completion"
+
+
+@pytest.mark.parametrize("live_redis", [False, True])
+def test_stale_completion_cannot_take_a_new_pending_candidates_index(live_redis):
+    store = _ingestion_regression_store(live_redis)
+    old = _generation_record([])
+    assert store.create_if_absent(old)[1]
+    assert store.claim_execution(old.id, ExecutionClaim("owner", 60))
+    store.request_cancel(old.id)
+    new = _pending_copy(old)
+    assert store.create_if_absent(new)[1]
+    old.status = "completed"
+    assert store.save_claimed(old, "owner")
+    assert store.find_by_idempotency_key(old.idempotency_key).id == new.id
+    assert store.create_if_absent(_pending_copy(new))[0].id == new.id
+
+
+@pytest.mark.parametrize("live_redis", [False, True])
+def test_explicit_no_vector_targets_roundtrip_retains_current_reuse(tmp_path, monkeypatch, live_redis):
+    corpus, _ = _mutable_ingestion_corpus(tmp_path, monkeypatch, "mount")
+    service = _corpus_change_service(tmp_path, corpus, _ingestion_regression_store(live_redis))
+    path = Path(service._profiles_path)
+    document = json.loads(path.read_text())
+    document["profiles"][0]["vector_targets"] = []
+    path.write_text(json.dumps(document))
+    record, _, final = _run(service)
+    assert final.status == "completed"
+    assert service.store.get(record.id).publication_targets == []
+    repeated, created = service.submit("showcase-default")
+    assert not created and repeated.id == record.id
+
+
+def test_restored_generation_dispatches_but_current_completion_is_reused(tmp_path, monkeypatch):
+    main = _reload_main(monkeypatch)
+    from fastapi.testclient import TestClient
+
+    corpus, _ = _mutable_ingestion_corpus(tmp_path, monkeypatch, "mount")
+    service = _corpus_change_service(tmp_path, corpus, InMemoryIngestionStore())
+    monkeypatch.setattr(main, "get_rag_ingestion_service", lambda: service)
+    monkeypatch.setattr(main, "celery_is_enabled", lambda: False)
+    runs = []
+    original = service.run
+    async def track(*args, **kwargs):
+        runs.append(args[0])
+        return await original(*args, **kwargs)
+    monkeypatch.setattr(service, "run", track)
+    client = TestClient(main.app)
+    path = tmp_path / "corpus-root/docs/a.txt"
+    ids = []
+    for content in ("A", "B", "A"):
+        path.write_text(content)
+        result = client.post("/api/rag/ingestions", json={"profile": "showcase-default"})
+        assert result.status_code == 202 and result.json()["status"] == "completed"
+        ids.append(result.json()["ingestion_id"])
+        repeated = client.post("/api/rag/ingestions", json={"profile": "showcase-default"})
+        assert repeated.json()["ingestion_id"] == ids[-1]
+    assert len(set(ids)) == len(runs) == 3
+
+
+@pytest.mark.parametrize("live_redis", [False, True])
+@pytest.mark.parametrize("unavailable", ["weaviate", "embedder"])
+def test_nonmutating_skips_preserve_old_currentness_without_claiming_new_publication(
+    tmp_path, monkeypatch, live_redis, unavailable
+):
+    corpus, change = _mutable_ingestion_corpus(tmp_path, monkeypatch, "mount")
+    service = _corpus_change_service(tmp_path, corpus, _ingestion_regression_store(live_redis))
+    path = Path(service._profiles_path)
+    document = json.loads(path.read_text())
+    document["profiles"][0]["vector_targets"][0]["on_unavailable"] = "skip"
+    path.write_text(json.dumps(document))
+    first, _, _ = _run(service)
+    change(b"B")
+    getattr(service.deps, unavailable)._available = False
+    _, _, final = _run(service)
+    assert final.status == "completed"
+    assert service.submit("showcase-default")[1], "a skipped configured target has no current-publication proof"
+    change(b"A")
+    current, created = service.submit("showcase-default")
+    assert not created and current.id == first.id
+    assert _current_fake_contents(service.deps.weaviate) == {"A"}
+
+
+class _DestructiveGenerationWeaviate(FakeWeaviate):
+    def __init__(self):
+        super().__init__()
+        self.schemas = {}
+        self.rebuilds = []
+
+    async def ensure_class(self, class_name, embedding=None):
+        previous = self.schemas.get(class_name)
+        rebuilt = previous is not None and previous != embedding
+        if rebuilt:
+            removed = {oid for oid in self.object_ids if self.class_of[oid] == class_name}
+            self.rebuilds.append((class_name, removed))
+            for oid in removed:
+                self.objects.pop(oid)
+            self.object_ids.difference_update(removed)
+        self.schemas[class_name] = embedding
+        self.classes.append(class_name)
+        return rebuilt
+
+
+def _assert_whole_class_generation(weaviate, profile_name, model, content):
+    class_name = "RagShowcase_showcase_default"
+    object_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{class_name}|{profile_name}|docs/a.txt|0"))
+    assert weaviate.schemas == {class_name: (model, 3)}
+    assert weaviate.object_ids == {object_id}
+    assert set(weaviate.objects) == {object_id}
+    assert weaviate.objects[object_id]["properties"] == {
+        "content": content, "source": "docs/a.txt", "profile": profile_name, "chunkIndex": 0,
+    }
+
+
+@pytest.mark.parametrize("live_redis", [False, True])
+def test_model_alias_rollback_rebuilds_and_restores_entire_physical_class(tmp_path, monkeypatch, live_redis):
+    corpus, change = _mutable_ingestion_corpus(tmp_path, monkeypatch, "mount")
+    store = _ingestion_regression_store(live_redis)
+    service = _corpus_change_service(tmp_path, corpus, store)
+    weaviate = service.deps.weaviate = _DestructiveGenerationWeaviate()
+    path = Path(service._profiles_path)
+    document = json.loads(path.read_text())
+    records, published_ids = [], []
+    for profile_name, model, content in (
+        ("showcase-default", "model-A", "A"),
+        ("showcase.default", "model-B", "B"),
+        ("showcase-default", "model-A", "A"),
+    ):
+        document["profiles"][0]["name"] = profile_name
+        path.write_text(json.dumps(document))
+        service.deps.embedder.model = model
+        change(content.encode())
+        record, created = service.submit(profile_name)
+        assert created, "restoration must execute after the alias destroyed the class"
+        assert asyncio.run(service.run(record.id)).status == "completed"
+        _assert_whole_class_generation(weaviate, profile_name, model, content)
+        assert not service.submit(profile_name)[1], "the current model/class is reusable"
+        records.append(record)
+        published_ids.append(set(weaviate.object_ids))
+    assert [removed for _class_name, removed in weaviate.rebuilds] == published_ids[:2]
+    assert published_ids[0].isdisjoint(published_ids[1])
+    assert published_ids[0] == published_ids[2]
+    _assert_three_publications(store, records, weaviate)
+
+
+def _class_generation_objects(weaviate, class_name):
+    return {oid: obj for oid, obj in weaviate.objects.items() if weaviate.class_of[oid] == class_name}
+
+
+def _class_publication_authorities(store, classes):
+    from rag_ingestion.store import _PUBLICATION_PREFIX, publication_target
+
+    targets = [publication_target(class_name) for class_name in classes]
+    if isinstance(store, RedisIngestionStore):
+        values = store._redis.mget([_PUBLICATION_PREFIX + target for target in targets])
+    else:
+        values = [store._publications.get(target) for target in targets]
+    return dict(zip(classes, values))
+
+
+def _assert_split_target_publication(service, records):
+    first, failed = records
+    weaviate = service.deps.weaviate
+    classes = ("X_showcase_default", "Y_showcase_default")
+    assert _class_publication_authorities(service.store, classes) == {
+        classes[0]: failed.id, classes[1]: first.id,
+    }
+    assert {obj["properties"]["content"] for obj in _class_generation_objects(weaviate, classes[0]).values()} == {"B"}
+    assert {obj["properties"]["content"] for obj in _class_generation_objects(weaviate, classes[1]).values()} == {"A"}
+
+
+@pytest.mark.parametrize("live_redis", [False, True])
+def test_first_target_publication_before_second_target_failure_restores_both(tmp_path, monkeypatch, live_redis):
+    corpus, change = _mutable_ingestion_corpus(tmp_path, monkeypatch, "mount")
+    service = _corpus_change_service(tmp_path, corpus, _ingestion_regression_store(live_redis))
+    path = Path(service._profiles_path)
+    document = json.loads(path.read_text())
+    target = document["profiles"][0]["vector_targets"][0]
+    document["profiles"][0]["vector_targets"] = [
+        {**target, "collection_prefix": prefix} for prefix in ("X", "Y")
+    ]
+    path.write_text(json.dumps(document))
+    first, _, _ = _run(service)
+    weaviate = service.deps.weaviate
+    original_objects = dict(weaviate.objects)
+    change(b"B")
+    available, checks = weaviate.available, iter((True, False))
+    weaviate.available = lambda: next(checks)
+    second, _, failed = _run(service)
+    assert failed.status == "failed"
+    _assert_split_target_publication(service, (first, second))
+    assert [name for name, _profile, _ids in weaviate.reconciled] == [
+        "X_showcase_default", "Y_showcase_default", "X_showcase_default",
+    ]
+    weaviate.available = available
+    change(b"A")
+    restored, created = service.submit("showcase-default")
+    assert created, "one superseded target rejects the aggregate old completion"
+    assert asyncio.run(service.run(restored.id)).status == "completed"
+    assert weaviate.objects == original_objects
+    assert weaviate.object_ids == set(original_objects)
+    assert _class_publication_authorities(service.store, ("X_showcase_default", "Y_showcase_default")) == {
+        "X_showcase_default": restored.id, "Y_showcase_default": restored.id,
+    }
