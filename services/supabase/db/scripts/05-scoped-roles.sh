@@ -243,6 +243,14 @@ BEGIN
       AND n.nspname <> 'information_schema'
       AND pg_catalog.pg_get_userbyid(c.relowner) <> target
       AND c.relkind IN ('r','p','S','v','m','f')
+      -- A sequence a serial or identity column owns follows its table, and
+      -- Postgres refuses OWNER TO on it alone.
+      AND NOT (c.relkind = 'S' AND EXISTS (
+        SELECT 1 FROM pg_catalog.pg_depend d
+        WHERE d.classid = 'pg_catalog.pg_class'::pg_catalog.regclass
+          AND d.objid = c.oid
+          AND d.refclassid = 'pg_catalog.pg_class'::pg_catalog.regclass
+          AND d.deptype IN ('a', 'i')))
   LOOP
     kind := CASE item.relkind
       WHEN 'S' THEN 'SEQUENCE'
@@ -374,6 +382,14 @@ BEGIN
       FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
       WHERE n.nspname=schema_name
         AND c.relkind IN ('r','p','S','v','m','f')
+        -- A sequence a serial or identity column owns follows its table, and
+        -- Postgres refuses OWNER TO on it alone.
+        AND NOT (c.relkind = 'S' AND EXISTS (
+          SELECT 1 FROM pg_catalog.pg_depend d
+          WHERE d.classid = 'pg_catalog.pg_class'::pg_catalog.regclass
+            AND d.objid = c.oid
+            AND d.refclassid = 'pg_catalog.pg_class'::pg_catalog.regclass
+            AND d.deptype IN ('a', 'i')))
         AND pg_get_userbyid(c.relowner) <> target
     LOOP
       kind := CASE item.relkind WHEN 'S' THEN 'SEQUENCE' WHEN 'v' THEN 'VIEW'
@@ -403,6 +419,14 @@ BEGIN
            OR c.relname LIKE 'extensions_%'
            OR c.relname LIKE 'feature_flags_%')
       AND c.relkind IN ('r','p','S','v','m','f')
+      -- A sequence a serial or identity column owns follows its table, and
+      -- Postgres refuses OWNER TO on it alone.
+      AND NOT (c.relkind = 'S' AND EXISTS (
+        SELECT 1 FROM pg_catalog.pg_depend d
+        WHERE d.classid = 'pg_catalog.pg_class'::pg_catalog.regclass
+          AND d.objid = c.oid
+          AND d.refclassid = 'pg_catalog.pg_class'::pg_catalog.regclass
+          AND d.deptype IN ('a', 'i')))
       AND pg_get_userbyid(c.relowner) <> target
   LOOP
     kind := CASE item.relkind WHEN 'S' THEN 'SEQUENCE' WHEN 'v' THEN 'VIEW'
@@ -735,6 +759,14 @@ BEGIN
     SELECT n.nspname, c.relname, c.relkind
     FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
     WHERE n.nspname = 'n8n' AND c.relkind IN ('r','p','S','v','m','f')
+      -- A sequence a serial or identity column owns follows its table, and
+      -- Postgres refuses OWNER TO on it alone.
+      AND NOT (c.relkind = 'S' AND EXISTS (
+        SELECT 1 FROM pg_catalog.pg_depend d
+        WHERE d.classid = 'pg_catalog.pg_class'::pg_catalog.regclass
+          AND d.objid = c.oid
+          AND d.refclassid = 'pg_catalog.pg_class'::pg_catalog.regclass
+          AND d.deptype IN ('a', 'i')))
       AND pg_get_userbyid(c.relowner) <> target
   LOOP
     kind := CASE item.relkind WHEN 'S' THEN 'SEQUENCE' WHEN 'v' THEN 'VIEW'
@@ -776,6 +808,13 @@ BEGIN
     FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
     WHERE n.nspname = 'lightrag'
       AND c.relkind IN ('r','p','S','v','m','f')
+      -- Column-owned sequences follow the table; catalog order is irrelevant.
+      AND NOT (c.relkind = 'S' AND EXISTS (
+        SELECT 1 FROM pg_catalog.pg_depend d
+        WHERE d.classid = 'pg_catalog.pg_class'::pg_catalog.regclass
+          AND d.objid = c.oid
+          AND d.refclassid = 'pg_catalog.pg_class'::pg_catalog.regclass
+          AND d.deptype IN ('a', 'i')))
       AND pg_get_userbyid(c.relowner) <> target
   LOOP
     kind := CASE item.relkind WHEN 'S' THEN 'SEQUENCE' WHEN 'v' THEN 'VIEW'
@@ -794,6 +833,14 @@ BEGIN
     FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
     WHERE n.nspname = 'public' AND lower(c.relname) LIKE 'lightrag%'
       AND c.relkind IN ('r','p','S','v','m','f')
+      -- A sequence a serial or identity column owns follows its table, and
+      -- Postgres refuses OWNER TO on it alone.
+      AND NOT (c.relkind = 'S' AND EXISTS (
+        SELECT 1 FROM pg_catalog.pg_depend d
+        WHERE d.classid = 'pg_catalog.pg_class'::pg_catalog.regclass
+          AND d.objid = c.oid
+          AND d.refclassid = 'pg_catalog.pg_class'::pg_catalog.regclass
+          AND d.deptype IN ('a', 'i')))
       AND pg_get_userbyid(c.relowner) <> target
   LOOP
     kind := CASE item.relkind WHEN 'S' THEN 'SEQUENCE' WHEN 'v' THEN 'VIEW'
