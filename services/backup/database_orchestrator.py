@@ -16,12 +16,15 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import pwd
 import re
 import secrets
 import signal
+import stat
 import subprocess
 import sys
 import time
+from types import MappingProxyType
 
 
 NEO4J_IMAGE = "neo4j:5.26.31"
@@ -384,6 +387,78 @@ class OwnedFileLock:
         self._identity = None
 
 
+class SharedResourceLock(OwnedFileLock):
+    """Surviving resource boundaries always need verified manual recovery."""
+
+    def _reclaim_stale(self) -> None:
+        try:
+            self.path.lstat()
+        except FileNotFoundError:
+            return
+        raise ContractError(
+            "another backup/restore boundary is active or requires manual recovery; "
+            "verify cleanup before removing its resource locks"
+        )
+
+
+class BoundaryLocks:
+    """Acquire the complete physical target set before protected operations."""
+
+    def __init__(self, paths: list[Path], *, token: str):
+        self.locks = [SharedResourceLock(path, token=token) for path in sorted(set(paths))]
+        self.held: list[SharedResourceLock] = []
+        self.poisoned = False
+
+    def acquire(self) -> None:
+        try:
+            for lock in self.locks:
+                # Include publication interrupted after the inode was recorded.
+                self.held.append(lock)
+                self._acquire(lock)
+        except BaseException:
+            try:
+                self.release()
+            except BaseException as exc:
+                print(f"database lock unwind failed (error_type={type(exc).__name__})", file=sys.stderr)
+            raise
+
+    def _acquire(self, lock: SharedResourceLock) -> None:
+        # Publish and record its inode before delivering a cancellation signal.
+        previous = signal.pthread_sigmask(signal.SIG_BLOCK, (signal.SIGHUP, signal.SIGINT, signal.SIGTERM))
+        try:
+            lock.acquire()
+        finally:
+            signal.pthread_sigmask(signal.SIG_SETMASK, previous)
+
+    def _apply(self, action: str, reason: str = "") -> None:
+        first_error = None
+        for lock in reversed(self.held):
+            try:
+                if action == "poison":
+                    lock.poison(reason)
+                else:
+                    lock.release()
+            except BaseException as exc:
+                if first_error is None:
+                    first_error = exc
+                print(f"database lock {action} failed (error_type={type(exc).__name__})", file=sys.stderr)
+        if first_error is not None:
+            raise first_error
+
+    def release(self) -> None:
+        if not self.poisoned:
+            self._apply("release")
+
+    def poison(self, reason: str) -> None:
+        self.poisoned = True
+        primary = sys.exc_info()[1]
+        try:
+            self._apply("poison", reason)
+        except BaseException:
+            if primary is None:
+                raise
+
+
 def _process_group_exists(group_id: int) -> bool:
     try:
         os.killpg(group_id, 0)
@@ -476,6 +551,20 @@ class CommandRunner:
         self.container_create_timeouts: dict[str, int] = {}
         self.volume_create_timeouts: dict[str, int] = {}
         self.process_group_cleanup_failed = False
+        self.environment: dict[str, str] | None = None
+
+    def command_environment(self, overlay: dict[str, str] | None) -> dict[str, str] | None:
+        if self.environment is None:
+            return overlay
+        child = {**self.environment, **(overlay or {})}
+        pinned = {key for key in child if key.startswith(("DOCKER_", "COMPOSE_", "ATLAS_"))}
+        pinned.add("PROJECT_NAME")
+        for key in pinned:
+            if key in self.environment:
+                child[key] = self.environment[key]
+            else:
+                child.pop(key, None)
+        return child
 
     def run(
         self,
@@ -493,7 +582,7 @@ class CommandRunner:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             start_new_session=True,
-            env=env,
+            env=self.command_environment(env),
         )
         primary_error = None
         try:
@@ -959,54 +1048,74 @@ def parse_prepared_plan(stdout: str, *, token: str, timestamp: str) -> dict[str,
     return values
 
 
-class DatabaseCoordinator:
-    def __init__(self, repo: Path, *, token: str, timeout: int):
-        self.repo = repo
-        self.token = token
-        self.timeout = timeout
-        values = _env_file_values(repo)
-        self.env_values = values
-        self.project = _validate_docker_name(_setting(values, "PROJECT_NAME", "atlas"), "PROJECT_NAME")
-        scope = hashlib.sha256(str(repo.resolve()).encode()).hexdigest()[:24]
-        self.runner = CommandRunner(token=token, timeout=timeout, scope=scope)
-        self.neo_source = _setting(values, "NEO4J_GRAPH_DB_SOURCE", "container")
-        self.weaviate_source = _setting(values, "WEAVIATE_SOURCE", "container")
-        self.plan = source_plan(self.neo_source, self.weaviate_source)
-        self.test_mode = os.environ.get("ATLAS_DATABASE_BACKUP_LIVE_INTEGRATION") == "1"
-        test_token = os.environ.get("ATLAS_DATABASE_BACKUP_TEST_TOKEN", "")
-        overrides = {
-            "ATLAS_NEO4J_LIVE_VOLUME": (f"{self.project}-graph-db-data", "neo-live"),
-            "ATLAS_WEAVIATE_LIVE_VOLUME": (f"{self.project}-weaviate-data", "weaviate-live"),
-            "ATLAS_NEO4J_BACKUP_VOLUME": (f"{self.project}-neo4j-backups", "neo-backups"),
-            "ATLAS_WEAVIATE_BACKUP_VOLUME": (f"{self.project}-weaviate-backups", "weaviate-backups"),
-        }
-        selected: dict[str, str] = {}
-        for variable, (production, role) in overrides.items():
-            override = os.environ.get(variable)
-            if override is None:
-                selected[variable] = production
-                continue
-            if not self.test_mode:
+def resolved_database_volumes(project: str, token: str) -> dict[str, str]:
+    overrides = {
+        "ATLAS_NEO4J_LIVE_VOLUME": (f"{project}-graph-db-data", "neo-live"),
+        "ATLAS_WEAVIATE_LIVE_VOLUME": (f"{project}-weaviate-data", "weaviate-live"),
+        "ATLAS_NEO4J_BACKUP_VOLUME": (f"{project}-neo4j-backups", "neo-backups"),
+        "ATLAS_WEAVIATE_BACKUP_VOLUME": (f"{project}-weaviate-backups", "weaviate-backups"),
+    }
+    selected = {}
+    for variable, (production, role) in overrides.items():
+        override = os.environ.get(variable)
+        if override is not None:
+            if os.environ.get("ATLAS_DATABASE_BACKUP_LIVE_INTEGRATION") != "1":
                 raise ContractError(f"{variable} is restricted to explicit live integration tests")
+            test_token = os.environ.get("ATLAS_DATABASE_BACKUP_TEST_TOKEN", "")
             if not TOKEN_RE.fullmatch(test_token) or test_token != token:
                 raise ContractError("live integration volume overrides require the matching full 128-bit test token")
-            expected = f"atlas-it-{test_token}-{role}"
-            if override != expected:
+            if override != f"atlas-it-{test_token}-{role}":
                 raise ContractError(f"{variable} must equal the token-bound test volume name")
-            selected[variable] = override
-        self.neo_live = _validate_docker_name(selected["ATLAS_NEO4J_LIVE_VOLUME"], "Neo4j live volume")
-        self.weaviate_live = _validate_docker_name(selected["ATLAS_WEAVIATE_LIVE_VOLUME"], "Weaviate live volume")
-        self.neo_backups = _validate_docker_name(selected["ATLAS_NEO4J_BACKUP_VOLUME"], "Neo4j backup volume")
-        self.weaviate_backups = _validate_docker_name(selected["ATLAS_WEAVIATE_BACKUP_VOLUME"], "Weaviate backup volume")
-        if self.test_mode and test_token:
-            for variable, (_production, role) in overrides.items():
-                if os.environ.get(variable) is not None:
-                    self.runner.assert_owned_volume(selected[variable], role=f"test-{role}")
-        auth = _setting(values, "GRAPH_DB_AUTH", "neo4j/neo4j_password")
+        selected[variable] = _validate_docker_name(override if override is not None else production, variable)
+    return selected
+
+
+class DatabaseConfiguration:
+    """One admission snapshot for physical targets and child configuration."""
+
+    def __init__(self, repo: Path, values: dict[str, str], token: str):
+        self.repo = repo
+        self.values = {key: value for key, value in {**values, **{key: value for key, value in os.environ.items() if value}}.items() if value}
+        self.project = _validate_docker_name(_setting(values, "PROJECT_NAME", "atlas"), "PROJECT_NAME")
+        self.volumes = MappingProxyType(resolved_database_volumes(self.project, token))
+        self.environment = dict(os.environ)
+        self.environment["PROJECT_NAME"] = self.project
+        self.environment.setdefault("COMPOSE_PROJECT_NAME", self.project.lower())
+        self.environment.setdefault("COMPOSE_FILE", str(repo / "docker-compose.yml"))
+        self.runner: CommandRunner | None = None
+
+    def command_runner(self, token: str, timeout: int) -> CommandRunner:
+        if self.runner is None:
+            scope = hashlib.sha256(str(self.repo.resolve()).encode()).hexdigest()[:24]
+            self.runner = CommandRunner(token=token, timeout=timeout, scope=scope)
+            self.runner.environment = self.environment
+        return self.runner
+
+
+class DatabaseCoordinator:
+    def __init__(self, repo: Path | DatabaseConfiguration, *, token: str, timeout: int):
+        config = repo if isinstance(repo, DatabaseConfiguration) else DatabaseConfiguration(repo, _env_file_values(repo), token)
+        self.repo = config.repo
+        self.token = token
+        self.timeout = timeout
+        values = config.values
+        self.env_values = values
+        self.project = config.project
+        self.runner = config.command_runner(token, timeout)
+        self.neo_source = values.get("NEO4J_GRAPH_DB_SOURCE", "container")
+        self.weaviate_source = values.get("WEAVIATE_SOURCE", "container")
+        self.plan = source_plan(self.neo_source, self.weaviate_source)
+        self.test_mode = config.environment.get("ATLAS_DATABASE_BACKUP_LIVE_INTEGRATION") == "1"
+        self.neo_live = config.volumes["ATLAS_NEO4J_LIVE_VOLUME"]
+        self.weaviate_live = config.volumes["ATLAS_WEAVIATE_LIVE_VOLUME"]
+        self.neo_backups = config.volumes["ATLAS_NEO4J_BACKUP_VOLUME"]
+        self.weaviate_backups = config.volumes["ATLAS_WEAVIATE_BACKUP_VOLUME"]
+        self._assert_test_volumes(config)
+        auth = values.get("GRAPH_DB_AUTH", "neo4j/neo4j_password")
         self.neo_user, separator, self.neo_password = auth.partition("/")
         if not separator or not self.neo_user or not self.neo_password:
             raise ContractError("GRAPH_DB_AUTH must be username/password")
-        modules = _setting(values, "WEAVIATE_ENABLE_MODULES", "backup-filesystem")
+        modules = values.get("WEAVIATE_ENABLE_MODULES", "backup-filesystem")
         module_names = [item.strip() for item in modules.split(",") if item.strip()]
         if "backup-filesystem" not in module_names:
             raise ContractError("WEAVIATE_ENABLE_MODULES must include backup-filesystem")
@@ -1018,6 +1127,14 @@ class DatabaseCoordinator:
         self.cutover_started = False
         self.boundary_state = "pre-cutover"
         self.poison_reason: str | None = None
+
+    def _assert_test_volumes(self, config: DatabaseConfiguration) -> None:
+        if not self.test_mode or not config.environment.get("ATLAS_DATABASE_BACKUP_TEST_TOKEN"):
+            return
+        roles = ("neo-live", "weaviate-live", "neo-backups", "weaviate-backups")
+        for (variable, volume), role in zip(config.volumes.items(), roles):
+            if variable in config.environment:
+                self.runner.assert_owned_volume(volume, role=f"test-{role}")
 
     @property
     def data_timeout(self) -> int:
@@ -1987,26 +2104,76 @@ class DatabaseCoordinator:
                 self._restore_neo4j_after_backup(service)
 
 
-def _lock_path(repo: Path) -> Path:
-    # Not TMPDIR: it differs per session (macOS gives a terminal
-    # /var/folders/... but a cron/launchd job none), so a scheduled backup and
-    # an interactive restore would each take "the" lock in different places.
-    # Not /tmp either: there another local user could pre-create the
-    # predictable name in a poisoned state that the owner cannot delete.
-    # The checkout's own gitignored volumes/locks is shared by every run of
-    # this repository and writable only by its owner.
-    # ATLAS_DATABASE_LOCK_DIR is an explicit override every run must share.
-    digest = hashlib.sha256(str(repo.resolve()).encode()).hexdigest()[:24]
+def database_lock_directory() -> Path:
     override = os.environ.get("ATLAS_DATABASE_LOCK_DIR")
-    lock_dir = Path(override) if override else repo / "volumes" / "locks"
     try:
-        lock_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-    except OSError as exc:
+        home = Path(pwd.getpwuid(os.geteuid()).pw_dir) if not override else None
+        directory = Path(override) if override else home / ".atlas-database-locks"
+        if not directory.is_absolute() or (home is not None and not home.is_absolute()):
+            raise ValueError("lock directory must be absolute")
+        directory.mkdir(mode=0o700, exist_ok=True)
+        metadata = directory.lstat()
+        if not stat.S_ISDIR(metadata.st_mode) or metadata.st_uid != os.geteuid() or stat.S_IMODE(metadata.st_mode) != 0o700:
+            raise ValueError("lock directory must be a real owner-only directory")
+    except (OSError, KeyError, ValueError, TypeError) as exc:
         raise ContractError(
-            f"cannot create the database lock directory {lock_dir} ({exc.strerror}); "
-            "set ATLAS_DATABASE_LOCK_DIR to a writable directory shared by every run"
+            "cannot use the private database lock directory; set ATLAS_DATABASE_LOCK_DIR "
+            "to one absolute owner-only directory shared by every run"
         ) from exc
-    return lock_dir / f"atlas-database-boundary-{digest}.lock"
+    return directory
+
+
+def reject_legacy_locks(repo: Path, directory: Path) -> None:
+    for location in {repo / "volumes" / "locks", directory}:
+        if any(location.glob("atlas-database-boundary-*.lock")):
+            raise ContractError("legacy database boundary lock exists; complete verified manual recovery and upgrade all launchers")
+
+
+def pin_docker_selection(runner: CommandRunner) -> None:
+    environment = runner.environment
+    if environment.get("DOCKER_CONTEXT") or environment.get("DOCKER_HOST"):
+        return
+    try:
+        result = runner.run(["docker", "context", "show"], timeout=15, check=False)
+        context = result.stdout.removesuffix("\n")
+        if result.returncode or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.+-]{0,255}", context):
+            raise ValueError("invalid context name")
+    except subprocess.TimeoutExpired as exc:
+        raise subprocess.TimeoutExpired("Docker context selection", exc.timeout) from None
+    except (OSError, ValueError) as exc:
+        raise ContractError("could not capture Docker context selection") from exc
+    environment["DOCKER_CONTEXT"] = context
+
+
+def docker_daemon_identity(runner: CommandRunner) -> str:
+    try:
+        result = runner.run(["docker", "info", "--format", "{{.ID}}"], timeout=15, check=False)
+        identity = result.stdout.removesuffix("\n")
+        if result.returncode or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}", identity):
+            raise ValueError("invalid daemon identity")
+    except subprocess.TimeoutExpired as exc:
+        raise subprocess.TimeoutExpired("Docker daemon identity", exc.timeout) from None
+    except (OSError, ValueError) as exc:
+        raise ContractError("could not determine Docker daemon identity") from exc
+    return identity
+
+
+def database_lock_paths(daemon_id: str, volumes: tuple[str, ...]) -> list[Path]:
+    directory = database_lock_directory()
+    digests = {
+        hashlib.sha256(json.dumps(["atlas-database-resource-v2", daemon_id, volume], separators=(",", ":")).encode()).hexdigest()
+        for volume in volumes
+    }
+    return sorted(directory / f"atlas-database-resource-v2-{digest}.lock" for digest in digests)
+
+
+def deployment_boundary(config: DatabaseConfiguration, token: str, timeout: int) -> BoundaryLocks:
+    runner = config.command_runner(token, timeout)
+    pin_docker_selection(runner)
+    daemon_id = docker_daemon_identity(runner)
+    paths = database_lock_paths(daemon_id, tuple(config.volumes.values()))
+    reject_legacy_locks(config.repo, paths[0].parent)
+    return BoundaryLocks(paths, token=token)
 
 
 def _signal_as_exception(signum, _frame):
@@ -2118,14 +2285,15 @@ def main(argv: list[str] | None = None) -> int:
     else:
         timestamp = validate_backup_timestamp(timestamp or datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S"))
 
-    lock = OwnedFileLock(_lock_path(repo), token=token)
+    configuration = DatabaseConfiguration(repo, values, token)
     coordinator: DatabaseCoordinator | None = None
     retained: set[str] = set()
     for handled in (signal.SIGHUP, signal.SIGINT, signal.SIGTERM):
         signal.signal(handled, _signal_as_exception)
+    lock = deployment_boundary(configuration, token, timeout)
     lock.acquire()
     try:
-        coordinator = DatabaseCoordinator(repo, token=token, timeout=timeout)
+        coordinator = DatabaseCoordinator(configuration, token=token, timeout=timeout)
         if args.operation == "restore":
             if not (plan.neo4j or plan.weaviate):
                 print("database restore orchestrator: both database sources are disabled; nothing to do")

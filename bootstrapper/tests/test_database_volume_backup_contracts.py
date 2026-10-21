@@ -649,6 +649,8 @@ def _fake_docker(tmp_path: Path) -> tuple[Path, dict[str, str]]:
         "#!/bin/sh\n"
         "printf '%s\\n' \"$*\" >>\"$TRACE\"\n"
         "case \"$*\" in\n"
+        "  'context show') printf '%s\\n' fake-context ;;\n"
+        "  info*) printf '%s\\n' fake-daemon ;;\n"
         "  'compose ps --all -q neo4j-graph-db') printf '%064d\\n' 0 | tr 0 a ;;\n"
         "  'container inspect aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')\n"
         "    if [ \"$(cat \"$NEO4J_STATE\")\" = running ]; then running=true; status=running; else running=false; status=exited; fi\n"

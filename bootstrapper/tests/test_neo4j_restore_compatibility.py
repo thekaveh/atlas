@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import types
 
 import pytest
 import yaml
@@ -235,13 +236,13 @@ def test_boundary_lock_location_ignores_per_session_tmpdir(tmp_path, monkeypatch
     module = _orchestrator()
     monkeypatch.delenv("ATLAS_DATABASE_LOCK_DIR", raising=False)
     monkeypatch.setenv("TMPDIR", str(tmp_path / "session-a"))
-    first = module._lock_path(tmp_path)
+    monkeypatch.setattr(module.pwd, "getpwuid", lambda _uid: types.SimpleNamespace(pw_dir=str(tmp_path)))
+    first = module.database_lock_directory()
     monkeypatch.setenv("TMPDIR", str(tmp_path / "session-b"))
-    assert module._lock_path(tmp_path) == first
-    # Repo-local, not world-writable /tmp: no other user can pre-poison it.
-    assert first.parent == tmp_path / "volumes" / "locks"
+    assert module.database_lock_directory() == first
+    assert first == tmp_path / ".atlas-database-locks"
     monkeypatch.setenv("ATLAS_DATABASE_LOCK_DIR", str(tmp_path))
-    assert module._lock_path(tmp_path).parent == tmp_path
+    assert module.database_lock_directory() == tmp_path
 
 
 def test_retention_counts_read_the_env_file_like_other_settings(tmp_path, monkeypatch) -> None:
@@ -281,7 +282,7 @@ def test_unwritable_lock_directory_names_the_override(tmp_path, monkeypatch) -> 
     blocker.write_text("", encoding="utf-8")
     monkeypatch.setenv("ATLAS_DATABASE_LOCK_DIR", str(blocker / "locks"))
     with pytest.raises(module.ContractError, match="ATLAS_DATABASE_LOCK_DIR"):
-        module._lock_path(tmp_path)
+        module.database_lock_directory()
 
 
 def test_auto_restore_never_overwrites_a_populated_database(tmp_path: Path) -> None:
