@@ -2082,6 +2082,12 @@ def main(argv: list[str] | None = None) -> int:
     else:
         token = secrets.token_hex(16)
     values = _env_file_values(repo)
+    if args.operation == "backup" and os.environ.get(
+        "BACKUP_SOURCE", values.get("BACKUP_SOURCE", "disabled")
+    ) != "container":
+        raise ContractError(
+            "backup disabled; set BACKUP_SOURCE=container before running backup"
+        )
     # Every `docker compose` call below is bare, so without these Compose names
     # the project after the working directory: from cron, a worktree or a
     # consumer submodule it saw no running databases, passed the stopped-service
