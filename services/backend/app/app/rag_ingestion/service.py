@@ -19,7 +19,6 @@ import hashlib
 import json
 import logging
 import os
-import re
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -39,6 +38,7 @@ from .clients import (
     WeaviateClient,
 )
 from .models import (
+    weaviate_class_name,
     STATUS_CANCELLED,
     STATUS_COMPLETED,
     STATUS_FAILED,
@@ -48,7 +48,7 @@ from .models import (
     IngestionRecord,
 )
 from .profiles import LoadedProfile, get_profile
-from .store import ExecutionClaim, IngestionStore, default_store
+from .store import ExecutionClaim, IngestionStore, default_store, publication_target, publication_targets
 
 
 async def _cancel_pending_task(task: asyncio.Task[Any]) -> None:
@@ -92,20 +92,6 @@ async def _join_cleanup_task(
             exc_info=exc,
         )
 
-
-def weaviate_class_name(collection_prefix: str, profile_name: str) -> str:
-    """Compose a valid Weaviate class name from a (validated uppercase-first)
-    collection_prefix and a profile name.
-
-    Weaviate class names must match ``^[A-Z][_0-9A-Za-z]*$``, but a profile name
-    may legitimately contain ``.``/``-`` (e.g. ``showcase-default``). Left raw,
-    ``{prefix}_{name}`` would 422 on ensure_class and the case-sensitive
-    reconcile ``Get {{ <class> }}`` query would 404. Sanitize every non-alnum
-    char in the name to ``_`` so the derived class name is always valid and the
-    write + reconcile paths agree.
-    """
-    safe_name = re.sub(r"[^0-9A-Za-z]", "_", profile_name)
-    return f"{collection_prefix}_{safe_name}"
 
 
 def _renewal_retry_wait(
@@ -309,6 +295,7 @@ class RagIngestionService:
             content_digest=corpus_fingerprint[:16],
             profile_snapshot=profile.to_dict(corpus=corpus),
             corpus=dict(corpus),
+            publication_targets=publication_targets(profile),
             created_at=_now_iso(),
             updated_at=_now_iso(),
         )
@@ -502,6 +489,8 @@ class RagIngestionService:
 
         try:
             record.status = STATUS_RUNNING
+            if record.publication_targets is None:
+                record.publication_targets = publication_targets(profile)
             # Every attempt re-runs all phases from fresh state, so errors
             # persisted by a superseded attempt (before a Celery retry) are
             # stale duplicates, not findings of this run.
@@ -513,6 +502,7 @@ class RagIngestionService:
                 "docs": [],
                 "chunks": [],
                 "vectors": [],
+                "execution_owner": owner,
             }
             for name in (
                 "discover", "parse", "chunk", "embed",
@@ -933,6 +923,15 @@ class RagIngestionService:
         prior = f"{phase.note}; " if phase.note else ""
         phase.note = f"{prior}{class_name}: {note}"
 
+    async def _mark_publication(self, record, state, publication: tuple[str, bool]) -> None:
+        class_name, published = publication
+        target = publication_target(class_name)
+        saved = await asyncio.to_thread(
+            self.store.mark_publication, record.id, state["execution_owner"], (target, published)
+        )
+        if not saved:
+            raise IngestionExecutionLeaseLost(f"Publication fence lost for RAG ingestion {record.id}")
+
     async def _phase_vector_write(self, record, profile, corpus, state):
         targets = profile.vector_targets
         if not targets:
@@ -966,10 +965,12 @@ class RagIngestionService:
                     )
                     return
                 class_name = weaviate_class_name(target['collection_prefix'], profile.name)
+                await self._mark_publication(record, state, (class_name, False))
                 await self.deps.weaviate.ensure_class(class_name)
                 await self.deps.weaviate.reconcile_objects(
                     class_name, profile.name, []
                 )
+                await self._mark_publication(record, state, (class_name, True))
             record.phase("vector_write").note = "no chunks; stale objects removed"
             record.counts["vectors_written"] = 0
             return
@@ -995,6 +996,9 @@ class RagIngestionService:
                 return
             class_name = weaviate_class_name(target['collection_prefix'], profile.name)
             try:
+                # ensure_class may replace a model-incompatible class before any
+                # object write. Invalidate currentness before that first mutation.
+                await self._mark_publication(record, state, (class_name, False))
                 await self._ensure_target_class(record, state, class_name)
                 objects = self._weaviate_objects(class_name, profile, state["chunks"])
                 total += await self.deps.weaviate.write_objects(class_name, objects)
@@ -1017,6 +1021,9 @@ class RagIngestionService:
                 await self._reconcile_kept_sources(
                     record, profile, state, class_name, objects
                 )
+                await self._mark_publication(record, state, (class_name, True))
+            except IngestionExecutionLeaseLost:
+                raise
             except PhaseFatal:
                 raise
             except TRANSIENT_EXCEPTIONS:
