@@ -778,7 +778,7 @@ def _one_shot_probe_status(state, mode, service):
     if failed or finished:
         code = 1 if failed else 0
         return NS(returncode=0, stderr="", stdout=json.dumps([
-            {"State": "exited", "ExitCode": code, "Status": f"Exited ({code})"},
+            {"Service": service, "ID": service + "-1", "State": "exited", "ExitCode": code, "Status": f"Exited ({code})"},
         ]))
     state.stopped = state.stopped or mode in {"inspect", "prior_failure"}
     state.now += state.calls[-1][3]

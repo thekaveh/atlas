@@ -382,11 +382,13 @@ For CI, cron or parent-repo wrapper scripts, use the detached path. Do not backg
 ./start.sh --no-tui --detach
 ```
 
-`--detach` (alias `--no-follow`) runs the normal start, waits for health, prints a per-service status summary and exits. It exits `0` only when the summary is healthy. It starts only the enabled services (after tracks, overrides and consumer overlays), so a broken build of a disabled service cannot stop it.
+`--detach` (alias `--no-follow`) runs the normal start, waits for health, prints a per-service status summary and exits. It exits `0` only when every expected enabled Compose service and replica is accounted for and healthy or successfully completed. Expected targets come from the rendered launch configuration, after tracks, overrides, consumer overlays and optional build exclusions. Zero-scale services are excluded.
+
+A missing service or replica fails readiness and exits `1`, even when all reported containers are healthy. The summary names the service and its expected, observed and missing replica counts. Duplicate container records and unrelated orphan containers cannot supply missing replicas. This checks container readiness; it does not verify application workloads.
 
 A service still in its health start period (`health=starting`) is polled again for up to about 120 s before it counts as failed. A failed service is named in the summary, with its exit code when available. A stopped server fails even when it exits with code `0`.
 
-Successful one-shot completion requires a zero exit and a known finite role. Atlas recognizes its built-in jobs and consumer jobs referenced by `depends_on` with `condition: service_completed_successfully`. Unknown stopped services fail; `restart: no` alone does not prove a finite role. If Compose configuration cannot be inspected, exited services cannot count as successful.
+Successful one-shot completion requires an observed zero exit and a known finite role. An absent one-shot fails readiness. Atlas recognizes its built-in jobs and consumer jobs referenced by `depends_on` with `condition: service_completed_successfully`. Unknown stopped services fail; `restart: no` alone does not prove a finite role. If desired Compose configuration or container status cannot be inspected, readiness fails with an inspection error.
 
 Add `--json` for machine-readable status:
 
@@ -396,9 +398,10 @@ Add `--json` for machine-readable status:
 
 When the start reaches the summary, the payload is `{"ok", "services", "converged_after_grace", "not_started"}`:
 
-- `not_started` lists services left out of `up` because their image build failed. The start still counts as a success, so check it when completeness matters.
+- `not_started` lists optional services explicitly left out of `up` because their image build failed. These exclusions can still permit success; check the list when your application needs them.
+- A missing target adds a failed `services` entry with `state: "missing"`, `expected_replicas`, `observed_replicas` and `missing_replicas`. The payload has `ok: false`.
 - `converged_after_grace` is `true` when the stack became healthy only inside the grace window.
-- If the final status poll fails, `ok` is `false`, and the payload has an `error` string and empty `services`.
+- If desired configuration or the final status inventory is unavailable or malformed, `ok` is `false`. The payload has an `error` string and empty `services`.
 - If the start stops earlier, the payload is `{"ok": false, "exit_code": N}`, and stderr names the services. Causes are invalid input, a failed setup step or a failed `up`. Check `ok` before you read other keys.
 
 Managed host runtimes and their teardown: [§7.5](#75-coexist-with-host-run-services-localhost-sources).

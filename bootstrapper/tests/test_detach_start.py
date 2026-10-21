@@ -22,7 +22,7 @@ def _rendered_model_boundary(monkeypatch):
     monkeypatch.setattr(
         start_module.AtlasStarter,
         "_rendered_compose_services",
-        lambda _self: _base_compose_services(),
+        lambda _self: {"backend": {}, "weaviate": {}},
     )
 
 
@@ -80,22 +80,25 @@ def test_detached_json_status_summary_reports_unhealthy_service(monkeypatch, cap
     import start as start_module
 
     starter = start_module.AtlasStarter()
+    monkeypatch.setattr(starter, "_rendered_compose_services", lambda: {
+        "backend": {}, "n8n": {}, "minio-init": {"restart": "no"},
+    })
 
     rows = [
         {
-            "Service": "backend",
+            "Service": "backend", "ID": "backend-1",
             "State": "running",
             "Health": "healthy",
             "Status": "Up 10 seconds (healthy)",
         },
         {
-            "Service": "n8n",
+            "Service": "n8n", "ID": "n8n-1",
             "State": "running",
             "Health": "unhealthy",
             "Status": "Up 10 seconds (unhealthy)",
         },
         {
-            "Service": "minio-init",
+            "Service": "minio-init", "ID": "minio-init-1",
             "State": "exited",
             "ExitCode": 0,
             "Status": "Exited (0) 5 seconds ago",
@@ -135,9 +138,11 @@ def _race_starter(monkeypatch, *, up_result: int, ps_rows, ps_error=None):
     import start as start_module
 
     starter = start_module.AtlasStarter()
+    desired = {"backend": {}, "litellm": {}, "n8n-init": {}, "litellm-init": {}}
+    monkeypatch.setattr(starter, "_rendered_compose_services", lambda: desired)
     # A warm start whose images are current (#989): no build, one `up`.
     monkeypatch.setattr(
-        starter.docker_manager, "enabled_service_targets", lambda: ["backend"]
+        starter.docker_manager, "enabled_service_targets", lambda: list(desired)
     )
     monkeypatch.setattr(
         starter.docker_manager, "prepare_build_args", lambda _cold, _targets: []
@@ -156,11 +161,11 @@ def _race_starter(monkeypatch, *, up_result: int, ps_rows, ps_error=None):
 
 
 _HEALTHY_ROWS = [
-    {"Service": "backend", "State": "running", "Health": "healthy"},
-    {"Service": "litellm", "State": "running", "Health": ""},
-    {"Service": "n8n-init", "State": "exited", "ExitCode": 0,
+    {"Service": "backend", "ID": "backend-1", "State": "running", "Health": "healthy"},
+    {"Service": "litellm", "ID": "litellm-1", "State": "running", "Health": ""},
+    {"Service": "n8n-init", "ID": "n8n-init-1", "State": "exited", "ExitCode": 0,
      "Status": "exited (0)"},
-    {"Service": "litellm-init", "State": "exited", "ExitCode": 0,
+    {"Service": "litellm-init", "ID": "litellm-init-1", "State": "exited", "ExitCode": 0,
      "Status": "exited (0)"},
 ]
 
@@ -183,10 +188,11 @@ def test_up_wait_race_recovery_is_repeatable_for_warm_starts(monkeypatch) -> Non
 def test_up_wait_nonzero_with_failed_one_shot_still_fails(monkeypatch, capsys) -> None:
     """AC: a genuine nonzero one-shot exit still fails and names service+code."""
     rows = list(_HEALTHY_ROWS) + [
-        {"Service": "weaviate-init", "State": "exited", "ExitCode": 2,
+        {"Service": "weaviate-init", "ID": "weaviate-init-1", "State": "exited", "ExitCode": 2,
          "Status": "exited (2)"},
     ]
     starter = _race_starter(monkeypatch, up_result=1, ps_rows=rows)
+    starter._rendered_compose_services()["weaviate-init"] = {}
     assert starter.start_docker_services(cold_start=False, wait=True) is False
     out = capsys.readouterr().out
     assert "weaviate-init" in out
@@ -196,9 +202,10 @@ def test_up_wait_nonzero_with_failed_one_shot_still_fails(monkeypatch, capsys) -
 def test_up_wait_nonzero_with_unhealthy_service_still_fails(monkeypatch, capsys) -> None:
     """AC: unhealthy long-lived services still fail startup."""
     rows = list(_HEALTHY_ROWS) + [
-        {"Service": "weaviate", "State": "running", "Health": "unhealthy"},
+        {"Service": "weaviate", "ID": "weaviate-1", "State": "running", "Health": "unhealthy"},
     ]
     starter = _race_starter(monkeypatch, up_result=1, ps_rows=rows)
+    starter._rendered_compose_services()["weaviate"] = {}
     assert starter.start_docker_services(cold_start=False, wait=True) is False
     assert "weaviate" in capsys.readouterr().out
 
@@ -251,13 +258,13 @@ def _sequence_poll(*snapshots):
 
 
 _STARTING_THEN = [
-    {"Service": "backend", "State": "running", "Health": "healthy"},
-    {"Service": "weaviate", "State": "running", "Health": "starting",
+    {"Service": "backend", "ID": "backend-1", "State": "running", "Health": "healthy"},
+    {"Service": "weaviate", "ID": "weaviate-1", "State": "running", "Health": "starting",
      "ExitCode": 0, "Status": "Up 3 seconds (health: starting)"},
 ]
 _ALL_HEALTHY_2 = [
-    {"Service": "backend", "State": "running", "Health": "healthy"},
-    {"Service": "weaviate", "State": "running", "Health": "healthy"},
+    {"Service": "backend", "ID": "backend-1", "State": "running", "Health": "healthy"},
+    {"Service": "weaviate", "ID": "weaviate-1", "State": "running", "Health": "healthy"},
 ]
 
 
@@ -283,7 +290,7 @@ def test_compose_row_status_running_healthy_has_no_exit_code() -> None:
     import start as start_module
 
     entry = start_module.AtlasStarter._compose_row_status(
-        {"Service": "backend", "State": "running", "Health": "healthy", "ExitCode": 0}
+        {"Service": "backend", "ID": "backend-1", "State": "running", "Health": "healthy", "ExitCode": 0}
     )
     assert entry["ok"] is True and entry["pending"] is False and entry["exit_code"] is None
 
@@ -292,7 +299,7 @@ def test_compose_row_status_exited_nonzero_still_fails_and_keeps_code() -> None:
     import start as start_module
 
     entry = start_module.AtlasStarter._compose_row_status(
-        {"Service": "weaviate-init", "State": "exited", "ExitCode": 2, "Status": "exited (2)"}
+        {"Service": "weaviate-init", "ID": "weaviate-init-1", "State": "exited", "ExitCode": 2, "Status": "exited (2)"}
     )
     assert entry["ok"] is False and entry["pending"] is False and entry["exit_code"] == "2"
 
@@ -319,7 +326,7 @@ def test_poll_until_converged_genuine_failure_short_circuits() -> None:
         raise AssertionError("must not grace-wait on a genuine failure")
 
     rows = _ALL_HEALTHY_2[:1] + [
-        {"Service": "weaviate", "State": "running", "Health": "unhealthy"}
+        {"Service": "weaviate", "ID": "weaviate-1", "State": "running", "Health": "unhealthy"}
     ]
     services, converged, waited, error = _starter()._poll_until_converged(
         grace_seconds=60, poll_rows=lambda: (rows, None),
@@ -505,6 +512,7 @@ def test_detached_summary_requires_finite_role_and_zero_evidence(monkeypatch, ca
     name, model, code, status, expected = case
     starter = _starter()
     monkeypatch.setattr(starter, "_rendered_compose_services", lambda: model)
+    starter._capture_readiness_targets([name] if name else ["n8n-init"])
     row = {"Service": name, "Name": "atlas-n8n-init", "State": "exited", "ExitCode": code, "Status": status}
 
     assert starter.show_detached_status_summary(
@@ -512,8 +520,11 @@ def test_detached_summary_requires_finite_role_and_zero_evidence(monkeypatch, ca
     ) is expected
     payload = json.loads(capsys.readouterr().out)
     assert payload["ok"] is expected
-    assert payload["services"][0]["ok"] is expected
-    assert payload["services"][0]["state"] == "exited"
+    if payload["services"]:
+        assert payload["services"][0]["ok"] is expected
+        assert payload["services"][0]["state"] == "exited"
+    else:
+        assert not expected and payload["error"]
 
 
 @pytest.mark.parametrize("case", _STOPPED_CASES)
@@ -521,6 +532,7 @@ def test_wait_race_requires_finite_role_and_zero_evidence(monkeypatch, case):
     name, model, code, status, expected = case
     starter = _starter()
     monkeypatch.setattr(starter, "_rendered_compose_services", lambda: model)
+    starter._capture_readiness_targets([name] if name else ["n8n-init"])
     row = {"Service": name, "Name": "atlas-n8n-init", "State": "exited", "ExitCode": code, "Status": status}
 
     assert starter._up_wait_race_converged(poll_rows=lambda: ([row], None)) is expected
@@ -537,32 +549,37 @@ def test_real_builtin_finite_jobs_keep_success_without_downstream_edges(monkeypa
     model = _base_compose_services()
     for service in model.values():
         service.pop("depends_on", None)
+    model = {job: model[job]}
+    model[job].setdefault("deploy", {})["replicas"] = 1
     starter = _starter()
     monkeypatch.setattr(starter, "_rendered_compose_services", lambda: model)
-    row = {"Service": job, "State": "exited", "ExitCode": 0, "Status": "Exited (0)"}
+    starter._capture_readiness_targets([job])
+    row = {"Service": job, "ID": job + "-1", "State": "exited", "ExitCode": 0, "Status": "Exited (0)"}
 
     assert starter.show_detached_status_summary(json_output=True, poll_rows=lambda: ([row], None))
     assert json.loads(capsys.readouterr().out)["services"][0]["ok"]
     assert starter._up_wait_race_converged(poll_rows=lambda: ([row], None))
 
 
-def test_running_only_summary_never_inspects_roles(monkeypatch, capsys):
+def test_running_only_summary_resolves_desired_membership(monkeypatch, capsys):
     starter = _starter()
-
-    def unexpected_lookup():
-        pytest.fail("running-only rows must not need configuration inspection")
-
-    monkeypatch.setattr(starter, "_rendered_compose_services", unexpected_lookup)
+    calls = []
+    def inspect():
+        calls.append(True)
+        return {"backend": {}, "weaviate": {}}
+    monkeypatch.setattr(starter, "_rendered_compose_services", inspect)
     assert starter.show_detached_status_summary(
         json_output=True, poll_rows=lambda: (_ALL_HEALTHY_2, None)
     )
     assert json.loads(capsys.readouterr().out)["ok"]
+    assert len(calls) == 1
 
 
 def test_role_lookup_is_once_per_call_and_fresh_on_next_start(monkeypatch):
     starter = _starter()
     clock = _FakeClock()
-    models = [{"n8n-init": {}}, {"n8n-init": {"restart": "always"}}]
+    models = [{"backend": {}, "weaviate": {}, "n8n-init": {}},
+              {"backend": {}, "weaviate": {}, "n8n-init": {"restart": "always"}}]
     calls = []
 
     def inspect():
@@ -570,7 +587,7 @@ def test_role_lookup_is_once_per_call_and_fresh_on_next_start(monkeypatch):
         return models[len(calls) - 1]
 
     monkeypatch.setattr(starter, "_rendered_compose_services", inspect)
-    job = {"Service": "n8n-init", "State": "exited", "ExitCode": 0}
+    job = {"Service": "n8n-init", "ID": "n8n-init-1", "State": "exited", "ExitCode": 0}
     poll = _sequence_poll(
         (_STARTING_THEN + [job], None), (_ALL_HEALTHY_2 + [job], None)
     )
@@ -594,7 +611,7 @@ def test_unavailable_role_fails_promptly_and_retries_next_call(monkeypatch, mode
 
     monkeypatch.setattr(starter, "_rendered_compose_services", inspect)
     # The unknown exit fails immediately; a second public call retries inspection.
-    job = {"Service": "n8n-init", "State": "exited", "ExitCode": 0}
+    job = {"Service": "n8n-init", "ID": "n8n-init-1", "State": "exited", "ExitCode": 0}
     for _ in range(2):
         assert not starter._up_wait_race_converged(
             poll_rows=lambda: (_STARTING_THEN + [job], None),
@@ -612,12 +629,12 @@ def test_late_role_inspection_preserves_pending_health_grace(monkeypatch, capsys
     def inspect():
         calls.append(True)
         clock.sleep(60)  # existing configuration subprocess has a separate bound
-        return {"n8n-init": {}}
+        return {"backend": {}, "weaviate": {}, "n8n-init": {}}
 
     monkeypatch.setattr(starter, "_rendered_compose_services", inspect)
-    job = {"Service": "n8n-init", "State": "exited", "ExitCode": 0}
+    job = {"Service": "n8n-init", "ID": "n8n-init-1", "State": "exited", "ExitCode": 0}
     poll = _sequence_poll(
-        (_STARTING_THEN, None), (_STARTING_THEN + [job], None),
+        (_STARTING_THEN + [job], None), (_STARTING_THEN + [job], None),
         (_STARTING_THEN + [job], None), (_ALL_HEALTHY_2 + [job], None),
     )
     assert starter.show_detached_status_summary(
@@ -630,9 +647,194 @@ def test_late_role_inspection_preserves_pending_health_grace(monkeypatch, capsys
 
 
 def test_stopped_zero_server_cannot_recover_nonzero_up(monkeypatch, capsys):
-    rows = [{"Service": "backend", "State": "exited", "ExitCode": 0}]
+    rows = [{"Service": "backend", "ID": "backend-1", "State": "exited", "ExitCode": 0}]
     starter = _race_starter(monkeypatch, up_result=1, ps_rows=rows)
     assert not starter.start_docker_services(cold_start=False, wait=True)
     output = capsys.readouterr().out
     assert "backend" in output
     assert "one-shot lifecycle not declared" in output
+
+
+# #1750: readiness requires the effective requested service/replica inventory.
+def _desired_starter(monkeypatch, model):
+    starter = _starter()
+    monkeypatch.setattr(starter, "_rendered_compose_services", lambda: model)
+    return starter
+
+
+def _healthy(service, identity=None):
+    return {"Service": service, "ID": identity or service + "-1", "State": "running", "Health": "healthy"}
+
+
+def test_missing_expected_service_rejects_start_recovery_and_json(monkeypatch, capsys):
+    starter = _race_starter(monkeypatch, up_result=1, ps_rows=[_healthy("redis")])
+    monkeypatch.setattr(starter.docker_manager, "enabled_service_targets", lambda: ["backend", "redis"])
+    monkeypatch.setattr(starter, "_rendered_compose_services", lambda: {"backend": {}, "redis": {}})
+    assert starter.start_docker_services(wait=True) is False
+    assert "backend" in capsys.readouterr().out
+    assert starter.show_detached_status_summary(json_output=True) is False
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is False
+    _assert_replica_deficit(payload, "backend", 1, 0)
+
+
+def _assert_replica_deficit(payload, name, expected, observed):
+    deficit = next(entry for entry in payload["services"] if entry.get("missing_replicas"))
+    assert deficit["service"] == name
+    assert deficit["ok"] is False
+    assert deficit["expected_replicas"] == expected
+    assert deficit["observed_replicas"] == observed
+    assert deficit["missing_replicas"] == expected - observed
+
+
+@pytest.mark.parametrize("case", [
+    ([], False, 0),
+    ([_healthy("worker")], False, 1),
+    ([_healthy("worker"), _healthy("worker")], False, 1),
+    ([_healthy("orphan", "worker-1")], False, 0),
+    ([_healthy("worker"), _healthy("orphan")], False, 1),
+    ([_healthy("worker", "worker-1"), _healthy("worker", "worker-2")], True, 2),
+    ([_healthy("worker", "worker-1"), _healthy("worker", "worker-2"), _healthy("orphan")], True, 2),
+])
+def test_desired_replicas_require_unique_expected_containers(monkeypatch, capsys, case):
+    rows, expected, observed = case
+    starter = _desired_starter(monkeypatch, {"worker": {"scale": 2}})
+    assert starter._up_wait_race_converged(poll_rows=lambda: (rows, None)) is expected
+    capsys.readouterr()
+    assert starter.show_detached_status_summary(json_output=True, poll_rows=lambda: (rows, None)) is expected
+    payload = json.loads(capsys.readouterr().out)
+    if not expected:
+        _assert_replica_deficit(payload, "worker", 2, observed)
+        assert starter.show_detached_status_summary(poll_rows=lambda: (rows, None)) is False
+        human = capsys.readouterr().out
+        assert "worker" in human and "expected 2" in human and f"observed {observed}" in human
+
+
+@pytest.mark.parametrize("model", [None, {}, [], {"worker": None}, {"worker": {"scale": -1}},
+    {"worker": {"scale": "oops"}}, {"worker": {"scale": True}},
+    {"worker": {"deploy": []}}, {"worker": {"deploy": {"replicas": 1.5}}},
+    {"worker": {"scale": 2, "deploy": {"replicas": 1}}}])
+def test_unknown_or_malformed_desired_model_cannot_prove_readiness(monkeypatch, capsys, model):
+    starter = _desired_starter(monkeypatch, model)
+    assert not starter.show_detached_status_summary(json_output=True, poll_rows=lambda: ([_healthy("worker")], None))
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["error"] and payload["ok"] is False
+
+
+def test_zero_scale_and_skipped_optional_builds_keep_exemptions(monkeypatch, capsys):
+    starter = _desired_starter(monkeypatch, {"backend": {}, "disabled": {"scale": 0},
+        "also-disabled": {"deploy": {"replicas": 0}}, "jupyterhub": {}})
+    starter.skipped_builds = ["jupyterhub"]
+    assert starter.show_detached_status_summary(json_output=True, poll_rows=lambda: ([_healthy("backend")], None))
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["not_started"] == ["jupyterhub"]
+    assert {entry["service"] for entry in payload["services"]} == {"backend"}
+
+
+def test_declared_finite_job_needs_observed_completion(monkeypatch, capsys):
+    starter = _desired_starter(monkeypatch, {"backend": {}, "n8n-init": {"restart": "no"}})
+    rows = [_healthy("backend")]
+    assert not starter._up_wait_race_converged(poll_rows=lambda: (rows, None))
+    rows.append({"Service": "n8n-init", "ID": "init-1", "State": "exited", "ExitCode": 0})
+    assert starter._up_wait_race_converged(poll_rows=lambda: (rows, None))
+    capsys.readouterr()
+    assert starter.show_detached_status_summary(json_output=True, poll_rows=lambda: (rows, None))
+
+
+def test_launch_snapshot_survives_config_changes_and_excludes_unrequested_profiles(monkeypatch, capsys):
+    starter = _race_starter(monkeypatch, up_result=1, ps_rows=[_healthy("backend"), _healthy("redis")])
+    monkeypatch.setattr(starter.docker_manager, "enabled_service_targets", lambda: ["backend"])
+    model = {"backend": {"depends_on": {"redis": {}}}, "redis": {}, "profile-other": {"profiles": ["other"]}}
+    calls = []
+    def render():
+        calls.append(True)
+        return model if len(calls) == 1 else {"changed": {}}
+    monkeypatch.setattr(starter, "_rendered_compose_services", render)
+    assert starter.start_docker_services(wait=True)
+    capsys.readouterr()
+    assert starter.show_detached_status_summary(json_output=True)
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("bad_rows", [[None], [1], [{"Service": "backend", "State": "running"}, None],
+    [{"Service": "backend", "State": "running"}], [{"ID": "x", "State": "running"}]])
+def test_malformed_status_rows_cannot_prove_readiness(monkeypatch, capsys, bad_rows):
+    starter = _desired_starter(monkeypatch, {"backend": {}})
+    assert not starter.show_detached_status_summary(json_output=True, poll_rows=lambda: (bad_rows, None))
+    assert json.loads(capsys.readouterr().out)["ok"] is False
+
+
+@pytest.mark.parametrize("identity", [7, ["container"], {"container": "id"}])
+def test_invalid_container_id_with_valid_name_is_inspection_error(monkeypatch, capsys, identity):
+    starter = _desired_starter(monkeypatch, {"backend": {}})
+    row = {**_healthy("backend"), "ID": identity, "Name": "atlas-backend-1"}
+    assert not starter.show_detached_status_summary(json_output=True, poll_rows=lambda: ([row], None))
+    assert json.loads(capsys.readouterr().out)["error"]
+
+
+def test_whitespace_id_uses_unique_container_names(monkeypatch):
+    starter = _desired_starter(monkeypatch, {"worker": {"scale": 2}})
+    rows = [{**_healthy("worker"), "ID": " ", "Name": "worker-1"},
+            {**_healthy("worker"), "ID": " ", "Name": "worker-2"}]
+    assert starter._up_wait_race_converged(poll_rows=lambda: (rows, None))
+
+
+@pytest.mark.parametrize("dependency", ["absent", "skipped", "zero"])
+def test_optional_dependency_exemptions(monkeypatch, dependency):
+    model = {"backend": {"depends_on": {"optional": {"required": False}}}}
+    if dependency != "absent":
+        model["optional"] = {"scale": 0} if dependency == "zero" else {}
+    starter = _desired_starter(monkeypatch, model)
+    starter.skipped_builds = ["optional"] if dependency == "skipped" else []
+    starter._capture_readiness_targets(["backend"])
+    assert starter._up_wait_race_converged(poll_rows=lambda: ([_healthy("backend")], None))
+
+
+@pytest.mark.parametrize("dependency", ["absent", "skipped", "zero"])
+def test_required_dependency_cannot_be_omitted_from_launch(monkeypatch, dependency):
+    model = {"backend": {"depends_on": {"required": {}}}}
+    if dependency != "absent":
+        model["required"] = {"scale": 0} if dependency == "zero" else {}
+    starter = _desired_starter(monkeypatch, model)
+    starter.skipped_builds = ["required"] if dependency == "skipped" else []
+    starter._capture_readiness_targets(["backend"])
+    assert not starter._up_wait_race_converged(poll_rows=lambda: ([_healthy("backend")], None))
+
+
+@pytest.mark.parametrize("field, value", [("Health", 0), ("Status", []), ("Name", ["container"])])
+def test_malformed_optional_status_fields_fail_inspection(monkeypatch, capsys, field, value):
+    starter = _desired_starter(monkeypatch, {"backend": {}})
+    row = {**_healthy("backend"), field: value}
+    assert not starter.show_detached_status_summary(json_output=True, poll_rows=lambda: ([row], None))
+    assert json.loads(capsys.readouterr().out)["error"]
+
+
+@pytest.mark.parametrize("cold", [False, True])
+def test_launch_captures_targets_after_optional_build_isolation(monkeypatch, capsys, cold):
+    starter = _desired_starter(monkeypatch, {"backend": {}, "jupyterhub": {"build": {"context": "fixture"}}})
+    manager = starter.docker_manager
+    monkeypatch.setattr(manager, "enabled_service_targets", lambda: ["backend", "jupyterhub"])
+    monkeypatch.setattr(manager, "prepare_build_args", lambda *_args: ["--build"])
+    monkeypatch.setattr(manager, "capture_build_state", lambda *_args: None)
+    monkeypatch.setattr(manager, "mark_source_built", lambda *_args: None)
+    monkeypatch.setattr(manager, "execute_compose_command", lambda _args: 1)
+    monkeypatch.setattr(manager, "compose_ps_json", lambda: ([_healthy("backend")], None))
+    def isolate(targets, no_cache):
+        assert targets == ["backend", "jupyterhub"]
+        assert no_cache is cold
+        starter.skipped_builds = ["jupyterhub"]
+        return True, ["backend"]
+    monkeypatch.setattr(starter, "_build_launch_images", isolate)
+    monkeypatch.setattr(starter, "verify_one_shot_init_containers", lambda: True)
+    monkeypatch.setattr(starter, "_reactivate_n8n_if_needed", lambda: True)
+    assert starter.start_docker_services(cold_start=cold, wait=True)
+    capsys.readouterr()
+    assert starter.show_detached_status_summary(json_output=True)
+    assert json.loads(capsys.readouterr().out)["not_started"] == ["jupyterhub"]
+
+
+def test_new_start_refreshes_the_captured_desired_targets(monkeypatch):
+    starter = _race_starter(monkeypatch, up_result=1, ps_rows=list(_HEALTHY_ROWS))
+    assert starter.start_docker_services(wait=True)
+    starter._rendered_compose_services()["redis"] = {}
+    assert not starter.start_docker_services(wait=True)
