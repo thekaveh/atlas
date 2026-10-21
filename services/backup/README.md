@@ -97,7 +97,9 @@ BACKUP_LOCAL_SNAPSHOT_RETENTION_COUNT=3        # completed local snapshot sets k
 BACKUP_LOCAL_ROLLBACK_RETENTION_COUNT=1        # rollback volumes kept per database (1-20)
 ```
 
-**Enabling the runner.** The one-shot container entrypoint enforces `BACKUP_SOURCE`. While it is `disabled`, backup and restore commands exit before they check tools or touch data. Set it to `container` to allow on-demand runs. `BACKUP_SCALE` stays zero in both modes. The setup wizard offers the same `container` / `disabled` choice. For automation, `./start.sh --backup-source container --detach` persists the selection before you use `docker compose run`.
+**Enabling the runner.** The host backup command requires `BACKUP_SOURCE=container` before it creates locks, stops Neo4j, or captures snapshots. An exported value takes precedence over `.env`, including an empty export. Missing or empty values default to `disabled`; every value except `container` exits 64. The one-shot container entrypoint independently requires `container` for backup and restore, before it checks tools or touches data.
+
+Set `BACKUP_SOURCE=container` to allow on-demand runs. `BACKUP_SCALE` stays zero in both modes. The setup wizard offers the same `container` / `disabled` choice. For automation, `./start.sh --backup-source container --detach` persists the selection before you use `docker compose run`.
 
 **Local S3 mode.** `BACKUP_S3_MODE=local` is the safe default.
 

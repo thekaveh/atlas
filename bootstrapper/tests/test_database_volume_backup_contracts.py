@@ -690,6 +690,7 @@ def _fake_docker(tmp_path: Path) -> tuple[Path, dict[str, str]]:
         "JOBS": str(jobs),
         "TMPDIR": str(tmp_path),
         "ATLAS_DATABASE_LOCK_DIR": str(tmp_path),
+        "BACKUP_SOURCE": "container",
         "BACKUP_TIMESTAMP": "20260830_010203",
         "BACKUP_DATABASE_QUIESCE_TIMEOUT_SECONDS": "5",
         "BACKUP_RESTORE_GLOBAL_TIMEOUT_SECONDS": "10",
