@@ -7,10 +7,27 @@ models the FastAPI surface uses. Nothing here does I/O.
 """
 from __future__ import annotations
 
+import re
+
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
+
+
+def weaviate_class_name(collection_prefix: str, profile_name: str) -> str:
+    """Compose a valid Weaviate class name from a (validated uppercase-first)
+    collection_prefix and a profile name.
+
+    Weaviate class names must match ``^[A-Z][_0-9A-Za-z]*$``, but a profile name
+    may legitimately contain ``.``/``-`` (e.g. ``showcase-default``). Left raw,
+    ``{prefix}_{name}`` would 422 on ensure_class and the case-sensitive
+    reconcile ``Get {{ <class> }}`` query would 404. Sanitize every non-alnum
+    char in the name to ``_`` so the derived class name is always valid and the
+    write + reconcile paths agree.
+    """
+    safe_name = re.sub(r"[^0-9A-Za-z]", "_", profile_name)
+    return f"{collection_prefix}_{safe_name}"
 
 # Ordered ingestion lifecycle. Every phase is recorded even when skipped, so a
 # status reader can see exactly where a job is (or why a target was skipped).
@@ -86,6 +103,8 @@ class IngestionRecord:
     dispatch_job_id: Optional[str] = None
     dispatch_owner: Optional[str] = None
     dispatch_claimed_at: Optional[str] = None
+    # None denotes legacy records without proof of their current publication.
+    publication_targets: Optional[List[str]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -106,6 +125,8 @@ class IngestionRecord:
         phases = [PhaseRecord(**p) for p in list_field("phases")]
         payload = {k: v for k, v in data.items() if k != "phases"}
         payload["errors"] = list_field("errors")
+        if payload.get("publication_targets") == {}:
+            payload["publication_targets"] = []
         return cls(phases=phases, **payload)
 
     def phase(self, name: str) -> PhaseRecord:
