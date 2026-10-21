@@ -21,7 +21,6 @@ from datetime import datetime
 from typing import Any, List, Optional, Tuple
 
 from media_ledger import (
-    AMBIGUOUS_RECOVERY_REASON,
     ATTACH_RECOVERY_REASON,
     LedgerOperationCollisionError,
     STATUS_COMMITTED,
@@ -328,12 +327,10 @@ class PostgresLedgerStore:
     async def prune(self, older_than: datetime) -> int:
         async with self._acquire() as conn:
             result = await conn.execute(
-                f"DELETE FROM {_TABLE} WHERE created_at < $1 "
-                "AND NOT (status = ANY($2::text[]) "
-                "AND COALESCE(reason = ANY($3::text[]), FALSE))",
+                f"DELETE FROM {_TABLE} WHERE updated_at < $1 "
+                "AND NOT (status = ANY($2::text[]))",
                 older_than,
                 [STATUS_RESERVED, STATUS_SUBMITTED],
-                [AMBIGUOUS_RECOVERY_REASON, ATTACH_RECOVERY_REASON],
             )
             # asyncpg returns e.g. "DELETE 3".
             try:
