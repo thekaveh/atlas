@@ -334,6 +334,14 @@ ownership pass there runs with `search_path = pg_catalog, pg_temp` and
 schema-qualified built-ins, so nothing the role plants in it runs as the
 superuser.
 
+`SUPABASE_AUTH_DB_USER` owns the `auth` schema and its application relations,
+enums, domains, standalone composite types and non-extension routines.
+This lets GoTrue run owner-only migrations against objects created by earlier admin connections;
+grants alone cannot authorize these operations.
+Extension-member types and routines retain their owners; dependent arrays and table row types follow their owning objects.
+The shared `public.schema_migrations` tracker stays platform-owned, and
+`public.handle_auth_user_sync()` keeps its no-login `atlas_auth_sync` owner.
+
 Ownership transfers leave column-owned serial and identity sequences to their tables.
 Standalone sequences and partition tables still transfer directly.
 Repeated passes preserve the same owners.

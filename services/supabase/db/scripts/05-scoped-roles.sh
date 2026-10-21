@@ -361,6 +361,7 @@ GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA auth TO :"auth_role";
 REVOKE SELECT ON auth.users FROM :"openwebui_role";
 GRANT SELECT (id) ON auth.users TO :"openwebui_role";
 
+SELECT pg_catalog.set_config('atlas.auth_role', :'auth_role', false);
 SELECT set_config('atlas.storage_role', :'storage_role', false);
 SELECT set_config('atlas.realtime_role', :'realtime_role', false);
 DO $body$
@@ -370,16 +371,17 @@ DECLARE
   item record;
   kind text;
 BEGIN
-  FOREACH schema_name IN ARRAY ARRAY['storage', 'realtime']
+  FOREACH schema_name IN ARRAY ARRAY['auth', 'storage', 'realtime']
   LOOP
     target := CASE schema_name
-      WHEN 'storage' THEN current_setting('atlas.storage_role')
-      ELSE current_setting('atlas.realtime_role')
+      WHEN 'auth' THEN pg_catalog.current_setting('atlas.auth_role')
+      WHEN 'storage' THEN pg_catalog.current_setting('atlas.storage_role')
+      ELSE pg_catalog.current_setting('atlas.realtime_role')
     END;
-    EXECUTE format('ALTER SCHEMA %I OWNER TO %I', schema_name, target);
+    EXECUTE pg_catalog.format('ALTER SCHEMA %I OWNER TO %I', schema_name, target);
     FOR item IN
       SELECT c.relname, c.relkind
-      FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+      FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
       WHERE n.nspname=schema_name
         AND c.relkind IN ('r','p','S','v','m','f')
         -- A sequence a serial or identity column owns follows its table, and
@@ -390,29 +392,56 @@ BEGIN
             AND d.objid = c.oid
             AND d.refclassid = 'pg_catalog.pg_class'::pg_catalog.regclass
             AND d.deptype IN ('a', 'i')))
-        AND pg_get_userbyid(c.relowner) <> target
+        AND pg_catalog.pg_get_userbyid(c.relowner) <> target
     LOOP
       kind := CASE item.relkind WHEN 'S' THEN 'SEQUENCE' WHEN 'v' THEN 'VIEW'
         WHEN 'm' THEN 'MATERIALIZED VIEW' WHEN 'f' THEN 'FOREIGN TABLE' ELSE 'TABLE' END;
-      EXECUTE format('ALTER %s %I.%I OWNER TO %I', kind, schema_name, item.relname, target);
+      EXECUTE pg_catalog.format('ALTER %s %I.%I OWNER TO %I', kind, schema_name, item.relname, target);
     END LOOP;
+    -- Independent auth application types need ownership for GoTrue migrations.
+    -- Arrays and table row types follow their owning type/table instead.
+    IF schema_name = 'auth' THEN
+      FOR item IN
+        SELECT t.typname
+        FROM pg_catalog.pg_type t
+        JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace
+        LEFT JOIN pg_catalog.pg_class c ON c.oid = t.typrelid
+        WHERE n.nspname = schema_name AND t.typisdefined
+          AND (t.typtype IN ('e', 'd') OR (t.typtype = 'c' AND c.relkind = 'c'))
+          AND pg_catalog.pg_get_userbyid(t.typowner) <> target
+          AND NOT EXISTS (
+            SELECT 1 FROM pg_catalog.pg_depend d
+            WHERE d.classid = 'pg_catalog.pg_type'::pg_catalog.regclass
+              AND d.objid = t.oid
+              AND d.refclassid = 'pg_catalog.pg_extension'::pg_catalog.regclass
+              AND d.deptype = 'e')
+      LOOP
+        EXECUTE pg_catalog.format('ALTER TYPE %I.%I OWNER TO %I', schema_name, item.typname, target);
+      END LOOP;
+    END IF;
     FOR item IN
-      SELECT p.oid::regprocedure AS identity
-      FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+      SELECT p.oid::pg_catalog.regprocedure AS identity
+      FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
       WHERE n.nspname=schema_name AND p.prokind <> 'a'
-        AND pg_get_userbyid(p.proowner) <> target
+        AND pg_catalog.pg_get_userbyid(p.proowner) <> target
+        AND (schema_name <> 'auth' OR NOT EXISTS (
+          SELECT 1 FROM pg_catalog.pg_depend d
+          WHERE d.classid = 'pg_catalog.pg_proc'::pg_catalog.regclass
+            AND d.objid = p.oid
+            AND d.refclassid = 'pg_catalog.pg_extension'::pg_catalog.regclass
+            AND d.deptype = 'e'))
     LOOP
-      EXECUTE format('ALTER ROUTINE %s OWNER TO %I', item.identity, target);
+      EXECUTE pg_catalog.format('ALTER ROUTINE %s OWNER TO %I', item.identity, target);
     END LOOP;
   END LOOP;
 
   -- Realtime's pinned application-repository migrations manage these tables
   -- in public. Keep the shared GoTrue/Ecto schema_migrations tracker owned by
   -- the platform admin, but transfer every Realtime-only management relation.
-  target := current_setting('atlas.realtime_role');
+  target := pg_catalog.current_setting('atlas.realtime_role');
   FOR item IN
     SELECT c.relname, c.relkind
-    FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+    FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
     WHERE n.nspname='public'
       AND (c.relname = ANY (ARRAY['tenants','extensions','feature_flags'])
            OR c.relname LIKE 'tenants_%'
@@ -427,11 +456,11 @@ BEGIN
           AND d.objid = c.oid
           AND d.refclassid = 'pg_catalog.pg_class'::pg_catalog.regclass
           AND d.deptype IN ('a', 'i')))
-      AND pg_get_userbyid(c.relowner) <> target
+      AND pg_catalog.pg_get_userbyid(c.relowner) <> target
   LOOP
     kind := CASE item.relkind WHEN 'S' THEN 'SEQUENCE' WHEN 'v' THEN 'VIEW'
       WHEN 'm' THEN 'MATERIALIZED VIEW' WHEN 'f' THEN 'FOREIGN TABLE' ELSE 'TABLE' END;
-    EXECUTE format('ALTER %s public.%I OWNER TO %I', kind, item.relname, target);
+    EXECUTE pg_catalog.format('ALTER %s public.%I OWNER TO %I', kind, item.relname, target);
   END LOOP;
 END
 $body$;
