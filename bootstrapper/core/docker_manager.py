@@ -12,12 +12,13 @@ import re
 import signal
 import subprocess
 
-from utils.system import compose_env, project_volume_names, report_surviving_volumes, resolved_minio_environment, run_compose_child
+from utils.system import service_replica_targets, compose_env, project_volume_names, report_surviving_volumes, resolved_minio_environment, run_compose_child
 import time
 from typing import Callable, List, Optional
 
 from core.process_runner import (
     one_shot_state, poll_one_shots, run_with_deadline, sleep_unless_stopped,
+    validate_compose_status_rows,
 )
 from pathlib import Path
 from core.config_parser import ConfigParser
@@ -454,14 +455,12 @@ class DockerManager:
         if not services:
             return None
 
-        enabled: list[str] = []
-        disabled: list[str] = []
-        for name, spec in services.items():
-            replicas = ((spec or {}).get("deploy") or {}).get("replicas")
-            if replicas is None or int(replicas) != 0:
-                enabled.append(name)
-            else:
-                disabled.append(name)
+        try:
+            replicas = service_replica_targets(services)
+        except ValueError:
+            return None
+        enabled = [name for name, count in replicas.items() if count > 0]
+        disabled = [name for name, count in replicas.items() if count == 0]
         enabled.sort()
         disabled.sort()
         # Make the selected target set inspectable for debugging (#504 AC).
@@ -1007,19 +1006,14 @@ class DockerManager:
         if not payload:
             return rows, None
         try:
-            parsed = json.loads(payload)
-            rows = parsed if isinstance(parsed, list) else [parsed]
-        except json.JSONDecodeError:
-            for line in payload.splitlines():
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    row = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                if isinstance(row, dict):
-                    rows.append(row)
+            try:
+                parsed = json.loads(payload)
+                rows = parsed if isinstance(parsed, list) else [parsed]
+            except json.JSONDecodeError:
+                rows = [json.loads(line) for line in payload.splitlines() if line.strip()]
+            validate_compose_status_rows(rows)
+        except (json.JSONDecodeError, ValueError) as exc:
+            return [], f"invalid docker compose ps inventory: {exc}"
         return rows, None
     
     def show_container_logs(self, follow: bool = True) -> int:
