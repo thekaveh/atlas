@@ -813,3 +813,78 @@ def poll_one_shots(pending: list, failures: list, last_reason: dict, get_state) 
         pending.remove(service)
         if verdict == "failed":
             failures.append((service, reason))
+
+
+def _validate_compose_status_row(row: dict) -> None:
+    if not isinstance(row, dict):
+        raise ValueError("container status contains a non-object record")
+    for key in ("Service", "State"):
+        if not isinstance(row.get(key), str) or not row[key].strip():
+            raise ValueError(f"container status record has no {key}")
+    for key in ("ID", "Name", "Health", "Status"):
+        value = row.get(key)
+        if value is not None and not isinstance(value, str):
+            raise ValueError(f"{row['Service']}: invalid container status {key}")
+    _validate_compose_exit_code(row)
+    if not compose_container_identity(row):
+        raise ValueError(f"{row['Service']}: container status record has no container identity")
+
+
+def _validate_compose_exit_code(row: dict) -> None:
+    value = row.get("ExitCode")
+    if value is not None and type(value) not in (int, str):
+        raise ValueError(f"{row['Service']}: invalid container status ExitCode")
+
+
+def compose_container_identity(row: dict, name_ids=None) -> tuple[str, str] | None:
+    """Resolve validated ID/Name aliases without counting one container twice."""
+    name = (row.get("Name") or "").strip()
+    container_id = (row.get("ID") or "").strip() or (name_ids or {}).get(name)
+    if container_id:
+        return "ID", container_id
+    return ("Name", name) if name else None
+
+
+def _record_compose_alias(row, name_ids, id_names) -> None:
+    name = (row.get("Name") or "").strip()
+    container_id = (row.get("ID") or "").strip()
+    if not name or not container_id:
+        return
+    if name_ids.get(name, container_id) != container_id or id_names.get(container_id, name) != name:
+        raise ValueError(f"{row['Service']}: contradictory container ID/Name aliases")
+    name_ids[name] = container_id
+    id_names[container_id] = name
+
+
+def _compose_inventory_aliases(rows: list[dict]) -> dict[str, str]:
+    name_ids, id_names, owners = {}, {}, {}
+    for row in rows:
+        _record_compose_alias(row, name_ids, id_names)
+        for key in ("ID", "Name"):
+            alias = (row.get(key) or "").strip()
+            if not alias:
+                continue
+            previous = owners.setdefault((key, alias), row["Service"])
+            if previous != row["Service"]:
+                raise ValueError(f"container {key} {alias!r} belongs to contradictory services")
+    return name_ids
+
+
+def _validate_compose_project(row: dict, project: str | None) -> None:
+    if "Project" not in row:
+        return
+    actual = row["Project"]
+    if not isinstance(actual, str) or not actual.strip():
+        raise ValueError(f"{row['Service']}: invalid container status Project")
+    if project is not None and actual != project:
+        raise ValueError(f"{row['Service']}: expected Compose project {project!r}, observed {actual!r}")
+
+
+def validate_compose_status_rows(rows: list[dict], project: str | None = None) -> dict[str, str]:
+    """Require well-formed service and container identity on every record."""
+    if not isinstance(rows, list):
+        raise ValueError("container status is not a list")
+    for row in rows:
+        _validate_compose_status_row(row)
+        _validate_compose_project(row, project)
+    return _compose_inventory_aliases(rows)

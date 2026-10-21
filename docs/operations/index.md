@@ -89,8 +89,15 @@ Compose health gates, prints a per-service status summary, and exits instead of
 following logs. Add `--json` for machine-readable status in CI or parent-repo
 wrappers.
 
+The detached summary requires every expected enabled Compose service and replica.
+Missing targets fail even when the reported containers are healthy. Human and
+JSON summaries name each missing service and its replica deficit. Explicitly
+skipped optional image builds remain listed separately as `not_started`.
+See [the automation contract](reusing-atlas.md#613-scripted-bring-up-for-automation).
+
 **`./start.sh` exit codes and cancelling.** `0` means the stack started. `1`
-means it did not: a build, `up` or one-shot init container failed. An init
+means it did not: a build, `up`, one-shot init container or detached readiness
+check failed. Missing expected services or replicas also exit `1`. An init
 failure report includes up to 40 log lines when available, before cancellation.
 `Ctrl+C` differs by front end:
 

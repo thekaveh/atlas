@@ -79,7 +79,7 @@ def test_reactivate_n8n_restarts_only_when_needed(tmp_path):
 
         def compose_service_ps_json(self, service):
             assert service == "n8n"
-            return ([{"Service": "n8n", "State": "running", "Health": "healthy"}], None)
+            return ([{"Service": "n8n", "ID": "n8n-1", "State": "running", "Health": "healthy"}], None)
 
     class _Banner:
         def show_status_message(self, *a, **k):
@@ -90,6 +90,7 @@ def test_reactivate_n8n_restarts_only_when_needed(tmp_path):
         s.config_parser = _CP(env, wfs)
         s.docker_manager = _DM()
         s.banner = _Banner()
+        s._readiness_snapshot = ({"n8n": 1}, set(), "atlas", None)
         return s
 
     # needs restart -> restarts n8n
@@ -182,11 +183,11 @@ def test_reactivate_n8n_waits_for_healthy_container(tmp_path, poll_result, expec
 @pytest.mark.parametrize(
     ("row", "expected"),
     [
-        ({"Service": "n8n", "State": "running", "Health": "healthy"}, True),
-        ({"Service": "n8n", "State": "running", "Health": ""}, False),
-        ({"Service": "n8n", "State": "running", "Health": "unhealthy"}, False),
+        ({"Service": "n8n", "ID": "n8n-1", "State": "running", "Health": "healthy"}, True),
+        ({"Service": "n8n", "ID": "n8n-1", "State": "running", "Health": ""}, False),
+        ({"Service": "n8n", "ID": "n8n-1", "State": "running", "Health": "unhealthy"}, False),
         ({
-            "Service": "n8n",
+            "Service": "n8n", "ID": "n8n-1",
             "State": "exited",
             "ExitCode": 0,
             "Status": "Exited (0) 1 second ago",
@@ -197,6 +198,7 @@ def test_n8n_restart_requires_running_and_healthy(row, expected):
     import start
 
     starter = start.AtlasStarter.__new__(start.AtlasStarter)
+    starter._readiness_snapshot = ({"n8n": 1, "backend": 1}, set(), "atlas", None)
     starter.docker_manager = NS(compose_service_ps_json=lambda _service: ([row], None))
     starter.banner = NS(show_status_message=lambda *_args, **_kwargs: None)
     real_poll = start.AtlasStarter._poll_until_converged.__get__(starter)
