@@ -470,6 +470,7 @@ def test_pending_vector_sync_survives_failed_weaviate_update(caplog):
                     "confidence": 0.8,
                     "namespace": "default",
                     "is_active": False,
+                    "updated_at": datetime(2026, 1, 1, tzinfo=timezone.utc),
                     "weaviate_id": "vector-old",
                 }
             ]
@@ -752,6 +753,7 @@ def test_delete_memory_keeps_pending_marker_when_vector_sync_fails(monkeypatch):
                     "confidence": 0.9,
                     "namespace": "default",
                     "is_active": False,
+                    "updated_at": datetime(2026, 1, 1, tzinfo=timezone.utc),
                     "weaviate_id": memory_id,
                 }
             ]

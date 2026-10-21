@@ -21,8 +21,8 @@ EXPECTED_BASELINE_SNAPSHOT = {
     "functions_over_100_physical_lines": 85,
     "functions_over_4_parameters": 156,
     "modules_over_600_logical_lines": 21,
-    # One generated public candidate-decision reference; all other ceilings stay fixed.
-    "tracked_files": 1620,
+    # One cohesive #1755 reconciliation helper; all complexity ceilings stay fixed.
+    "tracked_files": 1621,
     "v0.1.0_tracked_files": 667,
 }
 EXPECTED_EXTENDED_PYTHON_SNAPSHOT = {
