@@ -2788,7 +2788,10 @@ async def test_a_failure_that_hits_every_row_is_retried_next_pass(monkeypatch, f
     seen = []
 
     class FakeConn:
-        async def fetch(self, _query, ids, stamps):
+        async def fetch(self, query, *args):
+            if "DESC NULLS LAST" in query:
+                return rows[-1:]
+            ids, stamps = args[:2]
             seen.append(list(ids))
             return rows
 
@@ -2807,3 +2810,577 @@ async def test_a_failure_that_hits_every_row_is_retried_next_pass(monkeypatch, f
     await svc._reconcile_pending_vectors()
     await svc._reconcile_pending_vectors()
     assert seen[1] == []
+
+
+# #1755: a stateful canonical-fact adapter exercises the real reconciliation
+# entry point; the opt-in Postgres cases below separately qualify its SQL.
+from datetime import datetime, timedelta, timezone  # noqa: E402
+from uuid import UUID, uuid4  # noqa: E402
+
+
+_RECONCILE_TIME = datetime(2026, 1, 1, tzinfo=timezone.utc)
+
+
+def _reconcile_fact(number, *, stamp=_RECONCILE_TIME, content="bad", active=True):
+    return {
+        "id": UUID(int=number), "user_id": UUID(int=2**120),
+        "namespace": "test-1755", "content": content, "fact_type": "observation",
+        "confidence": 0.9, "is_active": active, "weaviate_id": None,
+        "updated_at": stamp, "vector_sync_pending": True,
+    }
+
+
+def _reconcile_order(row):
+    stamp = row["updated_at"]
+    return stamp is not None, stamp or _RECONCILE_TIME, row["id"]
+
+
+class _ReconcileFacts:
+    def __init__(self, rows):
+        self.rows = {row["id"]: row for row in rows}
+        self.queries = []
+        self.closed = 0
+        self.clear_error = None
+
+    def _matching_versions(self, ids, stamps):
+        return [{"id": key} for key, stamp in zip(ids, stamps)
+                if key in self.rows and self.rows[key]["vector_sync_pending"]
+                and self.rows[key]["updated_at"] == stamp]
+
+    @staticmethod
+    def _within_interval(rows, bounds):
+        cursor_ts, cursor_id, upper_ts, upper_id = bounds
+        upper = _reconcile_order({"updated_at": upper_ts, "id": upper_id})
+        rows = [r for r in rows if _reconcile_order(r) <= upper]
+        if cursor_id is not None:
+            cursor = _reconcile_order({"updated_at": cursor_ts, "id": cursor_id})
+            rows = [r for r in rows if _reconcile_order(r) > cursor]
+        return rows
+
+    async def fetch(self, query, *args):
+        self.queries.append((query, args))
+        if "AS cached" in query:
+            return self._matching_versions(*args)
+        pending = sorted((r for r in self.rows.values() if r["vector_sync_pending"]),
+                         key=_reconcile_order)
+        if "DESC NULLS LAST" in query:
+            return [dict(pending[-1])] if pending else []
+        return self._uncached_page(pending, args)
+
+    def _uncached_page(self, pending, args):
+        rejected = dict(zip(args[0], args[1]))
+        rows = [r for r in pending if r["id"] not in rejected
+                or rejected[r["id"]] != r["updated_at"]]
+        if len(args) == 6:
+            rows = self._within_interval(rows, args[2:])
+        return [dict(r) for r in rows[:100]]
+
+    async def execute(self, query, *args):
+        key, vector_id, stamp = args
+        if self.clear_error:
+            raise self.clear_error
+        assert "AND updated_at = $3" in query
+        row = self.rows[key]
+        if stamp is not None and row["updated_at"] == stamp:
+            row["vector_sync_pending"] = False
+            return "UPDATE 1"
+        return "UPDATE 0"
+
+    async def close(self):
+        self.closed += 1
+
+
+class _ReconcileTarget:
+    def __init__(self):
+        self.attempts = []
+        self.actions = []
+        self.failure = None
+
+    async def update_embedding(self, **kwargs):
+        key = UUID(kwargs["fact_id"])
+        self.attempts.append(key)
+        if self.failure:
+            raise self.failure
+        if kwargs["content"] == "bad":
+            import httpx
+            request = httpx.Request("POST", "http://controlled-target/objects")
+            raise httpx.HTTPStatusError("row rejected", request=request,
+                response=httpx.Response(422, text="content rejected", request=request))
+        self.actions.append(("update", key))
+        return "new-vector"
+
+    async def deactivate_embedding(self, fact_id, _weaviate_id):
+        key = UUID(fact_id)
+        self.attempts.append(key)
+        self.actions.append(("retire", key))
+
+
+def _reconcile_service():
+    import memory_service
+    service = memory_service.MemoryService.__new__(memory_service.MemoryService)
+    service.database_url = "postgresql://controlled-fixture"
+    service.store = _ReconcileTarget()
+    return service
+
+
+async def _bounded_reconcile(service, conn, **kwargs):
+    attempts, queries = len(service.store.attempts), len(conn.queries)
+    result = await service._reconcile_pending_vectors(conn=conn, **kwargs)
+    assert len(service.store.attempts) - attempts <= 100
+    assert len(conn.queries) - queries <= 3
+    assert len(service._rejected_rows()) <= 10_000
+    return result
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("history", [9999, 10_000, 10_100])
+@pytest.mark.parametrize("active", [True, False], ids=["update", "retirement"])
+async def test_reconcile_advances_after_real_rejection_history(history, active):
+    service = _reconcile_service()
+    conn = _ReconcileFacts([_reconcile_fact(i) for i in range(1, history + 1)])
+    for _ in range(math.ceil(history / 100)):
+        await _bounded_reconcile(service, conn)
+    # Every history entry actually hit the target. Unchanged cached facts stay
+    # present and pending, so stale cleanup cannot disguise cache saturation.
+    assert set(service.store.attempts) == set(conn.rows)
+    assert len(service._rejected_rows()) == min(history, 10_000)
+    later = _reconcile_fact(history + 102, content="valid", active=active)
+    for i in range(history + 1, history + 102):
+        row = _reconcile_fact(i)
+        conn.rows[row["id"]] = row
+    conn.rows[later["id"]] = later
+    before = len(service.store.attempts)
+    for _ in range(5):
+        await _bounded_reconcile(service, conn)
+    assert ("update" if active else "retire", later["id"]) in service.store.actions
+    assert not later["vector_sync_pending"]
+    assert len(set(service.store.attempts[before:])) >= 102
+
+
+@pytest.mark.asyncio
+async def test_reconcile_unique_null_safe_order_and_cached_null():
+    service = _reconcile_service()
+    rows = [_reconcile_fact(i, content="valid") for i in range(1, 203)]
+    rows[0]["updated_at"] = None
+    rows[1]["updated_at"] = datetime(1960, 1, 1, tzinfo=timezone.utc)
+    rows[2]["updated_at"] = datetime(1970, 1, 1, tzinfo=timezone.utc)
+    conn = _ReconcileFacts(reversed(rows))
+    service._rejected_rows()[rows[0]["id"]] = None
+    for _ in range(3):
+        await _bounded_reconcile(service, conn)
+    assert service.store.attempts == [r["id"] for r in sorted(rows[1:], key=_reconcile_order)]
+    assert conn.rows[rows[0]["id"]]["vector_sync_pending"]
+    assert service._rejected_rows() == {rows[0]["id"]: None}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("watermark_change", ["delete", "change"])
+async def test_reconcile_fixed_watermark_wraps_despite_newer_arrivals(watermark_change):
+    service = _reconcile_service()
+    rows = [_reconcile_fact(i, content="valid") for i in range(1, 202)]
+    conn = _ReconcileFacts(rows)
+    await _bounded_reconcile(service, conn)
+    upper = service._vector_reconcile_upper
+    older = _reconcile_fact(500, stamp=_RECONCILE_TIME - timedelta(days=1), content="valid")
+    conn.rows[older["id"]] = older
+    if watermark_change == "delete":
+        del conn.rows[rows[-1]["id"]]
+    else:
+        conn.rows[rows[-1]["id"]]["updated_at"] += timedelta(days=2)
+    for i in range(3):
+        new = _reconcile_fact(600+i, stamp=_RECONCILE_TIME + timedelta(days=1), content="valid")
+        conn.rows[new["id"]] = new
+        await _bounded_reconcile(service, conn)
+        if i == 0:
+            assert service._vector_reconcile_upper == upper
+    assert ("update", older["id"]) in service.store.actions
+    assert not older["vector_sync_pending"]
+
+
+@pytest.mark.asyncio
+async def test_reconcile_rotating_cache_reclaims_deleted_and_nonpending_versions():
+    service = _reconcile_service()
+    rows = [_reconcile_fact(i) for i in range(1, 10_001)]
+    conn = _ReconcileFacts(rows)
+    service._rejected_rows().update({r["id"]: r["updated_at"] for r in rows})
+    deleted, nonpending = rows[201], rows[202]
+    del conn.rows[deleted["id"]]
+    nonpending["vector_sync_pending"] = False
+    await _bounded_reconcile(service, conn)
+    assert deleted["id"] in service._rejected_rows()
+    assert nonpending["id"] in service._rejected_rows()
+    await _bounded_reconcile(service, conn)
+    await _bounded_reconcile(service, conn)
+    assert deleted["id"] not in service._rejected_rows()
+    assert nonpending["id"] not in service._rejected_rows()
+    assert service.store.attempts == []
+    new = _reconcile_fact(20_000)
+    conn.rows[new["id"]] = new
+    await _bounded_reconcile(service, conn)
+    assert new["id"] in service._rejected_rows()
+    assert len(service._rejected_rows()) == 9999
+    _assert_cache_validation_bound(conn)
+
+
+@pytest.mark.asyncio
+async def test_reconcile_changed_cached_row_succeeds_and_releases_slot():
+    service = _reconcile_service()
+    rows = [_reconcile_fact(i) for i in range(1, 10_001)]
+    conn = _ReconcileFacts(rows)
+    service._rejected_rows().update({r["id"]: r["updated_at"] for r in rows})
+    changed = rows[500]
+    changed["content"] = "valid"
+    changed["updated_at"] += timedelta(seconds=1)
+    assert await _bounded_reconcile(service, conn) == 1
+    assert service.store.actions == [("update", changed["id"])]
+    assert not changed["vector_sync_pending"]
+    assert changed["id"] not in service._rejected_rows()
+    assert len(service._rejected_rows()) == 9999
+
+
+@pytest.mark.asyncio
+async def test_reconcile_cache_query_failure_preserves_snapshot_and_owned_connection(monkeypatch):
+    import memory_service
+    service = _reconcile_service()
+    row = _reconcile_fact(1)
+    conn = _ReconcileFacts([row])
+    service._rejected_rows()[row["id"]] = row["updated_at"]
+    snapshot = list(service._rejected_rows().items())
+    conn.fetch = AsyncMock(side_effect=ConnectionError("validation failed"))
+    monkeypatch.setattr(memory_service, "connect_postgres", AsyncMock(return_value=conn))
+    with pytest.raises(ConnectionError, match="validation failed"):
+        await service._reconcile_pending_vectors()
+    assert list(service._rejected_rows().items()) == snapshot
+    assert conn.closed == 1
+    assert service.store.attempts == []
+
+
+def test_reconcile_rejection_replaces_existing_key_at_capacity():
+    import memory_service
+    service = _reconcile_service()
+    cache = service._rejected_rows()
+    cache.update({UUID(int=i): _RECONCILE_TIME for i in range(1, 10_001)})
+    row = _reconcile_fact(500, stamp=None)
+    import httpx
+    request = httpx.Request("POST", "http://controlled-target/objects")
+    error = httpx.HTTPStatusError("bad", request=request,
+                                 response=httpx.Response(422, request=request))
+    memory_service._remember_rejected(cache, row, error)
+    assert cache[row["id"]] is None
+    memory_service._remember_rejected(cache, _reconcile_fact(20_000), error)
+    assert len(cache) == 10_000
+    assert UUID(int=20_000) not in cache
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("problem", ["retry", "clear", "cancel"])
+async def test_reconcile_raised_work_retries_current_row(problem):
+    service = _reconcile_service()
+    conn = _ReconcileFacts([_reconcile_fact(i, content="valid") for i in range(1, 103)])
+    original = service.store.update_embedding
+
+    async def fail_second(**kwargs):
+        if UUID(kwargs["fact_id"]) == UUID(int=2):
+            if problem == "cancel":
+                raise asyncio.CancelledError()
+            if problem == "retry":
+                raise ConnectionError("target down")
+            conn.clear_error = RuntimeError("clear failed")
+        return await original(**kwargs)
+
+    service.store.update_embedding = fail_second
+    error = {"retry": ConnectionError, "clear": RuntimeError, "cancel": asyncio.CancelledError}[problem]
+    with pytest.raises(error):
+        await service._reconcile_pending_vectors(conn=conn, retry_transient=True)
+    assert service._vector_reconcile_cursor == (_RECONCILE_TIME, UUID(int=1))
+    assert service._vector_reconcile_upper == (_RECONCILE_TIME, UUID(int=102))
+    assert conn.rows[UUID(int=2)]["vector_sync_pending"]
+    assert not conn.closed
+    conn.clear_error = None
+    service.store.update_embedding = original
+    assert await _bounded_reconcile(service, conn) == 100
+    assert service._vector_reconcile_cursor[1] == UUID(int=101)
+    assert not conn.rows[UUID(int=2)]["vector_sync_pending"]
+
+
+@pytest.mark.asyncio
+async def test_reconcile_nonraising_halt_keeps_unhandled_tail_for_next_pass():
+    import memory_service
+    service = _reconcile_service()
+    rows = [_reconcile_fact(i, content="valid") for i in range(1, 8)]
+    conn = _ReconcileFacts(rows)
+    service.store.failure = ConnectionError("target down")
+    assert await _bounded_reconcile(service, conn) == 0
+    count = memory_service._RECONCILE_TRANSIENT_STREAK
+    assert service._vector_reconcile_cursor[1] == UUID(int=count)
+    assert service._vector_reconcile_upper is not None
+    service.store.failure = None
+    assert await _bounded_reconcile(service, conn) == len(rows) - count
+    assert service.store.attempts[count] == UUID(int=count+1)
+    assert service._vector_reconcile_upper is None
+    assert await _bounded_reconcile(service, conn) == count
+    assert all(not row["vector_sync_pending"] for row in rows)
+
+
+@pytest.mark.asyncio
+async def test_reconcile_serializes_pages_and_acquires_owned_connection_inside_lock(monkeypatch):
+    import memory_service
+    service = _reconcile_service()
+    conn = _ReconcileFacts([_reconcile_fact(i, content="valid") for i in range(1, 103)])
+    entered, release = asyncio.Event(), asyncio.Event()
+    original = service.store.update_embedding
+
+    async def blocked(**kwargs):
+        if not entered.is_set():
+            entered.set()
+            await release.wait()
+        return await original(**kwargs)
+
+    service.store.update_embedding = blocked
+    connect = AsyncMock(return_value=conn)
+    monkeypatch.setattr(memory_service, "connect_postgres", connect)
+    first = asyncio.create_task(service._reconcile_pending_vectors())
+    await entered.wait()
+    second = asyncio.create_task(service._reconcile_pending_vectors())
+    await asyncio.sleep(0)
+    assert connect.await_count == 1
+    assert len(conn.queries) == 2
+    release.set()
+    assert await asyncio.gather(first, second) == [100, 2]
+    assert len(service.store.attempts) == len(set(service.store.attempts)) == 102
+    assert conn.closed == 2
+    assert service._vector_reconcile_upper is None
+    assert await service._reconcile_pending_vectors(conn=conn) == 0
+    assert conn.closed == 2
+
+
+@asynccontextmanager
+async def _postgres_reconcile_facts(rows):
+    """Opt-in scan/clear SQL fixture; no vector/trigger/auth/RLS qualification."""
+    import os
+    import asyncpg
+    url = os.environ.get("ATLAS_TEST_MEMORY_RECONCILE_POSTGRES_URL")
+    if not url:
+        pytest.skip("set ATLAS_TEST_MEMORY_RECONCILE_POSTGRES_URL to an owned scan fixture")
+    conn = await asyncpg.connect(url)
+    user = uuid4()
+    columns = tuple(rows[0])
+    for row in rows:
+        row["id"], row["user_id"] = uuid4(), user
+    try:
+        await conn.copy_records_to_table("memory_facts", schema_name="public",
+            columns=columns, records=[tuple(row[c] for c in columns) for row in rows])
+        yield conn
+    finally:
+        await conn.execute("DELETE FROM public.memory_facts WHERE user_id = $1", user)
+        await conn.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("active", [True, False], ids=["update", "retirement"])
+async def test_reconcile_postgres_full_cache_advances_beyond_rejections(active):
+    service = _reconcile_service()
+    history = [_reconcile_fact(i) for i in range(1, 10_001)]
+    rows = history + [_reconcile_fact(i, stamp=_RECONCILE_TIME + timedelta(seconds=1))
+                      for i in range(10_001, 10_101)]
+    later = _reconcile_fact(10_101, stamp=_RECONCILE_TIME + timedelta(seconds=2),
+                            content="valid", active=active)
+    rows.append(later)
+    async with _postgres_reconcile_facts(rows) as conn:
+        # The fake-history regression above accumulates real target failures;
+        # this case qualifies the resulting full-cache SQL and bounded pages.
+        service._rejected_rows().update({r["id"]: r["updated_at"] for r in history})
+        for _ in range(3):
+            before = len(service.store.attempts)
+            await service._reconcile_pending_vectors(conn=conn)
+            assert len(service.store.attempts) - before <= 100
+            assert len(service._rejected_rows()) <= 10_000
+        assert ("update" if active else "retire", later["id"]) in service.store.actions
+        assert not await conn.fetchval(
+            "SELECT vector_sync_pending FROM public.memory_facts WHERE id = $1", later["id"])
+        assert await conn.fetchval(
+            "SELECT count(*) FROM public.memory_facts WHERE user_id=$1 AND vector_sync_pending",
+            later["user_id"]) == 10_100
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("null_only", [False, True])
+async def test_reconcile_postgres_null_order_cursor_watermark_and_exclusion(null_only):
+    service = _reconcile_service()
+    rows = [_reconcile_fact(i, stamp=None, content="valid") for i in range(1, 203)]
+    if not null_only:
+        for row in rows[101:]:
+            row["updated_at"] = datetime(1960, 1, 1, tzinfo=timezone.utc)
+        rows[-1]["updated_at"] = datetime(1970, 1, 1, tzinfo=timezone.utc)
+    async with _postgres_reconcile_facts(rows) as conn:
+        cached = rows[0]
+        service._rejected_rows()[cached["id"]] = None
+        expected = [r["id"] for r in sorted(rows[1:], key=_reconcile_order)]
+        for _ in range(3):
+            await service._reconcile_pending_vectors(conn=conn)
+        assert service.store.attempts == expected
+        assert service._rejected_rows() == {cached["id"]: None}
+        # The existing '=' optimistic clear deliberately leaves NULL versions
+        # pending. Scheduling them does not repair that independent boundary.
+        for row in (cached, rows[1], rows[-1]):
+            pending = await conn.fetchval(
+                "SELECT vector_sync_pending FROM public.memory_facts WHERE id=$1", row["id"])
+            assert pending is (row["updated_at"] is None)
+
+
+@pytest.mark.asyncio
+async def test_reconcile_postgres_rotating_cache_and_changed_success():
+    service = _reconcile_service()
+    rows = [_reconcile_fact(i) for i in range(1, 206)]
+    async with _postgres_reconcile_facts(rows) as conn:
+        service._rejected_rows().update({r["id"]: r["updated_at"] for r in rows})
+        # Place all stale signatures beyond the first two rotation batches.
+        deleted, nonpending, changed = list(sorted(rows, key=lambda r: r["id"]))[-3:]
+        # Dictionary order, rather than SQL order, controls cleanup rotation.
+        cache = service._rejected_rows()
+        for row in (deleted, nonpending, changed):
+            cache[row["id"]] = cache.pop(row["id"])
+        await conn.execute("DELETE FROM public.memory_facts WHERE id=$1", deleted["id"])
+        await conn.execute("UPDATE public.memory_facts SET vector_sync_pending=false WHERE id=$1",
+                           nonpending["id"])
+        await conn.execute("UPDATE public.memory_facts SET content='valid', updated_at=$2 WHERE id=$1",
+                           changed["id"], _RECONCILE_TIME + timedelta(seconds=1))
+        assert await service._reconcile_pending_vectors(conn=conn) == 1
+        assert ("update", changed["id"]) in service.store.actions
+        assert changed["id"] not in cache
+        _assert_cached_versions(cache, [deleted, nonpending], present=True)
+        for _ in range(2):
+            await service._reconcile_pending_vectors(conn=conn)
+        _assert_cached_versions(cache, [deleted, nonpending, changed], present=False)
+        assert len(cache) == 202
+
+
+@pytest.mark.asyncio
+async def test_reconcile_postgres_competing_edit_preserves_guarded_pending_intent():
+    service = _reconcile_service()
+    row = _reconcile_fact(1, content="valid")
+    async with _postgres_reconcile_facts([row]) as conn:
+        original = service.store.update_embedding
+
+        async def concurrent_edit(**kwargs):
+            await conn.execute("UPDATE public.memory_facts SET content='newer', updated_at=$2 WHERE id=$1",
+                               row["id"], row["updated_at"] + timedelta(seconds=1))
+            return await original(**kwargs)
+
+        service.store.update_embedding = concurrent_edit
+        await service._reconcile_pending_vectors(conn=conn)
+        assert await conn.fetchval(
+            "SELECT vector_sync_pending FROM public.memory_facts WHERE id=$1", row["id"])
+        service.store.update_embedding = original
+        await service._reconcile_pending_vectors(conn=conn)
+        assert not await conn.fetchval(
+            "SELECT vector_sync_pending FROM public.memory_facts WHERE id=$1", row["id"])
+        assert service.store.actions == [("update", row["id"])] * 2
+
+
+def _assert_cache_validation_bound(conn):
+    for sql, args in conn.queries:
+        if "AS cached" in sql:
+            assert len(args[0]) <= 100
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("newer_version", [False, True])
+async def test_reconcile_success_removes_only_its_cached_version(newer_version):
+    service = _reconcile_service()
+    row = _reconcile_fact(1, content="valid")
+    conn = _ReconcileFacts([row])
+    original = service.store.update_embedding
+    cached_stamp = row["updated_at"] + timedelta(seconds=int(newer_version))
+
+    async def cache_during_write(**kwargs):
+        service._rejected_rows()[row["id"]] = cached_stamp
+        return await original(**kwargs)
+
+    service.store.update_embedding = cache_during_write
+    assert await _bounded_reconcile(service, conn) == 1
+    assert (row["id"] in service._rejected_rows()) is newer_version
+    if newer_version:
+        assert service._rejected_rows()[row["id"]] == cached_stamp
+    assert not row["vector_sync_pending"]
+
+
+@pytest.mark.asyncio
+async def test_reconcile_validation_does_not_erase_replaced_version():
+    service = _reconcile_service()
+    row = _reconcile_fact(1)
+    conn = _ReconcileFacts([row])
+    old_stamp = row["updated_at"]
+    new_stamp = old_stamp + timedelta(seconds=1)
+    service._rejected_rows()[row["id"]] = old_stamp
+    fetch = conn.fetch
+
+    async def replace_during_validation(query, *args):
+        if "AS cached" in query:
+            service._rejected_rows()[row["id"]] = new_stamp
+            return []
+        return await fetch(query, *args)
+
+    conn.fetch = replace_during_validation
+    # Isolate validation's conditional removal from the deliberately obsolete
+    # entry cleanup before an attempted sync.
+    await service._refresh_rejected_rows(conn)
+    assert service._rejected_rows() == {row["id"]: new_stamp}
+
+
+def _assert_cached_versions(cache, rows, *, present):
+    for row in rows:
+        assert (row["id"] in cache) is present
+
+
+def _reconcile_http_failure(status):
+    import httpx
+    request = httpx.Request("POST", "http://controlled-target/objects")
+    return httpx.HTTPStatusError("controlled failure", request=request,
+        response=httpx.Response(status, text="content rejected", request=request))
+
+
+def _script_reconcile_failures(service, outcomes):
+    original = service.store.update_embedding
+    statuses = dict(enumerate(outcomes, 1))
+
+    async def scripted(**kwargs):
+        status = statuses.get(UUID(kwargs["fact_id"]).int)
+        service.store.failure = _reconcile_http_failure(status) if status else None
+        return await original(**kwargs)
+
+    service.store.update_embedding = scripted
+    return original
+
+
+def _assert_mixed_reconcile_halt(service, conn, outcomes):
+    stopped = len(outcomes)
+    assert service.store.attempts == [UUID(int=i) for i in range(1, stopped+1)]
+    assert service._vector_reconcile_cursor == (_RECONCILE_TIME, UUID(int=stopped))
+    assert service._vector_reconcile_upper == (_RECONCILE_TIME, UUID(int=len(conn.rows)))
+    rejected = {UUID(int=i): _RECONCILE_TIME for i, status in enumerate(outcomes, 1)
+                if status == 400}
+    assert service._rejected_rows() == rejected
+    for i, status in enumerate(outcomes, 1):
+        assert conn.rows[UUID(int=i)]["vector_sync_pending"] is (status is not None)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("outcomes", [
+    [503, 503, 400, 503],
+    [429, 400, 429, 400, 429],
+    [503, 503, None, 503, 400, 503, 503],
+], ids=["row-rejection-does-not-count", "row-rejection-does-not-reset", "progress-resets"])
+async def test_reconcile_mixed_failure_streak_halts_and_preserves_unhandled_tail(outcomes):
+    service = _reconcile_service()
+    rows = [_reconcile_fact(i, content="valid") for i in range(1, 12)]
+    conn = _ReconcileFacts(rows)
+    original = _script_reconcile_failures(service, outcomes)
+    assert await _bounded_reconcile(service, conn) == outcomes.count(None)
+    _assert_mixed_reconcile_halt(service, conn, outcomes)
+    # The halt leaves every prefetched but unhandled row for the next pass.
+    service.store.update_embedding = original
+    service.store.failure = None
+    assert await _bounded_reconcile(service, conn) == len(rows) - len(outcomes)
+    assert service.store.attempts[len(outcomes)] == UUID(int=len(outcomes)+1)
+    assert service._vector_reconcile_upper is None
