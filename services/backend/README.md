@@ -252,7 +252,7 @@ MEDIA_LEDGER_RECOVERY_MAX_CYCLES=4
 - An operator with `BACKEND_INTERNAL_API_TOKEN` settles it with `POST /media/operations/{operation_id}/reconcile` and `outcome=commit|release`, after reviewing provider billing.
 - The same route settles a timed-out FAL job or a user-cancelled one (`cancellation_requested` without `timed_out`) that FAL never resolves.
 - Release only after FAL's dashboard shows the job is no longer running. A release while it runs drops spend that FAL still bills.
-- The intent and recovery ledger row are exempt from normal retention until settlement. Same-outcome retries are safe after transient failures.
+- The intent and unsettled ledger row are exempt from normal retention until settlement. Same-outcome retries are safe while terminal ledger history remains retained.
 - If the operation-state write fails (`local_record_persisted=false`), the spend ledger is the recovery source.
 - If reservation attachment or cleanup fails after provider acceptance, Atlas keeps the candidate ledger ids as a non-expiring recovery intent. It retries every 30 s and on each poll. The response exposes `recovery_ledger_ids`.
 - A ComfyUI `/media/generate` that may have queued without confirmation returns `504` with a `local_submission_id` and keeps a `submission_unknown` operation.
@@ -277,6 +277,13 @@ MEDIA_LEDGER_RECOVERY_MAX_CYCLES=4
 
 - When enabled, each generation reserves its estimated cost before the provider call. It records an immutable row in `public.media_spend_ledger` (Postgres) and stops over-budget requests before any provider call.
 - A request estimated at $0 (local ComfyUI) is never refused by the cap, even when settled spend already exceeds it.
+- `MEDIA_BUDGET_RETENTION_DAYS` is blank by default, which keeps ledger history indefinitely. When set, an hourly sweep removes terminal history after that window.
+- The window starts at terminal disposition (`updated_at`), preserving a retry window after settlement. Original reservation attribution (`created_at`) stays unchanged.
+- Unsettled `reserved` and `submitted` rows keep counting against the cap regardless of age. This includes unpolled work, unresolved `cancellation_requested` operations and recovered attachments.
+- Age or a missing temporary recovery marker does not establish abandonment. For a legacy reservation, verify ownership and provider billing before recording a disposition.
+- Use the operator `/reconcile` route above with `outcome=commit|release`, including for ledger-only legacy rows. Release only when no provider obligation remains.
+- An explicit disposition persists `committed` or `released`; retention can remove it after the window. Pruned history no longer contributes to spend totals.
+- A missing ledger row for a surviving budget-tracked operation returns `503` and leaves reconciliation pending. Retrying alone cannot recreate deleted financial history.
 - `GET /media/spend` returns a consumer's committed and reserved totals.
 - A provider in `MEDIA_DISABLED_PROVIDERS` gets `403` on `/media/generate`, `/comfyui/generate` and `/comfyui/workflow`, with or without budgets. The read-only `/comfyui/*` routes are not refused.
 - With or without enforcement, an ambiguous FAL submission creates a recovery row in `MEDIA_BUDGET_STORE`. Keep the default `postgres` store so recovery survives restarts; `memory` is ephemeral.
