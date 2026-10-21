@@ -334,6 +334,10 @@ ownership pass there runs with `search_path = pg_catalog, pg_temp` and
 schema-qualified built-ins, so nothing the role plants in it runs as the
 superuser.
 
+Ownership transfers leave column-owned serial and identity sequences to their tables.
+Standalone sequences and partition tables still transfer directly.
+Repeated passes preserve the same owners.
+
 When init refuses, it names each object. Drop them, then restart. The backup
 and restore scripts resolve nothing through `public` (`search_path =
 pg_catalog, pg_temp`). Downstream SQL in `db/_user/` runs as the init
