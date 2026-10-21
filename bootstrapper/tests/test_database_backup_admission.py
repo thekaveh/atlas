@@ -33,14 +33,12 @@ def host_backup_cli(tmp_path, monkeypatch, capsys):
 
 def _control_host_backup_boundaries(state, monkeypatch):
     module = state.module
-    original_lock_path = module._lock_path
     original_init = module.DatabaseCoordinator.__init__
 
-    def lock_path(repo):
-        state.events.append(("lock-path",))
-        return original_lock_path(repo)
-
-    def lock(path, *, token):
+    def lock(config, token, timeout):
+        config.command_runner(token, timeout)
+        module.pin_docker_selection(config.runner)
+        module.docker_daemon_identity(config.runner)
         state.events.append(("lock",))
         return types.SimpleNamespace(
             acquire=lambda: state.events.append(("acquire",)),
@@ -55,8 +53,7 @@ def _control_host_backup_boundaries(state, monkeypatch):
     def unexpected_process(*args, **kwargs):
         raise AssertionError(f"unexpected real process: {args}")
 
-    monkeypatch.setattr(module, "_lock_path", lock_path)
-    monkeypatch.setattr(module, "OwnedFileLock", lock)
+    monkeypatch.setattr(module, "deployment_boundary", lock)
     monkeypatch.setattr(module.DatabaseCoordinator, "__init__", coordinator_init)
     monkeypatch.setattr(module.signal, "signal", lambda *_args: state.events.append(("signal",)))
     monkeypatch.setattr(module.subprocess, "run", unexpected_process)
@@ -77,7 +74,8 @@ def _control_host_backup_commands(state, monkeypatch):
             (state.repo / "snapshot.dump").write_text("controlled snapshot", encoding="utf-8")
         elif command[-1] == "/scripts/backup-all.sh" and state.fail_backup:
             raise module.ContractError("controlled backup failure")
-        return subprocess.CompletedProcess(command, 0, "", "")
+        output = "fake-daemon" if command[:2] == ["docker", "info"] else "default" if command[:3] == ["docker", "context", "show"] else ""
+        return subprocess.CompletedProcess(command, 0, output, "")
 
     monkeypatch.setattr(module.CommandRunner, "run", run)
     monkeypatch.setattr(module.CommandRunner, "_inspect_json", lambda *_args: None)
