@@ -221,17 +221,17 @@ def test_prune_returns_deleted_count():
     assert pruned == 3
 
 
-def test_prune_exempts_explicitly_protected_unsettled_reservations():
+def test_prune_exempts_all_unsettled_reservations_and_ages_terminal_disposition():
     conn = FakeConn(execute_result="DELETE 0")
     with _acquire_patch(conn):
         _run(_store(conn).prune(_utcnow()))
 
     _, sql, args = conn.calls[0]
     assert "status = ANY($2::text[])" in sql
-    assert "COALESCE(reason = ANY($3::text[]), FALSE)" in sql
+    assert "updated_at < $1" in sql
+    assert "reason" not in sql
     assert args[1] == [STATUS_RESERVED, STATUS_SUBMITTED]
-    assert "ambiguous provider submission" in args[2][0]
-    assert "attachment pending" in args[2][1]
+    assert len(args) == 2
 
 
 def test_rekey_translates_unique_violation_to_domain_collision():

@@ -184,8 +184,8 @@
       {
         "path": "services/backend/app/app/main.py",
         "symbol": "_maybe_reconcile_ledger",
-        "cyclomatic_complexity": 56,
-        "rationale": "Idempotent media-ledger reconciliation state machine; concurrency and restart tests cover its deliberately explicit failure transitions."
+        "cyclomatic_complexity": 47,
+        "rationale": "Idempotent media-ledger reconciliation state machine; concurrency and restart tests cover its explicit failure transitions. Issue #1754 removes the age-only missing-reservation success fallback (56 -> 47); tracked missing obligations now remain pending with 503 while terminal settlement retries retain their existing winner checks."
       },
       {
         "path": "services/backend/app/app/main.py",
@@ -246,8 +246,8 @@
       {
         "path": "services/backend/app/app/main.py",
         "symbol": "_maybe_reconcile_ledger",
-        "cyclomatic_complexity": 56,
-        "rationale": "Idempotent reconciliation state machine with deliberately explicit failure transitions; ledger concurrency and restart tests cover the paths."
+        "cyclomatic_complexity": 47,
+        "rationale": "Idempotent media-ledger reconciliation state machine; concurrency and restart tests cover its explicit failure transitions. Issue #1754 removes the age-only missing-reservation success fallback (56 -> 47); tracked missing obligations now remain pending with 503 while terminal settlement retries retain their existing winner checks."
       },
       {
         "path": "services/backend/app/app/main.py",

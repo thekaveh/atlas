@@ -389,15 +389,13 @@ class InMemoryLedgerStore:
         return out
 
     async def prune(self, older_than: datetime) -> int:
+        # A held status is a durable obligation even without a recovery marker.
+        # Start terminal retention at settlement so a newly settled old row
+        # remains available to retries after a lost acknowledgement.
         stale = [
             oid
             for oid, rec in self._records.items()
-            if rec.created_at < older_than
-            and not (
-                rec.status in _RESERVED_STATES
-                and rec.reason
-                in {AMBIGUOUS_RECOVERY_REASON, ATTACH_RECOVERY_REASON}
-            )
+            if rec.updated_at < older_than and rec.status not in _RESERVED_STATES
         ]
         for oid in stale:
             del self._records[oid]
