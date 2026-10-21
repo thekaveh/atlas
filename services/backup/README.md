@@ -55,10 +55,28 @@ Scripts live under `services/backup/init/scripts/`:
 
 **Host scripts.** `run-consistent-backup.sh` and `run-database-restore.sh` run on the host, because only the operator-side Compose boundary can stop and restart Neo4j.
 
-- Both take a per-checkout lock: `volumes/locks/atlas-database-boundary-<digest>.lock` (gitignored, owner-only). A scheduled backup and an interactive restore therefore contend for the same file.
-- To move the lock, set `ATLAS_DATABASE_LOCK_DIR`. Set it identically for every run.
-- Both scripts use finite deadlines. They leave an initially stopped Neo4j service stopped.
-- If owned Docker cleanup cannot be proven, the lock is atomically marked `poisoned` and is never reclaimed automatically. Verify that no labeled job containers or volumes remain, then remove the lock manually and retry.
+Both scripts coordinate runs on the **same client host**, under the **same OS account**, through one persistent, private lock directory. These filesystem locks cannot coordinate different hosts, different accounts, or different lock directories. Use a local filesystem with reliable hard-link and atomic-replacement support; network shares are unsupported.
+
+- The default directory is `.atlas-database-locks` under the effective UID's account-database home. `HOME`, XDG variables, `TMPDIR` and checkout paths do not select it.
+- To change the directory, set `ATLAS_DATABASE_LOCK_DIR` to one absolute path for every invocation. The directory must have mode `0700`, belong to the effective UID, and be a real directory. Atlas rejects symlinks and unsafe existing permissions; it does not repair them automatically.
+- Every run acquires all four physical volume locks: Neo4j live data, Weaviate live data, and both backup volumes. Each versioned `atlas-database-resource-v2-<digest>.lock` name hashes the Docker daemon ID and one exact physical volume name. Context aliases, Compose labels and source selections cannot split these keys. One shared volume is enough to block a second run.
+- A bounded, read-only Docker query must return a valid daemon ID before admission. Failed identity discovery stops the operation. Distinct daemon IDs or entirely disjoint volume sets can proceed independently.
+- Both scripts use finite deadlines. They leave an initially stopped Neo4j service stopped. Docker cleanup and rollback pruning remain scoped to the originating checkout's ownership labels.
+
+**Keep Docker configuration stable.** Do not change context definitions, TLS or credential files, daemon routing, or socket mappings during a run. Atlas captures the child environment and literal `PROJECT_NAME`, preserves explicit Docker host/context selection, and pins an implicitly selected context name. This prevents ordinary `docker context use` and `.env` edits from redirecting later commands. It does not freeze the named context's endpoint definition or provide coordination between remote clients.
+
+**Manual recovery.** Any surviving shared resource lock blocks automatic takeover, including active, dead-owner, unknown, invalid and `poisoned` metadata. Even a crash before cutover requires verified manual recovery. If owned Docker cleanup is uncertain, Atlas attempts to poison every held resource lock and retains required recovery volumes. Inspect owned jobs, rollback/stage volumes and database stopped-state recovery before removing locks. Preserve recovery copies before retrying: a later restore can prune older rollback volumes.
+
+**Migration from checkout locks.** Old and new launchers must not run concurrently. Atlas refuses visible `atlas-database-boundary-*.lock` files in the current checkout's former default directory or selected override. It never deletes or migrates them automatically. Unknown historical checkout paths cannot be discovered reliably.
+
+1. Stop all schedules and interactive operations across every old checkout and lock root targeting these volumes.
+2. Wait for every active boundary to finish. Inspect every historical checkout's `volumes/locks` and each historical override directory.
+3. Verify active or poisoned locks, owned job containers, rollback/stage volumes, and the recovery of initially stopped services.
+4. Resolve uncertain recovery and preserve required copies. Remove legacy locks only after you verify cleanup and database state.
+5. Upgrade all launchers, including cron jobs and worktrees. Select the same client host, OS account and common persistent lock root.
+6. Resume operations only after every launcher uses the new implementation. Use the same maintenance procedure before changing lock roots.
+
+These admission locks do not record durable cutover phases or change Postgres cutover and rollback-retention policy. They do not establish live-kill recovery qualification.
 
 Run `docker compose run --rm backup` directly only with `BACKUP_DATABASES=false`. Otherwise it fails closed when no same-timestamp offline Neo4j dump is present.
 
@@ -187,7 +205,7 @@ The scripts never print the keys. S3 child processes receive only the private cl
 3. Verifies nonempty artifacts and writes checksum, version, start and completion metadata.
 4. Restores only the state it changed.
 
-Its EXIT and signal path tries that restart once and reports a visible failure if health does not return. A repository-scoped host lock prevents overlapping backup and restore boundaries.
+Its EXIT and signal path tries that restart once and reports a visible failure if health does not return. The shared resource locks described in [§1](#1-overview) prevent overlapping backup and restore boundaries under the stated host, account and directory conditions.
 
 **Weaviate.** Weaviate stays online during capture. The exact `cr.weaviate.io/semitechnologies/weaviate:1.38.17` service enables `backup-filesystem`. The collector uses a collision-resistant backup ID and accepts only the documented 1.38.17 progress and final states. It tries bounded cancellation after a timeout and archives only the completed native snapshot directory.
 
