@@ -457,6 +457,7 @@ def _ownership_loop(marker: str) -> str:
     "scope",
     (
         ("FROM pg_class c\n    JOIN pg_namespace n ON n.oid = c.relnamespace", "public", "legacy_service"),
+        ("WHERE n.nspname=schema_name", "auth", "legacy_auth"),
         ("WHERE n.nspname=schema_name", "storage", "legacy_storage"),
         ("WHERE n.nspname=schema_name", "realtime", "legacy_realtime"),
         ("c.relname = ANY (ARRAY['tenants'", "public", "tenants_legacy"),
@@ -464,7 +465,7 @@ def _ownership_loop(marker: str) -> str:
         ("WHERE n.nspname = 'lightrag'\n      AND c.relkind", "lightrag", "legacy_lightrag"),
         ("WHERE n.nspname = 'public' AND lower(c.relname) LIKE 'lightrag%'", "public", "LIGHTRAG_legacy"),
     ),
-    ids=("dedicated", "storage", "realtime", "realtime-public", "n8n", "lightrag", "lightrag-public"),
+    ids=("dedicated", "auth", "storage", "realtime", "realtime-public", "n8n", "lightrag", "lightrag-public"),
 )
 def test_native_legacy_ownership_transfers_attached_and_free_sequences(
     native_ownership_postgres, scope: tuple[str, str, str], sequences_first: bool,
@@ -530,3 +531,134 @@ def _seed_legacy_ownership_relations(sql, schema: str, table: str) -> None:
         "ALTER SEQUENCE unrelated.keep OWNER TO legacy_owner;"
     )
     assert setup.returncode == 0, setup.stderr
+
+
+def _shared_ownership_block() -> str:
+    """Run the whole production pass, including public Realtime selection."""
+    script = ROLE_SCRIPT.read_text()
+    start = script.index("DO $body$", script.index("SELECT set_config('atlas.storage_role'"))
+    end = script.index("$body$;", start) + len("$body$;")
+    return script[start:end]
+
+
+def _seed_legacy_auth_objects(sql) -> None:
+    setup = sql('''
+        CREATE ROLE "Auth ""Owner" LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE;
+        CREATE ROLE storage_owner; CREATE ROLE realtime_owner;
+        CREATE ROLE atlas_auth_sync NOLOGIN;
+        CREATE SCHEMA auth; CREATE SCHEMA storage; CREATE SCHEMA realtime;
+        CREATE SCHEMA unrelated;
+        CREATE TABLE auth.identities (id bigserial, identity_id bigint GENERATED ALWAYS AS IDENTITY,
+                                      payload text);
+        INSERT INTO auth.identities(payload) VALUES ('preserved');
+        CREATE SEQUENCE auth.free_sequence;
+        CREATE TYPE auth.factor_type AS ENUM ('totp');
+        CREATE DOMAIN auth.factor_domain AS text;
+        CREATE TYPE auth.factor_record AS (value text);
+        CREATE FUNCTION auth.uid() RETURNS text LANGUAGE sql AS $$ SELECT 'old'::text $$;
+        CREATE FUNCTION auth."role helper"(integer) RETURNS int LANGUAGE sql AS $$ SELECT $1 $$;
+        CREATE TYPE auth.extension_type AS ENUM ('extension');
+        ALTER EXTENSION plpgsql ADD TYPE auth.extension_type;
+        CREATE FUNCTION auth.extension_function() RETURNS int LANGUAGE sql AS $$ SELECT 1 $$;
+        ALTER EXTENSION plpgsql ADD FUNCTION auth.extension_function();
+        CREATE TABLE public.schema_migrations (version text);
+        INSERT INTO public.schema_migrations VALUES ('preserved');
+        CREATE FUNCTION public.handle_auth_user_sync() RETURNS int LANGUAGE sql AS $$ SELECT 1 $$;
+        ALTER FUNCTION public.handle_auth_user_sync() OWNER TO atlas_auth_sync;
+        CREATE TABLE unrelated.keep (id int);
+        CREATE TYPE unrelated.keep_type AS ENUM ('keep');
+        CREATE FUNCTION unrelated.keep_function() RETURNS int LANGUAGE sql AS $$ SELECT 1 $$;
+        GRANT USAGE, CREATE ON SCHEMA auth TO "Auth ""Owner";
+        GRANT USAGE ON SCHEMA unrelated TO "Auth ""Owner";
+        GRANT ALL ON ALL TABLES IN SCHEMA auth TO "Auth ""Owner";
+        GRANT ALL ON ALL SEQUENCES IN SCHEMA auth TO "Auth ""Owner";
+        GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA auth TO "Auth ""Owner";
+    ''')
+    assert setup.returncode == 0, setup.stderr
+
+
+def _auth_owner_migrations(sql, *, allowed: bool) -> None:
+    # Representative GoTrue v2.191.0 operations: ACL grants authorize none.
+    migrations = (
+        "COMMENT ON TABLE auth.identities IS 'Identity records';",
+        "ALTER TABLE auth.identities ADD COLUMN last_challenged_at timestamptz;",
+        "ALTER TYPE auth.factor_type ADD VALUE 'phone';",
+        "CREATE OR REPLACE FUNCTION auth.uid() RETURNS text LANGUAGE sql AS $$ SELECT 'new'::text $$;",
+    )
+    for migration in migrations:
+        result = sql('SET ROLE "Auth ""Owner"; ' + migration)
+        if allowed:
+            assert result.returncode == 0, result.stderr
+        else:
+            assert result.returncode != 0 and "must be owner" in result.stderr, result.stderr
+
+
+def _auth_ownership_snapshot(sql) -> str:
+    result = sql('''
+        SELECT 'schema:' || nspname || '=' || pg_catalog.pg_get_userbyid(nspowner)
+          FROM pg_catalog.pg_namespace WHERE nspname IN ('auth','public','unrelated')
+        UNION ALL
+        SELECT 'relation:' || n.nspname || '.' || c.relname || '=' || pg_catalog.pg_get_userbyid(c.relowner)
+          FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+          WHERE n.nspname IN ('auth','unrelated') AND c.relkind IN ('r','S')
+             OR c.oid='public.schema_migrations'::regclass
+        UNION ALL
+        SELECT 'type:' || n.nspname || '.' || t.typname || '=' || pg_catalog.pg_get_userbyid(t.typowner)
+          FROM pg_catalog.pg_type t JOIN pg_catalog.pg_namespace n ON n.oid=t.typnamespace
+          WHERE n.nspname IN ('auth','unrelated')
+        UNION ALL
+        SELECT 'routine:' || n.nspname || '.' || p.proname || '=' || pg_catalog.pg_get_userbyid(p.proowner)
+          FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
+          WHERE n.nspname IN ('auth','unrelated') OR p.proname='handle_auth_user_sync'
+        ORDER BY 1;
+    ''')
+    assert result.returncode == 0, result.stderr
+    return result.stdout
+
+
+def _assert_auth_ownership_boundaries(sql, before: str) -> None:
+    expected = []
+    for line in before.splitlines():
+        application = ':auth.' in line or line.startswith('schema:auth=')
+        extension = '.extension_' in line or '._extension_' in line
+        owner = 'Auth "Owner' if application and not extension else line.rsplit('=', 1)[1]
+        expected.append(line.rsplit('=', 1)[0] + '=' + owner)
+    assert _auth_ownership_snapshot(sql).splitlines() == expected
+    state = sql('''
+        SELECT id, identity_id, payload FROM auth.identities;
+        SELECT version FROM public.schema_migrations;
+        SELECT rolcanlogin, rolsuper, rolbypassrls, rolcreaterole FROM pg_catalog.pg_roles
+          WHERE rolname='Auth "Owner';
+        SELECT rolcanlogin FROM pg_catalog.pg_roles WHERE rolname='atlas_auth_sync';
+        SELECT pg_catalog.pg_has_role('Auth "Owner', session_user, 'MEMBER');
+    ''')
+    assert state.stdout.splitlines() == ['1|1|preserved', 'preserved', 't|f|f|f', 'f', 'f']
+    denied = sql('SET ROLE "Auth ""Owner"; ALTER TABLE unrelated.keep ADD COLUMN forbidden int;')
+    assert denied.returncode != 0 and 'must be owner' in denied.stderr
+
+
+def test_native_legacy_auth_ownership_allows_pinned_owner_migrations(native_ownership_postgres) -> None:
+    sql = native_ownership_postgres
+    _seed_legacy_auth_objects(sql)
+    before = _auth_ownership_snapshot(sql)
+    _auth_owner_migrations(sql, allowed=False)
+    statement = '''
+        SET search_path = pg_catalog, pg_temp;
+        SELECT pg_catalog.set_config('atlas.auth_role', 'Auth "Owner', false);
+        SELECT pg_catalog.set_config('atlas.storage_role', 'storage_owner', false);
+        SELECT pg_catalog.set_config('atlas.realtime_role', 'realtime_owner', false);
+    ''' + _shared_ownership_block()
+    for _ in range(2):
+        result = sql(statement)
+        assert result.returncode == 0, result.stderr
+        _assert_auth_ownership_boundaries(sql, before)
+    _auth_owner_migrations(sql, allowed=True)
+    types = sql('''SET ROLE "Auth ""Owner";
+        ALTER DOMAIN auth.factor_domain SET NOT NULL;
+        ALTER TYPE auth.factor_record ADD ATTRIBUTE added int;
+        CREATE OR REPLACE FUNCTION auth."role helper"(integer) RETURNS int LANGUAGE sql AS $$ SELECT $1 + 1 $$;
+        SELECT auth.uid(); SELECT auth."role helper"(1);
+    ''')
+    assert types.returncode == 0, types.stderr
+    assert types.stdout.splitlines()[-2:] == ['new', '2']
+    _assert_auth_ownership_boundaries(sql, before)
