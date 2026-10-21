@@ -22,7 +22,7 @@
       "functions_over_100_physical_lines": 85,
       "functions_over_4_parameters": 156,
       "modules_over_600_logical_lines": 21,
-      "tracked_files": 1621,
+      "tracked_files": 1622,
       "v0.1.0_tracked_files": 667
     },
     "extended_python_baseline_snapshot": {
@@ -303,6 +303,7 @@
     "refresh_notes_2026_10_11": "Adds exactly one tracked file: docs/strategy/openshell-agent-sandbox-evaluation.md, an NVIDIA OpenShell agent-sandbox evaluation landed from an unmerged branch. tracked_files moves 1614->1615; no code changed, so all complexity ceilings are unchanged.",
     "refresh_notes_2026_10_15_candidate_decisions": "tracked_files 1615->1616: exactly one generated public reference, docs/reference/candidate-decisions.md, publishes opted-in recorded candidate decisions for existing service-guide links. Existing research bodies remain private and unchanged. No complexity ceiling changes.",
     "refresh_notes_2026_10_14_backfill": "Canonical literal parsing replaces raw hash splitting in env backfill and its headless summary. AtlasStarter.backfill_missing_env_vars drops from E (33) to D (25); its former E disposition is retired. Cohesive helpers preserve encoded defaults, canonical keys, exported assignments, intentional empty selections, migration ownership, section placement and line boundaries. No baseline ceiling or tracked-file count changes.",
+    "refresh_notes_2026_10_21_issue_1756": "Reviewed issue #1756 range from b8dfe21a67cdf47ebd06f16aa8c73260db84738b: tracked_files 1621 -> 1622 attributes exactly one cohesive new test module, bootstrapper/tests/test_database_backup_admission.py, for controlled host CLI disabled-source admission, shell/.env precedence, source-aware enabled orchestration, restore ordering and the independent one-shot entrypoint check. Existing backup test modules have no coherent logical-line allowance for this regression block; the new module reuses the existing production loader and entrypoint constant. Cohesive job-source and Neo4j-lifecycle assertions keep all new symbols below Radon C. Every code-complexity ceiling and counting rule remains unchanged; no unrelated files are excluded or deleted to offset growth.",
     "refresh_notes_2026_10_21_issue_1755": "Reviewed issue #1755 range from fb2469debed59a082cc6ac5149f854105c32d303: tracked_files 1620 -> 1621 attributes exactly one cohesive new module, services/backend/app/app/memory_reconciliation.py, for bounded pending-intent SQL selection and cached-version validation/rotation. MemoryService retains its instance cache/cursor/lock, target synchronization and connection ownership. This separation keeps the service and storage modules within the existing logical-line allowance without relocating unrelated code or introducing an inappropriate storage/API boundary. Every code-complexity ceiling and counting rule remains unchanged; focused memory, actual PostgreSQL scan qualification and immutable maintenance tests verify the final patch."
   }
 }
