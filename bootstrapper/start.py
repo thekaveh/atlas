@@ -432,7 +432,11 @@ from utils.localhost_validator import LocalhostValidator
 from core.config_parser import ConfigParser, DEFAULT_BASE_PORT, DEFAULT_PROJECT_NAME
 from core.docker_manager import DockerManager
 from core.port_manager import PortManager
-from core.process_runner import _one_shot_row_verdict, run_with_deadline
+from core.process_runner import (
+    _one_shot_row_verdict, run_with_deadline, compose_container_identity,
+    validate_compose_status_rows,
+)
+from utils.system import service_replica_targets
 from services.source_validator import SourceValidator
 from services.service_config import ServiceConfig
 from services.dependency_manager import DependencyManager
@@ -4072,6 +4076,7 @@ class AtlasStarter:
         """
         self.banner.show_section_header("Starting Services", "🚀")
         self.skipped_builds = []
+        self._readiness_snapshot = None
         
         if cold_start:
             self.banner.show_status_message("Starting containers with fresh build (cold start)...", "info")
@@ -4089,9 +4094,9 @@ class AtlasStarter:
             # an enabled one-shot init exits 0 during the wait window (Compose
             # reports e.g. "container …-n8n-init exited (0)"), even though the
             # whole stack converged. Before failing, inspect the resolved
-            # state — if every reported service is running/healthy or exited
-            # 0, continue to the normal one-shot verification instead of
-            # false-failing automation consumers. Genuine failures (nonzero
+            # state — if every expected service/replica is running/healthy or
+            # a declared one-shot exited 0, continue to the normal one-shot
+            # verification instead of false-failing automation consumers. Genuine failures (nonzero
             # exits, unhealthy/non-running services) still fail, with names.
             if not (wait and self._up_wait_race_converged()):
                 self.banner.show_status_message("Failed to start some services", "error")
@@ -4157,6 +4162,7 @@ class AtlasStarter:
         """
         targets = self.docker_manager.enabled_service_targets()
         if not (targets and self.docker_manager.prepare_build_args(False, targets)):
+            self._capture_readiness_targets(targets)
             return self.docker_manager.start_services(
                 detached=True, wait=wait, services=targets
             )
@@ -4171,6 +4177,7 @@ class AtlasStarter:
         return result
 
     def _compose_up(self, targets, wait: bool) -> int:
+        self._capture_readiness_targets(targets)
         # Always force-recreate, matching start_services.
         up_args = ['up', '-d', '--force-recreate']
         if wait:
@@ -4297,6 +4304,28 @@ class AtlasStarter:
         except Exception:  # noqa: BLE001 — unknown means stop as before
             return None
 
+    def _capture_readiness_targets(self, targets) -> None:
+        """Freeze the effective post-build launch model for recovery and status."""
+        self._readiness_snapshot = self._resolve_readiness_targets(targets)
+
+    def _resolve_readiness_targets(self, targets=None) -> tuple[dict, set, str | None, str | None]:
+        """Resolve requested services and dependency companions from Compose."""
+        services = self._rendered_compose_services()
+        try:
+            replicas = service_replica_targets(services)
+            skipped = set(getattr(self, "skipped_builds", ()))
+            selected = set(targets) if targets else {
+                name for name, count in replicas.items() if count > 0
+            } - skipped
+            expected = _desired_compose_targets(services, replicas, selected, skipped)
+            project = (
+                self.docker_manager.project_name_override
+                or self.docker_manager.config_parser.get_project_name()
+            )
+            return expected, _one_shot_service_names(services), project, None
+        except ValueError as exc:
+            return {}, set(), None, f"could not determine desired Compose services: {exc}"
+
     def _reactivate_n8n_if_needed(self) -> bool:
         """Restart n8n once after seeding so a consumer's production webhook
         registers when the workflow was activated **without** an ``N8N_API_KEY``.
@@ -4348,6 +4377,7 @@ class AtlasStarter:
             grace_seconds=120.0,
             poll_interval_seconds=2.0,
             poll_rows=self._strict_n8n_health_rows,
+            desired_scope={"n8n"},
         )
         if error is not None:
             detail = error
@@ -4392,6 +4422,7 @@ class AtlasStarter:
         poll_rows=None,
         sleep=None,
         monotonic=None,
+        desired_scope: set[str] | None = None,
     ) -> tuple[list[dict], bool, bool, str | None]:
         """Inspect ``compose ps`` and re-poll convergent-pending rows within a
         bounded grace window (#677/#681).
@@ -4403,9 +4434,9 @@ class AtlasStarter:
         before being classified.
 
         Returns ``(services, converged, waited, error)``:
-        - ``services`` — the classified rows from the final poll.
-        - ``converged`` — True iff there is at least one service and every row
-          is ok (no genuine failure, nothing still pending).
+        - ``services`` — classified target rows, including missing replicas.
+        - ``converged`` — True iff every desired service/replica is observed
+          and ok, with at least one target and nothing still pending.
         - ``waited`` — True iff a pending row was observed and re-polled, so a
           caller can flag "converged after grace".
         - ``error`` — a ``compose ps`` inspection error, or None.
@@ -4422,22 +4453,45 @@ class AtlasStarter:
         monotonic = monotonic or _time.monotonic
 
         waited = False
-        finite_services = None
+        snapshot = getattr(self, "_readiness_snapshot", None)
+        expected, finite_services, project, error = (
+            snapshot if snapshot is not None else self._resolve_readiness_targets()
+        )
+        if error is not None:
+            return [], False, waited, error
+        if desired_scope is not None:
+            if not desired_scope <= expected.keys():
+                return [], False, waited, "requested status scope is absent from desired Compose services"
+            expected = {name: count for name, count in expected.items() if name in desired_scope}
+        # Config inspection has its own deadline; it must not spend health grace.
         deadline = monotonic() + grace_seconds
         while True:
             rows, error = poll_rows()
             if error is not None:
                 return [], False, waited, error
-            if finite_services is None and any(
-                str(row.get("State") or "").strip().lower() == "exited" for row in rows
-            ):
-                inspected_at = monotonic()
-                finite_services = _one_shot_service_names(self._rendered_compose_services())
-                # Configuration has its own bound; retain the health grace period.
-                deadline += monotonic() - inspected_at
-            services = [self._compose_row_status(
-                row, str(row.get("Service") or "") in (finite_services or ())
-            ) for row in rows]
+            try:
+                name_ids = validate_compose_status_rows(rows, project)
+            except ValueError as exc:
+                return [], False, waited, f"invalid docker compose ps inventory: {exc}"
+            services = []
+            identities = {name: set() for name in expected}
+            for row in rows:
+                name = row["Service"]
+                if name not in expected:
+                    continue
+                identity = compose_container_identity(row, name_ids)
+                identities[name].add(identity)
+                services.append(self._compose_row_status(row, name in finite_services))
+            for name, count in expected.items():
+                observed = len(identities[name])
+                if observed < count:
+                    services.append({
+                        "service": name, "state": "missing", "health": None,
+                        "status": None, "exit_code": None, "ok": False, "pending": False,
+                        "reason": f"missing containers: expected {count}, observed {observed} (missing {count - observed})",
+                        "expected_replicas": count, "observed_replicas": observed,
+                        "missing_replicas": count - observed,
+                    })
             genuine_failure = any(
                 not entry["ok"] and not entry["pending"] for entry in services
             )
@@ -4470,8 +4524,8 @@ class AtlasStarter:
         Two benign races are covered: the #508 one-shot-init race (a one-shot
         exits 0 during the wait window) and the #677/#681 long-lived-healthcheck
         race (a service is still ``health=starting`` at the snapshot). Returns
-        True only when ``compose ps`` reports at least one service and every row
-        is ok per ``_compose_row_status`` — after re-polling any still-starting
+        True only when every desired service/replica is accounted for and ok
+        per ``_compose_row_status`` — after re-polling any still-starting
         rows within ``grace_seconds``. Any other outcome — inspection error,
         empty stack, unhealthy/non-running service, or a row still starting
         after the grace window — returns False and names the offenders, so a
@@ -5281,6 +5335,41 @@ _COMPOSE_FINITE_SERVICES = frozenset({
     "openclaw-init", "redpanda-init", "spark-init", "supabase-db-init", "trueforge-init",
     "weaviate-init", "zeppelin-init",
 })
+
+
+def _readiness_dependencies(name, spec, replicas, skipped):
+    """Validate dependencies; optional absent/disabled/skipped services stay out."""
+    dependencies = spec.get("depends_on", {})
+    if not isinstance(dependencies, dict):
+        raise ValueError(f"{name}: invalid rendered dependencies")
+    required = []
+    for dependency, settings in dependencies.items():
+        if not isinstance(settings, dict):
+            raise ValueError(f"{name}: invalid dependency {dependency}")
+        unavailable = dependency in skipped or replicas.get(dependency, 0) == 0
+        if unavailable:
+            if settings.get("required") is False:
+                continue
+            raise ValueError(f"{name}: required dependency {dependency} is absent, disabled or skipped")
+        required.append(dependency)
+    return required
+
+
+def _desired_compose_targets(services, replicas, targets, skipped):
+    """Follow the actual up target list, including Compose dependency companions."""
+    selected = set(targets)
+    pending = list(selected)
+    while pending:
+        name = pending.pop()
+        if name not in replicas or name in skipped:
+            raise ValueError(f"{name}: requested service absent or skipped in rendered Compose config")
+        dependencies = _readiness_dependencies(name, services[name], replicas, skipped)
+        for dependency in dependencies:
+            if dependency not in selected:
+                selected.add(dependency)
+                pending.append(dependency)
+    return {name: replicas[name] for name in sorted(selected) if replicas[name] > 0}
+
 
 
 def _one_shot_service_names(services) -> frozenset[str]:
@@ -9956,6 +10045,8 @@ def managed_host_remove_command(name: str) -> None:
     manager = _managed_host_manager(name)
     _refusal_exits("Remove", manager.remove, ManagedHostError)
     click.echo(f"Removed {manager.state_dir}.")
+
+
 
 
 if __name__ == "__main__":

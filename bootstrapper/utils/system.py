@@ -308,3 +308,41 @@ def _normalized_project(raw: str) -> str:
         return normalize_project_name(raw)
     except ValueError:
         return ""
+
+
+def _replica_count(value) -> int:
+    """Accept only rendered nonnegative integer replica counts."""
+    if isinstance(value, bool) or not (
+        isinstance(value, int) or isinstance(value, str) and value.isdecimal()
+    ):
+        raise ValueError(f"invalid replica count {value!r}")
+    count = int(value)
+    if count < 0:
+        raise ValueError("negative replica count")
+    return count
+
+
+def _service_replica_count(spec: dict) -> int:
+    deploy = spec.get("deploy", {})
+    if not isinstance(deploy, dict):
+        raise ValueError("invalid deploy specification")
+    counts = [_replica_count(mapping[key]) for mapping, key in
+              ((spec, "scale"), (deploy, "replicas")) if key in mapping]
+    if len(set(counts)) > 1:
+        raise ValueError("scale and deploy.replicas disagree")
+    return counts[0] if counts else 1
+
+
+def service_replica_targets(services: dict) -> dict[str, int]:
+    """Validate rendered service specs and their effective replica counts."""
+    if not isinstance(services, dict) or not services:
+        raise ValueError("rendered Compose services are empty or unavailable")
+    targets = {}
+    for name, spec in services.items():
+        if not isinstance(name, str) or not name or not isinstance(spec, dict):
+            raise ValueError("invalid rendered Compose service specification")
+        try:
+            targets[name] = _service_replica_count(spec)
+        except ValueError as exc:
+            raise ValueError(f"{name}: {exc}") from exc
+    return targets
