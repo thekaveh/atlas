@@ -608,6 +608,7 @@ def test_retention_prune_drops_old_rows():
                 operation_id="stale",
                 status=STATUS_RELEASED,
                 created_at=_utcnow() - timedelta(days=30),
+                updated_at=_utcnow() - timedelta(days=30),
             )
         )
         pruned = await engine.prune_expired()
@@ -711,7 +712,7 @@ def test_retention_prune_preserves_protected_attach_reservation():
     assert retained is not None
 
 
-def test_retention_prune_reclaims_unprotected_legacy_reservation():
+def test_retention_prune_reclaims_explicitly_abandoned_legacy_reservation():
     engine = _engine(default_cap_usd=10.0, retention_days=1)
 
     async def run():
@@ -721,6 +722,16 @@ def test_retention_prune_reclaims_unprotected_legacy_reservation():
         await engine.store.update(
             replace(record, reason=None, created_at=old, updated_at=old)
         )
+        # Age alone is not abandonment. The owner explicitly confirms there
+        # is no provider obligation, and persists that disposition first.
+        assert await engine.prune_expired() == 0
+        released = await engine.reconcile(
+            operation_id="legacy-reservation", status="cancelled",
+            reason="owner confirmed abandoned legacy reservation", force=True,
+        )
+        assert released.status == STATUS_RELEASED
+        assert released.reason == "owner confirmed abandoned legacy reservation"
+        await engine.store.update(replace(released, updated_at=old))
         return await engine.prune_expired(), await engine.store.get(
             "legacy-reservation"
         )
@@ -754,3 +765,156 @@ def test_a_free_request_is_admitted_after_spend_passes_the_cap():
 
     asyncio.run(run())
     assert seen_caps == [None]
+
+
+# Both implementations execute the same behavioral retention contract. The
+# PostgreSQL case is explicitly opt-in to a disposable owner-provided fixture.
+@pytest.fixture(params=["memory", "postgres"])
+def retention_engine(request, monkeypatch):
+    import os
+    from contextlib import asynccontextmanager
+    from uuid import uuid4
+
+    @asynccontextmanager
+    async def opened():
+        consumer = f"retention-{uuid4()}"
+        conn = None
+        if request.param == "postgres":
+            url = os.getenv("ATLAS_TEST_MEDIA_LEDGER_POSTGRES_URL")
+            if not url:
+                pytest.skip("requires owned ATLAS_TEST_MEDIA_LEDGER_POSTGRES_URL")
+            import asyncpg
+            from media_ledger_postgres import PostgresLedgerStore
+
+            conn = await asyncpg.connect(url)
+            store = PostgresLedgerStore(url)
+
+            @asynccontextmanager
+            async def acquire():
+                yield conn
+
+            monkeypatch.setattr(store, "_acquire", acquire)
+        else:
+            store = InMemoryLedgerStore()
+        engine = BudgetEngine(
+            MediaBudgetConfig(enabled=True, default_cap_usd=1, retention_days=30),
+            store,
+        )
+        try:
+            yield engine, consumer
+        finally:
+            if conn is not None:
+                await conn.execute(
+                    "DELETE FROM public.media_spend_ledger WHERE consumer=$1", consumer
+                )
+                await conn.close()
+
+    return opened
+
+
+async def _age_submitted_retention_record(store, operation_id, now):
+    old = now - timedelta(days=31)
+    if isinstance(store, InMemoryLedgerStore):
+        record = await store.get(operation_id)
+        await store.update(replace(record, updated_at=old))
+    else:
+        # Attach/clear use database now(), independently of the Python clock.
+        # Age only this test-owned row's mutable timestamp, then fetch it back.
+        async with store._acquire() as conn:
+            await conn.execute(
+                "UPDATE public.media_spend_ledger SET updated_at=$2 "
+                "WHERE operation_id=$1", operation_id, old,
+            )
+    persisted = await store.get(operation_id)
+    assert persisted.updated_at == old
+    assert persisted.updated_at < now - timedelta(days=30)
+
+
+@pytest.mark.parametrize("attach_mode", ["normal", "recovered", "ambiguous"])
+def test_unsettled_retention_holds_cap_and_settles_once(
+    retention_engine, monkeypatch, attach_mode
+):
+    import media_ledger
+
+    now = _utcnow()
+    clock = [now - timedelta(days=31)]
+    monkeypatch.setattr(media_ledger, "_utcnow", lambda: clock[0])
+
+    async def run():
+        async with retention_engine() as (engine, consumer):
+            reservation_id, operation_id = f"{consumer}-resv", f"{consumer}-op"
+            original = await _reserve(engine, reservation_id, 1, consumer=consumer)
+            if attach_mode == "ambiguous":
+                await engine.protect_recovery_ids((reservation_id,))
+            if attach_mode == "recovered":
+                # Protection is advisory; its absence/failure cannot erase debt.
+                await engine.protect_attach_ids((reservation_id,))
+                await engine.clear_attach_protection(reservation_id)
+            clock[0] = now
+            assert await engine.prune_expired() == 0
+            await engine.attach_operation(reservation_id, operation_id)
+            await engine.clear_attach_protection(operation_id)
+            attached = await engine.store.get(operation_id)
+            assert attached.status == STATUS_SUBMITTED
+            if attach_mode != "ambiguous":
+                assert attached.reason is None
+            assert attached.created_at == original.created_at
+            assert attached.estimated_cost_usd == original.estimated_cost_usd
+            await _age_submitted_retention_record(engine.store, operation_id, now)
+            assert await engine.prune_expired() == 0
+            assert await engine.store.totals(consumer, "default") == (1, 0)
+            with pytest.raises(BudgetExceeded):
+                await _reserve(engine, f"{consumer}-second", 1, consumer=consumer)
+            settled = await engine.reconcile(
+                operation_id=operation_id, status="succeeded", final_cost_usd=1
+            )
+            # A settlement of an old reservation must survive until the next
+            # retry can observe its winner, even if its acknowledgement is lost.
+            assert await engine.prune_expired() == 0
+            for _ in range(2):
+                assert await engine.reconcile(
+                    operation_id=operation_id, status="succeeded", final_cost_usd=1
+                ) == settled
+            assert await engine.store.totals(consumer, "default") == (0, 1)
+            clock[0] = now + timedelta(days=31)
+            await engine.prune_expired()
+            assert await engine.store.get(operation_id) is None
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("outcome", ["abandoned", "failed", "cancelled", "denied"])
+def test_terminal_retention_and_explicit_legacy_disposition(
+    retention_engine, monkeypatch, outcome
+):
+    import media_ledger
+
+    now = _utcnow()
+    clock = [now - timedelta(days=31)]
+    monkeypatch.setattr(media_ledger, "_utcnow", lambda: clock[0])
+
+    async def run():
+        async with retention_engine() as (engine, consumer):
+            operation_id = f"{consumer}-legacy"
+            if outcome == "denied":
+                with pytest.raises(BudgetExceeded):
+                    await _reserve(engine, operation_id, 2, consumer=consumer)
+            else:
+                await _reserve(engine, operation_id, 1, consumer=consumer)
+                clock[0] = now
+                assert await engine.prune_expired() == 0
+                reason = "owner confirmed abandoned legacy reservation"
+                settled = await engine.reconcile(
+                    operation_id=operation_id,
+                    status="cancelled" if outcome == "abandoned" else outcome,
+                    reason=reason if outcome == "abandoned" else None, force=True,
+                )
+                assert settled.status == STATUS_RELEASED
+                if outcome == "abandoned":
+                    assert settled.reason == reason
+                assert await engine.prune_expired() == 0
+            clock[0] = now + timedelta(days=31)
+            assert await engine.prune_expired() == 1
+            assert await engine.store.get(operation_id) is None
+
+    asyncio.run(run())

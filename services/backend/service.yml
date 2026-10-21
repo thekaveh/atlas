@@ -164,7 +164,7 @@ env:
     description: "When false (default), a budgeted submission for a model with no known cost is rejected rather than billed an unknown amount (never silently $0). Set true to allow unknown-cost submissions under a cap."
   - name: MEDIA_BUDGET_RETENTION_DAYS
     default: ""
-    description: "Optional retention window in days for media spend ledger rows; empty keeps rows indefinitely (no pruning). When set, an hourly background sweep prunes rows older than the window."
+    description: "Terminal media-ledger retention in days; blank disables pruning. An hourly sweep prunes committed, released and denied history after the window since terminal disposition. Unsettled reserved/submitted obligations remain held until explicit settlement, regardless of age."
   - name: MEDIA_OPERATION_TTL_SECONDS
     default: 604800
     description: "Redis retention in seconds for hosted media operation state. The default keeps terminal results available for seven days across Backend replicas and restarts."

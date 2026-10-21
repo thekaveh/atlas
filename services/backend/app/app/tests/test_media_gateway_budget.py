@@ -1654,7 +1654,7 @@ def test_old_missing_manual_recovery_record_is_never_treated_as_pruned(
     assert pending["reconciled"] is False
 
 
-def test_late_terminal_poll_records_intentional_ledger_prune(monkeypatch):
+def test_late_terminal_poll_missing_ledger_stays_pending(monkeypatch):
     main = _fresh_main(monkeypatch, budget_enabled=True, default_cap=10.0)
     monkeypatch.setattr(main, "FalClient", _CapturingFalClient, raising=False)
     from fastapi.testclient import TestClient
@@ -1667,10 +1667,10 @@ def test_late_terminal_poll_records_intentional_ledger_prune(monkeypatch):
     main.MEDIA_BUDGET_ENGINE.store._records.pop("fal-3d-9")
 
     response = client.get("/media/operations/fal-3d-9")
-    assert response.status_code == 200
+    assert response.status_code == 503
     persisted = asyncio.run(main.MEDIA_OPERATION_STORE.get("fal-3d-9"))
-    assert persisted["reconciled"] is True
-    assert persisted["last_payload"]["provenance"]["ledger_retention_pruned"] is True
+    assert persisted["reconciled"] is False
+    assert not persisted["last_payload"]["provenance"].get("ledger_retention_pruned")
 
 
 def test_operation_poll_returns_503_when_state_store_lookup_fails(monkeypatch):
@@ -2527,3 +2527,162 @@ def test_pinned_fal_unicode_encoding_failure_releases_gateway_reservation(
     assert len(ledger) == 1
     assert ledger[0].status == "released"
     assert all(client.is_closed for client in owned_fal_transport["clients"])
+
+
+def _aged_media_retention_context(monkeypatch, recover_attach, clear_marker_fails):
+    from datetime import timedelta
+    from fastapi.testclient import TestClient
+
+    main = _fresh_main(monkeypatch, budget_enabled=True, default_cap=1)
+    monkeypatch.setattr(main, "FalClient", _CapturingFalClient, raising=False)
+    main.MEDIA_BUDGET_ENGINE.config.retention_days = 30
+    clock = [main.media_ledger._utcnow() - timedelta(days=31)]
+    monkeypatch.setattr(main.media_ledger, "_utcnow", lambda: clock[0])
+    engine = main.MEDIA_BUDGET_ENGINE
+    originals = (engine.attach_operation, engine.clear_attach_protection,
+                 engine.protect_attach_ids)
+
+    async def unavailable(*_args, **_kwargs):
+        raise RuntimeError("controlled ledger interruption")
+
+    async def submit_provider(**_kwargs):
+        return {
+            "operation_id": "retention-op", "status": "submitted",
+            "provider": "fal", "model": "fal-ai/trellis", "modality": "image_to_3d",
+            "cost_usd": 1, "provenance": {}, "artifacts": [],
+        }
+
+    async def poll_provider(**_kwargs):
+        return {**await submit_provider(), "status": "running"}
+
+    monkeypatch.setattr(main, "_submit_media_provider", submit_provider)
+    monkeypatch.setattr(main, "_poll_media_provider", poll_provider)
+    # Admission uses the registry estimate, not just provider-reported cost.
+    monkeypatch.setattr(main, "_estimate_media_cost", lambda *_a, **_kw: (1, None, None))
+    if recover_attach:
+        monkeypatch.setattr(engine, "attach_operation", unavailable)
+        # Protection writes can fail before attachment reaches durable state.
+        monkeypatch.setattr(engine, "protect_attach_ids", unavailable)
+    if clear_marker_fails:
+        monkeypatch.setattr(engine, "clear_attach_protection", unavailable)
+    client = TestClient(main.app)
+    assert _submit(client).status_code == 202
+    clock[0] += timedelta(days=31)
+    assert asyncio.run(engine.prune_expired()) == 0
+    return SimpleNamespace(main=main, client=client, originals=originals,
+                           clear_marker_fails=clear_marker_fails,
+                           submit_provider=submit_provider)
+
+
+def _recover_aged_media_attachment(context, monkeypatch):
+    engine, client = context.main.MEDIA_BUDGET_ENGINE, context.client
+    original_attach, original_clear, original_protect = context.originals
+    monkeypatch.setattr(engine, "attach_operation", original_attach)
+    monkeypatch.setattr(engine, "protect_attach_ids", original_protect)
+    if context.clear_marker_fails:
+        assert client.get("/media/operations/retention-op").status_code == 503
+        assert asyncio.run(engine.prune_expired()) == 0
+        monkeypatch.setattr(engine, "clear_attach_protection", original_clear)
+    assert client.get("/media/operations/retention-op").status_code == 200
+    record = asyncio.run(engine.store.get("retention-op"))
+    assert record.reason is None
+
+
+def _assert_aged_cancelled_obligation_is_held(main, client):
+    cancelled = client.post("/media/operations/retention-op/cancel")
+    assert cancelled.status_code == 200
+    assert cancelled.json()["status"] == "cancellation_requested"
+    assert asyncio.run(main.MEDIA_BUDGET_ENGINE.prune_expired()) == 0
+    assert asyncio.run(main.MEDIA_BUDGET_ENGINE.store.totals("acme", "default")) == (1, 0)
+    assert _submit(client).status_code == 402
+
+
+def _settle_aged_media_after_lost_ack(context, monkeypatch):
+    main, client = context.main, context.client
+
+    async def success(**_kwargs):
+        return {**await context.submit_provider(), "status": "succeeded"}
+
+    monkeypatch.setattr(main, "_poll_media_provider", success)
+    original_reconcile = main.MEDIA_BUDGET_ENGINE.reconcile
+    ack_lost = False
+
+    async def lose_first_settlement_ack(**kwargs):
+        nonlocal ack_lost
+        settled = await original_reconcile(**kwargs)
+        if not ack_lost:
+            ack_lost = True
+            raise RuntimeError("settlement committed but acknowledgement lost")
+        return settled
+
+    monkeypatch.setattr(main.MEDIA_BUDGET_ENGINE, "reconcile", lose_first_settlement_ack)
+    assert client.get("/media/operations/retention-op").status_code == 503
+    assert asyncio.run(main.MEDIA_OPERATION_STORE.get("retention-op"))["reconciled"] is False
+    assert asyncio.run(main.MEDIA_BUDGET_ENGINE.prune_expired()) == 0
+    for _ in range(3):
+        assert client.get("/media/operations/retention-op").status_code == 200
+    assert asyncio.run(main.MEDIA_BUDGET_ENGINE.store.totals("acme", "default")) == (0, 1)
+    operation = asyncio.run(main.MEDIA_OPERATION_STORE.get("retention-op"))
+    assert operation["reconciled"] is True
+
+
+@pytest.mark.parametrize("recover_attach", [False, True])
+@pytest.mark.parametrize("clear_marker_fails", [False, True])
+def test_aged_attached_cancelled_obligation_survives_until_terminal_poll(
+    monkeypatch, recover_attach, clear_marker_fails
+):
+    context = _aged_media_retention_context(monkeypatch, recover_attach, clear_marker_fails)
+    _recover_aged_media_attachment(context, monkeypatch)
+    _assert_aged_cancelled_obligation_is_held(context.main, context.client)
+    _settle_aged_media_after_lost_ack(context, monkeypatch)
+
+
+def _legacy_disposition_headers(monkeypatch):
+    secret = "atlas-test-supabase-jwt-secret-32-bytes"
+    token = jwt.encode({
+        "sub": str(uuid4()), "role": "authenticated", "aud": "authenticated",
+        "exp": int(time.time()) + 60,
+    }, secret, algorithm="HS256")
+    monkeypatch.setenv("BACKEND_IDENTITY_AUTH", "required")
+    monkeypatch.setenv("SUPABASE_JWT_SECRET", secret)
+    monkeypatch.setenv("BACKEND_INTERNAL_API_TOKEN", "operator-secret")
+    return {"Authorization": f"Bearer {token}"}, {"Authorization": "Bearer operator-secret"}
+
+
+def _explicit_legacy_operator_release(main, client, headers):
+    user_headers, operator_headers = headers
+    route = "/media/operations/legacy-owner-reviewed/reconcile"
+    assert client.post(route, json={"outcome": "release"}, headers=user_headers).status_code == 403
+    assert asyncio.run(main.MEDIA_BUDGET_ENGINE.store.totals("acme", "default")) == (1, 0)
+    for _ in range(2):
+        assert client.post(route, json={"outcome": "release"}, headers=operator_headers).status_code == 200
+    record = asyncio.run(main.MEDIA_BUDGET_ENGINE.store.get("legacy-owner-reviewed"))
+    assert record.status == main.media_ledger.STATUS_RELEASED
+    assert record.reason == "manual reconciliation: release"
+
+
+def test_legacy_ledger_only_cleanup_requires_explicit_operator_release(monkeypatch):
+    from datetime import timedelta
+    from fastapi.testclient import TestClient
+
+    main = _fresh_main(monkeypatch, budget_enabled=True, default_cap=1)
+    clock = [main.media_ledger._utcnow() - timedelta(days=31)]
+    monkeypatch.setattr(main.media_ledger, "_utcnow", lambda: clock[0])
+    main.MEDIA_BUDGET_ENGINE.config.retention_days = 30
+    asyncio.run(main.MEDIA_BUDGET_ENGINE.reserve(
+        operation_id="legacy-owner-reviewed", consumer="acme", project="default",
+        provider="fal", model="fal-ai/trellis", modality="image_to_3d",
+        estimated_cost_usd=1,
+    ))
+    # A missing marker provides no evidence of legacy abandonment.
+    asyncio.run(main.MEDIA_BUDGET_ENGINE.clear_attach_protection("legacy-owner-reviewed"))
+    assert asyncio.run(main.MEDIA_BUDGET_ENGINE.store.get("legacy-owner-reviewed")).reason is None
+    clock[0] += timedelta(days=31)
+    assert asyncio.run(main.MEDIA_BUDGET_ENGINE.prune_expired()) == 0
+    # A disabled admission policy must not disable settlement of old debt.
+    main.MEDIA_BUDGET_ENGINE.config.enabled = False
+    _explicit_legacy_operator_release(main, TestClient(main.app), _legacy_disposition_headers(monkeypatch))
+    assert asyncio.run(main.MEDIA_BUDGET_ENGINE.prune_expired()) == 0
+    clock[0] += timedelta(days=31)
+    assert asyncio.run(main.MEDIA_BUDGET_ENGINE.prune_expired()) == 1
+    assert asyncio.run(main.MEDIA_BUDGET_ENGINE.store.get("legacy-owner-reviewed")) is None

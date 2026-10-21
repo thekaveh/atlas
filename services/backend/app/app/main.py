@@ -335,12 +335,9 @@ BACKEND_STORAGE_ALLOWED_BUCKETS = set(
 _SAFE_STORAGE_FILENAME = re.compile(r"^[A-Za-z0-9._ -]{1,255}$")
 
 
-# Background reclamation for abandoned media-budget reservations. The poll-time
-# timeout only fires when a client polls; a submitted operation that is never
-# polled again would otherwise keep its RESERVED/SUBMITTED ledger row counting
-# against the consumer's cap forever. prune_expired() sweeps rows older than the
-# retention window (a no-op unless MEDIA_BUDGET_RETENTION_DAYS is set); schedule
-# it so the advertised backstop actually runs.
+# Optional background retention of terminal media-ledger history. Unsettled
+# RESERVED/SUBMITTED obligations remain held until explicit settlement, even
+# when an operation is never polled. Retention starts at terminal disposition.
 _MEDIA_BUDGET_PRUNE_INTERVAL_SECONDS = 3600
 _MEDIA_LEDGER_INTENT_INTERVAL_SECONDS = 30
 _media_budget_prune_task: Optional[asyncio.Task] = None
@@ -2235,39 +2232,8 @@ async def _maybe_reconcile_ledger(
                 detail="Media spend ledger is unavailable; retry reconciliation",
             ) from exc
         if settled is None:
-            retention_days = MEDIA_BUDGET_ENGINE.config.retention_days
-            operation_age = time.time() - float(
-                operation.get("created_at_epoch") or time.time()
-            )
-            if (
-                retention_days
-                and operation_age >= retention_days * 86400
-                and not manual_outcome
-                and op_status != "submission_unknown"
-                and not provenance.get("manual_reconciliation_required")
-            ):
-                provenance["ledger_retention_pruned"] = True
-                provenance["ledger_reconciliation_pending"] = False
-                provenance["manual_reconciliation_required"] = False
-                payload["provenance"] = provenance
-                try:
-                    _, finalized = (
-                        await MEDIA_OPERATION_STORE.replace_terminal_payload(
-                            operation_id, op_status, payload
-                        )
-                    )
-                    marked = await MEDIA_OPERATION_STORE.mark_reconciled(operation_id)
-                except Exception as exc:
-                    raise HTTPException(
-                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                        detail=state_store_detail("Media operation state store is unavailable"),
-                    ) from exc
-                if not finalized or not marked:
-                    raise HTTPException(
-                        status_code=status.HTTP_409_CONFLICT,
-                        detail=f"Media operation {operation_id} changed; retry",
-                    )
-                return
+            # Age cannot prove provider settlement or repair a missing
+            # financial obligation. Keep the operation pending for recovery.
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail=(
