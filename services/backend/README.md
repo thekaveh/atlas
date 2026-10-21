@@ -130,7 +130,8 @@ Recall and update confidence must be finite and in `0..1`. Invalid requests retu
 
 - A failed embedding inside Weaviate (its LiteLLM vectorizer call) is not an outage. It shows as a 5xx on writes or GraphQL `errors` on recall.
 - In that case the write lands in pgvector and stays `vector_sync_pending`. Recall uses pgvector for that request, and nothing latches. Weaviate allows 30 s for the embedding call.
-- Reconciliation skips a row that the target rejects with a 4xx until the row changes. A restart retries it once.
+- Reconciliation keeps a bounded, process-local cache of row versions rejected by the target. It skips remembered unchanged versions; restarting clears the cache.
+- Bounded passes advance through other pending work even when the cache is full. Changed, synchronized, no-longer-pending or deleted versions release cache capacity.
 - `min_confidence` is applied inside the vector query, so low-confidence hits cannot take `limit` slots.
 - `WEAVIATE_SOURCE=localhost` is unsupported for memory. The collection vectorizes through `http://litellm:4000`, which a host Weaviate cannot resolve, and the Backend sends no Weaviate API key. Every write fails vectorization, and recall uses pgvector.
 - `LANGMEM_EMBEDDING_DIM` is checked against a real LiteLLM embedding before startup. The migration keeps existing vectors and re-embeds them in short transactions. It narrows the column only when every row matches.

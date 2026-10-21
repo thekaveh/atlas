@@ -17,6 +17,7 @@ import httpx
 
 from db_connection import acquire_conn, connect_postgres
 from memory_models import _validate_consolidation_action
+from memory_reconciliation import _fetch_pending_vector_page, _refresh_rejected_vector_rows
 from memory_store import (
     _VECTORIZER_SYSTEMATIC_TEXT,
     MemoryStore,
@@ -117,10 +118,9 @@ def _is_target_health_signal(exc: BaseException) -> bool:
 #:
 #: Small enough to stop a genuine outage paying 100 round-trips per recall,
 #: large enough that a single poison row cannot head-of-line-block the
-#: backlog. KNOWN LIMIT: three or more ADJACENT poison rows still stall it —
-#: failing rows keep their `updated_at` and so sort first forever. Fixing that
-#: needs a `vector_sync_next_at` column or a target-health probe; see
-#: D-24.1 in the maintenance audit.
+#: backlog. Bounded scan progress is separate from this failure streak:
+#: handled failures advance the cursor, while raised retries leave the
+#: current row available for the next invocation.
 _RECONCILE_TRANSIENT_STREAK = 3
 
 
@@ -219,7 +219,7 @@ def _is_row_rejection(exc: BaseException) -> bool:
 
 def _remember_rejected(rejected: dict, row, exc: BaseException) -> None:
     """Skip a row the target rejected on its own until it changes (bounded)."""
-    if _is_row_rejection(exc) and len(rejected) < 10_000:
+    if _is_row_rejection(exc) and (row["id"] in rejected or len(rejected) < 10_000):
         rejected[row["id"]] = row["updated_at"]
 
 
@@ -812,91 +812,90 @@ Extract the facts as JSON:"""
             rejected = self._rejected_vector_rows = {}
         return rejected
 
+    async def _refresh_rejected_rows(self, conn) -> None:
+        """Validate a bounded sample of this instance's rejected versions."""
+        await _refresh_rejected_vector_rows(conn, self._rejected_rows())
+
+    async def _try_reconcile_row(self, conn, row, retry_transient):
+        """Return (progress, target failure); raised work remains retryable."""
+        rejected = self._rejected_rows()
+        if row["id"] in rejected and rejected[row["id"]] != row["updated_at"]:
+            del rejected[row["id"]]
+        try:
+            new_weaviate_id = await self._sync_one_row(row)
+        except Exception as exc:
+            target_signal = _is_target_health_signal(exc)
+            if retry_transient and target_signal:
+                raise
+            # Every deferral stays observable, including row-specific errors.
+            logger.warning(
+                "Memory vector reconciliation deferred (error_type=%s)",
+                type(exc).__name__,
+            )
+            target_failure = _counts_toward_reconcile_halt(exc, target_signal)
+            if not target_failure:
+                _remember_rejected(rejected, row, exc)
+            return False, exc if target_failure else None
+        # Preserve the optimistic updated_at guard: a concurrent edit keeps
+        # its durable pending intent even if this older vector write succeeds.
+        await self._clear_pending_flag(conn, row, new_weaviate_id)
+        if row["id"] in rejected and rejected[row["id"]] == row["updated_at"]:
+            del rejected[row["id"]]
+        return True, None
+
+    async def _reconcile_vector_page(self, conn, retry_transient) -> int:
+        await self._refresh_rejected_rows(conn)
+        rows, self._vector_reconcile_upper = await _fetch_pending_vector_page(
+            conn, self._rejected_rows(),
+            getattr(self, "_vector_reconcile_cursor", (None, None)),
+            getattr(self, "_vector_reconcile_upper", None),
+        )
+        reconciled = 0
+        target_failures_since_progress = 0
+        for row in rows:
+            progress, failure = await self._try_reconcile_row(conn, row, retry_transient)
+            # Advance only handled rows, including rejections when the cache is
+            # full. A raised retry, SQL-clear error or cancellation leaves this
+            # row unadvanced; prefetched but unhandled rows never move it.
+            self._vector_reconcile_cursor = (row["updated_at"], row["id"])
+            if progress:
+                reconciled += 1
+                target_failures_since_progress = 0
+            elif failure is not None:
+                target_failures_since_progress += 1
+                if target_failures_since_progress >= _RECONCILE_TRANSIENT_STREAK:
+                    self._log_reconcile_halt(reconciled, failure)
+                    break
+            # Row-specific failures neither count toward nor reset the streak.
+        else:
+            if len(rows) < 100:
+                self._vector_reconcile_upper = None
+                self._vector_reconcile_cursor = (None, None)
+        return reconciled
+
     async def _reconcile_pending_vectors(
         self,
         conn=None,
         *,
         retry_transient: bool = False,
     ) -> int:
-        """Apply durable Postgres vector-retirement intents to Weaviate."""
+        """Apply a serialized, bounded pass of durable vector intents."""
         if not self.store:
             return 0
-        owns_connection = conn is None
-        if owns_connection:
-            # #804 HOLD: dedicated connection — this loop holds `conn` across
-            # Weaviate update/deactivate I/O below, so it must NOT draw from the
-            # shared pool (would pin a bounded slot across slow I/O).
-            conn = await connect_postgres(self.database_url)
-        reconciled = 0
-        target_failures_since_progress = 0
-        # Rows the target rejected on their own (a 4xx) stayed first in this
-        # oldest-first page, so 100 of them stalled every later row: deletes
-        # never reached Weaviate (2026-10-08 run, cycle 12). Skip them here
-        # until their updated_at changes; a restart retries them once.
-        rejected = self._rejected_rows()
-        try:
-            rows = await conn.fetch(
-                """
-                SELECT id, user_id, namespace, content, fact_type, confidence,
-                       is_active, weaviate_id, updated_at
-                FROM public.memory_facts AS f
-                WHERE vector_sync_pending = true
-                  AND NOT EXISTS (
-                      SELECT 1 FROM unnest($1::uuid[], $2::timestamptz[]) AS r(id, ts)
-                      WHERE r.id = f.id AND r.ts = f.updated_at
-                  )
-                ORDER BY updated_at
-                LIMIT 100
-                """,
-                list(rejected),
-                list(rejected.values()),
-            )
-            for row in rows:
-                new_weaviate_id = None
-                try:
-                    new_weaviate_id = await self._sync_one_row(row)
-                except Exception as exc:
-                    target_signal = _is_target_health_signal(exc)
-                    if retry_transient and target_signal:
-                        raise
-                    # Log EVERY deferral — a row that could not be reconciled
-                    # must stay observable, not just the eventual halt.
-                    logger.warning(
-                        "Memory vector reconciliation deferred (error_type=%s)",
-                        type(exc).__name__,
-                    )
-                    if not _counts_toward_reconcile_halt(exc, target_signal):
-                        _remember_rejected(rejected, row, exc)
-                        # A row-specific failure says nothing about the
-                        # target's health, so it must not COUNT toward the
-                        # streak — and it must not RESET it either. Resetting
-                        # let interleaved shapes defeat the cap entirely:
-                        # `503,503,400` repeating, or `429,400` repeating,
-                        # ran all 100 rows and never halted. Only PROGRESS
-                        # proves the target is reachable, so only progress
-                        # clears the counter.
-                        continue
-                    target_failures_since_progress += 1
-                    if target_failures_since_progress >= _RECONCILE_TRANSIENT_STREAK:
-                        self._log_reconcile_halt(reconciled, exc)
-                        break
-                    continue
-                # Optimistic guard on updated_at (the same discipline the
-                # consolidate state transitions use): if a concurrent
-                # update_memory changed this fact after we read it — re-flagging
-                # vector_sync_pending for the NEW content — an unguarded clear
-                # here would wipe that flag against our now-stale vector write,
-                # stranding the newer content unreconciled with the flag false
-                # (permanent divergence). Guarding on the read updated_at makes
-                # this clear a no-op in that case, so the fact stays pending and
-                # a later pass reconciles the current content.
-                await self._clear_pending_flag(conn, row, new_weaviate_id)
-                reconciled += 1
-                target_failures_since_progress = 0  # progress: the target is reachable
-        finally:
+        # Initialize before the first await, including for __new__ fixtures.
+        if not hasattr(self, "_vector_reconcile_lock"):
+            self._vector_reconcile_lock = asyncio.Lock()
+        async with self._vector_reconcile_lock:
+            owns_connection = conn is None
             if owns_connection:
-                await conn.close()
-        return reconciled
+                # #804 HOLD: dedicated connection — external vector I/O must
+                # NOT hold a bounded shared-pool slot, even while serialized.
+                conn = await connect_postgres(self.database_url)
+            try:
+                return await self._reconcile_vector_page(conn, retry_transient)
+            finally:
+                if owns_connection:
+                    await conn.close()
 
     async def _expire_excess_facts(
         self, user_uuid: Any, retry_transient: bool

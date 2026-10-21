@@ -1053,7 +1053,12 @@ async def test_rejected_rows_do_not_stall_the_next_pass(monkeypatch, status):
     seen = []
 
     class FakeConn:
-        async def fetch(self, _query, ids, stamps):
+        async def fetch(self, query, *args):
+            if "DESC NULLS LAST" in query:
+                return rows[-1:]
+            ids, stamps = args[:2]
+            if "AS cached" in query:
+                return [{"id": row["id"]} for row in rows if row["id"] in ids]
             seen.append(dict(zip(ids, stamps)))
             return rows
 
