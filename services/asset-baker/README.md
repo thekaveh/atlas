@@ -137,6 +137,8 @@ Both endpoints return a content-addressed artifact envelope — the baked LP GLB
 
 When `ASSET_BAKER_MINIO_ENABLED=false`, artifacts are stored under `ASSET_BAKER_ARTIFACT_DIR/bake/<sha256>.{glb,png}` and `download_url=/assets/artifacts/<sha256>.glb`. A `skip` (foliage) bake emits `textures: []` and `color_mean: null`.
 
+Each local artifact is published atomically after its temporary file is fully written and closed. A handled write or replacement failure preserves any previously published artifact and attempts to remove that attempt’s temporary file.
+
 Failure statuses:
 
 - `400`: empty or non-GLB input.
