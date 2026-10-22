@@ -128,7 +128,10 @@ from rag_eval_service import (
     RagEvaluationResponse,
     evaluate_rag_records,
 )
+from lightrag_rerank_admission import RerankAdmission, RerankAdmissionUnavailable
+from threading import RLock
 from lightrag_rerank_adapter import (
+    new_rerank_budget,
     RerankAdapterRequest,
     RerankAdapterResponse,
     RerankAdapterDependencyError,
@@ -1059,16 +1062,27 @@ def _heavy_work_gate() -> _HeavyWorkGate:
 
 
 _RERANK_EXECUTOR = None
+_RERANK_ADMISSION = None
+_RERANK_INIT_LOCK = RLock()
 
 
 def _rerank_executor():
     """Dedicated threads for the blocking TEI rerank calls."""
     global _RERANK_EXECUTOR
-    if _RERANK_EXECUTOR is None:
-        from concurrent.futures import ThreadPoolExecutor
+    with _RERANK_INIT_LOCK:
+        if _RERANK_EXECUTOR is None:
+            from concurrent.futures import ThreadPoolExecutor
 
-        _RERANK_EXECUTOR = ThreadPoolExecutor(max_workers=8, thread_name_prefix="rerank")
-    return _RERANK_EXECUTOR
+            _RERANK_EXECUTOR = ThreadPoolExecutor(max_workers=8, thread_name_prefix="rerank")
+        return _RERANK_EXECUTOR
+
+
+def _rerank_admission():
+    global _RERANK_ADMISSION
+    with _RERANK_INIT_LOCK:
+        if _RERANK_ADMISSION is None:
+            _RERANK_ADMISSION = RerankAdmission(_rerank_executor(), rerank_via_tei)
+        return _RERANK_ADMISSION
 
 
 async def _run_heavy_work(fn, request, operation: str):
@@ -1187,10 +1201,15 @@ async def lightrag_rerank(request: RerankAdapterRequest):
     ``Authorization: Bearer <LIGHTRAG_RERANK_ADAPTER_TOKEN>``.
     """
     try:
-        # Its own bounded pool: a slow TEI held the loop's shared default
-        # executor and stalled every other to_thread route (#1354).
-        return await asyncio.get_running_loop().run_in_executor(
-            _rerank_executor(), rerank_via_tei, request
+        if not request.documents:
+            return RerankAdapterResponse(results=[])
+        budget = new_rerank_budget()
+        return await _rerank_admission().run(request, budget)
+    except RerankAdmissionUnavailable as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=str(e),
+            headers={"Retry-After": "5"},
         )
     except RerankAdapterDependencyError as e:
         raise HTTPException(

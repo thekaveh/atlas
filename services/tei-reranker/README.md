@@ -114,6 +114,8 @@ curl -s "http://localhost:${LITELLM_PORT}/v1/rerank" \
 - **Provider prefix.** `/rerank` is the Cohere-shaped API (`{query, documents}`), not an OpenAI modality. LiteLLM registers TEI through the **`huggingface/`** rerank provider, which translates the request into TEI's `{query, texts}`. The `infinity`, `jina` and `cohere` prefixes send `{query, documents}`, which TEI rejects, so `huggingface/` is pinned.
 - **Backend adapter vs LiteLLM.** The backend `/lightrag/rerank` adapter serves LightRAG's client shape. LiteLLM `/v1/rerank` is the standard path for other consumers. No TEI API key is needed: TEI is unauthenticated in-network, and init writes the endpoint into `config.yaml`.
 
+The Backend adapter has its own [admission and caller deadline limits](../backend/README.md#51-lightrag--tei-rerank-adapter-post-lightragrerank-415). Those limits apply to `/lightrag/rerank`, not native TEI or LiteLLM rerank routes.
+
 ## 5. Capabilities & limitations
 
 <a id="8-capabilities-limitations"></a>

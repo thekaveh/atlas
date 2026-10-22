@@ -141,7 +141,7 @@
 | RAY_JOB_API_TOKEN | backend |  | Auto-generated bearer token required by every /api/ray/* route. Send as Authorization: Bearer &lt;value&gt;. |
 | LIGHTRAG_RERANK_ADAPTER_ENABLED | backend | false | Opt-in for the backend rerank adapter route POST /lightrag/rerank. When true and TEI_RERANKER_SOURCE is enabled, LightRAG reranks through the adapter and consumer profiles may set enable_rerank=true. Direct LightRAG-to-TEI rerank is unsupported (payload shapes differ). |
 | LIGHTRAG_RERANK_ADAPTER_TOKEN | backend |  | Auto-generated bearer token guarding the /lightrag/rerank adapter route. Handed to LightRAG as RERANK_BINDING_API_KEY so the two share one secret. Send as `Authorization: Bearer <value>`. |
-| LIGHTRAG_RERANK_ADAPTER_TIMEOUT_SECONDS | backend | 30 | Finite per-request timeout in seconds for /lightrag/rerank calls to TEI. Must be greater than 0 and no greater than 3600; invalid values fail Backend startup. |
+| LIGHTRAG_RERANK_ADAPTER_TIMEOUT_SECONDS | backend | 30 | Caller deadline in seconds for /lightrag/rerank, including queue wait and TEI work. Must be greater than 0 and no greater than 3600; invalid values fail Backend startup. |
 | BACKEND_IMAGE | backend | python:3.12.14-bookworm@sha256:581429e3df12d76e6af4be5ab7d0e7fc2013eb57dc23d2de691411c8efdbb970 | Container image for `backend`. |
 | BACKUP_SOURCE | backup | disabled | Deployment mode: container (enable the runner) or disabled (default). |
 | BACKUP_BUCKET | backup | atlas-backups | Target bucket for backups. |

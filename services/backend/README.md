@@ -446,7 +446,7 @@ When `LIGHTRAG_SOURCE != disabled`, the Backend receives `LIGHTRAG_ENDPOINT` and
 
 LightRAG can rerank its retrieved chunks with a cross-encoder. Its built-in Jina/Cohere rerank clients send `{"query", "documents"}` and read `{"results": [{"index", "relevance_score"}]}`. Atlas's [TEI reranker](../tei-reranker/README.md) `/rerank` takes `{"query", "texts"}` and returns a sorted top-level array of `{"index", "score"}`. Without the adapter the two shapes are incompatible.
 
-`POST /lightrag/rerank` translates between them. It is a thin Backend route (`app/app/lightrag_rerank_adapter.py`), not a new service, and holds no model or state. It rewrites LightRAG's request into TEI's shape and calls the TEI reranker. It maps `score` back to `relevance_score`, keeps the original document index and best-first order, and honors `top_n`. Direct LightRAG→TEI wiring stays forbidden.
+`POST /lightrag/rerank` translates between them. It is a thin Backend route (`app/app/lightrag_rerank_adapter.py`), not a new service, and holds no model or persistent state. It rewrites LightRAG's request into TEI's shape and calls the TEI reranker. It maps `score` back to `relevance_score`, keeps the original document index and best-first order, and honors `top_n`. Direct LightRAG→TEI wiring stays forbidden.
 
 **Enabling it.** Off by default. Set `LIGHTRAG_RERANK_ADAPTER_ENABLED=true` **with** `TEI_RERANKER_SOURCE` and LightRAG enabled. The bootstrapper then points LightRAG's rerank binding (`jina`) at `http://backend:8000/lightrag/rerank`, and consumer [query profiles](../../docs/reference/consumer-manifest.md#12-lightrag_query_profiles) can set `enable_rerank: true`. `./start.sh doctor` warns (`lightrag-rerank-adapter` check) if the flag is on but a prerequisite is off, because reranking would then do nothing.
 
@@ -454,8 +454,18 @@ LightRAG can rerank its retrieved chunks with a cross-encoder. Its built-in Jina
 |---|---|---|
 | `LIGHTRAG_RERANK_ADAPTER_ENABLED` | `false` | Opt-in. Gates the LightRAG↔TEI wiring and `enable_rerank` query profiles. |
 | `LIGHTRAG_RERANK_ADAPTER_TOKEN` | *(auto-generated)* | Bearer token guarding the route; handed to LightRAG as `RERANK_BINDING_API_KEY` so both sides share one secret. Masked as a `secret`. |
-| `LIGHTRAG_RERANK_ADAPTER_TIMEOUT_SECONDS` | `30` | Finite per-request TEI timeout; must be greater than 0 and no greater than 3,600 seconds or Backend startup fails. |
+| `LIGHTRAG_RERANK_ADAPTER_TIMEOUT_SECONDS` | `30` | Caller deadline covering queue wait and TEI work. Must be greater than 0 and no greater than 3,600 seconds or Backend startup fails. |
 | `TEI_RERANKER_ENDPOINT` | *(resolved)* | Resolved by the TEI reranker service; the route forwards `{query, texts}` here. |
+
+**Admission and deadlines.** Each Backend process admits at most 16 adapter requests, with at most eight dedicated worker calls and eight waiting requests. Requests beyond either bound receive `503` with `Retry-After: 5`. Concurrent admission can reject a request before all 16 places are occupied. These limits apply per process, so additional Backend processes multiply them.
+
+The caller deadline starts before admission and includes queue wait, client setup and all TEI batches. Each batch uses the remaining budget. Expired queued work never calls TEI, and deadline expiry returns `504`. Request validation and response serialization are outside this deadline.
+
+Cancelling queued work removes its payload and releases admission. After dispatch, cancellation or timeout ends the caller's wait, but the worker slot remains reserved until physical completion. An HTTP call already running cannot be forcibly stopped; cancellation prevents later batches. Late workers can therefore keep the adapter full after callers leave.
+
+Empty document lists return empty results after authentication and validation, without admission or a TEI call. This also works when the adapter is full or TEI is unconfigured. Dedicated rerank workers keep unrelated executor-backed routes available during saturation.
+
+If executor submission fails, the adapter stops accepting work and clears waiting payloads. It returns `503` with the same retry guidance until the Backend process restarts. Check Backend logs and resolve the submission failure before restarting.
 
 **Auth and errors.** The route requires `Authorization: Bearer <LIGHTRAG_RERANK_ADAPTER_TOKEN>`. It validates the input and the TEI response shape. The route's code documents distinct error codes for auth, timeout and upstream failures. Reranking adds an extra cross-encoder pass, so it trades a little latency for better passage order. Leave it off if latency matters most.
 
