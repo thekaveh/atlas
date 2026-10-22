@@ -855,6 +855,11 @@ The separate-project example retains external ownership and explicitly requires 
 The wizard guide now explains that n8n and its worker remain enabled with Weaviate disabled, including on the `gen-ai-eng` track.
 The required-dependency example uses Trino's MinIO and Iceberg REST requirements and explains the launch-time resolution check.
 
+### 1.124. Fixed — 2026-10-22 — Docling guidance separates client and gateway timeouts (#1773)
+
+The Docling guide now separates capped client timeouts, Backend's gateway floor, direct Docling access and Celery task limits.
+Gateway values track the conversion budget and link to the Kong timeout table.
+
 ## 2. [0.1.0](https://github.com/thekaveh/atlas/tree/v0.1.0) - 2026-06-21 (First tagged checkpoint)
 
 Atlas intentionally began its public semantic-version tag line at `v0.1.0`.

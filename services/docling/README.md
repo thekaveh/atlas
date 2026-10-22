@@ -28,14 +28,21 @@ from other input formats keep their existing handling.
 
 **Timeouts and fallback.**
 
-- Backend and Celery extraction wait up to `DOCLING_INFERENCE_TIMEOUT_SECONDS` plus 30 s for Docling. `TIKA_TIMEOUT_SECONDS` does not apply.
+- Backend and Celery extraction set their Docling client timeout to `DOCLING_INFERENCE_TIMEOUT_SECONDS` plus 30 s, capped at 3,600 s.
+    `TIKA_TIMEOUT_SECONDS` does not apply.
+
 - Backend `POST /documents/extract` routes long-tail formats straight to Tika.
   These include legacy Office (`.doc`, `.xls`, `.ppt`), `.epub`, mail, RTF,
   OpenDocument and archives. Atlas's Docling providers answer an unsupported
   format with 500, not 415.
 - Celery RAG ingestion follows the profile's `parser_order`.
   It can try Tika after Docling fails.
-- Kong cuts `api.localhost` requests at 300 s. The HTTP client gets a 504 while the conversion continues.
+- Kong's upstream read/write timeouts have a 3,630 s floor for Backend `api.localhost`.
+    The direct `docling-api` route uses `DOCLING_INFERENCE_TIMEOUT_SECONDS` plus 30 s (930 s by default).
+    Backend uses the larger of its floor and that Docling value plus another 30 s.
+    Both values are capped at 2,147,483,646 ms.
+    See [Kong proxy timeouts](../kong/README.md#42-proxy-timeouts).
+
 - A Celery RAG ingestion has its own limits, `RAG_INGESTION_TASK_SOFT_TIME_LIMIT_SECONDS` and `RAG_INGESTION_TASK_TIME_LIMIT_SECONDS`. By default they are the larger of 3840 / 3900 s and the global Celery limits.
 
 ## 2. Capabilities & limitations
