@@ -887,6 +887,11 @@ Runtime configuration is unchanged.
 - The service contribution guide registers each canonical page and diagram before its first surface build.
 - The Qdrant example includes a stable page ID, numbered H1, manifest mapping and PNG export instructions.
 
+### 1.130. Fixed — 2026-10-22 — Roadmap records shipped Textual selection and log copy (#1769)
+
+The roadmap now marks the Textual upgrade and launch-phase log copy as completed.
+It describes filtered-buffer copying and retains the Python 3.10 compatibility context.
+
 ## 2. [0.1.0](https://github.com/thekaveh/atlas/tree/v0.1.0) - 2026-06-21 (First tagged checkpoint)
 
 Atlas intentionally began its public semantic-version tag line at `v0.1.0`.
