@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import struct
 from dataclasses import dataclass
@@ -12,6 +13,22 @@ from .models import PostprocessParams
 JSON_CHUNK = 0x4E4F534A
 BIN_CHUNK = 0x004E4942
 FLOAT = 5126
+DEFAULT_MAX_NORMALIZATION_VERTICES = 250_000
+
+
+class NormalizationWorkLimitError(RuntimeError):
+    """The supported POSITION workload exceeds the configured admission limit."""
+
+
+def _normalization_vertex_limit() -> int:
+    name = "ASSET_WORKER_MAX_NORMALIZATION_VERTICES"
+    try:
+        limit = int(os.getenv(name, str(DEFAULT_MAX_NORMALIZATION_VERTICES)))
+        if limit <= 0:
+            raise ValueError
+    except ValueError as exc:
+        raise ValueError(f"{name} must be a positive integer") from exc
+    return limit
 
 
 @dataclass(frozen=True)
@@ -41,6 +58,16 @@ def normalize_glb(input_path: Path, output_path: Path, params: PostprocessParams
     if not accessors:
         shutil.copyfile(input_path, output_path)
         return
+
+    work = sum(accessor.count for accessor in accessors)
+    if not work:
+        shutil.copyfile(input_path, output_path)
+        return
+    limit = _normalization_vertex_limit()
+    if work > limit:
+        raise NormalizationWorkLimitError(
+            f"Normalization exceeds the {limit} decoded POSITION-entry limit"
+        )
 
     positions = _read_positions(bin_chunk, accessors)
     if not positions:

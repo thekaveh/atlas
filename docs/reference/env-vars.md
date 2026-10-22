@@ -60,6 +60,7 @@
 | ASSET_WORKER_GLTF_TRANSFORM_VERSION | asset-worker | 4.5.1 | Expected pinned @gltf-transform/cli lock version; overrides must match package.json and package-lock.json. |
 | ASSET_WORKER_MAX_UPLOAD_MB | asset-worker | 200 | Maximum GLB upload or MinIO reference size in MiB. Input is streamed and rejected before transformation when this limit is exceeded. |
 | ASSET_WORKER_UPLOAD_TIMEOUT_SECONDS | asset-worker | 300 | Complete multipart upload reception deadline in seconds; finite and positive. Excludes conversion and reference requests; expired reception returns HTTP 408 and releases admission. |
+| ASSET_WORKER_MAX_NORMALIZATION_VERTICES | asset-worker | 250000 | Maximum decoded POSITION entries across distinct supported referenced accessor indices, including overlapping data. Must be a positive integer; exceeding it returns HTTP 422 before decoding. |
 | ASSET_WORKER_TIMEOUT_SECONDS | asset-worker | 300 | Per-command timeout for gltf-transform inspect, validate, and optimize subprocesses. |
 | ASSET_WORKER_CONCURRENCY | asset-worker | 1 | Maximum concurrent glTF mutation requests; saturated workers reject new work with HTTP 429 before request-body parsing or object-store fetch. |
 | ASSET_WORKER_ARTIFACT_DIR | asset-worker | /data/artifacts | Local artifact cache used when MinIO upload is disabled or for direct downloads. |

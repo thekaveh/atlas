@@ -6,7 +6,7 @@ import subprocess
 from pathlib import Path
 
 from .models import PostprocessParams
-from .normalizer import normalize_glb
+from .normalizer import NormalizationWorkLimitError, normalize_glb
 
 
 class GltfTransformError(RuntimeError):
@@ -26,7 +26,10 @@ def run_gltf_transform(input_path: Path, output_path: Path, params: PostprocessP
             "ktx2 texture compression needs KTX-Software (`ktx`), which this "
             "image does not include; use ktx2=false (WebP) instead"
         )
-    normalize_glb(input_path, normalized, params)
+    try:
+        normalize_glb(input_path, normalized, params)
+    except NormalizationWorkLimitError as exc:
+        raise GltfTransformError(str(exc), kind="failed") from exc
 
     try:
         subprocess.run(

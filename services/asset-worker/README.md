@@ -27,6 +27,7 @@ Every route except `GET /health` and `GET /metrics` requires `Authorization: Bea
 | `ASSET_WORKER_GLTF_TRANSFORM_VERSION` | `4.5.1` | Expected pinned `@gltf-transform/cli` lock version. An override is a validation guard and must match both `package.json` and `package-lock.json`; update those files together when refreshing the dependency. |
 | `ASSET_WORKER_MAX_UPLOAD_MB` | `200` | Maximum uploaded or MinIO-referenced GLB size in MiB. Raw multipart reception permits 1 MiB additional framing; oversized bodies return `413` before parsing. |
 | `ASSET_WORKER_UPLOAD_TIMEOUT_SECONDS` | `300` | Complete multipart reception deadline in seconds. Must be finite and positive; expiry returns `408`. Excludes conversion and reference requests. |
+| `ASSET_WORKER_MAX_NORMALIZATION_VERTICES` | `250000` | Maximum decoded POSITION entries across distinct supported referenced accessor indices. Exceeding the limit returns `422` before decoding. |
 | `ASSET_WORKER_TIMEOUT_SECONDS` | `300` | Per-command timeout for `inspect`, `validate`, and `optimize`. A timeout returns `504`. |
 | `ASSET_WORKER_CONCURRENCY` | `1` | Maximum concurrent mutation requests. A saturated worker rejects new work with `429` before acquiring its input. |
 | `ASSET_WORKER_PORT` | computed | Host port assigned by Atlas' topology allocator. |
@@ -45,6 +46,23 @@ Enable from the CLI with:
 ```
 
 The default `ASSET_WORKER_SOURCE=disabled` keeps the worker out of normal starts until a creative or 3D workflow needs it.
+
+### 3.1. Normalization work limit
+
+`ASSET_WORKER_MAX_NORMALIZATION_VERTICES` admits up to 250000 decoded POSITION entries across distinct supported referenced accessor indices.
+The count includes primitive-referenced accessors in all meshes, including meshes without scene instances.
+
+Repeated references to one accessor count once. Distinct aliases and overlapping accessors count separately, using counts bounded by available BIN bytes.
+Mesh instances do not multiply the count. Unsupported or zero-work inputs retain their existing copy-through behavior.
+
+Exceeding the limit returns `422` before position decoding, normalized output writes, or converter execution.
+The setting must be a positive integer; invalid values produce a configuration `500` for nonzero supported work.
+
+Input bytes, JSON, BIN data, and accessor metadata can exist before admission. Transformation and bounds passes perform additional work within the admitted logical count.
+This setting provides no hard memory or elapsed-time ceiling. It adds no normalization deadline or worker.
+
+The final GLB limit remains 200 MiB by default. Upload reception separately permits 1 MiB of framing and defaults to a 300-second complete deadline.
+Each converter command separately defaults to 300 seconds. These byte, reception, work, and converter limits apply independently.
 
 ## 4. API Contract
 
@@ -173,12 +191,13 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
 | Mechanical glTF conditioning | supported | tested | Atlas normalizes scale and grounding and validates GLB input. It applies opt-in glTF-Transform simplification, Meshopt compression by default (opt-in Draco takes precedence), and WebP texture compression. KTX2 needs KTX-Software, which the image does not ship. |
-| Bounded authenticated post-processing API | supported | tested | Data routes require the generated bearer token. Uploads enforce received-body size and reception deadlines; mutations enforce admission, final input-size, and subprocess-timeout bounds. Health and metrics remain public. |
+| Bounded authenticated post-processing API | supported | tested | Data routes require the generated bearer token. Uploads enforce received-body size and reception deadlines; mutations enforce admission, final input-size, and subprocess-timeout bounds. Normalization admission also caps decoded POSITION entries. Health and metrics remain public. |
 | Content-addressed optimized artifacts | supported | tested | Optimized GLBs use SHA-256 keys in the scoped MinIO bucket by default, with an explicitly selected local-artifact fallback. |
 | Semantic orientation correction | partial | tested | The default trusts glTF Y-up orientation; callers may request explicit-axis or bounded auto reorientation, but product-specific notions of upright remain consumer policy. |
 
 ## 7. Troubleshooting
 
+- `422 Normalization exceeds the <limit> decoded POSITION-entry limit`: reduce the referenced POSITION workload or raise the positive operator setting within available resources.
 - `400 Input must be a GLB file`: use a `.glb` filename and binary GLB payload.
 - `gltf-transform validate` failure: inspect the raw provider output; invalid GLB input is rejected before storage.
 - `401 Invalid Asset Worker bearer token`: pass `Authorization: Bearer ${ASSET_WORKER_API_TOKEN}`.
