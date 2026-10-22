@@ -902,6 +902,11 @@ It identifies canonical sources as authoritative and keeps interactive serving a
 - A pinned Promptfoo recipe runs four synthetic ownership cases without a model, running stack or viewer. Its deliberately vulnerable control must produce a failed assertion.
 - A macOS ARM64 qualifier checks the selected runtimes and enforces a private no-network run. The local report separates response text, authorization decisions and actual file effects, and states the viewer and authentication limits.
 
+### 1.133. Added — 2026-10-22 — Optional local dlt and DuckDB ingestion (#1220)
+
+- An isolated Python 3.12 recipe loads local JSON into DuckDB with primary-key merge, revision checkpoints and explicit schema evolution.
+- Its bounded qualifier exercises replay, updates and generated-job payload repair across process restarts. The operations guide records the qualified dependencies and measured resource use for the tiny fixture.
+
 ## 2. [0.1.0](https://github.com/thekaveh/atlas/tree/v0.1.0) - 2026-06-21 (First tagged checkpoint)
 
 Atlas intentionally began its public semantic-version tag line at `v0.1.0`.
