@@ -46,6 +46,7 @@
 | ASSET_BAKER_TEX_SIZE | asset-baker | 2048 | Default baked BaseColor/Normal texture resolution (square). Higher resolutions take longer on CPU; overridable per request. |
 | ASSET_BAKER_CANONICAL_SIZE | asset-baker | 4.0 | Canonical max-dimension (units) each mesh is scaled to before remesh so the relative voxel/ray heuristics are stable regardless of the raw GLB import scale. |
 | ASSET_BAKER_BRIGHTNESS_MIN | asset-baker | 0.05 | Mean-brightness QA gate: a baked BaseColor whose mean &lt; this is a silently-failed (black) bake and is refused with a non-zero result. |
+| ASSET_BAKER_UPLOAD_TIMEOUT_SECONDS | asset-baker | 300 | Complete multipart upload reception deadline in seconds; finite and positive. Excludes conversion and reference requests; expired reception returns HTTP 408 and releases admission. |
 | ASSET_BAKER_TIMEOUT_SECONDS | asset-baker | 600 | Hard wall-clock ceiling for a single bake subprocess; exceeded bakes are killed and reported as timeout. |
 | ASSET_BAKER_MAX_UPLOAD_MB | asset-baker | 200 | Maximum accepted GLB input size (MiB). Larger uploads/refs are rejected before a Blender process is spawned. |
 | ASSET_BAKER_CONCURRENCY | asset-baker | 1 | Maximum concurrent bake subprocesses. Default 1 — a single Cycles bake saturates CPU and concurrent bakes are net-negative. |
@@ -58,6 +59,7 @@
 | ASSET_WORKER_ALLOWED_INPUT_BUCKETS | asset-worker |  | Optional comma- or space-separated reference-route bucket allowlist; blank follows MINIO_BUCKET_ASSET_INPUTS. |
 | ASSET_WORKER_GLTF_TRANSFORM_VERSION | asset-worker | 4.5.1 | Expected pinned @gltf-transform/cli lock version; overrides must match package.json and package-lock.json. |
 | ASSET_WORKER_MAX_UPLOAD_MB | asset-worker | 200 | Maximum GLB upload or MinIO reference size in MiB. Input is streamed and rejected before transformation when this limit is exceeded. |
+| ASSET_WORKER_UPLOAD_TIMEOUT_SECONDS | asset-worker | 300 | Complete multipart upload reception deadline in seconds; finite and positive. Excludes conversion and reference requests; expired reception returns HTTP 408 and releases admission. |
 | ASSET_WORKER_TIMEOUT_SECONDS | asset-worker | 300 | Per-command timeout for gltf-transform inspect, validate, and optimize subprocesses. |
 | ASSET_WORKER_CONCURRENCY | asset-worker | 1 | Maximum concurrent glTF mutation requests; saturated workers reject new work with HTTP 429 before request-body parsing or object-store fetch. |
 | ASSET_WORKER_ARTIFACT_DIR | asset-worker | /data/artifacts | Local artifact cache used when MinIO upload is disabled or for direct downloads. |

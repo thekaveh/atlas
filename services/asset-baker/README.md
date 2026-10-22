@@ -44,8 +44,9 @@ Every route except `GET /health` and `GET /metrics` requires `Authorization: Bea
 | `ASSET_BAKER_TEX_SIZE` | `2048` | Default baked texture resolution (square). |
 | `ASSET_BAKER_CANONICAL_SIZE` | `4.0` | Canonical max-dimension each mesh is scaled to before remesh. |
 | `ASSET_BAKER_BRIGHTNESS_MIN` | `0.05` | Mean-brightness QA gate; a baked color mean below this is refused. |
+| `ASSET_BAKER_UPLOAD_TIMEOUT_SECONDS` | `300` | Complete multipart reception deadline in seconds. Must be finite and positive; expiry returns `408`. Excludes conversion and reference requests. |
 | `ASSET_BAKER_TIMEOUT_SECONDS` | `600` | Hard wall-clock ceiling per bake subprocess. |
-| `ASSET_BAKER_MAX_UPLOAD_MB` | `200` | Maximum accepted GLB input size (MiB). Declared uploads above this limit plus 2 MiB return `413` before body parsing. Other oversized inputs fail before baking. |
+| `ASSET_BAKER_MAX_UPLOAD_MB` | `200` | Maximum uploaded or MinIO-referenced GLB size in MiB. Raw multipart reception permits 2 MiB additional framing; oversized bodies return `413` before parsing. |
 | `ASSET_BAKER_CONCURRENCY` | `1` | Maximum concurrent bakes; default 1 (one bake saturates CPU). |
 
 Enable from the CLI with:
@@ -77,6 +78,20 @@ The image installs a **pinned, checksum-verified** headless Blender at build tim
 3. Set `ASSET_BAKER_BLENDER_SHA256` to its published checksum in the same place.
 
 ## 4. API Contract
+
+Multipart uploads are received into a bounded temporary spool before form parsing. The raw-body limit is the final GLB limit plus 2 MiB.
+That allowance includes boundaries, headers, form fields, and additional parts. The selected GLB must still satisfy its separate final size limit.
+Missing or understated `Content-Length` does not bypass the received-byte limit. An oversized declared length is rejected before reception.
+
+The complete reception deadline starts after authentication and admission. Progress does not reset it; expiration returns `408` and closes the ingress spool before releasing admission.
+The default is 300 seconds; increase `ASSET_BAKER_UPLOAD_TIMEOUT_SECONDS` for slower links. Invalid values return a configuration `500` before reception.
+Converter timeouts remain separate and return `504`. Reference requests do not use the upload reception deadline.
+
+An admitted upload occupies a mutation slot through reception, parsing, conversion, response completion, and form cleanup. Busy requests return `429` before reading the body.
+Retry after the active request finishes or its reception deadline expires. A cancelled request during conversion retains its slot until owned work and cleanup finish.
+
+Accepted requests briefly require an additional bounded copy of the multipart body. Rejected reception creates no parser files, and its temporary spool is closed.
+These bounds cover application spooling, not upstream network buffers or arbitrary filesystem stalls. Existing malformed multipart parser limitations remain separate.
 
 ### 4.1. Uploaded GLB
 
@@ -143,7 +158,8 @@ Failure statuses:
 
 - `400`: empty or non-GLB input.
 - `401`: bad bearer token. `503`: no token configured.
-- `413`: input over `ASSET_BAKER_MAX_UPLOAD_MB`.
+- `408`: complete upload reception deadline expired.
+- `413`: GLB exceeds `ASSET_BAKER_MAX_UPLOAD_MB`, or raw multipart body exceeds that limit plus 2 MiB.
 - `422`: bake failed, including the **black-bake QA gate**, or invalid parameters (for example a `mode` other than `bake`/`skip`, or an out-of-range `target_tris`).
 - `429`: worker busy (bounded concurrency). `504`: bake timeout.
 - `/assets/bake/ref` only: `404` for a missing input object, `403` for one the service account cannot read.
@@ -184,7 +200,7 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
 | Headless high-to-low-poly texture baking | supported | tested | Atlas runs the voxel-remesh, decimate, Smart-UV, color-bake, normal-bake, and black-output QA pipeline through pinned Blender on Cycles CPU. |
-| Bounded authenticated bake API | supported | tested | Upload, MinIO-reference, and artifact routes require the generated bearer token and enforce input-size, concurrency, and subprocess-timeout bounds; health and metrics remain public. |
+| Bounded authenticated bake API | supported | tested | Data routes require the generated bearer token. Uploads enforce received-body size and reception deadlines; mutations enforce admission, final input-size, and subprocess-timeout bounds. Health and metrics remain public. |
 | Content-addressed bake artifacts | supported | tested | Successful GLBs and textures use SHA-256 keys in the scoped MinIO bucket by default, with an explicitly selected local-artifact fallback. |
 | GPU and native ARM64 baking | not-supported | tested | The only source is the CPU container and its pinned Blender archive is linux/amd64-only; the dormant bake-script GPU path is not an Atlas source variant. |
 
