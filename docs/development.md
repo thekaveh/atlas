@@ -1,6 +1,6 @@
 # 9.1. Development
 
-For a first change (setup, one safe test per area, the branch target and the required checks), start with the [contributing guide](../CONTRIBUTING.md). This page covers service admission, the parent-repo consumer layout, the documentation checks, the repository layout and the review-ticket lint.
+For setup, a first test and the pull-request workflow, start with the [contributing guide](../CONTRIBUTING.md). This page covers service admission, consumer layout, documentation checks, repository layout, review tickets and an optional local authorization evaluation.
 
 ## 1. Service Admission
 
@@ -177,6 +177,7 @@ atlas/
 ├── docs/                      # User, service, operations, diagram, and planning docs
 │   ├── CONTRIBUTING-services.md  # How to add a new service to the modular layout
 │   └── …
+├── examples/                  # Optional recipes, outside default runtime images
 ├── scripts/                   # Audit, docs-build, lock and release-notes tooling
 ├── docker-compose.yml         # ~90-line thin shell — include: list pulling each fragment
 ├── .env.example               # Configuration template (auto-generated from manifests via env_assembler; byte-equivalence enforced by tests)
@@ -184,7 +185,7 @@ atlas/
 └── .github/workflows/         # CI: services-lint (manifest lint+tests, compose byte-equiv+source-permutation, docs-drift+audits, build-validation)
 ```
 
-Top-level is intentionally minimal: `bootstrapper/`, `docs/`, `scripts/`, `services/`. Each service lives entirely under `services/<name>/`: init scripts, source code, build context and config files.
+Top-level code and tooling live in `bootstrapper/`, `scripts/` and `services/`; documentation lives in `docs/`. Optional recipes live in `examples/`, outside default runtime images. Each service owns its init scripts, source, build context and configuration under `services/<name>/`.
 
 ## 5. Machine-generated review tickets
 
@@ -212,3 +213,85 @@ uv run --project bootstrapper python scripts/lint_review_ticket.py --title "fix(
 ```
 
 A review run pipes each drafted body through it before filing. On GitHub, `.github/workflows/review-ticket-lint.yml` runs it whenever a marked issue is opened or edited. A blocking result gets one comment listing the violations and the `review-quality:needs-revision` label. Fixing the body removes the label and updates the same comment.
+
+## 6. Optional local authorization evaluation
+
+The optional recipe in `examples/promptfoo-security/` exercises the Backend's ownership primitive with four synthetic cases. It uses Promptfoo 0.124.1 without a model, running Atlas stack or viewer. Fixture response text has no authority; the report compares it with actual authorization decisions and appended events.
+
+### 6.1. Supported setup
+
+Use macOS ARM64, Node ≥22.22.0 with npm, Python 3.12 and `uv`. The qualifier also requires `/usr/bin/sandbox-exec` and `/usr/bin/otool`. The walkthrough was qualified with Node 26.12.0 and Homebrew Python 3.12.8. The qualifier checks the actual selected runtimes and refuses execution when its containment checks fail. Other operating systems have no supported launcher in this recipe.
+
+Dependencies stay outside Atlas runtime images and environments. The npm lock includes platform-specific optional bindings needed for the CLI's startup database. The qualified macOS installation contained 613 packages and occupied approximately 1.14 GB. Allow extra space for the package cache and Python environment.
+
+Acquire dependencies before creating fixture outputs. Run from the Atlas repository root:
+
+```bash
+RECIPE="$(pwd)/examples/promptfoo-security"
+RECIPE_WORK="$(mktemp -d "${TMPDIR:-/tmp}/atlas-promptfoo.XXXXXXXX")"
+mkdir "$RECIPE_WORK/npm" "$RECIPE_WORK/home" "$RECIPE_WORK/tmp"
+cp "$RECIPE/package.json" "$RECIPE/package-lock.json" "$RECIPE_WORK/npm/"
+: > "$RECIPE_WORK/empty-npmrc"
+env -i PATH="$PATH" HOME="$RECIPE_WORK/home" TMPDIR="$RECIPE_WORK/tmp" \
+  npm ci --prefix "$RECIPE_WORK/npm" --ignore-scripts --omit=dev \
+  --include=optional --no-audit --no-fund \
+  --userconfig /dev/null --globalconfig "$RECIPE_WORK/empty-npmrc"
+python3.12 -I -S -B -m venv --without-pip "$RECIPE_WORK/auth"
+env -i PATH="$PATH" HOME="$RECIPE_WORK/home" TMPDIR="$RECIPE_WORK/tmp" \
+  UV_NO_CONFIG=1 UV_PYTHON_DOWNLOADS=never \
+  uv pip install --python "$RECIPE_WORK/auth/bin/python" \
+  --require-hashes --only-binary :all: --no-deps \
+  -r "$RECIPE/requirements-auth-macos-arm64-py312.lock"
+```
+
+These installation commands contact public package registries. npm lifecycle scripts and Python source builds are disabled. The Python lock selects only the authorization module's eleven dependencies; it does not install the full Backend.
+
+### 6.2. Qualify and run
+
+The qualifier creates a new private output directory and a separate generated-input directory. It discovers runtime library paths and creates a local Seatbelt profile for those selected paths. Keep both directories until inspecting the report.
+
+```bash
+python3.12 -I -B "$RECIPE/qualify_macos.py" \
+  --node "$(command -v node)" \
+  --python "$RECIPE_WORK/auth/bin/python" \
+  --install-root "$RECIPE_WORK/npm" \
+  --output-base "$RECIPE_WORK/run"
+```
+
+Qualification first proves that disposable loopback TCP, UDP and DNS targets are reachable. It then requires the same operations to fail inside containment, including child processes. It also checks Python pipes, the unchanged Backend module import and contained CLI startup. No external resolver, provider or real credentials are used.
+
+The command prints the generated bindings path. Pass that exact path to the runner:
+
+```bash
+python3.12 -I -B "$RECIPE/run_local.py" \
+  "$RECIPE_WORK/run.inputs/bindings.json"
+```
+
+The runner verifies the qualified profile, inputs and dependency inventories before running either evaluation. It uses the same private write boundary and denies network access. There is no unsandboxed fallback. A changed runtime, failed qualification or provider error stops the walkthrough. Start with a fresh private workspace after a failed run. Keep the failed workspace for diagnosis; do not reset its budget or reuse its evaluation directory.
+
+### 6.3. Read the results
+
+| Fixture | Actual ownership outcome | Appended events |
+|---|---|---|
+| Alice requests Alice's event with refusal text | Allowed for Alice | 1 |
+| Alice requests Bob's event with hostile text | Denied | 0 |
+| A trusted service delegates Bob's event | Allowed for Bob | 1 |
+| A deliberately vulnerable fixture bypasses ownership | Allowed for Bob; assertion fails | 1 |
+
+The vulnerable branch exists only in the synthetic helper. It changes no Backend policy. Its expected result remains denial with zero events, so the observed bypass must produce an actual failed CLI assertion.
+
+The protected evaluation must exit 0 with three passes. The negative control must exit 100 with one specific assertion failure and no provider errors. The wrapper succeeds only after validating those results, four unique admissions and the independently written event and authorization files.
+
+Results live under `$RECIPE_WORK/run/evaluation/`. Its `results/` directory contains the report, raw CLI JSON, logs and bounded helper diagnostics. The sibling `effects.jsonl` and `authorization.jsonl` retain the separate physical event and decision audits. The report pairs each deterministic response text with its authorization decision, resolved owner and event count. Local success code 200 is a fixture label; denial code 403 comes from the actual ownership exception. Neither represents an HTTP request.
+
+Across both evaluations, a shared counter admits at most four unique cases before authorization. Retries, duplicates and a fifth attempt fail the walkthrough. CLI concurrency is one, with bounded deadlines, output and local storage checks. These checks are not an operating-system memory or disk quota.
+
+### 6.4. Limits and retention
+
+This exercise does not establish model robustness, bearer authentication or per-consumer MCP isolation. It demonstrates the real ownership primitive and an intentionally failing authorization control. Model refusal text is fixed test data, not a generated safety guarantee.
+
+No viewer starts. The [community viewer](https://www.promptfoo.dev/docs/usage/self-hosting/) has no built-in authentication, SSO or team RBAC. It uses local SQLite, and upstream does not recommend production use. The CLI also initializes its private database before parsing flags; `--no-write` only suppresses later evaluation persistence.
+
+Telemetry, update checks, sharing and remote generation are disabled. Kernel containment enforces the no-network evaluation boundary. Local results need no Langfuse, MLflow or hosted upload.
+
+Retain the synthetic report and failed attempts for review. Remove only the exact private workspace you created when finished; preserve reports elsewhere first if needed. Never substitute broad cleanup globs or run this fixture against production identities, tools or services.

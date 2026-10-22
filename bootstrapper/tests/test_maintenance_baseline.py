@@ -21,9 +21,9 @@ EXPECTED_BASELINE_SNAPSHOT = {
     "functions_over_100_physical_lines": 85,
     "functions_over_4_parameters": 156,
     "modules_over_600_logical_lines": 21,
-    # #1784 adds aggregate normalization admission and geometry regressions.
+    # #1213 adds fifteen optional recipe assets and one behavioral test module.
     # All code ceilings stay fixed.
-    "tracked_files": 1648,
+    "tracked_files": 1664,
     "v0.1.0_tracked_files": 667,
 }
 EXPECTED_EXTENDED_PYTHON_SNAPSHOT = {
