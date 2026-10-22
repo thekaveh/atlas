@@ -1394,13 +1394,16 @@ class AtlasStarter:
         )
         return overrides
 
-    def _apply_env_user_overlay(self) -> Dict[str, str]:
+    def _apply_env_user_overlay(self, project_context=None) -> Dict[str, str]:
         """Merge optional user-owned env overlays into the active .env file.
 
         Precedence is deterministic: the sibling .env.user is applied first,
         then ATLAS_ENV_USER_FILE, then any consumer manifest env values.
         """
         applied_overrides: Dict[str, str] = {}
+        context = dict(project_context or {})
+        if not context.get("previous_project"):
+            context["previous_project"] = (self.config_parser.parse_env_file().get("PROJECT_NAME") or "").strip().lower()
 
         sibling_overrides = self._apply_single_env_user_overlay(
             self._env_user_overlay_path(),
@@ -1418,10 +1421,11 @@ class AtlasStarter:
             )
             applied_overrides.update(external_overrides)
 
-        applied_overrides.update(self._apply_consumer_manifest_env(set(applied_overrides)))
+        context["overlay_project"] = applied_overrides.get("PROJECT_NAME")
+        applied_overrides.update(self._apply_consumer_manifest_env(set(applied_overrides), context))
         return applied_overrides
 
-    def _apply_consumer_manifest_env(self, overlay_keys: set) -> Dict[str, str]:
+    def _apply_consumer_manifest_env(self, overlay_keys: set, project_context=None) -> Dict[str, str]:
         """Merge the consumer manifest's env into .env, blanking derived keys
         whose source is gone (never the overlay's ``overlay_keys``), and return
         the values an operator pinned this way."""
@@ -1434,7 +1438,7 @@ class AtlasStarter:
         if not manifest_overrides:
             return {}
         resolved_overrides = self._resolve_auto_source_overrides(
-            self._resolve_auto_base_port_override(manifest_overrides)
+            self._resolve_auto_base_port_override(manifest_overrides, project_context)
         )
         self._merge_env_file_overrides(resolved_overrides)
         # The bookkeeping marker is not a consumer setting.
@@ -1587,7 +1591,7 @@ class AtlasStarter:
 
         atomic_write_text(env_file_path, updated_content, mode=0o600)
 
-    def _resolve_auto_base_port_override(self, overrides: Dict[str, str]) -> Dict[str, str]:
+    def _resolve_auto_base_port_override(self, overrides: Dict[str, str], project_context=None) -> Dict[str, str]:
         """Resolve a manifest ``BASE_PORT: auto`` to a concrete, **durable** free
         block (returns a new dict; non-auto overrides are returned unchanged).
 
@@ -1607,7 +1611,11 @@ class AtlasStarter:
         """
         if str(overrides.get("BASE_PORT", "")).strip().lower() != "auto":
             return overrides
+        self._durable_auto_manifest = True
+        if (project_context or {}).get("explicit_base") is not None:
+            return {**overrides, "BASE_PORT": str(project_context["explicit_base"])}
         current = (self.config_parser.parse_env_file().get("BASE_PORT", "") or "").strip()
+        in_use = False
         try:
             current_int: Optional[int] = int(current)
         except ValueError:
@@ -1628,7 +1636,7 @@ class AtlasStarter:
             in_use = self.port_manager.check_port_range_availability(
                 current_int, _declared_sources(overrides)
             )
-            if not in_use or self._project_has_running_containers(overrides):
+            if not in_use or self._can_keep_auto_block(overrides, project_context):
                 resolved = current_int  # durable: keep this consumer's block
             else:
                 self.banner.show_status_message(
@@ -1656,20 +1664,58 @@ class AtlasStarter:
                     "warning",
                 )
                 resolved = DEFAULT_BASE_PORT
+        project = self._auto_port_project(overrides, project_context)
+        previous = (project_context or {}).get("previous_project")
+        self._durable_auto_project = previous if resolved == current_int and in_use and previous else project
         merged = dict(overrides)
         merged["BASE_PORT"] = str(resolved)
         return merged
+
+    def _auto_port_project(self, overrides, context=None) -> str:
+        """Resolve identity without writing it or introducing a consumer pin."""
+        from core.config_parser import normalize_project_name
+
+        context = context or {}
+        project = (context.get("requested_project") or overrides.get("PROJECT_NAME")
+                   or context.get("overlay_project") or context.get("fallback_project")
+                   or self.config_parser.parse_env_file().get("PROJECT_NAME")
+                   or DEFAULT_PROJECT_NAME)
+        return normalize_project_name(project)
+
+    def _can_keep_auto_block(self, overrides, context=None) -> bool:
+        if context is None:
+            return self._project_has_running_containers(overrides)
+        project = self._auto_port_project(overrides, context)
+        running = self._project_running_state(project)
+        if running is None:
+            self.base_port_auto_chosen = False
+        previous = context.get("previous_project")
+        return running is None or bool(running and (not previous or previous == project))
+
+    def resolve_wizard_base_port(self, sources, options) -> None:
+        """Finalize only port intent; never replay consumer sources, keys or models."""
+        intent = options.get("base_port_intent")
+        if intent == "numeric":
+            self.base_port_auto_chosen = False
+        elif options.get("base_port_auto"):
+            self.base_port_auto_chosen = True
+        elif getattr(self, "_durable_auto_manifest", False):
+            context = {"requested_project": options.get("project_name"),
+                       "previous_project": getattr(self, "_durable_auto_project", None)}
+            declared = {key.upper(): value for key, value in sources.items()}
+            resolved = self._resolve_auto_base_port_override({**declared, "BASE_PORT": "auto"}, context)
+            options["base_port"] = int(resolved["BASE_PORT"])
 
     def _project_has_running_containers(self, overrides: Dict[str, str]) -> bool:
         """True when this consumer's compose project has containers up — the
         warm-restart signal that its persisted BASE_PORT block is genuinely
         its own. Conservative on any docker error: returns True (keep the
         block; never surprise-move ports when ownership can't be verified)."""
-        project = (
-            (overrides.get("PROJECT_NAME") or "").strip()
-            or (self.config_parser.parse_env_file().get("PROJECT_NAME", "") or "").strip()
-            or DEFAULT_PROJECT_NAME
-        )
+        state = self._project_running_state(self._auto_port_project(overrides))
+        return state is not False
+
+    def _project_running_state(self, project: str) -> Optional[bool]:
+        """None means Docker could not verify ownership; retain conservatively."""
         try:
             probe = subprocess.run(
                 [
@@ -1679,10 +1725,10 @@ class AtlasStarter:
                 capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10, check=False,
             )
             if probe.returncode != 0:
-                return True  # docker unreachable → conservative keep
+                return None  # docker unreachable → conservative keep
             return bool(probe.stdout.strip())
         except (OSError, subprocess.SubprocessError):
-            return True  # conservative keep
+            return None  # conservative keep
 
     def _resolve_auto_source_overrides(
         self, overrides: Dict[str, str], *, quiet: bool = False
@@ -1885,6 +1931,15 @@ class AtlasStarter:
             project_name=project_name,
         )
 
+    def _setup_port_context(self, base_port, project_name) -> dict:
+        """Capture the saved block's identity before replacement or overlays."""
+        prior_env = self.config_parser.parse_env_file()
+        if base_port is not None and not getattr(self, "_cli_base_port_auto", False):
+            self.base_port_auto_chosen = False
+        return {"requested_project": project_name,
+                "previous_project": (prior_env.get("PROJECT_NAME") or "").strip().lower(),
+                "explicit_base": base_port}
+
     def setup_env_file(self, cold_start: bool, base_port: Optional[int] = None,
                        project_name: Optional[str] = None) -> bool:
         """
@@ -1918,12 +1973,14 @@ class AtlasStarter:
             if not self.validate_persisted_project_name():
                 return False
 
+        project_context = self._setup_port_context(base_port, project_name)
         existing_project_name: Optional[str] = None
         if cold_start and env_file_path.exists():
             try:
                 existing_project_name = self.config_parser.get_project_name()
             except ValueError:
                 existing_project_name = None
+            project_context["fallback_project"] = existing_project_name
             # A cold start replaces .env with .env.example; keep a private copy
             # first. It holds generated secrets plus operator-only values such
             # as BACKUP_MANIFEST_HMAC_KEY, without which backups cannot be
@@ -1970,7 +2027,7 @@ class AtlasStarter:
                 self.banner.show_status_message(f"  • Copied {env_example_path}", "info")
                 self.banner.show_status_message(f"  •     to {env_file_path}", "info")
 
-                overlay_overrides = self._apply_env_user_overlay()
+                overlay_overrides = self._apply_env_user_overlay(project_context)
                 self._env_user_keys = set(overlay_overrides)
 
                 # Unset potentially lingering port environment variables if cold start and custom base port are used
@@ -1995,7 +2052,7 @@ class AtlasStarter:
                 return False
 
         os.chmod(env_file_path, 0o600)
-        overlay_overrides = self._apply_env_user_overlay()
+        overlay_overrides = self._apply_env_user_overlay(project_context)
         self._env_user_keys = set(overlay_overrides)
         if not self._persist_project_name(project_name):  # .env already exists and not cold start
             return False
@@ -8011,6 +8068,7 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
     starter = AtlasStarter()
     starter.support_bundle_path = _invoker_path(support_bundle)
     starter.base_port_auto_chosen = base_port_auto
+    starter._cli_base_port_auto = base_port_auto
 
     try:
         # Consumer manifests (--consumer or ATLAS_CONSUMER_MANIFEST) are user

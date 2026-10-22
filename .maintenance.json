@@ -22,7 +22,7 @@
       "functions_over_100_physical_lines": 85,
       "functions_over_4_parameters": 156,
       "modules_over_600_logical_lines": 21,
-      "tracked_files": 1632,
+      "tracked_files": 1634,
       "v0.1.0_tracked_files": 667
     },
     "extended_python_baseline_snapshot": {
@@ -148,7 +148,7 @@
       {
         "path": "bootstrapper/ui/textual/integration.py",
         "symbol": "_selections_to_args",
-        "cyclomatic_complexity": 52,
+        "cyclomatic_complexity": 53,
         "rationale": "Boundary translator for the wizard selection matrix; embedding-contract selection is extracted into a B-grade helper and CLI/TUI parity tests verify the remaining explicit source and secret-state branches. 59 -> 54 on #1255: fal.ai's hand-written secret branch chain was replaced by one call to cloud_rules.resolve_secret_verdict, the table the cloud providers already use. 54 -> 52: consumer-declared key mapping moved to tracks.consumer_declared_track_keys."
       },
       {
@@ -160,7 +160,7 @@
       {
         "path": "bootstrapper/ui/textual/screens/wizard_screen.py",
         "symbol": "WizardScreen._run_pipeline_and_stream",
-        "cyclomatic_complexity": 49,
+        "cyclomatic_complexity": 52,
         "rationale": "Async UI orchestration state machine for setup, launch, log streaming, cancellation, and terminal reporting; focused lifecycle tests protect each transition. 50 -> 49 on #989: the pre-up image build (cold and stale-warm) moved out into WizardScreen._build_launch_images, taking the build call's `targets or []` with it."
       },
       {
@@ -228,7 +228,7 @@
       {
         "path": "bootstrapper/ui/textual/integration.py",
         "symbol": "_selections_to_args",
-        "cyclomatic_complexity": 52,
+        "cyclomatic_complexity": 53,
         "rationale": "Boundary translator for the same manifest-driven option matrix; embedding-contract selection now lives in a B-grade helper, while CLI/TUI parity tests remain the safer control for the explicit source and secret-state branches. 59 -> 54 on #1255: fal.ai's secret handling now delegates to cloud_rules.resolve_secret_verdict instead of re-implementing the verdict table inline. 54 -> 52 (overnight maintenance): consumer-declared SOURCE keys are mapped to wizard track keys by tracks.consumer_declared_track_keys (grade A), which also fixed multi-container families being force-disabled over a manifest's env.values."
       },
       {
@@ -304,6 +304,7 @@
     "refresh_notes_2026_10_15_candidate_decisions": "tracked_files 1615->1616: exactly one generated public reference, docs/reference/candidate-decisions.md, publishes opted-in recorded candidate decisions for existing service-guide links. Existing research bodies remain private and unchanged. No complexity ceiling changes.",
     "refresh_notes_2026_10_14_backfill": "Canonical literal parsing replaces raw hash splitting in env backfill and its headless summary. AtlasStarter.backfill_missing_env_vars drops from E (33) to D (25); its former E disposition is retired. Cohesive helpers preserve encoded defaults, canonical keys, exported assignments, intentional empty selections, migration ownership, section placement and line boundaries. No baseline ceiling or tracked-file count changes.",
     "refresh_notes_2026_10_21_issue_1772": "Issue #1772 from base 40d5284cf9546b0f499dd6cd3356c7f81a3dc305: tracked_files 1628 -> 1629 attributes exactly one cohesive regression module, bootstrapper/tests/test_docling_bundle_filenames.py. It covers actual JSON/Markdown exports and deterministic ZIP names at filename byte boundaries, existing path sanitization, both authenticated provider handlers, real DoclingUpstream transport and the adapter submit/poll/download lifecycle with model-free conversion doubles. Every code-complexity ceiling and counting rule remains unchanged; no unrelated file is excluded, removed or compressed to offset growth.",
+    "refresh_notes_2026_10_21_issue_1758": "Issue #1758 from base 753c1b05e25e216c50388f8b789fddea35822a96: tracked_files 1632 -> 1634 attributes exactly two cohesive regression modules, bootstrapper/tests/test_final_project_auto_ports.py and bootstrapper/tests/test_final_project_wizard_ports.py. They exercise real setup, parser and atomic port persistence plus mounted wizard acceptance, final options, project provenance, conservative Docker errors, numeric intent, scoped cold cleanup, source rechecks and preview preservation with owned synthetic effects. Existing E/F symbols remain existing: _selections_to_args 52 -> 53 carries port intent; WizardScreen._run_pipeline_and_stream 49 -> 52 defers a pending cold project write and preserves the selected classifier namespace. Every code-complexity ceiling and counting rule stays fixed; no unrelated file is excluded, removed or compressed to offset growth.",
     "refresh_notes_2026_10_21_issue_1757": "Issue #1757 from base 19d564ebad46cdf4b4e14951f838f8cd017a4864: tracked_files 1631 -> 1632 attributes exactly one cohesive regression module, bootstrapper/tests/test_normalized_default_launch.py. It exercises both actual startup pipelines with temporary env persistence, registry-wide cloud-key normalization, source/default write failures, explicit embedding intent, fresh-Python-process repeat launches and routing/dimension negative controls. Existing start.py and pipeline owners contain the focused repair. Every code-complexity ceiling and counting rule remains unchanged; no unrelated file is excluded, removed or compressed to offset growth.",
     "refresh_notes_2026_10_21_issue_1771": "Issue #1771 from base 88b16bcd72d5d054d9c9b6dd963b2c4543929101: tracked_files 1629 -> 1631 attributes exactly two cohesive paths, services/docling/provider/shared/document_metadata.py and services/docling/provider/tests/test_document_metadata.py. One authoritative stored-formula counter serves both processors; the mandatory stdlib regression module exercises actual pinned core 2.89.0 and 2.99.0 models, all renderers, metadata, chunks and fresh-process deployment imports without converter or inference execution. Every code-complexity ceiling and counting rule remains unchanged; no unrelated file is excluded, removed or compressed to offset growth.",
     "refresh_notes_2026_10_21_issue_1766": "Reviewed issue #1766 from base 18f1523faee102a014507bb57c080b7146062130: tracked_files 1627 -> 1628 attributes exactly one cohesive regression module, bootstrapper/tests/test_parakeet_gpu_timestamps.py. It covers independent GPU timing flags, requested alignment projection, absent and malformed alignment, sequential NeMo decoder state, async offload, and the actual authenticated shared API with deterministic model/config doubles. Every code-complexity ceiling and counting rule remains unchanged; no unrelated file is excluded, removed or compressed to offset growth.",

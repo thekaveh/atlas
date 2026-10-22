@@ -1776,6 +1776,13 @@ class PromptPanel(Container):
             return []
         return [(cfg.env_var, str(int(raw) if raw else int(cfg.default_value)))]
 
+    def number_entry_intent(self) -> str:
+        """Expose blank/typed intent before numeric normalization loses it."""
+        raw = (self._number_input.value if self._number_input else "").strip()
+        if not raw:
+            return "inherited"
+        return "auto" if raw.lower() == "auto" else "numeric"
+
     def current_number_error(self) -> str | None:
         """Why the ``kind="number"`` entry on screen can't be committed.
 
