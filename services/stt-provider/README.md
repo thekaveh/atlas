@@ -203,6 +203,9 @@ Atlas-managed Parakeet also applies these rules:
 
 These guarantees do not apply to Speaches or whisper.cpp.
 
+For independent segment and word timing on GPU Parakeet, see
+[GPU advanced timing](../parakeet/provider/README.md#31-gpu-advanced-timing).
+
 ## 6. Open WebUI integration
 
 The bootstrapper writes `OPEN_WEB_UI_STT_ENGINE` (`openai`),
