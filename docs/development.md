@@ -102,6 +102,22 @@ The `prose_length` probe of `scripts/check-docs-drift.py` applies STE length lim
 
 `.docs-prose-baseline.json` records the current violation count of each file. A count must not go up. When your change lowers a count, run `python scripts/check-docs-drift.py --write-prose-baseline` and commit the new baseline. The command refuses to raise a count unless you add `--allow-prose-increase`. A paragraph that contains `<!-- lint-ok -->` is exempt.
 
+### 3.4. Refresh local previews
+
+Canonical repository sources are authoritative. `generated/`, `site/` and `mkdocs.yml` are disposable outputs.
+
+From the repository root, refresh before opening generated output:
+
+```bash
+make docs-build
+make docs-wiki
+make docs-check
+```
+
+This sequence refreshes manifest-derived canonical references, builds the site, exports the wiki and checks local links.
+
+For an interactive site preview, run `make docs-serve` after the refresh. That target regenerates site input but does not refresh manifest-derived canonical references.
+
 ## 4. Repository layout
 
 The top-level repository layout is as follows, with `services/` limited to a representative subset (see `services/` for the full list):

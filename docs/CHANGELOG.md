@@ -892,6 +892,11 @@ Runtime configuration is unchanged.
 The roadmap now marks the Textual upgrade and launch-phase log copy as completed.
 It describes filtered-buffer copying and retains the Python 3.10 compatibility context.
 
+### 1.131. Docs — 2026-10-22 — Local preview guidance refreshes disposable output (#1787)
+
+The development guide refreshes canonical references, the local site and wiki export before viewing generated output.
+It identifies canonical sources as authoritative and keeps interactive serving after the complete refresh.
+
 ## 2. [0.1.0](https://github.com/thekaveh/atlas/tree/v0.1.0) - 2026-06-21 (First tagged checkpoint)
 
 Atlas intentionally began its public semantic-version tag line at `v0.1.0`.
