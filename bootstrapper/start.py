@@ -275,10 +275,29 @@ def _routed_model_names(env: Dict[str, str]) -> set:
     return routed
 
 
+def _preserve_keyless_cloud_embedding(env: Dict[str, str], routed: set) -> bool:
+    """Keep an unrouted cloud memory contract until credentials are restored.
+
+    Source normalization persists disabled providers, so this must also hold
+    on later launches. Routed aliases can belong to a different upstream.
+    """
+    for key in ("LITELLM_EMBEDDING_MODEL", "LANGMEM_EMBEDDING_MODEL"):
+        model = (env.get(key) or "").strip()
+        if not model or model in routed:
+            continue
+        provider = _cloud_provider_of(model)
+        if provider is not None and not (env.get(provider.api_key_var) or "").strip():
+            return True
+    return False
+
+
 def _stale_default_keys(env: Dict[str, str]) -> Dict[str, str]:
     """Default-model keys naming a model this launch will not route, with why (#1359)."""
     routed = _routed_model_names(env)
     reasons = {key: _unrouted_reason(env, (env.get(key) or "").strip(), routed) for key in _DEFAULT_MODEL_KEYS}
+    if _preserve_keyless_cloud_embedding(env, routed):
+        for key in ("LITELLM_EMBEDDING_MODEL", "LANGMEM_EMBEDDING_MODEL"):
+            reasons.pop(key, None)
     return {key: reason for key, reason in reasons.items() if reason}
 
 
@@ -678,8 +697,10 @@ def _catalog_embedding_dim_repair(env: dict) -> dict[str, str]:
         dim_for_model_id, embedding_dimension_contract,
     )
 
-    model = (env.get("LANGMEM_EMBEDDING_MODEL") or env.get("LITELLM_EMBEDDING_MODEL") or "").strip()
     active_env = _launch_model_env(env)
+    if _preserve_keyless_cloud_embedding(active_env, _routed_model_names(active_env)):
+        return {}
+    model = (env.get("LANGMEM_EMBEDDING_MODEL") or env.get("LITELLM_EMBEDDING_MODEL") or "").strip()
     dim = dim_for_model_id(model, env=active_env)
     if dim is None or str(dim) == (env.get("LANGMEM_EMBEDDING_DIM") or "").strip():
         return {}
