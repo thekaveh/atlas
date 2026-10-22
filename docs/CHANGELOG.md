@@ -897,6 +897,11 @@ It describes filtered-buffer copying and retains the Python 3.10 compatibility c
 The development guide refreshes canonical references, the local site and wiki export before viewing generated output.
 It identifies canonical sources as authoritative and keeps interactive serving after the complete refresh.
 
+### 1.132. Added — 2026-10-22 — Optional local authorization evaluation
+
+- A pinned Promptfoo recipe runs four synthetic ownership cases without a model, running stack or viewer. Its deliberately vulnerable control must produce a failed assertion.
+- A macOS ARM64 qualifier checks the selected runtimes and enforces a private no-network run. The local report separates response text, authorization decisions and actual file effects, and states the viewer and authentication limits.
+
 ## 2. [0.1.0](https://github.com/thekaveh/atlas/tree/v0.1.0) - 2026-06-21 (First tagged checkpoint)
 
 Atlas intentionally began its public semantic-version tag line at `v0.1.0`.

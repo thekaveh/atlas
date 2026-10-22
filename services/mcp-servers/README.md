@@ -89,6 +89,8 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 - Host/Origin boundary: see §4. The check defends against DNS rebinding; it is not authentication. All `backend-network` containers bypass Kong's Basic Auth/ACL policy.
 - Framework pinning: `fastmcp==3.4.4` and `mcp==1.28.1` are pinned exactly, because FastMCP permits breaking changes in minor releases. The image build runs `pip check`. Bump both together. Before upgrading, re-run `bootstrapper/tests/test_mcp_servers_framework.py`; it exercises the real FastMCP client, the `/mcp` transport and the Host/Origin guard.
 
+For a local Backend ownership exercise, see the [optional authorization recipe](../../docs/development.md#6-optional-local-authorization-evaluation). Its synthetic cases do not establish per-consumer MCP authorization or tenant isolation.
+
 ## 7. Troubleshooting
 
 - If startup fails with a Neo4j or SearXNG dependency error, enable the missing service or keep `MCP_SERVERS_SOURCE=disabled`.
