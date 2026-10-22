@@ -1,0 +1,12 @@
+{
+  "name": "atlas-promptfoo-security-qualification",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Isolated prerequisite lock for the optional Atlas synthetic authorization evaluation recipe",
+  "engines": {
+    "node": ">=22.22.0"
+  },
+  "dependencies": {
+    "promptfoo": "0.124.1"
+  }
+}
