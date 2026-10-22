@@ -3114,7 +3114,7 @@ class WizardScreen(Screen):
     # ─── launch-log tee ──────────────────────────────────────────────
 
     def _open_launch_log_tee(self, *, announce_in_pane: bool = True) -> None:
-        """Open ``/tmp/atlas-launch-<ts>-<unique>.log`` for the duration
+        """Open a private-store ``atlas-launch-<ts>-<unique>.log`` for the duration
         of the wizard. _write_status / _safe_log mirror their output
         into this file so a user who quits the wizard still has a
         record of what happened (cloud /v1/models fetch failures during
@@ -3130,7 +3130,7 @@ class WizardScreen(Screen):
         try:
             # Bounded + rotating tee (#1178): 3 × 32 MiB per session with the
             # first segment (session start + earliest diagnostics) pinned,
-            # older sessions pruned, and disk exhaustion degrading logging
+            # active sessions protected, and disk exhaustion degrading logging
             # loudly instead of failing the launch.
             tee = SessionLogTee(
                 prefix=f"atlas-launch-{ts}-",
@@ -3509,6 +3509,9 @@ class WizardScreen(Screen):
         is wrapped, not just the historically-expected OSError case.
         """
         try:
+            tee = getattr(self, "_launch_log_fh", None)
+            if tee is not None:
+                await asyncio.to_thread(tee.flush)
             text = await asyncio.to_thread(read_session_log_tail, path)
         except Exception as exc:  # noqa: BLE001 — must not fail the launch; see docstring
             with contextlib.suppress(Exception):

@@ -48,21 +48,37 @@ For any other rename, copy the old value to the new key yourself. `--no-port-mig
 
 ## 2. Session Log
 
-When `./start.sh` runs the Textual TUI, it copies every line to a timestamped file. The file holds wizard diagnostics (for example cloud `/v1/models` fetch failures and Ollama upstream warnings). It also holds the full launch phase: build, port check, `docker compose up` and per-service `logs --tail` on failure:
+When `./start.sh` runs the Textual TUI, it attempts to copy its output to a private session log. The pane reports the actual path. Logging includes wizard diagnostics, launch steps and per-service `logs --tail` output on failure, subject to the rotation limit below.
 
-```
-${TMPDIR:-/tmp}/atlas-launch-<YYYYMMDDTHHMMSS>-<unique>.log
-```
+The shared store is inside Python's temporary directory, which is usually under `/var/folders` on macOS. POSIX uses `atlas-session-logs-v1-<uid>`; native Windows uses `atlas-session-logs-v1` with checked user-private Windows access controls. The basename remains `atlas-launch-<YYYYMMDDTHHMMSS>-<unique>.log`.
 
-The most recent log is always:
+Find the newest available managed log with the same user and temporary-directory settings used at launch:
 
 ```bash
-ls -t "${TMPDIR:-/tmp}"/atlas-launch-*.log | head -1   # macOS: TMPDIR is under /var/folders
+uv run --project bootstrapper python - <<'PYTHON'
+import os
+import tempfile
+from pathlib import Path
+
+name = "atlas-session-logs-v1" if os.name == "nt" else f"atlas-session-logs-v1-{os.geteuid()}"
+store = Path(tempfile.gettempdir()) / name
+logs = store.glob("atlas-launch-*.log")
+latest = max(logs, key=lambda path: path.stat().st_mtime, default=None)
+print(latest or "No managed session log found.")
+PYTHON
 ```
 
-Inspect it after a failed launch. It holds everything the log pane showed, plus diagnostics the pane hides. An example is `[warn/openai-fetch] live /v1/models returned 0 models — falling back to catalog (cause: HTTP 401)`. A failed step also logs its reason (port conflict, auto-disabled dependency, key or config error), not only `<step> failed`.
+Inspect the reported path after a failed launch. It includes diagnostics that the pane hides, such as cloud model-fetch warnings and the reason a launch step failed. The newest available file can belong to an earlier attempt if file logging was unavailable.
 
-Each session keeps up to 3 segments of 32 MiB. The first segment is always kept. Later output rotates into `.log.N` files with truncation markers. Atlas keeps the 5 newest sessions and prunes older `atlas-launch-*` files at the next launch. Copies you make elsewhere are never pruned. Every segment is created owner-only (`0600`), never through an existing file or symlink.
+Each session keeps up to 3 segments of 32 MiB, including headers. The first segment is always kept. Later output rotates into `.log.N` files with truncation markers. The `Y` shortcut copies the first segment. POSIX files are owner-only (`0600`); native Windows uses the private store's access controls. New segments never open through an existing file or symlink.
+
+Same-user projects and checkouts share at most five managed groups and 480 MiB of reserved log payload in this store. A group reserves its full segment budget before logging starts. Active groups remain protected, even when quiet. At admission, Atlas removes eligible completed groups, oldest first, including all their rolling files. Groups remain charged until cleanup finishes; closing a logger does not immediately delete its files.
+
+If active groups fill the store, or storage or coordination is unusable, Atlas shows a file-logging warning. The launch and on-screen logs continue. Atlas does not create a fallback store to bypass the limit. Legacy logs outside this store and copies or exported support bundles are outside the bound and remain untouched.
+
+If a required log path disappears or is replaced, the next write, flush or diagnostic health check stops file logging with one visible degraded notice. Detection does not run continuously while idle. Diagnostic reads contain missing-file errors; surviving files can still provide partial evidence.
+
+Atlas includes POSIX and native Windows locking backends. Native Windows execution remains unqualified; simulated backend checks do not establish native filesystem or access-control behavior.
 
 ## 3. Quick Fixes
 
