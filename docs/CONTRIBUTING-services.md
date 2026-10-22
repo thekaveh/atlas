@@ -1002,11 +1002,19 @@ start and stop with the stack. With no overlay, the bootstrapper passes only
 `-f docker-compose.yml`, so the core stack and the byte-equivalence baseline do
 not change.
 
-An overlay is a **self-contained Compose fragment**:
+An overlay is a **self-contained Compose fragment**. It merges into Atlas's Compose project, whose root configuration creates and manages `backend-network`.
 
 - It brings its own image, host ports and environment.
-- It joins the shared network with
-  `networks: { backend-network: { name: ${PROJECT_NAME}-network, external: true } }`.
+- Attach the service to `backend-network` without redeclaring the network as external:
+
+    ```yaml
+    # services/_user/my-extra-service/compose.yml
+    services:
+      my-extra-service:
+        networks:
+          - backend-network
+    ```
+
 - Prefix its published ports with `${HOST_BIND_IP-127.0.0.1:}` to keep Atlas's
   loopback binding default.
 - It is not wired into the wizard, the topology port allocator or the generated
