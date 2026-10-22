@@ -35,6 +35,8 @@ from dataclasses import dataclass, field
 from rich.text import Text
 from textual.widget import Widget
 
+from utils.source_availability import source_has_endpoint
+
 from .. import palette as P
 
 
@@ -144,7 +146,7 @@ def _alias_url(r: ServiceRow) -> str:
     only if a caller didn't provide a Kong port.
     """
     alias = (r.alias or "").strip()
-    if not alias:
+    if not alias or not source_has_endpoint(r.source or ""):
         return ""
     p = (r.alias_port or r.port or "").strip().lstrip(":")
     if p:
@@ -307,7 +309,7 @@ class ServiceTable(Widget):
         slot.append(P.ARROW_RIGHT if is_cursor else " ",
                     style=f"bold {P.ACCENT}" if is_cursor else P.TEXT_FAINT)
         slot.append(" ")
-        is_disabled = (r.source or "").lower() == "disabled"
+        is_unavailable = not source_has_endpoint(r.source or "")
         # Pending-state branch: row decided by the user has not been confirmed yet.
         # All "decided" columns collapse to em-dashes / placeholders; the dot
         # switches to a hollow yellow ◌. Locked rows can never be pending so we
@@ -347,7 +349,7 @@ class ServiceTable(Widget):
             slot.append(self.LOCK_ICON)
         slot.append(sep)
         # 2) Port — the at-a-glance answer to "what port is this on?"
-        port = _port_label(r) if not is_disabled else ""
+        port = _port_label(r) if not is_unavailable else ""
         port_text = port or "—"
         port_color = P.ACCENT if port else P.TEXT_FAINT
         if r.off_track:
@@ -355,7 +357,7 @@ class ServiceTable(Widget):
         slot.append(_fit(port_text, port_w), style=port_color)
         slot.append(sep)
         # 3) Name
-        name_color = P.TEXT_MUTED if (is_disabled or r.off_track) else (
+        name_color = P.TEXT_MUTED if (is_unavailable or r.off_track) else (
             P.ACCENT if is_cursor else P.TEXT
         )
         slot.append(_fit(r.name, name_w),
@@ -385,7 +387,7 @@ class ServiceTable(Widget):
         slot.append(sep)
         # 6) Full clickable alias URL — uses Kong listener port for
         # virtual-host-routed aliases, NOT the service's own port.
-        url = _alias_url(r) if not is_disabled else ""
+        url = _alias_url(r)
         url_text = url or "—"
         url_color = P.INFO if url else P.TEXT_FAINT
         if r.off_track:
@@ -491,8 +493,9 @@ class ServiceTable(Widget):
             pairs.append(("Source options", ", ".join(row.source_options)))
         if row.depends_on:
             pairs.append(("Depends on", ", ".join(row.depends_on)))
-        if row.alias and row.alias_port:
-            pairs.append(("URL", f"http://{row.alias}:{row.alias_port}"))
+        url = _alias_url(row) if row.alias_port else ""
+        if url:
+            pairs.append(("URL", url))
         # ``row.port`` is pre-colon'd by resolve_port (e.g. ":64094").
         port = (row.port or "").lstrip(":").strip()
         if port and port != "—":

@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Literal
 
 from core.config_parser import DEFAULT_BASE_PORT
+from utils.source_availability import source_has_endpoint
 from services.topology import (
     CATEGORY_COLORS,
     CATEGORY_LABELS,
@@ -96,9 +97,10 @@ def build_dashboard_model(
             or env.get(row.source_var)
             or "container"
         ).strip()
+        available = source_has_endpoint(source)
         disabled_reason = None
-        if source == "disabled":
-            disabled_reason = _disabled_reason(
+        if not available:
+            disabled_reason = "No Ollama upstream selected" if source.lower() == "none" else _disabled_reason(
                 row.manifest,
                 row.locked,
                 track_key=track_key,
@@ -109,9 +111,9 @@ def build_dashboard_model(
             status = "degraded"
 
         direct_url = _direct_url(row, source, env)
-        kong_url = _kong_url(row.alias, kong_port) if source != "disabled" else None
+        kong_url = _kong_url(row.alias, kong_port) if available else None
         health_url = kong_url or direct_url
-        if "localhost" in source and source != "disabled":
+        if "localhost" in source and available:
             warnings.append(
                 f"{row.display_name} uses a host-installed source; start it on the configured localhost port before using the Kong alias."
             )
@@ -451,7 +453,7 @@ def _link(url: str | None) -> str:
 
 
 def _direct_url(row, source: str, env: dict[str, str]) -> str | None:
-    if source == "disabled":
+    if not source_has_endpoint(source):
         return None
     port = None
     if "localhost" in source and row.localhost_port_var:
