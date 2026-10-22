@@ -248,6 +248,9 @@ def test_gpu_module_never_loads_model_during_import(monkeypatch):
     monkeypatch.setitem(sys.modules, "nemo", nemo)
     monkeypatch.setitem(sys.modules, "nemo.collections", collections)
     monkeypatch.setitem(sys.modules, "nemo.collections.asr", asr)
+    mixins = types.ModuleType("nemo.collections.asr.parts.mixins")
+    mixins.TranscribeConfig = object
+    monkeypatch.setitem(sys.modules, "nemo.collections.asr.parts.mixins", mixins)
     monkeypatch.setenv("PRELOAD_MODEL", "true")
 
     _load(GPU_TRANSCRIBE, "parakeet_gpu_import_contract")
@@ -291,6 +294,9 @@ def test_gpu_loader_preserves_nemo3_model_load_contract(
     monkeypatch.setitem(sys.modules, "nemo", nemo)
     monkeypatch.setitem(sys.modules, "nemo.collections", collections)
     monkeypatch.setitem(sys.modules, "nemo.collections.asr", asr)
+    mixins = types.ModuleType("nemo.collections.asr.parts.mixins")
+    mixins.TranscribeConfig = object
+    monkeypatch.setitem(sys.modules, "nemo.collections.asr.parts.mixins", mixins)
     monkeypatch.setenv("PARAKEET_MODEL", "nvidia/parakeet-tdt-0.6b-v3")
     monkeypatch.setenv("PARAKEET_DEVICE", device)
 
