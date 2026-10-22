@@ -9,13 +9,14 @@ independent wizard signals are reconciled here for each provider in
   * the models step   -> selecting zero models is an explicit
     "disable this provider" override, not an omission, and it wins
     over everything the secret step decided -- including a freshly
-    entered key or a KEEP promotion.
+    entered key or an explicit clear.
 
 This is the subtlest rule in the wizard and the one most likely to
 regress silently. It is domain truth, placed in wizard/model so the
 `--no-tui` path can adopt the same semantics in a later pass without
-importing the wizard's Textual layer. Today `integration.py` (the
-Textual path) is its only caller.
+importing the wizard's Textual layer. The runtime callers are
+`integration.py` (selection persistence) and `llm_steps.py` (model-picker
+visibility).
 
 SECRET_KEEP / SECRET_CLEAR sentinels move here from
 ``ui/textual/widgets/prompt_panel.py``: they are values in a domain
@@ -180,46 +181,30 @@ def resolve_cloud_provider(
     """Reconcile the secret step and the models step for one provider.
 
     ``provider_key`` must be a key declared in ``CLOUD_PROVIDERS``.
+    ``existing_source`` remains a required keyword for caller
+    compatibility. It is intentionally unused: current verdicts do not
+    depend on the provider's saved source.
 
-    ``existing_source`` is the provider's CURRENT ``CLOUD_*_SOURCE``
-    value read from .env (the original's
-    ``env_vars.get(source_var, 'disabled')``). It is consulted ONLY by
-    the ``SECRET_KEEP`` branch, to reproduce the original's
-    auto-promote guard exactly: when the provider is already enabled,
-    SECRET_KEEP is a no-op (``source=None``), not a promotion and not
-    a demotion.
+    With ``selected_models=None`` or a non-empty selection, the secret
+    step decides both fields:
 
-    Fix-round-2 note (#535 Pass 1, Task 7 review): this parameter is
-    REQUIRED, deliberately with no default. A default of ``""``
-    (normalizing to "disabled") would make it easy to *silently*
-    reproduce the exact class of bug fix-round-1 eliminated -- a
-    caller that simply forgets to pass it would get "the provider is
-    not enabled" for free, and a SECRET_KEEP against an
-    already-enabled, keyless provider would then read as "disabled"
-    and force-disable a working configuration. Omitting it is now a
-    ``TypeError`` at the call site instead of a silent .env
-    corruption.
+      None / SECRET_KEEP -> source=None, api_key=None (leave both alone).
+      SECRET_ENABLE      -> source="enabled" if a stored key exists,
+                            otherwise "disabled"; api_key=None.
+      SECRET_DISABLE     -> source="disabled", api_key=None (keep key).
+      SECRET_CLEAR / ""  -> source="disabled", api_key="" (blank key).
+      a real key string  -> source="enabled", api_key=the supplied key.
 
-    ``selected_models`` carries a THIRD "no verdict" state alongside
-    ``source``/``api_key`` (fix-round-3, #535 Pass 1 Task 8 review):
+    A ``None`` field means the caller must leave that saved field
+    untouched. ``selected_models=None`` means no model answer this
+    session (never visited, or a degraded SECRET_KEEP commit whose
+    options never loaded); it does not override the secret verdict.
+    A non-empty selection does not override it either.
 
-      * ``None``       -> the multiselect step produced no real answer
-                          THIS session (never visited, or a degraded
-                          SECRET_KEEP commit whose options never
-                          loaded). The zero-models override below MUST
-                          NOT fire -- whatever the secret step decided
-                          stands untouched. This is not the same as
-                          "zero selected"; conflating the two would
-                          force-disable a provider merely because its
-                          multiselect step wasn't reached this run
-                          (narrower track, an already-enabled provider
-                          whose secret step -- and therefore its
-                          gating multiselect -- was skipped, etc).
-      * ``[]``          -> the step WAS visited and the user explicitly
-                          unchecked every model. This is a real,
-                          unconditional override and wins over
-                          everything the secret step decided.
-      * non-empty       -> real selections; no override.
+    An explicitly empty model selection overrides EVERY secret verdict,
+    including CLEAR and a newly entered key, with source="disabled"
+    and api_key=None. It disables the provider without rewriting or
+    clearing its stored key.
     """
     if provider_key not in _PROVIDER_KEYS:
         raise ValueError(f"Unknown cloud provider key: {provider_key!r}")
@@ -245,10 +230,10 @@ def resolve_cloud_provider(
     # ─── Models-step override ──────────────────────────────────────
     # ``zero_models_override`` is true only when the multiselect was
     # genuinely visited THIS session and produced an explicit empty
-    # answer (see the docstring's fix-round-3 note above and
+    # answer (see the docstring above and
     # ``_is_zero_models_override`` below). It is the explicit disable
     # that wins over whatever the secret step decided above --
-    # including a freshly entered key, a KEEP promotion, or even a
+    # including a freshly entered key, an explicit clear, or even a
     # no-verdict None. This mirrors the original: the multiselect
     # block is a separate, unconditional statement that runs
     # regardless of what the secret block did (or didn't do) -- but
@@ -274,7 +259,7 @@ def _is_zero_models_override(selected_models: Sequence[str] | None) -> bool:
     ``resolve_cloud_provider``) so the "no answer this session" vs.
     "explicit empty answer" distinction is expressed as a single,
     readable classification step instead of an ``is not None`` check
-    scattered across the caller -- see the fix-round-3 note on
+    scattered across the caller -- see
     ``resolve_cloud_provider``'s docstring for why the distinction
     exists at all.
 
