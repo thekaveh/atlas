@@ -24,7 +24,7 @@ capabilities:
   - name: "Archive malware and recursion policy"
     status: not-supported
     verification: documented
-    note: "Atlas provides no malware scanner, recursive archive policy, or quarantine store; keep Tika disabled or network-restricted unless long-tail extraction is required."
+    note: "Atlas provides no malware scanner, recursive archive policy, or quarantine store. Keep Tika disabled or network-restricted unless long-tail extraction or explicit ingestion is required."
 
 containers:
   - tika
