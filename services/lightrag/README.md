@@ -146,6 +146,8 @@ Atlas exposes LightRAG's query defaults: `LIGHTRAG_QUERY_ENABLE_RERANK`, `LIGHTR
 
 **Reranking.** `LIGHTRAG_QUERY_ENABLE_RERANK` defaults to `false`. LightRAG's Jina/Cohere rerank clients send `{query, documents}`, but TEI's `/rerank` expects `{query, texts}`, so Atlas never wires LightRAG directly to TEI. To rerank, set `LIGHTRAG_RERANK_ADAPTER_ENABLED=true` with `TEI_RERANKER_SOURCE` enabled. Atlas then sets `RERANK_BINDING=jina` and `RERANK_BINDING_HOST=http://backend:8000/lightrag/rerank`, and passes the adapter's bearer token as `RERANK_BINDING_API_KEY`. See the [backend README §5.1](../backend/README.md).
 
+The adapter bounds waiting requests and includes queue wait in its caller deadline. See [Backend adapter limits](../backend/README.md#51-lightrag--tei-rerank-adapter-post-lightragrerank-415) for overload and cancellation behavior.
+
 ### 3.7. Generated and derived variables
 
 The bootstrapper derives the Docling adapter endpoint; do not set it. It is set only for `LIGHTRAG_SOURCE=container` with Docling enabled. Localhost LightRAG gets an empty endpoint, because the adapter has no host port.

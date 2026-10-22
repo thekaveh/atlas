@@ -249,8 +249,8 @@ def test_batches_share_one_total_timeout_budget(monkeypatch):
     monkeypatch.setenv("TEI_RERANKER_ENDPOINT", "http://tei-reranker:80")
     monkeypatch.setenv("TEI_RERANKER_MAX_CLIENT_BATCH_SIZE", "2")
     monkeypatch.setenv("LIGHTRAG_RERANK_ADAPTER_TIMEOUT_SECONDS", "30")
-    ticks = iter([100.0, 100.0, 131.0])
-    monkeypatch.setattr(adapter.time, "monotonic", lambda: next(ticks))
+    clock = [100.0]
+    budget = adapter.RerankBudget(30, lambda: clock[0])
     calls: list[dict] = []
     _install_sequence_client(
         monkeypatch,
@@ -261,9 +261,18 @@ def test_batches_share_one_total_timeout_budget(monkeypatch):
         calls,
     )
 
+    original_client = adapter.httpx.Client
+
+    class AdvancingClient(original_client):
+        def post(self, *args, **kwargs):
+            response = super().post(*args, **kwargs)
+            clock[0] += 31
+            return response
+
+    monkeypatch.setattr(adapter.httpx, "Client", AdvancingClient)
     with pytest.raises(RerankAdapterTimeoutError):
         rerank_via_tei(
-            RerankAdapterRequest(query="q", documents=["a", "b", "c", "d"])
+            RerankAdapterRequest(query="q", documents=["a", "b", "c", "d"]), budget
         )
     assert len(calls) == 1
 
