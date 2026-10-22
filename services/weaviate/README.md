@@ -55,7 +55,12 @@ WEAVIATE_ENABLE_MODULES=text2vec-openai,text2vec-ollama,generative-openai,genera
 CLIP_INFERENCE_API=
 ```
 
-SigLIP 2 is opt-in. The default ViT-B/32 image emits 512-d vectors; `MULTI2VEC_CLIP_SIGLIP2_IMAGE` emits 1152-d vectors. Do not change `MULTI2VEC_CLIP_IMAGE` for existing collections until you recreate or revectorize them. Keep `CLIP_INFERENCE_API=http://multi2vec-clip:8080`. The SigLIP 2 image is much larger than the default. `MULTI2VEC_CLIP_SOURCE=container-gpu` currently requests no GPU device (open issue #1373), so it runs on CPU.
+SigLIP 2 is opt-in. The default ViT-B/32 image emits 512-d vectors; `MULTI2VEC_CLIP_SIGLIP2_IMAGE` emits 1152-d vectors. Do not change `MULTI2VEC_CLIP_IMAGE` for existing collections until you recreate or revectorize them. Keep `CLIP_INFERENCE_API=http://multi2vec-clip:8080`. The SigLIP 2 image is much larger than the default.
+
+`MULTI2VEC_CLIP_SOURCE=container-gpu` sets `ENABLE_CUDA=1`, but the Compose fragment requests no GPU device.
+The CLIP container then fails at startup, leaving Weaviate unready while `multi2vec-clip` is enabled.
+Use `MULTI2VEC_CLIP_SOURCE=container-cpu` or `MULTI2VEC_CLIP_SOURCE=disabled`.
+See [CLIP troubleshooting](../multi2vec-clip/README.md#6-troubleshooting) and [GPU wiring issue #1373](https://github.com/thekaveh/atlas/issues/1373).
 
 ### 3.3. Persistence, backup and restore
 
