@@ -152,7 +152,9 @@ a log excerpt into one local `.tar.gz` you can attach to an issue. A relative
 - `./start.sh doctor --bundle PATH` runs the checks and writes the bundle.
 - `./start.sh --support-bundle PATH` writes one only if the startup pipeline
   fails:
-    - In the Textual app, that is the launch; the log excerpt is the session log.
+    - In the Textual app, that is the launch. One `session.log` excerpt contains
+      recent retained output in chronological order, captured when export is
+      requested. Later rollback diagnostics are beyond that cutoff.
     - Under `--no-tui`, that is the startup steps; the log excerpt is what the run
       printed. Docker Compose output that goes straight to the terminal is not
       captured.
@@ -200,8 +202,11 @@ the bundle's generation time, so archive metadata carries no user or host names.
   change it. The origin is the file that sets the key: a consumer manifest or
   its env file, `ATLAS_ENV_USER_FILE`, `.env.user`, or `.env`.
 - `config`: the allowlisted keys, with the same `value` / `origin` / `action`.
-- `logs`: per excerpt, its original and kept size and whether it was cut.
-- `truncation`: every cut the caps forced.
+- `logs`: availability, source and kept byte counts, and truncation state.
+  Session `original_bytes` counts retained physical segments, including headers.
+  `history_omitted`, `source_head_cut`, `segments` and `cutoff` describe the
+  selected evidence. Evicted historical bytes are not counted.
+- `truncation`: size cuts, missing history, unavailable sources and safety omissions.
 - `omitted`: how many fields the allowlist left out.
 - `context`, `host` (OS, CPU architecture, Python version), and `allowlist`.
 
@@ -218,7 +223,12 @@ configuration key. It only adds fields, and they are redacted too.
 
 **Bounds.** Collection is bounded in size and time:
 
-- Each log excerpt keeps its last 256 KiB.
+- Each final log excerpt keeps at most its last 256 KiB after redaction.
+- Raw session capture reads at most 1 MiB across all selected segments.
+  A 64 KiB context allowance supports safe handling of source boundaries.
+- Final uncompressed archive members together have a 4 MiB cap, including
+  `bundle.json`. This counts member payloads, excluding tar headers and
+  compression; it is not a compressed `.tar.gz` file-size cap.
 - Each text field keeps 8,192 characters.
 - Collection waits for all checks within one 60-second wall-time budget;
   it does not terminate a check thread that exceeds the budget.
@@ -226,9 +236,14 @@ configuration key. It only adds fields, and they are redacted too.
 
 Each cut is recorded in `truncation`. If `.env` cannot be read, log excerpts are
 left out, because their known secret values could not be scrubbed.
+If diagnostic metadata alone exceeds the aggregate cap, collection fails
+visibly without writing an archive. Checks and configuration are not silently
+dropped to fit.
 
-**Redaction is best-effort.** Terminal colour codes are stripped first. Then
-every string is scrubbed of:
+**Redaction is best-effort.** Adjacent retained session payloads are reconstructed
+without generated headers before scrubbing. Missing initial or middle history
+is reported; disconnected segments are not joined. Terminal colour codes are
+stripped, then every string is scrubbed of:
 
 - URL credentials (`scheme://user:pass@host`);
 - `Authorization`, `Cookie` and API-key headers, and `Bearer` / `Basic` /
@@ -248,6 +263,9 @@ password placeholders. A pattern above still catches short values as
 
 A secret in an unusual shape can still get through, and so can one the
 terminal wrapped across lines. Read the preview before you share the file.
+An uncertain leading fragment, ambiguous private-key body or insufficient
+known-value context can be omitted for safety. The preview reports the omission
+before the archive is written. Redaction precedes final byte truncation.
 
 ## 5. Endpoint Contract Export
 

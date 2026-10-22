@@ -41,6 +41,8 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Iterator
 from urllib.parse import quote
 
+from .support_bundle_logs import ANSI as _ANSI, LogSnapshot, log_entry, replace_at_boundary, tail_text
+
 SCHEMA_VERSION = "atlas-support-bundle/1"
 REDACTED = "[REDACTED]"
 ARCHIVE_ROOT = "atlas-support-bundle"
@@ -75,7 +77,6 @@ _MIN_SECRET_LEN = 6
 #: passphrases and are scrubbed, which also scrubs public .env.example
 #: placeholders such as ``atlas-db-password`` (harmless over-redaction).
 _WORDLIKE = re.compile(r"^[a-z_-]{1,11}$")
-_ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 # Every quantifier is bounded: an unbounded prefix class made one long log
 # line quadratic (a 40k-character line took about a minute).
 _W = r"[A-Za-z0-9_.-]{0,64}"
@@ -182,6 +183,14 @@ class Redactor:
             return [self.value(item) for item in value]
         return value
 
+    def window(self, text: str, start: int) -> tuple[str, int]:
+        """Redact while preserving the excluded source-head boundary."""
+        for pattern, replacement in ((_ANSI, ""), *_PATTERNS):
+            text, start = replace_at_boundary(pattern, replacement, text, start)
+        for secret in self._values:
+            text, start = replace_at_boundary(re.compile(re.escape(secret)), REDACTED, text, start)
+        return text, start
+
 
 @dataclass(frozen=True)
 class BundleLimits:
@@ -190,6 +199,7 @@ class BundleLimits:
     max_log_bytes: int = 256 * 1024
     max_field_chars: int = 8 * 1024
     max_seconds: float = 60.0
+    max_bundle_bytes: int = 4 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -197,6 +207,7 @@ class LogSource:
     name: str
     text: str | None = None
     path: Path | None = None
+    snapshot: LogSnapshot | None = None
 
 
 @dataclass(frozen=True)
@@ -455,50 +466,6 @@ def _clip(value: Any, limit: int, notes: list[str], where: str) -> Any:
     return value
 
 
-def _read_tail(source: LogSource, limit: int) -> tuple[str, int, bool]:
-    """Up to ``limit`` + a margin of trailing bytes, cut at a line boundary.
-
-    Returns the text, the source's full size and whether the head was cut.
-    """
-    if source.path is None:
-        data = (source.text or "").encode("utf-8", errors="replace")
-        total = len(data)
-        data = data[-(limit + 4096):]
-    else:
-        total = source.path.stat().st_size
-        with source.path.open("rb") as handle:
-            handle.seek(max(0, total - limit - 4096))
-            data = handle.read()
-    cut = len(data) < total
-    if cut and b"\n" in data:
-        data = data[data.index(b"\n") + 1:]
-    return data.decode("utf-8", errors="replace"), total, cut
-
-
-def log_entry(source: LogSource, limits: BundleLimits, redactor: Redactor) -> dict:
-    """A redacted log tail.
-
-    The read window starts at a line boundary, and a private-key block cut
-    by it is still recognised. Redaction runs before the final size cut, so
-    that cut cannot split a secret into an unrecognisable fragment.
-    """
-    try:
-        text, total, cut = _read_tail(source, limits.max_log_bytes)
-    except OSError as exc:
-        return {"name": redactor.text(source.name), "available": False, "error": redactor.text(str(exc))}
-    text = redactor.text(text)
-    data = text.encode("utf-8")
-    if len(data) > limits.max_log_bytes:
-        cut = True
-        data = data[-limits.max_log_bytes:]
-        data = data[data.find(b"\n") + 1:] if b"\n" in data else data
-        text = data.decode("utf-8", errors="ignore")
-    return {
-        "name": redactor.text(source.name), "available": True, "original_bytes": total,
-        "kept_bytes": len(text.encode("utf-8")), "truncated": cut, "text": text,
-    }
-
-
 def _findings(raw_checks: list[dict], checks: list[dict], config: list[dict]) -> list[dict]:
     """Failing and warning checks, each with the configuration it names."""
     return [
@@ -526,11 +493,19 @@ def _log_section(request: BundleRequest, redactor: Redactor) -> tuple[list[dict]
             candidate = f"{name}.{suffix}"
         log["name"] = candidate
         used.add(candidate)
-    notes = [
-        f"log {log['name']}: kept the last {log['kept_bytes']} of {log['original_bytes']} bytes"
-        for log in logs if log.get("truncated")
-    ]
+    notes = [_log_note(log) for log in logs if log.get("truncated")]
     return logs, notes
+
+
+def _log_note(log):
+    if not log.get("available"):
+        return f"log {log['name']}: safety/source omission: {log['error']}"
+    note = f"log {log['name']}: kept the last {log['kept_bytes']} exported bytes; retained source had {log['original_bytes']} bytes"
+    if log.get("history_omitted"):
+        note += "; earlier session history omitted"
+    if log.get("source_head_cut"):
+        note += "; source cutoff and unsafe leading context omitted"
+    return note
 
 
 def _timestamp(now: datetime.datetime | None) -> str:
@@ -565,7 +540,24 @@ def build_bundle(request: BundleRequest, *, now: datetime.datetime | None = None
     bundle = _clip(bundle, request.limits.max_field_chars, notes, "bundle")
     bundle["truncation"] = [redactor.text(note) for note in notes]
     texts = {log["name"]: log["text"] for log in logs if log.get("available")}
-    return SupportBundle(body=bundle, logs=texts)
+    return _enforce_bundle_limit(SupportBundle(body=bundle, logs=texts), request.limits.max_bundle_bytes)
+
+
+def _enforce_bundle_limit(bundle, limit):
+    """Account exact final member payloads before preview or archive writing."""
+    while (size := sum(len(data) for _name, data in _members(bundle))) > limit:
+        name = next((name for name, text in bundle.logs.items() if text), None)
+        if name is None:
+            raise ValueError("support bundle diagnostic metadata exceeds aggregate member byte limit")
+        old = bundle.logs[name]
+        bundle.logs[name] = tail_text(old, max(0, len(old.encode("utf-8")) - (size - limit)))
+        entry = next(log for log in bundle.body["logs"] if log["name"] == name)
+        entry.update(kept_bytes=len(bundle.logs[name].encode("utf-8")), truncated=True,
+                     aggregate_truncated=True)
+        note = f"log {name}: truncated to fit aggregate member byte limit of {limit} bytes"
+        if note not in bundle.body["truncation"]:
+            bundle.body["truncation"].append(note)
+    return bundle
 
 
 # ─── preview + archive ───────────────────────────────────────────────────

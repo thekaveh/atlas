@@ -817,6 +817,11 @@ A full audit of a freshly-launched stack surfaced one crash-loop and three sourc
 - Managed logs now use a shared private `atlas-session-logs-v1-<uid>` POSIX store or `atlas-session-logs-v1` native Windows store inside Python's temporary directory. The pane reports the actual path; legacy logs and user exports remain untouched.
 - Five managed groups share at most 480 MiB of reserved payload. Saturation visibly refuses file logging while the launch and pane logs continue. Missing or replaced required paths stop logging with one degraded notice on the next write, flush or diagnostic check.
 
+### 1.117. Fixed — 2026-10-22 — Support bundles retain recent rotated failures (#1759)
+
+- Failed Textual launches capture recent contiguous session output before file ownership ends. Generated headers do not interrupt redaction; history gaps and safety omissions are explicit.
+- One session excerpt remains capped at 256 KiB. A new 4 MiB aggregate cap counts final uncompressed member payloads, including diagnostic metadata, before preview and writing.
+
 ## 2. [0.1.0](https://github.com/thekaveh/atlas/tree/v0.1.0) - 2026-06-21 (First tagged checkpoint)
 
 Atlas intentionally began its public semantic-version tag line at `v0.1.0`.
