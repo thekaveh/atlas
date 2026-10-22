@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import os
+import tempfile
 from collections.abc import Mapping
+from contextlib import suppress
 from pathlib import Path
 
 
@@ -14,6 +16,23 @@ class ArtifactTooLargeError(ValueError):
 
 def _truthy(value: str | None) -> bool:
     return (value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _publish_local(target: Path, data: bytes) -> None:
+    stage = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb", dir=target.parent, prefix=f".{target.name}.",
+            suffix=".tmp", delete=False,
+        ) as temporary:
+            stage = Path(temporary.name)
+            temporary.write(data)
+        os.replace(stage, target)
+    finally:
+        if stage is not None:
+            # A cleanup failure must not hide the original write/replace error.
+            with suppress(OSError):
+                stage.unlink(missing_ok=True)
 
 
 class ArtifactStorage:
@@ -67,7 +86,7 @@ class ArtifactStorage:
 
         target = self.artifact_dir / key
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(data)
+        _publish_local(target, data)
         return {"storage": "local", "key": key, "content_type": CONTENT_TYPE}
 
     def local_path(self, sha256: str) -> Path:

@@ -131,6 +131,8 @@ Both endpoints return a normalized artifact envelope:
 
 When `ASSET_WORKER_MINIO_ENABLED=false`, the worker stores the optimized GLB under `ASSET_WORKER_ARTIFACT_DIR/gltf/<sha256>.glb` and returns `download_url=/gltf/artifacts/<sha256>.glb`.
 
+Each local artifact is published atomically after its temporary file is fully written and closed. A handled write or replacement failure preserves any previously published artifact and attempts to remove that attempt’s temporary file.
+
 ### 4.4. Scope boundary — mechanical conditioning only
 
 This service performs **mechanical glTF conditioning**: scale-to-target, center-XZ, ground-at-`y=0`, and mesh/texture optimization. **Orientation policy is the consumer's.** glTF is +Y-up by spec, so the default (`up_axis=keep`) trusts the incoming orientation. Reorientation (`auto` or an explicit axis) is opt-in per request. Product-specific asset rules (which assets to reorient, semantic up-ness, placement conventions) belong in the consuming pipeline, not here.
