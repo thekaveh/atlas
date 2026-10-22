@@ -259,25 +259,26 @@ When `lightrag-init` starts, it:
 - **Empty KG after ingestion** — make sure `LIGHTRAG_LLM_MODEL` is a chat-capable model. Some embedding-only Ollama tags produce empty triples without an error.
 - **Rerank does not run although TEI is enabled** — set `LIGHTRAG_RERANK_ADAPTER_ENABLED=true` (§3.6). Without it Atlas sets `RERANK_BINDING=null`. `./start.sh doctor` warns if the flag is on but TEI or LightRAG is off.
 - **Embedding dimension.** Without `LIGHTRAG_EMBEDDING_DIM`, init looks the dimension up in a built-in table:
-  - 768: nomic-embed-text.
-  - 1024: qwen3-embedding:0.6b, bge-m3, mxbai-embed-large.
-  - 1536: text-embedding-3-small, text-embedding-ada-002.
-  - 3072: text-embedding-3-large.
+    - 768: nomic-embed-text.
+    - 1024: qwen3-embedding:0.6b, bge-m3, mxbai-embed-large.
+    - 1536: text-embedding-3-small, text-embedding-ada-002.
+    - 3072: text-embedding-3-large.
 
-  A name that contains a table entry (for example `ollama/bge-m3`) also matches. For other models, init probes LiteLLM. If the probe fails, for example before `ollama-pull` finishes on first boot, init falls back to 768. A wrong dimension makes every vector insert fail with a dimension mismatch. Set `LIGHTRAG_EMBEDDING_DIM` for any model outside the table.
-- **Changing the embedding model or dimension.** LightRAG 1.5.4 names each vector table after the embedding model and dimension, for example `LIGHTRAG_VDB_CHUNKS_ollama_nomic_embed_text_768d` in schema `public`. A new model or `LIGHTRAG_EMBEDDING_DIM` therefore writes to new, empty tables. Existing documents are not re-embedded, and their doc status in Redis still says processed. To change it:
-  1. Keep copies of your source documents. Step 2 also deletes the graph and the uploaded files.
-  2. On the old settings, clear all documents: `curl -sX DELETE http://localhost:${LIGHTRAG_API_PORT}/documents -H "X-API-Key: ${LIGHTRAG_API_KEY}"`.
-  3. Set the new `LIGHTRAG_EMBEDDING_MODEL` and `LIGHTRAG_EMBEDDING_DIM` in `.env`.
-  4. Run `./start.sh`, then upload the documents again.
-  5. Optional: list the old, empty tables and drop them by name:
+    A name that contains a table entry (for example `ollama/bge-m3`) also matches. For other models, init probes LiteLLM. If the probe fails, for example before `ollama-pull` finishes on first boot, init falls back to 768. A wrong dimension makes every vector insert fail with a dimension mismatch. Set `LIGHTRAG_EMBEDDING_DIM` for any model outside the table.
 
-     ```bash
-     docker exec -it ${PROJECT_NAME}-supabase-db psql -U supabase_admin -d postgres -c '\dt public.lightrag_vdb_*'
-     docker exec -it ${PROJECT_NAME}-supabase-db psql -U supabase_admin -d postgres -c 'DROP TABLE public.lightrag_vdb_chunks_<old_suffix>, public.lightrag_vdb_entity_<old_suffix>, public.lightrag_vdb_relation_<old_suffix>'
-     ```
+- <a id="changing-the-embedding-model-or-dimension"></a>**Changing the embedding model or dimension.** LightRAG 1.5.4 names each vector table after the embedding model and dimension, for example `LIGHTRAG_VDB_CHUNKS_ollama_nomic_embed_text_768d` in schema `public`. A new model or `LIGHTRAG_EMBEDDING_DIM` therefore writes to new, empty tables. Existing documents are not re-embedded, and their doc status in Redis still says processed. To change it:
+    1. Keep copies of your source documents. Step 2 also deletes the graph and the uploaded files.
+    2. On the old settings, clear all documents: `curl -sX DELETE http://localhost:${LIGHTRAG_API_PORT}/documents -H "X-API-Key: ${LIGHTRAG_API_KEY}"`.
+    3. Set the new `LIGHTRAG_EMBEDDING_MODEL` and `LIGHTRAG_EMBEDDING_DIM` in `.env`.
+    4. Run `./start.sh`, then upload the documents again.
+    5. Optional: list the old, empty tables and drop them by name:
 
-  Do not drop the `lightrag` schema. It holds only Atlas's `lightrag.vectors_meta` marker, not the vector tables, so the drop removes no vectors.
+        ```bash
+        docker exec -it ${PROJECT_NAME}-supabase-db psql -U supabase_admin -d postgres -c '\dt public.lightrag_vdb_*'
+        docker exec -it ${PROJECT_NAME}-supabase-db psql -U supabase_admin -d postgres -c 'DROP TABLE public.lightrag_vdb_chunks_<old_suffix>, public.lightrag_vdb_entity_<old_suffix>, public.lightrag_vdb_relation_<old_suffix>'
+        ```
+
+    Do not drop the `lightrag` schema. It holds only Atlas's `lightrag.vectors_meta` marker, not the vector tables, so the drop removes no vectors.
 
 ## 9. Dependencies & Integrations
 
