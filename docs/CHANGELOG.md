@@ -876,6 +876,12 @@ The Redis guide now lists the pinned server's default snapshot thresholds alongs
 It distinguishes AOF startup recovery from scheduled RDB snapshots and describes possible write denial after a background save failure.
 The runtime persistence policy is unchanged.
 
+### 1.128. Fixed — 2026-10-22 — Weaviate guide states the CLIP GPU startup limitation (#1777)
+
+The Weaviate guide now describes the CLIP GPU source's startup and readiness limitation, with CPU and disabled workarounds.
+It links the dedicated troubleshooting guide and GPU wiring issue while preserving the vector dimension migration warning.
+Runtime configuration is unchanged.
+
 ## 2. [0.1.0](https://github.com/thekaveh/atlas/tree/v0.1.0) - 2026-06-21 (First tagged checkpoint)
 
 Atlas intentionally began its public semantic-version tag line at `v0.1.0`.
