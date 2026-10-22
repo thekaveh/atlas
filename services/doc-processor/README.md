@@ -219,6 +219,8 @@ the LightRAG bundle.
 
 Both providers expose `POST /v1/document/convert` and public `GET /health`; the response schema for health is source-specific. The container-GPU provider additionally exposes `GET /v1/models`. The selected provider's complete OpenAPI schema, including all conversion parameters (`output_format`, `use_ocr`, `table_mode`, `enable_chunking`, `chunk_size`, `chunk_overlap`), is served at `/docs` after bearer authentication.
 
+`metadata.formulas` counts formula items in the converted document. Both providers count each stored formula item once, including separate items with identical text. Ordinary text does not contribute to this count.
+
 ## 6. Supported Formats
 
 Both providers use Docling's converter. Documents: PDF, Word (`.docx`), PowerPoint (`.pptx`), Excel (`.xlsx`) and HTML. Images: PNG, JPEG and TIFF.
