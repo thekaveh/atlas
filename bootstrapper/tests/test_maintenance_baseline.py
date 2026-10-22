@@ -21,8 +21,8 @@ EXPECTED_BASELINE_SNAPSHOT = {
     "functions_over_100_physical_lines": 85,
     "functions_over_4_parameters": 156,
     "modules_over_600_logical_lines": 21,
-    # Two cohesive #1767 local-publication test modules; code ceilings stay fixed.
-    "tracked_files": 1627,
+    # One cohesive #1766 GPU timing regression module; code ceilings stay fixed.
+    "tracked_files": 1628,
     "v0.1.0_tracked_files": 667,
 }
 EXPECTED_EXTENDED_PYTHON_SNAPSHOT = {

@@ -6,7 +6,7 @@
 # lightning==2.4.0. Its upstream constraints are hydra-core<=1.3.2 and
 # lightning<=2.4.0, below the available advisory fixes. NeMo 3.0.0 leaves Transformers unconstrained.
 # The lock therefore resolves transformers==5.16.1.
-# Atlas' only NeMo load path is ASRModel.from_pretrained at transcribe.py:37
+# Atlas' only NeMo load path is ASRModel.from_pretrained at transcribe.py:39
 # using operator-configured PARAKEET_MODEL. NeMo restores .nemo archives through
 # Serialization.from_config_dict -> safe_instantiate, which recursively validates
 # every _target_ before hydra.utils.instantiate. This path does not call

@@ -146,6 +146,22 @@ Disable STT entirely:
 ./start.sh --stt-provider-source disabled
 ```
 
+### 3.1. GPU advanced timing
+
+The GPU provider accepts `POST /v1/audio/transcriptions/advanced` with independent
+`return_timestamps` and `word_timestamps` flags. Both default to `false`.
+`return_timestamps=true` requests segment timing; `word_timestamps=true` requests
+word timing. Either flag enables alignment computation.
+
+The response retains `text` and `language`. It includes only requested, nonempty
+alignment lists under `timestamps.segment` and `timestamps.word`.
+`has_timestamps` is `true` when at least one requested list is available.
+If no requested list is available, `has_timestamps` is `false` and `timestamps`
+is omitted.
+
+With neither flag, alignment computation is disabled. The result contains only
+`text` and `language`, including after an earlier timed request.
+
 ## 4. Performance evaluation
 
 Throughput and word-error rate depend on the exact checkpoint, audio corpus,

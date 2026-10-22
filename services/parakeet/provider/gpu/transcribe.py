@@ -1,11 +1,13 @@
 """NVIDIA NeMo transcription implementation for Parakeet-TDT."""
 
 import asyncio
+from collections.abc import Mapping
 import logging
 import os
 import threading
 
 import nemo.collections.asr as nemo_asr
+from nemo.collections.asr.parts.mixins import TranscribeConfig
 
 
 logging.basicConfig(level=logging.INFO)
@@ -45,6 +47,19 @@ def load_model():
         return _model
 
 
+def _requested_timing(first, return_timestamps, word_timestamps):
+    """Project only requested, nonempty NeMo alignment lists."""
+    timing = getattr(first, "timestamp", None)
+    if not isinstance(timing, Mapping):
+        return {}
+    requested = (("segment", return_timestamps), ("word", word_timestamps))
+    return {
+        key: timing[key]
+        for key, enabled in requested
+        if enabled and isinstance(timing.get(key), list) and timing[key]
+    }
+
+
 def transcribe_audio_sync(
     audio_path: str,
     language: str = None,
@@ -53,14 +68,20 @@ def transcribe_audio_sync(
     word_timestamps: bool = False,
 ):
     """Run one bounded synchronous NeMo transcription."""
-    del temperature, word_timestamps
+    del temperature
+    need_timestamps = bool(return_timestamps or word_timestamps)
     try:
         with _transcription_semaphore:
             model = load_model()
             logger.info("Transcribing audio file")
             transcription = model.transcribe(
                 [audio_path],
-                timestamps=bool(return_timestamps),
+                timestamps=need_timestamps,
+                override_config=TranscribeConfig(
+                    timestamps=need_timestamps,
+                    return_hypotheses=need_timestamps,
+                    num_workers=0,
+                ),
             )
 
         first = transcription[0] if isinstance(transcription, list) else transcription
@@ -73,14 +94,12 @@ def transcribe_audio_sync(
 
         logger.info("Transcription complete (characters=%s)", len(text))
         result = {"text": text, "language": language or "auto"}
-        if return_timestamps:
+        if need_timestamps:
             try:
-                timing = getattr(first, "timestamp", None) or {}
+                timing = _requested_timing(first, return_timestamps, word_timestamps)
+                result["has_timestamps"] = bool(timing)
                 if timing:
                     result["timestamps"] = timing
-                    result["has_timestamps"] = True
-                else:
-                    result["has_timestamps"] = False
             except Exception as exc:
                 logger.warning(
                     "Could not extract timestamps (error_type=%s)",
