@@ -525,7 +525,9 @@ A new service appears in the wizard only after it completes the registration ste
 
 ## 17. Dependency Validation
 
-Dependencies are checked at launch, not while you answer the prompts. If a service's required dependency is disabled, the service is reported and disabled too; an example is n8n with Weaviate disabled. If a service you picked does not start, check the launch log. The `gen-ai-eng` track includes n8n but not Weaviate, so n8n is disabled there unless you also pass `--weaviate-source container`.
+Dependencies are checked at launch, after the prompts. Trino requires MinIO and the Iceberg REST catalog. If either is disabled, Atlas reports the missing dependency and attempts to disable Trino. Launch stops if required dependencies remain unresolved. Check the launch log for the reported cause and action.
+
+Weaviate is optional for n8n and n8n-worker. When n8n is selected, both remain enabled with Weaviate disabled. Atlas leaves `WEAVIATE_URL` blank to mark the integration as not configured. The `gen-ai-eng` track includes n8n without Weaviate; no Weaviate override is needed to keep n8n enabled.
 
 Source validation enforces the "LiteLLM must have an upstream" rule and stops the launch before anything starts. The rule needs LLM Engine != `none`, at least one cloud provider `enabled`, or `VLLM_METAL_SOURCE=managed-localhost`.
 
