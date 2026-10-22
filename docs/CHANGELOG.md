@@ -840,6 +840,11 @@ Asset Worker now rejects workloads above its configured aggregate POSITION-entry
 Distinct aliased and overlapping accessors count separately; repeated references to one accessor count once.
 Over-budget requests return `422`. Input-byte, upload-reception, and converter-timeout limits remain separate; normalization adds no hard memory or elapsed-time guarantee.
 
+### 1.121. Fixed — 2026-10-22 — MinIO retention guidance distinguishes cold stop (#1764)
+
+The MinIO Future ComfyUI integration now distinguishes sharing across ordinary restarts from deletion of the built-in volume during cold stop.
+Required artifacts need independent retention or external storage with a verified backup before cold stop.
+
 ## 2. [0.1.0](https://github.com/thekaveh/atlas/tree/v0.1.0) - 2026-06-21 (First tagged checkpoint)
 
 Atlas intentionally began its public semantic-version tag line at `v0.1.0`.
