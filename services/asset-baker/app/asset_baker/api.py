@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import math
 import os
 import secrets
 import shutil
@@ -32,6 +33,9 @@ from .models import (
 )
 from .runner import BakeError, run_bake
 from .storage import ArtifactStorage, ArtifactTooLargeError
+
+
+from .upload_body import UploadBody, UploadRejected
 
 
 logger = logging.getLogger(__name__)
@@ -67,6 +71,93 @@ def _storage_error_status(exc: Exception):
     return None
 
 
+class _RequestAdmission:
+    def __init__(self, app, owner, expected_token):
+        self.app = app
+        self.owner = owner
+        self.expected_token = expected_token
+
+    def _authenticate(self, request):
+        if not self.expected_token:
+            return JSONResponse(
+                status_code=503, content={"detail": "Asset Baker authentication is not configured"}
+            )
+        scheme, _, credential = request.headers.get("authorization", "").partition(" ")
+        # Byte comparison also handles non-ASCII credentials deliberately.
+        if scheme.lower() != "bearer" or not secrets.compare_digest(
+            credential.encode("utf-8"), self.expected_token.encode("utf-8")
+        ):
+            return JSONResponse(
+                status_code=401, content={"detail": "Invalid Asset Baker bearer token"}
+            )
+        return None
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        request = Request(scope)
+        if request.url.path in {"/health", "/metrics"}:
+            return await self.app(scope, receive, send)
+        rejection = self._authenticate(request)
+        if rejection is not None:
+            return await rejection(scope, receive, send)
+        if request.method == "POST" and request.url.path in {
+            "/assets/bake", "/assets/bake/ref",
+        }:
+            return await self._mutation(request, receive, send)
+        await _join_request_task(asyncio.create_task(self.app(scope, receive, send)))
+
+    async def _mutation(self, request, receive, send):
+        scope = request.scope
+        semaphore = self.owner.state.bake_semaphore
+        if not semaphore.acquire(blocking=False):
+            logger.info("asset_bake_rejected reason=busy")
+            rejection = JSONResponse(
+                status_code=429, content={"detail": "Bake worker is busy; retry later"}
+            )
+            return await rejection(scope, receive, send)
+        try:
+            rejection = self._declared_rejection(request)
+            if rejection is not None:
+                return await rejection(scope, receive, send)
+            if request.url.path == "/assets/bake":
+                return await self._upload(scope, receive, send)
+            await _join_request_task(asyncio.create_task(self.app(scope, receive, send)))
+        finally:
+            semaphore.release()
+
+    def _declared_rejection(self, request):
+        try:
+            _enforce_content_length(request)
+        except HTTPException as exc:
+            return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+
+    async def _upload(self, scope, receive, send):
+        try:
+            timeout = _upload_timeout_seconds()
+            with UploadBody(
+                _max_upload_bytes() + _MULTIPART_OVERHEAD_BYTES, timeout, time.monotonic
+            ) as body:
+                await body.receive(receive)
+                work = asyncio.create_task(self.app(scope, body.replay, send))
+                await _join_request_task(work)
+        except UploadRejected as exc:
+            # The ingress ownership scope exits before a rejection is sent.
+            rejection = JSONResponse(status_code=exc.status, content={"detail": exc.detail})
+            await rejection(scope, receive, send)
+
+
+def _upload_timeout_seconds():
+    name = "ASSET_BAKER_UPLOAD_TIMEOUT_SECONDS"
+    try:
+        value = float(os.getenv(name, "300"))
+        if not math.isfinite(value) or value <= 0:
+            raise ValueError
+    except ValueError as exc:
+        raise UploadRejected(500, f"{name} must be a finite positive number") from exc
+    return value
+
+
 def create_app(*, api_token: str | None = None) -> FastAPI:
     app = FastAPI(
         title="Atlas Asset Baker",
@@ -81,50 +172,7 @@ def create_app(*, api_token: str | None = None) -> FastAPI:
         api_token if api_token is not None else os.getenv("ASSET_BAKER_API_TOKEN", "")
     )
 
-    @app.middleware("http")
-    async def require_api_token_and_admit(request: Request, call_next):
-        if request.url.path in {"/health", "/metrics"}:
-            return await call_next(request)
-        if not expected_token:
-            return JSONResponse(
-                status_code=503,
-                content={"detail": "Asset Baker authentication is not configured"},
-            )
-        scheme, _, credential = request.headers.get("authorization", "").partition(" ")
-        # Compare utf-8 bytes: secrets.compare_digest raises TypeError on a
-        # non-ASCII str, which would surface as a 500 instead of this 401.
-        if scheme.lower() != "bearer" or not secrets.compare_digest(
-            credential.encode("utf-8"), expected_token.encode("utf-8")
-        ):
-            return JSONResponse(
-                status_code=401,
-                content={"detail": "Invalid Asset Baker bearer token"},
-            )
-        admitted = False
-        if request.method == "POST" and request.url.path in {
-            "/assets/bake",
-            "/assets/bake/ref",
-        }:
-            admitted = app.state.bake_semaphore.acquire(blocking=False)
-            if not admitted:
-                logger.info("asset_bake_rejected reason=busy")
-                return JSONResponse(
-                    status_code=429,
-                    content={"detail": "Bake worker is busy; retry later"},
-                )
-        try:
-            if admitted:
-                try:
-                    _enforce_content_length(request)
-                except HTTPException as exc:
-                    return JSONResponse(
-                        status_code=exc.status_code, content={"detail": exc.detail}
-                    )
-            work = asyncio.create_task(call_next(request))
-            return await _join_request_task(work)
-        finally:
-            if admitted:
-                app.state.bake_semaphore.release()
+    app.add_middleware(_RequestAdmission, owner=app, expected_token=expected_token)
 
     # Bounded worker: a single Cycles bake saturates CPU, so concurrent bakes are
     # net-negative. Reject (429) rather than queue unboundedly when saturated.
@@ -380,15 +428,19 @@ def _copy_upload_to_path(source, path: Path) -> None:
     _enforce_input_size(total)
 
 
+_MULTIPART_OVERHEAD_BYTES = 2 * 1024 * 1024
+
+
 def _enforce_content_length(request: Request) -> None:
-    """Reject an obviously-oversize upload from its Content-Length header before
-    the body is buffered into memory. `_enforce_size` remains the authoritative
-    post-read check; this only bounds peak memory for hostile large uploads.
-    A 2 MiB slack covers multipart boundary/header overhead."""
+    """Reject declared bodies above the raw envelope before parsing."""
     raw = request.headers.get("content-length")
     if raw and raw.isdigit():
         max_mb = float(os.getenv("ASSET_BAKER_MAX_UPLOAD_MB", "200"))
-        limit = (max_mb + 2) * 1024 * 1024
+        limit = (
+            _max_upload_bytes() + _MULTIPART_OVERHEAD_BYTES
+            if math.isfinite(max_mb) and max_mb > 0
+            else (max_mb + 2) * 1024 * 1024
+        )
         digits = raw.lstrip("0") or "0"
         if len(digits) > len(str(int(limit))) or int(digits) > limit:
             raise HTTPException(status_code=413, detail=f"Upload exceeds {max_mb:.0f} MiB limit")

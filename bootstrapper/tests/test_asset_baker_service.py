@@ -192,3 +192,10 @@ def test_asset_baker_builds_for_amd64_on_any_host() -> None:
 
     compose = yaml.safe_load((ROOT / "services" / "asset-baker" / "compose.yml").read_text())
     assert compose["services"]["asset-baker"]["platform"] == "${ASSET_BAKER_PLATFORM:-linux/amd64}"
+
+
+def test_asset_baker_upload_timeout_configuration() -> None:
+    env = {entry["name"]: entry for entry in _manifest()["env"]}
+    compose = yaml.safe_load((SERVICES / "asset-baker" / "compose.yml").read_text())
+    assert env["ASSET_BAKER_UPLOAD_TIMEOUT_SECONDS"]["default"] == "300"
+    assert compose["services"]["asset-baker"]["environment"]["ASSET_BAKER_UPLOAD_TIMEOUT_SECONDS"] == "${ASSET_BAKER_UPLOAD_TIMEOUT_SECONDS:-300}"

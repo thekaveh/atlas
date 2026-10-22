@@ -827,6 +827,13 @@ A full audit of a freshly-launched stack surfaced one crash-loop and three sourc
 - Selecting `LLM_PROVIDER_SOURCE=none` removes Ollama links from service previews and cards. The summary stays off, and the dashboard omits reachability probes.
 - CPU, GPU and localhost Ollama links remain available. Cloud API availability and vLLM state remain independent.
 
+### 1.119. Fixed — 2026-10-22 — Asset upload reception is bounded before multipart parsing (#1785)
+
+Asset Worker and Asset Baker now bound received multipart bytes before parsing, including requests without `Content-Length`.
+The final GLB caps remain separate from the existing 1 MiB and 2 MiB framing allowances.
+Both services default to a configurable 300-second complete reception deadline; expiry returns `408` and releases admission after ingress cleanup.
+Converter deadlines remain independent, and admitted conversion retains its slot through response completion and form cleanup.
+
 ## 2. [0.1.0](https://github.com/thekaveh/atlas/tree/v0.1.0) - 2026-06-21 (First tagged checkpoint)
 
 Atlas intentionally began its public semantic-version tag line at `v0.1.0`.

@@ -12,7 +12,7 @@ capabilities:
   - name: "Bounded authenticated bake API"
     status: supported
     verification: tested
-    note: "Upload, MinIO-reference, and artifact routes require the generated bearer token and enforce input-size, concurrency, and subprocess-timeout bounds; health and metrics remain public."
+    note: "Data routes require the generated bearer token. Uploads enforce received-body size and reception deadlines; mutations enforce admission, final input-size, and subprocess-timeout bounds. Health and metrics remain public."
   - name: "Content-addressed bake artifacts"
     status: supported
     verification: tested
@@ -100,6 +100,9 @@ env:
   - name: ASSET_BAKER_BRIGHTNESS_MIN
     default: "0.05"
     description: "Mean-brightness QA gate: a baked BaseColor whose mean < this is a silently-failed (black) bake and is refused with a non-zero result."
+  - name: ASSET_BAKER_UPLOAD_TIMEOUT_SECONDS
+    default: "300"
+    description: "Complete multipart upload reception deadline in seconds; finite and positive. Excludes conversion and reference requests; expired reception returns HTTP 408 and releases admission."
   - name: ASSET_BAKER_TIMEOUT_SECONDS
     default: "600"
     description: "Hard wall-clock ceiling for a single bake subprocess; exceeded bakes are killed and reported as timeout."

@@ -317,6 +317,7 @@ services:
       ASSET_BAKER_TARGET_TRIS: '39000'
       ASSET_BAKER_TEX_SIZE: '2048'
       ASSET_BAKER_TIMEOUT_SECONDS: '600'
+      ASSET_BAKER_UPLOAD_TIMEOUT_SECONDS: '300'
       MINIO_REGION: us-east-1
       PROJECT_NAME: atlas
     healthcheck:
@@ -377,6 +378,7 @@ services:
       ASSET_WORKER_MINIO_ENDPOINT: http://minio:9000
       ASSET_WORKER_MINIO_SECRET_KEY: ''
       ASSET_WORKER_TIMEOUT_SECONDS: '300'
+      ASSET_WORKER_UPLOAD_TIMEOUT_SECONDS: '300'
       MINIO_REGION: us-east-1
       PROJECT_NAME: atlas
     healthcheck:
