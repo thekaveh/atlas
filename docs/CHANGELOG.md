@@ -791,6 +791,11 @@ A full audit of a freshly-launched stack surfaced one crash-loop and three sourc
 - Word timing now works without segment timing. GPU responses include only requested, nonempty segment and word alignment lists.
 - Missing requested alignment reports `has_timestamps=false`. Requests with neither flag disable alignment computation and preserve the text/language response, including after timed requests.
 
+### 1.112. Fixed — 2026-10-21 — LightRAG bundle export names stay within the component budget (#1772)
+
+- Docling bundles now bound sanitized ASCII stems to 250 bytes before adding JSON and Markdown suffixes. Maximum-length PDF basenames and longer HTTP names can complete export.
+- Both providers and the LightRAG adapter share this rule. Short sanitized stems and repeated export names stay unchanged.
+
 ## 2. [0.1.0](https://github.com/thekaveh/atlas/tree/v0.1.0) - 2026-06-21 (First tagged checkpoint)
 
 Atlas intentionally began its public semantic-version tag line at `v0.1.0`.
