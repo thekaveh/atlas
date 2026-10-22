@@ -26,6 +26,7 @@ Each step links to its deep-dive section.
 - [ ] **Add the row's display name to `EXPECTED_DISCOVERED`** in `bootstrapper/tests/test_wizard_app_discovery.py` (source-configurable services only). The discovery-count test fails until you do.
 - [ ] **`runtime_sc` key differs from the folder name** (for example `ray-head` in a multi-container family): add the mapping to `_FAMILY_KEY_ALIASES` in `bootstrapper/tracks.py`. Otherwise the track filter does not match it.
 - [ ] **Add the new containers to the fragment baseline** → [Byte-equivalence](#20-byte-equivalence)
+- [ ] **Register the canonical README and diagram in `docs/manifest.yaml`, with a matching numbered H1** → [After you save the files](#12-after-you-save-the-files--regen--lint-commands-in-order)
 - [ ] **Run the root-safe regen, lint, and required-check checklist** → [After you save the files](#12-after-you-save-the-files--regen--lint-commands-in-order), then [CI gates](#134-ci-gates)
 - [ ] **Update audit-script allowlists** if your service has hard deps → [Audit-script + CI implications](#13-audit-script--ci-implications)
 - [ ] **Commit and push.** CI gates the change with four required jobs: manifest-lint+pytest, compose-equivalence+permutation matrix, docs-drift+audit-scripts, and build-validation.
@@ -552,21 +553,66 @@ uv run --project bootstrapper python -m tools.generate_readme_topology
 PYTHONPATH=bootstrapper uv run --project bootstrapper python -m bootstrapper.docs.regen qdrant
 # After this, services/qdrant/{README.md, architecture.svg, architecture.html} exist.
 
-# 4. Update docs/diagrams/architecture.html and docs/diagrams/architecture.svg together
+```
+
+**4. Register the page and diagram before the first surface build.**
+
+Use [`docs/manifest.yaml`](manifest.yaml) as the publication contract. Its `sections` tree supplies navigation, page numbers and canonical source paths.
+
+Append the Qdrant entry to `sections` → `services` → `service-guides` → `children`:
+
+```yaml
+- id: service-qdrant
+  number: '5.2.62'
+  title: Qdrant
+  source: services/qdrant/README.md
+  diagrams:
+  - service-qdrant
+```
+
+Here, `5.2.62` illustrates the next number after the current last guide, `5.2.61`.
+Use the actual next sequential sibling number when you add a service.
+Keep existing page IDs and numbers unchanged; wiki page URLs derive from the stable IDs.
+
+Set the canonical README's first H1 to the same page number:
+
+```markdown
+# 5.2.62. Qdrant
+```
+
+Add the diagram entry to the manifest's top-level `diagrams` list:
+
+```yaml
+- id: service-qdrant
+  master: services/qdrant/architecture.html
+```
+
+Keep the diagram ID consistent with the page's `diagrams` list.
+Register canonical files only. The build generates `mkdocs.yml`, `generated/site/` and `generated/wiki/`; do not edit those outputs.
+
+After canonical reference generation, confirm that the [Service catalog](services.md) links to the README.
+The documentation map reaches service guides through that catalog.
+
+Follow [Diagram authoring](diagrams/README.md#2-per-service-diagrams-auto-generated) for the export workflow.
+Render `docs/diagrams/img/service-qdrant.png` in step 5.
+Commit that PNG with the README, service HTML/SVG and manifest registration.
+
+```bash
+# 5. Update docs/diagrams/architecture.html and docs/diagrams/architecture.svg together
 #    via the architecture-diagram skill if the full-stack topology changes.
-#    Render the committed PNG, then refresh the generated surfaces.
+#    Render the committed PNGs, including the new service diagram, then refresh the generated surfaces.
 uv run --project bootstrapper python -m scripts.docs.render_diagrams
 make docs-build
 
-# 5. Give every new `images:` entry a row in the supply-chain license inventory
+# 6. Give every new `images:` entry a row in the supply-chain license inventory
 #    (docs/reference/license-inventory.yaml) and check it
 uv run --project bootstrapper python -m scripts.docs.license_inventory --check
 
-# 6. Regenerate the canonical reference pages (env vars, sources, ports,
+# 7. Regenerate the canonical reference pages (env vars, sources, ports,
 #    dependencies, manifest fields, license inventory, the validator catalog below)
 uv run --project bootstrapper python -m scripts.docs.canonical_references
 
-# 7. Lint manifests and all three documentation surfaces
+# 8. Lint manifests and all three documentation surfaces
 uv run --project bootstrapper python -m tools.validate_fragments
 make docs-check
 ```
@@ -575,6 +621,7 @@ make docs-check
 
 - **`env_assembler`** — after any change to a manifest's `env:` block, port allocation, or source variants.
 - **`generate_readme_topology`** — after any change to a manifest's `rows:`, `display_name`, `category`, or `alias`.
+- **Publication registration** — before building a new service page. Add its page and diagram entries to `docs/manifest.yaml`, then set the matching canonical H1.
 - **Top-level `docs/diagrams/architecture.html` and `architecture.svg`** — hand-authored masters. Update both when a band-level change occurs, such as a new category or a new gateway. After either master changes, run `python -m scripts.docs.render_diagrams` as shown above before `make docs-build`. Routine `data_flow.calls` edits flow into per-service diagrams via `bootstrapper.docs.regen`.
 - **`license_inventory`** — after adding an `images:` entry or moving any image pin or catalogue model source. The row records the image exactly as pinned and its license at the upstream revision of that version. It also records what the terms allow for hosted use, source integration and redistribution. Anything not yet adjudicated is marked `unresolved` with a named open item. See the [supply-chain license inventory](reference/license-inventory.md).
 - **`canonical_references`** — after any manifest change. `make docs-check` fails on stale reference pages.

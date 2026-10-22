@@ -882,6 +882,11 @@ The Weaviate guide now describes the CLIP GPU source's startup and readiness lim
 It links the dedicated troubleshooting guide and GPU wiring issue while preserving the vector dimension migration warning.
 Runtime configuration is unchanged.
 
+### 1.129. Fixed — 2026-10-22 — Service admission registers documentation before publication (#1763)
+
+- The service contribution guide registers each canonical page and diagram before its first surface build.
+- The Qdrant example includes a stable page ID, numbered H1, manifest mapping and PNG export instructions.
+
 ## 2. [0.1.0](https://github.com/thekaveh/atlas/tree/v0.1.0) - 2026-06-21 (First tagged checkpoint)
 
 Atlas intentionally began its public semantic-version tag line at `v0.1.0`.
