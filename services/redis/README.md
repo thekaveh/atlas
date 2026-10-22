@@ -6,9 +6,9 @@ Consumers are separated by **database index**, not by service. The §3 table lis
 
 ## 1. Overview
 
-Image: `redis:7.2.14-alpine`. Persistence: AOF (`--appendonly yes`). Auth: one shared password (`REDIS_PASSWORD`), with no ACL users. Every consumer connects to `redis:6379` by Docker DNS on `backend-network`. The host port (default `63025`) is for debugging.
+Image: `redis:7.2.14-alpine`. Persistence: AOF (`--appendonly yes`) and default scheduled RDB snapshots (§9). Auth: one shared password (`REDIS_PASSWORD`), with no ACL users. Every consumer connects to `redis:6379` by Docker DNS on `backend-network`. The host port (default `63025`) is for debugging.
 
-Volume: `${PROJECT_NAME}-redis-data` (AOF append log). `./stop.sh --cold` removes it.
+Volume: `${PROJECT_NAME}-redis-data` (AOF files and RDB snapshots). `./stop.sh --cold` removes it.
 
 ## 2. Access
 
@@ -156,7 +156,9 @@ For general startup and routing issues, see [Troubleshooting](../../docs/quick-s
 
 **Force AOF rewrite.** `BGREWRITEAOF` compacts the AOF after heavy churn. It is safe to run at any time.
 
-**Cold-start vs warm-start.** `./stop.sh` (no flags) keeps the AOF, and Redis replays it on the next start, so the n8n queue and sessions survive. `./stop.sh --cold` deletes the volume.
+**Cold-start vs warm-start.** `./stop.sh` (no flags) keeps the persistence files.
+With AOF enabled, Redis loads the AOF files at startup instead of the standalone RDB snapshot.
+`./stop.sh --cold` deletes the volume, including queue and session state.
 
 ## 9. Tuning
 
@@ -177,7 +179,15 @@ Stack-relevant knobs (the first two are `.env` settings; the rest need a Compose
 | `maxmemory` | unbounded | 75% of container memory budget |
 | `maxmemory-policy` | `volatile-lru` | Keep for the mixed stock workload; use a dedicated cache instance before selecting `allkeys-lru`. |
 | `appendfsync` | `everysec` | leave as-is; `always` is overkill, `no` loses queue state on crash |
-| `save` (RDB) | disabled | enable for faster cold-start replay |
+| `save` (RDB) | Enabled: 3600 seconds / 1 change; 300 seconds / 100 changes; 60 seconds / 10000 changes | Account for background snapshot CPU and disk use. |
+
+For the pinned Redis 7.2.14 image, Compose sets `--appendonly yes` and leaves `save` unspecified.
+AOF persists writes for startup recovery. The built-in RDB schedule remains enabled independently of AOF.
+Each threshold combines elapsed time since the last successful save with a minimum number of changes.
+See the [Redis 7.2.14 persistence defaults](https://github.com/redis/redis/blob/7.2.14/redis.conf#L418-L454).
+
+The default `stop-writes-on-bgsave-error yes` can deny writes when scheduled RDB snapshots are enabled and the latest background save fails.
+This RDB-related write denial clears after background saving succeeds.
 
 Set `REDIS_MAXMEMORY` and `REDIS_MAXMEMORY_POLICY` in `.env`. The remaining low-level knobs require a targeted Compose change.
 
@@ -186,7 +196,7 @@ Set `REDIS_MAXMEMORY` and `REDIS_MAXMEMORY_POLICY` in `.env`. The remaining low-
 - **Shared password.** Every consumer uses the same `REDIS_PASSWORD`. A compromised n8n container can read LiteLLM's budget counters and backend sessions. Redis 7 ACLs would fix this — see Future — Unused features.
 - **No TLS in-cluster.** Traffic on `backend-network` is unencrypted. This is acceptable on one host, not across hosts. Use `stunnel` or a Redis build with native TLS if traffic crosses a trust boundary.
 - **Host port.** `REDIS_PORT` (default 63025) binds to `127.0.0.1` unless you widen `HOST_BIND_IP`. Every consumer shares one password, so do not widen the bind without a firewall.
-- **AOF includes commands, not just data.** `appendonly.aof` is a literal command log; anyone with read access to the volume can reconstruct every key. Treat the volume as confidential.
+- **Persistence files contain application data.** AOF files can contain commands and an RDB base snapshot; scheduled snapshots also contain stored data. Treat the volume as confidential.
 
 ## 11. Further reading
 
@@ -262,4 +272,4 @@ _No upstream calls._
 - **Pub/Sub channels** — *Why pursue:* live progress streaming for ComfyUI and LDR to the Open WebUI chat surface without polling. *Effort:* small.
 - **Redis ACL users** — *Why pursue:* replace the single shared `REDIS_PASSWORD` with per-service users so a compromised n8n container cannot read LiteLLM's budget counters. *Effort:* small.
 - **Workload-specific memory classes** — *Why pursue:* separate cache and queue instances could each have their own cap and policy, not one shared budget and `volatile-lru`. *Effort:* medium.
-- **RDB snapshots alongside AOF** — *Why pursue:* faster cold-start restore; current `--appendonly yes` is durable but slow to replay on large datasets. *Effort:* small.
+- **Workload-specific RDB scheduling** — *Why pursue:* tune the existing snapshot thresholds and their CPU/disk costs for measured workloads. *Effort:* small.
