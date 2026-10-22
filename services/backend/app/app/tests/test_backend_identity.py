@@ -569,9 +569,13 @@ def test_operator_route_rejects_user_jwt_and_accepts_internal_service(
     assert service_response.status_code == 200
 
 
+@pytest.mark.parametrize(
+    "case", [("GET", "", 200), ("POST", "/cancel", 409)], ids=["read", "cancel"]
+)
 def test_media_operation_is_non_enumerating_across_user_principals(
-    fastapi_client, monkeypatch
+    fastapi_client, monkeypatch, case
 ) -> None:
+    method, suffix, owner_status = case
     import main
     from media_operation_store import InMemoryMediaOperationStore
 
@@ -598,19 +602,31 @@ def test_media_operation_is_non_enumerating_across_user_principals(
         },
     }))
     try:
-        owner_response = fastapi_client.get(
-            f"/media/operations/{operation_id}",
+        path = f"/media/operations/{operation_id}{suffix}"
+        owner_response = fastapi_client.request(
+            method, path,
             headers=_user_headers(monkeypatch, owner_id),
         )
-        peer_response = fastapi_client.get(
-            f"/media/operations/{operation_id}",
+        peer_response = fastapi_client.request(
+            method, path,
             headers=_user_headers(monkeypatch, str(uuid4())),
+        )
+        main.MEDIA_OPERATION_STORE = InMemoryMediaOperationStore()
+        missing_response = fastapi_client.request(
+            method, path, headers=_user_headers(monkeypatch, owner_id)
         )
     finally:
         main.MEDIA_OPERATION_STORE = original_store
 
-    assert owner_response.status_code == 200
-    assert peer_response.status_code == 404
+    assert owner_response.status_code == owner_status
+    if method == "POST":
+        assert owner_response.json() == {
+            "detail": f"Media operation {operation_id} is already terminal (succeeded)"
+        }
+    assert peer_response.status_code == missing_response.status_code == 404
+    assert peer_response.json() == missing_response.json() == {
+        "detail": f"Media operation {operation_id} not found"
+    }
 
 
 def test_authorize_media_scope_rejects_non_ascii_consumer_cleanly() -> None:

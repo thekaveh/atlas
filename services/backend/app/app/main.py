@@ -3641,30 +3641,7 @@ async def cancel_media_operation(
     safely redelivered to its targeted job endpoint; confirmed requests return
     the existing operation. Other repeats and terminal operations return 409.
     """
-    try:
-        operation = await MEDIA_OPERATION_STORE.get(operation_id)
-    except Exception as exc:
-        logger.warning("Media operation lookup failed for %s: %s", operation_id, exc)
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=state_store_detail("Media operation state store is unavailable"),
-        ) from exc
-    if not operation:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Media operation {operation_id} not found",
-        )
-    operation_owner = operation.get("owner_scope")
-    if (
-        operation_owner is None and principal.subject != "auth-disabled"
-    ) or (
-        operation_owner is not None
-        and operation_owner != principal_scope_key(principal)
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Media operation {operation_id} not found",
-        )
+    operation = await _owned_media_operation(operation_id, principal)
     persisted = None
     for _ in range(3):
         last_payload = dict(operation.get("last_payload") or {})
