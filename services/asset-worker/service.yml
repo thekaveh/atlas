@@ -12,7 +12,7 @@ capabilities:
   - name: "Bounded authenticated post-processing API"
     status: supported
     verification: tested
-    note: "Data routes require the generated bearer token. Uploads enforce received-body size and reception deadlines; mutations enforce admission, final input-size, and subprocess-timeout bounds. Health and metrics remain public."
+    note: "Data routes require the generated bearer token. Uploads enforce received-body size and reception deadlines; mutations enforce admission, final input-size, and subprocess-timeout bounds. Normalization admission also caps decoded POSITION entries. Health and metrics remain public."
   - name: "Content-addressed optimized artifacts"
     status: supported
     verification: tested
@@ -67,6 +67,9 @@ env:
   - name: ASSET_WORKER_UPLOAD_TIMEOUT_SECONDS
     default: "300"
     description: "Complete multipart upload reception deadline in seconds; finite and positive. Excludes conversion and reference requests; expired reception returns HTTP 408 and releases admission."
+  - name: ASSET_WORKER_MAX_NORMALIZATION_VERTICES
+    default: "250000"
+    description: "Maximum decoded POSITION entries across distinct supported referenced accessor indices, including overlapping data. Must be a positive integer; exceeding it returns HTTP 422 before decoding."
   - name: ASSET_WORKER_TIMEOUT_SECONDS
     default: "300"
     description: "Per-command timeout for gltf-transform inspect, validate, and optimize subprocesses."
