@@ -263,3 +263,13 @@ def test_asset_worker_upload_timeout_configuration() -> None:
     compose = yaml.safe_load((SERVICES / "asset-worker" / "compose.yml").read_text())
     assert env["ASSET_WORKER_UPLOAD_TIMEOUT_SECONDS"]["default"] == "300"
     assert compose["services"]["asset-worker"]["environment"]["ASSET_WORKER_UPLOAD_TIMEOUT_SECONDS"] == "${ASSET_WORKER_UPLOAD_TIMEOUT_SECONDS:-300}"
+
+
+def test_asset_worker_normalization_budget_configuration() -> None:
+    env = {entry["name"]: entry for entry in _manifest()["env"]}
+    compose = yaml.safe_load(COMPOSE.read_text())
+    name = "ASSET_WORKER_MAX_NORMALIZATION_VERTICES"
+    assert env[name]["default"] == "250000"
+    assert compose["services"]["asset-worker"]["environment"][name] == "${ASSET_WORKER_MAX_NORMALIZATION_VERTICES:-250000}"
+    assert f"{name}=250000" in (ROOT / ".env.example").read_text()
+    assert name in README.read_text()

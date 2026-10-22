@@ -21,9 +21,9 @@ EXPECTED_BASELINE_SNAPSHOT = {
     "functions_over_100_physical_lines": 85,
     "functions_over_4_parameters": 156,
     "modules_over_600_logical_lines": 21,
-    # #1785 adds bounded ingress and real-parser regressions in both asset services.
+    # #1784 adds aggregate normalization admission and geometry regressions.
     # All code ceilings stay fixed.
-    "tracked_files": 1647,
+    "tracked_files": 1648,
     "v0.1.0_tracked_files": 667,
 }
 EXPECTED_EXTENDED_PYTHON_SNAPSHOT = {
