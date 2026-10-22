@@ -1,0 +1,17 @@
+"use strict";
+const fs = require('node:fs');
+const cp = require('node:child_process');
+const assert = require('node:assert/strict');
+const [python, helper, bindingFile] = process.argv.slice(2);
+const binding = JSON.parse(fs.readFileSync(bindingFile, 'utf8'));
+const nonce = 'atlas-1213-actual-helper-import-control';
+const c = cp.spawnSync(python, ['-I', '-B', helper, '--qualify', bindingFile], { input: JSON.stringify({ nonce }), encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], shell: false, env: { PATH: '/usr/bin:/bin', LANG: 'C', TZ: 'UTC', HOME: process.env.HOME, TMPDIR: process.env.TMPDIR }, timeout: 3000, maxBuffer: 16384, killSignal: 'SIGKILL' });
+if (c.error || c.signal || c.status !== 0 || c.stderr) throw new Error(JSON.stringify({ error: c.error ? String(c.error) : null, status: c.status, signal: c.signal, stderr: String(c.stderr || '').slice(0, 4096), stdout: String(c.stdout || '').slice(0, 1024) }));
+const result = JSON.parse(c.stdout);
+assert.equal(result.mode, 'qualification');
+assert.equal(result.nonce, nonce);
+assert.equal(result.backend_identity_sha256, binding.file_hashes[binding.backend_identity]);
+assert.equal(result.module_file, binding.backend_identity);
+assert.equal(result.backend_principal, true);
+assert.equal(result.authorize_user_id, true);
+process.stdout.write(JSON.stringify(result) + '\n');
