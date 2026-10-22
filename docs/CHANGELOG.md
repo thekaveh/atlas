@@ -870,6 +870,12 @@ It explains Tika-only profiles and fallback after Docling errors while preservin
 The Supabase guide now identifies Atlas's migration marker and the model/dimension-specific runtime vector tables in `public`.
 It links the LightRAG model-change procedure and clarifies that dropping the marker schema removes no runtime vectors.
 
+### 1.127. Fixed — 2026-10-22 — Redis guide describes the enabled default RDB schedule (#1776)
+
+The Redis guide now lists the pinned server's default snapshot thresholds alongside AOF persistence.
+It distinguishes AOF startup recovery from scheduled RDB snapshots and describes possible write denial after a background save failure.
+The runtime persistence policy is unchanged.
+
 ## 2. [0.1.0](https://github.com/thekaveh/atlas/tree/v0.1.0) - 2026-06-21 (First tagged checkpoint)
 
 Atlas intentionally began its public semantic-version tag line at `v0.1.0`.
