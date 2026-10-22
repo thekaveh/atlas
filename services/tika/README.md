@@ -24,15 +24,19 @@ Kong creates the `tika.localhost` route when `TIKA_SOURCE=container` or `TIKA_SO
 - `TIKA_JAVA_TOOL_OPTIONS=-Xmx768m` caps the container JVM heap.
 
 ## 4. Docling-first fallback policy
-Backend and Celery extraction choose the extractor per file. They send a file straight to Tika, without calling Docling, when:
+Backend `POST /documents/extract` uses automatic extension and content-type routing. It sends a file straight to Tika, without calling Docling, when:
 
 - its extension is `.doc`, `.xls`, `.ppt`, `.epub`, `.eml`, `.msg`, `.rtf`, `.odt`, `.ods`, `.odp`, `.zip`, `.tar`, `.gz`, `.gzip` or `.bz2`; or
 - its content type is a mail, RTF, OpenDocument or archive type.
 
-Every other file goes to Docling. Tika is also tried when Docling answers 415 or reports an unsupported format. Atlas's own Docling providers answer such files with 500, so in practice only the list above reaches Tika. If Docling is disabled, other formats fail: Tika does not replace Docling. Tika output is plain text and is marked `degraded`.
+For other files, automatic routing tries Docling first. It tries Tika only after a 415 response or an unsupported-format report. Atlas's Docling providers return generic 500 errors for conversion failures, which do not trigger that fallback. Without Docling, those other files fail on this automatic route.
+
+Ingestion uses `profile.parser_order` for both synchronous and Celery jobs. Each parser is selected explicitly, so ingestion does not use automatic extension routing. A `['tika']` profile tries Tika directly, including for PDF input. With `['docling', 'tika']`, a generic Docling exception or empty result advances to Tika.
+
+These paths require the selected parser's configured endpoint and enforce the Backend extraction size and timeout limits. Tika output remains degraded plain text. Successful extraction depends on Tika's ability to parse the file; this configuration does not guarantee support for every document.
 
 ## 5. Guardrails
-- Keep Tika disabled unless long-tail extraction is needed.
+- Keep Tika disabled unless long-tail extraction or explicit ingestion needs it.
 - Do not expose Tika directly to untrusted networks; it accepts document bytes and has no built-in Atlas auth.
 - Use `TIKA_MAX_FILE_SIZE` and `TIKA_TIMEOUT_SECONDS` to bound backend fallback calls.
 - Treat ZIP and other archive formats carefully. Tika can inspect embedded content. Atlas adds no malware scanning, recursive archive policy or persistent quarantine storage.
@@ -51,7 +55,7 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 | Container and existing-host Tika sources | supported | tested | Atlas resolves a pinned Tika container or an operator-run localhost server and clears downstream endpoints when the fallback is disabled. |
 | Bounded backend fallback calls | partial | tested | Backend calls enforce configured file-size and finite timeout limits, while direct Tika and Kong requests bypass those application-layer bounds. |
 | Authenticated Tika access | partial | documented | Kong protects tika.localhost with dashboard Basic authentication and ACL, but the host-published container port and operator-run localhost server bypass that gate. |
-| Archive malware and recursion policy | not-supported | documented | Atlas provides no malware scanner, recursive archive policy, or quarantine store; keep Tika disabled or network-restricted unless long-tail extraction is required. |
+| Archive malware and recursion policy | not-supported | documented | Atlas provides no malware scanner, recursive archive policy, or quarantine store. Keep Tika disabled or network-restricted unless long-tail extraction or explicit ingestion is required. |
 
 ## 7. Troubleshooting
 - Kong route missing: confirm `TIKA_SOURCE` is `container` or `tika-localhost`, then rerun `./start.sh`.

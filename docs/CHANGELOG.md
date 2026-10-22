@@ -860,6 +860,11 @@ The required-dependency example uses Trino's MinIO and Iceberg REST requirements
 The Docling guide now separates capped client timeouts, Backend's gateway floor, direct Docling access and Celery task limits.
 Gateway values track the conversion budget and link to the Kong timeout table.
 
+### 1.125. Fixed — 2026-10-22 — Tika guidance separates HTTP routing from ingestion parser order (#1774)
+
+The Tika guide now separates automatic HTTP routing from synchronous and Celery ingestion parser order.
+It explains Tika-only profiles and fallback after Docling errors while preserving extraction limits and network restrictions.
+
 ## 2. [0.1.0](https://github.com/thekaveh/atlas/tree/v0.1.0) - 2026-06-21 (First tagged checkpoint)
 
 Atlas intentionally began its public semantic-version tag line at `v0.1.0`.
