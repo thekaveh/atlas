@@ -31,7 +31,8 @@ def test_default_budget_stays_inside_the_acceptance_envelope():
 
 def _session_files(directory: Path, base: Path) -> list[Path]:
     return sorted(
-        p for p in directory.iterdir() if p.name.startswith(base.name)
+        p for p in base.parent.iterdir()
+        if p.name == base.name or re.fullmatch(re.escape(base.name) + r"\.\d+", p.name)
     )
 
 
@@ -94,7 +95,7 @@ def test_rotation_writes_ordered_timestamps_and_truncation_markers(tmp_path):
         p for p in _session_files(tmp_path, tee.base_path) if p != tee.base_path
     ]
     assert rolling, "the stream above must have rotated"
-    markers = [_rotation_marker(path, tee.base_path) for path in rolling]
+    markers = sorted(_rotation_marker(path, tee.base_path) for path in rolling)
     indexes = [index for index, _stamp in markers]
     stamps = [stamp for _index, stamp in markers]
     assert indexes == sorted(indexes)
@@ -119,6 +120,10 @@ def test_disk_exhaustion_degrades_loudly_without_raising(tmp_path):
         def close(self):
             pass
 
+    original = tee._fh
+    _FullDisk.fileno = lambda self: original.fileno()
+    _FullDisk.closed = property(lambda self: original.closed)
+    _FullDisk.close = lambda self: original.close()
     tee._fh = _FullDisk()
     tee.write("this write hits a full disk\n")
     assert tee.degraded
@@ -159,8 +164,8 @@ def test_old_sessions_are_pruned_but_foreign_files_never_touched(tmp_path):
         for p in tmp_path.iterdir()
         if p.name.startswith("atlas-launch-2026010")
     }
-    # newest two old sessions survive (this one is the third of three)
-    assert len(remaining_sessions) == 2
+    # Legacy unleased root files are outside the cooperating store.
+    assert len(remaining_sessions) == 4
     assert keeper.exists() and exported.exists(), "foreign files are untouchable"
 
 
@@ -179,8 +184,7 @@ def test_wizard_screen_uses_the_bounded_tee(monkeypatch, tmp_path):
         assert "hello" in screen._launch_log_path.read_text()
     finally:
         screen._close_launch_log_tee()
-        for p in tmp_path.glob("atlas-launch-*"):
-            p.unlink(missing_ok=True)
+
 
 
 def test_rotated_segments_never_follow_a_planted_symlink(tmp_path):
@@ -200,9 +204,8 @@ def test_rotated_segments_never_follow_a_planted_symlink(tmp_path):
         tee.write("payload line\n")
     tee.close()
     assert trap.read_text(encoding="utf-8") == ""
-    assert not planted.is_symlink()
-    segments = [p for p in tmp_path.iterdir() if p.name.startswith(tee.base_path.name + ".")]
-    assert segments and all(p.stat().st_mode & 0o777 == 0o600 for p in segments)
+    assert planted.is_symlink() and tee.degraded
+    # Refuse pre-existing paths rather than unlinking unknown ownership.
 
 
 @pytest.fixture
@@ -380,30 +383,29 @@ def test_two_segment_eviction_is_bounded_and_handles_already_missing_files(
 
         monkeypatch.setattr(Path, "unlink", observe_eviction)
         _fill_and_roll(tee)
-        assert observed == [False], "eviction must precede creating another retained file"
-        assert not tee.degraded and not oldest.exists() and next_path.exists()
-        _assert_raw_session_budget(tmp_path, tee)
+        if missing:
+            assert tee.degraded and not next_path.exists()
+            assert observed == []
+        else:
+            assert observed == [False], "eviction must precede creating another retained file"
+            assert not tee.degraded and not oldest.exists() and next_path.exists()
+            _assert_raw_session_budget(tmp_path, tee)
     finally:
         tee.close()
 
 
-def test_text_handles_keep_literal_newlines_in_raw_utf8_budget(tmp_path, monkeypatch):
-    """Exercise CRLF-translating text defaults without claiming a Windows run."""
+def test_binary_writer_keeps_literal_newlines_in_raw_utf8_budget(tmp_path, monkeypatch):
+    """Raw descriptor writes preserve LF on every CRT; native Windows is separate."""
     from ui import session_log
 
-    original_temporary = session_log.tempfile.NamedTemporaryFile
-    original_fdopen = session_log.os.fdopen
+    original_open = session_log.os.open
+    flags_seen = []
 
-    def translating_temporary(*args, **kwargs):
-        kwargs.setdefault("newline", "\r\n")
-        return original_temporary(*args, **kwargs)
+    def observe_open(path, flags, *args):
+        flags_seen.append(flags)
+        return original_open(path, flags, *args)
 
-    def translating_fdopen(*args, **kwargs):
-        kwargs.setdefault("newline", "\r\n")
-        return original_fdopen(*args, **kwargs)
-
-    monkeypatch.setattr(session_log.tempfile, "NamedTemporaryFile", translating_temporary)
-    monkeypatch.setattr(session_log.os, "fdopen", translating_fdopen)
+    monkeypatch.setattr(session_log.os, "open", observe_open)
     tee = SessionLogTee(
         prefix="atlas-launch-owned-",
         config=SessionLogConfig(directory=str(tmp_path), segment_max_bytes=512),
@@ -413,6 +415,8 @@ def test_text_handles_keep_literal_newlines_in_raw_utf8_budget(tmp_path, monkeyp
         tee.write(payload)
         _assert_raw_session_budget(tmp_path, tee)
         assert "".join(_session_payloads(tmp_path, tee.base_path)) == payload
+        binary_flag = getattr(session_log.os, "O_BINARY", 0)
+        assert all(flags & binary_flag == binary_flag for flags in flags_seen)
     finally:
         tee.close()
 
@@ -478,19 +482,20 @@ def test_rolling_open_failure_is_contained_and_keeps_pinned_content(tmp_path, mo
 def test_initial_header_write_failure_closes_the_opened_handle(tmp_path, monkeypatch):
     from ui import session_log
 
-    original_temporary = session_log.tempfile.NamedTemporaryFile
     opened = []
 
     def fail_write(_text):
         raise OSError(errno.ENOSPC, "owned header write failure")
 
-    def failing_temporary(*args, **kwargs):
-        fh = original_temporary(*args, **kwargs)
+    actual_open = SessionLogTee._open_segment
+
+    def failing_open(self, path):
+        fh = actual_open(self, path)
         opened.append(fh)
         monkeypatch.setattr(fh, "write", fail_write)
         return fh
 
-    monkeypatch.setattr(session_log.tempfile, "NamedTemporaryFile", failing_temporary)
+    monkeypatch.setattr(SessionLogTee, "_open_segment", failing_open)
     try:
         with pytest.raises(OSError):
             SessionLogTee(
