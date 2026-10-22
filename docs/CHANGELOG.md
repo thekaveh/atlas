@@ -845,6 +845,11 @@ Over-budget requests return `422`. Input-byte, upload-reception, and converter-t
 The MinIO Future ComfyUI integration now distinguishes sharing across ordinary restarts from deletion of the built-in volume during cold stop.
 Required artifacts need independent retention or external storage with a verified backup before cold stop.
 
+### 1.122. Fixed — 2026-10-22 — Consumer overlays retain Atlas network ownership (#1762)
+
+Co-launched `_user` examples now attach to Atlas's managed `backend-network` without declaring it external.
+The separate-project example retains external ownership and explicitly requires the network to exist before launch.
+
 ## 2. [0.1.0](https://github.com/thekaveh/atlas/tree/v0.1.0) - 2026-06-21 (First tagged checkpoint)
 
 Atlas intentionally began its public semantic-version tag line at `v0.1.0`.
