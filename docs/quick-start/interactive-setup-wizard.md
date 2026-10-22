@@ -248,6 +248,8 @@ The wizard also asks these stack-level questions. Track and profile come first, 
 
 - **Hosts file** enables friendly URLs such as `chat.localhost` and `n8n.localhost` (§18).
 
+With manifest `BASE_PORT: auto`, Enter keeps the inherited allocation policy. Atlas checks the block against your final project choice before launch. Typing a number pins it, even when it matches the displayed default. See [multi-instance port allocation](../operations/reusing-atlas.md#74-run-multiple-atlas-instances-on-one-host).
+
 ### 7.1. Reading a destructive warning in full
 
 On a destructive step, the compact layout shows only two subtitle rows. At the 60×20 floor that cuts off part of the cold-start warning.
