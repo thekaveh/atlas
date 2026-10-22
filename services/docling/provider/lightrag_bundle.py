@@ -9,6 +9,9 @@ from typing import Iterable
 
 
 _SAFE_STEM = re.compile(r"[^A-Za-z0-9._-]+")
+# Reserve the longest export suffix within the filename-component budget.
+_FILENAME_COMPONENT_BYTES = 255
+_EXPORT_STEM_BYTES = _FILENAME_COMPONENT_BYTES - len(".json")
 
 
 def _canonical_stem(upload_name: str) -> str:
@@ -16,7 +19,8 @@ def _canonical_stem(upload_name: str) -> str:
     leaf = PurePosixPath(raw_name).name
     stem = PurePosixPath(leaf).stem
     safe = _SAFE_STEM.sub("_", stem).strip("._-")
-    return safe or "document"
+    # Sanitization leaves only ASCII, so character and byte counts are equal.
+    return (safe or "document")[:_EXPORT_STEM_BYTES]
 
 
 def _artifact_files(root: Path, artifacts: Path, json_path: Path, markdown_path: Path) -> Iterable[Path]:
