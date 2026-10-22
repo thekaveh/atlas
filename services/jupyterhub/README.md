@@ -135,6 +135,8 @@ Docling and Parakeet calls need a bearer token (§4.2). Runnable examples are in
 
 For the advanced Iceberg/Spark validation flow (`MERGE INTO`, `VERSION AS OF`, Structured Streaming, table maintenance), see `12_iceberg_advanced_sql.ipynb`. You can also run `scripts/smoke-iceberg-advanced-sql.sh spark-connect` from the repository root. The [Iceberg advanced smoke](../../docs/operations/iceberg-advanced-smoke.md) page has the full contract.
 
+For a small local JSON ingestion example, use the optional [dlt and DuckDB recipe](../../docs/operations/dlt-duckdb.md). It demonstrates incremental updates, schema evolution and load recovery in a separate Python 3.12 environment.
+
 ### 6.1. Connecting to the lakehouse from Python
 
 The image ships the lakehouse clients `boto3`, `s3fs`, `pyiceberg[s3fs]`, `pyarrow` and `duckdb`, pre-wired against MinIO and the Iceberg REST catalog. To confirm connectivity, load the catalog with `pyiceberg.catalog.load_catalog` and call `list_namespaces()`:
