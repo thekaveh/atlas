@@ -386,7 +386,13 @@ docker logs ${PROJECT_NAME}-supabase-studio -f
 
 ## 8. LightRAG schema
 
-When `LIGHTRAG_SOURCE != disabled` and `SUPABASE_DB_SOURCE != disabled`, `lightrag-init` runs `migrate-pgvector.sql`. It runs `CREATE EXTENSION IF NOT EXISTS vector` and creates a `lightrag` schema. LightRAG's `PGVectorStorage` manages tables under that schema at runtime.
+When `LIGHTRAG_SOURCE=container` and `SUPABASE_DB_SOURCE != disabled`, `lightrag-init` runs `migrate-pgvector.sql`.
+The migration enables `vector` and ensures the `lightrag` schema and Atlas's `lightrag.vectors_meta` migration marker exist.
+
+With Atlas's default PostgreSQL wiring, `PGVectorStorage` stores vectors in model/dimension-specific `public.lightrag_vdb_*` tables.
+The marker contains no runtime vectors. Dropping the `lightrag` schema does not remove those vectors.
+
+See [Changing the embedding model or dimension](../lightrag/README.md#changing-the-embedding-model-or-dimension) for the model-change procedure.
 
 ## 9. Capabilities & limitations
 

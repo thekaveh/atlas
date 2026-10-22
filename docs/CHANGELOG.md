@@ -865,6 +865,11 @@ Gateway values track the conversion budget and link to the Kong timeout table.
 The Tika guide now separates automatic HTTP routing from synchronous and Celery ingestion parser order.
 It explains Tika-only profiles and fallback after Docling errors while preserving extraction limits and network restrictions.
 
+### 1.126. Fixed — 2026-10-22 — Supabase guide distinguishes the LightRAG marker from runtime vectors (#1775)
+
+The Supabase guide now identifies Atlas's migration marker and the model/dimension-specific runtime vector tables in `public`.
+It links the LightRAG model-change procedure and clarifies that dropping the marker schema removes no runtime vectors.
+
 ## 2. [0.1.0](https://github.com/thekaveh/atlas/tree/v0.1.0) - 2026-06-21 (First tagged checkpoint)
 
 Atlas intentionally began its public semantic-version tag line at `v0.1.0`.
