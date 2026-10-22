@@ -174,9 +174,6 @@ def _run_linear_startup(
         return 1
     if not starter.apply_user_model_selections(options.user_model_selections):
         return 1
-    if not starter.reconcile_default_models():
-        return 1
-
     if options.profile == "prod":
         service_sources = starter.config_parser.parse_service_sources()
         starter.source_validator.validation_errors = []
@@ -186,6 +183,8 @@ def _run_linear_startup(
             starter.source_validator.print_validation_results()
             return 1
     if not starter.validate_source_configurations():
+        return 1
+    if not starter.reconcile_default_models():
         return 1
 
     # Before port configuration, which stops a running stack on a warm start:

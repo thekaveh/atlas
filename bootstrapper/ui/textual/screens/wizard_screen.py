@@ -3791,10 +3791,10 @@ class WizardScreen(Screen):
                  # ./start.sh --flag <value> path while TUI is active.
                  **((self._stack_options or {}).get("user_env_writes", {}) or {}),
              })),
-            ("Reconcile default models",
-             starter.reconcile_default_models),
             ("Validate source configurations",
              starter.validate_source_configurations),
+            ("Reconcile default models",
+             starter.reconcile_default_models),
             # Before port configuration, which stops a running stack on a
             # warm start: a managed host that would refuse to start must not
             # cost that stack (#1342).
