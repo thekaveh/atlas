@@ -11,10 +11,12 @@ from models import ChunkMetadata, ConversionResponse, DocumentChunk, DocumentMet
 from utils import chunk_text, detect_format, get_file_size
 
 try:
+    from shared.document_metadata import count_formulas
     from shared.pipeline_config import build_converter, converter_status, resolve_pipeline_settings
 except ModuleNotFoundError:
     shared_dir = Path(__file__).resolve().parents[1] / "shared"
     sys.path.insert(0, str(shared_dir))
+    from document_metadata import count_formulas
     from pipeline_config import build_converter, converter_status, resolve_pipeline_settings
 
 try:
@@ -101,7 +103,7 @@ def render_conversion(
         pages = len(document.pages) if getattr(document, "pages", None) else 1
         tables = len(document.tables) if getattr(document, "tables", None) else 0
         images = len(document.pictures) if getattr(document, "pictures", None) else 0
-        formulas = len(document.equations) if getattr(document, "equations", None) else 0
+        formulas = count_formulas(document)
     except Exception as exc:
         raise RuntimeError("Docling processing failed") from exc
 
