@@ -811,6 +811,12 @@ A full audit of a freshly-launched stack surfaced one crash-loop and three sourc
 - CLI and wizard project overrides resolve durable automatic ports for the selected project. Same-project owned blocks stay stable; unknown Docker ownership remains conservative.
 - Explicit numeric ports take precedence. Wizard cold cleanup targets the selected project before replacing its environment and credentials.
 
+### 1.116. Fixed — 2026-10-21 — Active session logs survive retention cleanup (#1760)
+
+- Active logs, including quiet sessions and their rolling segments, remain protected across same-user projects and processes. Completed groups become eligible for whole-group cleanup.
+- Managed logs now use a shared private `atlas-session-logs-v1-<uid>` POSIX store or `atlas-session-logs-v1` native Windows store inside Python's temporary directory. The pane reports the actual path; legacy logs and user exports remain untouched.
+- Five managed groups share at most 480 MiB of reserved payload. Saturation visibly refuses file logging while the launch and pane logs continue. Missing or replaced required paths stop logging with one degraded notice on the next write, flush or diagnostic check.
+
 ## 2. [0.1.0](https://github.com/thekaveh/atlas/tree/v0.1.0) - 2026-06-21 (First tagged checkpoint)
 
 Atlas intentionally began its public semantic-version tag line at `v0.1.0`.

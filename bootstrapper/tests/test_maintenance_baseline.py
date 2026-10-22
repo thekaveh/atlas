@@ -21,9 +21,9 @@ EXPECTED_BASELINE_SNAPSHOT = {
     "functions_over_100_physical_lines": 85,
     "functions_over_4_parameters": 156,
     "modules_over_600_logical_lines": 21,
-    # #1758 adds setup/allocator and actual wizard-intent regression modules.
+    # #1760 adds one retention helper and two owned session-log regressions.
     # All code ceilings stay fixed.
-    "tracked_files": 1634,
+    "tracked_files": 1637,
     "v0.1.0_tracked_files": 667,
 }
 EXPECTED_EXTENDED_PYTHON_SNAPSHOT = {
