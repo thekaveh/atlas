@@ -796,6 +796,11 @@ A full audit of a freshly-launched stack surfaced one crash-loop and three sourc
 - Docling bundles now bound sanitized ASCII stems to 250 bytes before adding JSON and Markdown suffixes. Maximum-length PDF basenames and longer HTTP names can complete export.
 - Both providers and the LightRAG adapter share this rule. Short sanitized stems and repeated export names stay unchanged.
 
+### 1.113. Fixed — 2026-10-21 — Docling reports stored formula counts (#1771)
+
+- Both Docling providers count each stored formula item once in conversion metadata. Ordinary text contributes zero, and separate formula items with identical text count separately.
+- Markdown, HTML, JSON and doctags content, page/table/image metadata and chunks retain their existing behavior.
+
 ## 2. [0.1.0](https://github.com/thekaveh/atlas/tree/v0.1.0) - 2026-06-21 (First tagged checkpoint)
 
 Atlas intentionally began its public semantic-version tag line at `v0.1.0`.
