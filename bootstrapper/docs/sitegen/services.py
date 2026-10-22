@@ -349,9 +349,8 @@ Use `./start.sh` to configure this service through the wizard or pass the matchi
     return profile
 
 
-def service_pages(model: DocsModel) -> dict[Path, str]:
-    pages: dict[Path, str] = {}
-    docs = model.root / "docs" / "site" / "services"
+def service_catalog(model: DocsModel) -> str:
+    """Render the live canonical catalog without constructing profiles."""
     categories = sorted({service.category for service in model.services})
     sections: list[str] = [
         "# Service Catalog",
@@ -394,7 +393,14 @@ def service_pages(model: DocsModel) -> dict[Path, str]:
             ]
         )
 
-    pages[docs / "index.md"] = "\n".join(sections).rstrip() + "\n"
+    return "\n".join(sections).rstrip() + "\n"
+
+
+def service_pages(model: DocsModel) -> dict[Path, str]:
+    """Render the complete legacy catalog and profile dictionary."""
+    pages: dict[Path, str] = {}
+    docs = model.root / "docs" / "site" / "services"
+    pages[docs / "index.md"] = service_catalog(model)
     for service in model.services:
         pages[docs / f"{service.name}.md"] = _profile(model, service)
     return pages

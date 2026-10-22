@@ -554,7 +554,52 @@ def _inline_code_csv(values: list[str]) -> str:
     return ", ".join(f"`{value}`" for value in clean)
 
 
+def track_index(model: DocsModel) -> str:
+    """Render the live canonical track index."""
+    track_rows = [
+        [track.key, track.description, track.services_display]
+        for track in model.tracks
+    ]
+    return (
+        "# Tracks\n\n## 1. Track Matrix\n\n"
+        + table(["Track", "Description", "Services"], track_rows)
+    )
+
+
+def reference_index(model: DocsModel) -> str:
+    """Render the live canonical reference index."""
+    category_rows = []
+    categories = sorted({service.category for service in model.services})
+    for category in categories:
+        services = [service.name for service in model.services if service.category == category]
+        category_rows.append([category, str(len(services)), ", ".join(services) if services else "-"])
+    return (
+        """# Reference
+
+## 1. Generated References
+
+- [SOURCE values](source-values.md)
+- [Environment variables](env-vars.md)
+- [Ports and routes](ports-routes.md)
+- [Tracks](../tracks.md)
+- [Service dependencies](service-dependencies.md)
+- [Manifest fields](manifest-fields.md)
+- [Supply-chain license inventory](license-inventory.md)
+- [Candidate decisions](candidate-decisions.md)
+
+## 2. Hand-written References
+
+- [Consumer manifest](consumer-manifest.md)
+
+## 3. Category Summary
+
+"""
+        + table(["Category", "Count", "Services"], category_rows)
+    )
+
+
 def static_pages(model: DocsModel) -> dict[Path, str]:
+    """Render every legacy static-page output for compatibility."""
     docs = model.root / "docs"
     service_count = len(model.services)
     source_count = sum(1 for service in model.services if service.source_var)
@@ -562,16 +607,6 @@ def static_pages(model: DocsModel) -> dict[Path, str]:
     overview = docs / "site" / "overview.md"
     tracks = docs / "site" / "tracks.md"
     architecture = docs / "site" / "architecture" / "index.md"
-    track_rows = [
-        [track.key, track.description, track.services_display]
-        for track in model.tracks
-    ]
-    category_rows = []
-    categories = sorted({service.category for service in model.services})
-    for category in categories:
-        services = [service.name for service in model.services if service.category == category]
-        category_rows.append([category, str(len(services)), ", ".join(services) if services else "-"])
-
     return {
         home: f"""# Atlas Documentation
 
@@ -694,8 +729,7 @@ Service families live under `services/<name>/` and own their manifest, compose f
 
 The `.io` site and GitHub Wiki are generated from service manifests, tracks, topology, README files, and diagram assets.
 """,
-        tracks: "# Tracks\n\n## 1. Track Matrix\n\n"
-        + table(["Track", "Description", "Services"], track_rows),
+        tracks: track_index(model),
         architecture: f"""# Architecture
 
 ## 1. System Shape
@@ -869,27 +903,7 @@ uv run --project bootstrapper python scripts/check-track-membership.py
 (cd services/docling/provider/localhost && uv lock --locked)
 ```
 """,
-        docs / "site" / "reference" / "index.md": """# Reference
-
-## 1. Generated References
-
-- [SOURCE values](source-values.md)
-- [Environment variables](env-vars.md)
-- [Ports and routes](ports-routes.md)
-- [Tracks](../tracks.md)
-- [Service dependencies](service-dependencies.md)
-- [Manifest fields](manifest-fields.md)
-- [Supply-chain license inventory](license-inventory.md)
-- [Candidate decisions](candidate-decisions.md)
-
-## 2. Hand-written References
-
-- [Consumer manifest](consumer-manifest.md)
-
-## 3. Category Summary
-
-"""
-        + table(["Category", "Count", "Services"], category_rows),
+        docs / "site" / "reference" / "index.md": reference_index(model),
     }
 
 

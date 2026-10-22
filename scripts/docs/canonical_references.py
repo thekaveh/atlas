@@ -10,9 +10,13 @@ from pathlib import Path
 
 from bootstrapper.docs.merge_research import load_public_decisions
 from bootstrapper.docs.sitegen.model import load_docs_model
-from bootstrapper.docs.sitegen.pages import architecture_pages, reference_pages, static_pages
+from bootstrapper.docs.sitegen.pages import (
+    architecture_pages, reference_index, reference_pages, track_index,
+)
+# Retain the broad renderer aliases for existing direct Python callers.
+from bootstrapper.docs.sitegen.pages import static_pages
 from bootstrapper.services.manifest_validator import VALIDATOR_RULES
-from bootstrapper.docs.sitegen.services import service_pages
+from bootstrapper.docs.sitegen.services import service_catalog, service_pages
 from scripts.docs.license_inventory import (
     PAGE as LICENSE_INVENTORY_PAGE,
     load_inventory,
@@ -156,18 +160,15 @@ def render_candidate_decisions(records: list[dict]) -> str:
 def render_canonical_references(repo_root: Path) -> dict[Path, str]:
     """Render the committed pages whose content comes from manifests and tracks."""
     model = load_docs_model(repo_root)
-    static = static_pages(model)
-    services = service_pages(model)
     references = reference_pages(model)
     architecture = architecture_pages(model)
-    old_site = repo_root / "docs" / "site"
     rendered = {
-        repo_root / "docs" / "tracks.md": _final_newline(static[old_site / "tracks.md"]),
+        repo_root / "docs" / "tracks.md": _final_newline(track_index(model)),
         repo_root / "docs" / "services.md": _final_newline(
-            _service_index(services[old_site / "services" / "index.md"])
+            _service_index(service_catalog(model))
         ),
         repo_root / "docs" / "reference" / "index.md": _final_newline(
-            static[old_site / "reference" / "index.md"]
+            reference_index(model)
         ),
     }
     contributing = repo_root / "docs" / "CONTRIBUTING-services.md"
