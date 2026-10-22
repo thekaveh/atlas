@@ -801,6 +801,11 @@ A full audit of a freshly-launched stack surfaced one crash-loop and three sourc
 - Both Docling providers count each stored formula item once in conversion metadata. Ordinary text contributes zero, and separate formula items with identical text count separately.
 - Markdown, HTML, JSON and doctags content, page/table/image metadata and chunks retain their existing behavior.
 
+### 1.114. Fixed — 2026-10-21 — Startup defaults follow normalized cloud sources (#1757)
+
+- Both startup flows disable cloud providers with missing keys before selecting available chat and vision replacements.
+- Automatic fallback preserves unrouted cloud embedding identities and dimensions without credentials, including later launches. Explicit embedding selections still apply.
+
 ## 2. [0.1.0](https://github.com/thekaveh/atlas/tree/v0.1.0) - 2026-06-21 (First tagged checkpoint)
 
 Atlas intentionally began its public semantic-version tag line at `v0.1.0`.
