@@ -786,6 +786,11 @@ A full audit of a freshly-launched stack surfaced one crash-loop and three sourc
 - **`local-deep-researcher` vestigial DB wiring removed:** the `public.llms` query was deleted in the model-SoT move, but the dead supabase wiring it left behind (`DATABASE_URL`, `psycopg2-binary`/`postgresql-client`, `depends_on: supabase-db-init`, `data_flow.calls: supabase`) remained and crash-looped stale images. LDR is now correctly **DB-free** — the `research_*` tables are persisted by the backend, which calls the LangGraph server over HTTP.
 - **`ollama-pull` retries transient pull failures:** each model pull now retries up to 3 times with linear backoff before logging the terminal (non-fatal) ERROR, so a transient registry/network blip on a default model (e.g. `qwen3-embedding:0.6b`) self-heals instead of leaving the model unpulled until the next `compose up`.
 
+### 1.111. Fixed — 2026-10-21 — GPU Parakeet honors independent timing flags (#1766)
+
+- Word timing now works without segment timing. GPU responses include only requested, nonempty segment and word alignment lists.
+- Missing requested alignment reports `has_timestamps=false`. Requests with neither flag disable alignment computation and preserve the text/language response, including after timed requests.
+
 ## 2. [0.1.0](https://github.com/thekaveh/atlas/tree/v0.1.0) - 2026-06-21 (First tagged checkpoint)
 
 Atlas intentionally began its public semantic-version tag line at `v0.1.0`.
