@@ -22,7 +22,7 @@
       "functions_over_100_physical_lines": 85,
       "functions_over_4_parameters": 156,
       "modules_over_600_logical_lines": 21,
-      "tracked_files": 1637,
+      "tracked_files": 1641,
       "v0.1.0_tracked_files": 667
     },
     "extended_python_baseline_snapshot": {
@@ -36,6 +36,7 @@
     "regression_policy": "Do not increase any baseline count without reviewed commit-range attribution, and record a grounded symbol-level rationale for every new Radon E/F symbol; refresh the snapshot only during a reviewed maintenance pass.",
     "review_by": "2026-11-01",
     "owner": "Atlas maintainers",
+    "refresh_notes_2026_10_22_issue_1759": "Issue #1759 from base 3e6fdff0cec0754417913119921c49be539ed35f: tracked_files 1637 -> 1641 attributes exactly four cohesive paths: bootstrapper/core/support_bundle_logs.py (immutable bounded logical log sources, safe source boundaries and redacted tail metadata), bootstrapper/tests/test_session_log_snapshot.py (numeric chronology, gaps, explicit read bounds, identity degradation and deterministic lock/lifecycle regressions), bootstrapper/tests/test_support_bundle_logs.py (segment/read boundary redaction, UTF-8, omission metadata, per-log and exact aggregate member budgets), and bootstrapper/tests/test_support_bundle_session_export.py (actual screen failure export, immutable delayed-worker handoff after owned reclamation, preview/archive controls and fail-closed environment handling). Existing tee, screen and bundle owners contain the focused repair. Every code-complexity ceiling, counting rule, exclusion and review deadline remains unchanged; no unrelated file is excluded, removed or compressed to offset growth.",
     "accepted_signal_groups": [
       {
         "scope": "bootstrapper startup, CLI, Textual integration, and manifest/configuration orchestration",

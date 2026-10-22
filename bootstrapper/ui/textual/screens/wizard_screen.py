@@ -1738,22 +1738,28 @@ class WizardScreen(Screen):
             "📦 Launch failed; collecting the support bundle (--support-bundle)…",
             source="pipeline",
         )
+        from core.support_bundle_logs import LogSnapshot
+
+        # Capture before run_worker can yield and pipeline-finally releases
+        # the tee's ownership. The background worker never reopens these files.
+        tee = getattr(self, "_launch_log_fh", None)
+        try:
+            snapshot = tee.snapshot() if tee is not None else LogSnapshot(error="no active session logger")
+        except Exception as exc:  # noqa: BLE001 - diagnostic failure cannot fail a launch
+            snapshot = LogSnapshot(error=f"session snapshot unavailable ({type(exc).__name__})")
         self.run_worker(
-            self._export_support_bundle(Path(destination)),
+            self._export_support_bundle(Path(destination), snapshot),
             exclusive=False, exit_on_error=False, group="support_bundle",
         )
 
-    async def _export_support_bundle(self, destination: Path) -> None:
+    async def _export_support_bundle(self, destination: Path, snapshot=None) -> None:
         """Build the bundle off the UI thread from the doctor checks and the
         session log, stream its full preview into the log pane, then write
         it. A bundle failure is reported, never raised into the launch."""
         from core import support_bundle as sb
 
-        logs: tuple = ()
-        if self._launch_log_path is not None:
-            if self._launch_log_fh is not None:
-                self._launch_log_fh.flush()
-            logs = (sb.LogSource("session.log", path=Path(self._launch_log_path)),)
+        snapshot = snapshot or sb.LogSnapshot(error="session snapshot was not captured before export")
+        logs = (sb.LogSource("session.log", snapshot=snapshot),)
         options = sb.BundleOptions(
             context={"command": "start", "interface": "textual"}, logs=logs,
         )

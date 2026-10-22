@@ -21,9 +21,9 @@ EXPECTED_BASELINE_SNAPSHOT = {
     "functions_over_100_physical_lines": 85,
     "functions_over_4_parameters": 156,
     "modules_over_600_logical_lines": 21,
-    # #1760 adds one retention helper and two owned session-log regressions.
+    # #1759 adds one bounded support-log helper and three focused regressions.
     # All code ceilings stay fixed.
-    "tracked_files": 1637,
+    "tracked_files": 1641,
     "v0.1.0_tracked_files": 667,
 }
 EXPECTED_EXTENDED_PYTHON_SNAPSHOT = {
