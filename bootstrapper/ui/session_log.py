@@ -15,6 +15,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
 
+from core.support_bundle_logs import LogSnapshot, RAW_SNAPSHOT_BYTES
+
 from . import session_log_retention as _retention
 from .session_log_retention import admission, identity, track_descriptor, _close_fd
 
@@ -121,6 +123,7 @@ class SessionLogTee:
         self._rolling: list[Path] = []
         self._bytes = 0
         self._identities = {}
+        self._headers = {}
         self._reservation = None
 
         stamp = datetime.datetime.now().isoformat(timespec="seconds")
@@ -134,6 +137,7 @@ class SessionLogTee:
             self._fh = self._open_segment(self.base_path)
             try:
                 self._write_raw(header)
+                self._headers[self.base_path] = len(header.encode("utf-8"))
                 self._check_paths()
             except BaseException:
                 self.close()
@@ -229,6 +233,69 @@ class SessionLogTee:
             self._notify_degraded(failure)
 
     # -- rotation ----------------------------------------------------------
+    def snapshot(self, max_bytes: int = RAW_SNAPSHOT_BYTES) -> LogSnapshot:
+        """Freeze recent contiguous payload before close releases ownership."""
+        failure = None
+        with self._lock:
+            if self._closed or self._degraded:
+                return LogSnapshot(error="session logger is closed or degraded")
+            try:
+                self._check_paths()
+                snapshot = self._snapshot_locked(max(0, min(max_bytes, RAW_SNAPSHOT_BYTES)))
+                self._check_paths()
+            except OSError as exc:
+                self._enter_degraded()
+                failure = exc
+                snapshot = LogSnapshot(error="session snapshot unavailable after a source health failure")
+        if failure is not None:
+            self._notify_degraded(failure)
+        return snapshot
+
+    def _snapshot_locked(self, remaining):
+        first = self._segment_index - len(self._rolling) + 1
+        members = [(0, self.base_path), *zip(range(first, self._segment_index + 1), self._rolling)]
+        sizes = {path: path.stat().st_size for _index, path in members}
+        total = sum(sizes.values())
+        gap = bool(self._rolling) and first > 1
+        run = members[1:] if gap else members
+        chunks, indexes = [], []
+        for index, path in reversed(run):
+            payload = sizes[path] - self._headers[path]
+            count = min(max(0, payload), remaining)
+            if count:
+                chunks.append(self._read_snapshot_member(path, sizes[path] - count, count))
+                indexes.append(index)
+                remaining -= count
+            if remaining == 0:
+                break
+        data = b"".join(reversed(chunks))
+        payload_total = sum(sizes[path] - self._headers[path] for _index, path in run)
+        return LogSnapshot(data=data, original_bytes=total,
+                           segment_indexes=tuple(reversed(indexes)), history_omitted=gap,
+                           head_cut=gap or len(data) < payload_total)
+
+    def _read_snapshot_member(self, path, start, count):
+        # Serialize open/read/close with fork so a child cannot inherit a
+        # diagnostic descriptor outside #1760's descriptor ownership registry.
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
+        with _retention._FORK_LOCK:
+            fd = os.open(path, flags)
+            try:
+                current = os.fstat(fd)
+                if (current.st_dev, current.st_ino) != self._identities[path]:
+                    raise OSError("session-log reader changed")
+                os.lseek(fd, start, os.SEEK_SET)
+                chunks = []
+                while count:
+                    chunk = os.read(fd, count)
+                    if not chunk:
+                        raise OSError("session-log payload shortened during snapshot")
+                    chunks.append(chunk)
+                    count -= len(chunk)
+                return b"".join(chunks)
+            finally:
+                os.close(fd)
+
     def _rotation_header(self, index: int) -> str:
         stamp = datetime.datetime.now().isoformat(timespec="seconds")
         return (
@@ -252,6 +319,7 @@ class SessionLogTee:
             retired.unlink()
             self._rolling.pop(0)
             del self._identities[retired]
+            del self._headers[retired]
         self._segment_index = index
         segment_path = self.base_path.with_name(
             f"{self.base_path.name}.{self._segment_index}"
@@ -260,6 +328,7 @@ class SessionLogTee:
         self._rolling.append(segment_path)
         self._bytes = 0
         self._write_raw(header)
+        self._headers[segment_path] = len(header.encode("utf-8"))
         self._check_paths()
 
     # -- degradation -------------------------------------------------------

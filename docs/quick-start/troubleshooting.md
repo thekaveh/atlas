@@ -72,6 +72,8 @@ Inspect the reported path after a failed launch. It includes diagnostics that th
 
 Each session keeps up to 3 segments of 32 MiB, including headers. The first segment is always kept. Later output rotates into `.log.N` files with truncation markers. The `Y` shortcut copies the first segment. POSIX files are owner-only (`0600`); native Windows uses the private store's access controls. New segments never open through an existing file or symlink.
 
+Failed-launch [support bundles](../operations/index.md#41-support-bundle) select recent retained output, with explicit cutoff and omission metadata. The pinned first segment remains available separately.
+
 Same-user projects and checkouts share at most five managed groups and 480 MiB of reserved log payload in this store. A group reserves its full segment budget before logging starts. Active groups remain protected, even when quiet. At admission, Atlas removes eligible completed groups, oldest first, including all their rolling files. Groups remain charged until cleanup finishes; closing a logger does not immediately delete its files.
 
 If active groups fill the store, or storage or coordination is unusable, Atlas shows a file-logging warning. The launch and on-screen logs continue. Atlas does not create a fallback store to bypass the limit. Legacy logs outside this store and copies or exported support bundles are outside the bound and remain untouched.
