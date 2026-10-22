@@ -58,6 +58,8 @@ Atlas runs as its own stack. Your RAG project is a separate Compose project that
 
 ### 3.2. Step 2 — Join Atlas's network from your project
 
+The external network must already exist. Start Atlas first to create `${PROJECT_NAME}-network`, then use that name in your project's network declaration.
+
 In your project's `docker-compose.yml`, declare Atlas's network as **external** and attach your service to it:
 
 ```yaml
@@ -340,12 +342,9 @@ services:
       - "${HOST_BIND_IP-127.0.0.1:}8090:8090"      # choose a free host port yourself
     networks:
       - backend-network
-
-networks:
-  backend-network:
-    name: ${PROJECT_NAME}-network
-    external: true
 ```
+
+This fragment merges into Atlas's Compose project. Atlas's root configuration creates and manages `backend-network`; the service attaches without redeclaring the network as external.
 
 **Scope.** Overlay services launch, but Atlas's wizard, port allocator and generated `.env.example` do not know them. You manage their image, ports and env in the fragment. Use `${HOST_BIND_IP-127.0.0.1:}` on published ports to keep Atlas's loopback default. To keep the service in its own repo, use Method A.
 
