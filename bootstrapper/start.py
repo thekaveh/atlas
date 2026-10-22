@@ -460,6 +460,7 @@ from services.source_validator import SourceValidator
 from services.service_config import ServiceConfig
 from services.dependency_manager import DependencyManager
 from utils.source_override_manager import SourceOverrideManager
+from utils.source_availability import source_has_endpoint
 
 #: Lists (mostly wizard multi-selects) where BLANK is a deliberate answer —
 #: "I selected none" — not a missing value. `.env.example` ships a non-empty
@@ -4977,7 +4978,7 @@ class AtlasStarter:
 
             # ALIAS column — alias map from state_builder (single source).
             hostname = alias_for(name)
-            if hostname and hostname in hosts_present and source != 'disabled':
+            if hostname and hostname in hosts_present and source_has_endpoint(source):
                 alias_text = Text(f"{hostname}:{kong_port}", style="color(75)")
             else:
                 alias_text = Text("-", style="color(243)")
@@ -5123,7 +5124,7 @@ class AtlasStarter:
     @staticmethod
     def _get_service_status(source: str, scale: str) -> tuple:
         """Get a status label with ● indicator and style for a service."""
-        if source == 'disabled':
+        if not source_has_endpoint(source):
             return "● off", "color(245)"
         if 'localhost' in source:
             return "● local", "bright_cyan"
