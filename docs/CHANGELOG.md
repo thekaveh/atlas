@@ -834,6 +834,12 @@ The final GLB caps remain separate from the existing 1 MiB and 2 MiB framing all
 Both services default to a configurable 300-second complete reception deadline; expiry returns `408` and releases admission after ingress cleanup.
 Converter deadlines remain independent, and admitted conversion retains its slot through response completion and form cleanup.
 
+### 1.120. Fixed — 2026-10-22 — Asset normalization admits bounded aggregate POSITION work (#1784)
+
+Asset Worker now rejects workloads above its configured aggregate POSITION-entry limit before decoding or converter execution.
+Distinct aliased and overlapping accessors count separately; repeated references to one accessor count once.
+Over-budget requests return `422`. Input-byte, upload-reception, and converter-timeout limits remain separate; normalization adds no hard memory or elapsed-time guarantee.
+
 ## 2. [0.1.0](https://github.com/thekaveh/atlas/tree/v0.1.0) - 2026-06-21 (First tagged checkpoint)
 
 Atlas intentionally began its public semantic-version tag line at `v0.1.0`.
