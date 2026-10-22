@@ -1673,21 +1673,36 @@ def test_late_terminal_poll_missing_ledger_stays_pending(monkeypatch):
     assert not persisted["last_payload"]["provenance"].get("ledger_retention_pruned")
 
 
-def test_operation_poll_returns_503_when_state_store_lookup_fails(monkeypatch):
+@pytest.mark.parametrize(("method", "suffix"), [("GET", ""), ("POST", "/cancel")])
+def test_operation_poll_returns_503_when_state_store_lookup_fails(
+    monkeypatch, method, suffix
+):
+    from unittest.mock import AsyncMock, Mock
+
     main = _fresh_main(monkeypatch, budget_enabled=False)
 
     async def unavailable(*_args, **_kwargs):
         raise RuntimeError("redis unavailable")
 
     monkeypatch.setattr(main.MEDIA_OPERATION_STORE, "get", unavailable)
+    constructor = Mock(side_effect=AssertionError("unexpected provider construction"))
+    poll = AsyncMock(side_effect=AssertionError("unexpected provider poll"))
+    cancel = AsyncMock(side_effect=AssertionError("unexpected provider cancellation"))
+    monkeypatch.setattr(main, "FalClient", constructor)
+    monkeypatch.setattr(main, "ComfyUIMediaClient", constructor)
+    monkeypatch.setattr(main, "_poll_media_operation_or_raise", poll)
+    monkeypatch.setattr(main, "_cancel_media_provider", cancel)
     from fastapi.testclient import TestClient
 
-    response = TestClient(main.app).get("/media/operations/fal-op")
+    response = TestClient(main.app).request(method, f"/media/operations/fal-op{suffix}")
     assert response.status_code == 503
-    assert response.json()["detail"] == {
+    assert response.json() == {"detail": {
         "code": "state_store_unavailable",
         "message": "Media operation state store is unavailable",
-    }
+    }}
+    constructor.assert_not_called()
+    poll.assert_not_called()
+    cancel.assert_not_called()
 
 
 def test_submission_returns_503_when_budget_reservation_store_fails(monkeypatch):
