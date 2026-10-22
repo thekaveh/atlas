@@ -21,8 +21,9 @@ EXPECTED_BASELINE_SNAPSHOT = {
     "functions_over_100_physical_lines": 85,
     "functions_over_4_parameters": 156,
     "modules_over_600_logical_lines": 21,
-    # One cohesive #1772 bundle filename regression module; code ceilings stay fixed.
-    "tracked_files": 1629,
+    # #1772 adds one filename test; #1771 adds one shared helper and one real-model test.
+    # All code ceilings stay fixed.
+    "tracked_files": 1631,
     "v0.1.0_tracked_files": 667,
 }
 EXPECTED_EXTENDED_PYTHON_SNAPSHOT = {
