@@ -211,6 +211,8 @@ page images. Embedded images and images from other input formats stay
 available. The log reports only the discarded count. This also applies to
 the LightRAG bundle.
 
+**LightRAG bundle names.** Both Docling providers use one sanitized ASCII stem for the bundle's JSON and Markdown exports. It is limited to 250 bytes, reserving five bytes for `.json` within a 255-byte filename-component budget. Only the upload's leaf name is sanitized; an empty sanitized stem becomes `document`. Short sanitized stems stay unchanged, and repeated upload names produce the same export names.
+
 **LightRAG adapter.** In-stack LightRAG never receives the Docling token. It calls `docling-lightrag-adapter` on a private network, and the adapter authenticates to Docling. The adapter runs only when `LIGHTRAG_SOURCE=container` and a Docling source is enabled. See [Docling LightRAG Adapter](../docling-lightrag-adapter/README.md).
 
 ## 5. API Reference
