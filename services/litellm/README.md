@@ -136,11 +136,11 @@ To add a model outside the catalogs without the model picker, set `*_USER_MODELS
 
 > Note: `model_resolver` activates a provider only when it is enabled and keyed. Enabled means `CLOUD_<PROVIDER>_SOURCE=enabled`; the bootstrapper derives `LITELLM_<PROVIDER>_ENABLED` from it at every start. Keyed means `<PROVIDER>_API_KEY` is set. To stop routing to a provider, set `CLOUD_<PROVIDER>_SOURCE=disabled`. Do not edit `LITELLM_<PROVIDER>_ENABLED`; the next start overwrites it.
 
-**Default models follow the routed set.** Before each launch, the bootstrapper checks defaults against this launch's registered models.
+**Default models follow the routed set.** Before each launch, Atlas validates sources, then checks defaults against this launch's registered models.
 The defaults are `LITELLM_DEFAULT_MODEL`, `LITELLM_VISION_MODEL` and the embedding pair (`LITELLM_EMBEDDING_MODEL`, `LANGMEM_EMBEDDING_MODEL`).
 
 If a default is known to be unrouted, Atlas selects `model_resolver`'s best active replacement.
-It prints `Default model KEY: old -> new (reason)`. The embedding pair moves together.
+It prints `Default model KEY: old -> new (reason)`. Automatic embedding replacements move the pair together, except for the missing-key case below.
 Known unrouted cases include:
 
 - an `ollama/*` model while Ollama is not the engine;
@@ -148,7 +148,11 @@ Known unrouted cases include:
 - a model of a disabled cloud provider;
 - a cloud model that is no longer selected.
 
-It never replaces a routed default. It also leaves a consumer-declared model, the managed vLLM Metal model, and an Ollama tag under `ollama-localhost` with host auto-import on. A model of an enabled provider whose API key is missing is kept too; fix the key. A stale default with no replacement is a warning.
+Atlas disables enabled cloud providers with missing or blank API keys before selecting replacements. Chat and vision defaults then use an available active replacement in the same launch. To restore a provider, set its API key and set its `CLOUD_*_SOURCE=enabled`. If no upstream remains, startup stops with the actionable `LiteLLM has no upstream configured` error.
+
+An unrouted cloud embedding model with a missing or blank provider key preserves both embedding identities and `LANGMEM_EMBEDDING_DIM`. This protection continues on later launches after the provider is saved as disabled. It prevents chat or vision fallback from silently changing memory identity. An explicit embedding selection can still change that contract. Keyed disabled or deselected providers, inactive Ollama models and ordinary catalog dimension corrections retain their existing repair behavior.
+
+Atlas never replaces a routed default. It also preserves consumer models, managed vLLM Metal models and Ollama host tags when host auto-import is enabled. A stale default with no replacement produces a warning.
 
 ### 6.2. How `litellm-init` loads the catalog (container wiring)
 
