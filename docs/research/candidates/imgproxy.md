@@ -20,6 +20,8 @@ The exact image-transformation sidecar Supabase Storage upstream is designed to 
 
 ## 2. Watchlist decision (2026-07-04)
 
+**Current first-slice contract.** This section governs future implementation. Sections 4–5 retain superseded proposals and estimates for historical context.
+
 Keep imgproxy on the watchlist for now: Atlas needs thumbnailing, but this repo **must not add `services/imgproxy/service.yml` yet** until the root dashboard has a concrete asset browser or backend media endpoint that can mint backend-generated signed URLs.
 
 This is a decision/spec update, not a service addition. The key product need is cheap previews for generated and uploaded media: root dashboard asset browser cards, ComfyUI outputs, MinIO artifact buckets, Open WebUI attachments, JupyterHub previews, and future Blender MCP or glTF-adjacent creative-3D assets. That need is real, but a generic image transformer is also a CPU, fetch, and authorization surface. The first implementation should therefore be internal-only and backend-mediated.
@@ -56,6 +58,9 @@ Future service shape, if a later asset-browser ticket promotes this:
 Today `supabase-storage` and `minio` hold raw images (ComfyUI generations, user uploads, Open WebUI attachments) and serve them at their original dimensions. Anything consuming them (Open WebUI thumbnails, future frontend galleries, JupyterHub previews) has to download the full file. imgproxy is the canonical companion the Supabase Storage `IMGPROXY_URL` env var was built for; turning it on unlocks transform URLs like `/render/image/resize/width/256/...` without touching the source bytes.
 
 ## 4. Stack wiring sketch
+
+**Historical wiring sketch.** This superseded sketch is retained for context. Use the current contract in section 2 for implementation decisions.
+
 - supabase-storage -> imgproxy via `IMGPROXY_URL=http://imgproxy:8080`
 - imgproxy -> supabase-storage (or minio) over S3 for source reads
 - open-webui -> kong -> imgproxy (for chat-message thumbnails)
@@ -63,6 +68,9 @@ Today `supabase-storage` and `minio` hold raw images (ComfyUI generations, user 
 - comfyui -> supabase-storage (writes original) -> imgproxy (serves derivatives)
 
 ## 5. Effort
+
+**Historical estimate.** This estimate covers the superseded sketch in section 4, not the current first-slice contract.
+
 small — one stateless container, one env var on `supabase-storage`, one Kong route. No DB schema changes.
 
 ## 6. Risks & open questions

@@ -23,6 +23,8 @@ SearXNG already returns ranked link results, but the stack has no UI that *combi
 
 ## 3. Deferred decision (2026-07-04)
 
+**Current first-slice contract.** This section governs future implementation. Sections 4–5 retain superseded proposals and estimates for historical context.
+
 Keep Perplexica/Vane deferred. Upstream is now Vane under `ItzCrazyKns/Vane`, latest reviewed release is Vane v1.12.2, and the project remains MIT. The product is stronger than the old note captured: Docker can run a full image with bundled SearXNG or a `slim-latest` image against an existing SearXNG, and Vane exposes `/api/providers`, `/api/search`, citations, streaming via Server-Sent Events, uploads, widgets, and search modes. That is useful, but Atlas should not add another browser app until it intentionally wants a distinct single-shot cited-answer surface separate from Open WebUI and Local Deep Researcher.
 
 Future contract if reopened:
@@ -40,12 +42,18 @@ Future contract if reopened:
 Revisit when Atlas deliberately designs a product-level cited-answer app that is faster and simpler than Local Deep Researcher but more focused than Open WebUI chat with web search.
 
 ## 4. Stack wiring sketch
+
+**Historical wiring sketch.** This superseded sketch is retained for context. Use the current contract in section 3 for implementation decisions.
+
 - perplexica → searxng via `SEARXNG_API_URL=http://searxng:8080` for the search backend.
 - perplexica → litellm via `OPENAI_API_BASE_URL=http://litellm:4000/v1` (Perplexica supports OpenAI-compatible endpoints, so LiteLLM's gateway covers every provider in the stack).
 - perplexica → ollama via `OLLAMA_API_URL=http://ollama:11434` for local embeddings when LiteLLM passthrough is undesirable.
 - kong → perplexica as `perplexica.localhost` alias for browser access.
 
 ## 5. Effort
+
+**Historical estimate.** This estimate covers the superseded sketch in section 4, not the current first-slice contract.
+
 small — single docker image (`itzcrazykns1337/vane:latest`), one new manifest under `services/perplexica/`, two env vars, one Kong alias. No DB (uses SearXNG + LLM at request time).
 
 ## 6. Risks & open questions
