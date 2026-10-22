@@ -633,3 +633,27 @@ def test_action_copy_session_log_truncates_when_over_the_cap(tmp_path):
     assert len(text.removeprefix(marker).encode("utf-8")) <= SESSION_LOG_COPY_CAP_BYTES, (
         "this ASCII fixture's log payload must stay within the raw byte cap"
     )
+
+
+def test_quiet_session_path_loss_is_checked_before_clipboard_read(tmp_path):
+    scr = _screen()
+    launch_results = []
+    scr._on_launch_result = launch_results.append
+    tee = scr._launch_log_fh
+    assert tee is not None
+    tee.base_path.unlink()
+    notifications = []
+
+    async def scenario():
+        async with _WizardApp(scr).run_test(size=(140, 44)) as pilot:
+            await pilot.pause()
+            scr._phase = 'launch'
+            scr.notify = lambda message, **kwargs: notifications.append(message)
+            scr.action_copy_session_log()
+            await pilot.app.workers.wait_for_complete()
+            await pilot.pause()
+
+    asyncio.run(scenario())
+    assert tee.degraded
+    assert any('Could not read the session log' in notice for notice in notifications)
+    assert launch_results == []
