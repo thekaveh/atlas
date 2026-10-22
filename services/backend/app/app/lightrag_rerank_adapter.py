@@ -29,6 +29,7 @@ import logging
 import math
 import os
 import time
+import threading
 from typing import List, Optional
 
 import httpx
@@ -61,6 +62,28 @@ class RerankAdapterDependencyError(RerankAdapterError):
 
 class RerankAdapterTimeoutError(RerankAdapterError):
     """TEI did not respond within the timeout → surfaced as HTTP 504."""
+
+
+class RerankBudget:
+    """One queue-plus-provider caller deadline, with cooperative cancellation."""
+
+    def __init__(self, timeout_seconds, clock=None):
+        self.clock = clock or time.monotonic
+        self.expires_at = self.clock() + timeout_seconds
+        self.cancelled = threading.Event()
+
+    def remaining(self):
+        remaining = self.expires_at - self.clock()
+        if self.cancelled.is_set() or remaining <= 0:
+            raise RerankAdapterTimeoutError("TEI /rerank caller deadline expired")
+        return remaining
+
+    def cancel(self):
+        self.cancelled.set()
+
+
+def new_rerank_budget():
+    return RerankBudget(_timeout_seconds())
 
 
 class RerankAdapterUpstreamError(RerankAdapterError):
@@ -209,12 +232,11 @@ def _parse_tei_items(payload: object, doc_count: int) -> List[dict]:
     return items
 
 
-def rerank_via_tei(request: RerankAdapterRequest) -> RerankAdapterResponse:
+def rerank_via_tei(request: RerankAdapterRequest, budget=None) -> RerankAdapterResponse:
     """Translate a LightRAG rerank request through TEI and back.
 
-    Synchronous by design so the FastAPI route can offload it with
-    ``asyncio.to_thread`` (matching the /api/rag/evaluate + /api/chunk pattern)
-    and so unit tests can drive it without an event loop.
+    Synchronous calls run in the route's dedicated bounded executor. Direct
+    callers may omit the budget to start their deadline here.
     """
     documents = list(request.documents)
     # No documents → nothing to rank. Short-circuit without a TEI round-trip so
@@ -233,23 +255,18 @@ def rerank_via_tei(request: RerankAdapterRequest) -> RerankAdapterResponse:
     # Its client batch limit is lower than this adapter's bounded request size,
     # so preserve original indexes while ranking each safe-sized slice.
     batch_size = _batch_size()
-    timeout_seconds = _timeout_seconds()
-    deadline = time.monotonic() + timeout_seconds
+    budget = budget or new_rerank_budget()
     items: List[dict] = []
     try:
-        with httpx.Client(timeout=timeout_seconds) as client:
+        with httpx.Client(timeout=budget.remaining()) as client:
             for offset in range(0, len(documents), batch_size):
                 batch = documents[offset : offset + batch_size]
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    raise RerankAdapterTimeoutError(
-                        "TEI /rerank timed out before all batches completed"
-                    )
                 response = client.post(
                     f"{endpoint}/rerank",
                     json={"query": request.query, "texts": batch},
-                    timeout=remaining,
+                    timeout=budget.remaining(),
                 )
+                budget.remaining()
                 if response.status_code >= 400:
                     raise RerankAdapterUpstreamError(
                         f"TEI /rerank responded with HTTP {response.status_code}"
@@ -294,4 +311,5 @@ def rerank_via_tei(request: RerankAdapterRequest) -> RerankAdapterResponse:
         )
         for item in items
     ]
+    budget.remaining()
     return RerankAdapterResponse(results=results)
