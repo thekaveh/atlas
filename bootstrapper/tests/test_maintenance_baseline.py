@@ -21,9 +21,9 @@ EXPECTED_BASELINE_SNAPSHOT = {
     "functions_over_100_physical_lines": 85,
     "functions_over_4_parameters": 156,
     "modules_over_600_logical_lines": 21,
-    # #1213 adds fifteen optional recipe assets and one behavioral test module.
+    # #1220 adds five optional recipe assets, one behavioral test and one guide.
     # All code ceilings stay fixed.
-    "tracked_files": 1664,
+    "tracked_files": 1671,
     "v0.1.0_tracked_files": 667,
 }
 EXPECTED_EXTENDED_PYTHON_SNAPSHOT = {
