@@ -8,6 +8,7 @@ import sys
 import time
 import uuid
 import types
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -901,6 +902,126 @@ def test_media_cancel_unknown_operation_returns_404(monkeypatch):
     assert response.status_code == 404
 
 
+@pytest.mark.parametrize(
+    "case",
+    [
+        ("service", "worker", {"owner_scope": "service"}, True),
+        ("n8n", "workflow", {"owner_scope": "service"}, True),
+        ("open-webui", "chat", {"owner_scope": "service"}, True),
+        ("user", "owner", {"owner_scope": "user:owner"}, True),
+        ("notebook", "owner", {"owner_scope": "user:owner"}, True),
+        ("user", "peer", {"owner_scope": "user:owner"}, False),
+        ("service", "owner", {"owner_scope": "user:owner"}, False),
+        ("user", "owner", {"owner_scope": "service"}, False),
+        ("service", "worker", {}, False),
+        ("service", "worker", {"owner_scope": None}, False),
+        ("user", "owner", {}, False),
+        ("user", "owner", {"owner_scope": None}, False),
+        ("service", "auth-disabled", {}, True),
+        ("service", "auth-disabled", {"owner_scope": None}, True),
+        ("user", "auth-disabled", {}, True),
+        ("user", "auth-disabled", {"owner_scope": None}, True),
+        ("service", "auth-disabled", {"owner_scope": ""}, False),
+        ("service", "auth-disabled", {"owner_scope": "user:owner"}, False),
+    ],
+)
+def test_media_read_and_cancel_preserve_owner_scope_decisions(
+    monkeypatch, case
+):
+    kind, subject, owner_fields, accepted = case
+    from backend_identity import BackendPrincipal
+    from fastapi.testclient import TestClient
+    from media_operation_store import InMemoryMediaOperationStore
+
+    main = _fresh_main(monkeypatch)
+    op_id = _seed_inflight_operation(main, budget_tracked=False)
+    operation = asyncio.run(main.MEDIA_OPERATION_STORE.get(op_id))
+    operation.update(owner_fields)
+    operation["last_payload"]["status"] = "succeeded"
+    operation["reconciled"] = True
+    monkeypatch.setattr(main, "MEDIA_OPERATION_STORE", InMemoryMediaOperationStore())
+    principal = BackendPrincipal(kind=kind, subject=subject)
+    # Scope policy is isolated here; real signed user tokens are covered in
+    # test_backend_identity, including the route's authentication dependency.
+    monkeypatch.setitem(
+        main.app.dependency_overrides, main.require_backend_principal,
+        lambda: principal,
+    )
+    constructor = Mock(side_effect=AssertionError("unexpected provider construction"))
+    poll = AsyncMock(side_effect=AssertionError("unexpected provider poll"))
+    cancel = AsyncMock(side_effect=AssertionError("unexpected provider cancellation"))
+    monkeypatch.setattr(main, "FalClient", constructor)
+    monkeypatch.setattr(main, "ComfyUIMediaClient", constructor)
+    monkeypatch.setattr(main, "_poll_media_operation_or_raise", poll)
+    monkeypatch.setattr(main, "_cancel_media_provider", cancel)
+    client = TestClient(main.app)
+    path = f"/media/operations/{op_id}"
+    missing_read = client.get(path)
+    missing_cancel = client.post(f"{path}/cancel")
+    assert missing_read.status_code == missing_cancel.status_code == 404
+    assert missing_read.json() == missing_cancel.json() == {
+        "detail": f"Media operation {op_id} not found"
+    }
+
+    asyncio.run(main.MEDIA_OPERATION_STORE.create(operation))
+    read = client.get(path)
+    cancelled = client.post(f"{path}/cancel")
+    if accepted:
+        assert read.status_code == 200
+        assert read.json() == {
+            **operation["last_payload"], "operation_url": path,
+        }
+        assert cancelled.status_code == 409
+        assert cancelled.json() == {
+            "detail": f"Media operation {op_id} is already terminal (succeeded)"
+        }
+    else:
+        assert read.status_code == cancelled.status_code == 404
+        assert read.json() == cancelled.json() == missing_read.json()
+    constructor.assert_not_called()
+    poll.assert_not_called()
+    cancel.assert_not_called()
+
+
+def test_media_cancel_delegates_once_to_shared_owned_loader(monkeypatch):
+    from backend_identity import BackendPrincipal
+    from fastapi.testclient import TestClient
+
+    main = _fresh_main(monkeypatch)
+    op_id = _seed_inflight_operation(main, budget_tracked=False)
+    operation = asyncio.run(main.MEDIA_OPERATION_STORE.get(op_id))
+    payload = dict(operation["last_payload"], status="succeeded")
+    asyncio.run(main.MEDIA_OPERATION_STORE.transition_payload(op_id, payload))
+    principal = BackendPrincipal(kind="service", subject="auth-disabled")
+    monkeypatch.setitem(
+        main.app.dependency_overrides, main.require_backend_principal,
+        lambda: principal,
+    )
+    lookup = AsyncMock(wraps=main.MEDIA_OPERATION_STORE.get)
+    owned_loader = AsyncMock(wraps=main._owned_media_operation)
+    constructor = Mock(side_effect=AssertionError("unexpected provider construction"))
+    poll = AsyncMock(side_effect=AssertionError("unexpected provider poll"))
+    cancel = AsyncMock(side_effect=AssertionError("unexpected provider cancellation"))
+    monkeypatch.setattr(main.MEDIA_OPERATION_STORE, "get", lookup)
+    monkeypatch.setattr(main, "_owned_media_operation", owned_loader)
+    monkeypatch.setattr(main, "FalClient", constructor)
+    monkeypatch.setattr(main, "ComfyUIMediaClient", constructor)
+    monkeypatch.setattr(main, "_poll_media_operation_or_raise", poll)
+    monkeypatch.setattr(main, "_cancel_media_provider", cancel)
+
+    response = TestClient(main.app).post(f"/media/operations/{op_id}/cancel")
+
+    assert response.status_code == 409
+    assert response.json() == {
+        "detail": f"Media operation {op_id} is already terminal (succeeded)"
+    }
+    owned_loader.assert_awaited_once_with(op_id, principal)
+    lookup.assert_awaited_once_with(op_id)
+    constructor.assert_not_called()
+    poll.assert_not_called()
+    cancel.assert_not_called()
+
+
 def test_media_cancel_requests_provider_cancellation_without_releasing_budget(monkeypatch):
     main = _fresh_main(monkeypatch)
     op_id = _seed_inflight_operation(main)
@@ -959,7 +1080,23 @@ def test_media_cancel_retries_cas_after_concurrent_nonterminal_poll(monkeypatch)
     response = TestClient(main.app).post(f"/media/operations/{op_id}/cancel")
 
     assert response.status_code == 200
-    assert response.json()["status"] == "cancellation_requested"
+    assert response.json() == {
+        "operation_id": op_id,
+        "status": "cancellation_requested",
+        "provider": "fal",
+        "model": "fal-ai/flux/dev",
+        "modality": "image",
+        "operation_url": f"/media/operations/{op_id}",
+        "artifact_url": None,
+        "artifacts": [],
+        "cost_usd": None,
+        "license": "fal/provider-terms",
+        "provenance": {
+            "provider_request_id": op_id,
+            "provider_cancellation_requested": True,
+        },
+        "raw": {},
+    }
     assert racing_store.expected_statuses[:2] == ["in_progress", "queued"]
     assert _CancelFalClient.constructions == 1
 
@@ -970,6 +1107,9 @@ def test_media_cancel_is_idempotent_409_when_already_terminal(monkeypatch):
     spy = _ReconcileSpy()
     monkeypatch.setattr(main, "MEDIA_BUDGET_ENGINE", spy, raising=False)
     _CancelFalClient.result = True
+    _CancelFalClient.constructions = 0
+    cancel = AsyncMock(wraps=main._cancel_media_provider)
+    monkeypatch.setattr(main, "_cancel_media_provider", cancel)
     monkeypatch.setattr(main, "FalClient", _CancelFalClient, raising=False)
 
     from fastapi.testclient import TestClient
@@ -978,6 +1118,11 @@ def test_media_cancel_is_idempotent_409_when_already_terminal(monkeypatch):
     assert client.post(f"/media/operations/{op_id}/cancel").status_code == 200
     second = client.post(f"/media/operations/{op_id}/cancel")
     assert second.status_code == 409
+    assert second.json() == {
+        "detail": f"Media operation {op_id} cancellation is already requested"
+    }
+    assert _CancelFalClient.constructions == 1
+    cancel.assert_awaited_once()
     assert spy.calls == []
 
 
@@ -1319,7 +1464,10 @@ def test_comfyui_cancel_redelivers_after_ambiguous_first_attempt(
     _FakeComfyUIMediaClient.cancel_result = True
     retried = client.post(f"/media/operations/{op_id}/cancel")
     assert retried.status_code == 200
-    assert retried.json()["provenance"]["provider_cancellation_requested"] is True
+    expected = first.json()
+    assert expected["status"] == "cancellation_requested"
+    expected["provenance"]["provider_cancellation_requested"] = True
+    assert retried.json() == expected
     assert _FakeComfyUIMediaClient.cancel_calls == 2
 
 
@@ -1344,12 +1492,22 @@ def test_comfyui_confirmed_cancel_repeat_returns_current_operation(monkeypatch):
     )
     op_id = submitted.json()["operation_id"]
 
-    assert client.post(f"/media/operations/{op_id}/cancel").status_code == 200
+    first = client.post(f"/media/operations/{op_id}/cancel")
+    assert first.status_code == 200
+    expected = first.json()
+    expected["provenance"]["provider_observation"] = "cancellation confirmed"
+    operation = asyncio.run(main.MEDIA_OPERATION_STORE.get(op_id))
+    enriched = dict(operation["last_payload"])
+    enriched["provenance"] = dict(expected["provenance"])
+    asyncio.run(main.MEDIA_OPERATION_STORE.transition_payload(
+        op_id, enriched, expected_status="cancellation_requested"
+    ))
     repeated = client.post(f"/media/operations/{op_id}/cancel")
 
     assert repeated.status_code == 200
-    assert repeated.json()["status"] == "cancellation_requested"
-    assert repeated.json()["provenance"]["provider_cancellation_requested"] is True
+    assert expected["status"] == "cancellation_requested"
+    assert expected["provenance"]["provider_cancellation_requested"] is True
+    assert repeated.json() == expected
     assert _FakeComfyUIMediaClient.cancel_calls == 1
 
 
@@ -1469,6 +1627,9 @@ def test_comfyui_cancel_on_terminal_returns_409(monkeypatch):
     client.get(f"/media/operations/{op_id}")
     response = client.post(f"/media/operations/{op_id}/cancel")
     assert response.status_code == 409
+    assert response.json() == {
+        "detail": f"Media operation {op_id} is already terminal (succeeded)"
+    }
 
 
 def test_comfyui_img2img_forwards_init_image_and_strength(monkeypatch):

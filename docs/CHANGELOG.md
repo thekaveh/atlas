@@ -907,6 +907,10 @@ It identifies canonical sources as authoritative and keeps interactive serving a
 - An isolated Python 3.12 recipe loads local JSON into DuckDB with primary-key merge, revision checkpoints and explicit schema evolution.
 - Its bounded qualifier exercises replay, updates and generated-job payload repair across process restarts. The operations guide records the qualified dependencies and measured resource use for the tiny fixture.
 
+### 1.134. Changed — 2026-10-22 — Shared media-operation ownership loading (#1788)
+
+Media cancellation now uses the shared ownership loader, preserving scope checks, error responses and cancellation retry behavior.
+
 ## 2. [0.1.0](https://github.com/thekaveh/atlas/tree/v0.1.0) - 2026-06-21 (First tagged checkpoint)
 
 Atlas intentionally began its public semantic-version tag line at `v0.1.0`.
