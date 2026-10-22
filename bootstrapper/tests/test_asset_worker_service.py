@@ -256,3 +256,10 @@ def test_asset_processors_fail_dependency_check_without_minio(env_with_overrides
         v["service"] == service and v["required_service"] == "minio"
         for v in starter.dependency_manager.get_dependency_violations()
     )
+
+
+def test_asset_worker_upload_timeout_configuration() -> None:
+    env = {entry["name"]: entry for entry in _manifest()["env"]}
+    compose = yaml.safe_load((SERVICES / "asset-worker" / "compose.yml").read_text())
+    assert env["ASSET_WORKER_UPLOAD_TIMEOUT_SECONDS"]["default"] == "300"
+    assert compose["services"]["asset-worker"]["environment"]["ASSET_WORKER_UPLOAD_TIMEOUT_SECONDS"] == "${ASSET_WORKER_UPLOAD_TIMEOUT_SECONDS:-300}"

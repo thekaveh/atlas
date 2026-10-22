@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
+import math
 import os
 import secrets
 import shutil
@@ -27,6 +28,9 @@ from .models import (
 from .normalizer import _glb_json_chunk, external_resource_uris
 from .runner import GltfTransformError, run_gltf_transform
 from .storage import ArtifactStorage, ArtifactTooLargeError, CONTENT_TYPE
+
+
+from .upload_body import UploadBody, UploadRejected
 
 
 logger = logging.getLogger(__name__)
@@ -62,6 +66,93 @@ def _storage_error_status(exc: Exception):
     return None
 
 
+class _RequestAdmission:
+    def __init__(self, app, owner, expected_token):
+        self.app = app
+        self.owner = owner
+        self.expected_token = expected_token
+
+    def _authenticate(self, request):
+        if not self.expected_token:
+            return JSONResponse(
+                status_code=503, content={"detail": "Asset Worker authentication is not configured"}
+            )
+        scheme, _, credential = request.headers.get("authorization", "").partition(" ")
+        # Byte comparison also handles non-ASCII credentials deliberately.
+        if scheme.lower() != "bearer" or not secrets.compare_digest(
+            credential.encode("utf-8"), self.expected_token.encode("utf-8")
+        ):
+            return JSONResponse(
+                status_code=401, content={"detail": "Invalid Asset Worker bearer token"}
+            )
+        return None
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        request = Request(scope)
+        if request.url.path in {"/health", "/metrics"}:
+            return await self.app(scope, receive, send)
+        rejection = self._authenticate(request)
+        if rejection is not None:
+            return await rejection(scope, receive, send)
+        if request.method == "POST" and request.url.path in {
+            "/gltf/postprocess", "/gltf/postprocess/ref",
+        }:
+            return await self._mutation(request, receive, send)
+        await _join_request_task(asyncio.create_task(self.app(scope, receive, send)))
+
+    async def _mutation(self, request, receive, send):
+        scope = request.scope
+        semaphore = self.owner.state.transform_semaphore
+        if not semaphore.acquire(blocking=False):
+            logger.info("asset_transform_rejected reason=busy")
+            rejection = JSONResponse(
+                status_code=429, content={"detail": "Asset worker is busy; retry later"}
+            )
+            return await rejection(scope, receive, send)
+        try:
+            rejection = self._declared_rejection(request)
+            if rejection is not None:
+                return await rejection(scope, receive, send)
+            if request.url.path == "/gltf/postprocess":
+                return await self._upload(scope, receive, send)
+            await _join_request_task(asyncio.create_task(self.app(scope, receive, send)))
+        finally:
+            semaphore.release()
+
+    def _declared_rejection(self, request):
+        if _declared_body_too_large(request):
+            return JSONResponse(
+                status_code=413, content={"detail": f"GLB exceeds {_max_input_bytes()} byte limit"}
+            )
+
+    async def _upload(self, scope, receive, send):
+        try:
+            timeout = _upload_timeout_seconds()
+            with UploadBody(
+                _max_input_bytes() + _MULTIPART_OVERHEAD_BYTES, timeout, time.monotonic
+            ) as body:
+                await body.receive(receive)
+                work = asyncio.create_task(self.app(scope, body.replay, send))
+                await _join_request_task(work)
+        except UploadRejected as exc:
+            # The ingress ownership scope exits before a rejection is sent.
+            rejection = JSONResponse(status_code=exc.status, content={"detail": exc.detail})
+            await rejection(scope, receive, send)
+
+
+def _upload_timeout_seconds():
+    name = "ASSET_WORKER_UPLOAD_TIMEOUT_SECONDS"
+    try:
+        value = float(os.getenv(name, "300"))
+        if not math.isfinite(value) or value <= 0:
+            raise ValueError
+    except ValueError as exc:
+        raise UploadRejected(500, f"{name} must be a finite positive number") from exc
+    return value
+
+
 def create_app(*, api_token: str | None = None) -> FastAPI:
     app = FastAPI(
         title="Atlas Asset Worker",
@@ -77,48 +168,7 @@ def create_app(*, api_token: str | None = None) -> FastAPI:
     concurrency = max(1, int(os.getenv("ASSET_WORKER_CONCURRENCY", "1")))
     app.state.transform_semaphore = threading.Semaphore(concurrency)
 
-    @app.middleware("http")
-    async def require_api_token_and_admit(request: Request, call_next):
-        if request.url.path in {"/health", "/metrics"}:
-            return await call_next(request)
-        if not expected_token:
-            return JSONResponse(
-                status_code=503,
-                content={"detail": "Asset Worker authentication is not configured"},
-            )
-        scheme, _, credential = request.headers.get("authorization", "").partition(" ")
-        # Compare utf-8 bytes: secrets.compare_digest raises TypeError on a
-        # non-ASCII str, which would surface as a 500 instead of this 401.
-        if scheme.lower() != "bearer" or not secrets.compare_digest(
-            credential.encode("utf-8"), expected_token.encode("utf-8")
-        ):
-            return JSONResponse(
-                status_code=401,
-                content={"detail": "Invalid Asset Worker bearer token"},
-            )
-        admitted = False
-        if request.method == "POST" and request.url.path in {
-            "/gltf/postprocess",
-            "/gltf/postprocess/ref",
-        }:
-            if not app.state.transform_semaphore.acquire(blocking=False):
-                logger.info("asset_transform_rejected reason=busy")
-                return JSONResponse(
-                    status_code=429,
-                    content={"detail": "Asset worker is busy; retry later"},
-                )
-            admitted = True
-        try:
-            if admitted and _declared_body_too_large(request):
-                return JSONResponse(
-                    status_code=413,
-                    content={"detail": f"GLB exceeds {_max_input_bytes()} byte limit"},
-                )
-            work = asyncio.create_task(call_next(request))
-            return await _join_request_task(work)
-        finally:
-            if admitted:
-                app.state.transform_semaphore.release()
+    app.add_middleware(_RequestAdmission, owner=app, expected_token=expected_token)
 
     @app.get("/health")
     def health() -> JSONResponse:
@@ -310,12 +360,7 @@ _MULTIPART_OVERHEAD_BYTES = 1024 * 1024
 
 
 def _declared_body_too_large(request: Request) -> bool:
-    """Reject an oversized declared body before Starlette spools it to disk.
-
-    The form parser buffers the whole multipart body before the handler's
-    chunked copy runs, so without this a huge upload fills the temp disk
-    first. Chunked bodies without Content-Length still meet the handler cap.
-    """
+    """Reject oversized declared bodies before bounded upload reception."""
     try:
         declared = int(request.headers.get("content-length", ""))
     except ValueError:
