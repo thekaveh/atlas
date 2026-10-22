@@ -822,6 +822,11 @@ A full audit of a freshly-launched stack surfaced one crash-loop and three sourc
 - Failed Textual launches capture recent contiguous session output before file ownership ends. Generated headers do not interrupt redaction; history gaps and safety omissions are explicit.
 - One session excerpt remains capped at 256 KiB. A new 4 MiB aggregate cap counts final uncompressed member payloads, including diagnostic metadata, before preview and writing.
 
+### 1.118. Fixed — 2026-10-22 — Previews omit unavailable Ollama endpoints (#1768)
+
+- Selecting `LLM_PROVIDER_SOURCE=none` removes Ollama links from service previews and cards. The summary stays off, and the dashboard omits reachability probes.
+- CPU, GPU and localhost Ollama links remain available. Cloud API availability and vLLM state remain independent.
+
 ## 2. [0.1.0](https://github.com/thekaveh/atlas/tree/v0.1.0) - 2026-06-21 (First tagged checkpoint)
 
 Atlas intentionally began its public semantic-version tag line at `v0.1.0`.
