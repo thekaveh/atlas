@@ -6,7 +6,7 @@ from pathlib import Path
 import socket
 import subprocess
 import sys
-from types import SimpleNamespace
+from types import MethodType, SimpleNamespace
 
 import pytest
 
@@ -163,6 +163,7 @@ def _run(starter, flow, monkeypatch, selections=None):
         _source_args={}, _safe_log=log, _write_status=log, _cold_cleanup_steps=lambda *a: [],
         _mark_launch_failed=lambda: starter.logs.append("failed"), _close_launch_log_tee=lambda: None,
     )
+    screen._configure_launch_ports = MethodType(ws.WizardScreen._configure_launch_ports, screen)
     asyncio.run(ws.WizardScreen._run_pipeline_and_stream(screen))
     return 1  # Every successful configuration probe deliberately stops at ports.
 

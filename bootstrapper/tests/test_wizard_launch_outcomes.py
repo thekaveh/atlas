@@ -109,8 +109,10 @@ class _Starter:
         # AtlasStarter state the result block reads (#989): no image left out.
         self.skipped_builds: list[str] = []
         self.calls: list[str] = []
+        self.configured_env = {"BASE_PORT": "63000"}
         self.config_parser = SimpleNamespace(
-            root_dir="/nonexistent", get_project_name=lambda: "atlas"
+            root_dir="/nonexistent", get_project_name=lambda: "atlas",
+            parse_env_file=lambda: dict(self.configured_env),
         )
         self.docker_manager = _Docker()
         self.hosts_manager = SimpleNamespace(set_logger=lambda _logger: None)
@@ -125,6 +127,12 @@ class _Starter:
             return True
 
         return step
+
+    def handle_port_configuration(self, base_port):
+        self.calls.append("handle_port_configuration")
+        if base_port is not None:
+            self.configured_env["BASE_PORT"] = str(base_port)
+        return True
 
     def show_detached_status_summary(self, *, json_output=False):
         if json_output:
@@ -911,7 +919,7 @@ def test_an_auto_base_port_reaches_port_configuration_as_none():
     class _Recording(_Starter):
         def handle_port_configuration(self, base_port):
             self.port_argument = ("called", base_port)
-            return True
+            return super().handle_port_configuration(base_port)
 
     starter = _Recording("success")
     _run_tui("success", starter, stack_options={"base_port": None})

@@ -693,6 +693,10 @@ For committed consumers that run side by side, set `BASE_PORT: auto` in each man
 
 The allocator skips `63000` and any block another running stack uses, and keeps the block across restarts. Three consumers started in turn get blocks such as `20000`, `20100` and `20200`. A cold start resolves again and still skips used blocks.
 
+With manifest `BASE_PORT: auto`, Atlas checks ownership using the final project selected by `--project` or the wizard. A same-project warm start keeps its owned block. If the project changes, Atlas chooses a free block when the saved block is occupied and Docker can verify ownership. If ownership is unknown, Atlas keeps the saved block and lets port validation refuse conflicts.
+
+An explicit numeric base port takes precedence, including a number typed in the wizard that matches the displayed default. Pressing Enter keeps the inherited choice; manifest `auto` still checks it against the final project. Choosing `auto` explicitly requests a fresh block.
+
 The port probe checks only services that this run enables. It applies this run's `--<svc>-source` flags, the manifest's `*_SOURCE` values and the wizard's answers. After the profile, the manifest and the flags write their sources, Atlas probes the chosen block again. If an enabled service finds its port taken, Atlas uses the next free block.
 
 ```bash

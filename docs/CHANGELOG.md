@@ -806,6 +806,11 @@ A full audit of a freshly-launched stack surfaced one crash-loop and three sourc
 - Both startup flows disable cloud providers with missing keys before selecting available chat and vision replacements.
 - Automatic fallback preserves unrouted cloud embedding identities and dimensions without credentials, including later launches. Explicit embedding selections still apply.
 
+### 1.115. Fixed — 2026-10-21 — Auto ports use the final project (#1758)
+
+- CLI and wizard project overrides resolve durable automatic ports for the selected project. Same-project owned blocks stay stable; unknown Docker ownership remains conservative.
+- Explicit numeric ports take precedence. Wizard cold cleanup targets the selected project before replacing its environment and credentials.
+
 ## 2. [0.1.0](https://github.com/thekaveh/atlas/tree/v0.1.0) - 2026-06-21 (First tagged checkpoint)
 
 Atlas intentionally began its public semantic-version tag line at `v0.1.0`.
