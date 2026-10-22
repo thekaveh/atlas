@@ -2124,6 +2124,13 @@ class WizardScreen(Screen):
         typed = self._selections.get(f"__secondary__:{secondary.env_var}")
         return "" if typed in (None, "") else str(typed)
 
+    def _capture_base_port_intent(self, step: PromptStep) -> None:
+        if step.title != "Base port  ·  range":
+            return
+        intent = self._prompt.number_entry_intent()
+        if intent != "inherited" or "__base_port_intent" not in self._selections:
+            self._selections["__base_port_intent"] = intent
+
     def action_confirm(self) -> None:
         if self._phase != "setup":
             return
@@ -2156,6 +2163,7 @@ class WizardScreen(Screen):
         if previous_value is not None and previous_value != opt.value:
             for dependent_title in step.invalidates_on_change:
                 self._selections.pop(dependent_title, None)
+        self._capture_base_port_intent(step)
         self._selections[step.title] = opt.value
         self._answer_options[self._step_index] = self._provider_cache.get(self._step_index, step.options)
         # Inline secondary integer inputs (kind="options" + per-option
@@ -3054,6 +3062,8 @@ class WizardScreen(Screen):
                     _launch_selections
                 )
                 if self._starter is not None:
+                    self._resolve_wizard_ports()
+                    self._show_launch_base_port(self._stack_options["base_port"])
                     try:
                         from .. import integration as _int_mod
                         self._starter.active_track = _launch_selections.get(
@@ -3599,6 +3609,35 @@ class WizardScreen(Screen):
         except Exception:  # noqa: BLE001 - an advisory probe must not fail a launch
             pass
 
+    def _resolve_wizard_ports(self) -> None:
+        """Route final allocation diagnostics before the pipeline takes over."""
+        starter = self._starter
+        original_banner = starter.banner
+        starter.banner = _NullBanner(
+            sink=lambda message, level: self._safe_log(message, source="pipeline", level=level)
+        )
+        try:
+            starter.resolve_wizard_base_port(self._source_args, self._stack_options)
+        finally:
+            starter.banner = original_banner
+
+    def _show_launch_base_port(self, base_port: int) -> None:
+        """Keep the existing overview on the block the launch will persist."""
+        self._preview_base = base_port
+        if self._on_base_port_change is not None:
+            self._services = self._on_base_port_change(base_port, self._services)
+            self._reapply_typed_host_ports()
+            self._service_table.set_rows(self._services)
+            self._refresh_info_panel()
+
+    def _configure_launch_ports(self, base_port) -> bool:
+        if not self._starter.handle_port_configuration(base_port):
+            return False
+        resolved = int(self._starter.config_parser.parse_env_file()["BASE_PORT"])
+        self._stack_options["base_port"] = resolved
+        self._show_launch_base_port(resolved)
+        return True
+
     def _cold_cleanup_steps(self, starter, base_port: int, project_name) -> list:
         """The wizard cold start's cleanup step, when one is pending.
 
@@ -3614,9 +3653,13 @@ class WizardScreen(Screen):
             # Recorded first: an interrupted cleanup may already have
             # removed volumes, which the cancel notice must say.
             starter.tui_cold_cleanup_ran = True
-            return starter.prepare_environment(
+            auto_chosen = getattr(starter, "base_port_auto_chosen", False)
+            if not starter.prepare_environment(
                 cold_start=True, base_port=base_port, project_name=project_name or None,
-            )
+            ):
+                return False
+            starter.base_port_auto_chosen = auto_chosen
+            return True
 
         return [("Cold start: remove volumes and recreate .env", cleanup)]
 
@@ -3641,7 +3684,7 @@ class WizardScreen(Screen):
         # (Banner is the NullBanner here, so the persist's status line goes to
         # the log pane instead of corrupting the Textual chrome.)
         _proj = (self._stack_options or {}).get("project_name")
-        if _proj:
+        if _proj and not (self._stack_options or {}).get("cold_cleanup_pending"):
             if not starter._persist_project_name(_proj):
                 self._write_status(
                     "  ✗ Persist project name failed",
@@ -3658,7 +3701,7 @@ class WizardScreen(Screen):
         # ``supabase-db`` and don't appear as duplicate sources in the
         # filter dropdown next to the bare names.
         try:
-            self._launched_project = starter.config_parser.get_project_name()
+            self._launched_project = _proj or starter.config_parser.get_project_name()
             set_project_prefix(self._launched_project)
         except Exception:  # noqa: BLE001
             pass
@@ -3806,7 +3849,7 @@ class WizardScreen(Screen):
             ("Clear stale port environment",
              lambda: (starter.unset_port_environment_variables() or True)),
             ("Configure ports",
-             lambda: starter.handle_port_configuration(base_port)),
+             lambda: self._configure_launch_ports(base_port)),
             # Secrets MUST be generated/rotated BEFORE any step that bakes a
             # secret into a derived config value. generate_service_configuration
             # embeds SUPABASE_DB_PASSWORD / GRAPH_DB_PASSWORD / REDIS_PASSWORD into

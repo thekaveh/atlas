@@ -1325,6 +1325,7 @@ def _selections_to_args(
     resolved_profile = (selections.get(PROFILE_STEP_TITLE) or "default").strip()
     return source_args, {
         "base_port": base_port_val, "base_port_auto": base_port_auto,
+        "base_port_intent": selections.get("__base_port_intent", "auto" if base_port_auto else "numeric"),
         "project_name": project_name_val, "cold": cold,
         # A wizard "Cold start: yes" has not cleaned anything yet (the CLI
         # --cold path cleans before the launch screen), so the pipeline

@@ -21,9 +21,9 @@ EXPECTED_BASELINE_SNAPSHOT = {
     "functions_over_100_physical_lines": 85,
     "functions_over_4_parameters": 156,
     "modules_over_600_logical_lines": 21,
-    # #1757 adds one actual-pipeline/default-contract regression module.
+    # #1758 adds setup/allocator and actual wizard-intent regression modules.
     # All code ceilings stay fixed.
-    "tracked_files": 1632,
+    "tracked_files": 1634,
     "v0.1.0_tracked_files": 667,
 }
 EXPECTED_EXTENDED_PYTHON_SNAPSHOT = {

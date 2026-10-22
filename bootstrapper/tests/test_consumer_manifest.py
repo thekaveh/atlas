@@ -676,6 +676,7 @@ def test_doctor_materializes_consumer_env_and_keeps_json_clean(
     monkeypatch.setattr(
         start_module.subprocess, "run", lambda cmd, **_kwargs: Result()
     )
+    monkeypatch.setattr("core.docker_manager.run_with_deadline", start_module.subprocess.run)
 
     result = CliRunner().invoke(
         start_module.main,
