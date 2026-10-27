@@ -1,6 +1,6 @@
 a2wsgi==1.10.10
 aiohappyeyeballs==2.7.1
-aiohttp==3.14.3
+aiohttp==3.14.4
 aiosignal==1.4.0
 aiosmtplib==5.1.2
 aiosqlite==0.21.0
@@ -212,6 +212,6 @@ werkzeug==3.1.9
 wirerope==1.0.0
 wrapt==2.3.0
 wtforms==3.2.2
-yarl==1.24.5
+yarl==1.25.1
 zipp==4.1.0
 zstandard==0.25.0

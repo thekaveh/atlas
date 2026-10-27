@@ -1075,8 +1075,8 @@ def _assert_workflow_setup_action_contract(steps):
     actions = [step["uses"] for step in steps if "uses" in step]
     assert actions == [
         "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
-        "actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97",
-        "astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7",
+        "actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0",
+        "astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e",
     ]
 
 
