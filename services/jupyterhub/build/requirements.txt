@@ -117,7 +117,8 @@ wheel==0.46.2
 # (curl client decompression bomb).
 # 6.6 also fixes folded-header/chunked-body DoS and redirect-host validation.
 tornado>=6.6
-# PYSEC-2026-3785 through PYSEC-2026-3788, transitive via jupyterlab-git.
+# Transitive via jupyterlab-git. 3.1.59 fixed PYSEC-2026-3785 through
+# PYSEC-2026-3788; the 3.2.1 floor takes the later GitPython security fixes.
 gitpython>=3.2.1
 
 # Deep Learning — PyTorch core
@@ -126,13 +127,12 @@ torchvision==0.28.0
 
 # Deep Learning — higher-level frameworks
 torchmetrics==1.4.2
-# 3.16.0 is outside the affected range of PYSEC-2026-3865 / CVE-2026-71211
+# 3.17.2 is outside the affected range of PYSEC-2026-3865 / CVE-2026-71211
 # (the MLflow AI Gateway api_base SSRF): GHSA-h7x2-h6g9-p789 records
-# introduced 3.13.0, last_affected 3.15.2, and was re-evaluated on 2026-09-10,
-# after 3.16.0 shipped on 2026-09-04. The notebook uses only the tracking
-# client against the separately deployed MLflow service, so this is a client
-# pin and moves independently of that service's own image pin.
-# 3.17.2 also includes the FileStore trace-path and 3.17.0 scorer/autolog fixes.
+# introduced 3.13.0, last_affected 3.15.2. It also includes the FileStore
+# trace-path and 3.17.0 scorer/autolog fixes. The notebook uses only the
+# tracking client against the separately deployed MLflow service, so this is a
+# client pin and moves independently of that service's own image pin.
 mlflow==3.17.2
 
 # Graph Neural Networks (PyG). torch-geometric is a pure-Python wheel on PyPI
@@ -163,7 +163,7 @@ thekaveh-nnx[lm]==0.2.3
 python-louvain  # `community` module — community_detection-karate notebook
 # NLTK 3.10.4 guards caller-controlled model paths (PYSEC-2026-3740).
 # VADER still loads only the integrity-locked asset from install_nlp_assets.py
-# and nlp-assets.toml; the corpus/model assets and download policy are unchanged.
+# and nlp-assets.toml.
 nltk>=3.10.4  # SentimentIntensityAnalyzer; VADER is integrity-locked by nlp-assets.toml
 spacy  # tokenizer + lemmatizer; model integrity-locked by nlp-model-requirements.txt and nlp-assets.toml
 torchao>=0.17  # transitive via nnx.quantize_int8 + nnx.qat_train_step_factory — quantization-mnist notebook

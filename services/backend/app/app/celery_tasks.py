@@ -324,8 +324,7 @@ def _retry_rag_busy(task, exc, state: _RagRetryState) -> None:
     an operator recovers it, so its retries back off with full jitter (capped
     at 600 s). Execution-lease contention retries after one lease period.
     """
-    from rag_ingestion import ingestion_execution_lease_seconds
-    from rag_ingestion.service import CollectionPublicationBusy
+    from rag_ingestion import CollectionPublicationBusy, ingestion_execution_lease_seconds
 
     state = replace(state, recovery_owner=None)
     if isinstance(exc, CollectionPublicationBusy):

@@ -34,7 +34,6 @@ def rerank_consumer(tmp_path, monkeypatch):
 def test_early_rerank_validation_reads_user_overlays_without_writing(
     tmp_path, monkeypatch, rerank_consumer, case,
 ) -> None:
-    from types import SimpleNamespace
     from core.config_parser import ConfigParser
     from start import _validate_consumer_manifests_early
 
@@ -70,7 +69,6 @@ def test_early_rerank_validation_uses_effective_overlay_precedence(
     tmp_path, monkeypatch, rerank_consumer, case,
 ) -> None:
     import click
-    from types import SimpleNamespace
     from core.config_parser import ConfigParser
     from start import _validate_consumer_manifests_early
 
@@ -94,7 +92,6 @@ def test_early_rerank_validation_skips_entire_invalid_user_overlay(
     tmp_path, rerank_consumer, capsys, bad_tail,
 ) -> None:
     import click
-    from types import SimpleNamespace
     from core.config_parser import ConfigParser
     from start import _validate_consumer_manifests_early
 
@@ -136,6 +133,37 @@ def test_consumer_config_reports_each_overlay_problem_once_per_file_version(
     err = capsys.readouterr().err
     assert err.count("Atlas preserves this reference") == 1, err
     assert "does not exist; skipping" not in err
+
+
+@pytest.mark.parametrize("banner_first", [True, False])
+def test_start_banner_and_consumer_config_report_a_bad_overlay_once(
+    tmp_path, monkeypatch, capsys, banner_first,
+) -> None:
+    """A start reads each overlay for its banner and again for
+    load_consumer_config. The banner reports a bad overlay exactly once, and
+    stderr carries it only when an early consumer load read it first."""
+    import start
+    from core.config_parser import ConfigParser
+
+    for name in ("ATLAS_CONSUMER_MANIFEST", "ATLAS_ENV_FILE", "ATLAS_ENV_USER_FILE"):
+        monkeypatch.delenv(name, raising=False)
+    (tmp_path / ".env").write_text("PROJECT_NAME=atlas\n", encoding="utf-8")
+    overlay = tmp_path / ".env.user"
+    overlay.write_text('BAD="unterminated\n', encoding="utf-8")
+    banner: list = []
+    starter = start.AtlasStarter.__new__(start.AtlasStarter)
+    starter.config_parser = ConfigParser(str(tmp_path))
+    starter.banner = SimpleNamespace(show_status_message=lambda message, level: banner.append(message))
+
+    if not banner_first:
+        starter.config_parser.load_consumer_config()
+    assert starter._apply_single_env_user_overlay(overlay, label=".env.user", warn_if_missing=False) == {}
+    starter.config_parser.load_consumer_config()
+
+    err = capsys.readouterr().err.splitlines()
+    assert sum("could not be read" in line for line in banner) == 1, banner
+    assert sum("could not be read" in line for line in err) == (0 if banner_first else 1), err
+    assert (tmp_path / ".env").read_text(encoding="utf-8") == "PROJECT_NAME=atlas\n"
 
 
 def _write_base_env(tmp_path: Path, extra: str = "") -> None:

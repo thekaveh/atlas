@@ -323,11 +323,8 @@ class VllmMetalManager:
             )
 
     def _installed_versions_match(self) -> bool:
-        try:
-            payload = json.loads(self.status_file.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return False
-        if not isinstance(payload, dict):
+        payload = self._launch_record()
+        if not payload:
             return False
         installed = self._installed_versions()
         return (

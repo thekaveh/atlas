@@ -55,7 +55,7 @@ For TUI/CLI visual work: after each change, describe exactly what changed visual
 
 Build validation runs on every workflow run and is a required check in the live `gitflow` ruleset. Despite its name, it builds no local Dockerfile. It verifies the pinned remote build contexts against their reviewed base-image digests and scans changed remote images. Local Dockerfile and requirements breakage shows in `Final-image scan (local Compose and init images)`, which is not a required check.
 
-When an upstream floating tag (`nginx:alpine`, `node:20`, `python:3.12-slim`) is republished, build validation fails on every pull request. It passes again after you refresh the reviewed digest in three places: `.container-scan-exclusions.yml`, the `test_container_security.py` fixture and the row in `docs/maintenance/external-contract-ledger.md`.
+When an upstream floating tag (`nginx:alpine`, `node:20`, `python:3.12-slim`) is republished, build validation fails on every pull request. It passes again after you refresh the reviewed digest in `.container-scan-exclusions.yml` and the `test_container_security.py` fixture. Update the row in `docs/maintenance/external-contract-ledger.md` and record the review in a new dated §7.2 evidence subsection. For `python:3.12-slim`, also point the ledger provenance assertions in `test_container_security.py` at that subsection.
 
 `Manifest lint + unit tests` is an aggregate gate (job `required-lint`, `if: always()`). It succeeds only when four parallel jobs all succeed:
 

@@ -105,6 +105,14 @@ _TERMINAL = frozenset({STATUS_COMPLETED, STATUS_FAILED, STATUS_CANCELLED})
 # A prior job with one of these statuses satisfies an idempotent re-submit (we do
 # NOT re-run it). A failed job is allowed to be retried under the same key.
 _DEDUP_STATUSES = frozenset({STATUS_PENDING, STATUS_RUNNING, STATUS_COMPLETED})
+# The pending vector_write note per observed collection guard state. The atomic
+# claim does not report which guard refused it (key None).
+PUBLICATION_WAIT_NOTES = {
+    "clean": "waiting for collection publication; another job holds the class",
+    "dirty": "waiting for collection publication; an interrupted write requires operator recovery",
+    None: "waiting for collection publication; another job is writing the class, "
+          "or an interrupted write requires operator recovery",
+}
 
 
 @dataclass
@@ -212,9 +220,11 @@ class IngestionRecord:
             "body": error.body,
         }
 
-    def defer_retry(self, note: str) -> None:
-        running = next(
-            (phase for phase in self.phases if phase.status == STATUS_RUNNING),
+    def defer_retry(self, note: str, phase: Optional[str] = None) -> None:
+        """Return the job to ``pending``; the note lands on ``phase`` when
+        named, otherwise on the running phase (``finalize`` if none runs)."""
+        running = self.phase(phase) if phase else next(
+            (p for p in self.phases if p.status == STATUS_RUNNING),
             self.phase("finalize"),
         )
         running.status = STATUS_PENDING

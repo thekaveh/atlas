@@ -161,17 +161,6 @@ def _cleanup_error(name: str, detail: str) -> RuntimeError:
     return RuntimeError(f"could not remove seed container {name}{suffix}")
 
 
-def _add_exception_note(exc: BaseException, note: str) -> None:
-    if hasattr(exc, "add_note"):
-        exc.add_note(note)
-        return
-    notes = getattr(exc, "__notes__", None)
-    if notes is None:
-        notes = []
-        exc.__notes__ = notes
-    notes.append(note)
-
-
 def sleep_for_cleanup(
     seconds: float, primary_error: BaseException | None,
 ) -> BaseException | None:
@@ -181,8 +170,7 @@ def sleep_for_cleanup(
     except BaseException as exc:
         if primary_error is None:
             return exc
-        _add_exception_note(
-            primary_error,
+        primary_error.add_note(
             "Cleanup reconciliation sleep was interrupted: "
             f"{type(exc).__name__}: {exc}",
         )
@@ -204,8 +192,7 @@ def defer_cleanup_interruption(
     if isinstance(candidate, (KeyboardInterrupt, SystemExit)):
         if current is None:
             return candidate
-        _add_exception_note(
-            current,
+        current.add_note(
             f"Cleanup was also interrupted: {type(candidate).__name__}: {candidate}",
         )
     return current
@@ -226,9 +213,7 @@ def raise_deferred_or_collision(
     collision: BaseException,
 ) -> None:
     if primary_error is None and deferred_error is not None:
-        _add_exception_note(
-            deferred_error, f"Cleanup also refused a foreign resource: {collision}"
-        )
+        deferred_error.add_note(f"Cleanup also refused a foreign resource: {collision}")
         raise deferred_error
     raise collision
 
@@ -350,8 +335,7 @@ def remove_seed_container(
         return
     if deferred_error is None:
         raise cleanup_error
-    _add_exception_note(
-        deferred_error,
+    deferred_error.add_note(
         f"Seed container cleanup could not be proven: "
         f"{type(cleanup_error).__name__}: {cleanup_error}",
     )
@@ -716,6 +700,9 @@ def run_scripts_and_dump(
 
 
 if __name__ == "__main__":
+    # Any argument, even --help, would otherwise fall through and overwrite both goldens.
+    if len(sys.argv) > 1:
+        raise SystemExit("usage: python -m tests.seed_harness (regenerates both goldens; takes no arguments)")
     if not docker_available():
         raise SystemExit("docker not on PATH — cannot regenerate goldens")
     schema, rows = run_scripts_and_dump(SCRIPTS_DIR)

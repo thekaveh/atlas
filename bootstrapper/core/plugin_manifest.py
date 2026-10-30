@@ -127,6 +127,11 @@ def _format_jsonschema_error(error) -> str:
         # Property names come from the schema, never from manifest values.
         missing = [name for name in error.validator_value if name not in error.instance]
         return f"{path}: missing required properties {missing}"
+    if error.validator == "additionalProperties" and isinstance(error.instance, dict):
+        # A mis-indented value can parse as a key, so name the keys the
+        # schema allows rather than echo the unexpected ones.
+        allowed = list(error.schema.get("properties", {}))
+        return f"{path}: unexpected properties; allowed properties are {allowed}"
     return f"{path}: schema {error.validator} constraint {error.validator_value!r} not satisfied"
 
 

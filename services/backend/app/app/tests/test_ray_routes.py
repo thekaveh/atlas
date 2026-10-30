@@ -16,8 +16,6 @@ import types
 
 import pytest
 
-from tests.test_ray_client import offline_ray_dashboard
-
 
 RAY_HEADERS = {"Authorization": "Bearer ray-test-token"}
 

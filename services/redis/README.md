@@ -39,6 +39,8 @@ Keep `REDIS_PASSWORD` as the raw password. Startup synchronizes `REDIS_PASSWORD_
 URL consumers use the encoded value; Redis server arguments, `REDISCLI_AUTH` and separate password fields use the raw value.
 Treat both values as secrets. Encoding does not hide a password.
 
+Compose refuses a blank `REDIS_PASSWORD`, because Redis would otherwise start without authentication. `./start.sh` replaces a blank value in `.env` with a random one.
+
 Atlas resolves password references and shell overrides for its Compose child processes. It keeps resolved credentials out of the saved file.
 In those cases, recreate services through `./start.sh`; a bare Compose command does not receive those derived values.
 

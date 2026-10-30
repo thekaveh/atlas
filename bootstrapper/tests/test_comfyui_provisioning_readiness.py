@@ -24,6 +24,17 @@ def _write_status(root: Path, name: str, plan: Path, state: str, required: int, 
     )
 
 
+def _health_env(tmp_path: Path, manifest: Path, models: Path, nodes: Path) -> dict[str, str]:
+    return {
+        **os.environ,
+        "PATH": f"{tmp_path / 'bin'}{os.pathsep}{os.environ.get('PATH', os.defpath)}",
+        "COMFYUI_MANIFEST_ROOT": str(manifest),
+        "COMFYUI_MODELS_PATH": str(models),
+        "COMFYUI_CUSTOM_NODES_PATH": str(nodes),
+        "COMFYUI_HEALTH_URL": "http://localhost:18188/system_stats",
+    }
+
+
 def _run_health(tmp_path: Path, *, model_state: str = "ready", node_state: str = "ready"):
     manifest = tmp_path / "manifest"
     manifest.mkdir(parents=True)
@@ -40,17 +51,9 @@ def _run_health(tmp_path: Path, *, model_state: str = "ready", node_state: str =
     curl = fakebin / "curl"
     curl.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
     curl.chmod(0o755)
-    env = {
-        **os.environ,
-        "PATH": f"{fakebin}{os.pathsep}{os.environ.get('PATH', os.defpath)}",
-        "COMFYUI_MANIFEST_ROOT": str(manifest),
-        "COMFYUI_MODELS_PATH": str(models),
-        "COMFYUI_CUSTOM_NODES_PATH": str(nodes),
-        "COMFYUI_HEALTH_URL": "http://localhost:18188/system_stats",
-    }
     return subprocess.run(
         ["sh", str(HEALTH_SCRIPT)],
-        env=env,
+        env=_health_env(tmp_path, manifest, models, nodes),
         text=True,
         capture_output=True,
         timeout=5,
@@ -77,14 +80,7 @@ def test_ready_status_with_required_failures_is_rejected_as_corrupt(tmp_path: Pa
 
     corrupt = subprocess.run(
         result.args,
-        env={
-            **os.environ,
-            "PATH": f"{tmp_path / 'bin'}{os.pathsep}{os.environ.get('PATH', os.defpath)}",
-            "COMFYUI_MANIFEST_ROOT": str(manifest),
-            "COMFYUI_MODELS_PATH": str(models),
-            "COMFYUI_CUSTOM_NODES_PATH": str(nodes),
-            "COMFYUI_HEALTH_URL": "http://localhost:18188/system_stats",
-        },
+        env=_health_env(tmp_path, manifest, models, nodes),
         text=True,
         capture_output=True,
         timeout=5,
@@ -94,37 +90,19 @@ def test_ready_status_with_required_failures_is_rejected_as_corrupt(tmp_path: Pa
 
 
 def test_stale_success_for_a_different_plan_is_never_healthy(tmp_path: Path) -> None:
-    result, manifest, _models, _nodes = _run_health(tmp_path)
+    result, manifest, models, nodes = _run_health(tmp_path)
     assert result.returncode == 0
     (manifest / "active-models.tsv").write_text("new selected plan\n", encoding="utf-8")
 
     stale = subprocess.run(
         result.args,
-        env={
-            **os.environ,
-            "PATH": f"{tmp_path / 'bin'}{os.pathsep}{os.environ.get('PATH', os.defpath)}",
-            "COMFYUI_MANIFEST_ROOT": str(manifest),
-            "COMFYUI_MODELS_PATH": str(tmp_path / "models"),
-            "COMFYUI_CUSTOM_NODES_PATH": str(tmp_path / "nodes"),
-            "COMFYUI_HEALTH_URL": "http://localhost:18188/system_stats",
-        },
+        env=_health_env(tmp_path, manifest, models, nodes),
         text=True,
         capture_output=True,
         timeout=5,
         check=False,
     )
     assert stale.returncode != 0
-
-
-def _health_env(tmp_path: Path, manifest: Path, models: Path, nodes: Path) -> dict[str, str]:
-    return {
-        **os.environ,
-        "PATH": f"{tmp_path / 'bin'}{os.pathsep}{os.environ.get('PATH', os.defpath)}",
-        "COMFYUI_MANIFEST_ROOT": str(manifest),
-        "COMFYUI_MODELS_PATH": str(models),
-        "COMFYUI_CUSTOM_NODES_PATH": str(nodes),
-        "COMFYUI_HEALTH_URL": "http://localhost:18188/system_stats",
-    }
 
 
 def test_health_rejects_symlinked_roots_plans_and_statuses(tmp_path: Path) -> None:

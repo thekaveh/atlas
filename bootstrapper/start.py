@@ -450,7 +450,7 @@ from core.launch_outcome import (
 from utils.localhost_validator import LocalhostValidator
 from core.config_parser import (
     ConfigParser, DEFAULT_BASE_PORT, DEFAULT_PROJECT_NAME,
-    external_env_user_overlay_path, parse_env_overlay_file, read_env_user_overlay,
+    external_env_user_overlay_path, parse_env_overlay_file,
 )
 from core.docker_manager import DockerManager
 from core.port_manager import PortManager
@@ -1315,15 +1315,6 @@ class AtlasStarter:
         """Return the optional user-owned env overlay next to the active .env."""
         return self.config_parser.env_file_path.parent / ".env.user"
 
-    def _external_env_user_overlay_path(self) -> Optional[Path]:
-        """Return the optional external env overlay from ATLAS_ENV_USER_FILE."""
-        return external_env_user_overlay_path()
-
-    def _parse_env_overlay_file(self, overlay_path: Path) -> Dict[str, str]:
-        """Parse a user env overlay with the same line semantics as .env: the
-        `export ` prefix Compose accepts, and the shared value decoder."""
-        return parse_env_overlay_file(overlay_path)
-
     def _apply_single_env_user_overlay(
         self,
         overlay_path: Path,
@@ -1333,9 +1324,8 @@ class AtlasStarter:
     ) -> Dict[str, str]:
         if not warn_if_missing and not overlay_path.exists():
             return {}
-        overrides = read_env_user_overlay(
+        overrides = self.config_parser.read_env_user_overlay(
             overlay_path, label=label,
-            reader=self._parse_env_overlay_file,
             warn=lambda message: self.banner.show_status_message(message, "warning"),
         )
         if overrides is None:
@@ -1345,22 +1335,7 @@ class AtlasStarter:
             self.banner.show_status_message(f"  • {overlay_path} has no env overrides", "info")
             return {}
 
-        try:
-            self._merge_env_file_overrides(overrides)
-        except ValueError as e:
-            # `assert_safe_env_assignment` rejects a key or value that would
-            # emit more than one `.env` assignment. An overlay is a hand- or
-            # tool-written file, so a stray form feed or NEL is a plausible
-            # accident rather than an attack — warn and skip with the file
-            # named, like every other failure mode here, instead of aborting
-            # the whole start with a traceback that does not say which overlay
-            # produced it.
-            self.banner.show_status_message(
-                f"{label} points to {overlay_path}, but one of its entries "
-                f"cannot be written safely ({e}); skipping the overlay",
-                "warning",
-            )
-            return {}
+        self._merge_env_file_overrides(overrides)
         self.banner.show_status_message(
             f"  • Applied {overlay_path} ({len(overrides)} override{'s' if len(overrides) != 1 else ''})",
             "info",
@@ -1385,7 +1360,7 @@ class AtlasStarter:
         )
         applied_overrides.update(sibling_overrides)
 
-        external_overlay_path = self._external_env_user_overlay_path()
+        external_overlay_path = external_env_user_overlay_path()
         if external_overlay_path is not None:
             external_overrides = self._apply_single_env_user_overlay(
                 external_overlay_path,
@@ -1465,11 +1440,11 @@ class AtlasStarter:
         applies them: .env.user, ATLAS_ENV_USER_FILE, then consumer
         manifests (or their env files). The last one wins."""
         origins: Dict[str, str] = {}
-        for overlay in (self._env_user_overlay_path(), self._external_env_user_overlay_path()):
+        for overlay in (self._env_user_overlay_path(), external_env_user_overlay_path()):
             if overlay is None or not overlay.is_file():
                 continue
             try:
-                keys = self._parse_env_overlay_file(overlay)
+                keys = parse_env_overlay_file(overlay)
             except Exception:  # noqa: BLE001 - an unreadable overlay sets nothing
                 continue
             origins.update(dict.fromkeys(keys, str(overlay)))
@@ -7857,20 +7832,9 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
     """Start Atlas — the self-hosted engineering platform."""
 
     if consumer_manifests:
-        previous_consumer_manifest = os.environ.get("ATLAS_CONSUMER_MANIFEST")
         from core.consumer_manifest import consumer_manifest_cli_paths
 
-        ctx.with_resource(
-            consumer_manifest_cli_paths(consumer_manifests, restore_primary=False)
-        )
-
-        def _restore_consumer_manifest_env() -> None:
-            if previous_consumer_manifest is None:
-                os.environ.pop("ATLAS_CONSUMER_MANIFEST", None)
-            else:
-                os.environ["ATLAS_CONSUMER_MANIFEST"] = previous_consumer_manifest
-
-        ctx.call_on_close(_restore_consumer_manifest_env)
+        ctx.with_resource(consumer_manifest_cli_paths(consumer_manifests))
 
     if ctx.invoked_subcommand is not None:
         _reject_root_options_for_subcommand(ctx)
@@ -9115,12 +9079,13 @@ def volume_inventory(project: str, declared: set, sizes: dict) -> list[dict]:
 
 def _retained_comfyui_paths(root: Path) -> set[str]:
     """``target_dir/filename`` of every row in volumes/comfyui/active-models.tsv.
-    Raises OSError when the file is missing: an unknown active set must never
-    read as "nothing is retained"."""
+    Raises OSError when the file is missing, and ValueError when a row lacks a
+    filename or target_dir: an unknown active set must never read as "nothing
+    is retained"."""
     lines = (root / "volumes" / "comfyui" / "active-models.tsv").read_text().splitlines()
     rows = [line.split("\t") for line in lines if line.strip() and not line.startswith("#")]
     if any(len(row) < 6 or not row[2] or not row[5] for row in rows):
-        raise ValueError("ComfyUI active-model retention is unavailable") from None
+        raise ValueError("ComfyUI active-model retention is unavailable")
     return {f"{row[5].strip('/')}/{row[2]}" for row in rows}
 
 
@@ -9472,7 +9437,10 @@ def endpoints_export_command(
         out = _invoker_path(requested.parent) / requested.name
         # Replace, never follow, a symlink at the destination: the export can
         # carry secrets (--with-secrets) and must not land on a link target.
-        atomic_replace_text(out, text, mode=0o600)
+        try:
+            atomic_replace_text(out, text, mode=0o600)
+        except OSError as exc:  # a directory or unwritable destination
+            raise click.ClickException(f"could not write {out}: {exc.strerror or exc}") from exc
         click.echo(f"Wrote {len(fields)} endpoint field(s) to {out}")
     else:
         click.echo(text, nl=False)

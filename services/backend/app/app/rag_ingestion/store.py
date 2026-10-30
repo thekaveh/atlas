@@ -111,6 +111,12 @@ def _publication_token(ingestion_id: str, claim: PublicationClaim) -> str:
     return json.dumps([ingestion_id, claim.execution_owner, claim.token], separators=(",", ":"))
 
 
+def _strongest_guard(values) -> Optional[str]:
+    """``"dirty"`` beats ``"clean"``; ``None`` when no guard value exists."""
+    states = {value.rsplit(":", 1)[-1] for value in values if value}
+    return "dirty" if "dirty" in states else ("clean" if states else None)
+
+
 @dataclass(frozen=True)
 class IngestionPage:
     records: List[IngestionRecord]
@@ -206,11 +212,12 @@ class IngestionStore:
         """
         raise NotImplementedError
 
-    def publication_guarded(self, targets: List[str]) -> bool:
-        """Read-only probe: True when any target holds a guard of any state.
+    def publication_guarded(self, targets: List[str]) -> Optional[str]:
+        """Read-only probe: the strongest guard state among the targets.
 
-        Admission before parse and embed work; ``claim_publications`` stays
-        the atomic authority.
+        ``"dirty"`` when any target holds an uncertain write, ``"clean"`` when
+        any other guard exists, otherwise ``None``. Admission before parse and
+        embed work; ``claim_publications`` stays the atomic authority.
         """
         raise NotImplementedError
 
@@ -491,9 +498,9 @@ class InMemoryIngestionStore(IngestionStore):
             self._publication_guards.update((target, token + ":clean") for target in targets)
             return True
 
-    def publication_guarded(self, targets: List[str]) -> bool:
+    def publication_guarded(self, targets: List[str]) -> Optional[str]:
         with self._lock:
-            return any(target in self._publication_guards for target in targets)
+            return _strongest_guard(self._publication_guards.get(target) for target in targets)
 
     def mark_publication(
         self, ingestion_id: str, claim: PublicationClaim, publication: tuple[str, bool]
@@ -1200,9 +1207,9 @@ return 1
             _PUBLICATION_GUARD_PREFIX,
         ))
 
-    def publication_guarded(self, targets: List[str]) -> bool:
+    def publication_guarded(self, targets: List[str]) -> Optional[str]:
         keys = [_PUBLICATION_GUARD_PREFIX + target for target in sorted(set(targets))]
-        return bool(keys) and bool(self._redis.exists(*keys))
+        return _strongest_guard(self._redis.mget(keys)) if keys else None
 
     def mark_publication(
         self, ingestion_id: str, claim: PublicationClaim, publication: tuple[str, bool]

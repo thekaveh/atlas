@@ -37,10 +37,10 @@ from .clients import (
 )
 from .models import (
     ingestion_idempotency_key, weaviate_class_name, weaviate_objects, http_error_details,
+    PUBLICATION_WAIT_NOTES,
     STATUS_CANCELLED,
     STATUS_COMPLETED,
     STATUS_FAILED,
-    STATUS_PENDING,
     STATUS_RUNNING,
     IngestionError,
     IngestionRecord,
@@ -132,7 +132,14 @@ class IngestionExecutionBusy(RuntimeError):
 
 
 class CollectionPublicationBusy(IngestionExecutionBusy):
-    """A Weaviate class this job writes is guarded by another attempt."""
+    """A Weaviate class this job writes is guarded by another attempt.
+
+    ``note`` names the guard state when the admission probe observed it.
+    """
+
+    def __init__(self, message: str, guard: Optional[str] = None) -> None:
+        super().__init__(message)
+        self.note = PUBLICATION_WAIT_NOTES.get(guard, PUBLICATION_WAIT_NOTES[None])
 
 
 class IngestionExecutionLeaseLost(RuntimeError):
@@ -192,10 +199,8 @@ class RagIngestionService:
     def _resolve_profile(self, name: str) -> LoadedProfile:
         return get_profile(name, self._profiles_path)
 
-    _idempotency_key = staticmethod(ingestion_idempotency_key)
-
     def _job_key(self, profile, corpus, fingerprint):
-        base = self._idempotency_key(
+        base = ingestion_idempotency_key(
             profile, corpus, fingerprint, str(getattr(self.deps.embedder, "model", "") or "")
         )
         context = ingestion_runtime_context(profile, self.deps.weaviate, self.deps.lightrag)
@@ -466,12 +471,13 @@ class RagIngestionService:
             record.status = STATUS_CANCELLED
             await self._persist(record, owner)
             return record
-        except IngestionExecutionBusy:
-            await self._defer_retry(
-                record, owner,
-                "waiting for collection publication; another job is writing the class, "
-                "or an interrupted write requires operator recovery",
-            )
+        except CollectionPublicationBusy as busy:
+            # Lease contention raises before this attempt starts, so only
+            # collection admission refuses here. Its note belongs on the
+            # phase that waits. A foreign execution owner must still surface
+            # LeaseLost from this persist, never Busy.
+            record.defer_retry(busy.note, "vector_write")
+            await self._persist(record, owner)
             raise
         except PhaseFatal as fatal:
             record.add_error(fatal.error)
@@ -483,7 +489,8 @@ class RagIngestionService:
             raise
         except TRANSIENT_EXCEPTIONS as exc:
             if retry_transient and not is_permanent_redis_reply(exc):
-                await self._defer_retry(record, owner, "waiting for Celery retry")
+                record.defer_retry("waiting for Celery retry")
+                await self._persist(record, owner)
                 raise
             await self._record_unexpected_failure(record, exc, owner)
             return record
@@ -532,11 +539,6 @@ class RagIngestionService:
                 operation="execution lease release",
                 ingestion_id=ingestion_id,
             )
-
-    async def _defer_retry(self, record, owner, note):
-        record.defer_retry(note)
-        # A foreign execution owner must still surface LeaseLost, never Busy.
-        await self._persist(record, owner)
 
     async def fail_abandoned(self, ingestion_id: str, recovery_owner: str, reason: str) -> bool:
         """Mark a run the worker gave up on as failed. Without this the record
@@ -849,15 +851,19 @@ class RagIngestionService:
     async def _refuse_guarded_publication(self, record) -> None:
         # Read-only admission before discover/parse/chunk/embed: a guarded class
         # would refuse this attempt at vector_write after all that work. The
-        # atomic claim in vector_write stays the authority. The pending note
-        # belongs on vector_write, the phase that waits. An unavailable Weaviate
-        # never reaches the claim (vector_write skips or fails first), so a
-        # guard must not hold such a job back.
+        # atomic claim in vector_write stays the authority. Without Weaviate or
+        # the embedder, a job with chunks never reaches the claim (vector_write
+        # skips or fails first), so a guard must not hold it back. An empty
+        # corpus still meets the claim.
         targets = record.publication_targets
-        if (targets and self.deps.weaviate.available()
-                and await asyncio.to_thread(self.store.publication_guarded, targets)):
-            record.phase("vector_write").status = STATUS_RUNNING
-            raise CollectionPublicationBusy(f"RAG collection publication blocked for ingestion {record.id}")
+        guard = (
+            targets and self.deps.weaviate.available() and self.deps.embedder.available()
+            and await asyncio.to_thread(self.store.publication_guarded, targets)
+        )
+        if guard:
+            raise CollectionPublicationBusy(
+                f"RAG collection publication blocked for ingestion {record.id}", guard,
+            )
 
     async def _join_store_write(self, record, operation: str, *call) -> None:
         # Runs to completion despite cancellation, so no late write follows the
@@ -903,9 +909,9 @@ class RagIngestionService:
         try:
             await self._write_vector_targets(record, profile, state)
         finally:
-            # Guards cover only this phase. Held through the LightRAG upload and
-            # drain, a clean guard blocked the class for up to an hour, and a
-            # worker crash there left it blocked for good.
+            # Guards cover only this phase. Holding them through LightRAG upload
+            # and drain would block the class for up to an hour, and a worker
+            # crash there would leave it blocked.
             await self._release_clean_publications(record, state)
 
     async def _write_vector_targets(self, record, profile, state):

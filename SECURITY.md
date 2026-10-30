@@ -106,9 +106,9 @@ on their host.
 - Capped fsspec, Hydra and Zod advisories: **time-boxed exceptions**.
   NeMo 3.0.0 and Lightning 2.4.0 hold the Parakeet GPU lock on fsspec
   2024.12.0 and hydra-core 1.3.2, below their fixes. The n8n packages pin
-  Zod 3.25.76 in the community-node lock. Reachability is not proven. The
-  owner approved exceptions for PYSEC-2026-4217, PYSEC-2026-4221 and
-  GHSA-mrhx-c7xc-m3w5 on 2026-10-29; they expire on 2026-11-27 and
+  Zod 3.25.76 in the community-node lock. Reachability is not proven. On
+  2026-10-29 the owner approved exceptions for PYSEC-2026-4217 and
+  PYSEC-2026-4221 until 2026-11-27, and for GHSA-mrhx-c7xc-m3w5 until
   2026-11-28. `docs/maintenance/external-contract-ledger.md` records the review.
 - setuptools source-distribution exclusion bypass (CVE-2026-59890):
   **remediated**. Shipped compiled graphs and the Docling localhost lock now

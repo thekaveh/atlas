@@ -6,6 +6,7 @@ import re
 import sys
 from pathlib import Path
 
+import pytest
 import yaml
 
 
@@ -311,9 +312,6 @@ def test_jupyter_origin_defaults_to_same_origin_and_spark_kill_is_off():
     assert "-Dspark.ui.killEnabled=false" in spark["services"]["spark-master"]["environment"]["SPARK_MASTER_OPTS"]
 
 
-import pytest
-
-
 def _run_jupyter_startup(tmp_path, settings):
     import os
     import subprocess
@@ -366,12 +364,12 @@ def _assert_jupyter_startup_artifacts(result, work, launched):
     assert launched["umask"] == 0o27
 
 
-def _first_litellm_notebook_client(started, monkeypatch):
+def _first_litellm_notebook_client(started, monkeypatch, notebook_dir: Path = NOTEBOOK_DIR):
     import os
     from types import SimpleNamespace
     from unittest.mock import patch
 
-    notebook = json.loads((NOTEBOOK_DIR / "01_litellm_basics.ipynb").read_text())
+    notebook = json.loads((notebook_dir / "01_litellm_basics.ipynb").read_text())
     cell = next(cell for cell in notebook["cells"] if cell["cell_type"] == "code")
     cell_path = started.work / "owned-notebook-cell.py"
     cell_path.write_text("".join(cell["source"]))
@@ -435,10 +433,10 @@ def test_startup_openai_alias_defaults_and_inherited_values(tmp_path, monkeypatc
     assert (started.env["OPENAI_API_BASE"], started.env["OPENAI_API_KEY"]) == expected
 
 
-def _invoke_notebook_cleanup_case(started, context, raises):
+def _invoke_notebook_cleanup_case(started, context, raises, notebook_dir):
     if raises:
         with pytest.raises(RuntimeError, match="owned notebook failure"):
-            _first_litellm_notebook_client(started, context)
+            _first_litellm_notebook_client(started, context, notebook_dir)
     else:
         client = _first_litellm_notebook_client(started, context)
         assert client == {"base_url": "http://owned-cleanup.invalid:4000/v1",
@@ -449,9 +447,8 @@ def _invoke_notebook_cleanup_case(started, context, raises):
     ("absent", False), ("inherited", False),
     ("absent", True), ("inherited", True),
 ])
-def test_notebook_client_restores_dotenv_environment_on_success_and_failure(
-    tmp_path, monkeypatch, case
-):
+def test_notebook_cell_helper_leaves_process_environment_unchanged(tmp_path, case):
+    """Guards the test helper's isolation, not notebook behaviour."""
     import os
     from dotenv import dotenv_values
     from unittest.mock import patch
@@ -460,6 +457,7 @@ def test_notebook_client_restores_dotenv_environment_on_success_and_failure(
     started = _run_jupyter_startup(tmp_path, {
         "LITELLM_API_KEY": "sk-owned-cleanup",
         "LITELLM_BASE_URL": "http://owned-cleanup.invalid:4000"})
+    notebook_dir = NOTEBOOK_DIR
     if raises:
         notebook = json.loads((NOTEBOOK_DIR / "01_litellm_basics.ipynb").read_text())
         cell = next(cell for cell in notebook["cells"] if cell["cell_type"] == "code")
@@ -467,7 +465,7 @@ def test_notebook_client_restores_dotenv_environment_on_success_and_failure(
         private_notebooks = tmp_path / "raising-notebook"
         private_notebooks.mkdir()
         (private_notebooks / "01_litellm_basics.ipynb").write_text(json.dumps(notebook))
-        monkeypatch.setitem(globals(), "NOTEBOOK_DIR", private_notebooks)
+        notebook_dir = private_notebooks
 
     # The outer scope cleans up even when this regression fails against an
     # unisolated helper. Compare inside it, after the helper's own teardown.
@@ -480,7 +478,7 @@ def test_notebook_client_restores_dotenv_environment_on_success_and_failure(
                     setup.setenv(name, "owned-inherited-" + name.lower())
             before = dict(os.environ)
             with pytest.MonkeyPatch.context() as context:
-                _invoke_notebook_cleanup_case(started, context, raises)
+                _invoke_notebook_cleanup_case(started, context, raises, notebook_dir)
             changed = sorted(
                 name for name in before.keys() | os.environ.keys()
                 if before.get(name) != os.environ.get(name)

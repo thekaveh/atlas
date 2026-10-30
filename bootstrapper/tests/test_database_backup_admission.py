@@ -1,13 +1,13 @@
-"""Host backup admission and the independent one-shot container guard."""
+"""Host backup admission, the one-shot container guard, and CommandRunner launch and signal ownership."""
 
 from __future__ import annotations
 
 import json
 import os
 import signal
-from pathlib import Path
 import subprocess
 import sys
+import threading
 import types
 
 import pytest
@@ -245,6 +245,12 @@ def test_container_entrypoint_independently_rejects_unadmitted_sources(tmp_path,
     assert not snapshot.exists()
 
 
+def _signal_main_thread(sent):
+    # pthread_sigmask masks only the calling thread. A process-directed kill
+    # could reach a leftover worker thread from an earlier test instead.
+    signal.pthread_kill(threading.main_thread().ident, sent)
+
+
 def _launch_pid_exists(pid):
     try:
         os.kill(pid, 0)
@@ -287,13 +293,13 @@ def launch_state(tmp_path, monkeypatch):
         state.pids.append(pid)
         if state.phase == "fork":
             for sent in state.signals or (state.sent,):
-                os.kill(os.getpid(), sent)
+                _signal_main_thread(sent)
         return pid
 
     def clock():
         if state.phase == "runtime" and not state.fired:
             state.fired = True
-            os.kill(os.getpid(), state.sent)
+            _signal_main_thread(state.sent)
         return original_clock()
 
     monkeypatch.setattr(subprocess, "_fork_exec", fork)
@@ -424,14 +430,14 @@ def test_launch_deferral_preserves_interruption_order(launch_state, monkeypatch,
         restored = signal.getsignal(signal.SIGTERM) == state.module._signal_as_exception
         if earlier == "body" and how == signal.SIG_SETMASK and restored and not fired:
             fired = True
-            os.kill(os.getpid(), signal.SIGTERM)
+            _signal_main_thread(signal.SIGTERM)
         return original_mask(how, values)
 
     monkeypatch.setattr(signal, "pthread_sigmask", mask)
     with pytest.raises(KeyboardInterrupt):
         with launch:
             if earlier == "deferred":
-                os.kill(os.getpid(), signal.SIGTERM)
+                _signal_main_thread(signal.SIGTERM)
             raise KeyboardInterrupt("body interruption")
     assert (launch.interruption is None) == (earlier == "body")
     assert launch.body_interruption_precedes_deferred == (earlier == "body")
@@ -459,7 +465,7 @@ def test_command_launch_preserves_already_recorded_outer_signal(launch_state):
     outer = state.module._RecoverySignalDeferral()
     state.phase, state.signals = "fork", (signal.SIGINT,)
     with outer:
-        os.kill(os.getpid(), signal.SIGTERM)
+        _signal_main_thread(signal.SIGTERM)
         result = state.runner.run([sys.executable, "-c", "print('compensation completed')"])
     assert result.stdout == "compensation completed\n"
     assert str(outer.interruption) == "received signal 15"

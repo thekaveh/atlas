@@ -129,6 +129,16 @@ jobs:
             --tag atlas-backup:local \
             services/backup/init
 
+      # The co-launched consumer examples in reusing-atlas.md are merged
+      # through the real Compose plugin (daemon-free `config`); without this
+      # path test_reusing_atlas_consumer_endpoints.py skips those cases.
+      - name: Locate the Docker Compose plugin
+        run: |
+          plugin="$(timeout 1m docker info --format \
+            '{{range .ClientInfo.Plugins}}{{if eq .Name "compose"}}{{.Path}}{{end}}{{end}}')"
+          test -x "$plugin"
+          echo "ATLAS_DOCS_COMPOSE_PLUGIN=$plugin" >> "$GITHUB_ENV"
+
       - name: Run unit tests (loader, validator, assembler, hooks, CLI)
         working-directory: bootstrapper
         env:

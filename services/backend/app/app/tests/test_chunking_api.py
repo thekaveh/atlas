@@ -1,8 +1,16 @@
 from __future__ import annotations
 
+import asyncio
+import gc
 import importlib
 import os
 import sys
+import threading
+from pathlib import Path
+from types import SimpleNamespace
+
+import httpx
+import pytest
 
 
 def _stub_required_env(monkeypatch):
@@ -97,9 +105,6 @@ def test_invalid_chunk_input_stays_a_400(monkeypatch):
 def test_heavy_work_past_the_bound_is_refused_without_starving_the_default_pool(monkeypatch):
     """One slot held by a stuck job: the next heavy call gets 503 at once, and
     an ordinary asyncio.to_thread call still completes."""
-    import asyncio
-    import threading
-
     from fastapi import HTTPException
 
     main = _fresh_main(monkeypatch)
@@ -128,9 +133,6 @@ def test_heavy_work_past_the_bound_is_refused_without_starving_the_default_pool(
 
 
 def test_heavy_work_past_its_deadline_is_a_504_and_keeps_its_slot_until_done(monkeypatch):
-    import asyncio
-    import threading
-
     from fastapi import HTTPException
 
     main = _fresh_main(monkeypatch)
@@ -178,8 +180,6 @@ def test_chunker_errors_split_into_caller_and_server_faults(monkeypatch):
 def test_heavy_work_slot_frees_even_if_the_request_loop_is_gone(monkeypatch):
     """The slot is released from the worker thread, not the event loop, so a
     job that outlives its loop cannot pin the gate shut."""
-    import asyncio
-    import threading
     import time
 
     from fastapi import HTTPException
@@ -205,10 +205,6 @@ def test_heavy_work_slot_frees_even_if_the_request_loop_is_gone(monkeypatch):
 
 
 def test_a_timeout_raised_by_the_job_is_not_read_as_the_deadline(monkeypatch):
-    import asyncio
-
-    import pytest
-
     main = _fresh_main(monkeypatch)
     monkeypatch.setattr(main, "_HEAVY_WORK_GATE", None)
 
@@ -220,16 +216,6 @@ def test_a_timeout_raised_by_the_job_is_not_read_as_the_deadline(monkeypatch):
 
 
 # Late worker outcomes stay owned after request timeout or cancellation.
-import asyncio
-import gc
-import threading
-from pathlib import Path
-from types import SimpleNamespace
-
-import httpx
-import pytest
-
-
 @pytest.fixture
 def _owned_heavy_work_main(monkeypatch, tmp_path):
     for name in ("BACKEND_PLUGINS_DIR", "BACKEND_PLUGINS_SITE_DIR"):

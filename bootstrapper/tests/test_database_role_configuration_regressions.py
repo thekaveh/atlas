@@ -14,7 +14,7 @@ import pytest
 
 from core.config_parser import ConfigParser
 from services.service_config import ServiceConfig
-from tests.test_database_role_boundaries import TEST_SECRETS, _add_exception_note
+from tests.test_database_role_boundaries import TEST_SECRETS
 from utils.key_generator import KeyGenerator
 
 
@@ -439,7 +439,7 @@ def _stop_native_ownership_postgres(binaries, data, environment, failure) -> Non
     except (OSError, subprocess.SubprocessError) as cleanup_error:
         if failure is None:
             raise
-        _add_exception_note(failure, f"native PostgreSQL cleanup failed: {cleanup_error}")
+        failure.add_note(f"native PostgreSQL cleanup failed: {cleanup_error}")
 
 
 def _ownership_loop(marker: str) -> str:

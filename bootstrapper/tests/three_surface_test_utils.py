@@ -331,9 +331,27 @@ def _credential_fixture(case, directory):
     return checkout, expected, valid, selector if custom else None
 
 
+def native_executable(name: str) -> Path:
+    """Real executable for a PATH-isolated probe. Version-manager shims are
+    `#!/usr/bin/env bash` scripts that cannot run there."""
+    import os
+    import shutil
+
+    candidates = [os.environ.get("UV")] if name == "uv" else []
+    candidates += [shutil.which(name, path=entry) for entry in os.get_exec_path()]
+    for candidate in filter(None, candidates):
+        try:
+            resolved = Path(candidate).resolve(strict=True)
+            with resolved.open("rb") as handle:
+                if handle.read(2) != b"#!":
+                    return resolved
+        except OSError:
+            continue
+    raise AssertionError(f"Required native executable not found: {name}")
+
+
 def _credential_boundary_tools(directory):
     import json
-    import shutil
     import sys
 
     tools = directory / "owned-tools"
@@ -363,9 +381,7 @@ else: print(json.dumps({"owned":"response"}))
         p.write_text("#!" + sys.executable + "\n" + recorder)
         p.chmod(0o700)
     for name in ["uv", "jq", "grep", "cut", "sed"]:
-        path = shutil.which(name)
-        assert path is not None, f"Required real executable not found: {name}"
-        (tools / name).symlink_to(Path(path).resolve(strict=True))
+        (tools / name).symlink_to(native_executable(name))
     return tools
 
 
@@ -584,7 +600,6 @@ def _redis_recovery_fixture(variant, directory):
 
 
 def _redis_recovery_tools(directory):
-    import shutil
     import sys
 
     tools = directory / "owned-tools"
@@ -601,9 +616,7 @@ if "tar" in args and os.environ["ATLAS_DOC_AUTH_MODE"]=="backup-failure": sys.ex
     docker.write_text("#!" + sys.executable + "\n" + recorder)
     docker.chmod(0o700)
     for name in ["uv", "grep", "cut"]:
-        executable = shutil.which(name)
-        assert executable is not None, f"Required real executable not found: {name}"
-        (tools / name).symlink_to(Path(executable).resolve(strict=True))
+        (tools / name).symlink_to(native_executable(name))
     return tools
 
 

@@ -1,4 +1,5 @@
-"""LogPane styling-preservation regression (write_styled across a re-render)."""
+"""LogPane styling preservation across a re-render, compose-line source
+classification, and the source-filter chips."""
 from __future__ import annotations
 
 import pytest
@@ -48,25 +49,13 @@ def test_write_log_still_renders_after_rerender():
 
 
 def _source_filter_screen(monkeypatch):
-    import socket
-    import subprocess
-    import start
-    from core.config_parser import ConfigParser
+    """A WizardScreen with no starter and no session log. Callers request
+    ``forbid_host_side_effects`` so building it cannot reach the host."""
     from utils import brand_logo
     from ui.textual import integration
     from ui.textual.screens import wizard_screen
     from ui.textual.widgets.prompt_panel import PromptOption, PromptStep
 
-    def forbidden(*args, **kwargs):
-        raise AssertionError("Source-filter fixtures must not run processes or use network")
-
-    monkeypatch.setattr(subprocess, "Popen", forbidden)
-    monkeypatch.setattr(socket.socket, "connect", forbidden)
-    monkeypatch.setattr(socket.socket, "bind", forbidden)
-    monkeypatch.setattr(socket, "getaddrinfo", forbidden)
-    monkeypatch.setattr(start.AtlasStarter, "__init__", forbidden)
-    monkeypatch.setattr(ConfigParser, "__init__", forbidden)
-    monkeypatch.setattr(ConfigParser, "parse_env_file", forbidden)
     monkeypatch.setattr(brand_logo, "resolve_from_env", lambda: brand_logo.resolve({}))
     monkeypatch.setattr(wizard_screen, "_PROJECT_PREFIX", "atlas-")
     monkeypatch.setattr(wizard_screen.WizardScreen, "_open_launch_log_tee", lambda *a, **k: None)
@@ -81,6 +70,7 @@ def _source_filter_screen(monkeypatch):
     return screen
 
 
+@pytest.mark.usefixtures("forbid_host_side_effects")
 @pytest.mark.parametrize("service", ["worker-2", "atlas-worker", "worker_2", "api", "n8n"])
 def test_source_dropdown_preserves_classified_record_identity(monkeypatch, service):
     from ui.textual.screens.wizard_screen import _classify_compose_line
@@ -96,6 +86,7 @@ def test_source_dropdown_preserves_classified_record_identity(monkeypatch, servi
     assert screen._log_chips._known_sources == [service]
 
 
+@pytest.mark.usefixtures("forbid_host_side_effects")
 @pytest.mark.parametrize("service", ["worker-2", "atlas-worker", "api"])
 def test_source_popup_deselection_hides_and_clear_restores_records(monkeypatch, service):
     import asyncio
@@ -137,14 +128,14 @@ def test_source_popup_deselection_hides_and_clear_restores_records(monkeypatch, 
     asyncio.run(scenario())
 
 
-def test_source_dropdown_default_raw_normalization_remains_defensive(monkeypatch):
+def test_source_chips_keep_an_already_classified_source_as_given(monkeypatch):
+    """A second strip turned ``atlas-worker`` into ``worker`` and
+    ``worker-2`` into ``worker``; add_source must not normalize again."""
     from ui.textual.screens import wizard_screen
     from ui.textual.widgets.log_filter_chips import LogFilterChips
 
     monkeypatch.setattr(wizard_screen, "_PROJECT_PREFIX", "atlas-")
     chips = LogFilterChips()
-    chips.add_source("atlas-worker-2-1")
-    chips.add_source("atlas_worker-2_1")
-    chips.add_source("atlas-api-1")
-    chips.add_source("pipeline")
-    assert chips._known_sources == ["worker-2", "api"]
+    for source in ("atlas-worker", "worker-2", "atlas-worker", "", "pipeline", "api"):
+        chips.add_source(source)
+    assert chips._known_sources == ["atlas-worker", "worker-2", "api"]

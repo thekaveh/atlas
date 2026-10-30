@@ -185,7 +185,7 @@ The former multi-architecture deferral is closed by explicit dual-platform attem
 
 ### 7.2. LLM Graph Builder base-image evidence
 
-The pinned column above retains the reviewed source commit and three base-image indexes. The following record preserves each dated review; it adds no new registry or vulnerability observation.
+The pinned column above retains the reviewed source commit and three base-image indexes. The following record preserves each dated review.
 
 #### 7.2.1. 2026-09-02 — Python index and Nginx content
 
@@ -489,7 +489,7 @@ That omission prevented its strict mode from detecting the missing dependencies.
 The explicit target selection removes this dependence on the audit tool's interpreter and host platform.
 
 The approved online checks found two unreviewed advisories in the previous research-service graph.
-On 2026-10-29 the registered online audit ran against the regenerated lock.
-It covered all 115 projected package/version pairs for both container architectures and reported no advisory.
+On 2026-10-30 the registered online audit ran against the committed lock with `pip-audit` 2.10.0, the version CI pins.
+It covered all 114 projected package/version pairs for both container architectures and reported no advisory.
 This is dated evidence, not a future advisory guarantee.
 No advisory exceptions were added.

@@ -6,6 +6,7 @@ import threading
 
 import pytest
 
+from tests.test_session_log_locking import _reap_fork
 from ui.session_log import SessionLogConfig, SessionLogTee
 
 
@@ -174,6 +175,22 @@ def test_unknown_inventory_refuses_without_deleting_payload(tmp_path, kind):
     with pytest.raises(OSError):
         make_tee(tmp_path)
     assert base.read_text() == 'unknown evidence'
+
+
+@pytest.mark.parametrize('mode', [0o600, 0o644])
+def test_foreign_store_files_are_ignored_without_disabling_logging(tmp_path, mode):
+    first = make_tee(tmp_path)
+    first.close()
+    foreign = first.base_path.parent / '.DS_Store'
+    foreign.write_bytes(b'finder metadata')
+    foreign.chmod(mode)
+    later = make_tee(tmp_path)
+    try:
+        later.write('file logging continues\n')
+        assert not later.degraded
+    finally:
+        later.close()
+    assert foreign.read_bytes() == b'finder metadata'
 
 
 def test_incomplete_admission_without_payload_is_recovered(tmp_path):
@@ -346,7 +363,6 @@ def test_unreachable_tees_release_ownership_without_erasing_evidence(tmp_path):
 
 @contextlib.contextmanager
 def _pause_descriptor_transition(monkeypatch, phase, kind):
-    import os
     entered, release = threading.Event(), threading.Event()
     handles = []
     actual_open, actual_close = os.open, os.close
@@ -378,24 +394,7 @@ def _pause_descriptor_transition(monkeypatch, phase, kind):
         release.set()
 
 
-def _reap_transition_child(pid):
-    import os
-    import signal
-    import time
-    deadline = time.monotonic() + 2
-    while time.monotonic() < deadline:
-        waited, status = os.waitpid(pid, os.WNOHANG)
-        if waited:
-            assert status == 0, 'fork child failed'
-            return
-        time.sleep(0.01)
-    os.kill(pid, signal.SIGKILL)
-    os.waitpid(pid, 0)
-    pytest.fail('fork child did not exit after release')
-
-
 def _report_transition_child(handle, report, finish, parent):
-    import os
     import select
     try:
         os.fstat(handle)
@@ -414,7 +413,6 @@ def _report_transition_child(handle, report, finish, parent):
 
 @contextlib.contextmanager
 def _fork_during_transition(operation, paused, parent):
-    import os
     import select
     entered, release, handles = paused
     errors = []
@@ -461,7 +459,7 @@ def _fork_during_transition(operation, paused, parent):
         os.write(finished, b'done')
         os.close(finished)
         if pid:
-            _reap_transition_child(pid)
+            _reap_fork(pid, require_success=True)
         for fd in (reader, writer, finish):
             os.close(fd)
 

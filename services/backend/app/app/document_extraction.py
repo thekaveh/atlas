@@ -125,7 +125,7 @@ class DocumentExtractorConfig:
     docling_timeout_seconds: float = 930.0
     # Docling answers busy with Retry-After: 1 and one conversion takes tens
     # of seconds to minutes, so busy replies are retried on a time budget.
-    # Short for the HTTP route (Kong cuts it at 300 s); ingestion raises it.
+    # Short for the interactive HTTP route; ingestion raises it.
     docling_busy_wait_seconds: float = 30.0
 
     @classmethod

@@ -527,12 +527,11 @@ def test_root_start_options_before_a_subcommand_are_flagged_not_fatal() -> None:
 def test_env_user_overlay_reads_export_lines_like_dotenv(tmp_path):
     """An `export KEY=` line used to become the key "export KEY", which then
     failed the merge and dropped the whole overlay."""
-    import start
+    from core.config_parser import parse_env_overlay_file
 
     overlay = tmp_path / ".env.user"
     overlay.write_text("export OPENAI_API_KEY=sk-1\nFOO='bar baz' # note\n", encoding="utf-8")
-    starter = start.AtlasStarter.__new__(start.AtlasStarter)
-    assert starter._parse_env_overlay_file(overlay) == {"OPENAI_API_KEY": "sk-1", "FOO": "bar baz"}
+    assert parse_env_overlay_file(overlay) == {"OPENAI_API_KEY": "sk-1", "FOO": "bar baz"}
 
 
 def test_project_name_via_env_values_or_env_file_is_validated(tmp_path):

@@ -28,7 +28,7 @@ python-multipart>=0.0.31
 huggingface_hub>=0.20.0
 # NeMo 3.0.0 declares Transformers without a version bound. Keep Atlas on the
 # patched 5.x line while preserving NeMo's ASRModel.from_pretrained contract.
-# PYSEC-2026-3929 is fixed in 5.10.0; the lock already resolves 5.16.1.
+# PYSEC-2026-3929 is fixed in 5.10.0.
 transformers>=5.10.0,<6
 # NeMo's older transitive floors contain patched model-file traversal and
 # protobuf recursion issues, so keep the runtime on the secure compatible set.

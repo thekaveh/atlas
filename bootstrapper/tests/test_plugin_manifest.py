@@ -180,6 +180,18 @@ def test_unknown_field_rejected(tmp_path):
         load_plugin_manifest(_pkg(tmp_path, "plug", body))
 
 
+def test_unknown_field_error_lists_the_allowed_properties(tmp_path):
+    """A misspelled key is found against the schema's own names; the key
+    itself is not echoed, since a mis-indented value can parse as one."""
+    body = "plugin_manifest_version: 1\nname: plug\nroute_prefix: /x\nroute_prefx: /typo\n"
+    with pytest.raises(PluginManifestError) as exc:
+        load_plugin_manifest(_pkg(tmp_path, "plug", body))
+    message = exc.value.message
+    assert "(root): unexpected properties; allowed properties are [" in message
+    assert "'route_prefix'" in message and "'depends_on'" in message
+    assert "route_prefx" not in message and "/typo" not in message
+
+
 @pytest.mark.parametrize(
     "duplicate",
     (
@@ -449,31 +461,13 @@ def _host_plugin_diagnostic_body(case):
     return header + tails[case]
 
 
-def _host_plugin_diagnostic_fence(monkeypatch):
-    import socket
-    import start
-    from core.config_parser import ConfigParser
-
-    def forbidden(*args, **kwargs):
-        raise AssertionError("Host plugin diagnostics must use explicit private doubles")
-
-    monkeypatch.setattr(start.AtlasStarter, "__init__", forbidden)
-    monkeypatch.setattr(ConfigParser, "__init__", forbidden)
-    monkeypatch.setattr(ConfigParser, "parse_env_file", forbidden)
-    monkeypatch.setattr(subprocess, "Popen", forbidden)
-    monkeypatch.setattr(socket.socket, "connect", forbidden)
-    monkeypatch.setattr(socket.socket, "bind", forbidden)
-    monkeypatch.setattr(socket, "getaddrinfo", forbidden)
-    return start
-
-
+@pytest.mark.usefixtures("forbid_host_side_effects")
 @pytest.mark.parametrize(("case", "kind"), [
     ("scanner", "ScannerError"), ("parser", "ParserError"), ("duplicate", "ConstructorError"),
 ])
-def test_host_plugin_diagnostic_parse_errors_hide_values_and_chains(tmp_path, monkeypatch, case, kind):
+def test_host_plugin_diagnostic_parse_errors_hide_values_and_chains(tmp_path, case, kind):
     import traceback
 
-    _host_plugin_diagnostic_fence(monkeypatch)
     plugin = _pkg(tmp_path, "invalid", _host_plugin_diagnostic_body(case))
     with pytest.raises(PluginManifestError) as caught:
         load_plugin_manifest(plugin)
@@ -487,11 +481,11 @@ def test_host_plugin_diagnostic_parse_errors_hide_values_and_chains(tmp_path, mo
     assert _HOST_PLUGIN_DIAGNOSTIC_CANARY not in "".join(traceback.format_exception(error))
 
 
+@pytest.mark.usefixtures("forbid_host_side_effects")
 @pytest.mark.parametrize("case", ["list", "mapping", "unknown-key"])
-def test_host_plugin_diagnostic_schema_errors_use_only_schema_context(tmp_path, monkeypatch, case):
+def test_host_plugin_diagnostic_schema_errors_use_only_schema_context(tmp_path, case):
     import traceback
 
-    _host_plugin_diagnostic_fence(monkeypatch)
     with pytest.raises(PluginManifestError) as caught:
         load_plugin_manifest(_pkg(tmp_path, "invalid", _host_plugin_diagnostic_body(case)))
     error = caught.value
@@ -502,6 +496,7 @@ def test_host_plugin_diagnostic_schema_errors_use_only_schema_context(tmp_path, 
     assert _HOST_PLUGIN_DIAGNOSTIC_CANARY not in "".join(traceback.format_exception(error))
 
 
+@pytest.mark.usefixtures("forbid_host_side_effects")
 @pytest.mark.parametrize("case", ["parser", "list", "mapping"])
 @pytest.mark.parametrize("output_format", ["text", "json"])
 def test_host_plugin_diagnostic_actual_doctor_output_is_value_free(tmp_path, monkeypatch, case, output_format):
@@ -509,7 +504,8 @@ def test_host_plugin_diagnostic_actual_doctor_output_is_value_free(tmp_path, mon
     from types import SimpleNamespace
     from click.testing import CliRunner
 
-    start = _host_plugin_diagnostic_fence(monkeypatch)
+    import start
+
     plugins = tmp_path / "plugins"
     _pkg(plugins, "invalid", _host_plugin_diagnostic_body(case))
     _pkg(plugins, "healthy", "plugin_manifest_version: 1\nname: healthy\nroute_prefix: /synthetic-ok\n")
@@ -534,10 +530,10 @@ def test_host_plugin_diagnostic_actual_doctor_output_is_value_free(tmp_path, mon
     assert _HOST_PLUGIN_DIAGNOSTIC_CANARY not in result.output
 
 
+@pytest.mark.usefixtures("forbid_host_side_effects")
 def test_host_plugin_diagnostic_read_failure_keeps_type_and_path_only(tmp_path, monkeypatch):
     import traceback
 
-    _host_plugin_diagnostic_fence(monkeypatch)
     plugin = _pkg(tmp_path, "unreadable", TABLEAU_YML)
     original = Path.read_text
     def denied(path, *args, **kwargs):
@@ -552,8 +548,8 @@ def test_host_plugin_diagnostic_read_failure_keeps_type_and_path_only(tmp_path, 
     assert _HOST_PLUGIN_DIAGNOSTIC_CANARY not in "".join(traceback.format_exception(caught.value))
 
 
-def test_host_plugin_diagnostic_valid_secret_and_discovery_policy_controls(tmp_path, monkeypatch):
-    _host_plugin_diagnostic_fence(monkeypatch)
+@pytest.mark.usefixtures("forbid_host_side_effects")
+def test_host_plugin_diagnostic_valid_secret_and_discovery_policy_controls(tmp_path):
     body = ("plugin_manifest_version: 1\nname: healthy\nroute_prefix: /synthetic-ok\n"
             "auth: key-auth\nread_timeout: 60000\nenv:\n"
             "  - name: PRIVATE_CREDENTIAL\n    type: int\n    secret: true\n"

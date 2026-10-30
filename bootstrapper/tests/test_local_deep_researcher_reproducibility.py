@@ -16,6 +16,7 @@ import pytest
 import yaml
 
 from scripts import audit_runtime_locks
+from tests.test_runtime_lock_audit import _runtime_audit_spec
 
 
 REPO = Path(__file__).resolve().parents[2]
@@ -107,6 +108,9 @@ def test_runtime_requirements_clear_known_fixable_advisories():
     generator = (REPO / "scripts/refresh-local-deep-researcher-lock.py").read_text(
         encoding="utf-8"
     )
+    project = (REPO / "services/local-deep-researcher/locks/runtime-pyproject.toml").read_text(
+        encoding="utf-8"
+    )
 
     for package, version in SECURITY_FLOORS.items():
         # A package can resolve per Python branch; every branch must clear the floor.
@@ -116,6 +120,7 @@ def test_runtime_requirements_clear_known_fixable_advisories():
         assert pins, package
         assert all(Version(pin) >= Version(version) for pin in pins), (package, pins)
         assert f'"{package}>={version}"' in generator
+        assert f'"{package}>={version}"' in project
 
 
 @pytest.mark.parametrize("package,version", SERVING_SECURITY_FLOORS.items())
@@ -312,13 +317,7 @@ def test_runtime_lock_check_fails_on_byte_drift(tmp_path, monkeypatch):
 
 
 # The registered LDR runtime audit projects the shipped Linux Python 3.11 container
-# before pip-audit collects pins (moved from test_runtime_lock_audit.py so neither
-# module crosses the 600-line maintenance ceiling).
-
-def _runtime_audit_spec(lock: str) -> audit_runtime_locks.AuditSpec:
-    return next(spec for spec in audit_runtime_locks.AUDIT_SPECS if spec.lock == lock)
-
-
+# before pip-audit collects pins.
 _LDR_AUDIT_LOCK = "services/local-deep-researcher/build/config/runtime-requirements.lock"
 
 

@@ -45,15 +45,17 @@ class RayControlPlaneTimeoutError(RuntimeError):
     retry of a side effect.
     """
 
-    def __init__(self, operation: str, job_id: Optional[str] = None):
+    def __init__(
+        self, operation: str, job_id: Optional[str] = None, message: Optional[str] = None
+    ):
         self.operation = operation
         self.job_id = job_id
         suffix = f" for {job_id!r}" if job_id else ""
-        super().__init__(
+        super().__init__(message or (
             f"Ray control plane did not answer {operation}{suffix} within "
             f"{_RAY_CONNECT_TIMEOUT_SECONDS:g}s connect / "
             f"{_RAY_READ_TIMEOUT_SECONDS:g}s read"
-        )
+        ))
 
 
 class RaySubmissionAmbiguousError(RayControlPlaneTimeoutError):
@@ -65,12 +67,11 @@ class RaySubmissionAmbiguousError(RayControlPlaneTimeoutError):
     """
 
     def __init__(self, submission_id: str):
-        self.operation = "job submission"
-        self.job_id = submission_id
-        self.submission_id = submission_id
-        RuntimeError.__init__(
-            self, f"Ray control plane did not confirm job submission for {submission_id!r}"
+        super().__init__(
+            "job submission", submission_id,
+            message=f"Ray control plane did not confirm job submission for {submission_id!r}",
         )
+        self.submission_id = submission_id
 
 
 class RayJobAlreadyExistsError(RuntimeError):

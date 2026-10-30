@@ -263,8 +263,10 @@ def _single_exported_span(spans, kind):
 
 
 def _assert_exported_trace_context(spans, outbound):
-    server = _single_exported_span(spans, 2)
-    client = _single_exported_span(spans, 3)
+    from opentelemetry.proto.trace.v1.trace_pb2 import Span
+
+    server = _single_exported_span(spans, Span.SpanKind.SPAN_KIND_SERVER)
+    client = _single_exported_span(spans, Span.SpanKind.SPAN_KIND_CLIENT)
     assert server.name == "GET /trace"
     assert not any("health" in span.name for span in spans)
     assert len(outbound) == 1

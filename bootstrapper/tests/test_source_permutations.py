@@ -265,11 +265,21 @@ _REDIS_URL_FIELDS = (
 )
 
 
-def _redis_generated_env(tmp_path, monkeypatch, settings):
+def _regenerate_redis_env(path):
+    """Run Redis key generation and the full env pass over ``path``."""
     from core.config_parser import ConfigParser
     from services.service_config import ServiceConfig
-    from utils.atomic_write import render_env_assignment, set_env_assignment
     from utils.key_generator import KeyGenerator
+    parser = ConfigParser(str(REPO_ROOT))
+    parser.env_file_path = path
+    generator = KeyGenerator(str(REPO_ROOT))
+    generator.env_file_path = path
+    assert generator.generate_and_update_redis_password()
+    assert ServiceConfig(parser).generate_and_update_env(create_backup=False)
+
+
+def _redis_generated_env(tmp_path, monkeypatch, settings):
+    from utils.atomic_write import render_env_assignment, set_env_assignment
     content = ENV_EXAMPLE.read_text()
     defaults = {"REDIS_PASSWORD": "synthetic-file-secret", "REDIS_SOURCE": "container",
                 "CELERY_SOURCE": "container", "LIGHTRAG_SOURCE": "container",
@@ -279,14 +289,8 @@ def _redis_generated_env(tmp_path, monkeypatch, settings):
         content = set_env_assignment(content, key, render_env_assignment(key, value))
     path = tmp_path / ".env"
     path.write_text(content)
-    parser = ConfigParser(str(REPO_ROOT))
-    parser.env_file_path = path
-    generator = KeyGenerator(str(REPO_ROOT))
-    generator.env_file_path = path
-    assert generator.generate_and_update_redis_password()
     monkeypatch.setattr("services.service_config.resolve_host_gateway_ip", lambda: "host-gateway")
-    sc = ServiceConfig(parser)
-    assert sc.generate_and_update_env(create_backup=False)
+    _regenerate_redis_env(path)
     return path
 
 
@@ -318,7 +322,7 @@ def test_redis_credentials_survive_complete_generation_and_compose(tmp_path, mon
         assert services[service]["environment"][key] == raw
 
 
-@pytest.mark.parametrize("shell_password", ["synthetic-shell%2Fonly", ""])
+@pytest.mark.parametrize("shell_password", ["synthetic-shell%2Fonly"])
 def test_redis_shell_password_is_runtime_only(tmp_path, monkeypatch, shell_password):
     from urllib.parse import quote
     monkeypatch.setenv("REDIS_PASSWORD", shell_password)
@@ -331,6 +335,17 @@ def test_redis_shell_password_is_runtime_only(tmp_path, monkeypatch, shell_passw
     services = _redis_merged_config(path)
     _assert_redis_password_urls(services, shell_password)
     assert services["redis"]["command"][4] == shell_password
+
+
+def test_redis_blank_shell_password_fails_closed(tmp_path, monkeypatch):
+    """`requirepass ""` turns Redis authentication off, so Compose must refuse it."""
+    from utils.system import compose_env
+    monkeypatch.setenv("REDIS_PASSWORD", "")
+    path = _redis_generated_env(tmp_path, monkeypatch, {})
+    argv = ["docker", "compose", "--env-file=" + str(path), "-p", "atlas-redis-fixture", "-f", str(COMPOSE), "config", "--format", "json"]
+    result = subprocess.run(argv, env=compose_env(argv), capture_output=True, text=True, timeout=35, stdin=subprocess.DEVNULL)
+    assert result.returncode != 0
+    assert "REDIS_PASSWORD is required" in result.stderr
 
 
 def test_redis_compose_preserves_explicit_url_and_custom_db_overrides(tmp_path, monkeypatch):
@@ -390,19 +405,14 @@ def test_redis_legacy_template_keeps_custom_database_index(tmp_path, monkeypatch
 def test_redis_double_quoted_legacy_url_keeps_quote_and_custom_index(tmp_path, monkeypatch):
     from urllib.parse import unquote, urlsplit
     from core.config_parser import ConfigParser
-    from services.service_config import ServiceConfig
     from utils.atomic_write import env_assignment_pattern
-    from utils.key_generator import KeyGenerator
     path = _redis_generated_env(tmp_path, monkeypatch, {"REDIS_PASSWORD": "synthetic%2Fsecret"})
     legacy = '  export REDIS_URL="redis://:${REDIS_PASSWORD}@redis:6379/13" # preserved comment'
     path.write_text(env_assignment_pattern("REDIS_URL").sub(lambda match: legacy, path.read_text()))
     parser = ConfigParser(str(REPO_ROOT))
     parser.env_file_path = path
     assert parser.parse_env_file()["REDIS_URL"] == "redis://:${REDIS_PASSWORD}@redis:6379/13"
-    generator = KeyGenerator(str(REPO_ROOT))
-    generator.env_file_path = path
-    assert generator.generate_and_update_redis_password()
-    assert ServiceConfig(parser).generate_and_update_env(create_backup=False)
+    _regenerate_redis_env(path)
     services = _redis_merged_config(path)
     parsed = urlsplit(services["backend"]["environment"]["REDIS_URL"])
     assert (unquote(parsed.password), parsed.path) == ("synthetic%2Fsecret", "/13")
@@ -412,9 +422,7 @@ def test_redis_double_quoted_legacy_url_keeps_quote_and_custom_index(tmp_path, m
 
 def test_redis_literal_password_keeps_single_quotes_and_comment(tmp_path, monkeypatch):
     from core.config_parser import ConfigParser
-    from services.service_config import ServiceConfig
     from utils.atomic_write import env_assignment_pattern
-    from utils.key_generator import KeyGenerator
     literal = "synthetic${ATLAS_REDIS_LITERAL_NOT_SET}secret"
     monkeypatch.delenv("ATLAS_REDIS_LITERAL_NOT_SET", raising=False)
     path = _redis_generated_env(tmp_path, monkeypatch, {})
@@ -424,10 +432,7 @@ def test_redis_literal_password_keeps_single_quotes_and_comment(tmp_path, monkey
     parser = ConfigParser(str(REPO_ROOT))
     parser.env_file_path = path
     assert parser.parse_env_file()["REDIS_PASSWORD"] == literal
-    generator = KeyGenerator(str(REPO_ROOT))
-    generator.env_file_path = path
-    assert generator.generate_and_update_redis_password()
-    assert ServiceConfig(parser).generate_and_update_env(create_backup=False)
+    _regenerate_redis_env(path)
     services = _redis_merged_config(path)
     _assert_redis_password_urls(services, literal)
     # Compose config escapes dollars for reload after serializing the model.
@@ -447,10 +452,7 @@ def test_redis_literal_password_keeps_single_quotes_and_comment(tmp_path, monkey
     ("${REDIS_PASSWORD_URI}", "unused", None, "%24%7BREDIS_PASSWORD_URI%7D"),
 ])
 def test_redis_expanding_file_password_is_resolved_only_for_runtime(tmp_path, monkeypatch, case):
-    from core.config_parser import ConfigParser
-    from services.service_config import ServiceConfig
     from utils.atomic_write import env_assignment_pattern
-    from utils.key_generator import KeyGenerator
     raw, reference, shell, expected = case
     monkeypatch.delenv("REDIS_PASSWORD", raising=False)
     monkeypatch.delenv("REDIS_PASSWORD_URI", raising=False)
@@ -460,12 +462,7 @@ def test_redis_expanding_file_password_is_resolved_only_for_runtime(tmp_path, mo
     raw_line = "  export REDIS_PASSWORD=" + raw + " # preserved reference"
     content = env_assignment_pattern("REDIS_PASSWORD").sub(lambda match: raw_line, path.read_text())
     path.write_text("ATLAS_REDIS_REFERENCE=" + reference + "\n" + content)
-    parser = ConfigParser(str(REPO_ROOT))
-    parser.env_file_path = path
-    generator = KeyGenerator(str(REPO_ROOT))
-    generator.env_file_path = path
-    assert generator.generate_and_update_redis_password()
-    assert ServiceConfig(parser).generate_and_update_env(create_backup=False)
+    _regenerate_redis_env(path)
     persisted = path.read_bytes()
     services = _redis_merged_config(path)
     _assert_redis_password_urls(services, expected)

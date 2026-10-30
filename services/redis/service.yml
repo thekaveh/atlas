@@ -60,13 +60,14 @@ env:
       Used by Redis consumers, including n8n queues, litellm cache,
       open-webui websocket storage, and backend state and queues.
       The default is for fresh-install convenience only; rotate before any deployment.
+      Compose refuses a blank value, which would disable Redis authentication.
   - name: REDIS_PASSWORD_URI
     default: redis_password
     secret: true
     description: "Startup keeps this percent-encoded REDIS_PASSWORD in sync for URI userinfo. Separate password fields use the raw value."
   - name: REDIS_URL
     default: "redis://:${REDIS_PASSWORD_URI}@redis:6379/0"
-    description: "Default connection string (database 0, also n8n's queue and LiteLLM's cache). Consumers that need another DB index build their own URL: open-webui and lightrag share /2, jupyterhub uses /3. Compose substitutes REDIS_PASSWORD_URI."
+    description: "Default connection string (database 0, also n8n's queue and LiteLLM's cache). Consumers that need another DB index build their own URL: open-webui and lightrag share /2, jupyterhub uses /3, celery /4, trueforge /5. Compose substitutes REDIS_PASSWORD_URI."
   - name: REDIS_EXPORTER_PORT
     # default removed — computed by services/topology.py slot allocator
     description: "Host port for redis-exporter (in-container 9121). Sidecar gated by PROMETHEUS_SOURCE."

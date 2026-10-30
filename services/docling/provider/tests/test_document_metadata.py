@@ -288,7 +288,7 @@ if __name__ == "__main__":
     actual_core = importlib.metadata.version("docling-core")
     if actual_core != EXPECTED_CORE:
         raise SystemExit(f"Expected docling-core {EXPECTED_CORE}; installed {actual_core}")
-    print(f"ACTUAL_CORE={actual_core}; GPU pin=2.104.0; localhost pin=2.104.0", flush=True)
+    print(f"ACTUAL_CORE={actual_core}; expected={EXPECTED_CORE}", flush=True)
     if arguments.packaging_child:
         packaging_probe(arguments.packaging_child, arguments.mode)
     else:

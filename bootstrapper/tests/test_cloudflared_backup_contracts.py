@@ -3049,17 +3049,6 @@ def _assert_owned_network_absent(name: str, owner_token: str) -> None:
     assert _exact_network_owner(name) != owner_token
 
 
-def _add_exception_note(exc: BaseException, note: str) -> None:
-    if hasattr(exc, "add_note"):
-        exc.add_note(note)
-        return
-    notes = getattr(exc, "__notes__", None)
-    if notes is None:
-        notes = []
-        exc.__notes__ = notes
-    notes.append(note)
-
-
 def _report_fixture_cleanup_failures(
     primary: BaseException | None, failures: list[tuple[str, BaseException]],
 ) -> None:
@@ -3069,10 +3058,10 @@ def _report_fixture_cleanup_failures(
     )
     note = f"Exact Docker fixture cleanup could not be proven: {detail}"
     if primary is not None:
-        _add_exception_note(primary, note)
+        primary.add_note(note)
         return
     cleanup_error = failures[0][1]
-    _add_exception_note(cleanup_error, note)
+    cleanup_error.add_note(note)
     raise cleanup_error
 
 

@@ -643,12 +643,32 @@ def test_compose_env_keeps_the_projects_own_spelling(tmp_path, monkeypatch, case
         assert result["PROJECT_NAME"] == expected
 
 
-def test_the_wizard_compose_executor_pins_project_name_too():
-    import inspect
+def _streamed_env_recorder(seen: dict):
+    """A `_run_streamed_command` stand-in that records the child's env."""
+    async def fake_run(command, *, env, **_kwargs):
+        seen["env"] = env
+        return 0
+    return fake_run
+
+
+def test_the_wizard_compose_executor_pins_project_name_too(monkeypatch, tmp_path):
+    """Behavior, not source text: the pipeline executor's child gets
+    PROJECT_NAME from -p even with another value exported."""
+    import asyncio
 
     from ui.textual.screens import wizard_screen
 
-    assert "compose_env(command)" in inspect.getsource(wizard_screen._ThreadedComposeExecutor)
+    seen = {}
+
+    async def run():
+        return await wizard_screen._ThreadedComposeExecutor(
+            SimpleNamespace(root_dir=str(tmp_path)), asyncio.get_running_loop(), lambda *_a, **_k: None,
+        )._run(["docker", "compose", "-p", "foo", "up"], ["up"])
+
+    monkeypatch.setenv("PROJECT_NAME", "other")
+    monkeypatch.setattr(wizard_screen, "_run_streamed_command", _streamed_env_recorder(seen))
+    assert asyncio.run(run()) == 0
+    assert (seen["env"]["PROJECT_NAME"], seen["env"]["BUILDKIT_PROGRESS"]) == ("foo", "plain")
 
 
 def test_execute_compose_command_pins_project_name_for_cold_stop(tmp_path, monkeypatch):
@@ -719,14 +739,39 @@ def test_a_manager_refusal_exits_cleanly_instead_of_a_traceback(monkeypatch, cas
     assert isinstance(result.exception, SystemExit)
 
 
-def test_the_wizard_up_and_bounded_capture_pin_project_name_too():
-    """The launch `up` and bounded captures ran with os.environ, so a stray
-    PROJECT_NAME export named volumes differently from stop (cycle 37)."""
-    import inspect
+def test_the_wizard_up_pins_project_name_off_the_event_loop(monkeypatch, tmp_path):
+    """The launch `up` ran with os.environ, so a stray PROJECT_NAME export
+    named volumes differently from stop (cycle 37). compose_env may probe
+    Compose, so it runs off the event loop."""
+    import asyncio
+    import threading
 
     from ui.textual.screens import wizard_screen
+    from utils import system
 
-    assert "asyncio.to_thread(compose_env, full_cmd)" in inspect.getsource(wizard_screen.WizardScreen._run_compose)
+    real_compose_env, seen = system.compose_env, {}
+
+    def recording_compose_env(command):
+        seen["compose_env"] = (list(command), threading.get_ident())
+        return real_compose_env(command)
+
+    async def launch():
+        seen["loop"] = threading.get_ident()
+        return await wizard_screen.WizardScreen._run_compose(screen, ["up"])
+
+    screen = SimpleNamespace(
+        _starter=SimpleNamespace(docker_manager=SimpleNamespace(
+            _build_compose_command=lambda args, top_level_flags: ["docker", "compose", "-p", "foo", *args],
+            root_dir=str(tmp_path))),
+        _safe_log=lambda *_a, **_k: None,
+    )
+    monkeypatch.setenv("PROJECT_NAME", "other")
+    monkeypatch.setattr(system, "compose_env", recording_compose_env)
+    monkeypatch.setattr(wizard_screen, "_run_streamed_command", _streamed_env_recorder(seen))
+    assert asyncio.run(launch()) == 0
+    assert seen["compose_env"][1] != seen["loop"]
+    assert (seen["compose_env"][0], seen["env"]["PROJECT_NAME"], seen["env"]["BUILDKIT_PROGRESS"]) == (
+        ["docker", "compose", "-p", "foo", "up"], "foo", "plain")
 
 
 def test_a_bounded_capture_runs_compose_under_the_p_project(monkeypatch, tmp_path):
@@ -737,16 +782,11 @@ def test_a_bounded_capture_runs_compose_under_the_p_project(monkeypatch, tmp_pat
     from ui.textual.screens import wizard_screen
 
     seen = {}
-
-    async def fake_run(command, *, env, **_kwargs):
-        seen.update(env)
-        return 0
-
     monkeypatch.setenv("PROJECT_NAME", "other")
-    monkeypatch.setattr(wizard_screen, "_run_streamed_command", fake_run)
+    monkeypatch.setattr(wizard_screen, "_run_streamed_command", _streamed_env_recorder(seen))
     asyncio.run(wizard_screen._capture_bounded_process_output(
         ["docker", "compose", "-p", "foo", "ps"], cwd=tmp_path, sink=lambda _l: None, timeout_seconds=1))
-    assert seen["PROJECT_NAME"] == "foo"
+    assert seen["env"]["PROJECT_NAME"] == "foo"
 
 
 def test_live_model_items_keep_a_model_only_the_rendered_litellm_config_routes(monkeypatch, tmp_path):

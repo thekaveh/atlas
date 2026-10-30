@@ -454,11 +454,7 @@ class ComfyUiMpsManager:
         wrote self.ref and the current requirements back, restoring the
         marker a failed reconcile had dropped, so the next start skipped the
         install over a half-built venv (2026-10-08 run, cycle 68)."""
-        try:
-            status = json.loads(self.status_file.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            status = {}
-        status = status if isinstance(status, dict) else {}
+        status = self._launch_record()
         return {"installed_ref": status.get("installed_ref"),
                 "requirements_sha256": status.get("requirements_sha256")}
 

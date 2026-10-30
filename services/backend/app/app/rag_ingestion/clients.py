@@ -30,12 +30,12 @@ def ingestion_runtime_context(profile, weaviate, lightrag) -> List[tuple[str, st
     Availability is configured capability, not a network readiness probe.
     """
     context = []
-    for backend, declared, client, attribute in (
-        ("weaviate", profile.vector_targets, weaviate, "_url"),
-        ("lightrag", profile.graph_targets, lightrag, "_endpoint"),
+    for backend, declared, client in (
+        ("weaviate", profile.vector_targets, weaviate),
+        ("lightrag", profile.graph_targets, lightrag),
     ):
         if declared:
-            parsed = urlsplit(str(getattr(client, attribute, "") or ""))
+            parsed = urlsplit(client.endpoint)
             endpoint = urlunsplit((
                 parsed.scheme, parsed.netloc.rsplit("@", 1)[-1], parsed.path.rstrip("/"), "", "",
             ))
@@ -614,6 +614,11 @@ class WeaviateClient:
     def __init__(self, url: Optional[str] = None) -> None:
         self._url = (url if url is not None else os.getenv("WEAVIATE_URL", "")).rstrip("/")
 
+    @property
+    def endpoint(self) -> str:
+        """Configured base URL; part of the ingestion job identity."""
+        return self._url
+
     def available(self) -> bool:
         return bool(self._url.strip())
 
@@ -897,6 +902,11 @@ class LightRagClient:
         self._pipeline_status_timeout = _resolve_pipeline_status_timeout(
             pipeline_status_timeout
         )
+
+    @property
+    def endpoint(self) -> str:
+        """Configured base URL; part of the ingestion job identity."""
+        return self._endpoint
 
     def available(self) -> bool:
         return bool(self._endpoint.strip())

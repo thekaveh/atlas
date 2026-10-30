@@ -52,15 +52,23 @@ class SourceSpec:
     reviewed_advisories: frozenset[str] = frozenset()
 
 
+def _cpython_marker_environment(
+    system: str, machine: str, python_full: str
+) -> dict[str, str]:
+    """Return the PEP 508 marker environment of one CPython target."""
+    return {
+        "implementation_name": "cpython", "implementation_version": python_full,
+        "os_name": "posix", "platform_machine": machine,
+        "platform_release": "", "platform_system": system, "platform_version": "",
+        "python_full_version": python_full, "platform_python_implementation": "CPython",
+        "python_version": ".".join(python_full.split(".")[:2]),
+        "sys_platform": system.lower(),
+    }
+
+
 # Project the shipped LDR container, independently of pip-audit's interpreter.
 _LDR_LINUX311_MARKER_ENVIRONMENTS = tuple(
-    {
-        "implementation_name": "cpython", "implementation_version": "3.11.15",
-        "os_name": "posix", "platform_machine": machine,
-        "platform_release": "", "platform_system": "Linux", "platform_version": "",
-        "python_full_version": "3.11.15", "platform_python_implementation": "CPython",
-        "python_version": "3.11", "sys_platform": "linux",
-    }
+    _cpython_marker_environment("Linux", machine, "3.11.15")
     for machine in ("x86_64", "aarch64")
 )
 
@@ -183,13 +191,7 @@ UV_PROJECTS = (
 # finding on one target fails there as stale. A platform-only advisory therefore
 # needs target-scoped exceptions before it can be reviewed here.
 _DOCLING_LOCALHOST_MARKER_ENVIRONMENTS = {
-    f"{system.lower()}-{machine}": {
-        "implementation_name": "cpython", "implementation_version": "3.11.15",
-        "os_name": "posix", "platform_machine": machine,
-        "platform_release": "", "platform_system": system, "platform_version": "",
-        "python_full_version": "3.11.15", "platform_python_implementation": "CPython",
-        "python_version": "3.11", "sys_platform": system.lower(),
-    }
+    f"{system.lower()}-{machine}": _cpython_marker_environment(system, machine, "3.11.15")
     for system, machine in (("Linux", "x86_64"), ("Linux", "aarch64"), ("Darwin", "arm64"))
 }
 UV_PROJECT_MARKER_ENVIRONMENTS: dict[str, dict[str, dict[str, str]]] = {
@@ -460,7 +462,7 @@ def audit_spec(
         display_name, public_requirements, root=root
     )
     if payload is None:
-        return audit_failures
+        return failures + audit_failures
     if expected is not None:
         coverage_failures = _coverage_failures(display_name, expected, payload)
         if coverage_failures:

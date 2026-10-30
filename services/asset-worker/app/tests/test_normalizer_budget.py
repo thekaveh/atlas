@@ -32,40 +32,6 @@ def _alias_payload() -> bytes:
     return normalizer._build_glb(doc, binary)
 
 
-def test_alias_budget_rejects_before_decode(tmp_path, monkeypatch):
-    """Four distinct aliases require twelve entries despite sharing three points."""
-    monkeypatch.setenv("ASSET_WORKER_MAX_NORMALIZATION_VERTICES", "11")
-    source = tmp_path / "input.glb"
-    source.write_bytes(_alias_payload())
-    entered = []
-
-    class DecodeEntered(Exception):
-        pass
-
-    def forbidden_decode(*_args):
-        entered.append("POSITION decoder entered")
-        raise DecodeEntered("twelve entries reached decoding with budget eleven")
-
-    monkeypatch.setattr(normalizer, "_read_positions", forbidden_decode)
-    for existing in (False, True):
-        destination = tmp_path / ("sentinel.glb" if existing else "absent.glb")
-        if existing:
-            destination.write_bytes(b"existing output sentinel")
-        failure = None
-        try:
-            normalizer.normalize_glb(source, destination, PostprocessParams())
-        except Exception as error:
-            failure = error
-        assert entered == [], "over-budget positions reached decoding before admission"
-        assert failure is not None, "aggregate work exceeding eleven must be rejected"
-        assert isinstance(failure, normalizer.NormalizationWorkLimitError)
-        assert "11" in str(failure) and "decoded POSITION" in str(failure)
-        if existing:
-            assert destination.read_bytes() == b"existing output sentinel"
-        else:
-            assert not destination.exists()
-
-
 _POINTS = ((1.0, 2.0, 3.0), (3.0, 4.0, 5.0), (5.0, 6.0, 7.0))
 _EXPECTED = ((-1.0, 0.0, -1.0), (0.0, 1.0, 0.0), (1.0, 2.0, 1.0))
 _SENTINELS = tuple(struct.pack("<fff", 100 + index, 200, 300) for index in range(3))

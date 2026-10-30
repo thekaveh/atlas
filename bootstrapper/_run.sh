@@ -41,9 +41,8 @@ elif command -v python3 >/dev/null 2>&1; then
 
     # Fingerprint the DEPENDENCY DECLARATION, not the module list. The guard
     # used to be presence-only: if those modules imported at ANY version, the
-    # install was skipped forever. So the security floors in pyproject.toml —
-    # click>=8.3.3 (command-injection advisory), urllib3>=2.7.0
-    # (CVE-2026-44431/44432), pillow>=12.3.0 — were never applied to an
+    # install was skipped forever. So the security floors declared in
+    # pyproject.toml (click, urllib3, pillow) were never applied to an
     # existing venv, and the two dispatch branches produced materially
     # different dependency states from identical inputs (the uv branch
     # re-resolves against uv.lock every run). A new dependency added to

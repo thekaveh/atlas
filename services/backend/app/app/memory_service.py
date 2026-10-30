@@ -226,8 +226,6 @@ def _remember_rejected(rejected: dict, row, exc: BaseException) -> None:
         rejected[row["id"]] = row["updated_at"]
 
 
-
-
 class MemoryService:
     """LangMem-inspired persistent memory service."""
 
@@ -766,11 +764,6 @@ Extract the facts as JSON:"""
             type(exc).__name__,
         )
 
-    @staticmethod
-    async def _clear_pending_flag(conn, row, new_weaviate_id) -> None:
-        """Clear the owned canonical vector state through the SQL helper."""
-        await _clear_pending_vector_intent(conn, row, new_weaviate_id)
-
     async def _sync_one_row(self, row):
         """Push one fact's vector, or retire it. Returns the new weaviate id.
 
@@ -822,9 +815,12 @@ Extract the facts as JSON:"""
             if not target_failure:
                 _remember_rejected(rejected, row, exc)
             return False, exc if target_failure else None
-        # Preserve the optimistic updated_at guard: a concurrent edit keeps
-        # its durable pending intent even if this older vector write succeeds.
-        await self._clear_pending_flag(conn, row, new_weaviate_id)
+        # Active rows clear only while they still hold the vector-bearing
+        # fields just written; retired rows keep the updated_at guard. A
+        # concurrent edit keeps its durable pending intent, but a
+        # content-preserving delete and restore that another process
+        # reconciles in between is not detected.
+        await _clear_pending_vector_intent(conn, row, new_weaviate_id)
         if row["id"] in rejected and rejected[row["id"]] == row["updated_at"]:
             del rejected[row["id"]]
         return True, None

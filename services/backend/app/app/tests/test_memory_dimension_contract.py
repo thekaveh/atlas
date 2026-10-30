@@ -2895,7 +2895,8 @@ class _ReconcileFacts:
         actual = [row[field] for field in (
             "user_id", "namespace", "content", "fact_type", "confidence"
         )]
-        if actual != expected or not row["is_active"] or row["updated_at"] is None:
+        if (actual != expected or not row["is_active"] or not row["vector_sync_pending"]
+                or row["updated_at"] is None):
             return "UPDATE 0"
         row["vector_sync_pending"] = False
         return "UPDATE 1"
@@ -3319,6 +3320,34 @@ async def test_reconcile_postgres_competing_edit_preserves_guarded_pending_inten
         assert not await conn.fetchval(
             "SELECT vector_sync_pending FROM public.memory_facts WHERE id=$1", row["id"])
         assert service.store.actions == [("update", row["id"])] * 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("vector_edit", [False, True], ids=["trigger-only", "content-edit"])
+async def test_reconcile_postgres_clear_follows_embedding_trigger_version(vector_edit):
+    service = _reconcile_service()
+    row = _reconcile_fact(1, content="valid")
+    async with _postgres_reconcile_facts([row]) as conn:
+        original = service.store.update_embedding
+
+        async def embedding_write(**kwargs):
+            vector_id = await original(**kwargs)
+            # The fixture installs no trigger: advance the version as the shipped one does.
+            await conn.execute("UPDATE public.memory_facts SET updated_at = updated_at"
+                               " + interval '1 second' WHERE id=$1", row["id"])
+            if vector_edit:
+                await conn.execute("UPDATE public.memory_facts SET content='newer',"
+                                   " updated_at = updated_at + interval '1 second'"
+                                   " WHERE id=$1", row["id"])
+            return vector_id
+
+        service.store.update_embedding = embedding_write
+        assert await service._reconcile_pending_vectors(conn=conn) == 1
+        stored = await conn.fetchrow(
+            "SELECT vector_sync_pending, weaviate_id FROM public.memory_facts WHERE id=$1",
+            row["id"])
+        assert stored["vector_sync_pending"] is vector_edit
+        assert stored["weaviate_id"] == (None if vector_edit else "new-vector")
 
 
 def _assert_cache_validation_bound(conn):

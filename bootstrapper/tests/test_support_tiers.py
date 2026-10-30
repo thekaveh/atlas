@@ -11,7 +11,7 @@ import pytest
 from docs.capabilities_resolver import CapabilityRow, SupportLine, resolve_support_lines
 from docs.capabilities_section_writer import render_capabilities_section
 from docs.sitegen.model import load_docs_model
-from docs.sitegen.services import service_pages
+from docs.sitegen.services import service_catalog
 from services.manifest_validator import validate_manifests
 from services.manifests import SUPPORT_TIERS, Support, load_manifests
 from wizard.model.service_discovery import ServiceInfo
@@ -157,9 +157,7 @@ def test_support_lines_follow_aggregate_member_order() -> None:
 
 
 def test_generated_catalog_and_reference_expose_the_tier() -> None:
-    model = load_docs_model(ROOT)
-    pages = service_pages(model)
-    index = pages[ROOT / "docs" / "site" / "services" / "index.md"]
+    index = service_catalog(load_docs_model(ROOT))
 
     assert "| Service | Title | Support | Tracks |" in index
     assert "[speaches](speaches.md) | Speaches" in index

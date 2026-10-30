@@ -563,15 +563,15 @@ Append the Qdrant entry to `sections` → `services` → `service-guides` → `c
 
 ```yaml
 - id: service-qdrant
-  number: '5.2.62'
-  title: Qdrant
+  number: 5.2.62
+  title: qdrant
   source: services/qdrant/README.md
   diagrams:
   - service-qdrant
 ```
 
-Here, `5.2.62` illustrates the next number after the current last guide, `5.2.61`.
-Use the actual next sequential sibling number when you add a service.
+Here, `5.2.62` stands for the next sequential number after the last `service-guides` child.
+Use the service folder name as the `title`, as the existing guide entries do.
 Keep existing page IDs and numbers unchanged; wiki page URLs derive from the stable IDs.
 
 Set the canonical README's first H1 to the same page number:

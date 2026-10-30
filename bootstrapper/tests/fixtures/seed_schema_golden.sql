@@ -12,7 +12,7 @@ SET row_security = off;
 
 CREATE SCHEMA auth;
 
-ALTER SCHEMA auth OWNER TO supabase_admin;
+ALTER SCHEMA auth OWNER TO supabase_auth_admin;
 
 CREATE SCHEMA extensions;
 
@@ -84,7 +84,7 @@ CREATE TYPE auth.factor_type AS ENUM (
     'phone'
 );
 
-ALTER TYPE auth.factor_type OWNER TO supabase_admin;
+ALTER TYPE auth.factor_type OWNER TO supabase_auth_admin;
 
 CREATE FUNCTION auth.email() RETURNS text
     LANGUAGE sql STABLE
@@ -1264,7 +1264,6 @@ ALTER PUBLICATION supabase_realtime OWNER TO postgres;
 GRANT USAGE ON SCHEMA auth TO anon;
 GRANT USAGE ON SCHEMA auth TO authenticated;
 GRANT ALL ON SCHEMA auth TO service_role;
-GRANT ALL ON SCHEMA auth TO supabase_auth_admin;
 GRANT ALL ON SCHEMA auth TO dashboard_user;
 GRANT USAGE ON SCHEMA auth TO postgres;
 GRANT USAGE ON SCHEMA auth TO atlas_auth_sync;

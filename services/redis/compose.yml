@@ -30,8 +30,10 @@ services:
       - redis-server
       - --appendonly
       - "yes"
+      # Required: a blank value reached Redis as `requirepass ""`, which
+      # turns authentication off.
       - --requirepass
-      - ${REDIS_PASSWORD}
+      - ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
       - --maxmemory
       - ${REDIS_MAXMEMORY:-0}
       - --maxmemory-policy

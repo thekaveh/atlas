@@ -58,17 +58,6 @@ class _OwnershipMismatch(BaseException):
     """The exact Docker name exists but is not owned by this test run."""
 
 
-def _add_exception_note(exc: BaseException, note: str) -> None:
-    if hasattr(exc, "add_note"):
-        exc.add_note(note)
-        return
-    notes = getattr(exc, "__notes__", None)
-    if notes is None:
-        notes = []
-        exc.__notes__ = notes
-    notes.append(note)
-
-
 def _preferred_cleanup_failure(
     failures: list[tuple[str, str, BaseException]],
 ) -> BaseException:
@@ -243,10 +232,10 @@ class OwnedDocker:
         )
         note = f"Owned Docker cleanup could not be proven: {detail}"
         if primary is not None:
-            _add_exception_note(primary, note)
+            primary.add_note(note)
             return
         cleanup_error = _preferred_cleanup_failure(failures)
-        _add_exception_note(cleanup_error, note)
+        cleanup_error.add_note(note)
         raise cleanup_error
 
     def _remove_owned(self, kind: str, name: str) -> None:

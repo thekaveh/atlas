@@ -75,10 +75,6 @@ def normalize_glb(input_path: Path, output_path: Path, params: PostprocessParams
         )
 
     positions = _read_positions(bin_chunk, accessors)
-    if not positions:
-        shutil.copyfile(input_path, output_path)
-        return
-
     transformed = _transform_positions(positions, params)
     _write_positions(bin_chunk, accessors, transformed)
     _update_accessor_bounds(doc, accessors, bin_chunk)
@@ -295,8 +291,6 @@ _AUTO_SAMPLE_LIMIT = 2048
 def _auto_upright(
     positions: list[tuple[float, float, float]],
 ) -> list[tuple[float, float, float]]:
-    import math
-
     stride = max(1, len(positions) // _AUTO_SAMPLE_LIMIT)
     sample = positions[::stride]
 

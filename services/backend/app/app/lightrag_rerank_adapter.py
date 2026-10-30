@@ -183,6 +183,17 @@ def validate_rerank_adapter_config() -> None:
     _batch_size()
 
 
+def _finite_score(value: object) -> Optional[float]:
+    """A TEI score as a finite float, or None for any other value."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    try:
+        score = float(value)
+    except OverflowError:  # an int beyond the float range
+        return None
+    return score if math.isfinite(score) else None
+
+
 def _parse_tei_items(payload: object, doc_count: int) -> List[dict]:
     """Validate TEI's response is the pinned top-level array of ranked items.
 
@@ -205,23 +216,8 @@ def _parse_tei_items(payload: object, doc_count: int) -> List[dict]:
                 "TEI /rerank item missing required 'index'/'score' fields"
             )
         index = entry["index"]
-        score = entry["score"]
-        if (
-            isinstance(index, bool)
-            or not isinstance(index, int)
-            or isinstance(score, bool)
-            or not isinstance(score, (int, float))
-        ):
-            raise RerankAdapterUpstreamError(
-                "TEI /rerank item has invalid 'index'/'score' types"
-            )
-        try:
-            score = float(score)
-        except OverflowError as exc:
-            raise RerankAdapterUpstreamError(
-                "TEI /rerank item has invalid 'index'/'score' types"
-            ) from exc
-        if not math.isfinite(score):
+        score = _finite_score(entry["score"])
+        if isinstance(index, bool) or not isinstance(index, int) or score is None:
             raise RerankAdapterUpstreamError(
                 "TEI /rerank item has invalid 'index'/'score' types"
             )

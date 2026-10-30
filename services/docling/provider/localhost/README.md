@@ -21,10 +21,6 @@ This installs the locked dependencies, including `docling==2.142.0` and
 Apple Silicon, so no separate torch install is needed. Do not install another
 torch with `uv pip install`: `uv run` restores the locked version.
 
-The locks use Pillow 13.0.0 and filelock 4.2.1.
-The scoped GPU and native localhost audits reported no findings on 2026-10-28.
-These results do not establish safety against every parser issue.
-
 On macOS, the lock uses SciPy 1.16.0 for native import compatibility.
 Other platforms retain SciPy 1.15.3.
 

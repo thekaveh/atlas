@@ -682,6 +682,17 @@ def _prepare_private_node_case(workspace, refs, case):
     return dest, repo, target, replace_repo
 
 
+_NODE_UPDATE_OUTCOMES = {
+    "container": dict.fromkeys(
+        ("changed-repository", "same-origin-update", "fresh-clone", "cached-current"), "ready",
+    ),
+    "host": {
+        "changed-repository": "updated", "same-origin-update": "updated",
+        "fresh-clone": "provisioned", "cached-current": "skipped",
+    },
+}
+
+
 @pytest.mark.parametrize("mode", ["container", "host"])
 @pytest.mark.parametrize("case", [
     "changed-repository", "same-origin-update", "fresh-clone", "cached-current", "missing-ref",
@@ -711,7 +722,7 @@ def test_current_plan_repository_drives_cached_node_update(
     if case == "missing-ref":
         assert outcome == "failed" and head == refs["old"]
     else:
-        assert outcome in ("ready", "updated", "provisioned", "skipped"), detail
+        assert outcome == _NODE_UPDATE_OUTCOMES[mode][case], detail
         assert head == target
         expected = "owned-new-repository" if replace_repo else "owned-same-origin-new"
         assert (dest / "owned-marker").read_text(encoding="utf-8") == expected

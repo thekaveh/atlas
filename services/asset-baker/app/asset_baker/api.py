@@ -308,11 +308,16 @@ def _resource_entries(doc: dict) -> list | None:
     return [*groups[0], *groups[1]]
 
 
+_GLB_MAGIC = 0x46546C67
+_JSON_CHUNK = 0x4E4F534A
+_BIN_CHUNK = 0x004E4942
+
+
 def _glb_chunks(data: bytes):
     """Yield zero-copy chunks only while the GLB v2 framing is valid."""
     if len(data) < 20:
         raise ValueError("Incomplete GLB header")
-    if struct.unpack_from("<III", data, 0) != (0x46546C67, 2, len(data)):
+    if struct.unpack_from("<III", data, 0) != (_GLB_MAGIC, 2, len(data)):
         raise ValueError("Invalid GLB header")
     offset, view = 12, memoryview(data)
     while offset < len(data):
@@ -331,11 +336,11 @@ def _glb_json_chunk(data: bytes) -> dict | None:
     try:
         chunks = _glb_chunks(data)
         chunk_type, chunk = next(chunks)
-        if chunk_type != 0x4E4F534A:
+        if chunk_type != _JSON_CHUNK:
             return None
         doc = json.loads(bytes(chunk).rstrip(b" \x00").decode("utf-8-sig"))
         for index, (chunk_type, _) in enumerate(chunks, 1):
-            if chunk_type == 0x4E4F534A or (chunk_type == 0x004E4942 and index != 1):
+            if chunk_type == _JSON_CHUNK or (chunk_type == _BIN_CHUNK and index != 1):
                 return None
     except (ValueError, struct.error, RecursionError, StopIteration):
         return None
@@ -467,15 +472,11 @@ def _enforce_content_length(request: Request) -> None:
     """Reject declared bodies above the raw envelope before parsing."""
     raw = request.headers.get("content-length")
     if raw and raw.isdigit():
-        max_mb = float(os.getenv("ASSET_BAKER_MAX_UPLOAD_MB", "200"))
-        limit = (
-            _max_upload_bytes() + _MULTIPART_OVERHEAD_BYTES
-            if math.isfinite(max_mb) and max_mb > 0
-            else (max_mb + 2) * 1024 * 1024
-        )
+        max_bytes = _max_upload_bytes()
+        limit = max_bytes + _MULTIPART_OVERHEAD_BYTES
         digits = raw.lstrip("0") or "0"
-        if len(digits) > len(str(int(limit))) or int(digits) > limit:
-            raise HTTPException(status_code=413, detail=f"Upload exceeds {max_mb:.0f} MiB limit")
+        if len(digits) > len(str(limit)) or int(digits) > limit:
+            raise HTTPException(status_code=413, detail=f"Upload exceeds {max_bytes} byte limit")
 
 
 def _validate_glb_name(filename: str) -> None:

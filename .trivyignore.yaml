@@ -4951,7 +4951,7 @@ vulnerabilities:
       the exact PURL can scope it. pip vendors only pkg_resources from it, while
       the path traversal sits in setuptools.package_index, which pip neither
       vendors nor calls. The installed site-packages setuptools is pinned at
-      83.0.0 by the overlay lock. pip 26.2.1 is the newest release, so no
+      84.1.0 by the overlay lock. pip 26.2.1 is the newest release, so no
       upgrade clears it; re-review when pip re-vendors a newer setuptools.
       The same PURL matches the pip 26.2.1 inventory in the
       quay.io/jupyter/datascience-notebook base (#1289 coverage review), where

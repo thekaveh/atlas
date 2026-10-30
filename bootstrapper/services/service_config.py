@@ -12,7 +12,7 @@ from urllib.parse import quote
 from core.config_parser import ConfigParser
 from core.endpoints_contract import _expand_interpolation
 from utils.atomic_write import atomic_write_text, env_assignment_pattern, env_lines, render_env_assignment, set_env_assignment
-from utils.system import get_localhost_host, resolve_host_gateway_ip
+from utils.system import get_localhost_host, redis_service_url, resolve_host_gateway_ip
 
 
 # Same list as .env.example / compose: the backup contract requires
@@ -50,7 +50,9 @@ def _uri_component(env_file_vars: dict, name: str, default: str = '') -> str:
 
 
 def synchronize_redis_uri_credentials(env_file_path, password: str, rewrite_password: bool = True) -> bool:
-    """Atomically publish a file credential's encoded twin and URL references."""
+    """Atomically publish a file credential's encoded twin and URL references.
+    An already-synchronized file is left untouched: a rewrite on every start
+    replaced the inode and invalidated every ConfigParser cache."""
     if not env_file_path.exists():
         print(f"❌ .env file not found: {env_file_path}")
         return False
@@ -58,10 +60,11 @@ def synchronize_redis_uri_credentials(env_file_path, password: str, rewrite_pass
         with env_file_path.open(encoding="utf-8", newline="") as handle:
             content = handle.read()
         updated = _redis_uri_environment(content, password, rewrite_password)
-        atomic_write_text(env_file_path, updated, mode=0o600)
+        if updated != content:
+            atomic_write_text(env_file_path, updated, mode=0o600)
         return True
     except Exception as e:
-        print(f"❌ Failed to update REDIS_PASSWORD in .env file: {e}")
+        print(f"❌ Failed to update REDIS_PASSWORD / REDIS_PASSWORD_URI in .env file: {e}")
         return False
 
 
@@ -1448,12 +1451,11 @@ class ServiceConfig:
                 "CELERY_RESULT_BACKEND": "",
             }
         redis_password = _uri_component(self.config_parser.parse_env_file(), 'REDIS_PASSWORD')
-        redis_url = f'redis://:{redis_password}@redis:6379/4'
         return {
             "CELERY_WORKER_SCALE": "1",
             "FLOWER_SCALE": "1",
-            "CELERY_BROKER_URL": redis_url,
-            "CELERY_RESULT_BACKEND": redis_url,
+            "CELERY_BROKER_URL": redis_service_url("CELERY_BROKER_URL", redis_password),
+            "CELERY_RESULT_BACKEND": redis_service_url("CELERY_RESULT_BACKEND", redis_password),
         }
 
     def _generate_supavisor_config(self) -> dict:
@@ -2033,9 +2035,7 @@ class ServiceConfig:
             redis_source = sources.get('REDIS_SOURCE', 'container')
             if redis_source != 'disabled':
                 redis_password = _uri_component(lightrag_raw_env, 'REDIS_PASSWORD')
-                env_vars['LIGHTRAG_REDIS_URI'] = (
-                    f'redis://:{redis_password}@redis:6379/2'
-                )
+                env_vars['LIGHTRAG_REDIS_URI'] = redis_service_url('LIGHTRAG_REDIS_URI', redis_password)
             else:
                 env_vars['LIGHTRAG_REDIS_URI'] = ''
             _warn_lightrag_storage_gaps(env_vars, lightrag_raw_env)

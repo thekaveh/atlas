@@ -8,6 +8,7 @@ the route/auth/status-mapping is driven through the FastAPI TestClient.
 from __future__ import annotations
 
 import os
+from contextlib import contextmanager
 
 import httpx
 import pytest
@@ -571,9 +572,6 @@ def test_live_rerank_against_real_tei(monkeypatch):
     assert scores == sorted(scores, reverse=True)
     # The two on-topic passages should outrank the biology distractor.
     assert result.results[-1].index == 1
-
-
-from contextlib import contextmanager
 
 
 @contextmanager

@@ -3996,7 +3996,7 @@ services:
     command:
     - 'set -e
 
-      mc alias set minio http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}"
+      printf ''%s\n%s\n'' "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}" | mc alias set minio http://minio:9000 >/dev/null
 
       mc mb --ignore-existing minio/spark-history
 

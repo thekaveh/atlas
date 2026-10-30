@@ -42,7 +42,9 @@ from rag_ingestion.service import (
     IngestionExecutionLeaseLost,
     RagIngestionService,
 )
-from rag_ingestion.models import PHASES, IngestionRecord, PhaseRecord, weaviate_objects
+from rag_ingestion.models import (
+    PHASES, IngestionRecord, PhaseRecord, ingestion_idempotency_key, weaviate_objects,
+)
 from rag_ingestion.store import (
     ExecutionClaim, PublicationClaim,
     InMemoryIngestionStore,
@@ -62,6 +64,8 @@ class FakeEmbedder:
 
 
 class FakeWeaviate:
+    endpoint = ""
+
     def __init__(self, available=True):
         self._available = available
         self.written = []
@@ -102,6 +106,8 @@ class FakeWeaviate:
 
 
 class FakeLightrag:
+    endpoint = ""
+
     def __init__(self, available=True, busy_cycles=0):
         self._available = available
         self._busy_cycles = busy_cycles
@@ -2288,7 +2294,7 @@ def test_a_run_where_every_document_fails_does_not_wipe_the_corpus(tmp_path, mon
     assert final.counts.get("files_discovered") == 2
     assert final.counts.get("chunks", 0) == 0
     # ...and it must REPORT the failure. Terminal status is
-    # `FAILED if record.errors and _has_fatal_phase(...)`, so setting only the
+    # `FAILED if record.errors and record.has_fatal_phase()`, so setting only the
     # phase status short-circuited to COMPLETED — the run said success while
     # having produced nothing. This assertion was missing from the original.
     assert final.status == "failed", f"a total-failure run reported {final.status!r}"
@@ -3010,18 +3016,14 @@ def test_a_new_embedding_model_rebuilds_the_class_instead_of_appending(monkeypat
 def test_an_unchanged_corpus_under_a_new_embedding_model_is_a_new_job():
     from types import SimpleNamespace
 
-    from rag_ingestion.service import RagIngestionService
-
     profile = SimpleNamespace(consumer="c", name="p", revision="r")
-    old = RagIngestionService._idempotency_key(profile, {"path": "x"}, "fp", "ollama/nomic-embed-text")
-    new = RagIngestionService._idempotency_key(profile, {"path": "x"}, "fp", "openai/text-embedding-3-large")
+    old = ingestion_idempotency_key(profile, {"path": "x"}, "fp", "ollama/nomic-embed-text")
+    new = ingestion_idempotency_key(profile, {"path": "x"}, "fp", "openai/text-embedding-3-large")
     assert old != new
 
 
 def test_two_profiles_never_produce_the_same_object_id():
     from types import SimpleNamespace
-
-    from rag_ingestion.service import RagIngestionService
 
     chunks = [{"content": "t", "source": "doc.md", "index": 0, "vector": [0.1]}]
     first = weaviate_objects("Docs_a_b", SimpleNamespace(name="a-b"), chunks)
@@ -4837,7 +4839,10 @@ def test_sync_collection_busy_stays_pending_and_resubmits_the_same_job(tmp_path,
     repeated = client.post("/api/rag/ingestions", json=request)
     assert (blocked.status_code, blocked.json()["status"], repeated.json()["status"]) == (202, "pending", "pending")
     assert blocked.json()["ingestion_id"] == repeated.json()["ingestion_id"] == record.id
-    assert "waiting for collection publication" in service.store.get(record.id).phase("vector_write").note
+    assert blocked.json()["message"] == "RAG ingestion is waiting for collection publication; resubmit to retry."
+    assert service.store.get(record.id).phase("vector_write").note == (
+        "waiting for collection publication; another job holds the class"
+    )
     # This holder never began a mutation; its normal clean release is sufficient.
     service.store.release_publications(holder.id, claim, holder.publication_targets)
     assert service.store.release_execution(holder.id, claim.execution_owner)
@@ -4917,7 +4922,9 @@ def test_guarded_collection_turns_a_job_away_before_parse_and_embed(tmp_path, mo
         asyncio.run(service.run(record.id))
     blocked = service.store.get(record.id)
     assert (blocked.status, blocked.phase("discover").status, blocked.counts["files_discovered"]) == ("pending", "pending", 0)
-    assert "waiting for collection publication" in blocked.phase("vector_write").note
+    assert (blocked.phase("vector_write").status, blocked.phase("vector_write").note) == (
+        "pending", "waiting for collection publication; another job holds the class",
+    )
     assert not embedded, "a guarded collection must refuse the job before any embedding"
     if then == "cancelled":
         # A waiting job stays cancellable: cancellation is checked before admission.
@@ -4930,9 +4937,13 @@ def test_guarded_collection_turns_a_job_away_before_parse_and_embed(tmp_path, mo
     assert embedded
 
 
-def test_guarded_collection_does_not_hold_back_a_job_without_weaviate(tmp_path, monkeypatch):
+@pytest.mark.parametrize("disabled", ["weaviate", "embedder"])
+def test_guarded_collection_does_not_hold_back_a_job_without_weaviate_or_embedder(
+    tmp_path, monkeypatch, disabled,
+):
     service = _uncertain_publication_service(tmp_path, monkeypatch, "timeout")
-    service.deps.weaviate = FakeWeaviate(available=False)
+    service.deps.weaviate = FakeWeaviate(available=disabled != "weaviate")
+    service.deps.embedder = FakeEmbedder(available=disabled != "embedder")
     record, _ = service.submit("showcase-default")
     _hold_publication_guard(service, record)
     finished = asyncio.run(service.run(record.id))
@@ -5044,6 +5055,9 @@ def test_weaviate_server_error_keeps_the_guard_dirty(tmp_path, monkeypatch, corp
     assert _publication_guard_value(service.store, target).endswith(":dirty")
     with pytest.raises(CollectionPublicationBusy):
         asyncio.run(service.run(restored.id))
+    assert service.store.get(restored.id).phase("vector_write").note == (
+        "waiting for collection publication; an interrupted write requires operator recovery"
+    )
 
 
 @pytest.mark.parametrize("live_redis", [False, True])
@@ -5052,10 +5066,13 @@ def test_publication_guard_probe_is_read_only_and_exact(live_redis):
     record, claim = _reserved_publication(store)
     target, free = record.publication_targets[0], str(uuid.uuid4())
     probes = [store.publication_guarded(targets) for targets in ([], [free], [free, target])]
-    assert probes == [False, False, True]
+    assert probes == [None, None, "clean"]
     assert _publication_guard_value(store, target).endswith(":clean"), "the probe never claims"
+    assert store.mark_publication(record.id, claim, (target, False))
+    assert store.publication_guarded([free, target]) == "dirty"
+    assert store.settle_publication(record.id, claim, target)
     store.release_publications(record.id, claim, [target])
-    assert not store.publication_guarded([target])
+    assert store.publication_guarded([target]) is None
 
 
 @pytest.mark.parametrize("live_redis", [False, True])
@@ -5096,9 +5113,9 @@ def test_rejection_settle_requires_the_live_execution_lease(live_redis, boundary
 def _runtime_destination_deps(endpoints):
     vector_url, graph_url = endpoints
     weaviate = FakeWeaviate(available=bool(vector_url))
-    weaviate._url = vector_url
+    weaviate.endpoint = vector_url
     graph = FakeLightrag(available=bool(graph_url))
-    graph._endpoint = graph_url
+    graph.endpoint = graph_url
     return Deps(embedder=FakeEmbedder(), weaviate=weaviate, lightrag=graph)
 
 
@@ -5121,6 +5138,18 @@ def _with_runtime_destinations(service, endpoints):
         store=service.store, deps=_runtime_destination_deps(endpoints),
         profiles_path=service._profiles_path,
     )
+
+
+def test_runtime_destination_identity_reads_the_real_client_endpoints():
+    from rag_ingestion.clients import ingestion_runtime_context
+
+    profile = SimpleNamespace(vector_targets=[{}], graph_targets=[{}])
+    context = ingestion_runtime_context(
+        profile,
+        WeaviateClient(url="http://user:secret@weaviate:8080/base/?key=x#frag"),
+        LightRagClient(endpoint=""),
+    )
+    assert context == [("weaviate", "http://weaviate:8080/base", True), ("lightrag", "", False)]
 
 
 @pytest.mark.parametrize("live_redis", [False, True])
@@ -5202,7 +5231,7 @@ def test_context_free_completed_ingestion_is_conservatively_refreshed(tmp_path, 
     old_record, _ = service.submit("showcase-default")
     profile = service._resolve_profile("showcase-default")
     fingerprint = service.deps.corpus.fingerprint(profile.corpus, profile.corpus.get("path"))
-    old_record.idempotency_key = service._idempotency_key(profile, old_record.corpus, fingerprint)
+    old_record.idempotency_key = ingestion_idempotency_key(profile, old_record.corpus, fingerprint)
     service.store = _ingestion_regression_store(live_redis)
     _publish_for_test(service.store, old_record)
     preserved = service.store.get(old_record.id).to_dict()

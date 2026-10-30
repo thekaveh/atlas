@@ -11,8 +11,6 @@ from services.manifests import Manifest, call_edges, load_manifests
 from services.topology import get_topology
 
 
-PUBLIC_URL = "https://thekaveh.github.io/atlas/"
-
 
 @dataclass(frozen=True)
 class TrackPage:
@@ -61,19 +59,12 @@ class ServicePage:
     kong_aliases: list[str]
     env_vars: list[EnvVarSurface]
     port_vars: list[str]
-    diagram_svg: Path | None
-    diagram_html: Path | None
     support_tier: str = "n/a"
 
 
 @dataclass(frozen=True)
 class DocsModel:
     root: Path
-    public_url: str
-    hero_image: Path
-    poster_image: Path
-    wizard_screenshot: Path
-    top_level_diagram: Path
     services: list[ServicePage]
     tracks: list[TrackPage]
 
@@ -337,8 +328,6 @@ def _manifest_docs(root: Path, tracks: list[TrackPage]) -> list[ServicePage]:
         )
         env_vars = _env_surfaces(manifest, template) if manifest else []
         port_vars = [env.name for env in manifest.env if env.name.endswith("_PORT")] if manifest else []
-        diagram_svg = services_dir / name / "architecture.svg"
-        diagram_html = services_dir / name / "architecture.html"
 
         docs.append(
             ServicePage(
@@ -358,8 +347,6 @@ def _manifest_docs(root: Path, tracks: list[TrackPage]) -> list[ServicePage]:
                 kong_aliases=aliases,
                 env_vars=env_vars,
                 port_vars=port_vars,
-                diagram_svg=diagram_svg if diagram_svg.exists() else None,
-                diagram_html=diagram_html if diagram_html.exists() else None,
                 support_tier=manifest.support.tier if manifest else "n/a",
             )
         )
@@ -370,11 +357,6 @@ def load_docs_model(root: Path) -> DocsModel:
     tracks = _load_tracks(root)
     return DocsModel(
         root=root,
-        public_url=PUBLIC_URL,
-        hero_image=Path("assets/images/atlas-source.png"),
-        poster_image=Path("assets/atlas-poster-blue.png"),
-        wizard_screenshot=Path("screenshots/wizard-running.png"),
-        top_level_diagram=Path("diagrams/architecture.svg"),
         services=_manifest_docs(root, tracks),
         tracks=tracks,
     )

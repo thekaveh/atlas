@@ -4,6 +4,9 @@ import ast
 import logging
 import os
 from pathlib import Path
+from uuid import uuid4
+
+import pytest
 
 
 def _stub_celery_env(monkeypatch) -> None:
@@ -199,10 +202,6 @@ def test_memory_execution_allows_only_one_duplicate_recovery(monkeypatch):
 
     assert first == ("claimed", None)
     assert second == ("busy", None)
-
-
-import pytest
-from uuid import uuid4
 
 
 @pytest.fixture

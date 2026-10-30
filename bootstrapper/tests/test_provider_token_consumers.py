@@ -168,9 +168,6 @@ def test_hermes_default_model_fallback_skips_non_chat_routes():
     ids=["regex-near-match", "exact-priority", "first-chat-fallback"],
 )
 def test_hermes_default_model_selects_a_published_id(published, expected):
-    import shutil
-    import subprocess
-
     if not shutil.which("bash") or not shutil.which("jq"):
         pytest.skip("Hermes initializer selection requires bash and jq")
     script = (ROOT / "services/hermes/init/scripts/init-hermes.sh").read_text(encoding="utf-8")
@@ -191,7 +188,6 @@ def test_hermes_default_model_selects_a_published_id(published, expected):
     )
 
     assert result.stderr == ""
-    assert result.stdout in published
     assert result.stdout == expected
 
 
@@ -431,7 +427,7 @@ def _run_hermes_http(tmp_path, server, route, value):
     argv = json.loads(receipt.read_text())
     assert argv[-1] == endpoint + "/v1/models"
     assert not any(value and value in argument for argument in argv)
-    return result, argv
+    return result
 
 
 @pytest.mark.parametrize("route", ["init", "healthcheck"])
@@ -446,7 +442,7 @@ def test_hermes_actual_curl_preserves_authorization(tmp_path, hermes_owned_http,
 
     key = "LITELLM_MASTER_KEY" if route == "init" else "HERMES_API_KEY"
     assert decode_env_assignment(key + "=" + render_env_assignment(key, value), origin="owned-private.env") == (key, value)
-    result, argv = _run_hermes_http(tmp_path, hermes_owned_http, route, value)
+    result = _run_hermes_http(tmp_path, hermes_owned_http, route, value)
     assert hermes_owned_http.observed == [[b"Bearer " + value.encode()]]
     assert result.returncode == 0, result.stderr
     assert result.stderr == b""
@@ -457,7 +453,7 @@ def test_hermes_actual_curl_preserves_authorization(tmp_path, hermes_owned_http,
 @pytest.mark.parametrize("status", [401, 503])
 def test_hermes_actual_curl_preserves_http_failure(tmp_path, hermes_owned_http, route, status):
     hermes_owned_http.status = status
-    result, argv = _run_hermes_http(tmp_path, hermes_owned_http, route, 'synthetic-failure-key')
+    result = _run_hermes_http(tmp_path, hermes_owned_http, route, 'synthetic-failure-key')
     assert hermes_owned_http.observed == [[hermes_owned_http.expected]]
     assert result.returncode == 22
     assert str(status).encode() in result.stderr

@@ -753,7 +753,7 @@
 | ATLAS_OTEL_ENABLED | otel-collector |  | Boolean string consumed by backend and LiteLLM tracing toggles. |
 | OTEL_COLLECTOR_IMAGE | otel-collector | otel/opentelemetry-collector-contrib:0.154.0 | Container image for `otel-collector`. |
 | STT_PROVIDER_SOURCE | parakeet | speaches-container-cpu | Speech-to-text engine: speaches-container-cpu, speaches-container-gpu, parakeet-container-gpu, parakeet-localhost, whisper-cpp-localhost or disabled. Drives STT_ENDPOINT and the engine scales. |
-| STT_PROVIDER_PORT | parakeet | 63055 | Host port for the Parakeet GPU container (in-container 8000), also shown by the wizard. Other STT sources keep their own port settings (for example, `PARAKEET_*` and `SPEACHES_*`). |
+| STT_PROVIDER_PORT | parakeet | 63055 | Host port for the Parakeet GPU container (in-container 8000), also shown by the wizard. When a Speaches source is active, the bootstrapper sets it to `SPEACHES_PORT`. Each engine keeps its own port settings (for example, `PARAKEET_*` and `SPEACHES_*`). |
 | STT_PROVIDER_SCALE | parakeet |  | Set by ./start.sh; do not edit. 1 when a container engine serves speech-to-text, else 0. The wizard uses it to colour the STT row. |
 | PARAKEET_MODEL | parakeet | nvidia/parakeet-tdt-0.6b-v3 | Model the Parakeet GPU container loads (NeMo model ID), passed as PARAKEET_MODEL. |
 | PARAKEET_GPU_DEVICE | parakeet | cuda | Torch device for the Parakeet GPU container, passed as PARAKEET_DEVICE. |
@@ -802,9 +802,9 @@
 | REDIS_MAXMEMORY | redis | 0 | Redis memory cap, e.g. 512mb. 0 means unlimited: Redis grows until the container is OOM-killed and loses in-flight queue state. A cap lets REDIS_MAXMEMORY_POLICY shed recomputable data instead. Size it to about 75% of the container memory budget. |
 | REDIS_MAXMEMORY_POLICY | redis | volatile-lru | volatile-lru evicts TTL keys, including LiteLLM cache and ordinary media records (seven-day default). Budget-tracked in-flight records, unresolved submissions and pending ledger intents persist until settlement. Without TTL keys, writes fail with OOM. |
 | REDIS_PORT | redis | 63025 | Host port. Container port is always 6379. |
-| REDIS_PASSWORD | redis | redis_password | Used by Redis consumers, including n8n queues, litellm cache, open-webui websocket storage, and backend state and queues. The default is for fresh-install convenience only; rotate before any deployment. |
+| REDIS_PASSWORD | redis | redis_password | Used by Redis consumers, including n8n queues, litellm cache, open-webui websocket storage, and backend state and queues. The default is for fresh-install convenience only; rotate before any deployment. Compose refuses a blank value, which would disable Redis authentication. |
 | REDIS_PASSWORD_URI | redis | redis_password | Startup keeps this percent-encoded REDIS_PASSWORD in sync for URI userinfo. Separate password fields use the raw value. |
-| REDIS_URL | redis | redis://:${REDIS_PASSWORD_URI}@redis:6379/0 | Default connection string (database 0, also n8n's queue and LiteLLM's cache). Consumers that need another DB index build their own URL: open-webui and lightrag share /2, jupyterhub uses /3. Compose substitutes REDIS_PASSWORD_URI. |
+| REDIS_URL | redis | redis://:${REDIS_PASSWORD_URI}@redis:6379/0 | Default connection string (database 0, also n8n's queue and LiteLLM's cache). Consumers that need another DB index build their own URL: open-webui and lightrag share /2, jupyterhub uses /3, celery /4, trueforge /5. Compose substitutes REDIS_PASSWORD_URI. |
 | REDIS_EXPORTER_PORT | redis | 63026 | Host port for redis-exporter (in-container 9121). Sidecar gated by PROMETHEUS_SOURCE. |
 | REDIS_EXPORTER_SCALE | redis |  | Set by _generate_prometheus_config() to 1 when PROMETHEUS_SOURCE=container, 0 otherwise. |
 | REDIS_IMAGE | redis | redis:7.2.14-alpine | Bumping the redis version: change this default and rerun ./start.sh. |

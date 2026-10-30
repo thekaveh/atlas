@@ -559,8 +559,7 @@ def _hard_dependencies(manifest, env: dict[str, str]) -> set[str]:
     """depends_on.required entries the service actually calls, plus its
     selected runtime_deps requires. depends_on.required alone also holds slot-ordering
     pins (ray for prometheus/grafana/loki/tempo/langfuse), reported as missing
-    dependencies (2026-10-08 run, cycle 53); runtime_deps alone lost real ones
-    such as spark→minio (cycle 63)."""
+    dependencies; runtime_deps alone lost real ones such as spark→minio."""
     from services.manifests import call_edges  # noqa: PLC0415
 
     called = {edge.target for edge in call_edges(manifest.data_flow)}
@@ -571,15 +570,16 @@ def _hard_dependencies(manifest, env: dict[str, str]) -> set[str]:
 
 
 def _selected_runtime_requirements(spec, env: dict[str, str]):
-    """Match the dependency manager's existing when/when_defaults contract."""
+    """Unconditional requires plus those of each rule the dependency manager selects."""
+    from services.dependency_manager import conditional_rule_selected  # noqa: PLC0415
+
     if not isinstance(spec, dict):
         return ()
     selected = [spec]
-    for rule in spec.get("conditional_requires", []):
-        defaults = rule.get("when_defaults", {})
-        if all((env.get(name) or defaults.get(name, "")) == expected
-               for name, expected in rule.get("when", {}).items()):
-            selected.append(rule)
+    selected.extend(
+        rule for rule in spec.get("conditional_requires", [])
+        if conditional_rule_selected(rule, env)
+    )
     return (dep for rule in selected for dep in rule.get("requires") or ())
 
 

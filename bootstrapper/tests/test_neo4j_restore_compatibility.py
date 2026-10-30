@@ -510,8 +510,7 @@ def _offline_backup_recorders(fake_bin):
 from pathlib import Path
 args = sys.argv[1:]
 if args == ["--version"]:
-    print("5.26.31")
-    sys.exit(0)
+''' + "    print(" + repr(PINNED) + ")\n" + '''    sys.exit(0)
 assert args[:2] == ["database", "dump"], args
 if os.environ["FIXTURE_MODE"] == "dump-error":
     sys.exit(42)

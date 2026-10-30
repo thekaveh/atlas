@@ -417,13 +417,16 @@ class _ThreadedComposeExecutor:
                 raise asyncio.CancelledError
             from utils.system import compose_env  # noqa: PLC0415
 
+            # Same PROJECT_NAME rule as the other compose executors: the
+            # wizard's `up` used the raw shell/.env value while stop and
+            # cold cleanup pinned it, so the two disagreed on volumes.
+            # This coroutine runs on the app loop, and compose_env can run a
+            # bounded compose probe, so resolve it off the loop.
+            env = await asyncio.to_thread(compose_env, command)
             return await _run_streamed_command(
                 command,
                 cwd=Path(self._manager.root_dir),
-                # Same PROJECT_NAME rule as the other compose executors: the
-                # wizard's `up` used the raw shell/.env value while stop and
-                # cold cleanup pinned it, so the two disagreed on volumes.
-                env={**compose_env(command), "BUILDKIT_PROGRESS": "plain"},
+                env={**env, "BUILDKIT_PROGRESS": "plain"},
                 on_line=self._stream_line,
                 timeout_seconds=_compose_timeout_seconds(args),
                 termination_grace_seconds=_PROCESS_TERMINATION_GRACE_SECONDS,
@@ -555,10 +558,12 @@ async def _capture_bounded_process_output(
 
     from utils.system import compose_env  # noqa: PLC0415
 
+    # compose_env can run a bounded compose probe; keep it off the event loop.
+    env = await asyncio.to_thread(compose_env, command)
     returncode = await _run_streamed_command(
         command,
         cwd=cwd,
-        env=compose_env(command),
+        env=env,
         on_line=capture_line,
         timeout_seconds=timeout_seconds,
     )
@@ -1384,9 +1389,7 @@ class WizardScreen(Screen):
             title=" Stack startup · pipeline ",
             subtitle=" ctrl+c to cancel ",
         )
-        self._log_pane.set_on_new_source(
-            lambda source: self._log_chips.add_source(source, normalized=True)
-        )
+        self._log_pane.set_on_new_source(self._log_chips.add_source)
         self._active_tab = BrandPanel.TAB_SETUP
         self._logs_enabled = False
         # Armed teardown variant awaiting its confirming second press:
@@ -1770,13 +1773,13 @@ class WizardScreen(Screen):
             exclusive=False, exit_on_error=False, group="support_bundle",
         )
 
-    async def _export_support_bundle(self, destination: Path, snapshot=None) -> None:
+    async def _export_support_bundle(self, destination: Path, snapshot) -> None:
         """Build the bundle off the UI thread from the doctor checks and the
-        session log, stream its full preview into the log pane, then write
-        it. A bundle failure is reported, never raised into the launch."""
+        session-log ``snapshot`` the caller captured, stream its full preview
+        into the log pane, then write it. A bundle failure is reported, never
+        raised into the launch."""
         from core import support_bundle as sb
 
-        snapshot = snapshot or sb.LogSnapshot(error="session snapshot was not captured before export")
         logs = (sb.LogSource("session.log", snapshot=snapshot),)
         options = sb.BundleOptions(
             context={"command": "start", "interface": "textual"}, logs=logs,
@@ -4004,8 +4007,9 @@ class WizardScreen(Screen):
                                    style="bold red", source="pipeline")
                 await self._capture_failure_compose_logs()
                 self._write_status(
-                    f"📝 see {self._launch_log_path or '/tmp/atlas-launch-*.log'} "
-                    "for full output",
+                    f"📝 see {self._launch_log_path} for full output"
+                    if self._launch_log_path is not None
+                    else "📝 file logging unavailable; full output is in the Logs tab",
                     style="bold yellow", source="pipeline",
                 )
                 self._mark_launch_failed()
@@ -4161,7 +4165,7 @@ class WizardScreen(Screen):
         # probe; keep it off the event loop so the TUI stays responsive.
         env = {**(await asyncio.to_thread(compose_env, full_cmd)), "BUILDKIT_PROGRESS": "plain"}
         # Route through _safe_log so every compose line lands in the
-        # launch-log tee (/tmp/atlas-launch-*.log). Direct
+        # launch-log tee (the private session-log store). Direct
         # _log_pane.write_* calls bypassed the tee — image-pull errors
         # from compose up never reached the file.
         self._safe_log("$ " + " ".join(full_cmd), source="docker", level="dim")

@@ -946,38 +946,23 @@ def test_wizard_cloud_models_verdict_matches_projected_alias(
     )
 
 
-def _json_probe_overflow_private_boundary(monkeypatch):
-    import socket
-    import subprocess
-    import start
-    from core.config_parser import ConfigParser
-
-    def forbidden(*args, **kwargs):
-        raise AssertionError("Model probes must use private output and explicit transport doubles")
-
-    monkeypatch.setattr(start.AtlasStarter, "__init__", forbidden)
-    monkeypatch.setattr(ConfigParser, "__init__", forbidden)
-    monkeypatch.setattr(ConfigParser, "parse_env_file", forbidden)
-    monkeypatch.setattr(subprocess, "Popen", forbidden)
-    monkeypatch.setattr(socket.socket, "connect", forbidden)
-    monkeypatch.setattr(socket.socket, "bind", forbidden)
-    monkeypatch.setattr(socket, "getaddrinfo", forbidden)
-    return start
-
-
+@pytest.mark.usefixtures("forbid_host_side_effects")
 @pytest.mark.parametrize("answer", [10**400, -(10**400)], ids=["large-positive", "large-negative"])
-def test_json_probe_overflow_answer_is_unsupported(monkeypatch, answer):
-    start = _json_probe_overflow_private_boundary(monkeypatch)
+def test_json_probe_overflow_answer_is_unsupported(answer):
+    import start
+
     post = lambda *_: (200, _REPLY(json.dumps({"answer": answer})))
     assert start.probe_json(post, "private-model") == "unsupported"
 
 
+@pytest.mark.usefixtures("forbid_host_side_effects")
 @pytest.mark.parametrize("answer", [10**400, -(10**400)], ids=["large-positive", "large-negative"])
 def test_json_probe_overflow_actual_cli_reports_and_stores_verdict(tmp_path, monkeypatch, answer):
     import requests
     from click.testing import CliRunner
 
-    start = _json_probe_overflow_private_boundary(monkeypatch)
+    import start
+
     entry = next(entry for entry in llm_catalog.ollama_entries() if entry.capabilities.get("structured_output"))
     alias = f"ollama/{entry.name}"
     parser = SimpleNamespace(root_dir=tmp_path, parse_env_file=lambda: {"LITELLM_PORT": "65000"})
@@ -998,12 +983,14 @@ def test_json_probe_overflow_actual_cli_reports_and_stores_verdict(tmp_path, mon
     assert len(stored) == 1 and next(iter(stored.values()))["results"]["json"] == "unsupported"
 
 
+@pytest.mark.usefixtures("forbid_host_side_effects")
 @pytest.mark.parametrize(("content", "expected"), [
     ('{"answer": 1e400}', "unsupported"), ('{"answer": -1e400}', "unsupported"),
     ('{"answer": "nan"}', "unsupported"), ('{"answer": "Infinity"}', "unsupported"),
     ('{"answer": []}', "unsupported"), ('{invalid', "unsupported"),
     ('{"answer": "4"}', "supported"), ('{"answer": "4.0"}', "supported"),
 ])
-def test_json_probe_overflow_keeps_existing_numeric_policy(monkeypatch, content, expected):
-    start = _json_probe_overflow_private_boundary(monkeypatch)
+def test_json_probe_overflow_keeps_existing_numeric_policy(content, expected):
+    import start
+
     assert start.probe_json(lambda *_: (200, _REPLY(content)), "private-model") == expected

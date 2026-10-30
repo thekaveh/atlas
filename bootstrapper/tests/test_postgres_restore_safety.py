@@ -65,17 +65,6 @@ DEPLOYMENT_ID = "atlas-test-deployment"
 RESTORE_OWNER_LABEL = "com.atlas.restore-safety-token"
 
 
-def _add_exception_note(exc: BaseException, note: str) -> None:
-    if hasattr(exc, "add_note"):
-        exc.add_note(note)
-        return
-    notes = getattr(exc, "__notes__", None)
-    if notes is None:
-        notes = []
-        exc.__notes__ = notes
-    notes.append(note)
-
-
 def _run(*args: str, check: bool = True, timeout: int = COMMAND_TIMEOUT, **kwargs):
     return subprocess.run(
         list(args),
@@ -188,10 +177,10 @@ def _report_disposable_cleanup_failures(
     )
     note = f"Disposable PostgreSQL cleanup could not be proven: {detail}"
     if primary is not None:
-        _add_exception_note(primary, note)
+        primary.add_note(note)
         return
     cleanup_error = failures[0][1]
-    _add_exception_note(cleanup_error, note)
+    cleanup_error.add_note(note)
     raise cleanup_error
 
 

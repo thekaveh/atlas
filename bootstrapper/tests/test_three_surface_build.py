@@ -879,9 +879,8 @@ def test_litellm_default_repair_documents_missing_key_embedding_protection(surfa
     claims = [" ".join(node.itertext()) for node in document.iter("li")
               if "cloud provider" in " ".join(node.itertext())]
     assert any("disabled" in claim for claim in claims), claims
-    # Missing credentials disable provider routing, while the embedding
-    # identity/dimension exception survives later launches. Require those
-    # facts without freezing the former, superseded single-sentence wording.
+    # Missing credentials disable provider routing; the embedding
+    # identity/dimension exception is preserved across later launches.
     protection = [" ".join(node.itertext()) for node in document.iter("p")
                   if "LANGMEM_EMBEDDING_DIM" in " ".join(node.itertext())
                   and "missing" in " ".join(node.itertext())]

@@ -117,7 +117,6 @@ def parse_env_overlay_file(overlay_path: Path) -> Dict[str, str]:
 
 def read_env_user_overlay(
     overlay_path: Path, *, label: str,
-    reader: Callable[[Path], Dict[str, str]] = parse_env_overlay_file,
     warn: Callable[[str], None] | None = None,
 ) -> Dict[str, str] | None:
     """Read a whole writable overlay, or warn and skip it without writing."""
@@ -130,10 +129,13 @@ def read_env_user_overlay(
         warn(f"{label} points to {overlay_path}, but it is not a file; skipping")
         return None
     try:
-        overrides = reader(overlay_path)
+        overrides = parse_env_overlay_file(overlay_path)
     except (OSError, ValueError) as exc:
         warn(f"{label} points to {overlay_path}, but it could not be read ({exc}); skipping")
         return None
+    # An entry that would emit more than one `.env` assignment (a stray form
+    # feed or NEL) is a plausible accident in a hand-written overlay: skip the
+    # whole overlay with the file named instead of failing the start later.
     try:
         for key, value in overrides.items():
             assert_safe_env_assignment(key, value)
@@ -179,7 +181,7 @@ class ConfigParser:
         """
         #: Keyed on the .env file's own stat identity; see parse_env_file.
         self._env_cache: dict = {}
-        #: Per overlay path: (stat identity, overrides); see _effective_overlay_env.
+        #: Per overlay path: (stat identity, overrides or None, warnings); see read_env_user_overlay.
         self._overlay_cache: dict = {}
         if root_dir is None:
             # Default to parent directory of bootstrapper
@@ -285,12 +287,37 @@ class ConfigParser:
             lightrag_rerank_adapter_enabled=adapter_enabled,
         )
 
-    def _effective_overlay_env(self) -> Dict[str, str]:
-        """`.env.user` then ATLAS_ENV_USER_FILE overrides, read once per file version.
+    def read_env_user_overlay(
+        self, path: Path, *, label: str, warn: Callable[[str], None] | None = None,
+    ) -> Dict[str, str] | None:
+        """The module-level read_env_user_overlay, once per file version.
 
-        load_consumer_config runs for every compose command, so re-reading
-        here repeated each skip and `${...}` warning on every call. Memoized
-        on the overlay's stat identity, like parse_env_file: an edit re-reads."""
+        load_consumer_config runs for every compose command, and a start also
+        reads each overlay for its banner. Both share this memo, so a skip
+        warning reaches stderr (or the first reader's ``warn``) once. An
+        explicit ``warn`` sink, such as the start banner, still receives the
+        cached warnings when an earlier reader read the overlay first.
+        Memoized on the overlay's stat identity, like parse_env_file: an edit
+        re-reads."""
+        stamp = _file_stamp(path)
+        cached = self._overlay_cache.get(path)
+        if cached is None or cached[0] != stamp:
+            warnings: list[str] = []
+            sink = warn or (lambda message: print(f"WARNING: {message}", file=sys.stderr))
+
+            def record(message: str) -> None:
+                warnings.append(message)
+                sink(message)
+
+            cached = (stamp, read_env_user_overlay(path, label=label, warn=record), warnings)
+            self._overlay_cache[path] = cached
+        elif warn is not None:
+            for message in cached[2]:
+                warn(message)
+        return None if cached[1] is None else dict(cached[1])
+
+    def _effective_overlay_env(self) -> Dict[str, str]:
+        """`.env.user` then ATLAS_ENV_USER_FILE overrides; see read_env_user_overlay."""
         merged: Dict[str, str] = {}
         for path, label, warn_if_missing in (
             (self.env_file_path.parent / ".env.user", ".env.user", False),
@@ -298,12 +325,7 @@ class ConfigParser:
         ):
             if path is None or not (warn_if_missing or path.exists()):
                 continue
-            stamp = _file_stamp(path)
-            cached = self._overlay_cache.get(path)
-            if cached is None or cached[0] != stamp:
-                cached = (stamp, read_env_user_overlay(path, label=label) or {})
-                self._overlay_cache[path] = cached
-            merged.update(cached[1])
+            merged.update(self.read_env_user_overlay(path, label=label) or {})
         return merged
 
     def parse_env_file(self) -> Dict[str, str]:

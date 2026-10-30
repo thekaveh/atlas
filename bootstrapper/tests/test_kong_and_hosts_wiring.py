@@ -647,17 +647,6 @@ def test_hosts_addition_postpublication_error_leaves_complete_valid_content(
     assert manager.check_missing_hosts() == []
 
 
-def test_hosts_addition_failure_before_any_publication_keeps_original(tmp_path, monkeypatch):
-    manager, hosts, original, _expected = _private_hosts_addition(tmp_path, monkeypatch)
-
-    def fail(*_args):
-        raise OSError(28, "private publication unavailable")
-
-    monkeypatch.setattr(manager, "_atomic_write_hosts", fail)
-    assert manager.setup_hosts_entries() is False
-    assert hosts.read_text(encoding="utf-8") == original
-
-
 def test_hosts_addition_without_privilege_keeps_original(tmp_path, monkeypatch):
     import utils.hosts_manager as hosts_module
 

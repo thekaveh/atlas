@@ -224,6 +224,19 @@ def compose_env(compose_cmd: list) -> dict:
     return env
 
 
+# Database index of each Redis URL ServiceConfig derives from REDIS_PASSWORD.
+# compose_env re-derives the same URLs on a shell override, so both build
+# them here.
+REDIS_SERVICE_DATABASES = {
+    "CELERY_BROKER_URL": 4, "CELERY_RESULT_BACKEND": 4, "LIGHTRAG_REDIS_URI": 2,
+}
+
+
+def redis_service_url(name: str, password_uri: str) -> str:
+    """The in-stack Redis URL for ``name``, with percent-encoded userinfo."""
+    return f"redis://:{password_uri}@redis:6379/{REDIS_SERVICE_DATABASES[name]}"
+
+
 def _redis_compose_environment(env: dict, compose_cmd: list) -> None:
     """Apply shell Redis overrides to this child, never to the persisted env."""
     if "REDIS_PASSWORD" in env:
@@ -234,12 +247,9 @@ def _redis_compose_environment(env: dict, compose_cmd: list) -> None:
     if "REDIS_PASSWORD_URI" not in env:
         return
     values = _compose_env_file_values(compose_cmd)
-    for name, database in (
-        ("CELERY_BROKER_URL", 4), ("CELERY_RESULT_BACKEND", 4),
-        ("LIGHTRAG_REDIS_URI", 2),
-    ):
+    for name in REDIS_SERVICE_DATABASES:
         if name not in env and values.get(name):
-            env[name] = f'redis://:{env["REDIS_PASSWORD_URI"]}@redis:6379/{database}'
+            env[name] = redis_service_url(name, env["REDIS_PASSWORD_URI"])
 
 
 def _compose_options(compose_cmd: list, names: set) -> list:
@@ -319,20 +329,12 @@ def _resolve_redis_password(compose_cmd: list, env: dict) -> str:
 
 def _compose_env_file_values(compose_cmd: list) -> dict:
     """Read explicit env files in Compose order, using Atlas's env grammar."""
-    from core.config_parser import ConfigParser
+    from core.config_parser import parse_env_overlay_file
 
     values = {}
-    for index, argument in enumerate(compose_cmd):
-        if argument.startswith("--env-file="):
-            env_file = argument.split("=", 1)[1]
-        elif argument == "--env-file" and index + 1 < len(compose_cmd):
-            env_file = compose_cmd[index + 1]
-        else:
-            continue
+    for _, env_file in _compose_options(compose_cmd, {"--env-file"}):
         try:
-            parser = ConfigParser()
-            parser.env_file_path = Path(env_file)
-            values.update(parser.parse_env_file())
+            values.update(parse_env_overlay_file(Path(env_file)))
         except (OSError, ValueError):
             # Compose owns diagnostics for an unreadable or invalid env file.
             continue
@@ -416,11 +418,9 @@ def _env_file_project_name(compose_cmd: list) -> str:
     if not env_file:
         return ""
     try:
-        from core.config_parser import ConfigParser
+        from core.config_parser import parse_env_overlay_file
 
-        parser = ConfigParser()
-        parser.env_file_path = Path(env_file)
-        return (parser.parse_env_file().get("PROJECT_NAME") or "").strip()
+        return (parse_env_overlay_file(Path(env_file)).get("PROJECT_NAME") or "").strip()
     except Exception:  # noqa: BLE001 - unreadable .env: pin to -p
         return ""
 

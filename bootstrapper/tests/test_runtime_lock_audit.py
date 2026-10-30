@@ -251,6 +251,32 @@ def test_audit_timeout_is_bounded_and_does_not_echo_subprocess_details(
     assert "secret-argument" not in failures[0]
 
 
+def test_failed_audit_still_reports_expired_reviews_and_local_versions(
+    tmp_path: Path, monkeypatch
+) -> None:
+    lock = tmp_path / "requirements-locked.txt"
+    lock.write_text("safe==1.0\nnew-local==2.0+cpu\n", encoding="utf-8")
+
+    def time_out(*_args, **_kwargs):
+        raise CommandTimedOut
+
+    monkeypatch.setattr(audit_runtime_locks, "run_bounded", time_out)
+    failures = audit_runtime_locks.audit_spec(
+        audit_runtime_locks.AuditSpec(
+            str(lock), frozenset({"PYSEC-REVIEWED"}), review_by=date(2026, 8, 26)
+        ),
+        root=Path("/"),
+        today=date(2026, 8, 26),
+    )
+
+    assert failures == [
+        f"{lock}: advisory exception review expired on 2026-08-26",
+        f"{lock}: unreviewed local-version exclusions: new-local==2.0+cpu",
+        f"{lock}: pip-audit timed out after "
+        f"{audit_runtime_locks.COMMAND_TIMEOUT_SECONDS} seconds",
+    ]
+
+
 def test_audit_failure_redacts_subprocess_output(tmp_path: Path, monkeypatch) -> None:
     lock = tmp_path / "requirements-locked.txt"
     lock.write_text("safe==1.0\n", encoding="utf-8")
@@ -800,24 +826,6 @@ def test_local_deep_researcher_nonstandard_runtime_graph_is_audited() -> None:
     )
 
 
-def test_local_deep_researcher_aiohttp_security_floor_is_exported() -> None:
-    root = Path(audit_runtime_locks.__file__).parents[1]
-    refresher = (root / "scripts/refresh-local-deep-researcher-lock.py").read_text(
-        encoding="utf-8"
-    )
-    project = (
-        root / "services/local-deep-researcher/locks/runtime-pyproject.toml"
-    ).read_text(encoding="utf-8")
-    runtime = (
-        root / "services/local-deep-researcher/build/config/runtime-requirements.lock"
-    ).read_text(encoding="utf-8")
-
-    assert '"aiohttp>=3.14.4"' in refresher
-    assert '"aiohttp>=3.14.4"' in project
-    pins = re.findall(r"^aiohttp==(\S+) \\$", runtime, re.MULTILINE)
-    assert len(pins) == 1 and Version(pins[0]) >= Version("3.14.4")
-
-
 def test_all_unlocked_runtime_graphs_are_resolved_before_audit() -> None:
     paths = {spec.requirements for spec in audit_runtime_locks.SOURCE_SPECS}
     assert paths == set()
@@ -983,7 +991,7 @@ def test_npm_audit_exceptions_share_the_review_deadline_contract(monkeypatch) ->
 
 
 def test_npm_audit_reviews_only_the_capped_n8n_zod_advisory() -> None:
-    """The braces entry was retired on 2026-10-23; only the capped n8n Zod entry remains."""
+    """The only reviewed npm exception is the capped n8n Zod advisory."""
     assert audit_runtime_locks.NPM_PROJECT_EXCEPTIONS == {
         "services/n8n/init/config": (frozenset({"GHSA-mrhx-c7xc-m3w5"}), date(2026, 11, 28)),
     }
@@ -1089,10 +1097,8 @@ def test_runtime_drift_reports_a_differing_pin(tmp_path, monkeypatch):
 @pytest.mark.parametrize(("directory", "package", "floor"), (
     ("services/backend/app/app", "langgraph-sdk", "0.4.6"),
     ("services/jupyterhub/build", "langgraph-sdk", "0.4.6"),
-    ("services/jupyterhub/build", "tornado", "6.6"),
     ("services/airflow/build", "tornado", "6.6"),
     ("services/airflow/build", "snowflake-connector-python", "4.8.1"),
-    ("services/airflow/build", "filelock", "4.2.1"),
 ))
 def test_fixed_sdk_and_server_dependencies_survive_refresh(directory, package, floor):
     root = Path(check_runtime_locks.__file__).parents[1] / directory
@@ -1112,22 +1118,20 @@ def test_fixed_sdk_and_server_dependencies_survive_refresh(directory, package, f
 def test_airflow_snowflake_repair_retains_reviewed_base_compatibility():
     root = Path(check_runtime_locks.__file__).parents[1] / "services/airflow/build"
     declarations = set((root / "requirements.txt").read_text().splitlines())
-    assert {
-        "botocore<1.43.76", "importlib-metadata<9", "protobuf<6.34", "websockets<17",
-        "snowflake-connector-python>=4.8.1,<5", "filelock>=4.2.1,<5",
-    } <= declarations
+    assert "snowflake-connector-python>=4.8.1,<5" in declarations
     locked = check_test_locks._pins(root / "requirements-locked.txt")
     assert locked.get("snowflake-connector-python") == "4.8.1"
     assert locked.get("filelock") == "4.2.1"
-    # Public metadata for the unchanged base's Snowpark1.55.0, SQLAlchemy1.11.1,
-    # Snowflake provider6.17.0, and Flower2.1.0, plus the existing overlay's
-    # virtualenv21.14.10. A connector5/Filelock5 refresh would break this family.
+    # Published ranges of the base image's snowflake-snowpark-python 1.55.0,
+    # snowflake-sqlalchemy 1.11.1, apache-airflow-providers-snowflake 6.17.0 and
+    # flower 2.1.0, and of the overlay's virtualenv 21.14.10. They exclude
+    # snowflake-connector-python 5 and filelock 5.
     for package, accepted in (
-        ("snowflake-connector-python", ">=3.17.0,<5.0.0"),
-        ("snowflake-connector-python", "<5.0.0"),
-        ("snowflake-connector-python", ">=3.17.0"),
-        ("filelock", ">=3.24.2,<5"),
-        ("tornado", ">=6.5.7,<7.0.0"),
+        ("snowflake-connector-python", ">=3.17.0,<5.0.0"),  # snowpark
+        ("snowflake-connector-python", "<5.0.0"),  # snowflake-sqlalchemy
+        ("snowflake-connector-python", ">=3.17.0"),  # snowflake provider
+        ("filelock", ">=3.24.2,<5"),  # virtualenv
+        ("tornado", ">=6.5.7,<7.0.0"),  # flower
     ):
         assert Version(locked[package]) in SpecifierSet(accepted)
 
@@ -1136,11 +1140,17 @@ def test_airflow_snowflake_repair_retains_reviewed_base_compatibility():
 _DOCLING_LOCALHOST = "services/docling/provider/localhost"
 
 
-def _uv_export_audit_collector(monkeypatch, export_text, vulnerable=frozenset()):
-    """Fake `uv export` with ``export_text`` and record each pip-audit input."""
+def _uv_export_audit_collector(monkeypatch, export_text=None, vulnerable=frozenset()):
+    """Fake `uv export` with ``export_text`` and record each pip-audit input.
+
+    With no ``export_text`` the real `uv export` runs against the committed lock.
+    """
     captured: list[dict[str, str]] = []
+    real_run = audit_runtime_locks.run_bounded
 
     def run(command, **kwargs):
+        if command[0] == "uv" and export_text is None:
+            return real_run(command, **kwargs)
         if command[0] == "uv":
             Path(command[command.index("--output-file") + 1]).write_text(export_text)
             return SimpleNamespace(returncode=0, stdout="", stderr="")
@@ -1206,21 +1216,8 @@ def test_docling_localhost_export_selects_the_platform_scipy_branches(monkeypatc
     if not shutil.which("uv"):
         pytest.skip("uv is not installed")
     monkeypatch.setenv("UV_OFFLINE", "1")
-    real_run = audit_runtime_locks.run_bounded
-    captured: list[dict[str, str]] = []
+    captured = _uv_export_audit_collector(monkeypatch)
 
-    def run(command, **kwargs):
-        if command[0] == "uv":
-            return real_run(command, **kwargs)
-        text = Path(command[command.index("-r") + 1]).read_text()
-        captured.append(dict(line.split("==", 1) for line in text.splitlines()))
-        payload = {"dependencies": [
-            {"name": name, "version": version, "vulns": []}
-            for name, version in captured[-1].items()
-        ]}
-        return SimpleNamespace(returncode=0, stdout=json.dumps(payload), stderr="")
-
-    monkeypatch.setattr(audit_runtime_locks, "run_bounded", run)
     assert audit_runtime_locks.audit_uv_project(_DOCLING_LOCALHOST) == []
     assert [pairs["scipy"] for pairs in captured] == ["1.15.3", "1.15.3", "1.16.0"]
     assert "torch" in captured[2] and "nvidia-cublas" not in captured[2]

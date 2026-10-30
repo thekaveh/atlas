@@ -648,7 +648,8 @@ class _FakeReconcileConnection:
 @pytest.mark.asyncio
 async def test_reconcile_clear_guards_on_updated_at(monkeypatch):
     """Guard the current matching vector state, including its trigger version,
-    so a concurrent canonical edit cannot lose its newer pending intent."""
+    so a concurrent canonical edit cannot lose its newer pending intent. The
+    opt-in Postgres cases in test_memory_dimension_contract run the guard SQL."""
     import memory_service
     from datetime import datetime, timezone
 

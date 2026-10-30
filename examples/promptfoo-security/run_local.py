@@ -42,7 +42,7 @@ def verify_required_files(bindings):
     keys = ("cases", "provider", "helper", "backend_identity", "python", "node", "cli",
             "package_json", "package_lock", "python_lock", "python_inventory", "npm_inventory",
             "python_base_inventory", "runtime_inventory")
-    required = [__file__] + [bindings[key] for key in keys]
+    required = [str(Path(__file__).resolve())] + [bindings[key] for key in keys]
     sandbox = bindings["sandbox"]
     prefix = sandbox["launch_prefix"]
     if not prefix:
@@ -159,6 +159,17 @@ def private_environment(root):
             "PROMPTFOO_TRACING_ENABLED": "false", "PROMPTFOO_FAILED_TEST_EXIT_CODE": "100"}
 
 
+def owned_bytes(root):
+    count = 0
+    for path in root.rglob("*"):
+        try:
+            if path.is_file():
+                count += path.stat().st_size
+        except FileNotFoundError:
+            continue
+    return count
+
+
 def kill_and_reap(process):
     try:
         os.killpg(process.pid, signal.SIGKILL)
@@ -198,8 +209,7 @@ def bounded(argv, cwd, env, log):
                 if time.monotonic() - started > 60:
                     raise TimeoutError("CLI process-group deadline")
                 count = drain_ready(selector, output, count)
-                size = sum(p.stat().st_size for p in cwd.parent.rglob("*") if p.is_file())
-                if size > 8 * CAP:
+                if owned_bytes(cwd.parent) > 8 * CAP:
                     raise RuntimeError("owned output directory cap")
         return process.wait(timeout=1)
     finally:

@@ -97,6 +97,7 @@ from celery_app import (
 from celery_tasks import memory_consolidate_task, rag_ingestion_task
 from rag_ingestion import (
     ingestion_execution_lease_seconds,
+    CollectionPublicationBusy,
     IngestionExecutionBusy,
     ProfileNotFoundError,
     RagIngestionQueuedResponse,
@@ -1405,6 +1406,16 @@ def _rag_idempotent_response(record: Any) -> RagIngestionQueuedResponse:
     )
 
 
+async def _latest_rag_record(
+    service: RagIngestionService, ingestion_id: str, cancellation_seen: asyncio.Event
+) -> Any:
+    lookup = asyncio.create_task(asyncio.to_thread(service.store.get, ingestion_id))
+    latest = await _join_owned_task(lookup, cancellation_seen)
+    assert latest is not None
+    _raise_if_cancelled(cancellation_seen)
+    return latest
+
+
 async def _queue_rag_ingestion(
     service: RagIngestionService,
     record: Any,
@@ -1467,8 +1478,9 @@ async def submit_rag_ingestion(request: RagIngestionRequest, async_job: bool = T
 
     ``async_job=true`` (default) dispatches the Celery worker when the tier is
     enabled; otherwise the job runs synchronously in-request. Idempotent by
-    consumer + profile revision + corpus digest: a re-submit of the same corpus
-    returns the existing job without re-running it.
+    consumer, profile revision, corpus digest, embedding model and declared
+    destinations: a re-submit of the same corpus returns the existing job
+    without re-running it.
     """
     service = get_rag_ingestion_service()
     cancellation_seen = asyncio.Event()
@@ -1507,13 +1519,18 @@ async def submit_rag_ingestion(request: RagIngestionRequest, async_job: bool = T
     run_task = asyncio.create_task(service.run(record.id))
     try:
         final = await _join_owned_task(run_task, cancellation_seen)
-    except IngestionExecutionBusy:
-        lookup = asyncio.create_task(
-            asyncio.to_thread(service.store.get, record.id)
+    except CollectionPublicationBusy:
+        # This attempt ran until a collection guard refused it; it did not
+        # return an existing job.
+        latest = await _latest_rag_record(service, record.id, cancellation_seen)
+        return RagIngestionQueuedResponse(
+            ingestion_id=latest.id,
+            job_id=latest.dispatch_job_id,
+            status=latest.status,
+            message="RAG ingestion is waiting for collection publication; resubmit to retry.",
         )
-        latest = await _join_owned_task(lookup, cancellation_seen)
-        assert latest is not None
-        _raise_if_cancelled(cancellation_seen)
+    except IngestionExecutionBusy:
+        latest = await _latest_rag_record(service, record.id, cancellation_seen)
         return _rag_idempotent_response(latest)
     _raise_if_cancelled(cancellation_seen)
     return RagIngestionQueuedResponse(
@@ -2114,7 +2131,8 @@ async def _cancel_unpersisted_media_operation(
                 operation_id=operation_id,
                 modality=modality,
             )
-    except Exception:
+    except Exception as exc:
+        _log_unpersisted_cancel_failure("fal", exc)
         return False
 
 
@@ -2127,8 +2145,17 @@ async def _cancel_unpersisted_comfyui_operation(
             provider="comfyui", model=model,
             operation_id=operation_id, modality=modality,
         )
-    except Exception:
+    except Exception as exc:
+        _log_unpersisted_cancel_failure("comfyui", exc)
         return False
+
+
+def _log_unpersisted_cancel_failure(provider: str, exc: Exception) -> None:
+    logger.warning(
+        "Unpersisted %s cancellation failed (error_type=%s)",
+        provider,
+        type(exc).__name__,
+    )
 
 
 def _resolve_consumer_project(
@@ -3194,31 +3221,25 @@ async def submit_media_generation(
             # reconciliation of the already-submitted paid work; the finally
             # must not release it.
             reservation_settled = True
-            if provider == "fal":
-                provider_cancellation_requested = await _join_owned_task(
-                    asyncio.create_task(
-                        _cancel_unpersisted_media_operation(
-                            api_key=api_key,
-                            model=submitted_model,
-                            operation_id=operation_id,
-                            modality=modality,
-                        )
-                    ),
-                    post_accept_cancellation,
+            # Stop the exact unpersisted job. An untracked local prompt still
+            # owns GPU/CPU work even though it has no monetary spend to recover.
+            cancel_unpersisted = (
+                _cancel_unpersisted_media_operation(
+                    api_key=api_key,
+                    model=submitted_model,
+                    operation_id=operation_id,
+                    modality=modality,
                 )
-            else:
-                # An untracked local prompt still owns GPU/CPU work. Stop that
-                # exact job even though it has no monetary spend to recover.
-                provider_cancellation_requested = await _join_owned_task(
-                    asyncio.create_task(
-                        _cancel_unpersisted_comfyui_operation(
-                            model=submitted_model,
-                            operation_id=operation_id,
-                            modality=modality,
-                        )
-                    ),
-                    post_accept_cancellation,
+                if provider == "fal"
+                else _cancel_unpersisted_comfyui_operation(
+                    model=submitted_model,
+                    operation_id=operation_id,
+                    modality=modality,
                 )
+            )
+            provider_cancellation_requested = await _join_owned_task(
+                asyncio.create_task(cancel_unpersisted), post_accept_cancellation,
+            )
             # FAL confirms only that cancellation was requested, not that paid work
             # stopped. Without durable operation state Atlas cannot poll that request
             # to a terminal outcome, so retain spend for manual reconciliation.

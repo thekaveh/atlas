@@ -163,11 +163,9 @@ def test_airflow_uses_supported_core_and_unfrozen_provider_security_fixes() -> N
     assert "apache/airflow:3.3.2" in compose
     assert "ARG BASE_IMAGE=apache/airflow:3.3.2" in dockerfile
     assert "--constraint" not in dockerfile
-    assert "setuptools>=84.1.0" in requirements
     # #1329: the base's own tornado 6.5.8 and virtualenv 21.7.9 carry fixed
     # advisories, so the overlay raises them.
     assert "tornado>=6.6" in requirements
-    assert "virtualenv>=21.14.10" in requirements
     # #782: the 6.x spark provider swapped its dep to pyspark-client, whose
     # overlapping module tree overwrites the pinned pyspark==4.1.2 files and
     # breaks `import pyspark` (SparkExecutorInfo ImportError → image build
@@ -214,6 +212,8 @@ def test_airflow_overlay_remains_compatible_with_the_upstream_image() -> None:
     ("msgpack", "1.2.3"),
     ("setuptools", "84.1.0"),
     ("virtualenv", "21.14.10"),
+    ("opentelemetry-api", "1.45.1"),
+    ("opentelemetry-exporter-prometheus", "0.66b1"),
 ))
 def test_airflow_security_floors_survive_overlay_refresh(package, floor) -> None:
     declarations = _text("services/airflow/build/requirements.txt").splitlines()
@@ -232,39 +232,20 @@ def test_airflow_security_floors_survive_overlay_refresh(package, floor) -> None
     ("setuptools", "84.1.0"),
     ("virtualenv", "21.14.10"),
     ("packaging", "26.3"),
+    ("opentelemetry-api", "1.45.1"),
+    ("opentelemetry-sdk", "1.45.1"),
+    ("opentelemetry-proto", "1.45.1"),
+    ("opentelemetry-exporter-otlp", "1.45.1"),
+    ("opentelemetry-exporter-otlp-proto-common", "1.45.1"),
+    ("opentelemetry-exporter-otlp-proto-grpc", "1.45.1"),
+    ("opentelemetry-exporter-otlp-proto-http", "1.45.1"),
+    ("opentelemetry-semantic-conventions", "0.66b1"),
+    ("opentelemetry-exporter-otlp-common", "0.66b1"),
+    ("opentelemetry-exporter-http-transport", "0.66b1"),
+    ("opentelemetry-exporter-prometheus", "0.66b1"),
+    ("prometheus-client", "0.26.0"),
 ))
 def test_airflow_lock_contains_the_compatible_security_patch_family(package, version) -> None:
-    lines = _text("services/airflow/build/requirements-locked.txt").splitlines()
-    assert f"{package}=={version}" in lines
-
-
-@pytest.mark.parametrize(("package", "floor"), (
-    ("opentelemetry-api", "1.45.1"),
-    ("opentelemetry-exporter-prometheus", "0.66b1"),
-))
-def test_airflow_otel_security_floors_preserve_the_base_overlay_contract(package, floor) -> None:
-    declarations = _text("services/airflow/build/requirements.txt").splitlines()
-    matching = _requirements_named(declarations, package)
-    assert len(matching) == 1, f"Missing durable {package} floor in Airflow inputs"
-    assert str(matching[0].specifier) == f">={floor}"
-    assert matching[0].marker is None
-
-
-@pytest.mark.parametrize(("package", "version"), (
-    ('opentelemetry-api', '1.45.1'),
-    ('opentelemetry-sdk', '1.45.1'),
-    ('opentelemetry-proto', '1.45.1'),
-    ('opentelemetry-exporter-otlp', '1.45.1'),
-    ('opentelemetry-exporter-otlp-proto-common', '1.45.1'),
-    ('opentelemetry-exporter-otlp-proto-grpc', '1.45.1'),
-    ('opentelemetry-exporter-otlp-proto-http', '1.45.1'),
-    ('opentelemetry-semantic-conventions', '0.66b1'),
-    ('opentelemetry-exporter-otlp-common', '0.66b1'),
-    ('opentelemetry-exporter-http-transport', '0.66b1'),
-    ('opentelemetry-exporter-prometheus', '0.66b1'),
-    ('prometheus-client', '0.26.0'),
-))
-def test_airflow_otel_lock_contains_the_coordinated_patched_family(package, version) -> None:
     lines = _text("services/airflow/build/requirements-locked.txt").splitlines()
     assert f"{package}=={version}" in lines
 
@@ -478,38 +459,42 @@ def test_docling_security_floors_survive_fresh_resolution(mode, package, floor) 
     assert Version(version) >= Version(floor)
 
 
+def _docling_lock(mode):
+    if mode == "localhost":
+        return {p["name"]: p["version"] for p in tomllib.loads(
+            _text("services/docling/provider/localhost/uv.lock"))["package"]}
+    return dict(line.split("==", 1) for line in
+                _text("services/docling/provider/gpu/requirements-locked.txt").splitlines())
+
+
 @pytest.mark.parametrize("mode", ("gpu", "localhost"))
 @pytest.mark.parametrize("package,floor", {
     "docling": "2.142.0", "docling-core": "2.104.0",
     "docling-ibm-models": "4.0.4", "docling-parse": "7.22.4",
     "doclang": "0.8.0", "pillow": "13.0.0",
 }.items())
-def test_docling_patch_family_and_gpu_transformers_floor(mode, package, floor) -> None:
-    gpu = _text("services/docling/provider/gpu/requirements.txt")
-    lock = dict(line.split("==", 1) for line in
-                _text("services/docling/provider/gpu/requirements-locked.txt").splitlines())
-    if mode == "localhost":
-        lock = {p["name"]: p["version"] for p in tomllib.loads(
-            _text("services/docling/provider/localhost/uv.lock"))["package"]}
-    assert Version(lock[package]) >= Version(floor)
+def test_docling_patch_family_floor(mode, package, floor) -> None:
+    assert Version(_docling_lock(mode)[package]) >= Version(floor)
+
+
+@pytest.mark.parametrize("mode", ("gpu", "localhost"))
+def test_docling_slim_and_gpu_transformers_floor(mode) -> None:
+    lock = _docling_lock(mode)
     assert lock["docling-slim"] == lock["docling"]
-    assert "\ntransformers>=5.10.0\n" in gpu
+    assert "\ntransformers>=5.10.0\n" in _text("services/docling/provider/gpu/requirements.txt")
     assert Version(lock["transformers"]).major == 5
 
 
-@pytest.mark.parametrize("python_version", ("3.11", "3.12", "3.13"))
-def test_docling_filelock_floor_covers_supported_python(python_version) -> None:
+def test_docling_filelock_floor_covers_supported_python() -> None:
     base = "services/docling/provider/localhost"
     project = tomllib.loads(_text(f"{base}/pyproject.toml"))["project"]
     assert project["requires-python"] == ">=3.11"
-    environment = {"python_version": python_version,
-                   "python_full_version": f"{python_version}.0"}
     matching = _requirements_named(project["dependencies"], "filelock")
     assert len(matching) == 1, "Missing filelock security floor"
     requirement = matching[0]
     assert requirement.marker is None
-    assert Version("3.10.99") not in SpecifierSet(project["requires-python"])
-    assert Version(python_version) in SpecifierSet(project["requires-python"])
+    assert all(Version(python_version) in SpecifierSet(project["requires-python"])
+               for python_version in ("3.11", "3.12", "3.13"))
     assert str(requirement.specifier) == ">=4.2.1"
     gpu = _text("services/docling/provider/gpu/requirements.txt")
     assert "\nfilelock>=4.2.1\n" in gpu
@@ -1158,17 +1143,8 @@ def _bootstrapper_pillow_branches(environment):
                     if Requirement(item).name == "pillow"]
     assert len(requirements) == 1
     assert requirements[0].marker is None
-    assert Version("3.10.99") not in SpecifierSet(project["requires-python"])
     assert Version(environment["python_version"]) in SpecifierSet(project["requires-python"])
     return requirements
-
-
-def _locked_bootstrapper_pillow_versions(environment):
-    packages = tomllib.loads(_text("bootstrapper/uv.lock"))["package"]
-    return [item["version"] for item in packages if item["name"] == "pillow"
-            and (not item.get("resolution-markers") or any(
-                Requirement(f"pillow; {marker}").marker.evaluate(environment)
-                for marker in item["resolution-markers"]))]
 
 
 @pytest.mark.parametrize("python_version", ("3.11", "3.12", "3.13", "3.14", "3.15"))
@@ -1182,7 +1158,7 @@ def test_bootstrapper_pillow_floor_covers_supported_python(python_version, sys_p
     expected = "13.0.0"
     bounds = ">=13.0.0,<14"
     assert selected[0].specifier == SpecifierSet(bounds)
-    assert _locked_bootstrapper_pillow_versions(environment) == [expected]
+    assert _uv_versions_for_environment("bootstrapper/uv.lock", "pillow", environment) == [expected]
     assert _exported_bootstrapper_pillow_versions(environment) == [SpecifierSet(f"=={expected}")]
 
 
@@ -1213,8 +1189,6 @@ def _exported_bootstrapper_pillow_versions(environment):
     ),
 )
 def test_jupyter_repaired_dependencies_have_security_floors(name, fixed):
-    from packaging.version import Version
-
     requirements = [Requirement(line.split("#", 1)[0].strip())
                     for line in _text("services/jupyterhub/build/requirements.txt").splitlines()
                     if line.split("#", 1)[0].strip()]

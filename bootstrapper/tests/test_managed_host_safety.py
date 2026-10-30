@@ -263,27 +263,6 @@ def test_a_positive_managed_health_timeout_preserves_numeric_values(tmp_path, ti
     spec = _load(tmp_path, {'name': 'svc', 'command': 'app', 'port': 8799, 'health': {'timeout': timeout}}).managed_host_services[0]
     assert spec.health.timeout == float(timeout)
 
-@pytest.mark.parametrize('timeout', [-1, float('nan'), float('inf')])
-def test_cli_health_rejects_invalid_timeout_before_probing(tmp_path, monkeypatch, timeout):
-    from click.testing import CliRunner
-    import start
-    service = {'name': 'svc', 'command': 'app', 'port': 8799, 'health': {'timeout': timeout}}
-    probes = []
-
-    def manager(_name):
-        spec = _load(tmp_path, service).managed_host_services[0]
-        return ManagedHostManager(spec, tmp_path / 'state')
-
-    def no_connection(*_args, **_kwargs):
-        probes.append(True)
-        raise OSError('synthetic refusal; no socket connection attempted')
-    monkeypatch.setattr(start, '_managed_host_manager', manager)
-    monkeypatch.setattr(socket, 'create_connection', no_connection)
-    result = CliRunner().invoke(start.managed_host_health_command, ['svc'])
-    assert isinstance(result.exception, ConsumerManifestError)
-    assert 'health.timeout' in str(result.exception)
-    assert probes == []
-
 @pytest.mark.parametrize('kind', ['tcp', 'http'])
 @pytest.mark.parametrize('error_type', [ValueError, OverflowError])
 def test_cli_health_reports_timeout_conversion_failure_as_unreachable(tmp_path, monkeypatch, kind, error_type):

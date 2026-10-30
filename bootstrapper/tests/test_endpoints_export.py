@@ -787,7 +787,6 @@ def test_endpoints_export_refuses_unallocated_auto_base_port_by_default(
 
 
 def _private_endpoint_export_inputs(monkeypatch):
-    from types import SimpleNamespace
     import start
 
     marker = "SYNTHETIC_ENDPOINT_EXPORT_VALUE_040"
@@ -869,7 +868,7 @@ def test_export_directory_destination_stays_intact_and_cleans_temporary(tmp_path
     sentinel.write_text("unchanged\n")
     result = CliRunner().invoke(start.main, ["endpoints", "export", "--with-secrets", "--output", str(destination)])
     assert result.exit_code == 1
-    assert isinstance(result.exception, OSError)
+    assert "could not write" in result.output
     assert marker not in result.output
     assert list(destination.iterdir()) == [sentinel]
     assert sentinel.read_text() == "unchanged\n"
@@ -894,7 +893,7 @@ def test_failed_export_replace_preserves_output_target_and_cleans_temporary(tmp_
     monkeypatch.setattr(atomic_write.os, "replace", fail_replace)
     result = CliRunner().invoke(start.main, ["endpoints", "export", "--with-secrets", "--output", str(destination)])
     assert result.exit_code == 1
-    assert str(result.exception) == "synthetic replace failure"
+    assert "synthetic replace failure" in result.output
     assert marker not in result.output
     assert destination.is_symlink() == symlink
     assert destination.read_text() == "unchanged\n"

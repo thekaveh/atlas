@@ -628,6 +628,16 @@ def test_redis_twin_refreshes_after_raw_password_edit(tmp_path):
 
 
 
+def test_unchanged_redis_twin_keeps_env_inode(tmp_path):
+    env = _seed_env(tmp_path, "REDIS_PASSWORD=synthetic%2Fsecret\n")
+    generator = KeyGenerator(str(tmp_path))
+    assert generator.generate_and_update_redis_password()
+    before = env.stat()
+    assert generator.generate_and_update_redis_password()
+    after = env.stat()
+    assert (after.st_ino, after.st_mtime_ns) == (before.st_ino, before.st_mtime_ns)
+
+
 @pytest.mark.parametrize("synchronized", [True, False])
 def test_redis_aggregator_reports_the_derived_twin_result(tmp_path, monkeypatch, synchronized):
     _seed_env(tmp_path, "REDIS_PASSWORD=synthetic%2Fsecret\n")

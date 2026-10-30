@@ -309,20 +309,21 @@ def test_spark_master_keeps_backend_only_rest_submission_api_enabled() -> None:
     assert "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider" in worker_command
 
 
+def _compose_interpolate(text: str, supplied: dict) -> str:
+    # Compose substitutes config values without shell/XML escaping; $$
+    # protects the service's own shell expansions from that substitution.
+    text = text.replace("$$", "\0")
+    text = re.sub(
+        r"\$\{([A-Z_]+)(?::-([^}]*))?\}",
+        lambda match: supplied.get(match[1]) or match[2] or "",
+        text,
+    )
+    return text.replace("\0", "$")
+
+
 def _run_spark_worker_fixture(tmp_path, supplied):
     """Run the source command with an owned Hadoop directory and dummy launch."""
     worker = _yaml(SPARK_DIR / "compose.yml")["services"]["spark-worker"]
-
-    def interpolate(text: str) -> str:
-        # Compose substitutes config values without shell/XML escaping; $$
-        # protects the worker's own shell expansions from that substitution.
-        text = text.replace("$$", "\0")
-        text = re.sub(
-            r"\$\{([A-Z_]+)(?::-([^}]*))?\}",
-            lambda match: supplied.get(match[1]) or match[2] or "",
-            text,
-        )
-        return text.replace("\0", "$")
 
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
@@ -341,11 +342,11 @@ def _run_spark_worker_fixture(tmp_path, supplied):
     )
     launch.chmod(0o755)
     config_dir = tmp_path / "hadoop-conf"
-    command = interpolate(worker["command"][0])
+    command = _compose_interpolate(worker["command"][0], supplied)
     command = command.replace("/tmp/atlas-spark-hadoop-conf", str(config_dir))
     command = command.replace("/opt/spark/bin/spark-class", str(launch))
     receipt_path = tmp_path / "launched.json"
-    env = {name: interpolate(setting) for name, setting in worker["environment"].items()}
+    env = {name: _compose_interpolate(setting, supplied) for name, setting in worker["environment"].items()}
     env.update({"PATH": f"{fake_bin}:{os.defpath}", "LAUNCH_RECEIPT": str(receipt_path)})
     result = subprocess.run(
         ["/bin/bash", "-c", "umask 027\n" + command],
@@ -398,17 +399,8 @@ def test_spark_worker_hadoop_xml_preserves_literal_configuration(tmp_path, value
 
 
 def _run_spark_init_fixture(tmp_path, supplied, alias_status=0):
-    """Run the complete init command with private mc argument recording."""
+    """Run the complete init command, recording each mc argv and alias stdin."""
     init = _yaml(SPARK_DIR / "compose.yml")["services"]["spark-init"]
-
-    def interpolate(text):
-        text = text.replace("$$", "\0")
-        text = re.sub(
-            r"\$\{([A-Z_]+)(?::-([^}]*))?\}",
-            lambda match: supplied.get(match[1]) or match[2] or "",
-            text,
-        )
-        return text.replace("\0", "$")
 
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
@@ -417,21 +409,24 @@ def _run_spark_init_fixture(tmp_path, supplied, alias_status=0):
     client.write_text(
         f"#!{sys.executable}\n"
         "import json, os, sys\n"
+        "alias = sys.argv[1:3] == ['alias', 'set']\n"
+        "stdin = sys.stdin.read() if alias else None\n"
         "with open(os.environ['MC_RECEIPT'], 'a') as output:\n"
-        "    output.write(json.dumps(sys.argv[1:]) + '\\n')\n"
-        "if sys.argv[1:3] == ['alias', 'set']:\n"
+        "    output.write(json.dumps([sys.argv[1:], stdin]) + '\\n')\n"
+        "if alias:\n"
+        "    print('Enter Access Key: Enter Secret Key: Added `minio` successfully.')\n"
         "    sys.exit(int(os.environ['MC_ALIAS_STATUS']))\n",
         encoding="utf-8",
     )
     client.chmod(0o755)
-    env = {key: interpolate(value) for key, value in init.get("environment", {}).items()}
+    env = {key: _compose_interpolate(value, supplied) for key, value in init.get("environment", {}).items()}
     env.update({
         "PATH": f"{fake_bin}:{os.defpath}",
         "MC_RECEIPT": str(recorder),
         "MC_ALIAS_STATUS": str(alias_status),
     })
     result = subprocess.run(
-        init["entrypoint"] + [interpolate(part) for part in init["command"]],
+        init["entrypoint"] + [_compose_interpolate(part, supplied) for part in init["command"]],
         cwd=tmp_path, env=env, capture_output=True, text=True, timeout=10,
     )
     calls = [json.loads(line) for line in recorder.read_text().splitlines()] if recorder.exists() else []
@@ -444,7 +439,6 @@ def test_spark_init_passes_root_credentials_through_environment() -> None:
         "MINIO_ROOT_USER": "${MINIO_ROOT_USER}",
         "MINIO_ROOT_PASSWORD": "${MINIO_ROOT_PASSWORD}",
     }
-    assert '"$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}"' in init["command"][0]
 
 
 @pytest.mark.parametrize("credential", ["MINIO_ROOT_USER", "MINIO_ROOT_PASSWORD"])
@@ -457,9 +451,11 @@ def test_spark_init_preserves_literal_credentials(tmp_path, credential, value) -
     supplied[credential] = value
     result, calls = _run_spark_init_fixture(tmp_path, supplied)
     assert result.returncode == 0, result.stderr
+    # Keys reach mc on stdin only; argv is world-readable in /proc.
     assert calls == [
-        ["alias", "set", "minio", "http://minio:9000", supplied["MINIO_ROOT_USER"], supplied["MINIO_ROOT_PASSWORD"]],
-        ["mb", "--ignore-existing", "minio/spark-history"],
+        [["alias", "set", "minio", "http://minio:9000"],
+         f"{supplied['MINIO_ROOT_USER']}\n{supplied['MINIO_ROOT_PASSWORD']}\n"],
+        [["mb", "--ignore-existing", "minio/spark-history"], None],
     ]
     assert result.stdout == "spark-init: spark-history bucket ready\n"
     assert result.stderr == ""
@@ -473,8 +469,8 @@ def test_spark_init_preserves_bucket_default_and_selection(tmp_path, bucket) -> 
     result, calls = _run_spark_init_fixture(tmp_path, supplied)
     assert result.returncode == 0, result.stderr
     assert calls == [
-        ["alias", "set", "minio", "http://minio:9000", "synthetic-user", "synthetic-password"],
-        ["mb", "--ignore-existing", "minio/" + (bucket or "spark-history")],
+        [["alias", "set", "minio", "http://minio:9000"], "synthetic-user\nsynthetic-password\n"],
+        [["mb", "--ignore-existing", "minio/" + (bucket or "spark-history")], None],
     ]
     assert result.stdout == "spark-init: spark-history bucket ready\n"
     assert result.stderr == ""
@@ -484,7 +480,7 @@ def test_spark_init_alias_failure_stops_before_bucket_and_success(tmp_path) -> N
     supplied = {"MINIO_ROOT_USER": "synthetic-user", "MINIO_ROOT_PASSWORD": "synthetic-password"}
     result, calls = _run_spark_init_fixture(tmp_path, supplied, alias_status=42)
     assert result.returncode == 42
-    assert calls == [["alias", "set", "minio", "http://minio:9000", "synthetic-user", "synthetic-password"]]
+    assert calls == [[["alias", "set", "minio", "http://minio:9000"], "synthetic-user\nsynthetic-password\n"]]
     assert result.stdout == ""
     assert result.stderr == ""
 

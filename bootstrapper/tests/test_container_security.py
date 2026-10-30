@@ -1381,9 +1381,9 @@ def test_contract_ledger_records_remote_base_digest_review_provenance() -> None:
     assert "LLM Graph Builder remote base images" in ledger
     assert "4a412f4688cf4096976045c019edc0a7f6ddcb6b" in ledger
     assert REVIEWED_REMOTE_BASE_DIGESTS["python:3.12-slim"] in ledger
-    assert "docker-library/python@2a3b794c223ab067d122719541cdd54a068732a5" in ledger
-    assert "sha256:6b1f85a08c199d29d5b6d71ab9c27bd5b3b393492e01216a15758ff69c4be8b8" in ledger
-    assert "sha256:18d23907c5d7ef2ca1b0ea8b4a73fe4a6ae47114c257a1afed8bc66c3886f8cb" in ledger
+    assert "docker-library/python@3d7e95597e56a415d9e4abc0f15877e005d2cb2e" in ledger
+    assert "sha256:1148dbb014615300fa7e713b2f94f550c0d1c69780c0805f84f093ceee34dd0b" in ledger
+    assert "sha256:b224e2fe306f9d303251ada22961635e5b52a69c0414a0050611be31c59f5f5b" in ledger
 
 
 _POLICY_REJECTION_CASES = (
@@ -1649,7 +1649,6 @@ def test_jupyter_runtime_pins_patched_python_and_node_tooling() -> None:
     )
 
     for package in (
-        "brotli==1.2.1",
         "jupyterlab==4.6.4",
         "jupyterlab-git==0.54.1",
         "notebook==7.6.3",

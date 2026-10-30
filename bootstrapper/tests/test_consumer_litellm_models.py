@@ -664,6 +664,26 @@ def test_api_key_var_cannot_name_a_litellm_container_variable(tmp_path: Path, va
         load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
 
 
+def _shown_manifest_error(tmp_path, monkeypatch, manifest, boundary):
+    """Text a rejected manifest shows at ``boundary``, plus the loader
+    exception or the ``endpoints export`` CLI result."""
+    from types import SimpleNamespace
+    from click.testing import CliRunner
+    import start
+
+    def load():
+        return load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
+    if boundary == "loader":
+        with pytest.raises(ConsumerManifestError) as caught:
+            load()
+        return str(caught.value), caught.value
+    monkeypatch.setattr(start, "AtlasStarter", lambda: SimpleNamespace(
+        config_parser=SimpleNamespace(parse_env_file=lambda: {}, load_consumer_config=load)))
+    result = CliRunner().invoke(start.main, ["endpoints", "export"])
+    assert result.exit_code == 1, result.output
+    return result.output, result
+
+
 @pytest.mark.parametrize("case", [
     ("http://backend:8000/rag/v1?api_key=SYNTHETIC_PRIVATE_MARKER", "query string or fragment"),
     ("http://backend:8000/rag/v1?authorization=Bearer%20SYNTHETIC_PRIVATE_MARKER", "query string or fragment"),
@@ -676,9 +696,6 @@ def test_api_key_var_cannot_name_a_litellm_container_variable(tmp_path: Path, va
 @pytest.mark.parametrize("boundary", ["loader", "cli"])
 def test_rejected_credential_url_diagnostics_omit_submitted_value(tmp_path, monkeypatch, case, boundary):
     import json
-    from types import SimpleNamespace
-    from click.testing import CliRunner
-    import start
 
     url, reason = case
     manifest = _write_manifest(tmp_path, "owned", (
@@ -686,19 +703,9 @@ def test_rejected_credential_url_diagnostics_omit_submitted_value(tmp_path, monk
         "    - name: owned-rag\n      api_base: " + json.dumps(url) + "\n"
         "      api_key_var: OWNED_RAG_KEY\n"
     ))
-    def load():
-        return load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
-    if boundary == "loader":
-        with pytest.raises(ConsumerManifestError) as caught:
-            load()
-        shown = str(caught.value)
-    else:
-        monkeypatch.setattr(start, "AtlasStarter", lambda: SimpleNamespace(
-            config_parser=SimpleNamespace(parse_env_file=lambda: {}, load_consumer_config=load)))
-        result = CliRunner().invoke(start.main, ["endpoints", "export"])
-        assert result.exit_code == 1, result.output
-        assert "invalid consumer manifest" in result.output
-        shown = result.output
+    shown, _outcome = _shown_manifest_error(tmp_path, monkeypatch, manifest, boundary)
+    if boundary == "cli":
+        assert "invalid consumer manifest" in shown
     assert "owned-rag" in shown
     assert str(manifest) in shown
     assert reason in shown
@@ -727,33 +734,16 @@ def test_valid_credential_reference_keeps_consumer_url_and_owner_wire_fields(tmp
 @pytest.mark.parametrize("boundary", ["loader", "cli"])
 def test_malformed_consumer_url_has_actionable_value_free_error(tmp_path, monkeypatch, url, boundary):
     import json
-    from types import SimpleNamespace
-    from click.testing import CliRunner
-    import start
+    import traceback
 
-    manifest = tmp_path / "atlas.consumer.yml"
-    manifest.write_text(
-        "name: owned\nlitellm_models:\n  version: 1\n  models:\n"
+    manifest = _write_manifest(tmp_path, "owned", (
+        "litellm_models:\n  version: 1\n  models:\n"
         "    - name: owned-rag\n      api_base: " + json.dumps(url) + "\n"
         "      api_key_var: OWNED_RAG_KEY\n"
-    )
-
-    def load():
-        return load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
-
+    ))
+    shown, outcome = _shown_manifest_error(tmp_path, monkeypatch, manifest, boundary)
     if boundary == "loader":
-        import traceback
-
-        with pytest.raises(ConsumerManifestError) as caught:
-            load()
-        shown = str(caught.value)
-        assert "SYNTHETIC_MARKER" not in "".join(traceback.format_exception(caught.value))
-    else:
-        monkeypatch.setattr(start, "AtlasStarter", lambda: SimpleNamespace(
-            config_parser=SimpleNamespace(parse_env_file=lambda: {}, load_consumer_config=load)))
-        result = CliRunner().invoke(start.main, ["endpoints", "export"])
-        assert result.exit_code == 1
-        shown = result.output
+        assert "SYNTHETIC_MARKER" not in "".join(traceback.format_exception(outcome))
     assert "owned-rag" in shown
     assert str(manifest) in shown
     assert "api_base" in shown

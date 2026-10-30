@@ -2,16 +2,14 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import shlex
-import shutil
 import subprocess
 import sys
 
 import pytest
 
 from tests.test_three_surface_build import env_reference_config, _candidate_document
-from tests.three_surface_test_utils import ROOT, surface_text
+from tests.three_surface_test_utils import ROOT, native_executable, surface_text
 
 SOURCE = "docs/quick-start/troubleshooting.md"
 DIAGNOSTIC_ARGS = [['logs', '--tail=100', '-f', 'litellm'], ['logs', '--tail=100', '-f', 'ollama-pull'], ['logs', '--tail=100', '-f', 'ollama'], ['logs', '--tail=100', '-f', 'comfyui-init'], ['logs', '--tail=100', '-f', 'comfyui'], ['logs', '--tail=100', '-f', 'n8n'], ['logs', '--tail=100', '-f', 'n8n-worker'], ['logs', '--tail=100', '-f', 'redis'], ['logs', '--tail=100', '-f', 'supabase-db'], ['logs', '--tail=100', '-f', 'supabase-auth'], ['logs', '--tail=100', '-f', 'supabase-api'], ['logs', '--tail=100', 'supabase-db-init'], ['exec', '-T', 'supabase-db', 'pg_isready'], ['exec', '-T', 'backend', 'python', '-c', "\nimport asyncio, os, asyncpg\nasync def main():\n    conn = await asyncio.wait_for(asyncpg.connect(os.environ['DATABASE_URL']), 5)\n    assert await asyncio.wait_for(conn.fetchval('SELECT 1'), 5) == 1\n    await conn.close()\n    print('database query succeeded')\nasyncio.run(main())"], ['logs', '--tail=100', '-f', 'kong-api-gateway'], ['ps'], ['ps'], ['logs', '--tail=100', '-f', 'redis'], ['logs', '--tail=100', '-f', 'supabase-db'], ['ps'], ['logs', '--tail=50'], ['logs', '--tail=100', '-f', 'ollama'], ['logs', '--tail=100', '-f', 'backend'], ['exec', '-T', 'backend', 'curl', '-sf', 'http://litellm:4000/health/liveliness'], ['exec', '-T', 'litellm', 'python', '-c', "import urllib.request; print(urllib.request.urlopen('http://ollama:11434/api/tags', timeout=5).status)"], ['exec', '-T', 'backend', 'curl', '-sf', 'http://supabase-api:3000/']]
@@ -140,9 +138,7 @@ def _environment(directory, checkout, shell):
     tools = directory / "tools"
     tools.mkdir()
     for name in ("uv", "sed", "tail"):
-        executable = shutil.which(name)
-        assert executable, name
-        (tools / name).symlink_to(Path(executable).resolve())
+        (tools / name).symlink_to(native_executable(name))
     for path in (tools / "docker", checkout / "start.sh", checkout / "stop.sh"):
         path.write_text("#!" + sys.executable + "\n" + RECORDER)
         path.chmod(0o700)

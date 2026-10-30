@@ -6,22 +6,29 @@ import sys
 import threading
 from types import ModuleType
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[2]
 MODULE_PATH = ROOT / "services/open-webui/extras/functions/memory_filter.py"
+
+
+def _runtime_memory_module(path, name):
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
 
 
 def _load_module():
     pydantic = ModuleType("pydantic")
     pydantic.BaseModel = type("BaseModel", (), {})
     pydantic.Field = lambda default, **_kwargs: default
-    spec = importlib.util.spec_from_file_location("atlas_memory_filter", MODULE_PATH)
-    module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
     previous = sys.modules.get("pydantic")
     sys.modules["pydantic"] = pydantic
     try:
-        spec.loader.exec_module(module)
+        module = _runtime_memory_module(MODULE_PATH, "atlas_memory_filter")
     finally:
         if previous is None:
             sys.modules.pop("pydantic", None)
@@ -70,17 +77,6 @@ def test_message_text_fits_the_backend_memory_message_contract():
     assert len(text("x" * 30000)) == 20000
     assert text([{"type": "image_url"}]) == ""
     assert text(None) == ""
-
-
-import pytest
-
-
-def _runtime_memory_module(path, name):
-    spec = importlib.util.spec_from_file_location(name, path)
-    module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    spec.loader.exec_module(module)
-    return module
 
 
 @pytest.fixture
