@@ -153,7 +153,7 @@ python-louvain  # `community` module — community_detection-karate notebook
 # install_nlp_assets.py resolves the VADER lexicon from a build-time constant
 # and nlp-assets.toml integrity-locks it, so no artifact location is ever
 # operator- or request-supplied. Atlas maintainers own re-review by 2026-11-27.
-nltk>=3.10.3  # SentimentIntensityAnalyzer; VADER is integrity-locked by nlp-assets.toml
+nltk>=3.10.4  # SentimentIntensityAnalyzer; VADER is integrity-locked by nlp-assets.toml
 spacy  # tokenizer + lemmatizer; model integrity-locked by nlp-model-requirements.txt and nlp-assets.toml
 torchao>=0.17  # transitive via nnx.quantize_int8 + nnx.qat_train_step_factory — quantization-mnist notebook
 prettytable  # nnx Utils.print_table renderer — used by 14 of 29 notebooks
