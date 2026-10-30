@@ -5,7 +5,7 @@ import json
 import logging
 from typing import Any
 
-from celery import Celery
+from celery import Celery, states
 from celery.signals import worker_process_init
 
 from observability import configure_celery_otel
@@ -279,10 +279,11 @@ def _normalize_status(status: str) -> str:
 
 def get_celery_job_status(job_id: str) -> dict[str, Any]:
     result = celery_app.AsyncResult(job_id)
-    status = _normalize_status(result.status)
-    ready = bool(result.ready())
-    successful = bool(result.successful()) if ready else False
-    failed = bool(result.failed()) if ready else False
+    raw_status = result.status
+    status = _normalize_status(raw_status)
+    ready = raw_status in states.READY_STATES
+    successful = raw_status == states.SUCCESS
+    failed = raw_status == states.FAILURE
 
     payload: dict[str, Any] = {
         "job_id": job_id,

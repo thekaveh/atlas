@@ -32,7 +32,7 @@ env:
     description: "Docker Compose project name: the prefix for containers, volumes and networks, and the `docker compose -p` namespace. start.sh and stop.sh both read it. `./start.sh --project <name>` (or -p) writes it here. Use a unique name for a submodule consumer."
   - name: BASE_PORT
     default: 63000
-    description: "Base port. Every service's *_PORT derives from this + a fixed offset."
+    description: "Base port for allocated stack ports. Each uses this plus a fixed offset. Native host-service port settings with `_LOCALHOST_` in their names stay independent."
   - name: HOST_BIND_IP
     default: "127.0.0.1:"
     description: "Published-port interface prefix (trailing colon). Default 127.0.0.1: is host-only; 0.0.0.0: is for deliberate remote access. Existing .env files with HOST_BIND_IP= are upgraded by backfill. Empty binds all interfaces except Ray, Zeppelin, mcp-servers, Supabase DB, Docling, Parakeet. LAN Supabase routes: KONG_SUPABASE_EXTRA_HOSTS."

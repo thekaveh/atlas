@@ -5,7 +5,7 @@ This is the short path from a fresh clone to a merged first change. Set up, run 
 ## 1. Before you start
 
 - Pick or open an [issue](https://github.com/thekaveh/atlas/issues) on the project's GitHub issue tracker. For anything larger than a typo, say on the issue what you plan to change, so the scope is agreed before you write it.
-- You need `git`, [uv](https://docs.astral.sh/uv/), and Python 3.10 or newer for the bootstrapper. Backend tests run under Python 3.12, which `uv` can download for you. The documentation checks in §3.3 also need `make` and the native Cairo library that diagram rendering links. Install `libcairo2` on Debian and Ubuntu, or run `brew install cairo` on macOS. Docker is only needed to run the stack itself and the Docker-backed suites described in §4.
+- You need `git`, [uv](https://docs.astral.sh/uv/), and Python 3.11 or newer for the bootstrapper. Backend tests run under Python 3.12, which `uv` can download for you. The documentation checks in §3.3 also need `make` and the native Cairo library that diagram rendering links. Install `libcairo2` on Debian and Ubuntu, or run `brew install cairo` on macOS. Docker is only needed to run the stack itself and the Docker-backed suites described in §4.
 
 ## 2. Set up
 

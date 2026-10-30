@@ -19,7 +19,7 @@ import re
 import threading
 import time
 from dataclasses import dataclass
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from shared_state import StateStoreUnavailable, backend_state_store_mode, redis_url
 
@@ -36,6 +36,7 @@ _INDEX_SEQUENCE = "atlas:rag:ingestion-ids:v2:sequence"
 _INDEX_MIGRATION_CURSOR = "atlas:rag:ingestion-ids:v2:migration-cursor"
 _LEASE_PREFIX = "atlas:rag:execution:"
 _PUBLICATION_PREFIX = "atlas:rag:publication:"
+_PUBLICATION_GUARD_PREFIX = "atlas:rag:publication-guard:"
 _DEFAULT_LIST_LIMIT = 100
 _MAX_LIST_LIMIT = 200
 _MAX_CURSOR = 2**53 - 1
@@ -51,6 +52,22 @@ def _ttl_seconds() -> int:
     if _MIN_TTL_SECONDS <= value <= _MAX_TTL_SECONDS:
         return value
     return _DEFAULT_TTL_SECONDS
+
+
+def _validate_execution_lease_seconds(value: Any) -> int:
+    name = "RAG_INGESTION_EXECUTION_LEASE_SECONDS"
+    if isinstance(value, bool) or not isinstance(value, int) or not 10 <= value <= 300:
+        raise ValueError(f"{name} must be an integer from 10 through 300")
+    return value
+
+
+def ingestion_execution_lease_seconds() -> int:
+    name = "RAG_INGESTION_EXECUTION_LEASE_SECONDS"
+    try:
+        value = int(os.getenv(name, "30"))
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be an integer from 10 through 300") from exc
+    return _validate_execution_lease_seconds(value)
 
 
 _DISPATCH_FIELDS = ("dispatch_state", "dispatch_job_id", "dispatch_owner", "dispatch_claimed_at")
@@ -80,6 +97,24 @@ class ExecutionClaim:
     owner: str
     lease_seconds: int
     recovery_owner: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class PublicationClaim:
+    """Unique run-attempt nonce, distinct from recoverable execution owners."""
+
+    execution_owner: str
+    token: str
+
+
+def _publication_token(ingestion_id: str, claim: PublicationClaim) -> str:
+    return json.dumps([ingestion_id, claim.execution_owner, claim.token], separators=(",", ":"))
+
+
+def _strongest_guard(values) -> Optional[str]:
+    """``"dirty"`` beats ``"clean"``; ``None`` when no guard value exists."""
+    states = {value.rsplit(":", 1)[-1] for value in values if value}
+    return "dirty" if "dirty" in states else ("clean" if states else None)
 
 
 @dataclass(frozen=True)
@@ -169,9 +204,42 @@ class IngestionStore:
     def save_claimed(self, record: IngestionRecord, owner: str) -> bool:
         raise NotImplementedError
 
+    def claim_publications(self, ingestion_id: str, claim: PublicationClaim) -> bool:
+        """Reserve every physical target; refuse even an identical existing claim.
+
+        Guards have no TTL. A crashed or uncertain attempt requires verified
+        quiescence and operator recovery, never execution-lease takeover.
+        """
+        raise NotImplementedError
+
+    def publication_guarded(self, targets: List[str]) -> Optional[str]:
+        """Read-only probe: the strongest guard state among the targets.
+
+        ``"dirty"`` when any target holds an uncertain write, ``"clean"`` when
+        any other guard exists, otherwise ``None``. Admission before parse and
+        embed work; ``claim_publications`` stays the atomic authority.
+        """
+        raise NotImplementedError
+
     def mark_publication(
-        self, ingestion_id: str, owner: str, publication: tuple[str, bool]
+        self, ingestion_id: str, claim: PublicationClaim, publication: tuple[str, bool]
     ) -> bool:
+        raise NotImplementedError
+
+    def settle_publication(
+        self, ingestion_id: str, claim: PublicationClaim, target: str
+    ) -> bool:
+        """Mark this attempt's dirty guard clean after a definitive rejection.
+
+        A rejected request is no uncertain write, but the publication proof
+        keeps the in-progress token, so completed-job reuse stays invalid.
+        """
+        raise NotImplementedError
+
+    def release_publications(
+        self, ingestion_id: str, claim: PublicationClaim, targets: List[str]
+    ) -> None:
+        """Remove only this attempt's clean guards; dirty guards always remain."""
         raise NotImplementedError
 
     def release_execution(self, ingestion_id: str, owner: str) -> bool:
@@ -184,6 +252,7 @@ class InMemoryIngestionStore(IngestionStore):
         self._index: Dict[str, str] = {}
         self._leases: Dict[str, tuple[str, float]] = {}
         self._publications: Dict[str, str] = {}
+        self._publication_guards: Dict[str, str] = {}
         self._record_sequence: Dict[str, int] = {}
         self._next_sequence = 0
         self._lock = threading.Lock()
@@ -409,25 +478,69 @@ class InMemoryIngestionStore(IngestionStore):
             self._save_locked(record)
             return True
 
+    def _publication_record_locked(self, ingestion_id: str, owner: str):
+        lease = self._leases.get(ingestion_id)
+        blob = self._records.get(ingestion_id)
+        if not blob or not lease or lease[0] != owner or lease[1] <= time.monotonic():
+            return None
+        record = IngestionRecord.from_dict(json.loads(blob))
+        return None if record.is_terminal or record.publication_targets is None else record
+
+    def claim_publications(self, ingestion_id: str, claim: PublicationClaim) -> bool:
+        with self._lock:
+            record = self._publication_record_locked(ingestion_id, claim.execution_owner)
+            if record is None:
+                return False
+            targets = record.publication_targets
+            if any(target in self._publication_guards for target in targets):
+                return False
+            token = _publication_token(ingestion_id, claim)
+            self._publication_guards.update((target, token + ":clean") for target in targets)
+            return True
+
+    def publication_guarded(self, targets: List[str]) -> Optional[str]:
+        with self._lock:
+            return _strongest_guard(self._publication_guards.get(target) for target in targets)
+
     def mark_publication(
-        self, ingestion_id: str, owner: str, publication: tuple[str, bool]
+        self, ingestion_id: str, claim: PublicationClaim, publication: tuple[str, bool]
     ) -> bool:
         target, published = publication
+        token = _publication_token(ingestion_id, claim)
+        expected = token + (":dirty" if published else ":clean")
         with self._lock:
-            lease = self._leases.get(ingestion_id)
-            blob = self._records.get(ingestion_id)
-            if not blob or not lease or lease[0] != owner or lease[1] <= time.monotonic():
+            record = self._publication_record_locked(ingestion_id, claim.execution_owner)
+            if record is None or target not in record.publication_targets:
                 return False
-            record = IngestionRecord.from_dict(json.loads(blob))
-            if record.is_terminal or target not in (record.publication_targets or []):
+            if self._publication_guards.get(target) != expected:
                 return False
-            token = f"{ingestion_id}:{owner}"
-            if not published:
-                self._publications[target] = token
-            elif self._publications.get(target) == token:
-                self._publications[target] = ingestion_id
-            # A competing publication keeps this job unproven; never overwrite it.
+            if published and self._publications.get(target) != token:
+                return False
+            self._publications[target] = ingestion_id if published else token
+            self._publication_guards[target] = token + (":clean" if published else ":dirty")
             return True
+
+    def settle_publication(
+        self, ingestion_id: str, claim: PublicationClaim, target: str
+    ) -> bool:
+        token = _publication_token(ingestion_id, claim)
+        with self._lock:
+            record = self._publication_record_locked(ingestion_id, claim.execution_owner)
+            if record is None or target not in record.publication_targets:
+                return False
+            if self._publication_guards.get(target) != token + ":dirty":
+                return False
+            self._publication_guards[target] = token + ":clean"
+            return True
+
+    def release_publications(
+        self, ingestion_id: str, claim: PublicationClaim, targets: List[str]
+    ) -> None:
+        token = _publication_token(ingestion_id, claim) + ":clean"
+        with self._lock:
+            for target in targets:
+                if self._publication_guards.get(target) == token:
+                    del self._publication_guards[target]
 
     def release_execution(self, ingestion_id: str, owner: str) -> bool:
         with self._lock:
@@ -781,25 +894,67 @@ end
 return 1
 """
 
-    _PUBLICATION_SCRIPT = """
+    _PUBLICATION_RECORD_SCRIPT = """
 if redis.call('GET', KEYS[2]) ~= ARGV[1] then return 0 end
 local blob = redis.call('GET', KEYS[1])
 if not blob then return 0 end
 local record = cjson.decode(blob)
 if record.status == 'completed' or record.status == 'failed'
    or record.status == 'cancelled' then return 0 end
+if not record.publication_targets or record.publication_targets == cjson.null then
+    return 0
+end
+"""
+
+    _CLAIM_PUBLICATIONS_SCRIPT = _PUBLICATION_RECORD_SCRIPT + """
+-- Normal admission refusal writes nothing: read all targets before any SET.
+-- Lua runtime errors do not roll back earlier writes. Retain clean orphans;
+-- no caller may mutate a class unless this entire script returned success.
+for _, target in ipairs(record.publication_targets) do
+    if redis.call('GET', ARGV[3] .. target) then return 0 end
+end
+for _, target in ipairs(record.publication_targets) do
+    redis.call('SET', ARGV[3] .. target, ARGV[2] .. ':clean')
+end
+return 1
+"""
+
+    _DECLARED_PUBLICATION_SCRIPT = _PUBLICATION_RECORD_SCRIPT + """
 local declared = false
-if record.publication_targets and record.publication_targets ~= cjson.null then
-    for _, target in ipairs(record.publication_targets) do
-        if target == ARGV[2] then declared = true end
-    end
+for _, target in ipairs(record.publication_targets) do
+    if target == ARGV[3] then declared = true end
 end
 if not declared then return 0 end
-local token = record.id .. ':' .. ARGV[1]
-if ARGV[3] == '0' then
-    redis.call('SET', KEYS[3], token, 'EX', ARGV[4])
-elseif redis.call('GET', KEYS[3]) == token then
-    redis.call('SET', KEYS[3], record.id, 'EX', ARGV[4])
+"""
+
+    _PUBLICATION_SCRIPT = _DECLARED_PUBLICATION_SCRIPT + """
+local token = ARGV[2]
+if ARGV[4] == '0' then
+    if redis.call('GET', KEYS[4]) ~= token .. ':clean' then return 0 end
+    redis.call('SET', KEYS[4], token .. ':dirty')
+    redis.call('SET', KEYS[3], token, 'EX', ARGV[5])
+else
+    if redis.call('GET', KEYS[4]) ~= token .. ':dirty'
+       or redis.call('GET', KEYS[3]) ~= token then return 0 end
+    redis.call('SET', KEYS[3], record.id, 'EX', ARGV[5])
+    redis.call('SET', KEYS[4], token .. ':clean')
+end
+return 1
+"""
+
+    # The proof key keeps the in-progress token: a rejection never restores
+    # completed-job reuse, it only ends the uncertain-write block.
+    _SETTLE_PUBLICATION_SCRIPT = _DECLARED_PUBLICATION_SCRIPT + """
+if redis.call('GET', KEYS[3]) ~= ARGV[2] .. ':dirty' then return 0 end
+redis.call('SET', KEYS[3], ARGV[2] .. ':clean')
+return 1
+"""
+
+    _RELEASE_PUBLICATIONS_SCRIPT = """
+for _, key in ipairs(KEYS) do
+    if redis.call('GET', key) == ARGV[1] .. ':clean' then
+        redis.call('DEL', key)
+    end
 end
 return 1
 """
@@ -1044,16 +1199,48 @@ return 1
             )
         )
 
+    def claim_publications(self, ingestion_id: str, claim: PublicationClaim) -> bool:
+        return bool(self._redis.eval(
+            self._CLAIM_PUBLICATIONS_SCRIPT, 2,
+            _KEY_PREFIX + ingestion_id, _LEASE_PREFIX + ingestion_id,
+            claim.execution_owner, _publication_token(ingestion_id, claim),
+            _PUBLICATION_GUARD_PREFIX,
+        ))
+
+    def publication_guarded(self, targets: List[str]) -> Optional[str]:
+        keys = [_PUBLICATION_GUARD_PREFIX + target for target in sorted(set(targets))]
+        return _strongest_guard(self._redis.mget(keys)) if keys else None
+
     def mark_publication(
-        self, ingestion_id: str, owner: str, publication: tuple[str, bool]
+        self, ingestion_id: str, claim: PublicationClaim, publication: tuple[str, bool]
     ) -> bool:
         target, published = publication
         return bool(self._redis.eval(
-            self._PUBLICATION_SCRIPT, 3,
+            self._PUBLICATION_SCRIPT, 4,
             _KEY_PREFIX + ingestion_id, _LEASE_PREFIX + ingestion_id,
-            _PUBLICATION_PREFIX + target,
-            owner, target, "1" if published else "0", self._ttl_seconds,
+            _PUBLICATION_PREFIX + target, _PUBLICATION_GUARD_PREFIX + target,
+            claim.execution_owner, _publication_token(ingestion_id, claim), target,
+            "1" if published else "0", self._ttl_seconds,
         ))
+
+    def settle_publication(
+        self, ingestion_id: str, claim: PublicationClaim, target: str
+    ) -> bool:
+        return bool(self._redis.eval(
+            self._SETTLE_PUBLICATION_SCRIPT, 3,
+            _KEY_PREFIX + ingestion_id, _LEASE_PREFIX + ingestion_id,
+            _PUBLICATION_GUARD_PREFIX + target,
+            claim.execution_owner, _publication_token(ingestion_id, claim), target,
+        ))
+
+    def release_publications(
+        self, ingestion_id: str, claim: PublicationClaim, targets: List[str]
+    ) -> None:
+        keys = [_PUBLICATION_GUARD_PREFIX + target for target in sorted(set(targets))]
+        self._redis.eval(
+            self._RELEASE_PUBLICATIONS_SCRIPT, len(keys), *keys,
+            _publication_token(ingestion_id, claim),
+        )
 
     def release_execution(self, ingestion_id: str, owner: str) -> bool:
         return bool(

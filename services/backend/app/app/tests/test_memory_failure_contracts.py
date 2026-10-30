@@ -647,9 +647,9 @@ class _FakeReconcileConnection:
 
 @pytest.mark.asyncio
 async def test_reconcile_clear_guards_on_updated_at(monkeypatch):
-    """The reconcile flag-clear must carry an optimistic updated_at guard so a
-    concurrent update_memory that re-flags the fact for new content isn't
-    silently wiped against our now-stale vector write (permanent divergence)."""
+    """Guard the current matching vector state, including its trigger version,
+    so a concurrent canonical edit cannot lose its newer pending intent. The
+    opt-in Postgres cases in test_memory_dimension_contract run the guard SQL."""
     import memory_service
     from datetime import datetime, timezone
 
@@ -687,8 +687,10 @@ async def test_reconcile_clear_guards_on_updated_at(monkeypatch):
     ]
     assert clears, "reconcile must clear the pending flag"
     query, *params = clears[0]
-    assert "AND updated_at = $3" in query, "clear must be guarded on the read updated_at"
-    assert params == [row["id"], "vec-new", ts]
+    assert "WITH vector_owner AS MATERIALIZED" in query
+    assert "AND fact.updated_at = vector_owner.updated_at" in query
+    assert params == [row["id"], "vec-new", row["user_id"], row["namespace"],
+                      row["content"], row["fact_type"], row["confidence"]]
 
 
 @pytest.mark.asyncio

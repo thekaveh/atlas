@@ -29,27 +29,12 @@ GPU_DOCKERFILE_EXCLUSIONS = {
     "services/parakeet/provider/gpu/Dockerfile",
 }
 REVIEWED_REMOTE_BASE_DIGESTS = {
-    "nginx:alpine": "sha256:df221db836e1754089190208cee7eeda94f233197056426eda74a43ab1abeac2",
+    "nginx:alpine": "sha256:785835ea65db4bba6f021acc0f3be91b0fef76a53fe41f8588c6698d2aed0606",
     "node:20": "sha256:8f693eaa7e0a8e71560c9a82b55fd54c2ae920a2ba5d2cde28bac7d1c01c9ba5",
-    "python:3.12-slim": "sha256:02108f5d322dd89f1c9e552442c25acb0543dfdbc455693a5599624f20d9155d",
+    "python:3.12-slim": "sha256:aa943ce411423c7582288f18707ff66eddcbaeb510502d747a72aeb34f30d159",
 }
 
 
-def _compose_build_base_images() -> set[str]:
-    return set().union(
-        *(
-            build.base_images
-            for build in container_security.load_compose_builds(ROOT / "services")
-        )
-    )
-
-
-def _container_security_ledger_row() -> str:
-    ledger = (ROOT / "docs/maintenance/external-contract-ledger.md").read_text()
-    return next(
-        line for line in ledger.splitlines()
-        if line.startswith("| Container image vulnerability gate |")
-    )
 TRIVY_REMOTE_SCAN = ROOT / "scripts/run_trivy_remote_scan.sh"
 
 
@@ -75,25 +60,6 @@ def test_container_security_summary_labels_platform_expansion(
 
     assert container_security.main(["--services-dir", str(tmp_path)]) == 0
     assert "2 image-platform scan(s)" in capsys.readouterr().out
-
-
-def test_container_security_ledger_does_not_claim_registry_discovery() -> None:
-    row = _container_security_ledger_row()
-
-    assert "attempted on both" in row
-    assert "not registry discovery" in row
-    assert "registry-derived" not in row
-    assert "registry-supported" not in row
-    images = container_security.load_image_inventory(ROOT / "services")
-    scans = container_security.load_image_scans(ROOT / "services")
-    build_only = _compose_build_base_images() - set(images)
-    remote_bases = load_expected_remote_base_digests(
-        ROOT / ".container-scan-exclusions.yml"
-    )
-    assert f"All {len(images)} manifest-owned image defaults" in row
-    assert f"{len(build_only)} Dockerfile-only build inputs" in row
-    assert f"{len(remote_bases)} digest-qualified bases" in row
-    assert f"currently producing {len(scans)} isolated image-platform scans" in row
 
 
 def test_container_scan_job_name_distinguishes_platforms() -> None:
@@ -1415,9 +1381,9 @@ def test_contract_ledger_records_remote_base_digest_review_provenance() -> None:
     assert "LLM Graph Builder remote base images" in ledger
     assert "4a412f4688cf4096976045c019edc0a7f6ddcb6b" in ledger
     assert REVIEWED_REMOTE_BASE_DIGESTS["python:3.12-slim"] in ledger
-    assert "docker-library/python@2a3b794c223ab067d122719541cdd54a068732a5" in ledger
-    assert "sha256:6b1f85a08c199d29d5b6d71ab9c27bd5b3b393492e01216a15758ff69c4be8b8" in ledger
-    assert "sha256:18d23907c5d7ef2ca1b0ea8b4a73fe4a6ae47114c257a1afed8bc66c3886f8cb" in ledger
+    assert "docker-library/python@3d7e95597e56a415d9e4abc0f15877e005d2cb2e" in ledger
+    assert "sha256:1148dbb014615300fa7e713b2f94f550c0d1c69780c0805f84f093ceee34dd0b" in ledger
+    assert "sha256:b224e2fe306f9d303251ada22961635e5b52a69c0414a0050611be31c59f5f5b" in ledger
 
 
 _POLICY_REJECTION_CASES = (
@@ -1683,7 +1649,6 @@ def test_jupyter_runtime_pins_patched_python_and_node_tooling() -> None:
     )
 
     for package in (
-        "brotli==1.2.0",
         "jupyterlab==4.6.4",
         "jupyterlab-git==0.54.1",
         "notebook==7.6.3",

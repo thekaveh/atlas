@@ -86,6 +86,60 @@ def test_expected_status_rejects_stale_nonterminal_poll() -> None:
     asyncio.run(scenario())
 
 
+@pytest.mark.parametrize(
+    "case",
+    [
+        ("cancellation_requested", "cancellation_requested", True, False, True),
+        ("cancellation_requested", "cancellation_requested", True, None, True),
+        ("cancellation_requested", "cancellation_requested", False, False, False),
+        ("cancellation_requested", "cancellation_requested", 1, False, False),
+        ("cancellation_requested", "cancellation_requested", "true", False, False),
+        ("queued", "cancellation_requested", True, False, False),
+        ("cancellation_requested", "running", True, False, False),
+        ("cancellation_requested", "succeeded", True, False, False),
+    ],
+)
+def test_cancellation_confirmation_survives_only_matching_status_transitions(
+    case,
+) -> None:
+    current_status, next_status, confirmed, incoming, expected = case
+
+    async def scenario():
+        store = InMemoryMediaOperationStore()
+        try:
+            operation = _operation()
+            operation["last_payload"].update(
+                status=current_status,
+                provenance={
+                    "provider_cancellation_requested": confirmed,
+                    "old_observation": "do not merge",
+                },
+            )
+            await store.create(operation)
+            payload = {
+                **operation["last_payload"],
+                "status": next_status,
+                "provenance": {"poll_observation": "fresh"},
+            }
+            if incoming is not None:
+                payload["provenance"]["provider_cancellation_requested"] = incoming
+            before = json.loads(json.dumps(payload))
+            persisted, changed = await store.transition_payload(
+                "media-op-1", payload, expected_status=current_status
+            )
+            assert changed is True
+            assert persisted["last_payload"]["status"] == next_status
+            provenance = persisted["last_payload"]["provenance"]
+            assert provenance["provider_cancellation_requested"] is expected
+            assert provenance["poll_observation"] == "fresh"
+            assert "old_observation" not in provenance
+            assert payload == before
+        finally:
+            await store.aclose()
+
+    asyncio.run(scenario())
+
+
 def test_reconciliation_marker_is_shared_store_state() -> None:
     async def scenario():
         store = InMemoryMediaOperationStore()

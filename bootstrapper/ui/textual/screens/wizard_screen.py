@@ -118,6 +118,22 @@ _FAMILY_FLAG_STEM = {
 }
 
 
+def apply_cli_cloud_overrides(cloud_apis, source_args: dict, api_keys: dict) -> None:
+    """Preview deferred CLI source/key writes using only provider booleans."""
+    from utils.cloud_providers import CLOUD_PROVIDERS
+
+    providers = {provider.name: provider for provider in CLOUD_PROVIDERS}
+    for summary in cloud_apis:
+        provider = providers.get(summary.name)
+        if provider is None:
+            continue
+        source = source_args.get(provider.source_var.lower())
+        if source is not None:
+            summary.enabled = source == "enabled"
+        if provider.api_key_var in api_keys:
+            summary.key_set = bool((api_keys[provider.api_key_var] or "").strip())
+
+
 def _model_names(models) -> list[str]:
     """A multiselect answer (set or CSV) as sorted names."""
     if isinstance(models, set):
@@ -401,13 +417,16 @@ class _ThreadedComposeExecutor:
                 raise asyncio.CancelledError
             from utils.system import compose_env  # noqa: PLC0415
 
+            # Same PROJECT_NAME rule as the other compose executors: the
+            # wizard's `up` used the raw shell/.env value while stop and
+            # cold cleanup pinned it, so the two disagreed on volumes.
+            # This coroutine runs on the app loop, and compose_env can run a
+            # bounded compose probe, so resolve it off the loop.
+            env = await asyncio.to_thread(compose_env, command)
             return await _run_streamed_command(
                 command,
                 cwd=Path(self._manager.root_dir),
-                # Same PROJECT_NAME rule as the other compose executors: the
-                # wizard's `up` used the raw shell/.env value while stop and
-                # cold cleanup pinned it, so the two disagreed on volumes.
-                env={**compose_env(command), "BUILDKIT_PROGRESS": "plain"},
+                env={**env, "BUILDKIT_PROGRESS": "plain"},
                 on_line=self._stream_line,
                 timeout_seconds=_compose_timeout_seconds(args),
                 termination_grace_seconds=_PROCESS_TERMINATION_GRACE_SECONDS,
@@ -539,10 +558,12 @@ async def _capture_bounded_process_output(
 
     from utils.system import compose_env  # noqa: PLC0415
 
+    # compose_env can run a bounded compose probe; keep it off the event loop.
+    env = await asyncio.to_thread(compose_env, command)
     returncode = await _run_streamed_command(
         command,
         cwd=cwd,
-        env=compose_env(command),
+        env=env,
         on_line=capture_line,
         timeout_seconds=timeout_seconds,
     )
@@ -1752,13 +1773,13 @@ class WizardScreen(Screen):
             exclusive=False, exit_on_error=False, group="support_bundle",
         )
 
-    async def _export_support_bundle(self, destination: Path, snapshot=None) -> None:
+    async def _export_support_bundle(self, destination: Path, snapshot) -> None:
         """Build the bundle off the UI thread from the doctor checks and the
-        session log, stream its full preview into the log pane, then write
-        it. A bundle failure is reported, never raised into the launch."""
+        session-log ``snapshot`` the caller captured, stream its full preview
+        into the log pane, then write it. A bundle failure is reported, never
+        raised into the launch."""
         from core import support_bundle as sb
 
-        snapshot = snapshot or sb.LogSnapshot(error="session snapshot was not captured before export")
         logs = (sb.LogSource("session.log", snapshot=snapshot),)
         options = sb.BundleOptions(
             context={"command": "start", "interface": "textual"}, logs=logs,
@@ -3579,13 +3600,16 @@ class WizardScreen(Screen):
         import threading
         self._tee_to_log(msg, source=source, level=level)
         on_main = threading.current_thread() is threading.main_thread()
+
+        def write_to_ui() -> None:
+            self._log_pane.write_log(msg, level=level, source=source)
+            self._flag_logs_alert(level)
+
         try:
             if on_main:
-                self._log_pane.write_log(msg, level=level, source=source)
+                write_to_ui()
             else:
-                self.app.call_from_thread(
-                    self._log_pane.write_log, msg, level=level, source=source,
-                )
+                self.app.call_from_thread(write_to_ui)
         except Exception:  # noqa: BLE001
             pass
 
@@ -3983,8 +4007,9 @@ class WizardScreen(Screen):
                                    style="bold red", source="pipeline")
                 await self._capture_failure_compose_logs()
                 self._write_status(
-                    f"📝 see {self._launch_log_path or '/tmp/atlas-launch-*.log'} "
-                    "for full output",
+                    f"📝 see {self._launch_log_path} for full output"
+                    if self._launch_log_path is not None
+                    else "📝 file logging unavailable; full output is in the Logs tab",
                     style="bold yellow", source="pipeline",
                 )
                 self._mark_launch_failed()
@@ -4136,9 +4161,11 @@ class WizardScreen(Screen):
         # project's volumes than stop and --no-tui (2026-10-08 run, cycle 37).
         from utils.system import compose_env  # noqa: PLC0415
 
-        env = {**compose_env(full_cmd), "BUILDKIT_PROGRESS": "plain"}
+        # A `${...}` REDIS_PASSWORD makes compose_env run a bounded compose
+        # probe; keep it off the event loop so the TUI stays responsive.
+        env = {**(await asyncio.to_thread(compose_env, full_cmd)), "BUILDKIT_PROGRESS": "plain"}
         # Route through _safe_log so every compose line lands in the
-        # launch-log tee (/tmp/atlas-launch-*.log). Direct
+        # launch-log tee (the private session-log store). Direct
         # _log_pane.write_* calls bypassed the tee — image-pull errors
         # from compose up never reached the file.
         self._safe_log("$ " + " ".join(full_cmd), source="docker", level="dim")

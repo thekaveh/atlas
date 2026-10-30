@@ -4,6 +4,7 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import yaml
+import pytest
 
 from core.config_parser import ConfigParser
 from services.service_config import ServiceConfig
@@ -169,11 +170,12 @@ def test_celery_scale_generation_uses_existing_redis() -> None:
     }
 
     sc.service_sources = {"CELERY_SOURCE": "container"}
+    sc.config_parser.parse_env_file.return_value = {"REDIS_PASSWORD": "synthetic-safe"}
     assert sc._generate_celery_config() == {
         "CELERY_WORKER_SCALE": "1",
         "FLOWER_SCALE": "1",
-        "CELERY_BROKER_URL": "redis://:${REDIS_PASSWORD}@redis:6379/4",
-        "CELERY_RESULT_BACKEND": "redis://:${REDIS_PASSWORD}@redis:6379/4",
+        "CELERY_BROKER_URL": "redis://:synthetic-safe@redis:6379/4",
+        "CELERY_RESULT_BACKEND": "redis://:synthetic-safe@redis:6379/4",
     }
 
 
@@ -296,3 +298,18 @@ def test_n8n_kong_route_keeps_the_gateway_read_timeout() -> None:
     services = gen.generate_kong_config()["services"]
     n8n = next(service for service in services if service["name"] == "n8n-api")
     assert n8n["read_timeout"] == n8n["write_timeout"] == 300000
+
+
+@pytest.mark.parametrize("raw", ["synthetic-safe", "synthetic%2Fsecret", "synthetic/secret", "synthetic'é雪"])
+def test_celery_generated_urls_encode_file_password_without_interpolation(tmp_path, raw):
+    from urllib.parse import quote
+    from utils.atomic_write import render_env_assignment
+    env = tmp_path / ".env"
+    env.write_text("REDIS_PASSWORD=" + render_env_assignment("REDIS_PASSWORD", raw) + "\n")
+    parser = ConfigParser(str(tmp_path))
+    sc = ServiceConfig(parser)
+    sc.service_sources = {"CELERY_SOURCE": "container"}
+    generated = sc._generate_celery_config()
+    expected = "redis://:" + quote(raw, safe="") + "@redis:6379/4"
+    assert generated["CELERY_BROKER_URL"] == expected
+    assert generated["CELERY_RESULT_BACKEND"] == expected

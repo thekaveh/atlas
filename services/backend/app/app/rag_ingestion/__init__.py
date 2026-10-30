@@ -6,7 +6,8 @@ stores, and LightRAG; a downstream consumer declares a versioned
 ``rag_ingestion_profiles`` block and submits jobs headlessly. The engine records a
 durable, machine-readable job with per-phase status/counts/timing and actionable
 errors, capability-gates targets by enabled SOURCE, and is idempotent by
-consumer + profile revision + corpus digest.
+consumer, profile revision, corpus digest, embedding model and declared
+destinations.
 """
 from __future__ import annotations
 
@@ -20,6 +21,7 @@ from .models import (
 )
 from .profiles import ProfileNotFoundError, get_profile, load_profiles
 from .service import (
+    CollectionPublicationBusy,
     Deps,
     IngestionExecutionBusy,
     IngestionExecutionLeaseLost,
@@ -41,6 +43,7 @@ __all__ = [
     "fail_abandoned_ingestion",
     "run_rag_ingestion",
     "IngestionExecutionBusy",
+    "CollectionPublicationBusy",
     "IngestionExecutionLeaseLost",
     "ingestion_execution_lease_seconds",
 ]

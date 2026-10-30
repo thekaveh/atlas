@@ -62,4 +62,6 @@ class UploadBody:
         chunk = self.spool.read(self.replay_bytes)
         more = self.spool.tell() < self.size
         self.finished = not more
+        if self.finished:
+            self.spool.close()  # the parser now owns the body; free the ingress copy
         return {"type": "http.request", "body": chunk, "more_body": more}

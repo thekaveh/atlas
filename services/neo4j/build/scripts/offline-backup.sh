@@ -42,7 +42,10 @@ cleanup() {
   [ "${rc}" -eq 0 ] || rm -rf "${stage}"
   exit "${rc}"
 }
-trap cleanup EXIT HUP INT TERM
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 echo "neo4j backup: dumping offline system database with ${EXPECTED_NEO4J_IMAGE}"

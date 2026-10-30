@@ -8,6 +8,7 @@ the route/auth/status-mapping is driven through the FastAPI TestClient.
 from __future__ import annotations
 
 import os
+from contextlib import contextmanager
 
 import httpx
 import pytest
@@ -571,3 +572,67 @@ def test_live_rerank_against_real_tei(monkeypatch):
     assert scores == sorted(scores, reverse=True)
     # The two on-topic passages should outrank the biology distractor.
     assert result.results[-1].index == 1
+
+
+@contextmanager
+def _real_tei_response_gateway(tmp_path, monkeypatch, content, status=200):
+    import asyncio
+    from concurrent.futures import ThreadPoolExecutor
+    from fastapi.testclient import TestClient
+    from lightrag_rerank_admission import RerankAdmission
+    from tests.test_fal_media_provider import _fresh_main
+
+    plugins = tmp_path / "plugins"
+    plugins.mkdir()
+    for key, value in {
+        "BACKEND_PLUGINS_DIR": str(plugins), "BACKEND_PLUGINS_SITE_DIR": str(tmp_path / "site"),
+        "BACKEND_STATE_STORE_MODE": "memory", "MEDIA_BUDGET_STORE": "memory",
+        "BACKEND_IDENTITY_AUTH": "disabled", "ATLAS_OTEL_ENABLED": "false",
+        "LIGHTRAG_RERANK_ADAPTER_TOKEN": "synthetic-rerank", "TEI_RERANKER_ENDPOINT": "http://tei.invalid",
+    }.items():
+        monkeypatch.setenv(key, value)
+    main = _fresh_main(monkeypatch, fal_source="disabled")
+    real_client = httpx.Client
+    clients, requests = [], []
+    def reply(request):
+        requests.append(request)
+        return httpx.Response(status, content=content, headers={"content-type": "application/json"})
+    def transport_client(*args, **kwargs):
+        client = real_client(*args, transport=httpx.MockTransport(reply), **kwargs)
+        clients.append(client)
+        return client
+    monkeypatch.setattr(adapter.httpx, "Client", transport_client)
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        admission = RerankAdmission(executor, adapter.rerank_via_tei)
+        monkeypatch.setattr(main, "_RERANK_ADMISSION", admission)
+        client = TestClient(main.app, raise_server_exceptions=False)
+        try:
+            response = client.post("/lightrag/rerank", json={"query": "fixture", "documents": ["owned document"]}, headers={"Authorization": "Bearer synthetic-rerank"})
+            yield response, clients, requests, admission
+        finally:
+            client.close()
+            asyncio.run(main.n8n_client.aclose())
+
+
+@pytest.mark.parametrize("case", [
+    pytest.param((b'[{"index":0,"score":' + b'1' + b'0' * 400 + b'}]', 200, 502), id="positive-integer-overflow"),
+    pytest.param((b'[{"index":0,"score":-' + b'1' + b'0' * 400 + b'}]', 200, 502), id="negative-integer-overflow"),
+    pytest.param((b'[' * 1500 + b']' * 1500, 200, 502), id="nested-invalid-shape"),
+    pytest.param((b'[{"index":0,"score":0.75}]', 200, 200), id="finite-score"),
+    pytest.param((b'[{"index":0,"score":1e400}]', 200, 502), id="nonfinite-exponent"),
+    pytest.param((b'not-json', 200, 502), id="invalid-json"),
+    pytest.param((b'{"unexpected":true}', 200, 502), id="invalid-body-shape"),
+    pytest.param((b'[{"index":true,"score":0.5}]', 200, 502), id="bool-index"),
+    pytest.param((b'[{"index":0,"score":"0.5"}]', 200, 502), id="string-score"),
+    pytest.param((b'{"error":"synthetic"}', 503, 502), id="upstream-unavailable"),
+])
+def test_actual_tei_response_numeric_validation_keeps_typed_errors_and_cleanup(tmp_path, monkeypatch, case):
+    body, status, expected = case
+    with _real_tei_response_gateway(tmp_path, monkeypatch, body, status) as (response, clients, requests, admission):
+        assert len(requests) == 1
+        assert requests[0].url.path == "/rerank"
+        assert clients and all(client.is_closed for client in clients)
+        assert admission._submitted == 0
+        assert response.status_code == expected
+        if expected == 200:
+            assert response.json()["results"] == [{"index": 0, "relevance_score": 0.75, "document": None}]

@@ -372,21 +372,11 @@ class LogFilterChips(Container):
 
     _META_SOURCES = {"pipeline", "docker", "hosts", "verify", "stdout", "stderr"}
 
-    @staticmethod
-    def _normalize(source: str) -> str:
-        """Defensive re-strip: drop the active project prefix and any
-        trailing ``-<digit>+`` replica suffix so a source that slipped
-        through unstripped (timing race during launch transition)
-        still collapses to the same bare form as a properly-stripped
-        one. Mirrors ``wizard_screen._strip_project``."""
-        try:
-            from ..screens.wizard_screen import _strip_project
-        except Exception:  # noqa: BLE001
-            return source
-        return _strip_project(source)
-
     def add_source(self, source: str) -> None:
-        source = self._normalize(source)
+        """Add a chip for ``source`` exactly as given. Callers pass the
+        already-classified source (``_classify_compose_line`` strips the
+        project prefix and replica suffix once); stripping it again here
+        turned a service named ``atlas-worker`` into ``worker``."""
         if (
             not source
             or source in self._known_sources

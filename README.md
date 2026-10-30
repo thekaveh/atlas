@@ -21,7 +21,7 @@ The services are integrated, not only co-located. Kong routes every `*.localhost
 Before you start, install:
 
 - Docker with Docker Compose v2.20.3 or newer (v2.26+ recommended).
-- `uv`, or Python 3.10 or newer.
+- `uv`, or Python 3.11 or newer.
 - Git.
 
 The wizard preselects the `gen-ai-rag` track: chat UI, workflow automation, vector and graph databases, private web search, and deep research on a CPU Ollama engine. The `all` track (the `.env.example` defaults) adds ComfyUI, JupyterHub, Hermes, MinIO, speech-to-text, text-to-speech and CLIP. Measured setup time, memory and disk per track are not published yet; larger tracks need more of each.

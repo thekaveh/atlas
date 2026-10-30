@@ -782,6 +782,7 @@ def _ray_diagnostic_parts(document, command):
 def _run_ray_doc_diagnostic(parts, content, directory, lookup="one"):
     import json
     import os
+    import shutil
     import subprocess
     import sys
     from tests.three_surface_test_utils import ROOT
@@ -804,7 +805,12 @@ def _run_ray_doc_diagnostic(parts, content, directory, lookup="one"):
                     "else: print('synthetic version')\n", encoding="utf-8")
     fake.chmod(0o700)
     ids = {"one": "a"*64+"\n", "none": "", "multiple": "a"*64+"\n"+"b"*64+"\n", "error": ""}[lookup]
-    environment = {"PATH": str(directory)+os.pathsep+str(Path(sys.executable).parent)+os.pathsep+os.defpath,
+    uv = shutil.which("uv") or pytest.skip("the Ray diagnostic guide runs through uv")
+    environment = {"PATH": os.pathsep.join((str(directory), str(Path(uv).parent),
+                                           str(Path(sys.executable).parent), os.defpath)),
+                   "UV_PROJECT_ENVIRONMENT": sys.prefix, "UV_PYTHON": sys.executable,
+                   "UV_NO_SYNC": "1", "UV_FROZEN": "1", "UV_OFFLINE": "1",
+                   "UV_PYTHON_DOWNLOADS": "never", "UV_CACHE_DIR": str(directory / "uv-cache"),
                    "ATLAS_ENV_FILE": str(env_file), "PROJECT_NAME": "wrong-shell",
                    "PYTHONPYCACHEPREFIX": str(directory / "pycache"), "RAY_DOC_CAPTURE": str(capture),
                    "RAY_DOC_IDS": ids, "RAY_DOC_LOOKUP": lookup}
@@ -868,16 +874,20 @@ def _litellm_diagnostic_document(surface, config):
 
 
 @pytest.mark.parametrize("surface", ["repo", "site", "wiki"])
-def test_litellm_default_repair_keeps_missing_key_exception_consistent(surface, env_reference_config):
-    import re
-
+def test_litellm_default_repair_documents_missing_key_embedding_protection(surface, env_reference_config):
     document = _litellm_diagnostic_document(surface, env_reference_config)
     claims = [" ".join(node.itertext()) for node in document.iter("li")
               if "cloud provider" in " ".join(node.itertext())]
     assert any("disabled" in claim for claim in claims), claims
-    assert not any(re.search(r"unkeyed|missing.*key", claim, re.I) for claim in claims), claims
-    text = " ".join(document.itertext())
-    assert re.search(r"enabled provider[^.!?]*key is missing[^.!?]*kept", text), text
+    # Missing credentials disable provider routing; the embedding
+    # identity/dimension exception is preserved across later launches.
+    protection = [" ".join(node.itertext()) for node in document.iter("p")
+                  if "LANGMEM_EMBEDDING_DIM" in " ".join(node.itertext())
+                  and "missing" in " ".join(node.itertext())]
+    assert protection, surface
+    assert any(all(term in claim.lower() for term in
+                   ("blank", "embedding", "preserv", "disabled"))
+               for claim in protection), protection
 
 
 def _litellm_database_command(document, context):

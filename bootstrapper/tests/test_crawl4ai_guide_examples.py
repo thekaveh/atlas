@@ -3,16 +3,14 @@ from __future__ import annotations
 
 import base64
 import json
-from pathlib import Path
 import shlex
-import shutil
 import subprocess
 import sys
 
 import pytest
 
 from tests.test_three_surface_build import env_reference_config, _candidate_document
-from tests.three_surface_test_utils import ROOT, surface_text, _credential_select_script
+from tests.three_surface_test_utils import ROOT, native_executable, surface_text, _credential_select_script
 
 SOURCE = "services/crawl4ai/README.md"
 KEYS = ("DASHBOARD_USERNAME", "DASHBOARD_PASSWORD", "CRAWL4AI_API_TOKEN", "KONG_HTTP_PORT")
@@ -120,9 +118,7 @@ def _environment(directory, spec):
     tools = directory / "tools"
     tools.mkdir()
     for name in ("uv", "base64"):
-        executable = shutil.which(name)
-        assert executable, f"Required real executable missing: {name}"
-        (tools / name).symlink_to(Path(executable).resolve())
+        (tools / name).symlink_to(native_executable(name))
     recorder = tools / "curl"
     recorder.write_text("#!" + sys.executable + '\nimport json,os,sys\nfrom pathlib import Path\n'
                         'with Path(os.environ["CRAWL4AI_GUIDE_CALLS"]).open("a") as stream:\n'

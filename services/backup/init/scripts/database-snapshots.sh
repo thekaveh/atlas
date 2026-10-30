@@ -102,11 +102,11 @@ weaviate_request() {
   if [ "${database_method}" = POST ]; then
     run_bounded wget -q -O "${database_output}" \
       --header='Content-Type: application/json' --post-data="${database_body}" \
-      "${database_url}"
+      "${database_url}" || return $?
   elif [ "${database_method}" = DELETE ]; then
-    run_bounded wget -q -O "${database_output}" --method=DELETE "${database_url}"
+    run_bounded wget -q -O "${database_output}" --method=DELETE "${database_url}" || return $?
   else
-    run_bounded wget -q -O "${database_output}" "${database_url}"
+    run_bounded wget -q -O "${database_output}" "${database_url}" || return $?
   fi
   database_response_bytes="$(run_bounded wc -c <"${database_output}" | tr -d '[:space:]')"
   case "${database_response_bytes}" in ''|*[!0-9]*) return 1 ;; esac
@@ -154,7 +154,7 @@ wait_for_weaviate_status() {
   # failed every backup of a larger Weaviate dataset.
   database_deadline=$(( $(date +%s) + ${BACKUP_COMMAND_TIMEOUT_SECONDS:-900} ))
   while :; do
-    weaviate_request GET "${database_status_url}" "${database_response}"
+    weaviate_request GET "${database_status_url}" "${database_response}" || return 1
     database_status="$(weaviate_json_string "${database_response}" status)" || {
       echo "backup: Weaviate ${database_operation} response was malformed" >&2
       return 1

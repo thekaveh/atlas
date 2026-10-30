@@ -5,6 +5,7 @@ import math
 import struct
 import tempfile
 import threading
+from importlib import import_module
 from types import SimpleNamespace
 
 import pytest
@@ -126,12 +127,8 @@ def spools(monkeypatch, tmp_path):
         return create
 
     monkeypatch.setattr(parsers, "SpooledTemporaryFile", factory("parser"))
-    # The API exists before implementation; the new helper is optional here so
-    # RED demonstrates unbounded parsing rather than a missing-module error.
-    import sys
-    helper = sys.modules.get(api.__package__ + ".upload_body")
-    if helper is not None:
-        monkeypatch.setattr(helper, "SpooledTemporaryFile", factory("ingress"))
+    helper = import_module(api.__package__ + ".upload_body")
+    monkeypatch.setattr(helper, "SpooledTemporaryFile", factory("ingress"))
     yield result
     closed(result)
     assert not list(spool_root.iterdir())
@@ -148,7 +145,7 @@ def test_no_length_oversize_stops_before_parser(setup, spools):
     stream = Stream(multipart(b"x" * 2048))
     messages = run(request(app, stream))
     assert status(messages) == 413
-    assert stream.calls == math.ceil(769 / 97), (stream.calls, len(stream.parts), [h.written for h in spools["parser"]])
+    assert stream.calls == math.ceil(769 / 97)
     assert not spools["parser"]
     assert sum(h.written for h in spools["ingress"]) <= 768
     assert all(h.closed for h in spools["ingress"])
@@ -163,7 +160,7 @@ def test_progress_obeys_complete_body_deadline(setup, monkeypatch, spools):
     monkeypatch.setenv(f"{PREFIX}_UPLOAD_TIMEOUT_SECONDS", "1")
     stream = Stream(multipart(glb()), clock=clock)
     messages = run(request(app, stream))
-    assert status(messages) == 408, (stream.calls, clock.value)
+    assert status(messages) == 408
     assert not calls and not spools["parser"]
     assert all(h.closed for h in spools["ingress"])
     assert_slot(app)
@@ -228,8 +225,16 @@ def test_final_cap_inside_framing_allowance(setup, spools, size, expected):
     run(reuse(app))
 
 
+def test_non_positive_limit_declares_the_clamped_receive_cap(setup, spools, monkeypatch):
+    app, calls = setup
+    monkeypatch.setenv(f"{PREFIX}_MAX_UPLOAD_MB", "-5")
+    stream = Stream(multipart(glb()))
+    assert status(run(request(app, stream, headers={"content-length": "513"}))) == 413
+    assert stream.calls and not calls
+    closed(spools)
+
+
 def test_normal_fields_and_real_rollover(setup, spools, monkeypatch):
-    from importlib import import_module
     helper = import_module(api.__package__ + ".upload_body")
     monkeypatch.setattr(helper.UploadBody, "memory_bytes", 32)
     monkeypatch.setattr(helper.UploadBody, "replay_bytes", 32)
@@ -247,7 +252,6 @@ def test_normal_fields_and_real_rollover(setup, spools, monkeypatch):
 def test_production_defaults(monkeypatch):
     monkeypatch.delenv(f"{PREFIX}_UPLOAD_TIMEOUT_SECONDS", raising=False)
     monkeypatch.delenv(f"{PREFIX}_MAX_UPLOAD_MB", raising=False)
-    from importlib import import_module
     helper = import_module(api.__package__ + ".upload_body")
     assert api._upload_timeout_seconds() == 300
     assert helper.UploadBody.memory_bytes == 1048576
@@ -470,8 +474,19 @@ def test_completed_body_deadline_does_not_limit_converter(setup, monkeypatch):
     assert calls
 
 
+def test_ingress_spool_closes_before_conversion(setup, spools, monkeypatch):
+    app, calls = setup
+    seen = []
+    original = api._process_path
+    def process(*args, **kwargs):
+        seen.append([handle.closed for handle in spools["ingress"]])
+        return original(*args, **kwargs)
+    monkeypatch.setattr(api, "_process_path", process)
+    assert status(run(request(app, Stream(multipart(glb()))))) == 200
+    assert seen == [[True]] and calls
+
+
 def test_replay_terminal_then_original_disconnect(monkeypatch, spools):
-    from importlib import import_module
     helper = import_module(api.__package__ + ".upload_body")
     monkeypatch.setattr(helper.UploadBody, "replay_bytes", 3)
     async def scenario():

@@ -527,12 +527,11 @@ def test_root_start_options_before_a_subcommand_are_flagged_not_fatal() -> None:
 def test_env_user_overlay_reads_export_lines_like_dotenv(tmp_path):
     """An `export KEY=` line used to become the key "export KEY", which then
     failed the merge and dropped the whole overlay."""
-    import start
+    from core.config_parser import parse_env_overlay_file
 
     overlay = tmp_path / ".env.user"
     overlay.write_text("export OPENAI_API_KEY=sk-1\nFOO='bar baz' # note\n", encoding="utf-8")
-    starter = start.AtlasStarter.__new__(start.AtlasStarter)
-    assert starter._parse_env_overlay_file(overlay) == {"OPENAI_API_KEY": "sk-1", "FOO": "bar baz"}
+    assert parse_env_overlay_file(overlay) == {"OPENAI_API_KEY": "sk-1", "FOO": "bar baz"}
 
 
 def test_project_name_via_env_values_or_env_file_is_validated(tmp_path):
@@ -654,3 +653,102 @@ def test_cleanup_preflight_and_execution_use_the_same_selected_project(tmp_path,
     assert success is True and manager.teardown_overlays_dropped is False
     assert observed == {"preflight": [expected], "execution": [expected], "queries": [project]}
     assert (manager.project_name_override, os.environ.get("PROJECT_NAME")) == (project, shell)
+
+
+@pytest.mark.parametrize("executable", [["docker", "compose"], ["docker-compose"]])
+def test_redis_reference_probe_preserves_compose_inputs_and_cleans_model(tmp_path, monkeypatch, executable):
+    import json
+    from utils.system import _resolve_redis_password
+    observed = []
+    env = {"PROJECT_NAME": "selected", "OTHER": "synthetic-private"}
+    model = tmp_path / "original" / "compose.yml"
+    command = executable + ["--env-file=first.env", "--env-file", "second.env", "-p", "selected", "-f", str(model), "up"]
+
+    def run(argv, **kwargs):
+        probe = Path(argv[argv.index("-f") + 1])
+        observed.append(probe)
+        assert "synthetic-private" not in probe.read_text()
+        assert json.loads(probe.read_text())["services"]["atlas-redis-env-probe"]["environment"] == {"VALUE": "${REDIS_PASSWORD}"}
+        assert argv[:len(executable)] == executable
+        assert argv[len(executable):-5] == ["--env-file", "first.env", "--env-file", "second.env", "-p", "selected", "--project-directory", str(model.parent)]
+        assert argv[-3:] == ["config", "--format", "json"]
+        assert kwargs == {"env": env, "timeout_seconds": 10, "max_output_bytes": 1024 * 1024}
+        return SimpleNamespace(returncode=0, stdout=json.dumps({"services": {"atlas-redis-env-probe": {"environment": {"VALUE": " synthetic$${LITERAL} "}}}}))
+
+    monkeypatch.setattr("core.process_runner.run_with_deadline", run)
+    assert _resolve_redis_password(command, env) == " synthetic${LITERAL} "
+    assert observed and not observed[0].exists()
+
+
+@pytest.mark.parametrize("failure", ["timeout", "output-bound", "nonzero", "json", "shape", "interrupt"])
+def test_redis_reference_probe_failure_is_value_free_and_removes_model(tmp_path, monkeypatch, failure):
+    import subprocess
+    from core.process_runner import CommandOutputTooLarge
+    from utils.system import _resolve_redis_password
+    observed = []
+
+    def run(argv, **kwargs):
+        observed.append(Path(argv[argv.index("-f") + 1]))
+        if failure == "timeout":
+            raise subprocess.TimeoutExpired(["synthetic-private"], 10, stderr="synthetic-private")
+        if failure == "output-bound":
+            raise CommandOutputTooLarge("synthetic-private")
+        if failure == "interrupt":
+            raise KeyboardInterrupt
+        return SimpleNamespace(returncode=1 if failure == "nonzero" else 0, stdout="{}" if failure == "shape" else "synthetic-private")
+
+    monkeypatch.setattr("core.process_runner.run_with_deadline", run)
+    error = KeyboardInterrupt if failure == "interrupt" else RuntimeError
+    with pytest.raises(error) as caught:
+        _resolve_redis_password(["docker", "compose", "--env-file=active.env", "config"], {})
+    if failure != "interrupt":
+        assert str(caught.value) == "Could not resolve Redis password references with Compose"
+        assert caught.value.__suppress_context__ is True
+    assert observed and not observed[0].exists()
+
+
+@pytest.mark.parametrize("assignment,expected", [
+    ("REDIS_PASSWORD=${OTHER}", True),
+    (' export REDIS_PASSWORD="${OTHER}" # comment', True),
+    ("REDIS_PASSWORD='${OTHER}'", False),
+    ("REDIS_PASSWORD=synthetic # ${COMMENT}", False),
+    ("REDIS_PASSWORD=synthetic", False),
+])
+def test_redis_reference_detection_uses_winning_expanding_assignment(tmp_path, assignment, expected):
+    from utils.system import _redis_password_expands
+    first = tmp_path / "first.env"
+    first.write_text("REDIS_PASSWORD=${EARLIER}\n")
+    second = tmp_path / "second.env"
+    second.write_text("\ufeff" + assignment + "\n")
+    command = ["docker", "compose", "--env-file=" + str(first), "--env-file", str(second), "config"]
+    assert _redis_password_expands(command) is expected
+    assert _redis_password_expands(["docker", "compose", "config"]) is False
+
+
+def test_redis_probe_keeps_explicit_project_directory_and_name(tmp_path):
+    from utils.system import _redis_probe_command
+    model = tmp_path / "probe.json"
+    command = ["docker", "compose", "--project-directory=original", "--project-name=selected", "--env-file=relative.env", "config"]
+    assert _redis_probe_command(command, model) == [
+        "docker", "compose", "--project-directory", "original", "--project-name", "selected",
+        "--env-file", "relative.env", "-f", str(model), "config", "--format", "json",
+    ]
+
+
+@pytest.mark.parametrize("shell", [{}, {"REDIS_PASSWORD": "synthetic${LITERAL}"}, {"REDIS_PASSWORD": ""}, {"REDIS_PASSWORD_URI": "synthetic-companion"}])
+def test_redis_no_explicit_env_file_keeps_probe_fast_path(monkeypatch, shell):
+    from utils.system import compose_env
+    monkeypatch.delenv("REDIS_PASSWORD", raising=False)
+    monkeypatch.delenv("REDIS_PASSWORD_URI", raising=False)
+    for key, value in shell.items():
+        monkeypatch.setenv(key, value)
+
+    def unexpected(*args, **kwargs):
+        pytest.fail("The no-file or shell override fast path must not probe Compose")
+
+    monkeypatch.setattr("core.process_runner.run_with_deadline", unexpected)
+    child = compose_env(["docker", "compose", "config"])
+    assert child.get("REDIS_PASSWORD") == shell.get("REDIS_PASSWORD")
+    if "REDIS_PASSWORD" in shell:
+        from urllib.parse import quote
+        assert child["REDIS_PASSWORD_URI"] == quote(shell["REDIS_PASSWORD"], safe="")

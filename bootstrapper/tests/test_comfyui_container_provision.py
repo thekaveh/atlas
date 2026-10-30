@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import shutil
 from pathlib import Path
 import subprocess
 
@@ -580,3 +581,148 @@ def test_hook_is_executable_in_git():
         cwd=ROOT, capture_output=True, text=True, check=True,
     ).stdout.split()[0]
     assert mode == "100755"
+
+
+def _node_git(*args):
+    result = subprocess.run(
+        ["git", *args], capture_output=True, text=True, timeout=10,
+    )
+    assert result.returncode == 0, result.stderr
+    return result.stdout.strip()
+
+
+def _commit_private_node(repo, text):
+    (repo / "owned-marker").write_text(text, encoding="utf-8")
+    _node_git("-C", str(repo), "add", "owned-marker")
+    _node_git("-C", str(repo), "-c", "user.name=Owned Fixture",
+              "-c", "user.email=owned@example.invalid", "commit", "-qm", text)
+    return _node_git("-C", str(repo), "rev-parse", "HEAD")
+
+
+@pytest.fixture
+def private_node_repositories(tmp_path, monkeypatch):
+    if not shutil.which("git") or not shutil.which("bash"):
+        pytest.skip("Custom-node repository controls require native git and bash")
+    home = tmp_path / "home"
+    home.mkdir()
+    origins = tmp_path / "origins"
+    origins.mkdir()
+    isolated = {
+        "HOME": str(home), "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull,
+        "GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "/usr/bin/false",
+        "GIT_ALLOW_PROTOCOL": "file", "GIT_CONFIG_COUNT": "1",
+        "GIT_CONFIG_KEY_0": f"url.{origins.as_uri()}/.insteadOf",
+        "GIT_CONFIG_VALUE_0": "https://github.com/owned/",
+    }
+    for key, value in isolated.items():
+        monkeypatch.setenv(key, value)
+    for name in ("old.git", "new.git"):
+        (origins / name).mkdir()
+        _node_git("init", "-q", str(origins / name))
+    return {
+        "old": _commit_private_node(origins / "old.git", "owned-old"),
+        "current": _commit_private_node(origins / "old.git", "owned-same-origin-new"),
+        "replacement": _commit_private_node(origins / "new.git", "owned-new-repository"),
+    }
+
+
+def _provision_private_host_node(workspace, repo, ref):
+    from services.comfyui_mps_manager import ComfyUiMpsError, ComfyUiMpsManager
+
+    manager = ComfyUiMpsManager.__new__(ComfyUiMpsManager)
+    manager.repo_dir = workspace
+    try:
+        outcome = manager._provision_one_node(
+            name="node", repo=repo, ref=ref, install_requirements=False,
+            requirements_lock=None, requirements_lock_sha256="",
+            emit=lambda message: None, warnings=[],
+        )
+        return outcome, None
+    except ComfyUiMpsError as exc:
+        return "failed", str(exc)
+
+
+def _provision_private_container_node(workspace, repo, ref, tmp_path):
+    assert not Path("/opt/ai-dock/etc/environment.sh").exists()
+    assert not Path("/opt/ai-dock/bin/venv-set.sh").exists()
+    manifest = tmp_path / "manifest"
+    manifest.mkdir()
+    plan = manifest / "active-custom-nodes.tsv"
+    plan.write_text(f"node\t{repo}\t{ref}\tfalse\t\t\trequired\n", encoding="utf-8")
+    temporary = tmp_path / "temporary"
+    temporary.mkdir()
+    env = {
+        **os.environ, "COMFYUI_CUSTOM_NODES_PATH": str(workspace / "custom_nodes"),
+        "COMFYUI_CUSTOM_NODES_TSV": str(plan), "COMFYUI_MANIFEST_ROOT": str(manifest),
+        "TMPDIR": str(temporary),
+    }
+    result = subprocess.run(
+        ["bash", str(SCRIPT)], env=env, cwd=tmp_path,
+        capture_output=True, text=True, timeout=15,
+    )
+    assert result.returncode == 0, result.stderr
+    fields = _node_status_fields(workspace / "custom_nodes")
+    assert not list(temporary.iterdir())
+    return fields[2], result.stdout + result.stderr
+
+
+def _prepare_private_node_case(workspace, refs, case):
+    nodes = workspace / "custom_nodes"
+    nodes.mkdir(parents=True)
+    dest = nodes / "node"
+    if case != "fresh-clone":
+        _node_git("clone", "-q", "https://github.com/owned/old.git", str(dest))
+        start = refs["current"] if case == "cached-current" else refs["old"]
+        _node_git("-C", str(dest), "checkout", "--detach", start)
+    replace_repo = case in ("changed-repository", "fresh-clone")
+    repo = "https://github.com/owned/" + ("new.git" if replace_repo else "old.git")
+    target = refs["replacement"] if replace_repo else refs["current"]
+    if case == "missing-ref":
+        target = "f" * 40
+    return dest, repo, target, replace_repo
+
+
+_NODE_UPDATE_OUTCOMES = {
+    "container": dict.fromkeys(
+        ("changed-repository", "same-origin-update", "fresh-clone", "cached-current"), "ready",
+    ),
+    "host": {
+        "changed-repository": "updated", "same-origin-update": "updated",
+        "fresh-clone": "provisioned", "cached-current": "skipped",
+    },
+}
+
+
+@pytest.mark.parametrize("mode", ["container", "host"])
+@pytest.mark.parametrize("case", [
+    "changed-repository", "same-origin-update", "fresh-clone", "cached-current", "missing-ref",
+])
+def test_current_plan_repository_drives_cached_node_update(
+    tmp_path, private_node_repositories, mode, case,
+):
+    from utils.comfyui_custom_nodes import parse_custom_nodes_strict
+
+    workspace = tmp_path / "workspace"
+    dest, repo, target, replace_repo = _prepare_private_node_case(
+        workspace, private_node_repositories, case,
+    )
+    refs = private_node_repositories
+    declaration = tmp_path / "custom-nodes.yaml"
+    declaration.write_text(
+        f"custom_nodes:\n  - name: node\n    repo: {repo}\n    ref: {target}\n"
+        "    install_requirements: false\n", encoding="utf-8",
+    )
+    declared = parse_custom_nodes_strict(declaration)
+    assert len(declared) == 1 and declared[0].repo == repo and declared[0].ref == target
+    if mode == "host":
+        outcome, detail = _provision_private_host_node(workspace, repo, target)
+    else:
+        outcome, detail = _provision_private_container_node(workspace, repo, target, tmp_path)
+    head = _node_git("-C", str(dest), "rev-parse", "HEAD") if dest.exists() else None
+    if case == "missing-ref":
+        assert outcome == "failed" and head == refs["old"]
+    else:
+        assert outcome == _NODE_UPDATE_OUTCOMES[mode][case], detail
+        assert head == target
+        expected = "owned-new-repository" if replace_repo else "owned-same-origin-new"
+        assert (dest / "owned-marker").read_text(encoding="utf-8") == expected

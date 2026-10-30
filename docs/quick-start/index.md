@@ -5,8 +5,10 @@
 Install these before the first launch:
 
 - Docker with Docker Compose **v2.20.3 or newer** (v2.26+ recommended). The top-level `docker-compose.yml` merges the per-service fragments with Compose's `include:` directive, which older releases do not support. `./start.sh` checks the version and stops if it is too old.
-- `uv`, or Python 3.10 or newer. `./start.sh` prefers `uv run` and falls back to the system `python3`.
+- `uv`, or Python 3.11 or newer. `./start.sh` prefers `uv run` and falls back to the system `python3`.
 - Git.
+
+When upgrading an existing checkout without `uv`, a cached environment may still use Python 3.10. `./start.sh` cannot repair it in place, because `python3 -m venv` keeps the old interpreter. Delete `bootstrapper/.venv`, or the directory that `ATLAS_BOOTSTRAPPER_VENV` names, and rerun `./start.sh`. You can also set `ATLAS_BOOTSTRAPPER_VENV` to a fresh path, or install `uv`.
 
 Clone the repository and run every command from its root (`atlas/`):
 

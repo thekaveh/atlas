@@ -323,7 +323,7 @@ def build_ollama_steps(
 
     ``warn`` is the same launch-log sink the cloud steps use — passed
     here so live-discovery failures (``/api/tags`` unreachable) get
-    persisted to ``/tmp/atlas-launch-*.log`` instead of
+    persisted to the private session-log store instead of
     silently producing an empty multiselect.
     """
     _warn = warn or (lambda _msg: None)
@@ -1096,7 +1096,6 @@ def build_default_model_steps(
             secret_value=selections.get(cloud_secret_title(p.name)),
             selected_models=selected_models,
             existing_key_set=bool(existing_key),
-            existing_source=existing_source,
         )
         source = verdict.source
         if source is None:

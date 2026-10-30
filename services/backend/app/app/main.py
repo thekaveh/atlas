@@ -4,7 +4,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 from storage3 import SyncStorageClient as StorageClient
 from typing import Optional, cast, Dict, Any, List, Union, Literal
 from contextlib import asynccontextmanager
@@ -97,6 +97,7 @@ from celery_app import (
 from celery_tasks import memory_consolidate_task, rag_ingestion_task
 from rag_ingestion import (
     ingestion_execution_lease_seconds,
+    CollectionPublicationBusy,
     IngestionExecutionBusy,
     ProfileNotFoundError,
     RagIngestionQueuedResponse,
@@ -832,6 +833,23 @@ class WorkflowResponse(BaseModel):
     created_at: Optional[str] = Field(default=None, validation_alias="createdAt")
     updated_at: Optional[str] = Field(default=None, validation_alias="updatedAt")
 
+    @field_validator("id", "name", "created_at", "updated_at")
+    @classmethod
+    def _serializable_utf8(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None:
+            try:
+                value.encode("utf-8")
+            except UnicodeEncodeError as exc:
+                raise ValueError("workflow fields must be valid UTF-8") from exc
+        return value
+
+
+def _validated_workflow_response(payload: Any) -> WorkflowResponse:
+    try:
+        return WorkflowResponse.model_validate(payload)
+    except ValidationError as exc:
+        raise N8nResponseError("n8n returned an invalid workflow") from exc
+
 
 
 @app.get(
@@ -843,7 +861,7 @@ async def list_workflows():
     """List all n8n workflows"""
     try:
         workflows = await n8n_client.list_workflows()
-        return workflows
+        return [_validated_workflow_response(workflow) for workflow in workflows]
     except Exception as exc:
         raise _n8n_gateway_error("List workflows", exc)
 
@@ -857,7 +875,7 @@ async def get_workflow(workflow_id: str):
     """Get a specific n8n workflow by ID"""
     try:
         workflow = await n8n_client.get_workflow(workflow_id)
-        return workflow
+        return _validated_workflow_response(workflow)
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code == 404:
             raise HTTPException(
@@ -1085,6 +1103,12 @@ def _rerank_admission():
         return _RERANK_ADMISSION
 
 
+def _retrieve_heavy_work_exception(future) -> None:
+    """Observe a late outcome while leaving result() available to its caller."""
+    if not future.cancelled():
+        future.exception()
+
+
 async def _run_heavy_work(fn, request, operation: str):
     """Run ``fn(request)`` on the bounded pool: 503 + Retry-After when full,
     504 after BACKEND_HEAVY_WORK_TIMEOUT_SECONDS."""
@@ -1098,7 +1122,9 @@ async def _run_heavy_work(fn, request, operation: str):
     timeout = _positive_env_number("BACKEND_HEAVY_WORK_TIMEOUT_SECONDS", "600", float)
     # asyncio.wait, not wait_for: a TimeoutError raised BY the job must keep
     # its own meaning, not read as the deadline passing.
-    done, _pending = await asyncio.wait({asyncio.wrap_future(job)}, timeout=timeout)
+    future = asyncio.wrap_future(job)
+    future.add_done_callback(_retrieve_heavy_work_exception)
+    done, _pending = await asyncio.wait({future}, timeout=timeout)
     if not done:
         raise HTTPException(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
@@ -1380,6 +1406,16 @@ def _rag_idempotent_response(record: Any) -> RagIngestionQueuedResponse:
     )
 
 
+async def _latest_rag_record(
+    service: RagIngestionService, ingestion_id: str, cancellation_seen: asyncio.Event
+) -> Any:
+    lookup = asyncio.create_task(asyncio.to_thread(service.store.get, ingestion_id))
+    latest = await _join_owned_task(lookup, cancellation_seen)
+    assert latest is not None
+    _raise_if_cancelled(cancellation_seen)
+    return latest
+
+
 async def _queue_rag_ingestion(
     service: RagIngestionService,
     record: Any,
@@ -1442,8 +1478,9 @@ async def submit_rag_ingestion(request: RagIngestionRequest, async_job: bool = T
 
     ``async_job=true`` (default) dispatches the Celery worker when the tier is
     enabled; otherwise the job runs synchronously in-request. Idempotent by
-    consumer + profile revision + corpus digest: a re-submit of the same corpus
-    returns the existing job without re-running it.
+    consumer, profile revision, corpus digest, embedding model and declared
+    destinations: a re-submit of the same corpus returns the existing job
+    without re-running it.
     """
     service = get_rag_ingestion_service()
     cancellation_seen = asyncio.Event()
@@ -1482,13 +1519,18 @@ async def submit_rag_ingestion(request: RagIngestionRequest, async_job: bool = T
     run_task = asyncio.create_task(service.run(record.id))
     try:
         final = await _join_owned_task(run_task, cancellation_seen)
-    except IngestionExecutionBusy:
-        lookup = asyncio.create_task(
-            asyncio.to_thread(service.store.get, record.id)
+    except CollectionPublicationBusy:
+        # This attempt ran until a collection guard refused it; it did not
+        # return an existing job.
+        latest = await _latest_rag_record(service, record.id, cancellation_seen)
+        return RagIngestionQueuedResponse(
+            ingestion_id=latest.id,
+            job_id=latest.dispatch_job_id,
+            status=latest.status,
+            message="RAG ingestion is waiting for collection publication; resubmit to retry.",
         )
-        latest = await _join_owned_task(lookup, cancellation_seen)
-        assert latest is not None
-        _raise_if_cancelled(cancellation_seen)
+    except IngestionExecutionBusy:
+        latest = await _latest_rag_record(service, record.id, cancellation_seen)
         return _rag_idempotent_response(latest)
     _raise_if_cancelled(cancellation_seen)
     return RagIngestionQueuedResponse(
@@ -2089,8 +2131,31 @@ async def _cancel_unpersisted_media_operation(
                 operation_id=operation_id,
                 modality=modality,
             )
-    except Exception:
+    except Exception as exc:
+        _log_unpersisted_cancel_failure("fal", exc)
         return False
+
+
+async def _cancel_unpersisted_comfyui_operation(
+    *, model: str, operation_id: str, modality: str
+) -> bool:
+    """Stop one untracked local prompt without replacing its recovery outcome."""
+    try:
+        return await _cancel_media_provider(
+            provider="comfyui", model=model,
+            operation_id=operation_id, modality=modality,
+        )
+    except Exception as exc:
+        _log_unpersisted_cancel_failure("comfyui", exc)
+        return False
+
+
+def _log_unpersisted_cancel_failure(provider: str, exc: Exception) -> None:
+    logger.warning(
+        "Unpersisted %s cancellation failed (error_type=%s)",
+        provider,
+        type(exc).__name__,
+    )
 
 
 def _resolve_consumer_project(
@@ -3156,22 +3221,25 @@ async def submit_media_generation(
             # reconciliation of the already-submitted paid work; the finally
             # must not release it.
             reservation_settled = True
-            if provider == "fal":
-                provider_cancellation_requested = await _join_owned_task(
-                    asyncio.create_task(
-                        _cancel_unpersisted_media_operation(
-                            api_key=api_key,
-                            model=submitted_model,
-                            operation_id=operation_id,
-                            modality=modality,
-                        )
-                    ),
-                    post_accept_cancellation,
+            # Stop the exact unpersisted job. An untracked local prompt still
+            # owns GPU/CPU work even though it has no monetary spend to recover.
+            cancel_unpersisted = (
+                _cancel_unpersisted_media_operation(
+                    api_key=api_key,
+                    model=submitted_model,
+                    operation_id=operation_id,
+                    modality=modality,
                 )
-            else:
-                # Local providers (comfyui) are free (cost_usd=0); an unpersisted
-                # operation has no paid work to reconcile, so no provider cancel.
-                provider_cancellation_requested = False
+                if provider == "fal"
+                else _cancel_unpersisted_comfyui_operation(
+                    model=submitted_model,
+                    operation_id=operation_id,
+                    modality=modality,
+                )
+            )
+            provider_cancellation_requested = await _join_owned_task(
+                asyncio.create_task(cancel_unpersisted), post_accept_cancellation,
+            )
             # FAL confirms only that cancellation was requested, not that paid work
             # stopped. Without durable operation state Atlas cannot poll that request
             # to a terminal outcome, so retain spend for manual reconciliation.

@@ -454,19 +454,12 @@ class ComfyUiMpsManager:
         wrote self.ref and the current requirements back, restoring the
         marker a failed reconcile had dropped, so the next start skipped the
         install over a half-built venv (2026-10-08 run, cycle 68)."""
-        try:
-            status = json.loads(self.status_file.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            status = {}
-        status = status if isinstance(status, dict) else {}
+        status = self._launch_record()
         return {"installed_ref": status.get("installed_ref"),
                 "requirements_sha256": status.get("requirements_sha256")}
 
     def _installed_environment_matches(self, requirements_sha256: str) -> bool:
-        try:
-            payload = json.loads(self.status_file.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return False
+        payload = self._launch_record()
         return (
             payload.get("installed_ref") == self.ref
             and payload.get("requirements_sha256") == requirements_sha256
@@ -1174,7 +1167,8 @@ class ComfyUiMpsManager:
                 emit(f"✔ {label} (already present, skipped)")
             else:
                 result.provisioned.append(label)
-                emit(f"✓ {label} downloaded and verified")
+                assurance = "and verified" if sha else "(unverified; no SHA-256 declared)"
+                emit(f"✓ {label} downloaded {assurance}")
 
         self._save_provision_state(state)
         return result
@@ -1310,7 +1304,7 @@ class ComfyUiMpsManager:
                 outcome = "skipped"
             else:
                 emit(f"updating {name} to {ref_l}")
-                self._run(["git", "-C", str(dest), "fetch", "origin", ref_l])
+                self._run(["git", "-C", str(dest), "fetch", repo, ref_l])
                 self._run(["git", "-C", str(dest), "checkout", "--detach", ref_l])
                 outcome = "updated"
         elif dest.exists():
@@ -1521,14 +1515,7 @@ class ComfyUiMpsManager:
         state_key = str(dest.relative_to(self.models_path))
         if dest.exists():
             if sha:
-                cached = state.get(state_key) or {}
-                stat = dest.stat()
-                if (
-                    not verify
-                    and cached.get("sha256") == sha
-                    and cached.get("size") == stat.st_size
-                    and cached.get("mtime_ns") == stat.st_mtime_ns
-                ):
+                if not verify and self._cached_model_matches(state.get(state_key), dest, sha):
                     return "skipped"  # fast path: previously verified, unchanged
                 actual = self._sha256_file(dest)
                 if actual == sha:
@@ -1662,9 +1649,10 @@ class ComfyUiMpsManager:
 
     def _load_provision_state(self) -> dict:
         try:
-            return json.loads(self._provision_state_path().read_text(encoding="utf-8"))
+            state = json.loads(self._provision_state_path().read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return {}
+        return state if isinstance(state, dict) else {}
 
     def _save_provision_state(self, state: dict) -> None:
         try:
@@ -1675,6 +1663,17 @@ class ComfyUiMpsManager:
             os.replace(tmp, path)
         except OSError:  # state is an optimization, never a failure
             pass
+
+    @staticmethod
+    def _cached_model_matches(cached, dest: Path, sha: str) -> bool:
+        if not isinstance(cached, dict):
+            return False
+        stat = dest.stat()
+        return (
+            cached.get("sha256") == sha
+            and cached.get("size") == stat.st_size
+            and cached.get("mtime_ns") == stat.st_mtime_ns
+        )
 
     @staticmethod
     def _record_state(state: dict, key: str, dest: Path, sha: str) -> None:

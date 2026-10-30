@@ -15,15 +15,18 @@ pydantic>=2.6.0
 email-validator>=2.3.0
 httpx>=0.27.0
 h2>=4.4.1  # CVE-2026-71554 (HTTP/2 duplicate-Host smuggling; patch bump)
-pypdf>=6.19.0  # CVE-2026-84309/84310/84311 and CVE-2026-102993..103000 (parser DoS: long runtimes, unbounded memory)
+# The 6.21.2 floor also closes CVE-2026-113786 (crafted PDFs reach arbitrary
+# image parsers), CVE-2026-113789..113795 (memory, infinite loops) and
+# CVE-2026-115572/115580/115585 (long runtimes; first fixed in 6.21.2).
+pypdf>=6.21.2  # CVE-2026-84309/84310/84311 and CVE-2026-102993..103000 (parser DoS: long runtimes, unbounded memory)
 python-multipart>=0.0.31
 prometheus-fastapi-instrumentator>=7.0.0
-opentelemetry-api>=1.30.0
-opentelemetry-sdk>=1.30.0
-opentelemetry-exporter-otlp-proto-http>=1.30.0
-opentelemetry-instrumentation-fastapi>=0.51b0
-opentelemetry-instrumentation-httpx>=0.51b0
-opentelemetry-instrumentation-celery>=0.51b0
+opentelemetry-api>=1.45.1
+opentelemetry-sdk>=1.45.1
+opentelemetry-exporter-otlp-proto-http>=1.45.1
+opentelemetry-instrumentation-fastapi>=0.66b1
+opentelemetry-instrumentation-httpx>=0.66b1
+opentelemetry-instrumentation-celery>=0.66b1
 
 # Database
 sqlmodel>=0.0.39
@@ -50,9 +53,8 @@ ragas==0.4.3
 fal-client>=1.0.0
 # Pillow: image_to_3d input conditioning (media_input.py) composites
 # transparent inputs onto a neutral background before submission. Imported
-# lazily at request time only, so it stays out of main.py's import closure and
-# the CI backend unit-test venv.
-Pillow>=12.3.0
+# lazily at request time only, so it stays out of main.py's import closure.
+Pillow>=13.0.0
 ollama>=0.6.2
 numpy>=1.26.0
 pytz>=2024.1
@@ -70,6 +72,10 @@ langchain-openai>=0.0.8
 # Always present transitively via langchain-openai; declared explicitly here.
 openai>=1.0
 langgraph>=0.0.15
+# Keep the fixed v3 streaming identifier handling across lock refreshes:
+# CVE-2026-118667 (GHSA-3fx2-cqw9-xr3c), unencoded thread/assistant ids in
+# request paths. 0.4.6 also carries GHSA-fvww-7h3r-vfhp (fixed in 0.4.4).
+langgraph-sdk>=0.4.6
 transformers>=4.39.3
 
 # Memory (LangMem-inspired persistent memory)

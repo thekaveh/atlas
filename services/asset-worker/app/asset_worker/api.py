@@ -14,6 +14,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from prometheus_fastapi_instrumentator import Instrumentator
 from pydantic import ValidationError
@@ -34,6 +35,17 @@ from .upload_body import UploadBody, UploadRejected
 
 
 logger = logging.getLogger(__name__)
+
+
+def _validation_detail(exc):
+    return jsonable_encoder(
+        exc.errors(),
+        custom_encoder={float: lambda value: value if math.isfinite(value) else str(value)},
+    )
+
+
+async def _request_validation_error(_request, exc):
+    return JSONResponse(status_code=422, content={"detail": _validation_detail(exc)})
 
 
 async def _join_request_task(task: asyncio.Task):
@@ -168,6 +180,7 @@ def create_app(*, api_token: str | None = None) -> FastAPI:
     concurrency = max(1, int(os.getenv("ASSET_WORKER_CONCURRENCY", "1")))
     app.state.transform_semaphore = threading.Semaphore(concurrency)
 
+    app.add_exception_handler(RequestValidationError, _request_validation_error)
     app.add_middleware(_RequestAdmission, owner=app, expected_token=expected_token)
 
     @app.get("/health")
@@ -210,7 +223,7 @@ def create_app(*, api_token: str | None = None) -> FastAPI:
                 collider_decimation=collider_decimation,
             )
         except ValidationError as exc:
-            raise HTTPException(status_code=422, detail=jsonable_encoder(exc.errors())) from exc
+            raise HTTPException(status_code=422, detail=_validation_detail(exc)) from exc
         return await _run_blocking_request(request, _process_upload, file.file, params)
 
     @app.post("/gltf/postprocess/ref", response_model=PostprocessResponse)

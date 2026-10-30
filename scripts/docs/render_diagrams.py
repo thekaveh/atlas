@@ -11,7 +11,7 @@ import textwrap
 from pathlib import Path
 import zlib
 
-from .manifest import Manifest, load_manifest
+from .manifest import Manifest, load_manifest, validate_output_ids
 
 
 _SVG_RE = re.compile(r"<svg\b[\s\S]*?</svg>", re.IGNORECASE)
@@ -110,6 +110,7 @@ def render_all(
     *,
     check_png: bool = False,
 ) -> None:
+    validate_output_ids(manifest)
     site_img_dir.mkdir(parents=True, exist_ok=True)
     png_dir.mkdir(parents=True, exist_ok=True)
     if wiki_img_dir:

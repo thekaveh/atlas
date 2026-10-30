@@ -41,6 +41,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Iterator
 from urllib.parse import quote
 
+from utils.atomic_write import decode_env_assignment, env_lines
 from .support_bundle_logs import ANSI as _ANSI, LogSnapshot, log_entry, replace_at_boundary, tail_text
 
 SCHEMA_VERSION = "atlas-support-bundle/1"
@@ -417,10 +418,18 @@ def _file_keys(env_file: Path | None) -> set[str]:
     if env_file is None or not env_file.is_file():
         return set()
     keys = set()
-    for line in env_file.read_text(encoding="utf-8", errors="replace").splitlines():
-        name, sep, _ = line.strip().partition("=")
-        if sep and not name.startswith("#"):
-            keys.add(name.strip())
+    for line in env_lines(env_file.read_text(encoding="utf-8-sig", errors="replace")):
+        prefix, sep, _ = line.partition("=")
+        if not sep:
+            continue
+        try:
+            # Discover keys with the reader's grammar, without re-decoding
+            # secret values or repeating its Compose-reference warnings.
+            assignment = decode_env_assignment(prefix + "=", origin=str(env_file))
+        except ValueError:
+            continue
+        if assignment is not None:
+            keys.add(assignment[0])
     return keys
 
 

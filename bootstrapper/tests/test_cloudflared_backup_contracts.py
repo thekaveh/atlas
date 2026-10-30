@@ -15,6 +15,7 @@ import re
 import shutil
 import signal
 import stat
+import sqlite3
 import subprocess
 import sys
 import time
@@ -3048,17 +3049,6 @@ def _assert_owned_network_absent(name: str, owner_token: str) -> None:
     assert _exact_network_owner(name) != owner_token
 
 
-def _add_exception_note(exc: BaseException, note: str) -> None:
-    if hasattr(exc, "add_note"):
-        exc.add_note(note)
-        return
-    notes = getattr(exc, "__notes__", None)
-    if notes is None:
-        notes = []
-        exc.__notes__ = notes
-    notes.append(note)
-
-
 def _report_fixture_cleanup_failures(
     primary: BaseException | None, failures: list[tuple[str, BaseException]],
 ) -> None:
@@ -3068,10 +3058,10 @@ def _report_fixture_cleanup_failures(
     )
     note = f"Exact Docker fixture cleanup could not be proven: {detail}"
     if primary is not None:
-        _add_exception_note(primary, note)
+        primary.add_note(note)
         return
     cleanup_error = failures[0][1]
-    _add_exception_note(cleanup_error, note)
+    cleanup_error.add_note(note)
     raise cleanup_error
 
 
@@ -5722,7 +5712,7 @@ def _ensure_setsid(bin_dir) -> None:
         shim.chmod(0o755)
 
 
-def _restore_harness(tmp_path, *, publish_postgres: bool, marker: str = "valid"):
+def _restore_harness(tmp_path, *, token: str, publish_postgres: bool, marker: str = "valid"):
     """Publish a disabled-source database set into a fake bucket, then run
     restore-databases.sh prepare against it through a stub mc."""
     import shutil
@@ -5762,7 +5752,6 @@ def _restore_harness(tmp_path, *, publish_postgres: bool, marker: str = "valid")
         if marker == "bad-hmac":
             mac = "0" * 64
         (bucket / ts / "postgres.complete").write_text(payload + f"hmac_sha256={mac}\n")
-    token = "1" * 32
     return subprocess.run(
         ["sh", str(_BACKUP_SCRIPTS / 'restore-databases.sh'), "prepare"], capture_output=True, text=True, timeout=120,
         env={**env, "MINIO_ROOT_USER": "u", "MINIO_ROOT_PASSWORD": "p", "BACKUP_TIMESTAMP": ts,
@@ -5775,20 +5764,21 @@ def test_a_database_restore_needs_the_published_postgres_marker(tmp_path):
     still cut over Neo4j/Weaviate alone (2026-10-08 run, cycle 34)."""
     import shutil
 
+    token = uuid.uuid4().hex
     try:
-        refused = _restore_harness(tmp_path / "a", publish_postgres=False)
+        refused = _restore_harness(tmp_path / "a", token=token, publish_postgres=False)
         assert refused.returncode != 0
         assert "never published" in refused.stderr
-        accepted = _restore_harness(tmp_path / "b", publish_postgres=True)
+        accepted = _restore_harness(tmp_path / "b", token=token, publish_postgres=True)
         assert accepted.returncode == 0, accepted.stderr
         # A forged marker or one from another backup authorizes nothing;
         # neither case was tested (cycle 44).
         for marker in ("bad-hmac", "other-id"):
-            shutil.rmtree(f"/tmp/atlas-database-restore-test-{'1' * 32}", ignore_errors=True)
-            forged = _restore_harness(tmp_path / marker, publish_postgres=True, marker=marker)
+            shutil.rmtree(f"/tmp/atlas-database-restore-test-{token}", ignore_errors=True)
+            forged = _restore_harness(tmp_path / marker, token=token, publish_postgres=True, marker=marker)
             assert forged.returncode != 0, (marker, forged.stderr)
     finally:
-        shutil.rmtree(f"/tmp/atlas-database-restore-test-{'1' * 32}", ignore_errors=True)
+        shutil.rmtree(f"/tmp/atlas-database-restore-test-{token}", ignore_errors=True)
 
 
 def _writable_repo_mounts(label, spec):
@@ -5894,3 +5884,89 @@ def test_atomic_lock_reclaims_reused_pid_with_spaced_comm(tmp_path, monkeypatch)
     finally:
         second.release()
         first.release()
+
+
+def _postgres_table_inventory_sql(script: Path) -> str:
+    source = script.read_text(encoding="utf-8")
+    start = source.index("SELECT encode(convert_to(n.nspname, 'UTF8'), 'hex')")
+    return source[start:source.index(";", start) + 1]
+
+
+def _postgres_catalog_inventory(script: Path, rows: list[tuple[str, str, str, str]]) -> list[str]:
+    """Execute the source predicate with only PostgreSQL syntax/function adapters."""
+    connection = sqlite3.connect(":memory:")
+    connection.create_function("convert_to", 2, lambda value, encoding: value.encode(encoding))
+    connection.create_function("encode", 2, lambda value, encoding: value.hex())
+    connection.create_function("regexp", 2, lambda pattern, value: bool(re.search(pattern, value)))
+    connection.executescript(
+        "CREATE TABLE pg_namespace(oid INTEGER, nspname TEXT);"
+        "CREATE TABLE pg_class(relnamespace INTEGER, relname TEXT, relkind TEXT, relpersistence TEXT);"
+    )
+    for oid, (namespace, table, kind, persistence) in enumerate(rows, 1):
+        connection.execute("INSERT INTO pg_namespace VALUES (?, ?)", (oid, namespace))
+        connection.execute("INSERT INTO pg_class VALUES (?, ?, ?, ?)", (oid, table, kind, persistence))
+    query = _postgres_table_inventory_sql(script).replace("E'\\t'", "char(9)").replace(" !~ ", " NOT REGEXP ")
+    try:
+        return [row[0] for row in connection.execute(query)]
+    finally:
+        connection.close()
+
+
+_POSTGRES_TABLE_INVENTORY_CASES = [
+    pytest.param([("public", "state", "r", "p")], [("public", "state")], id="permanent"),
+    pytest.param(
+        [("analytics", "events", "r", "u"), ("public", "parent", "p", "p")],
+        [("analytics", "events"), ("public", "parent")], id="unlogged-partitioned",
+    ),
+    pytest.param(
+        [("pgapp", "state", "r", "p"), ("pg_catalog", "pg_class", "r", "p"),
+         ("information_schema", "sql_features", "r", "p"), ("pg_toast", "pg_toast_1", "r", "p"),
+         ("public", "a_view", "v", "p"), ("public", "an_index", "i", "p")],
+        [("pgapp", "state")], id="system-and-non-table-exclusion",
+    ),
+    pytest.param(
+        [("public", "state", "r", "p"), ("pg_temp_7", "session_work", "r", "t")],
+        [("public", "state")], id="other-session-temporary-table",
+    ),
+]
+
+
+@pytest.mark.parametrize("script_name", ["backup-all.sh", "restore-postgres.sh"])
+@pytest.mark.parametrize("rows, expected", _POSTGRES_TABLE_INVENTORY_CASES)
+def test_postgres_table_inventory_matches_default_dump_namespace_contract(script_name, rows, expected):
+    script = REPO / "services/backup/init/scripts" / script_name
+    actual = _postgres_catalog_inventory(script, rows)
+    assert actual == [namespace.encode().hex() + "\t" + table.encode().hex() for namespace, table in expected]
+
+
+def _run_postgres_staged_inventory_gate(tmp_path: Path, producer_rows, restored_rows):
+    scripts = REPO / "services/backup/init/scripts"
+    trusted = "\n".join(_postgres_catalog_inventory(scripts / "backup-all.sh", producer_rows)) + "\n"
+    staged = "\n".join(_postgres_catalog_inventory(scripts / "restore-postgres.sh", restored_rows)) + "\n"
+    (tmp_path / "staged.tables").write_text(staged, encoding="utf-8")
+    source = (scripts / "restore-postgres.sh").read_text(encoding="utf-8")
+    start = source.index("staged_tables_sha_output=")
+    gate = source[start:source.index("\nlock_still_held=", start)]
+    env = {"PATH": os.environ.get("PATH", ""), "WORK": str(tmp_path),
+           "expected_tables_sha": hashlib.sha256(trusted.encode()).hexdigest(),
+           "expected_table_count": str(len(trusted.splitlines()))}
+    return subprocess.run(
+        ["sh", "-c", 'set -eu\nrun_bounded() { "$@"; }\n' + gate], env=env,
+        capture_output=True, text=True, check=False, timeout=5,
+    )
+
+
+@pytest.mark.parametrize("case", ["ordinary", "temporary-table", "missing-permanent-table", "same-count-wrong-name"])
+def test_postgres_staged_inventory_accepts_dumped_tables_and_rejects_missing_persistent_table(tmp_path, case):
+    producer = [("public", "state", "r", "p")]
+    restored = list(producer)
+    if case == "temporary-table":
+        producer.append(("pg_temp_7", "session_work", "r", "t"))
+    if case == "missing-permanent-table":
+        producer.append(("public", "required_table", "r", "p"))
+    if case == "same-count-wrong-name":
+        restored[0] = ("public", "different", "r", "p")
+    result = _run_postgres_staged_inventory_gate(tmp_path, producer, restored)
+    rejected = case in {"missing-permanent-table", "same-count-wrong-name"}
+    assert result.returncode == (1 if rejected else 0), result.stderr
+    assert ("staged table inventory does not match authenticated backup inventory" in result.stderr) == rejected

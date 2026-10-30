@@ -102,7 +102,9 @@ deduplicate them, and fail closed when the services directory, service-manifest
 set, or aggregate image inventory is missing or empty. A manifest may omit the
 `images` key when other manifests supply the non-empty inventory; a declared
 `images: null` is invalid. Every declared row requires non-empty literal `var`,
-`container`, and `default` fields. Resolve each of the 71 unique references with
+`container`, and `default` fields.
+
+Resolve each of the 71 unique references with
 `docker buildx imagetools inspect <reference>` using a bounded subprocess and
 a small fixed worker pool. This reads registry manifests only; it never pulls
 layers. Failure output is truncated to a bounded diagnostic.

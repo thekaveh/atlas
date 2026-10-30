@@ -50,10 +50,16 @@ class _FakeEmbedder:
         return [[0.1, 0.2, 0.3] for _ in texts]
 
 
-class _FakeWeaviate:
+class _FakeDestination:
+    """A reachable destination; identity reads the public endpoint."""
+
+    endpoint = ""
+
     def available(self):
         return True
 
+
+class _FakeWeaviate(_FakeDestination):
     async def ensure_class(self, class_name, embedding=None):
         return None
 
@@ -66,10 +72,7 @@ class _FakeWeaviate:
         return 0
 
 
-class _FakeLightrag:
-    def available(self):
-        return True
-
+class _FakeLightrag(_FakeDestination):
     async def upload(self, documents):
         return len(documents)
 

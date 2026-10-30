@@ -28,7 +28,8 @@ python-multipart>=0.0.31
 huggingface_hub>=0.20.0
 # NeMo 3.0.0 declares Transformers without a version bound. Keep Atlas on the
 # patched 5.x line while preserving NeMo's ASRModel.from_pretrained contract.
-transformers>=5.5.0,<6
+# PYSEC-2026-3929 is fixed in 5.10.0.
+transformers>=5.10.0,<6
 # NeMo's older transitive floors contain patched model-file traversal and
 # protobuf recursion issues, so keep the runtime on the secure compatible set.
 onnx>=1.22.0
@@ -39,3 +40,12 @@ protobuf>=5.29.6,<5.30
 # sibling lightning advisory's is not. Floor it explicitly so the resolver
 # cannot drift back below the fix.
 pytorch-lightning>=2.6.6
+
+# Security floors for existing NeMo/HF/audio transitive dependencies.
+# Keep the compiled CUDA/framework stack and blocked fsspec branch unchanged.
+Pillow>=13.0.0
+aiohttp>=3.14.4
+setuptools>=84.1.0
+filelock>=4.2.1
+msgpack>=1.2.3
+certifi>=2026.10.19

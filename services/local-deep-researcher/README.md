@@ -13,7 +13,7 @@ Image: `python:3.11.15-slim`. At each start, the entrypoint checks out the manif
 | Path | URL | Notes |
 |---|---|---|
 | Direct | `http://localhost:${LOCAL_DEEP_RESEARCHER_PORT}` (default `63097`) | LangGraph dev-server REST API. |
-| Kong | `http://research.localhost:63000` | Route generated from `LOCAL_DEEP_RESEARCHER_SOURCE` (needs the `--setup-hosts` entries). |
+| Kong | `http://research.localhost:${KONG_HTTP_PORT}` (default `63000`) | Route generated from `LOCAL_DEEP_RESEARCHER_SOURCE` (needs the `--setup-hosts` entries). |
 | LangGraph API | `POST /threads`, `POST /threads/{id}/runs/stream` | Standard LangGraph dev-server endpoints. |
 
 Browser access is limited to the Kong origin (`CORS_ALLOW_ORIGINS=http://research.localhost:${KONG_HTTP_PORT}`), so other web pages cannot read or delete threads through the direct port. The Backend calls the API server-side and is unaffected.
@@ -26,7 +26,7 @@ Canonical port table: [Ports and Routes](../../docs/reference/ports-routes.md).
 LOCAL_DEEP_RESEARCHER_SOURCE=container       # container | disabled
 LOCAL_DEEP_RESEARCHER_PORT=63097             # computed by topology.py
 LOCAL_DEEP_RESEARCHER_REF=38f769f84380f2065de76021ac7c5215f88aa39e
-LOCAL_DEEP_RESEARCHER_LANGGRAPH_CLI_VERSION=0.4.31
+LOCAL_DEEP_RESEARCHER_LANGGRAPH_CLI_VERSION=0.4.32
 LOCAL_DEEP_RESEARCHER_UPSTREAM_LOCK_SHA256=26fc35ac377836de6628e5f7b180944c4d4bd50a5e9f0200bd6e663f20e35c1a
 LOCAL_DEEP_RESEARCHER_LOOPS=3                # max research iterations
 LOCAL_DEEP_RESEARCHER_SEARCH_API=searxng     # only searxng is wired; tavily/perplexity need upstream API keys
@@ -49,6 +49,17 @@ LITELLM_DEFAULT_MODEL=ollama/qwen3.8:latest  # the one model every step uses
 **Full-page mode.** `LOCAL_DEEP_RESEARCHER_FULL_PAGE_MODE` sets `FETCH_FULL_PAGE`. `disabled` keeps search snippets only. `builtin` uses upstream's own page fetch. `crawl4ai` sends each URL to [Crawl4AI](../crawl4ai/README.md); startup fails if `CRAWL4AI_SOURCE` is not `container`.
 
 **Pinned source.** `LOCAL_DEEP_RESEARCHER_REF` must be a full commit SHA. Startup checks the upstream `uv.lock` against `LOCAL_DEEP_RESEARCHER_UPSTREAM_LOCK_SHA256`. It then installs from Atlas's hashed lock `build/config/runtime-requirements.lock`. A mismatch stops startup before the source tree is replaced.
+
+The refresh enforces `aiohttp>=3.14.4` and pins `setuptools==84.1.0`. It also enforces `langgraph-sdk>=0.4.6`, which includes the earlier [SDK fix](https://github.com/advisories/GHSA-fvww-7h3r-vfhp) and encodes caller-supplied v3 streaming identifiers ([advisory](https://github.com/advisories/GHSA-3fx2-cqw9-xr3c)).
+
+On Python 3.11 or later, the serving branch requires `langgraph-api>=0.15.9` and `opentelemetry-api>=1.45.1`.
+These floors address the [LangGraph API advisory](https://github.com/advisories/GHSA-4hm6-w6qq-w73v) and [OpenTelemetry propagation advisory](https://github.com/advisories/GHSA-xcq7-p3pf-p88h).
+The matching telemetry packages resolve together in the hashed lock.
+
+The combined lock enforces `certifi>=2026.10.19` when refreshed. This floor removes the affected emSign CA root while retaining unaffected roots ([advisory](https://github.com/certifi/python-certifi/security/advisories/GHSA-6q48-6c7w-9gw2)). The upstream commit and lock-digest pins stay in force.
+
+The runtime advisory check selects the shipped Linux Python 3.11 graph for both supported container architectures.
+It rejects missing, skipped, unexpected or mismatched package versions in the audit response.
 
 To upgrade:
 
@@ -194,7 +205,7 @@ The `.values` object contains `running_summary`, `sources_gathered` and `researc
 <a id="54-future-missing-pair-integrations"></a>
 <a id="54-future--missing-pair-integrations"></a>
 
-- **local-deep-researcher ↔ redis** — *Why:* The development cache stays in the container layer; recreation loses it. No durable shared checkpointer is wired today. *Mechanism:* swap checkpointer to `langgraph.checkpoint.redis.RedisSaver` pointed at a fresh index, such as `redis://:${REDIS_PASSWORD}@redis:6379/6` (see [Redis database-index convention](../redis/README.md#3-configuration)); add `REDIS_URL` to LDR env. *Effort:* small. *Confidence:* medium.
+- **local-deep-researcher ↔ redis** — *Why:* The development cache stays in the container layer; recreation loses it. No durable shared checkpointer is wired today. *Mechanism:* swap checkpointer to `langgraph.checkpoint.redis.RedisSaver` pointed at a fresh index, such as `redis://:${REDIS_PASSWORD_URI}@redis:6379/6` (see [Redis database-index convention](../redis/README.md#3-configuration)); add `REDIS_URL` to LDR env. *Effort:* small. *Confidence:* medium.
 - **local-deep-researcher ↔ neo4j** — *Why:* each research run yields `sources_gathered` + a `running_summary`. Writing these as `(Topic)-[CITES]->(Source)` triples lets later runs detect overlap and reuse evidence. *Mechanism:* post-`finalize_summary` callback writes Cypher `MERGE` via `bolt://neo4j-graph-db:7687`. *Effort:* medium. *Confidence:* medium.
 - **local-deep-researcher ↔ minio** — *Why:* the final markdown report lives only in LangGraph thread state and the Backend's `public.research_*` rows; no object store holds it. *Mechanism:* on `finalize_summary`, S3 `PutObject` to `${MINIO_ENDPOINT}` bucket `research-reports` keyed by `session_id`. *Effort:* small. *Confidence:* medium.
 - **local-deep-researcher ↔ hermes** — *Why:* Hermes has no path to invoke multi-step web research today. Exposing LDR as a Hermes tool turns "deep research" into a single tool call. *Mechanism:* a Hermes skill (`/opt/data/skills/<category>/<name>/SKILL.md`, installed by hermes-init) or an MCP server that POSTs to `http://local-deep-researcher:2024/threads/{id}/runs/stream` and returns the final summary. *Effort:* medium. *Confidence:* medium.

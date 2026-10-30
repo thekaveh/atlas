@@ -993,9 +993,12 @@ def _selections_to_args(
 ):
     """Map wizard selections back to (source_args, stack_options).
 
-    ``env_vars`` is the resolved .env snapshot at wizard-build time;
-    used to auto-promote SECRET_KEEP+disabled+key-already-set into
-    ``--cloud-X-source enabled`` so the multiselect picks aren't inert.
+    ``env_vars`` is the resolved .env snapshot at wizard-build time.
+    It tells each cloud provider and fal.ai whether a key is already
+    stored (``existing_key_set``). It also supplies the memory-model
+    override check, the current PROJECT_NAME and the values a cold start
+    carries forward. Since #1183 a stored key alone no longer promotes a
+    disabled provider.
 
     ``consumer_declared`` (#783, threaded through here per the #535
     followups review, finding R1): cli-style keys (e.g. ``minio_source``)
@@ -1006,18 +1009,14 @@ def _selections_to_args(
     caller (``run_setup_flow``'s ``_resolve`` closure) passes the real
     set, computed the same way ``start.py`` computes it for ``--no-tui``.
 
-    Fix-round note (#535 Pass 1 followups review, finding C1): this
-    parameter is REQUIRED, deliberately with no default. It used to
+    Fix-round note (#535 Pass 1 followups review, finding C1):
+    ``env_vars`` is REQUIRED, deliberately with no default. It used to
     default to ``None`` and get normalized to ``{}`` here, which made
     ``existing_key_set`` False for EVERY cloud provider on every call
     that omitted it -- silently force-disabling every already-keyed
     provider in .env via ``resolve_cloud_provider``'s SECRET_KEEP
-    branch. That is the exact class of bug ``resolve_cloud_provider``'s
-    own ``existing_source`` parameter was already made required to
-    prevent (see ``wizard/model/cloud_rules.py``'s fix-round-2 note);
-    this call site had simply re-opened the same trap one layer up.
-    Omitting it is now a ``TypeError`` at the call site instead of a
-    silent .env corruption.
+    branch. Omitting it is now a ``TypeError`` at the call site instead
+    of a silent .env corruption.
     """
     from utils.cloud_providers import CLOUD_PROVIDERS
     from wizard.llm_steps import (
@@ -1107,8 +1106,7 @@ def _selections_to_args(
     #
     # Enable/disable + key resolution is delegated to
     # wizard/model/cloud_rules.resolve_cloud_provider (#535 Pass 1) —
-    # see there for why ``existing_source`` is threaded through
-    # explicitly and why ``source is None`` must be left unwritten
+    # see there for why ``source is None`` must be left unwritten
     # rather than coerced to "disabled". The models-CSV write stays
     # here: it persists the raw multiselect string verbatim (not a
     # re-parsed/rejoined form of anything the resolution returns),
@@ -1126,7 +1124,6 @@ def _selections_to_args(
         models_var = provider.user_models_var
 
         secret_v = selections.get(cloud_secret_title(name))
-        existing_source = (env_vars.get(source_var, 'disabled') or '').strip().lower()
         existing_key = (env_vars.get(api_key_var, '') or '').strip()
 
         # Multiselect intent (renders only when the provider is enabled
@@ -1173,7 +1170,6 @@ def _selections_to_args(
             secret_value=secret_v,
             selected_models=selected_models,
             existing_key_set=bool(existing_key),
-            existing_source=existing_source,
         )
         if resolution.source is not None:
             source_args[cli_arg] = resolution.source
@@ -1521,7 +1517,9 @@ def run_launch_flow(
     Returns exit code: 0 on detach, non-zero on interrupt.
     """
     from .widgets import BrandInfo
-    from .screens.wizard_screen import GuardedQuitMixin, WizardScreen, teardown_blocks_exit
+    from .screens.wizard_screen import (
+        GuardedQuitMixin, WizardScreen, teardown_blocks_exit, apply_cli_cloud_overrides,
+    )
     from core.port_manager import PortManager
     from wizard.model.state_builder import lookup_service_meta, resolve_port as _resolve_port
 
@@ -1558,6 +1556,7 @@ def run_launch_flow(
 
     port_offsets = _pm.port_offsets()
     env_vars = config_parser.parse_env_file()
+    apply_cli_cloud_overrides(cloud_summaries, source_args, stack_options.get("cloud_api_keys") or {})
 
     # Resolve the effective base port. CLI ``--base-port N`` wins; else
     # whatever's in .env today.

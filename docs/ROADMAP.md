@@ -108,7 +108,7 @@ The stack orchestrates repository-defined containerized and virtual service fami
 
 - The bootstrapper declares `textual>=8.2.8`, and the lock resolves Textual 8.2.8. The log pane supports drag selection.
 - During launch, `y` copies the visible log buffer: all buffered records that match the active level and source filters.
-- Historical compatibility work covered CSS, message APIs and the `textual-image` integration. The `textual-image>=0.12,<0.13` constraint preserves Python 3.10 support.
+- Historical compatibility work covered CSS, message APIs and the `textual-image` integration. The `textual-image>=0.12,<0.13` constraint retains the Python 3.11 floor; version 0.13 requires Python 3.12.
 
 ---
 
@@ -1456,7 +1456,7 @@ Consumed by (services that would call LiveKit):
 ### 3.14. Embedding inference
 
 - **LiteLLM-routed (current) vs TEI (dedicated)**: LiteLLM is fine for chat completions and ad-hoc embedding calls; TEI is the right layer once embedding throughput becomes dominant (bulk RAG indexing, reranking pipelines). Register TEI as a LiteLLM upstream so consumer code does not change.
-- **Reranking** is unique to TEI within the stack — neither Weaviate's bundled multi2vec-clip nor LiteLLM provide a `/rerank` endpoint today
+- **Reranking** — TEI provides native `/rerank`. With TEI enabled and its endpoint and model configured, LiteLLM exposes the authenticated `tei-rerank` alias through `POST /v1/rerank`. See the [TEI gateway contract](../services/tei-reranker/README.md#41-stack-standard-rerank-via-litellm). Weaviate's bundled multi2vec-clip remains a multimodal vectorizer.
 
 ### 3.15. Image-to-3D models
 

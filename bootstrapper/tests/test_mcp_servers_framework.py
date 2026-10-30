@@ -659,39 +659,57 @@ def test_streamable_http_smoke_initialize_list_and_call(monkeypatch) -> None:
     assert _parse_jsonrpc(called)["result"]["structuredContent"]["limit"] == 1
 
 
-def test_host_origin_guard_allows_atlas_hosts_and_rejects_others() -> None:
+_INIT_BODY = {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "initialize",
+    "params": {
+        "protocolVersion": "2025-06-18",
+        "capabilities": {},
+        "clientInfo": {"name": "t", "version": "1"},
+    },
+}
+_MCP_HEADERS = {
+    "Content-Type": "application/json",
+    "Accept": "application/json, text/event-stream",
+    "MCP-Protocol-Version": "2025-06-18",
+}
+
+
+async def _initialize_statuses(app, header_sets):
+    """POST ``initialize`` once per extra-header set; return each status code."""
     import httpx
 
-    srv = _runtime_module()
-    app = _http_app(srv)
-    body = {
-        "jsonrpc": "2.0",
-        "id": 1,
-        "method": "initialize",
-        "params": {
-            "protocolVersion": "2025-06-18",
-            "capabilities": {},
-            "clientInfo": {"name": "t", "version": "1"},
-        },
-    }
-    base = {
-        "Content-Type": "application/json",
-        "Accept": "application/json, text/event-stream",
-        "MCP-Protocol-Version": "2025-06-18",
-    }
+    codes = []
+    async with app.router.lifespan_context(app):
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://placeholder") as client:
+            for extra in header_sets:
+                response = await client.post("/mcp", headers={**_MCP_HEADERS, **extra}, json=_INIT_BODY)
+                codes.append(response.status_code)
+    return codes
 
-    async def statuses(hosts):
-        results = {}
-        async with app.router.lifespan_context(app):
-            transport = httpx.ASGITransport(app=app)
-            async with httpx.AsyncClient(transport=transport, base_url="http://placeholder") as client:
-                for host in hosts:
-                    response = await client.post("/mcp", headers={**base, "Host": host}, json=body)
-                    results[host] = response.status_code
-        return results
 
-    allowed = _run(statuses(["mcp-servers", "mcp-servers:8000", "mcp.localhost", "127.0.0.1", "localhost"]))
-    assert all(code != 421 for code in allowed.values()), allowed
+def test_host_origin_guard_allows_atlas_hosts_and_rejects_others() -> None:
+    app = _http_app(_runtime_module())
 
-    rejected = _run(statuses(["evil.example.com", "attacker.localhost", "comfyui.localhost"]))
+    def statuses(hosts):
+        return dict(zip(hosts, _run(_initialize_statuses(app, [{"Host": host} for host in hosts]))))
+
+    allowed = statuses(["mcp-servers", "mcp-servers:8000", "mcp.localhost", "127.0.0.1", "localhost"])
+    assert all(code == 200 for code in allowed.values()), allowed
+
+    rejected = statuses(["evil.example.com", "attacker.localhost", "comfyui.localhost"])
     assert all(code == 421 for code in rejected.values()), rejected
+
+
+@pytest.mark.parametrize(("host", "origin", "expected"), [
+    ("placeholder", None, 200),  # ASGI server address from base_url, not Atlas' allowlist.
+    ("mcp.localhost", "http://mcp.localhost", 200),
+    ("mcp.localhost", "https://evil.invalid", 403),
+    ("mcp.localhost", "http://mcp.localhost:8000", 403),
+    ("127.0.0.1", "http://localhost:12345", 200),
+])
+def test_streamable_http_origin_boundary(host, origin, expected):
+    headers = {"Host": host} if origin is None else {"Host": host, "Origin": origin}
+    assert _run(_initialize_statuses(_http_app(_runtime_module()), [headers])) == [expected]

@@ -94,17 +94,29 @@ def _assignment_pattern(var: str) -> str:
     `[^\\S\\n]`, NOT `\\s`, around the `=`. Under `re.MULTILINE` the `$`
     matches before a newline, but `\\s` MATCHES that newline — so for a blank
     `VAR=` the value group runs on into the NEXT line and swallows the whole
-    following assignment. No current caller reaches that state (`update_env_ports`
-    leaves a blank value alone), so this is a latent trap rather than a live
-    bug; the pattern now means what its name says regardless of who calls it.
+    following assignment. Horizontal whitespace keeps empty assignments on
+    their own line.
     """
     horizontal = r'[^\S\n]*'
+    # Quoted numeric values may contain padding the reader strips at use.
+    value = r"""(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s#]*)"""
     # An `export VAR=` line is VAR to the reader and Compose; group 1 keeps
     # the prefix so the rewrite does too (#1368).
     return (
         rf'^([ \t]*(?:export[ \t]+)?{re.escape(var)}{horizontal}={horizontal})'
-        rf'([^\s#]*)([ \t]*(?:#.*)?)$'
+        rf'({value})([ \t]*(?:#.*)?)$'
     )
+
+
+def _port_assignment_replacement(match: re.Match[str], new_port: int) -> str:
+    original = match.group(2)
+    suffix = match.group(3)
+    prefix, comment, _text = suffix.partition("#")
+    quoted = len(original) > 1 and original[0] in ("'", '"') and original[-1] == original[0]
+    rendered = str(new_port)
+    if quoted and comment and not prefix.endswith(" "):
+        rendered = original[0] + rendered + original[0]
+    return match.group(1) + rendered + suffix
 
 
 def _with_source_overrides(sources: Optional[dict], overrides: Optional[dict]) -> dict:
@@ -313,8 +325,10 @@ class PortManager:
             port_assignments['BASE_PORT'] = base_port
             for port_var, new_port in port_assignments.items():
                 pattern = _assignment_pattern(port_var)
-                replacement = rf'\g<1>{new_port}\g<3>'
-                updated_content = re.sub(pattern, replacement, updated_content, flags=re.MULTILINE)
+                updated_content = re.sub(
+                    pattern, lambda match: _port_assignment_replacement(match, new_port),
+                    updated_content, flags=re.MULTILINE,
+                )
 
             atomic_write_text(env_file_path, updated_content, mode=0o600)
 

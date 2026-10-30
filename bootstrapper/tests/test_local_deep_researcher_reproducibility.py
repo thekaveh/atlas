@@ -1,29 +1,40 @@
 """Local Deep Researcher runtime inputs must be manifest-owned and pinned."""
 
-import builtins
 import importlib.util
+import json
 from pathlib import Path
 import re
 import runpy
 import os
 import subprocess
 import sys
-from types import ModuleType
+from types import SimpleNamespace
 
+from packaging.requirements import Requirement
 from packaging.version import Version
 import pytest
 import yaml
 
+from scripts import audit_runtime_locks
+from tests.test_runtime_lock_audit import _runtime_audit_spec
+
 
 REPO = Path(__file__).resolve().parents[2]
 EXPECTED_REF = "38f769f84380f2065de76021ac7c5215f88aa39e"
-EXPECTED_CLI = "0.4.31"
+EXPECTED_CLI = "0.4.32"
 EXPECTED_LOCK_SHA256 = "26fc35ac377836de6628e5f7b180944c4d4bd50a5e9f0200bd6e663f20e35c1a"
 SECURITY_FLOORS = {
+    "langgraph-sdk": "0.4.6",
+    "aiohttp": "3.14.4",
+    "certifi": "2026.10.19",
     "click": "8.3.3",
     "langchain-classic": "1.0.7",
     "langsmith": "0.8.18",
     "soupsieve": "2.8.4",
+}
+SERVING_SECURITY_FLOORS = {
+    "langgraph-api": "0.15.9",
+    "opentelemetry-api": "1.45.1",
 }
 RUNTIME_LIB = (
     REPO
@@ -66,7 +77,7 @@ def test_runtime_requirements_lock_pins_cli_and_build_tooling():
     ).read_text(encoding="utf-8")
 
     assert f"langgraph-cli=={EXPECTED_CLI} \\" in lock
-    assert "setuptools==83.0.0 \\" in lock
+    assert "setuptools==84.1.0 \\" in lock
     assert "wheel==0.47.0 \\" in lock
     assert "--hash=sha256:" in lock
     assert f"# upstream-ref: {EXPECTED_REF}" in lock
@@ -97,12 +108,91 @@ def test_runtime_requirements_clear_known_fixable_advisories():
     generator = (REPO / "scripts/refresh-local-deep-researcher-lock.py").read_text(
         encoding="utf-8"
     )
+    project = (REPO / "services/local-deep-researcher/locks/runtime-pyproject.toml").read_text(
+        encoding="utf-8"
+    )
 
     for package, version in SECURITY_FLOORS.items():
-        match = re.search(rf"^{re.escape(package)}==([^ ]+) \\$", lock, re.MULTILINE)
-        assert match, package
-        assert Version(match.group(1)) >= Version(version)
+        # A package can resolve per Python branch; every branch must clear the floor.
+        pins = re.findall(
+            rf"^{re.escape(package)}==([^ ;]+)(?: ;[^\\\n]*)? \\$", lock, re.MULTILINE
+        )
+        assert pins, package
+        assert all(Version(pin) >= Version(version) for pin in pins), (package, pins)
         assert f'"{package}>={version}"' in generator
+        assert f'"{package}>={version}"' in project
+
+
+@pytest.mark.parametrize("package,version", SERVING_SECURITY_FLOORS.items())
+def test_serving_security_floors_preserve_project_floor(package, version):
+    module = runpy.run_path(str(REPO / "scripts/refresh-local-deep-researcher-lock.py"))
+    declaration = f"{package}>={version} ; python_full_version >= '3.11'"
+    assert declaration in module["SECURITY_DEPENDENCIES"]
+    project = module["tomllib"].loads(
+        (REPO / "services/local-deep-researcher/locks/runtime-pyproject.toml").read_text()
+    )["project"]
+    assert project["requires-python"] == ">=3.10"
+    assert declaration in project["dependencies"]
+
+
+@pytest.mark.parametrize("package,version", SERVING_SECURITY_FLOORS.items())
+def test_serving_security_locks_preserve_python_branches(package, version):
+    lock = REPO / "services/local-deep-researcher/build/config/runtime-requirements.lock"
+    rows = [Requirement(line.rstrip(" \\")) for line in lock.read_text().splitlines()
+            if line.startswith(package + "==")]
+    assert len(rows) == 1
+    row, = rows
+    assert Version(next(iter(row.specifier)).version) >= Version(version)
+    assert row.marker is not None
+    assert row.marker.evaluate({"python_version": "3.11", "python_full_version": "3.11.0"})
+    assert not row.marker.evaluate({"python_version": "3.10", "python_full_version": "3.10.99"})
+
+
+@pytest.mark.parametrize("package,version", SERVING_SECURITY_FLOORS.items())
+def test_combined_project_rejects_a_missing_serving_security_floor(tmp_path, package, version):
+    module = runpy.run_path(str(REPO / "scripts/refresh-local-deep-researcher-lock.py"))
+    canonical = REPO / "services/local-deep-researcher/locks/runtime-pyproject.toml"
+    declaration = f"{package}>={version} ; python_full_version >= '3.11'"
+    project = tmp_path / "pyproject.toml"
+    project.write_text(canonical.read_text().replace(f'    "{declaration}",\n', ""))
+    with pytest.raises(SystemExit, match=re.escape(declaration)):
+        module["_validate_combined_project"](project, EXPECTED_CLI)
+
+
+def test_combined_project_rejects_a_missing_certificate_security_floor(tmp_path):
+    module = runpy.run_path(str(REPO / "scripts/refresh-local-deep-researcher-lock.py"))
+    canonical = REPO / "services/local-deep-researcher/locks/runtime-pyproject.toml"
+    module["_validate_combined_project"](canonical, EXPECTED_CLI)
+    project = tmp_path / "pyproject.toml"
+    project.write_text(canonical.read_text().replace('    "certifi>=2026.10.19",\n', ""))
+    with pytest.raises(SystemExit, match=re.escape("certifi>=2026.10.19")):
+        module["_validate_combined_project"](project, EXPECTED_CLI)
+
+
+def test_combined_project_accepts_uv_rendered_security_floors(tmp_path):
+    # refresh() validates the pyproject that `uv add` rewrites. uv renders
+    # markers as `name>=x ; python_full_version >= ...`, so the declared
+    # floors must use that exact form or every refresh fails validation.
+    import shutil
+
+    if not shutil.which("uv"):
+        pytest.skip("uv is not installed")
+    module = runpy.run_path(str(REPO / "scripts/refresh-local-deep-researcher-lock.py"))
+    project = tmp_path / "pyproject.toml"
+    project.write_text(
+        '[project]\nname = "uv-rendered"\nversion = "0"\n'
+        'requires-python = ">=3.10"\ndependencies = []\n',
+        encoding="utf-8",
+    )
+    subprocess.run(
+        [
+            "uv", "add", "--project", str(tmp_path), "--frozen",
+            f"langgraph-cli[inmem]=={EXPECTED_CLI}",
+            *module["BUILD_DEPENDENCIES"], *module["SECURITY_DEPENDENCIES"],
+        ],
+        capture_output=True, check=True, env={**os.environ, "UV_OFFLINE": "1"},
+    )
+    module["_validate_combined_project"](project, EXPECTED_CLI)
 
 
 def test_runtime_helper_reuses_a_healthy_virtual_environment(tmp_path):
@@ -198,25 +288,6 @@ def test_runtime_lock_generator_is_byte_equivalent():
     )
 
 
-def test_runtime_lock_generator_falls_back_to_tomli(monkeypatch):
-    script_path = REPO / "scripts/refresh-local-deep-researcher-lock.py"
-    tomli = ModuleType("tomli")
-    tomli.loads = lambda _text: {}  # type: ignore[attr-defined]
-    monkeypatch.setitem(sys.modules, "tomli", tomli)
-
-    real_import = builtins.__import__
-
-    def import_without_tomllib(name, *args, **kwargs):
-        if name == "tomllib":
-            raise ModuleNotFoundError("No module named 'tomllib'")
-        return real_import(name, *args, **kwargs)
-
-    monkeypatch.setattr(builtins, "__import__", import_without_tomllib)
-    namespace = runpy.run_path(str(script_path), run_name="refresh_ldr_lock_test")
-
-    assert namespace["tomllib"] is tomli
-
-
 def test_runtime_lock_check_fails_on_byte_drift(tmp_path, monkeypatch):
     script_path = REPO / "scripts/refresh-local-deep-researcher-lock.py"
     spec = importlib.util.spec_from_file_location("refresh_ldr_lock", script_path)
@@ -243,3 +314,174 @@ def test_runtime_lock_check_fails_on_byte_drift(tmp_path, monkeypatch):
 
     with pytest.raises(SystemExit, match="runtime lock drift"):
         module.check()
+
+
+# The registered LDR runtime audit projects the shipped Linux Python 3.11 container
+# before pip-audit collects pins.
+_LDR_AUDIT_LOCK = "services/local-deep-researcher/build/config/runtime-requirements.lock"
+
+
+def _audit_marker_host(version, system, machine):
+    return {
+        "implementation_name": "cpython", "implementation_version": version,
+        "python_full_version": version, "python_version": ".".join(version.split(".")[:2]),
+        "platform_python_implementation": "CPython", "os_name": "posix",
+        "sys_platform": "linux" if system == "Linux" else "darwin",
+        "platform_system": system, "platform_machine": machine,
+        "platform_release": "", "platform_version": "",
+    }
+
+
+def _marker_audit_lock(root, text):
+    lock = root / _LDR_AUDIT_LOCK
+    lock.parent.mkdir(parents=True)
+    lock.write_text(text, encoding="utf-8")
+    return _runtime_audit_spec(_LDR_AUDIT_LOCK)
+
+
+def _collector_marker_pairs(text, environment):
+    pairs = {}
+    for line in text.splitlines():
+        if not re.match(r"^[A-Za-z0-9_.-]+(?:\[[^]]+\])?==", line):
+            continue
+        requirement = Requirement(line.removesuffix("\\").strip())
+        if requirement.marker is None or requirement.marker.evaluate(environment):
+            pairs[requirement.name] = str(next(iter(requirement.specifier)).version)
+    return pairs
+
+
+def _marker_collector(monkeypatch, environment, captured):
+    def collect(command, **kwargs):
+        text = Path(command[command.index("-r") + 1]).read_text()
+        pairs = _collector_marker_pairs(text, environment)
+        captured.update(text=text, pairs=pairs)
+        payload = {"dependencies": [
+            {"name": name, "version": version, "vulns": []}
+            for name, version in pairs.items()
+        ]}
+        return SimpleNamespace(returncode=0, stdout=json.dumps(payload), stderr="")
+
+    monkeypatch.setattr(audit_runtime_locks, "run_bounded", collect)
+
+
+@pytest.mark.parametrize("host", [
+    ("3.10.12", "Darwin", "arm64"),
+    ("3.11.17", "Darwin", "arm64"),
+    ("3.12.9", "Linux", "x86_64"),
+])
+def test_registered_ldr_audit_projects_the_shipped_runtime_before_collection(tmp_path, monkeypatch, host):
+    digest = "a" * 64
+    rows = [
+        "safe==1.0",
+        "langgraph-api==0.13.5 ; python_full_version >= '3.11'",
+        "opentelemetry-api==1.42.1 ; python_full_version >= '3.11'",
+        "greenlet==3.2.3 ; sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64')",
+        "cffi==1.17.1 ; python_full_version < '3.11' and platform_python_implementation == 'PyPy'",
+        "cffi==2.1.1 ; python_full_version >= '3.11'",
+        "numpy==2.2.6 ; python_full_version < '3.11'",
+        "numpy==2.3.2 ; python_full_version >= '3.11'",
+        "uuid-utils==0.14.1 ; python_full_version < '3.11'",
+        "uuid-utils==0.17.1 ; python_full_version >= '3.11'",
+    ]
+    text = "# frozen export\n\n" + "".join(
+        f"{row} \\\n    --hash=sha256:{digest} \\\n    --hash=sha256:{digest}\n# via serving family\n" for row in rows
+    )
+    spec = _marker_audit_lock(tmp_path, text)
+    captured = {}
+    _marker_collector(monkeypatch, _audit_marker_host(*host), captured)
+    assert audit_runtime_locks.audit_spec(spec, root=tmp_path) == []
+    assert captured["pairs"] == {
+        "safe": "1.0", "langgraph-api": "0.13.5", "opentelemetry-api": "1.42.1",
+        "greenlet": "3.2.3", "cffi": "2.1.1", "numpy": "2.3.2", "uuid-utils": "0.17.1",
+    }
+    assert ";" not in captured["text"] and "--hash" not in captured["text"]
+    assert (tmp_path / _LDR_AUDIT_LOCK).read_text() == text
+
+
+@pytest.mark.parametrize("dependencies", [
+    [],
+    [{"name": "safe", "version": "2.0", "vulns": []}],
+    [{"name": "safe", "version": "1.0", "vulns": []}, {"name": "extra", "version": "1.0", "vulns": []}],
+    [{"name": "safe", "version": "1.0", "skip_reason": "not collected"}],
+    [{"name": "safe", "version": "1.0", "vulns": []}] * 2,
+    [{"name": "safe", "vulns": []}],
+    "not a dependency list",
+])
+def test_registered_ldr_audit_rejects_incomplete_collector_coverage(tmp_path, monkeypatch, dependencies):
+    spec = _marker_audit_lock(tmp_path, "safe==1.0\n")
+    monkeypatch.setattr(audit_runtime_locks, "run_bounded", lambda *_args, **_kwargs: SimpleNamespace(
+        returncode=0, stdout=json.dumps({"dependencies": dependencies}), stderr="",
+    ))
+    failures = audit_runtime_locks.audit_spec(spec, root=tmp_path)
+    assert failures and all("coverage" in failure for failure in failures)
+
+
+@pytest.mark.parametrize("text", [
+    "same==1.0 ; python_full_version >= '3.11'\nsame==2.0 ; python_full_version >= '3.11'\n",
+    "safe==1.0 \\\n",
+    "safe==1.0 ; python_full_version ??? '3.11'\n",
+    "safe>=1.0\n",
+    "safe @ https://user:secret@example.invalid/private.whl\n",
+    "safe==1.0 \\\n    --hash=sha256:bad\n",
+])
+def test_registered_ldr_audit_rejects_ambiguous_or_malformed_projection(tmp_path, monkeypatch, text):
+    spec = _marker_audit_lock(tmp_path, text)
+    calls = []
+    monkeypatch.setattr(audit_runtime_locks, "run_bounded", lambda *_args, **_kwargs: (
+        calls.append(True) or SimpleNamespace(returncode=0, stdout='{"dependencies": []}', stderr="")
+    ))
+    failures = audit_runtime_locks.audit_spec(spec, root=tmp_path)
+    assert failures and all("projection" in failure for failure in failures)
+    assert "secret" not in " ".join(failures)
+    assert calls == []
+
+
+def test_registered_ldr_audit_coalesces_matching_active_duplicates(tmp_path, monkeypatch):
+    spec = _marker_audit_lock(tmp_path, "safe==1.0\nsafe==1.0 ; python_full_version >= '3.11'\n")
+    captured = {}
+    _marker_collector(monkeypatch, _audit_marker_host("3.10.12", "Darwin", "arm64"), captured)
+    assert audit_runtime_locks.audit_spec(spec, root=tmp_path) == []
+    assert captured["text"].splitlines() == ["safe==1.0"]
+
+
+def test_unprojected_audit_specs_keep_their_original_marker_input(tmp_path, monkeypatch):
+    text = "safe==1.0 ; python_full_version >= '3.11'\n"
+    (tmp_path / "other.txt").write_text(text)
+    captured = {}
+    _marker_collector(monkeypatch, _audit_marker_host("3.12.9", "Linux", "x86_64"), captured)
+    assert audit_runtime_locks.audit_spec(audit_runtime_locks.AuditSpec("other.txt"), root=tmp_path) == []
+    assert captured["text"] == text
+
+
+def test_ldr_audit_marker_context_matches_the_shipped_container():
+    root = Path(__file__).resolve().parents[2]
+    build = root / "services/local-deep-researcher/build"
+    dockerfile = (build / "Dockerfile").read_text()
+    entrypoint = (build / "scripts/docker-entrypoint.sh").read_text()
+    version = re.search(r"LOCAL_DEEP_RESEARCHER_IMAGE:-python:([\d.]+)-slim", dockerfile)[1]
+    environments = _runtime_audit_spec(_LDR_AUDIT_LOCK).marker_environments
+    assert {environment["platform_machine"] for environment in environments} == {"x86_64", "aarch64"}
+    assert all(environment["python_full_version"] == version for environment in environments)
+    assert all(environment["implementation_version"] == version for environment in environments)
+    assert all(environment["python_version"] == "3.11" for environment in environments)
+    assert all(environment["sys_platform"] == "linux" for environment in environments)
+    assert all(environment["implementation_name"] == "cpython" for environment in environments)
+    assert 'ensure_python_venv "$VENV_DIR" 3.11' in entrypoint
+    assert 'uv pip sync --python "$VENV_PYTHON" --require-hashes "$RUNTIME_LOCK"' in entrypoint
+
+
+@pytest.mark.parametrize("machine", ["x86_64", "aarch64"])
+def test_registered_ldr_audit_collects_current_container_pins_on_another_host(monkeypatch, machine):
+    root = Path(__file__).resolve().parents[2]
+    spec = _runtime_audit_spec(_LDR_AUDIT_LOCK)
+    text = (root / spec.lock).read_text()
+    expected = _collector_marker_pairs(text, _audit_marker_host("3.11.15", "Linux", machine))
+    captured = {}
+    _marker_collector(monkeypatch, _audit_marker_host("3.10.12", "Darwin", "arm64"), captured)
+    assert audit_runtime_locks.audit_spec(spec, root=root) == []
+    assert captured["pairs"] == expected
+    assert "greenlet" in captured["pairs"]
+    assert "langgraph-api" in captured["pairs"]
+    assert "opentelemetry-api" in captured["pairs"]
+    assert ";" not in captured["text"] and "--hash" not in captured["text"]
+    assert (root / spec.lock).read_text() == text

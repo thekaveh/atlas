@@ -5,7 +5,7 @@ from typing import Dict, Any, List, Optional
 
 
 class N8nResponseError(RuntimeError):
-    """n8n returned an unusable successful workflow-list response."""
+    """n8n returned an unusable successful workflow response."""
 
 
 def _workflow_page(response):
@@ -91,7 +91,10 @@ class N8nClient:
             headers=self.headers,
         )
         response.raise_for_status()
-        return response.json()
+        try:
+            return response.json()
+        except (ValueError, RecursionError) as exc:
+            raise N8nResponseError("n8n returned malformed workflow JSON") from exc
 
     async def get_execution(self, execution_id: str) -> Dict[str, Any]:
         """Get an execution by ID"""

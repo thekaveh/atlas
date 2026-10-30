@@ -157,7 +157,7 @@ def _environment(tmp_path: Path, manifest: Path, models: Path, fakebin: Path, co
     env = os.environ.copy()
     env.update(
         {
-            "PATH": f"{fakebin}:/opt/homebrew/bin:/usr/bin:/bin",
+            "PATH": f"{fakebin}{os.pathsep}{os.environ.get('PATH', os.defpath)}",
             "COMFYUI_MANIFEST_TSV": str(manifest),
             "COMFYUI_MODELS_PATH": str(models),
             "COMFYUI_DOWNLOAD_CONNECT_TIMEOUT_SECONDS": "1",

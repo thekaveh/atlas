@@ -55,13 +55,13 @@ For TUI/CLI visual work: after each change, describe exactly what changed visual
 
 Build validation runs on every workflow run and is a required check in the live `gitflow` ruleset. Despite its name, it builds no local Dockerfile. It verifies the pinned remote build contexts against their reviewed base-image digests and scans changed remote images. Local Dockerfile and requirements breakage shows in `Final-image scan (local Compose and init images)`, which is not a required check.
 
-When an upstream floating tag (`nginx:alpine`, `node:20`, `python:3.12-slim`) is republished, build validation fails on every pull request. It passes again after you refresh the reviewed digest in three places: `.container-scan-exclusions.yml`, the `test_container_security.py` fixture and the row in `docs/maintenance/external-contract-ledger.md`.
+When an upstream floating tag (`nginx:alpine`, `node:20`, `python:3.12-slim`) is republished, build validation fails on every pull request. It passes again after you refresh the reviewed digest in `.container-scan-exclusions.yml` and the `test_container_security.py` fixture. Update the row in `docs/maintenance/external-contract-ledger.md` and record the review in a new dated §7.2 evidence subsection. For `python:3.12-slim`, also point the ledger provenance assertions in `test_container_security.py` at that subsection.
 
 `Manifest lint + unit tests` is an aggregate gate (job `required-lint`, `if: always()`). It succeeds only when four parallel jobs all succeed:
 
 - `lint`: the bootstrapper suite with the container-backed integration tests, manifest lint, shell lint, title and changelog checks, and the Backend suite. Container cleanup always runs.
 - `unit-fast`: the whole bootstrapper suite without a Docker daemon (the early red signal).
-- `python-floor`: the full suite on Python 3.10.
+- `python-floor`: the full suite on Python 3.11.
 - `component-tests`: the MCP and asset API suites.
 
 A new push or edit to a pull request cancels its superseded `services-lint` run. Title edits rerun the full workflow. Runs on `main` and `develop` are never cancelled.
@@ -208,7 +208,7 @@ The `.env` reader accepts `KEY=value` and single-line literal values. It rejects
 
 Consumer `env.values` pins may use `{value: SCALAR, reason: TEXT}`. Doctor reports reasons, and source overrides warn when replacing those pins. See [pin reasons](docs/reference/consumer-manifest.md#35-pin-reasons).
 
-Dependencies are managed via `uv` (with a pip fallback) and declared in `bootstrapper/pyproject.toml`, including the Python-version markers needed at the supported Python `>=3.10` floor. Treat that file and `bootstrapper/uv.lock` as the dependency source of truth rather than duplicating the inventory here.
+Dependencies are managed via `uv` (with a pip fallback) and declared in `bootstrapper/pyproject.toml`, which requires Python `>=3.11`. Treat that file and `bootstrapper/uv.lock` as the dependency source of truth rather than duplicating the inventory here.
 
 **Brand customization.** `BRAND_*` env vars in `.env` configure the wizard's brand panel and info box. They set brand name, tagline, version, author, author email, license and repo URL. Defaults are Atlas; forks can rebrand by setting these. See the `BRAND_*` block in `.env.example`.
 

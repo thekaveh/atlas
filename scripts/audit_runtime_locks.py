@@ -6,9 +6,13 @@ import json
 import re
 import time
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from pathlib import Path
+
+from packaging.requirements import Requirement
+from packaging.utils import canonicalize_name
+from packaging.version import Version
 
 from scripts.bounded_subprocess import (
     CommandLaunchError,
@@ -38,6 +42,7 @@ class AuditSpec:
     reviewed_local_versions: frozenset[str] = frozenset()
     display_name: str | None = None
     review_by: date | None = None
+    marker_environments: tuple[dict[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -45,6 +50,27 @@ class SourceSpec:
     requirements: str
     python_platform: str = "x86_64-manylinux_2_28"
     reviewed_advisories: frozenset[str] = frozenset()
+
+
+def _cpython_marker_environment(
+    system: str, machine: str, python_full: str
+) -> dict[str, str]:
+    """Return the PEP 508 marker environment of one CPython target."""
+    return {
+        "implementation_name": "cpython", "implementation_version": python_full,
+        "os_name": "posix", "platform_machine": machine,
+        "platform_release": "", "platform_system": system, "platform_version": "",
+        "python_full_version": python_full, "platform_python_implementation": "CPython",
+        "python_version": ".".join(python_full.split(".")[:2]),
+        "sys_platform": system.lower(),
+    }
+
+
+# Project the shipped LDR container, independently of pip-audit's interpreter.
+_LDR_LINUX311_MARKER_ENVIRONMENTS = tuple(
+    _cpython_marker_environment("Linux", machine, "3.11.15")
+    for machine in ("x86_64", "aarch64")
+)
 
 
 # PYSEC-2026-2447 (diskcache) and PYSEC-2026-3046 (ragas) were re-verified on
@@ -74,20 +100,13 @@ AUDIT_SPECS = (
         # passes no cache backend, so Ragas never creates or reads a disk cache.
         # ragas==0.4.3: PYSEC-2026-3046 has no fixed release; notebook 14 imports
         # only four text metrics and never the multimodalfaithfulness helper.
-        # nltk==3.10.3: PYSEC-2026-3740 has no fixed release — the advisory's
-        # affected range ends at last_affected 3.10.3, the same version that
-        # fixed the earlier PYSEC-2026-3733..3741 set. It needs a
-        # caller-controlled model path to reach the model-artifact APIs. Atlas
-        # touches nltk only through install_nlp_assets.py, which resolves the
-        # VADER lexicon from a build-time constant and is integrity-locked by
-        # nlp-assets.toml; notebooks run SentimentIntensityAnalyzer over
-        # in-memory text and never supply an artifact location.
+        # NLTK 3.10.4 routes the six model-artifact APIs through pathsec;
+        # PYSEC-2026-3740 is fixed rather than retained as an exception.
         # Atlas maintainers own re-review by 2026-11-27.
         frozenset(
             {
                 "PYSEC-2026-2447",
                 "PYSEC-2026-3046",
-                "PYSEC-2026-3740",
             }
         ),
         review_by=date(2026, 11, 27),
@@ -107,12 +126,19 @@ AUDIT_SPECS = (
         # operator-configured PARAKEET_MODEL. NeMo restore routes Hydra through
         # safe_instantiate's recursive target allowlist and bypasses Lightning
         # load_from_checkpoint; request payloads cannot choose or upload a model.
+        # PYSEC-2026-4217 (fsspec 2024.12.0, fixed in 2026.6.0) and
+        # PYSEC-2026-4221 (hydra-core 1.3.2, fixed in 1.3.6) sit behind the same
+        # caps: Lightning 2.4.0 requires fsspec[http]<2026.0, and NeMo admits only
+        # hydra-core>1.3,<=1.3.2. Their reachability is NOT proven; the owner
+        # approved a time-boxed exception on 2026-10-29 instead of a red gate.
         # Atlas maintainers own re-review by 2026-11-27.
         frozenset(
             {
                 "PYSEC-2026-3624",
                 "PYSEC-2026-3850",
                 "PYSEC-2026-3972",
+                "PYSEC-2026-4217",
+                "PYSEC-2026-4221",
             }
         ),
         review_by=date(2026, 11, 27),
@@ -141,7 +167,10 @@ AUDIT_SPECS = (
     ),
     AuditSpec("services/mcp-servers/runtime/requirements-test-locked.txt"),
     AuditSpec("services/asset-worker/app/requirements-test-locked.txt"),
-    AuditSpec("services/local-deep-researcher/build/config/runtime-requirements.lock"),
+    AuditSpec(
+        "services/local-deep-researcher/build/config/runtime-requirements.lock",
+        marker_environments=_LDR_LINUX311_MARKER_ENVIRONMENTS,
+    ),
     AuditSpec("services/requirements-init-locked.txt"),
     AuditSpec("services/comfyui/custom-node-locks/instantid.txt"),
     AuditSpec("services/comfyui/custom-node-locks/gguf.txt"),
@@ -153,6 +182,21 @@ UV_PROJECTS = (
     "bootstrapper",
     "services/docling/provider/localhost",
 )
+
+# uv exports are universal, but pip-audit drops every row whose marker is false
+# on the CI runner. A project listed here is projected onto each named target
+# and audited once per target, so a platform-only branch such as the Docling
+# localhost provider's macOS SciPy is audited too. Each target applies the
+# project's reviewed exceptions on its own, so an exception that matches no live
+# finding on one target fails there as stale. A platform-only advisory therefore
+# needs target-scoped exceptions before it can be reviewed here.
+_DOCLING_LOCALHOST_MARKER_ENVIRONMENTS = {
+    f"{system.lower()}-{machine}": _cpython_marker_environment(system, machine, "3.11.15")
+    for system, machine in (("Linux", "x86_64"), ("Linux", "aarch64"), ("Darwin", "arm64"))
+}
+UV_PROJECT_MARKER_ENVIRONMENTS: dict[str, dict[str, dict[str, str]]] = {
+    "services/docling/provider/localhost": _DOCLING_LOCALHOST_MARKER_ENVIRONMENTS,
+}
 
 # Reviewed advisory exceptions for uv-managed projects, keyed by project path.
 # Same contract as AuditSpec: every entry needs a rationale and a review
@@ -176,18 +220,11 @@ NPM_PROJECTS = (
 # entry that stops matching a live finding fails as stale. npm audit reports
 # each advisory as a GitHub advisory URL, so entries are GHSA ids.
 NPM_PROJECT_EXCEPTIONS: dict[str, tuple[frozenset[str], date]] = {
-    # GHSA-vfj7-8cjw-p6xm (braces <=3.0.3: stack exhaustion on deeply nested
-    # brace patterns) reaches the asset worker only through
-    # @gltf-transform/cli 4.5.1 -> micromatch 4.0.8 -> braces 3.0.3, and 3.0.3
-    # is the newest braces release, so there is nothing to upgrade to. The CLI
-    # builds patterns only from its own constants and from --pattern/--slots,
-    # and asset_worker/runner.py runs inspect, validate and optimize with fixed
-    # flags, so no request input reaches braces (#1332). Remove it when a
-    # braces release fixes it.
-    "services/asset-worker/app": (
-        frozenset({"GHSA-vfj7-8cjw-p6xm"}),
-        date(2026, 12, 31),
-    ),
+    # zod 3.25.76 (GHSA-mrhx-c7xc-m3w5, fixed in 4.6.6): n8n-workflow 2.45.1 and
+    # @n8n/expression-runtime 0.36.1 pin it exactly, and 0.36.2 (newest on
+    # 2026-10-29) still does. Reachability through the community nodes is NOT
+    # proven; the owner approved a time-boxed exception on 2026-10-29.
+    "services/n8n/init/config": (frozenset({"GHSA-mrhx-c7xc-m3w5"}), date(2026, 11, 28)),
 }
 
 # Every runtime dependency manifest must be represented here, either directly
@@ -308,6 +345,91 @@ def _review_deadline_failures(
     return []
 
 
+def _requirement_blocks(text: str):
+    """Read complete exported requirement/hash blocks without changing the lock."""
+    parts: list[str] = []
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        continued = line.endswith("\\")
+        parts.append(line[:-1].rstrip() if continued else line)
+        if not continued:
+            yield " ".join(parts)
+            parts = []
+    if parts:
+        raise ValueError("unterminated requirement block")
+
+
+def _pinned_requirement(block: str) -> tuple[Requirement, str]:
+    parts = re.split(r"\s+--hash=", block)
+    if any(not re.fullmatch(r"sha256:[0-9a-fA-F]{64}", item) for item in parts[1:]):
+        raise ValueError("invalid requirement hash")
+    requirement = Requirement(parts[0])
+    bounds = list(requirement.specifier)
+    if requirement.url or len(bounds) != 1 or bounds[0].operator != "==":
+        raise ValueError("requirement is not an exact pin")
+    # These contexts have no kernel, extras or dependency-group selection.
+    if requirement.marker and re.search(
+        r"\b(platform_release|platform_version|extra|extras|dependency_groups)\b",
+        str(requirement.marker),
+    ):
+        raise ValueError("unsupported marker context")
+    return requirement, str(Version(bounds[0].version))
+
+
+def _project_requirements(text: str, environments: tuple[dict[str, str], ...]):
+    selected: dict[str, str] = {}
+    for block in _requirement_blocks(text):
+        requirement, version = _pinned_requirement(block)
+        if requirement.marker and not any(
+            requirement.marker.evaluate(environment) for environment in environments
+        ):
+            continue
+        name = canonicalize_name(requirement.name)
+        if name in selected and selected[name] != version:
+            raise ValueError("conflicting selected requirement versions")
+        selected[name] = version
+    return "".join(f"{name}=={version}\n" for name, version in selected.items()), frozenset(selected.items())
+
+
+def _reported_pairs(payload: dict) -> frozenset[tuple[str, str]]:
+    dependencies = payload["dependencies"]
+    if not isinstance(dependencies, list):
+        raise ValueError("dependencies are not a list")
+    pairs: set[tuple[str, str]] = set()
+    for dependency in dependencies:
+        pair = _reported_pair(dependency)
+        if pair in pairs:
+            raise ValueError("duplicate reported dependency")
+        pairs.add(pair)
+    return frozenset(pairs)
+
+
+def _reported_pair(dependency: dict) -> tuple[str, str]:
+    if not isinstance(dependency, dict) or "skip_reason" in dependency:
+        raise ValueError("dependency was not collected")
+    name, version = dependency["name"], dependency["version"]
+    if not isinstance(name, str) or not isinstance(version, str):
+        raise ValueError("invalid dependency identity")
+    if not isinstance(dependency.get("vulns"), list):
+        raise ValueError("missing vulnerability results")
+    return canonicalize_name(name, validate=True), str(Version(version))
+
+
+def _coverage_failures(display_name: str, expected: frozenset, payload: dict) -> list[str]:
+    try:
+        reported = _reported_pairs(payload)
+    except (KeyError, TypeError, ValueError):
+        return [f"{display_name}: invalid pip-audit dependency coverage (details redacted)"]
+    if reported != expected:
+        return [
+            f"{display_name}: incomplete pip-audit dependency coverage: "
+            f"{len(expected - reported)} missing, {len(reported - expected)} unexpected"
+        ]
+    return []
+
+
 def audit_spec(
     spec: AuditSpec, *, root: Path = ROOT, today: date | None = None
 ) -> list[str]:
@@ -328,11 +450,23 @@ def audit_spec(
         failures.append(
             f"{display_name}: stale local-version exclusions: {', '.join(stale_local)}"
         )
+    expected = None
+    if spec.marker_environments:
+        try:
+            public_requirements, expected = _project_requirements(
+                public_requirements, spec.marker_environments
+            )
+        except ValueError:
+            return failures + [f"{display_name}: invalid marker projection (details redacted)"]
     payload, audit_failures = _pip_audit_report(
         display_name, public_requirements, root=root
     )
     if payload is None:
-        return audit_failures
+        return failures + audit_failures
+    if expected is not None:
+        coverage_failures = _coverage_failures(display_name, expected, payload)
+        if coverage_failures:
+            return failures + coverage_failures
     found = {
         str(vulnerability["id"])
         for dependency in payload.get("dependencies", [])
@@ -491,15 +625,31 @@ def audit_uv_project(project: str, *, root: Path = ROOT) -> list[str]:
         reviewed, review_by = UV_PROJECT_EXCEPTIONS.get(
             project, (frozenset(), None)
         )
-        return audit_spec(
+        return _audit_uv_export(
+            project,
             AuditSpec(
                 str(lock),
                 reviewed,
                 display_name=f"{project}/uv.lock",
                 review_by=review_by,
             ),
-            root=Path("/"),
         )
+
+
+def _audit_uv_export(project: str, spec: AuditSpec) -> list[str]:
+    """Audit one exported uv lock, once per declared marker target."""
+    environments = UV_PROJECT_MARKER_ENVIRONMENTS.get(project)
+    if not environments:
+        return audit_spec(spec, root=Path("/"))
+    failures: list[str] = []
+    for label, environment in environments.items():
+        target = replace(
+            spec,
+            display_name=f"{spec.display_name} [{label}]",
+            marker_environments=(environment,),
+        )
+        failures.extend(audit_spec(target, root=Path("/")))
+    return failures
 
 
 def audit_npm_project(project: str, *, root: Path = ROOT) -> list[str]:

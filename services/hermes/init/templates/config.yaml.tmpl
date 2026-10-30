@@ -17,7 +17,7 @@ model:
   default: ${HERMES_DEFAULT_MODEL}
   provider: custom
   base_url: http://litellm:4000/v1
-  api_key: ${LITELLM_MASTER_KEY}
+  api_key: ${LITELLM_MASTER_KEY_YAML}
   context_length: ${HERMES_CONTEXT_LENGTH}
 
 # ─── TTS — engine-neutral OpenAI-compatible endpoint ─────────────────
@@ -47,7 +47,7 @@ stt:
   provider: openai
   openai:
     base_url: ${STT_INTERNAL_URL}/v1
-    api_key: ${STT_INTERNAL_API_KEY}
+    api_key: ${STT_INTERNAL_API_KEY_YAML}
     model: whisper-1
 # END-STT
 

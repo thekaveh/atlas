@@ -104,17 +104,29 @@ services:
         set -euo pipefail
         export HADOOP_CONF_DIR=/tmp/atlas-spark-hadoop-conf
         mkdir -p "$${HADOOP_CONF_DIR}"
-        cat > "$${HADOOP_CONF_DIR}/core-site.xml" <<EOF
-        <configuration>
-          <property><name>fs.s3a.endpoint</name><value>http://minio:9000</value></property>
-          <property><name>fs.s3a.endpoint.region</name><value>${MINIO_REGION:-us-east-1}</value></property>
-          <property><name>fs.s3a.path.style.access</name><value>true</value></property>
-          <property><name>fs.s3a.connection.ssl.enabled</name><value>false</value></property>
-          <property><name>fs.s3a.aws.credentials.provider</name><value>org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider</value></property>
-          <property><name>fs.s3a.access.key</name><value>${MINIO_SPARK_ACCESS_KEY}</value></property>
-          <property><name>fs.s3a.secret.key</name><value>${MINIO_SPARK_SECRET_KEY}</value></property>
-        </configuration>
-        EOF
+        # Serialize literal daemon credentials as XML text, preserving & and <.
+        python3 - <<'PY'
+        import os
+        import xml.etree.ElementTree as ET
+
+        configuration = ET.Element("configuration")
+        for name, value in (
+            ("fs.s3a.endpoint", "http://minio:9000"),
+            ("fs.s3a.endpoint.region", os.environ["AWS_REGION"]),
+            ("fs.s3a.path.style.access", "true"),
+            ("fs.s3a.connection.ssl.enabled", "false"),
+            ("fs.s3a.aws.credentials.provider", "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider"),
+            ("fs.s3a.access.key", os.environ["AWS_ACCESS_KEY_ID"]),
+            ("fs.s3a.secret.key", os.environ["AWS_SECRET_ACCESS_KEY"]),
+        ):
+            entry = ET.SubElement(configuration, "property")
+            ET.SubElement(entry, "name").text = name
+            ET.SubElement(entry, "value").text = value
+        ET.ElementTree(configuration).write(
+            os.path.join(os.environ["HADOOP_CONF_DIR"], "core-site.xml"),
+            encoding="utf-8",
+        )
+        PY
         exec /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077 --webui-port 8081
     depends_on:
       spark-master:
@@ -297,10 +309,14 @@ services:
       minio-init:
         condition: service_completed_successfully
     entrypoint: ["sh", "-c"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    # Keys on stdin, not argv: argv is world-readable in /proc while mc runs.
     command:
       - |
         set -e
-        mc alias set minio http://minio:9000 "${MINIO_ROOT_USER}" "${MINIO_ROOT_PASSWORD}"
+        printf '%s\n%s\n' "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}" | mc alias set minio http://minio:9000 >/dev/null
         mc mb --ignore-existing minio/${MINIO_BUCKET_SPARK_HISTORY:-spark-history}
         echo "spark-init: spark-history bucket ready"
     networks:

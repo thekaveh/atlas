@@ -1250,8 +1250,8 @@ services:
     healthcheck:
       test:
       - CMD-SHELL
-      - 'printf ''header = "Authorization: Bearer %s"\n'' "$$API_SERVER_KEY" | curl --fail
-        --silent --show-error -K- http://127.0.0.1:8642/v1/models >/dev/null'
+      - 'printf ''Authorization: Bearer %s\n'' "$$API_SERVER_KEY" | curl --fail
+        --silent --show-error --header @- http://127.0.0.1:8642/v1/models >/dev/null'
       timeout: 10s
       interval: 30s
       retries: 5
@@ -2515,7 +2515,7 @@ services:
       LITELLM_BASE_URL: http://litellm:4000
       LITELLM_DEFAULT_MODEL: ollama/qwen3.8:latest
       LOCAL_DEEP_RESEARCHER_FULL_PAGE_MODE: disabled
-      LOCAL_DEEP_RESEARCHER_LANGGRAPH_CLI_VERSION: 0.4.31
+      LOCAL_DEEP_RESEARCHER_LANGGRAPH_CLI_VERSION: 0.4.32
       LOCAL_DEEP_RESEARCHER_REF: 38f769f84380f2065de76021ac7c5215f88aa39e
       LOCAL_DEEP_RESEARCHER_UPSTREAM_LOCK_SHA256: 26fc35ac377836de6628e5f7b180944c4d4bd50a5e9f0200bd6e663f20e35c1a
       LOCAL_DEEP_RESEARCHER_WORKERS: '3'
@@ -3996,7 +3996,7 @@ services:
     command:
     - 'set -e
 
-      mc alias set minio http://minio:9000 "minioadmin" ""
+      printf ''%s\n%s\n'' "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}" | mc alias set minio http://minio:9000 >/dev/null
 
       mc mb --ignore-existing minio/spark-history
 
@@ -4013,6 +4013,9 @@ services:
     entrypoint:
     - sh
     - -c
+    environment:
+      MINIO_ROOT_PASSWORD: ''
+      MINIO_ROOT_USER: minioadmin
     image: pgsty/mc:RELEASE.2026-09-16T00-00-00Z@sha256:cfc83108c3abb371f8fb84d99c1fdc88f8c237e022409b0081fb7c0a3be634dd
     networks:
       backend-network: null
@@ -4076,17 +4079,19 @@ services:
       args:
         BASE_IMAGE: apache/spark:4.1.2
     command:
-    - "set -euo pipefail\nexport HADOOP_CONF_DIR=/tmp/atlas-spark-hadoop-conf\nmkdir\
-      \ -p \"$${HADOOP_CONF_DIR}\"\ncat > \"$${HADOOP_CONF_DIR}/core-site.xml\" <<EOF\n\
-      <configuration>\n  <property><name>fs.s3a.endpoint</name><value>http://minio:9000</value></property>\n\
-      \  <property><name>fs.s3a.endpoint.region</name><value>us-east-1</value></property>\n\
-      \  <property><name>fs.s3a.path.style.access</name><value>true</value></property>\n\
-      \  <property><name>fs.s3a.connection.ssl.enabled</name><value>false</value></property>\n\
-      \  <property><name>fs.s3a.aws.credentials.provider</name><value>org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider</value></property>\n\
-      \  <property><name>fs.s3a.access.key</name><value></value></property>\n\
-      \  <property><name>fs.s3a.secret.key</name><value></value></property>\n</configuration>\n\
-      EOF\nexec /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077\
-      \ --webui-port 8081\n"
+    - "set -euo pipefail\nexport HADOOP_CONF_DIR=/tmp/atlas-spark-hadoop-conf\nmkdir -p\
+      \ \"$${HADOOP_CONF_DIR}\"\n# Serialize literal daemon credentials as XML text, preserving\
+      \ & and <.\npython3 - <<'PY'\nimport os\nimport xml.etree.ElementTree as ET\n\n\
+      configuration = ET.Element(\"configuration\")\nfor name, value in (\n    (\"fs.s3a.endpoint\"\
+      , \"http://minio:9000\"),\n    (\"fs.s3a.endpoint.region\", os.environ[\"AWS_REGION\"\
+      ]),\n    (\"fs.s3a.path.style.access\", \"true\"),\n    (\"fs.s3a.connection.ssl.enabled\"\
+      , \"false\"),\n    (\"fs.s3a.aws.credentials.provider\", \"org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider\"\
+      ),\n    (\"fs.s3a.access.key\", os.environ[\"AWS_ACCESS_KEY_ID\"]),\n    (\"fs.s3a.secret.key\"\
+      , os.environ[\"AWS_SECRET_ACCESS_KEY\"]),\n):\n    entry = ET.SubElement(configuration,\
+      \ \"property\")\n    ET.SubElement(entry, \"name\").text = name\n    ET.SubElement(entry,\
+      \ \"value\").text = value\nET.ElementTree(configuration).write(\n    os.path.join(os.environ[\"\
+      HADOOP_CONF_DIR\"], \"core-site.xml\"),\n    encoding=\"utf-8\",\n)\nPY\nexec /opt/spark/bin/spark-class\
+      \ org.apache.spark.deploy.worker.Worker spark://spark-master:7077 --webui-port 8081\n"
     depends_on:
       spark-master:
         condition: service_healthy
@@ -4214,7 +4219,7 @@ services:
     healthcheck:
       test:
       - CMD-SHELL
-      - pg_isready -h localhost -U supabase_admin -d postgres
+      - pg_isready -h localhost -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"
       timeout: 5s
       interval: 10s
       retries: 5

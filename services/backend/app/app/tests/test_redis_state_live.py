@@ -639,3 +639,58 @@ def test_an_adopted_reconciliation_that_is_no_longer_pending_keeps_a_ttl() -> No
     changed, ttl = asyncio.run(scenario())
     assert changed is True
     assert ttl > 0
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        ("cancellation_requested", "cancellation_requested", True, False, True),
+        ("cancellation_requested", "cancellation_requested", True, None, True),
+        ("cancellation_requested", "cancellation_requested", False, False, False),
+        ("cancellation_requested", "cancellation_requested", 1, False, False),
+        ("cancellation_requested", "cancellation_requested", "true", False, False),
+        ("queued", "cancellation_requested", True, False, False),
+        ("cancellation_requested", "running", True, False, False),
+        ("cancellation_requested", "succeeded", True, False, False),
+    ],
+)
+def test_transition_lua_keeps_confirmed_cancellation_like_in_memory(case) -> None:
+    """Production runs the transition Lua, not _preserve_confirmed_cancellation:
+    a stale poll keeps a confirmed cancellation identically in both stores."""
+    from media_operation_store import InMemoryMediaOperationStore
+
+    current_status, next_status, confirmed, incoming, expected = case
+
+    async def transition(store, operation_id: str) -> dict:
+        operation = _pending_media(operation_id)
+        operation["budget_tracked"] = False
+        operation["last_payload"].update(status=current_status, provenance={
+            "provider_cancellation_requested": confirmed,
+            "old_observation": "do not merge",
+        })
+        await store.create(operation)
+        provenance = {"poll_observation": "fresh"}
+        if incoming is not None:
+            provenance["provider_cancellation_requested"] = incoming
+        payload = {**operation["last_payload"], "status": next_status, "provenance": provenance}
+        persisted, changed = await store.transition_payload(
+            operation_id, payload, expected_status=current_status
+        )
+        assert changed is True
+        return persisted["last_payload"]
+
+    async def scenario() -> list[dict]:
+        redis_store = RedisMediaOperationStore(_REDIS_URL)
+        operation_id = f"media-cancel-{uuid.uuid4().hex}"
+        try:
+            return [await transition(store, operation_id)
+                    for store in (redis_store, InMemoryMediaOperationStore())]
+        finally:
+            await redis_store._redis.delete(MEDIA_KEY_PREFIX + operation_id)
+            await redis_store.aclose()
+
+    redis_payload, memory_payload = asyncio.run(scenario())
+    assert redis_payload == memory_payload
+    assert redis_payload["status"] == next_status
+    assert redis_payload["provenance"]["provider_cancellation_requested"] is expected
+    assert "old_observation" not in redis_payload["provenance"]

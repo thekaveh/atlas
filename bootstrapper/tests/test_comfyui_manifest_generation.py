@@ -1018,3 +1018,60 @@ def test_sidecar_rows_cannot_escape_the_models_folder(tmp_path, capsys):
     with pytest.raises(ComfyUiMpsError, match="outside"):
         manager._provision_dest({"name": "x", "target_dir": "../../.ssh", "filename": "authorized_keys"})
     assert manager._provision_dest({"name": "y", "target_dir": "checkpoints", "filename": "c.safetensors"})
+
+
+def _comfy_retention_fixture(tmp_path, monkeypatch, case):
+    import start
+    from types import SimpleNamespace
+    from tests.test_cold_cleanup_scope import _stack, _stack_root
+
+    env, _, stack = _stack()
+    env["LLM_PROVIDER_SOURCE"] = "disabled"
+    root = _stack_root(tmp_path)
+    active = root / "volumes/comfyui/active-models.tsv"
+    rows = [dict(name="owned", type="checkpoint", filename="v1-5-pruned-emaonly.safetensors",
+                 download_url="https://synthetic.invalid/model", sha256="", target_dir="checkpoints", source="custom"),
+            dict(name="custom", type="lora", filename="mystery.safetensors",
+                 download_url="https://synthetic.invalid/custom", sha256="", target_dir="loras", source="custom")]
+    full = [ComfyUIManifestGenerator._row_tsv(row) for row in rows]
+    columns = [row.split("\t") for row in full]
+    contents = {
+        "writer8": "\n".join(full) + "\n",
+        "legacy7": "\n".join("\t".join(row[:7]) for row in columns) + "\n",
+        "legacy6": "\n".join("\t".join(row[:6]) for row in columns) + "\n",
+        "truncated5": "\t".join(columns[0][:5]) + "\n",
+        "not-tsv": "SENTINEL_ACTIVE_VALUE\n",
+        "invalid-later-row": full[0] + "\nSENTINEL_ACTIVE_VALUE\n",
+        "empty-filename": "\t".join(columns[0][:2] + [""] + columns[0][3:]) + "\n",
+        "empty-target": "\t".join(columns[0][:5] + [""] + columns[0][6:]) + "\n",
+        "empty": "", "comments": "# no selected models\n", "missing": None,
+    }
+    text = contents[case]
+    if text is None:
+        active.unlink()
+    else:
+        active.write_text(text, encoding="utf-8")
+    monkeypatch.setattr(start, "_exec", lambda project, service, *args: stack.run(
+        ["docker", "exec", f"{project}-{service}", *args]))
+    monkeypatch.setattr(start, "_storage_context", lambda: (env, root, "atlas"))
+    return SimpleNamespace(env=env, root=root, stack=stack)
+
+
+@pytest.mark.parametrize("named", [False, True])
+@pytest.mark.parametrize("case", ["writer8", "legacy7", "legacy6", "truncated5", "not-tsv",
+                                  "invalid-later-row", "empty-filename", "empty-target", "empty", "comments", "missing"])
+def test_storage_cleanup_refuses_malformed_active_model_identities(tmp_path, monkeypatch, case, named):
+    import start
+    from click.testing import CliRunner
+
+    fixture = _comfy_retention_fixture(tmp_path, monkeypatch, case)
+    before = dict(fixture.stack.comfyui)
+    args = ["storage", "clean", "--yes"] + (["--name", "loras/mystery.safetensors"] if named else [])
+    result = CliRunner().invoke(start.main, args)
+    allowed = set(before) if named else {"checkpoints/v1-5-pruned-emaonly.safetensors"}
+    expected = allowed if case in {"empty", "comments"} else set()
+    assert set(before) - set(fixture.stack.comfyui) == expected, result.output
+    assert result.exit_code == 0, result.output
+    assert "SENTINEL_ACTIVE_VALUE" not in result.output
+    if case == "missing":
+        assert "active-models.tsv is missing" in result.output

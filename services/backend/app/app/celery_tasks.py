@@ -218,6 +218,9 @@ class _RagRetryState:
     phase_attempt: int = 0
     infrastructure_attempt: int = 0
     recovery_owner: Optional[str] = None
+    # Backoff exponent while a guarded collection turns the job away; it
+    # consumes neither the phase nor the infrastructure budget.
+    publication_wait_attempt: int = 0
 
     def retry_kwargs(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -226,6 +229,8 @@ class _RagRetryState:
         }
         if self.recovery_owner is not None:
             payload["recovery_owner"] = self.recovery_owner
+        if self.publication_wait_attempt:
+            payload["publication_wait_attempt"] = self.publication_wait_attempt
         return {"ingestion_id": self.ingestion_id, "retry_state": payload}
 
 
@@ -245,6 +250,7 @@ def _rag_retry_state(
         _rag_retry_counter(retry_state, "phase_attempt"),
         _rag_retry_counter(retry_state, "infrastructure_attempt"),
         _rag_recovery_owner(retry_state),
+        _rag_retry_counter(retry_state, "publication_wait_attempt"),
     )
 
 
@@ -311,6 +317,24 @@ def _schedule_rag_retry(task, exc, state: _RagRetryState, countdown: int) -> Non
     )
 
 
+def _retry_rag_busy(task, exc, state: _RagRetryState) -> None:
+    """Reschedule a job that could not be admitted.
+
+    A guarded collection can stay blocked until an active writer finishes or
+    an operator recovers it, so its retries back off with full jitter (capped
+    at 600 s). Execution-lease contention retries after one lease period.
+    """
+    from rag_ingestion import CollectionPublicationBusy, ingestion_execution_lease_seconds
+
+    state = replace(state, recovery_owner=None)
+    if isinstance(exc, CollectionPublicationBusy):
+        state = replace(state, publication_wait_attempt=state.publication_wait_attempt + 1)
+        countdown = _rag_retry_countdown(state.publication_wait_attempt - 1)
+    else:
+        countdown = ingestion_execution_lease_seconds()
+    _schedule_rag_retry(task, exc, state, countdown)
+
+
 @celery_app.task(
     bind=True,
     name="rag_ingestion",
@@ -347,10 +371,7 @@ def rag_ingestion_task(
             ),
         )
     except IngestionExecutionBusy as exc:
-        state = replace(state, recovery_owner=None)
-        _schedule_rag_retry(
-            self, exc, state, ingestion_execution_lease_seconds()
-        )
+        _retry_rag_busy(self, exc, state)
     except IngestionExecutionLeaseLost as exc:
         # Counted like a Redis outage: an unbounded lease-lost loop kept the
         # record "running" forever (2026-10-08 run, cycle 12).

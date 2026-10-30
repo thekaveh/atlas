@@ -291,3 +291,88 @@ def test_base_port_change_rewrites_indented_and_byte_order_marked_lines(tmp_path
     values = ConfigParser(str(tmp_path)).parse_env_file()
     assert values["BASE_PORT"] == "64000" and values["LITELLM_PORT"].startswith("640")
     assert not env.read_bytes().startswith(b"\xef\xbb\xbf")
+
+
+def _private_port_change_starter(tmp_path, monkeypatch, text):
+    from types import SimpleNamespace
+    from core.port_manager import PortManager
+    from start import AtlasStarter
+
+    path = tmp_path / ".env"
+    path.write_text(text, encoding="utf-8")
+    monkeypatch.setenv("ATLAS_ENV_FILE", str(path))
+    manager = PortManager(str(_real_root()))
+    monkeypatch.setattr(manager, "get_port_conflicts", lambda _base: {})
+
+    def forbidden(*_args, **_kwargs):
+        pytest.fail("private config regression must not probe sockets or stop services")
+
+    monkeypatch.setattr(manager, "check_port_availability", forbidden)
+    starter = AtlasStarter.__new__(AtlasStarter)
+    starter.config_parser = manager.config_parser
+    starter.port_manager = manager
+    starter.base_port_auto_chosen = False
+    starter.stopped_previous_instance = False
+    starter._env_user_keys = set()
+    starter.banner = SimpleNamespace(show_status_message=lambda *_args: None)
+    starter.docker_manager = SimpleNamespace(
+        are_project_containers_running=lambda: False, stop_services=forbidden,
+    )
+    return starter, path
+
+
+@pytest.mark.parametrize("case", [
+    ("BASE_PORT=63000", "BASE_PORT=64000"),
+    ("export BASE_PORT=63000", "export BASE_PORT=64000"),
+    ('BASE_PORT="63000"', "BASE_PORT=64000"),
+    ("BASE_PORT='63000'", "BASE_PORT=64000"),
+    ('BASE_PORT=" 63000 "', "BASE_PORT=64000"),
+    ("export BASE_PORT=' 63000 ' # anchor", "export BASE_PORT=64000 # anchor"),
+    ("  export\tBASE_PORT \t= ' 63000 '\t# anchor", "  export\tBASE_PORT \t= '64000'\t# anchor"),
+    ('BASE_PORT=63000\nexport BASE_PORT=" 63000 "', "BASE_PORT=64000\nexport BASE_PORT=64000"),
+    ('BASE_PORT="63000"\t# anchor', 'BASE_PORT="64000"\t# anchor'),
+    ("BASE_PORT='63000'# anchor", "BASE_PORT='64000'# anchor"),
+    ('BASE_PORT=" 63000 "# anchor', 'BASE_PORT="64000"# anchor'),
+    ("BASE_PORT='63000' \t# anchor", "BASE_PORT='64000' \t# anchor"),
+    ("BASE_PORT='63000'\t # anchor", "BASE_PORT=64000\t # anchor"),
+])
+def test_quoted_base_port_change_stays_persisted_on_next_flagless_start(
+    tmp_path, monkeypatch, case,
+):
+    original, expected = case
+    unrelated = "OTHER='keep\vBASE_PORT=12345'\n"
+    starter, path = _private_port_change_starter(
+        tmp_path, monkeypatch, original + "\nKONG_HTTP_PORT=63000\n" + unrelated,
+    )
+    assert int(starter.config_parser.parse_env_file()["BASE_PORT"].strip()) == 63000
+    assert starter.handle_port_configuration(64000) is True
+    assert starter.config_parser.parse_env_file()["KONG_HTTP_PORT"] == "64000"
+    assert starter.handle_port_configuration(None) is True
+    values = starter.config_parser.parse_env_file()
+    assert values["BASE_PORT"] == "64000"
+    assert values["KONG_HTTP_PORT"] == "64000"
+    assert values["OTHER"] == "keep\vBASE_PORT=12345"
+    assert path.read_text(encoding="utf-8") == expected + "\nKONG_HTTP_PORT=64000\n" + unrelated
+
+
+@pytest.mark.parametrize("case", [
+    ("BASE_PORT=63000", ("BASE_PORT=", "63000", "")),
+    ("BASE_PORT=", ("BASE_PORT=", "", "")),
+    ("BASE_PORT=63000  # note", ("BASE_PORT=", "63000", "  # note")),
+    ('BASE_PORT="63000"', ("BASE_PORT=", '"63000"', "")),
+    ('BASE_PORT=" 63000 "', ("BASE_PORT=", '" 63000 "', "")),
+    ("\texport BASE_PORT=' 63000 '\t# note", ("\texport BASE_PORT=", "' 63000 '", "\t# note")),
+])
+def test_port_assignment_capture_groups_stay_on_the_same_line(case):
+    import re
+    from core.port_manager import _assignment_pattern
+
+    assignment, expected = case
+    text = assignment + "\nNEXT=keep\n"
+    pattern = re.compile(_assignment_pattern("BASE_PORT"), re.MULTILINE)
+    assert pattern.groups == 3
+    match = pattern.search(text)
+    assert match is not None
+    assert match.group(0) == assignment
+    assert match.groups() == expected
+    assert pattern.sub(r"\g<1>64000\g<3>", text) == expected[0] + "64000" + expected[2] + "\nNEXT=keep\n"

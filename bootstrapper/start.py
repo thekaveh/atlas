@@ -448,7 +448,10 @@ from core.launch_outcome import (
     started_without,
 )
 from utils.localhost_validator import LocalhostValidator
-from core.config_parser import ConfigParser, DEFAULT_BASE_PORT, DEFAULT_PROJECT_NAME
+from core.config_parser import (
+    ConfigParser, DEFAULT_BASE_PORT, DEFAULT_PROJECT_NAME,
+    external_env_user_overlay_path, parse_env_overlay_file,
+)
 from core.docker_manager import DockerManager
 from core.port_manager import PortManager
 from core.process_runner import (
@@ -1312,33 +1315,6 @@ class AtlasStarter:
         """Return the optional user-owned env overlay next to the active .env."""
         return self.config_parser.env_file_path.parent / ".env.user"
 
-    def _external_env_user_overlay_path(self) -> Optional[Path]:
-        """Return the optional external env overlay from ATLAS_ENV_USER_FILE."""
-        raw_path = os.environ.get("ATLAS_ENV_USER_FILE", "").strip()
-        if not raw_path:
-            return None
-
-        overlay_path = Path(raw_path).expanduser()
-        if not overlay_path.is_absolute():
-            invoker_cwd = os.environ.get("ATLAS_INVOKER_CWD", "").strip()
-            base_dir = Path(invoker_cwd).expanduser() if invoker_cwd else Path.cwd()
-            overlay_path = base_dir / overlay_path
-        return overlay_path.resolve()
-
-    def _parse_env_overlay_file(self, overlay_path: Path) -> Dict[str, str]:
-        """Parse a user env overlay with the same line semantics as .env: the
-        `export ` prefix Compose accepts, and the shared value decoder."""
-        from utils.atomic_write import decode_env_assignment
-
-        env_vars: Dict[str, str] = {}
-        with open(overlay_path, "r", encoding="utf-8-sig") as f:  # BOM-tolerant (#1391)
-            for line_number, line in enumerate(f, 1):
-                assignment = decode_env_assignment(line, origin=f"{overlay_path}:{line_number}")
-                if assignment is not None:
-                    key, value = assignment
-                    env_vars[key] = value
-        return env_vars
-
     def _apply_single_env_user_overlay(
         self,
         overlay_path: Path,
@@ -1346,49 +1322,20 @@ class AtlasStarter:
         label: str,
         warn_if_missing: bool,
     ) -> Dict[str, str]:
-        if not overlay_path.exists():
-            if warn_if_missing:
-                self.banner.show_status_message(
-                    f"{label} points to {overlay_path}, but that file does not exist; skipping",
-                    "warning",
-                )
+        if not warn_if_missing and not overlay_path.exists():
             return {}
-        if not overlay_path.is_file():
-            self.banner.show_status_message(
-                f"{label} points to {overlay_path}, but it is not a file; skipping",
-                "warning",
-            )
-            return {}
-
-        try:
-            overrides = self._parse_env_overlay_file(overlay_path)
-        except (OSError, ValueError) as e:
-            self.banner.show_status_message(
-                f"{label} points to {overlay_path}, but it could not be read ({e}); skipping",
-                "warning",
-            )
+        overrides = self.config_parser.read_env_user_overlay(
+            overlay_path, label=label,
+            warn=lambda message: self.banner.show_status_message(message, "warning"),
+        )
+        if overrides is None:
             return {}
 
         if not overrides:
             self.banner.show_status_message(f"  • {overlay_path} has no env overrides", "info")
             return {}
 
-        try:
-            self._merge_env_file_overrides(overrides)
-        except ValueError as e:
-            # `assert_safe_env_assignment` rejects a key or value that would
-            # emit more than one `.env` assignment. An overlay is a hand- or
-            # tool-written file, so a stray form feed or NEL is a plausible
-            # accident rather than an attack — warn and skip with the file
-            # named, like every other failure mode here, instead of aborting
-            # the whole start with a traceback that does not say which overlay
-            # produced it.
-            self.banner.show_status_message(
-                f"{label} points to {overlay_path}, but one of its entries "
-                f"cannot be written safely ({e}); skipping the overlay",
-                "warning",
-            )
-            return {}
+        self._merge_env_file_overrides(overrides)
         self.banner.show_status_message(
             f"  • Applied {overlay_path} ({len(overrides)} override{'s' if len(overrides) != 1 else ''})",
             "info",
@@ -1413,7 +1360,7 @@ class AtlasStarter:
         )
         applied_overrides.update(sibling_overrides)
 
-        external_overlay_path = self._external_env_user_overlay_path()
+        external_overlay_path = external_env_user_overlay_path()
         if external_overlay_path is not None:
             external_overrides = self._apply_single_env_user_overlay(
                 external_overlay_path,
@@ -1493,11 +1440,11 @@ class AtlasStarter:
         applies them: .env.user, ATLAS_ENV_USER_FILE, then consumer
         manifests (or their env files). The last one wins."""
         origins: Dict[str, str] = {}
-        for overlay in (self._env_user_overlay_path(), self._external_env_user_overlay_path()):
+        for overlay in (self._env_user_overlay_path(), external_env_user_overlay_path()):
             if overlay is None or not overlay.is_file():
                 continue
             try:
-                keys = self._parse_env_overlay_file(overlay)
+                keys = parse_env_overlay_file(overlay)
             except Exception:  # noqa: BLE001 - an unreadable overlay sets nothing
                 continue
             origins.update(dict.fromkeys(keys, str(overlay)))
@@ -7885,16 +7832,9 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
     """Start Atlas — the self-hosted engineering platform."""
 
     if consumer_manifests:
-        previous_consumer_manifest = os.environ.get("ATLAS_CONSUMER_MANIFEST")
-        os.environ["ATLAS_CONSUMER_MANIFEST"] = os.pathsep.join(consumer_manifests)
+        from core.consumer_manifest import consumer_manifest_cli_paths
 
-        def _restore_consumer_manifest_env() -> None:
-            if previous_consumer_manifest is None:
-                os.environ.pop("ATLAS_CONSUMER_MANIFEST", None)
-            else:
-                os.environ["ATLAS_CONSUMER_MANIFEST"] = previous_consumer_manifest
-
-        ctx.call_on_close(_restore_consumer_manifest_env)
+        ctx.with_resource(consumer_manifest_cli_paths(consumer_manifests))
 
     if ctx.invoked_subcommand is not None:
         _reject_root_options_for_subcommand(ctx)
@@ -8909,7 +8849,7 @@ def probe_json(post, model: str) -> str:
     try:
         parsed = json.loads(_reply_text(message))
         answered = isinstance(parsed, dict) and float(parsed.get("answer")) == 4
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         answered = False
     return verdict or (PROBE_SUPPORTED if answered else PROBE_UNSUPPORTED)
 
@@ -9139,11 +9079,14 @@ def volume_inventory(project: str, declared: set, sizes: dict) -> list[dict]:
 
 def _retained_comfyui_paths(root: Path) -> set[str]:
     """``target_dir/filename`` of every row in volumes/comfyui/active-models.tsv.
-    Raises OSError when the file is missing: an unknown active set must never
-    read as "nothing is retained"."""
+    Raises OSError when the file is missing, and ValueError when a row lacks a
+    filename or target_dir: an unknown active set must never read as "nothing
+    is retained"."""
     lines = (root / "volumes" / "comfyui" / "active-models.tsv").read_text().splitlines()
     rows = [line.split("\t") for line in lines if line.strip() and not line.startswith("#")]
-    return {f"{row[5].strip('/')}/{row[2]}" for row in rows if len(row) > 5 and row[2]}
+    if any(len(row) < 6 or not row[2] or not row[5] for row in rows):
+        raise ValueError("ComfyUI active-model retention is unavailable")
+    return {f"{row[5].strip('/')}/{row[2]}" for row in rows}
 
 
 def _catalog_comfyui_paths() -> set[str]:
@@ -9188,8 +9131,10 @@ def _rendered_litellm_models(root: Optional[Path]) -> list:
     try:
         model_list = (yaml.safe_load(rendered.read_text(encoding="utf-8")) or {}).get("model_list") or []
         return [str((row.get("litellm_params") or {}).get("model") or "") for row in model_list]
-    except (OSError, yaml.YAMLError, AttributeError):
+    except FileNotFoundError:
         return []
+    except (OSError, yaml.YAMLError, AttributeError):
+        raise OSError("Rendered LiteLLM model inventory is unavailable") from None
 
 
 def _ollama_model_name(value: str) -> str:
@@ -9260,7 +9205,11 @@ def _ollama_volume_items(env: dict, project: str, root: Optional[Path] = None) -
         print("  The Ollama container is not running: its models are not itemized.")
         return []
     rows = [line.split() for line in listing.stdout.splitlines()[1:] if line.strip()]
-    return label_ollama_models([(row[0], parse_docker_size("".join(row[2:4]))) for row in rows if len(row) >= 4], env, root)
+    try:
+        return label_ollama_models([(row[0], parse_docker_size("".join(row[2:4]))) for row in rows if len(row) >= 4], env, root)
+    except OSError:
+        print("  Ollama model retention is unavailable: its models are not itemized.")
+        return []
 
 
 def _comfyui_volume_items(env: dict, root: Path, project: str) -> list[dict]:
@@ -9273,6 +9222,9 @@ def _comfyui_volume_items(env: dict, root: Path, project: str) -> list[dict]:
         _retained_comfyui_paths(root)
     except OSError:
         print("  volumes/comfyui/active-models.tsv is missing (run ./start.sh first): ComfyUI files are not itemized.")
+        return []
+    except ValueError:
+        print("  ComfyUI model retention is unavailable: its model files are not itemized.")
         return []
     listing = _exec(project, "comfyui", "find", _COMFYUI_MODELS_DIR, "-type", "f", "-printf", "%s\t%P\\0")
     if listing.returncode != 0:
@@ -9481,10 +9433,14 @@ def endpoints_export_command(
     if output_path:
         # Relative to where ./start.sh was run, like doctor --bundle: the
         # uv wrapper runs the bootstrapper from bootstrapper/.
-        out = _invoker_path(Path(output_path))
+        requested = Path(output_path).expanduser()
+        out = _invoker_path(requested.parent) / requested.name
         # Replace, never follow, a symlink at the destination: the export can
         # carry secrets (--with-secrets) and must not land on a link target.
-        atomic_replace_text(out, text, mode=0o600)
+        try:
+            atomic_replace_text(out, text, mode=0o600)
+        except OSError as exc:  # a directory or unwritable destination
+            raise click.ClickException(f"could not write {out}: {exc.strerror or exc}") from exc
         click.echo(f"Wrote {len(fields)} endpoint field(s) to {out}")
     else:
         click.echo(text, nl=False)

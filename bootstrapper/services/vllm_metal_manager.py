@@ -323,9 +323,8 @@ class VllmMetalManager:
             )
 
     def _installed_versions_match(self) -> bool:
-        try:
-            payload = json.loads(self.status_file.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
+        payload = self._launch_record()
+        if not payload:
             return False
         installed = self._installed_versions()
         return (
@@ -377,7 +376,7 @@ class VllmMetalManager:
 
     @staticmethod
     def _extract_archive_safely(bundle: tarfile.TarFile, destination: Path) -> None:
-        """Extract a source archive safely on every supported Python 3.10 patch."""
+        """Extract a source archive safely on every supported Python patch."""
         root = destination.resolve()
         members = bundle.getmembers()
         for member in members:
@@ -390,7 +389,7 @@ class VllmMetalManager:
                 )
         if hasattr(tarfile, "data_filter"):
             bundle.extractall(destination, members=members, filter="data")
-        else:  # Python 3.10.0-3.10.11, before tarfile extraction filters.
+        else:  # Older Python patches without tarfile extraction filters.
             bundle.extractall(destination, members=members)
 
     def install(self, *, update: bool = False) -> None:
@@ -645,16 +644,9 @@ class VllmMetalManager:
             and self._managed_process_alive(pid)
             and not self._pid_is_stranger(pid)
         )
-        version = None
-        model = self.model
-        if self.status_file.exists():
-            try:
-                payload = json.loads(self.status_file.read_text(encoding="utf-8"))
-                version = payload.get("installed_version")
-                model = payload.get("model") or self.model
-            except (OSError, ValueError):
-                version = None
         record = self._launch_record()
+        version = record.get("installed_version")
+        model = record.get("model") or self.model
         # A running process reports the port it was launched on, which can
         # differ from the configured one until start restarts it (#1361).
         port = record.get("port", self.port) if running and record.get("pid") == pid else self.port

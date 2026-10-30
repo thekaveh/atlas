@@ -27,7 +27,7 @@ Root dashboard remains the product/system dashboard for service status, tracks, 
 
 Future service shape, if a later graph-dashboard ticket promotes this:
 
-- Track membership: `rag` by default; optionally `agents` when the selected dashboards use agent/workflow graph data. Do not add it to non-graph tracks by default.
+- Track membership: roadmap labels `rag` by default and optionally `agents` for agent/workflow graph data. These labels are not runtime track keys. Choose membership from the [runtime track registry](../../../bootstrapper/tracks.yml) if the service is approved. Do not add it to non-graph tracks by default.
 - Service category: `apps`, because it is a user-facing browser UI.
 - Source values/default: `NEODASH_SOURCE=disabled|container`, disabled by default.
 - Wizard placement: RAG/graph visualization section after Neo4j and at least one graph-producing service, with prompt copy warning that it is only useful after graph data exists.

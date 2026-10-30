@@ -29,7 +29,7 @@ def test_default_budget_stays_inside_the_acceptance_envelope():
     assert "32 MiB" in retention_summary()
 
 
-def _session_files(directory: Path, base: Path) -> list[Path]:
+def _session_files(base: Path) -> list[Path]:
     return sorted(
         p for p in base.parent.iterdir()
         if p.name == base.name or re.fullmatch(re.escape(base.name) + r"\.\d+", p.name)
@@ -55,7 +55,7 @@ def test_a_huge_stream_stays_within_the_session_budget(tmp_path):
         written += len(line)
     tee.close()
 
-    files = _session_files(tmp_path, tee.base_path)
+    files = _session_files(tee.base_path)
     # Pinned segment 0 plus at most (max_segments - 1) rolling segments.
     assert 1 <= len(files) <= 3
     assert tee.base_path in files, "segment 0 (first-failure context) must survive"
@@ -92,7 +92,7 @@ def test_rotation_writes_ordered_timestamps_and_truncation_markers(tmp_path):
     tee.close()
 
     rolling = [
-        p for p in _session_files(tmp_path, tee.base_path) if p != tee.base_path
+        p for p in _session_files(tee.base_path) if p != tee.base_path
     ]
     assert rolling, "the stream above must have rotated"
     markers = sorted(_rotation_marker(path, tee.base_path) for path in rolling)
@@ -110,20 +110,20 @@ def test_disk_exhaustion_degrades_loudly_without_raising(tmp_path):
         on_degraded=notices.append,
     )
 
+    original = tee._fh
+
     class _FullDisk:
+        closed = property(lambda self: original.closed)
+
         def write(self, _text):
             raise OSError(errno.ENOSPC, "No space left on device")
 
-        def flush(self):
-            raise OSError(errno.ENOSPC, "No space left on device")
+        def fileno(self):
+            return original.fileno()
 
         def close(self):
-            pass
+            original.close()
 
-    original = tee._fh
-    _FullDisk.fileno = lambda self: original.fileno()
-    _FullDisk.closed = property(lambda self: original.closed)
-    _FullDisk.close = lambda self: original.close()
     tee._fh = _FullDisk()
     tee.write("this write hits a full disk\n")
     assert tee.degraded
@@ -138,7 +138,7 @@ def test_disk_exhaustion_degrades_loudly_without_raising(tmp_path):
     tee.close()
 
 
-def test_old_sessions_are_pruned_but_foreign_files_never_touched(tmp_path):
+def test_legacy_root_sessions_and_foreign_files_are_never_touched(tmp_path):
     for index in range(4):
         base = tmp_path / f"atlas-launch-2026010{index}T000000-old{index}.log"
         base.write_text("old session\n")
@@ -155,7 +155,7 @@ def test_old_sessions_are_pruned_but_foreign_files_never_touched(tmp_path):
 
     tee = SessionLogTee(
         prefix="atlas-launch-20260201T000000-",
-        config=SessionLogConfig(directory=str(tmp_path), retained_sessions=3),
+        config=SessionLogConfig(directory=str(tmp_path)),
     )
     tee.close()
 
@@ -220,8 +220,8 @@ def bounded_tee(tmp_path):
         tee.close()
 
 
-def _assert_raw_session_budget(directory, tee):
-    files = _session_files(directory, tee.base_path)
+def _assert_raw_session_budget(tee):
+    files = _session_files(tee.base_path)
     sizes = [p.stat().st_size for p in files]
     assert tee.base_path in files
     assert len(files) <= tee._max_segments
@@ -229,9 +229,9 @@ def _assert_raw_session_budget(directory, tee):
     assert sum(sizes) <= tee._max_segments * tee._segment_max_bytes
 
 
-def _session_payloads(directory, base):
+def _session_payloads(base):
     files = sorted(
-        _session_files(directory, base),
+        _session_files(base),
         key=lambda p: 0 if p == base else int(p.name.rsplit(".", 1)[1]),
     )
     payloads = []
@@ -247,21 +247,21 @@ def _session_payloads(directory, base):
     ["small line\n"] * 60,
     ["x" * 600 + "\r\ntrailing fragment"],
 ])
-def test_crossing_writes_preserve_text_inside_the_raw_budget(tmp_path, bounded_tee, chunks):
+def test_crossing_writes_preserve_text_inside_the_raw_budget(bounded_tee, chunks):
     for chunk in chunks:
         bounded_tee.write(chunk)
 
-    _assert_raw_session_budget(tmp_path, bounded_tee)
-    assert "".join(_session_payloads(tmp_path, bounded_tee.base_path)) == "".join(chunks)
+    _assert_raw_session_budget(bounded_tee)
+    assert "".join(_session_payloads(bounded_tee.base_path)) == "".join(chunks)
     assert not bounded_tee.degraded
 
 
-def test_one_long_write_keeps_the_pinned_prefix_and_latest_rolling_tail(tmp_path, bounded_tee):
+def test_one_long_write_keeps_the_pinned_prefix_and_latest_rolling_tail(bounded_tee):
     payload = "".join(f"{i:05d} owned line\n" for i in range(200))
     bounded_tee.write(payload)
 
-    _assert_raw_session_budget(tmp_path, bounded_tee)
-    parts = _session_payloads(tmp_path, bounded_tee.base_path)
+    _assert_raw_session_budget(bounded_tee)
+    parts = _session_payloads(bounded_tee.base_path)
     assert len(parts) == 3
     assert payload.startswith(parts[0]) and parts[0]
     assert payload.endswith("".join(parts[1:])) and parts[-1]
@@ -270,26 +270,26 @@ def test_one_long_write_keeps_the_pinned_prefix_and_latest_rolling_tail(tmp_path
 
 @pytest.mark.parametrize("spare", [1, 2, 3])
 @pytest.mark.parametrize("character", ["界", "😀"])
-def test_unicode_codepoints_cross_segments_without_loss(tmp_path, bounded_tee, spare, character):
+def test_unicode_codepoints_cross_segments_without_loss(bounded_tee, spare, character):
     prefix = "x" * (512 - bounded_tee.base_path.stat().st_size - spare)
     payload = prefix + character + "\n尾\r\nlast"
     bounded_tee.write(prefix)
     bounded_tee.write(character + "\n尾\r\nlast")
 
-    _assert_raw_session_budget(tmp_path, bounded_tee)
-    assert "".join(_session_payloads(tmp_path, bounded_tee.base_path)) == payload
+    _assert_raw_session_budget(bounded_tee)
+    assert "".join(_session_payloads(bounded_tee.base_path)) == payload
     assert not bounded_tee.degraded
 
 
 @pytest.mark.parametrize("fill", [False, True])
-def test_empty_write_never_rotates_or_changes_content(tmp_path, bounded_tee, fill):
+def test_empty_write_never_rotates_or_changes_content(bounded_tee, fill):
     if fill:
         bounded_tee.write("x" * (512 - bounded_tee.base_path.stat().st_size))
-    before = {p.name: p.read_bytes() for p in _session_files(tmp_path, bounded_tee.base_path)}
+    before = {p.name: p.read_bytes() for p in _session_files(bounded_tee.base_path)}
 
     bounded_tee.write("")
 
-    assert {p.name: p.read_bytes() for p in _session_files(tmp_path, bounded_tee.base_path)} == before
+    assert {p.name: p.read_bytes() for p in _session_files(bounded_tee.base_path)} == before
 
 
 @pytest.mark.parametrize("limits", [(0, 3), (-1, 3), (1, 3), (512, 0), (512, 1)])
@@ -318,7 +318,7 @@ def test_impossible_rolling_marker_degrades_once_without_creating_a_segment(tmp_
         tee.write("😀")
         tee.write("later ignored")
         assert tee.degraded and len(notices) == 1
-        assert _session_files(tmp_path, tee.base_path) == [tee.base_path]
+        assert _session_files(tee.base_path) == [tee.base_path]
         assert tee.base_path.read_bytes() == before
     finally:
         tee.close()
@@ -354,7 +354,7 @@ def test_failed_oldest_eviction_stops_before_an_extra_segment(tmp_path, monkeypa
         assert tee.degraded and len(notices) == 1
         assert oldest in tee._rolling and oldest.exists()
         assert not next_path.exists()
-        _assert_raw_session_budget(tmp_path, tee)
+        _assert_raw_session_budget(tee)
     finally:
         tee.close()
 
@@ -389,7 +389,7 @@ def test_two_segment_eviction_is_bounded_and_handles_already_missing_files(
         else:
             assert observed == [False], "eviction must precede creating another retained file"
             assert not tee.degraded and not oldest.exists() and next_path.exists()
-            _assert_raw_session_budget(tmp_path, tee)
+            _assert_raw_session_budget(tee)
     finally:
         tee.close()
 
@@ -413,8 +413,8 @@ def test_binary_writer_keeps_literal_newlines_in_raw_utf8_budget(tmp_path, monke
     payload = "α\nβ\r\n" * 70
     try:
         tee.write(payload)
-        _assert_raw_session_budget(tmp_path, tee)
-        assert "".join(_session_payloads(tmp_path, tee.base_path)) == payload
+        _assert_raw_session_budget(tee)
+        assert "".join(_session_payloads(tee.base_path)) == payload
         binary_flag = getattr(session_log.os, "O_BINARY", 0)
         assert all(flags & binary_flag == binary_flag for flags in flags_seen)
     finally:
@@ -444,7 +444,7 @@ def test_failure_after_one_chunk_keeps_its_prefix_and_degrades_once(tmp_path, mo
         assert tee.degraded and len(notices) == 1
         assert tee._fh.closed
         assert tee.base_path.read_bytes().split(b"\n", 1)[1] == calls[0].encode("utf-8")
-        _assert_raw_session_budget(tmp_path, tee)
+        _assert_raw_session_budget(tee)
     finally:
         tee.close()
 
@@ -474,14 +474,12 @@ def test_rolling_open_failure_is_contained_and_keeps_pinned_content(tmp_path, mo
         tee.write("later ignored")
         assert tee.degraded and len(notices) == 1
         assert tee.base_path.read_bytes() == before
-        _assert_raw_session_budget(tmp_path, tee)
+        _assert_raw_session_budget(tee)
     finally:
         tee.close()
 
 
 def test_initial_header_write_failure_closes_the_opened_handle(tmp_path, monkeypatch):
-    from ui import session_log
-
     opened = []
 
     def fail_write(_text):
@@ -507,14 +505,14 @@ def test_initial_header_write_failure_closes_the_opened_handle(tmp_path, monkeyp
             fh.close()
 
 
-def test_invalid_unicode_keeps_strict_encoding_and_does_not_degrade(tmp_path, bounded_tee):
+def test_invalid_unicode_keeps_strict_encoding_and_does_not_degrade(bounded_tee):
     before = bounded_tee.base_path.read_bytes()
     with pytest.raises(UnicodeEncodeError):
         bounded_tee.write("invalid \ud800")
     assert bounded_tee.base_path.read_bytes() == before
     assert not bounded_tee.degraded
     bounded_tee.write("valid afterwards\n")
-    assert _session_payloads(tmp_path, bounded_tee.base_path) == ["valid afterwards\n"]
+    assert _session_payloads(bounded_tee.base_path) == ["valid afterwards\n"]
 
 
 def _run_owned_threads(actions):
@@ -560,7 +558,7 @@ def _coordinate_first_io(tee, *, fail=False):
 
 
 def test_actual_safe_log_concurrent_writers_preserve_budgets_and_complete_records(
-    tmp_path, bounded_tee,
+    bounded_tee,
 ):
     from types import SimpleNamespace
     from ui.textual.screens.wizard_screen import WizardScreen
@@ -579,8 +577,8 @@ def test_actual_safe_log_concurrent_writers_preserve_budgets_and_complete_record
         ) for letter in ("A", "B")
     ]
     assert _run_owned_threads(actions) == []
-    _assert_raw_session_budget(tmp_path, bounded_tee)
-    text = "".join(_session_payloads(tmp_path, bounded_tee.base_path))
+    _assert_raw_session_budget(bounded_tee)
+    text = "".join(_session_payloads(bounded_tee.base_path))
     a, b = (f"[info/owned] {letter * 300}\n" for letter in ("A", "B"))
     assert text in (a + b, b + a)
 
@@ -596,7 +594,7 @@ def test_concurrent_write_failures_degrade_and_notify_only_once(tmp_path):
     try:
         assert _run_owned_threads([lambda: tee.write("a"), lambda: tee.write("b")]) == []
         assert tee.degraded and len(notices) == 1
-        _assert_raw_session_budget(tmp_path, tee)
+        _assert_raw_session_budget(tee)
     finally:
         tee.close()
 
@@ -639,21 +637,21 @@ def test_degraded_callback_can_use_the_tee_from_another_thread(tmp_path, monkeyp
 
 @pytest.mark.parametrize("full", [False, True])
 def test_close_is_terminal_even_when_a_stale_reference_holds_a_full_segment(
-    tmp_path, bounded_tee, full,
+    bounded_tee, full,
 ):
     if full:
         bounded_tee.write("x" * (512 - bounded_tee._bytes))
-    before = {p.name: p.read_bytes() for p in _session_files(tmp_path, bounded_tee.base_path)}
+    before = {p.name: p.read_bytes() for p in _session_files(bounded_tee.base_path)}
     bounded_tee.close()
 
     for text in ("late write", ""):
         with pytest.raises(ValueError):
             bounded_tee.write(text)
 
-    assert {p.name: p.read_bytes() for p in _session_files(tmp_path, bounded_tee.base_path)} == before
+    assert {p.name: p.read_bytes() for p in _session_files(bounded_tee.base_path)} == before
 
 
-def test_close_waits_for_an_inflight_write_before_closing_the_handle(tmp_path, bounded_tee):
+def test_close_waits_for_an_inflight_write_before_closing_the_handle(bounded_tee):
     started, release, closed = threading.Event(), threading.Event(), threading.Event()
     close_started = threading.Event()
     actual_write = bounded_tee._write_raw
@@ -690,10 +688,10 @@ def test_close_waits_for_an_inflight_write_before_closing_the_handle(tmp_path, b
             closing.join(5)
     assert errors == []
     assert closed.is_set()
-    assert _session_payloads(tmp_path, bounded_tee.base_path) == ["owned in-flight line\n"]
+    assert _session_payloads(bounded_tee.base_path) == ["owned in-flight line\n"]
 
 
-def test_mixed_concurrent_writes_keep_valid_unicode_prefix_and_retained_tail(tmp_path, bounded_tee):
+def test_mixed_concurrent_writes_keep_valid_unicode_prefix_and_retained_tail(bounded_tee):
     actual_write = bounded_tee._write_raw
     observed = []
 
@@ -709,9 +707,9 @@ def test_mixed_concurrent_writes_keep_valid_unicode_prefix_and_retained_tail(tmp
     bounded_tee._write_raw = record_write
     actions = [lambda index=index: writer(index) for index in range(3)]
     assert _run_owned_threads(actions) == []
-    _assert_raw_session_budget(tmp_path, bounded_tee)
-    parts = _session_payloads(tmp_path, bounded_tee.base_path)
+    _assert_raw_session_budget(bounded_tee)
+    parts = _session_payloads(bounded_tee.base_path)
     complete = "".join(observed)
     assert len(parts) == 3
     assert complete.startswith(parts[0]) and complete.endswith("".join(parts[1:]))
-    assert all(p.stat().st_mode & 0o777 == 0o600 for p in _session_files(tmp_path, bounded_tee.base_path))
+    assert all(p.stat().st_mode & 0o777 == 0o600 for p in _session_files(bounded_tee.base_path))

@@ -43,6 +43,35 @@ def _no_real_project_stop(monkeypatch):
 
 
 @pytest.fixture
+def forbid_host_side_effects(monkeypatch):
+    """Fail the test if it builds the real starter or config parser, spawns
+    a process, or opens a socket.
+
+    Tests that drive host diagnostics through explicit doubles request this
+    to prove nothing private on the developer's machine is read or reached.
+    """
+    import socket
+    import subprocess
+
+    import start
+    from core.config_parser import ConfigParser
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Use explicit doubles, not real host config, processes or network")
+
+    for owner, name in (
+        (start.AtlasStarter, "__init__"),
+        (ConfigParser, "__init__"),
+        (ConfigParser, "parse_env_file"),
+        (subprocess, "Popen"),
+        (socket.socket, "connect"),
+        (socket.socket, "bind"),
+        (socket, "getaddrinfo"),
+    ):
+        monkeypatch.setattr(owner, name, forbidden)
+
+
+@pytest.fixture
 def services_root(tmp_path: Path) -> Path:
     """An empty services/ root inside tmp_path."""
     root = tmp_path / "services"

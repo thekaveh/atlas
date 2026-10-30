@@ -57,7 +57,7 @@ services:
       # editing compose.yml).
       ENABLE_WEBSOCKET_SUPPORT: ${OPEN_WEB_UI_WEBSOCKET_SUPPORT:-true}
       WEBSOCKET_MANAGER: "redis"
-      WEBSOCKET_REDIS_URL: "redis://:${REDIS_PASSWORD}@redis:6379/${OPEN_WEB_UI_REDIS_DB:-2}"
+      WEBSOCKET_REDIS_URL: "redis://:${REDIS_PASSWORD_URI}@redis:6379/${OPEN_WEB_UI_REDIS_DB:-2}"
       REDIS_KEY_PREFIX: "openwebui"
       # Open WebUI renamed this knob; v0.6.32 reads MODELS_CACHE_TTL and has no
       # MODEL_LIST_CACHE_TTL at all, so the old key was inert and the effective

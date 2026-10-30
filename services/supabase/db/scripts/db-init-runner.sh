@@ -22,14 +22,14 @@ fi
 
 echo "db-init-runner: Waiting for database service $PGHOST..."
 # Use pg_isready to wait for the database server to accept connections.
-# Bounded (300s) like every other init wait loop — depends_on's
-# service_healthy gate normally makes this instant, but a wedged DB
-# should fail the init container, not hang it forever.
+# Try at most 300 failed probes; probe time adds to the wait.
+# The depends_on service_healthy gate normally makes this instant.
+# A wedged DB should fail the init container instead of waiting forever.
 WAITED=0
 until pg_isready -h "$PGHOST" -U "$PGUSER" -d "$PGDATABASE" -q; do
   WAITED=$((WAITED + 1))
   if [ "$WAITED" -ge 300 ]; then
-    echo "db-init-runner: ERROR - database not ready after 300s; giving up." >&2
+    echo "db-init-runner: ERROR - database not ready after 300 failed probes; giving up." >&2
     exit 1
   fi
   echo "db-init-runner: Database unavailable - sleeping 1s"
@@ -63,7 +63,8 @@ run_sql_directory() {
   # subshell where set-e propagation is implementation-dependent — a failing
   # migration could be missed. The temp-file pattern is what the other init
   # scripts use.
-  find "$sql_dir" -maxdepth 1 -type f -name '*.sql' -print | sort > "$list_file"
+  find "$sql_dir" -maxdepth 1 -type f -name '*.sql' -print > "$list_file"
+  sort -o "$list_file" "$list_file"
   while IFS= read -r f; do
     if [ -f "$f" ]; then
       echo "db-init-runner: Running $phase_name SQL script: $f"

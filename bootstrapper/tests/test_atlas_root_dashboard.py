@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 
 def _config_parser_for_env(tmp_path: Path, body: str):
     from core.config_parser import ConfigParser
@@ -284,3 +286,99 @@ def test_a_slot_ordering_pin_is_not_reported_as_a_missing_dependency():
     warnings = _dependency_warnings(get_topology().rows, sources, {})
     assert any("spark" in w.lower() and "minio" in w for w in warnings), warnings
     assert any("asset worker" in w.lower() and "minio" in w for w in warnings), warnings
+
+
+@pytest.mark.parametrize("field", ["BRAND_NAME", "BRAND_TAGLINE"])
+@pytest.mark.parametrize("literal", [
+    "__TITLE__", "__TAGLINE__", "__TRACK__", "__KONG_PORT__", "__ACTIVE__",
+    "__DISABLED__", "__WARNINGS__", "__SECTIONS__", "__UNKNOWN__",
+    "Research & <Engineering>", "研究 café",
+])
+def test_dashboard_preserves_literal_brand_markers(monkeypatch, field, literal):
+    """Accepted branding is data, including text that resembles template slots."""
+    from html import escape
+    from types import SimpleNamespace
+
+    from core.config_parser import ConfigParser
+    from utils.atomic_write import decode_env_assignment
+    from utils.atlas_dashboard import build_dashboard_model, render_dashboard_html
+    from utils.kong_config_generator import KongConfigGenerator
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("dashboard fixture must not construct or read config")
+
+    monkeypatch.setattr(ConfigParser, "__init__", forbidden)
+    monkeypatch.setattr(ConfigParser, "parse_env_file", forbidden)
+    monkeypatch.setattr(KongConfigGenerator, "_hosts_look_configured", lambda self: True)
+    env = {"BRAND_NAME": "Acme", "BRAND_TAGLINE": "Private fixture", "KONG_HTTP_PORT": "64000"}
+    key, value = decode_env_assignment(f"{field}={literal}", origin="synthetic branding")
+    env[key] = value
+    parser = SimpleNamespace(parse_env_file=lambda: dict(env), parse_service_sources=lambda: {})
+    model = build_dashboard_model(parser, track_key="all", hosts_configured=True)
+    assert model.brand_name == env["BRAND_NAME"]
+    assert model.tagline == env["BRAND_TAGLINE"]
+    html = render_dashboard_html(model)
+    service = KongConfigGenerator(parser).generate_atlas_root_dashboard_service()
+    lua = service["routes"][0]["plugins"][0]["config"]["access"][0]
+    for rendered in (html, lua):
+        assert f'<title>{escape(env["BRAND_NAME"])} service directory</title>' in rendered
+        assert f'<h1>{escape(env["BRAND_NAME"])} service directory</h1>' in rendered
+        assert f'<p>{escape(env["BRAND_TAGLINE"])}</p>' in rendered
+        assert 'id="theme-toggle"' in rendered
+        assert 'data-health-url=' in rendered
+
+
+@pytest.fixture
+def backup_dashboard_warning(tmp_path):
+    from types import SimpleNamespace
+    from services.dependency_manager import DependencyManager
+    from services.manifests import load_manifests
+    from services.topology import get_topology
+    from utils.atlas_dashboard import build_dashboard_model, render_dashboard_html
+
+    manifest = next(item for item in load_manifests(Path(__file__).resolve().parents[2] / "services")
+                    if item.name == "backup")
+
+    def build(mode, backup_source="container", minio_source="disabled"):
+        sources = {row.source_var: ("container" if row.locked or row.manifest == "supabase" else "disabled")
+                   for row in get_topology().rows}
+        sources.update(BACKUP_SOURCE=backup_source, MINIO_SOURCE=minio_source)
+        env = dict(sources)
+        if mode is not None:
+            env["BACKUP_S3_MODE"] = mode
+        parser = _config_parser_for_env(tmp_path, "\n".join(f"{key}={value}" for key, value in env.items()))
+        model = build_dashboard_model(parser, hosts_configured=True)
+        manager = DependencyManager.__new__(DependencyManager)
+        manager.get_service_scale = lambda name: 0 if name == "minio" and minio_source == "disabled" else 1
+        manager._runs_off_compose = lambda name: minio_source == "localhost"
+        violations = manager._conditional_dependency_violations("backup", manifest.runtime_deps["backup"], env)
+        warnings = [warning for warning in model.warnings
+                    if warning.startswith(manifest.label + " has disabled required dependencies:")]
+        return SimpleNamespace(model=model, html=render_dashboard_html(model), warnings=warnings,
+                               violations=violations, label=manifest.label)
+
+    return build
+
+
+@pytest.mark.parametrize(("mode", "expected"), [("external", False), ("local", True), (None, True), ("", True)])
+def test_dashboard_backup_dependency_warning_matches_actual_mode(backup_dashboard_warning, mode, expected):
+    from html import escape
+
+    result = backup_dashboard_warning(mode)
+    assert bool(result.violations) == expected
+    assert bool(result.warnings) == expected
+    warning = result.label + " has disabled required dependencies: minio."
+    assert (escape(warning) in result.html) == expected
+    assert all(item == warning for item in result.warnings)
+
+
+@pytest.mark.parametrize(("backup_source", "minio_source"), [
+    ("disabled", "disabled"), ("container", "container"), ("container", "localhost"),
+])
+def test_dashboard_backup_dependency_warning_keeps_source_controls(
+    backup_dashboard_warning, backup_source, minio_source,
+):
+    result = backup_dashboard_warning("local", backup_source, minio_source)
+    assert result.violations == []
+    assert result.warnings == []
+    assert "has disabled required dependencies: minio." not in result.html

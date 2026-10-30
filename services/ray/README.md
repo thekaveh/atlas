@@ -20,9 +20,12 @@ Active when `RAY_SOURCE ∈ {ray-container-cpu, ray-container-gpu}`. Authenticat
 The backend reaches Ray through the dashboard's HTTP job API, never Ray Client. It sets `RAY_API_SERVER_ADDRESS` to the dashboard URL. Otherwise the Ray SDK resolves `RAY_ADDRESS=ray://…` through `ray.init`, which fails on the backend's newer Python. Every SDK call, including the client's construction-time version probe, has a transport timeout. When the dashboard does not answer the probe or `/api/cluster_status`, the routes return `503`; no job request was sent.
 
 `POST /api/ray/jobs/submit` requires a stable `submission_id` using the
-Ray-compatible `raysubmit_` prefix and letters, digits, or underscores. Reuse
-that ID after an ambiguous response: Atlas returns `409` when it already exists,
-and the existing `GET`/`DELETE .../{job_id}` routes reconcile or stop it.
+Ray-compatible `raysubmit_` prefix and letters, digits, or underscores. After an
+ambiguous response, use that ID with the existing `GET`/`DELETE .../{job_id}`
+routes to inspect or stop the job. A duplicate submission with that ID returns `409`.
+
+Connection loss, timeout, or an unusable success reply after submission returns `504`, with acceptance unknown.
+Atlas does not retry the submission automatically. Reconcile using the same ID before considering another submission.
 
 ## 3. Configuration
 
@@ -83,14 +86,16 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 
 ## 6. Troubleshooting
 
-Before the container checks, run this preflight from the Atlas repository root with Python 3.10 or later.
+Before the container checks, run this preflight from the Atlas repository root.
+It uses the bootstrapper environment, which requires Python 3.11 or later. Install `uv` before you run it.
 Use the running stack's Docker context and active env file; keep its `ATLAS_ENV_FILE` setting.
+
 The preflight finds the Ray head container by Compose labels, including when its name retains mixed-case spelling.
 It stops for an absent or invalid file, a failed Docker query, or a lookup without exactly one container.
 
 ```bash
 RAY_HEAD_CONTAINER=$(
-  PYTHONPATH=bootstrapper python3 - <<'PYPROJECT'
+  PYTHONPATH=bootstrapper uv run --project bootstrapper python - <<'PYPROJECT'
 import subprocess
 import sys
 from core.config_parser import ConfigParser

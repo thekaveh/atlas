@@ -1,4 +1,5 @@
 """Behavioral controls for the optional local authorization evaluation."""
+from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 import importlib.util
@@ -191,7 +192,8 @@ class InventoryTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
-        self.root = Path(self.temporary.name) / "installed"
+        # Production records canonical paths (macOS /var is a symlink to /private/var).
+        self.root = Path(self.temporary.name).resolve(strict=True) / "installed"
         self.root.mkdir()
         first, second = self.root / "first.py", self.root / "second.py"
         first.write_text("synthetic identical module data\n")
@@ -264,11 +266,42 @@ class InventoryTests(unittest.TestCase):
             _RUNNER.verify_runtime_aliases(runtime)
 
 
+class RunnerPathTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name).resolve(strict=True)
+
+    def test_symlinked_checkout_matches_resolved_runner_binding(self):
+        recipe = self.root / "recipe"
+        recipe.mkdir()
+        (recipe / "run_local.py").write_bytes((ROOT / "examples/promptfoo-security/run_local.py").read_bytes())
+        (self.root / "checkout").symlink_to(recipe)
+        spec = importlib.util.spec_from_file_location("atlas_recipe_symlinked_runner",
+                                                      self.root / "checkout/run_local.py")
+        runner = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(runner)
+        data = self.root / "synthetic-input"
+        data.write_text("synthetic bound input\n")
+        bindings = defaultdict(lambda: str(data))
+        bindings["sandbox"] = {"launch_prefix": [str(data)], "profile": str(data),
+                               "qualification_receipt": str(data)}
+        bindings["file_hashes"] = {str(path): runner.digest(path) for path in (data, recipe / "run_local.py")}
+        runner.verify_required_files(bindings)
+
+    def test_output_file_removed_during_size_walk_is_skipped(self):
+        kept = self.root / "kept"
+        kept.write_bytes(b"12345")
+        listing = [kept, self.root / "budget.next"]  # The helper replaces its counter mid-walk.
+        with patch.object(Path, "rglob", return_value=iter(listing)), patch.object(Path, "is_file", return_value=True):
+            self.assertEqual(_RUNNER.owned_bytes(self.root), 5)
+
+
 class PackageInputTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
-        self.root = Path(self.temporary.name)
+        self.root = Path(self.temporary.name).resolve(strict=True)  # Mirrors the canonical install root.
         self.recipe, self.install = self.root / "recipe", self.root / "install"
         self.recipe.mkdir()
         self.install.mkdir()

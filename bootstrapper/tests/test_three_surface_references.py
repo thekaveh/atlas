@@ -65,19 +65,15 @@ def test_the_track_matrix_has_exactly_one_generated_home() -> None:
     actually browse. This guards the collapse rather than the symptom: a
     second generated home would reintroduce it silently.
     """
-    from bootstrapper.docs.sitegen.model import load_docs_model
-    from bootstrapper.docs.sitegen.pages import reference_pages, static_pages
-
-    model = load_docs_model(ROOT)
-    rendered = {**static_pages(model), **reference_pages(model)}
+    rendered = render_canonical_references(ROOT)
     homes = [
         path.relative_to(ROOT).as_posix()
         for path, text in rendered.items()
         if "| Track | Description | Services |" in text
     ]
-    # static_pages() emits into the docs/site/ staging tree, which the build
-    # publishes as docs/tracks.md — the path differs, the count is the point.
-    assert homes == ["docs/site/tracks.md"], (
+    # canonical_references renders docs/tracks.md from track_index(); every
+    # other generated reference page must leave the matrix to it.
+    assert homes == ["docs/tracks.md"], (
         f"the track matrix should have exactly one generated home, found: {homes}"
     )
 
@@ -302,10 +298,6 @@ def test_candidate_decision_reference_propagates_fixture_metadata(tmp_path):
     assert "Private body" not in text and "[Supported service catalog](../services.md)" in text
 
 
-def _discarded_renderer(*args, **kwargs):
-    raise AssertionError("discarded legacy renderer was invoked")
-
-
 def _record_renderer(name, renderer, calls):
     def recorded(model):
         calls.append(name)
@@ -333,7 +325,7 @@ def focused_reference_model():
                          SourceSurface("ZULU_INIT_SOURCE", "", ["disabled", "localhost"])],
         track_keys=["z-track", "all"], required_dependencies=["redis", "kong"],
         optional_dependencies=[], runtime_calls=[], kong_aliases=[], env_vars=[],
-        port_vars=[], diagram_svg=None, diagram_html=None, support_tier="community",
+        port_vars=[], support_tier="community",
     )
     services = [
         service,
@@ -350,9 +342,7 @@ def focused_reference_model():
                 track_keys=["z-track"], required_dependencies=["omega", "redis"]),
     ]
     return DocsModel(
-        root=ROOT, public_url="https://example.invalid/", hero_image=Path("hero.png"),
-        poster_image=Path("poster.png"), wizard_screenshot=Path("wizard.png"),
-        top_level_diagram=Path("architecture.svg"), services=services,
+        root=ROOT, services=services,
         tracks=[TrackPage("z-track", "Z", "Z | <group>\nsecond line", ["zulu", "beta"]),
                 TrackPage("empty", "Empty", "Empty track", []),
                 TrackPage("all", "All", "All track", [], all_services=True)],
@@ -398,14 +388,8 @@ def canonical_reference_paths():
 
 
 def test_canonical_references_use_only_focused_live_renderers(monkeypatch, canonical_reference_paths):
-    from bootstrapper.docs.sitegen import services
     from scripts.docs import canonical_references as canonical
 
-    monkeypatch.setattr(canonical, "static_pages", _discarded_renderer)
-    monkeypatch.setattr(canonical, "service_pages", _discarded_renderer)
-    monkeypatch.setattr(services, "_profile", _discarded_renderer)
-    rendered = canonical.render_canonical_references(ROOT)
-    assert {path.relative_to(ROOT).as_posix() for path in rendered} == canonical_reference_paths
     calls = []
     for name in ("track_index", "service_catalog", "reference_index"):
         monkeypatch.setattr(canonical, name, _record_renderer(name, getattr(canonical, name), calls))
@@ -428,25 +412,10 @@ def test_focused_reference_renderers_preserve_metadata_tables(
             patch.setattr(owner, "table", _record_table(owner.table, calls))
             outputs[name] = getattr(owner, name)(focused_reference_model)
         assert calls == focused_reference_tables[name]
-    static = pages.static_pages(focused_reference_model)
-    broad_services = services.service_pages(focused_reference_model)
-    staging = ROOT / "docs/site"
-    assert outputs == {
-        "track_index": static[staging / "tracks.md"],
-        "reference_index": static[staging / "reference/index.md"],
-        "service_catalog": broad_services[staging / "services/index.md"],
-    }
     assert "| z-track | Z / &lt;group&gt; second line | zulu, beta |" in outputs["track_index"]
 
 
-def test_broad_reference_renderers_preserve_namespace_compatibility(monkeypatch, focused_reference_model):
-    from scripts.docs import canonical_references as canonical
-
-    static_keys = [
-        "docs/index.md", "docs/site/quick-start.md", "docs/site/core-concepts.md", "docs/site/overview.md",
-        "docs/site/tracks.md", "docs/site/architecture/index.md", "docs/site/configuration.md",
-        "docs/site/operations.md", "docs/site/development.md", "docs/site/reference/index.md",
-    ]
+def test_sitegen_namespaces_expose_the_package_and_live_renderers():
     exports = ["DocsModel", "ServicePage", "SourceSurface", "TrackPage", "load_docs_model",
                "csv_or_dash", "numbered_nav", "table", "atlas_css", "copy_artifacts", "theme_artifacts"]
     for namespace in ("docs.sitegen", "bootstrapper.docs.sitegen"):
@@ -455,31 +424,7 @@ def test_broad_reference_renderers_preserve_namespace_compatibility(monkeypatch,
         services = importlib.import_module(f"{namespace}.services")
         assert (hasattr(pages, "track_index"), hasattr(pages, "reference_index"),
                 hasattr(services, "service_catalog")) == (True, True, True)
-        profiles = []
-        def profile(model, service):
-            profiles.append(service.name)
-            return f"profile:{service.name}"
-        with monkeypatch.context() as patch:
-            patch.setattr(pages, "track_index", lambda model: "focused:tracks")
-            patch.setattr(pages, "reference_index", lambda model: "focused:reference")
-            patch.setattr(services, "service_catalog", lambda model: "focused:catalog")
-            patch.setattr(services, "_profile", profile)
-            static = pages.static_pages(focused_reference_model)
-            catalog = services.service_pages(focused_reference_model)
-        staging = ROOT / "docs/site"
-        names = [service.name for service in focused_reference_model.services]
         assert {
-            "static_paths": [path.relative_to(ROOT).as_posix() for path in static],
-            "service_paths": list(catalog), "profile_calls": profiles,
-            "live_static": (static[staging / "tracks.md"], static[staging / "reference/index.md"]),
-            "service_values": list(catalog.values()), "exports": package.__all__,
+            "exports": package.__all__,
             "resolved_exports": [getattr(package, name).__name__ for name in exports],
-            "canonical_aliases": (canonical.static_pages.__name__, canonical.service_pages.__name__),
-        } == {
-            "static_paths": static_keys,
-            "service_paths": [staging / "services/index.md"] + [staging / f"services/{name}.md" for name in names],
-            "profile_calls": names, "live_static": ("focused:tracks", "focused:reference"),
-            "service_values": ["focused:catalog"] + [f"profile:{name}" for name in names],
-            "exports": exports, "resolved_exports": exports,
-            "canonical_aliases": ("static_pages", "service_pages"),
-        }
+        } == {"exports": exports, "resolved_exports": exports}

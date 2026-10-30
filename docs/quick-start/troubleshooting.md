@@ -78,6 +78,8 @@ Same-user projects and checkouts share at most five managed groups and 480 MiB o
 
 If active groups fill the store, or storage or coordination is unusable, Atlas shows a file-logging warning. The launch and on-screen logs continue. Atlas does not create a fallback store to bypass the limit. Legacy logs outside this store and copies or exported support bundles are outside the bound and remain untouched.
 
+Atlas ignores files that it does not manage in the store, such as a Finder `.DS_Store`. A managed `atlas-launch-*` file that Atlas cannot account for still stops file logging with a warning. Examples are a `.log` file without its `.lease` file, and an invalid or symlinked lease. To recover, move those `atlas-launch-*` files out of the store and launch again.
+
 If a required log path disappears or is replaced, the next write, flush or diagnostic health check stops file logging with one visible degraded notice. Detection does not run continuously while idle. Diagnostic reads contain missing-file errors; surviving files can still provide partial evidence.
 
 Atlas includes POSIX and native Windows locking backends. Native Windows execution remains unqualified; simulated backend checks do not establish native filesystem or access-control behavior.

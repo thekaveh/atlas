@@ -548,6 +548,95 @@ def test_docling_chunking_can_be_disabled_for_rechunking_callers() -> None:
     assert client.calls[0][1]["data"]["enable_chunking"] == "false"
 
 
+def _tika_status_extractor(status, text):
+    calls = []
+
+    def respond(request):
+        calls.append(request)
+        return httpx.Response(
+            status, text=text, headers={"Location": "https://tika.test/tika"},
+        )
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(respond))
+    extractor = DocumentExtractor(
+        DocumentExtractorConfig(tika_endpoint="http://tika.test"),
+        http_client=client,
+    )
+    return client, extractor, calls
+
+
+@pytest.mark.parametrize("status", (301, 302, 303, 307, 308, 400, 415, 429, 500, 503))
+def test_tika_rejects_non_success_responses(status) -> None:
+    async def scenario():
+        client, extractor, calls = _tika_status_extractor(status, "Not document text")
+        async with client:
+            assert client.follow_redirects is False
+            with pytest.raises(DocumentExtractionError) as captured:
+                await extractor.extract(
+                    content=b"document", filename="paper.doc", content_type="application/msword",
+                )
+        assert str(captured.value) == f"Tika extraction failed with HTTP {status}"
+        assert len(calls) == 1
+        assert calls[0].method == "PUT"
+        assert str(calls[0].url) == "http://tika.test/tika"
+        assert calls[0].content == b"document"
+
+    _run(scenario())
+
+
+@pytest.mark.parametrize("status,text", ((200, "Extracted text"), (204, ""), (206, "Partial text")))
+def test_tika_preserves_success_response_behavior(status, text) -> None:
+    async def scenario():
+        client, extractor, calls = _tika_status_extractor(status, text)
+        async with client:
+            result = await extractor.extract(
+                content=b"document", filename="paper.doc", content_type="application/msword",
+            )
+        assert result.content == text
+        assert result.extractor == "tika"
+        assert result.format == "text"
+        assert result.fallback_reason == "long-tail-format"
+        assert len(calls) == 1
+
+    _run(scenario())
+
+
+@pytest.mark.parametrize("status", (307, 308))
+def test_tika_redirect_allows_the_next_ingestion_parser(status) -> None:
+    from rag_ingestion.clients import CorpusFile, ParserAdapter
+
+    async def scenario():
+        client, extractor, calls = _tika_status_extractor(status, "<html>Redirecting</html>")
+        async with client:
+            document = await ParserAdapter(extractor).parse(
+                CorpusFile("paper.doc", b"Actual corpus text"), ["tika", "plain_text"],
+            )
+        assert document.parser == "plain_text"
+        assert document.text == "Actual corpus text"
+        assert len(calls) == 1
+
+    _run(scenario())
+
+
+@pytest.mark.parametrize("status", (307, 308))
+def test_extract_route_rejects_a_tika_redirect(fastapi_client, monkeypatch, status) -> None:
+    import main
+
+    async def scenario():
+        client, extractor, calls = _tika_status_extractor(status, "<html>Redirecting</html>")
+        monkeypatch.setattr(main, "document_extractor", extractor)
+        async with client:
+            response = fastapi_client.post(
+                "/documents/extract",
+                files={"file": ("paper.doc", b"document", "application/msword")},
+            )
+        assert response.status_code == 502
+        assert response.json() == {"detail": "Document extraction failed"}
+        assert len(calls) == 1
+
+    _run(scenario())
+
+
 def test_docling_busy_sleep_is_clamped_to_the_remaining_budget(monkeypatch) -> None:
     import document_extraction
     slept = []

@@ -103,6 +103,18 @@ class _RecoverySignalDeferral:
         return False
 
 
+class _CommandLaunchSignalDeferral(_RecoverySignalDeferral):
+    """Keep an existing recovery recorder in charge of its interruption."""
+
+    def _record(self, signum, frame) -> None:
+        previous = self._previous.get(signum)
+        owner = getattr(previous, "__self__", None)
+        if isinstance(owner, _RecoverySignalDeferral) and getattr(previous, "__func__", None) is _RecoverySignalDeferral._record:
+            previous(signum, frame)
+        else:
+            super()._record(signum, frame)
+
+
 def _first_interruption(
     current: BaseException | None, exc: BaseException | None
 ) -> BaseException | None:
@@ -575,57 +587,74 @@ class CommandRunner:
         input_text: str | None = None,
         env: dict[str, str] | None = None,
     ) -> subprocess.CompletedProcess[str]:
-        process = subprocess.Popen(
-            command,
-            text=True,
-            stdin=subprocess.PIPE if input_text is not None else None,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            start_new_session=True,
-            env=self.command_environment(env),
-        )
+        process = None
         primary_error = None
+        launch = _CommandLaunchSignalDeferral()
         try:
-            deadline = time.monotonic() + (timeout or self.timeout)
-            if input_text is not None:
-                # One timed call drains output while transmitting the entire input.
-                stdout, stderr = process.communicate(
-                    input=input_text, timeout=deadline - time.monotonic(),
+            with launch:
+                process = subprocess.Popen(
+                    command,
+                    text=True,
+                    stdin=subprocess.PIPE if input_text is not None else None,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    start_new_session=True,
+                    env=self.command_environment(env),
                 )
-            else:
-                while True:
-                    remaining = deadline - time.monotonic()
-                    if remaining <= 0:
-                        raise subprocess.TimeoutExpired(command, timeout or self.timeout)
-                    try:
-                        stdout, stderr = process.communicate(timeout=min(0.25, remaining))
-                        break
-                    except subprocess.TimeoutExpired:
-                        # Return to the interpreter frequently so HUP/INT/TERM handlers
-                        # cannot remain deferred behind a long blocking communicate().
-                        continue
+            if launch.interruption is not None:
+                raise launch.interruption
+            stdout, stderr = self._communicate_owned(process, timeout=timeout, input_text=input_text)
         except BaseException as failure:
             primary_error = failure
-            try:
-                cleanup_proven = _terminate_owned_process_group(process)
-            except BaseException as exc:
-                cleanup_proven = False
-                print(
-                    "database orchestrator: WARNING - owned process-group cleanup "
-                    f"failed without replacing the primary error: {exc}",
-                    file=sys.stderr,
-                )
-            if not cleanup_proven:
-                self.process_group_cleanup_failed = True
+            if launch.interruption is not None and not launch.body_interruption_precedes_deferred:
+                primary_error = launch.interruption
+            if process is not None:
+                try:
+                    cleanup_proven = _terminate_owned_process_group(process)
+                except BaseException as exc:
+                    cleanup_proven = False
+                    print(
+                        "database orchestrator: WARNING - owned process-group cleanup "
+                        f"failed without replacing the primary error: {exc}",
+                        file=sys.stderr,
+                    )
+                if not cleanup_proven:
+                    self.process_group_cleanup_failed = True
+            if primary_error is not failure:
+                raise primary_error
             raise
         finally:
-            _close_owned_command_pipes(process, primary_error)
+            if process is not None:
+                _close_owned_command_pipes(process, primary_error)
         result = subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
         if check and result.returncode != 0:
             raise ContractError(
                 f"command failed ({result.returncode}): {' '.join(command)}\n{stderr.strip()}"
             )
         return result
+
+    def _communicate_owned(
+        self, process: subprocess.Popen[str], *, timeout: int | None, input_text: str | None,
+    ) -> tuple[str, str]:
+        deadline = time.monotonic() + (timeout or self.timeout)
+        if input_text is not None:
+            # One timed call drains output while transmitting the entire input.
+            stdout, stderr = process.communicate(
+                input=input_text, timeout=deadline - time.monotonic(),
+            )
+        else:
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise subprocess.TimeoutExpired(process.args, timeout or self.timeout)
+                try:
+                    stdout, stderr = process.communicate(timeout=min(0.25, remaining))
+                    break
+                except subprocess.TimeoutExpired:
+                    # Return to the interpreter frequently so HUP/INT/TERM handlers
+                    # cannot remain deferred behind a long blocking communicate().
+                    continue
+        return stdout, stderr
 
     def unique_name(self, role: str) -> str:
         safe = re.sub(r"[^a-z0-9-]", "-", role.lower()).strip("-")[:72]

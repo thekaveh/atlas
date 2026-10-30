@@ -310,7 +310,7 @@ runtime_adaptive:
       LIGHTRAG_NEO4J_URI: "bolt://neo4j-graph-db:7687"
       LIGHTRAG_NEO4J_USERNAME: neo4j
       LIGHTRAG_NEO4J_PASSWORD: ${GRAPH_DB_PASSWORD}
-      LIGHTRAG_REDIS_URI: "redis://:${REDIS_PASSWORD}@redis:6379/2"
+      LIGHTRAG_REDIS_URI: "redis://:${REDIS_PASSWORD_URI}@redis:6379/2"
     extra_hosts_adaptation: none
     failure_mode: "Storage does NOT fall back automatically: with supabase/neo4j/redis disabled the default storage class gets a blank URI and LightRAG fails to start (the bootstrapper warns); set LIGHTRAG_*_STORAGE to a local class (NanoVectorDB / NetworkX / JsonKV) to run without them. Reranking remains off unless a compatible adapter is configured. Docling skipped → multimodal images become text-only."
   lightrag-init:

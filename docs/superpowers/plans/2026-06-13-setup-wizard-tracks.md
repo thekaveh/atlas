@@ -2131,7 +2131,7 @@ loader + predicates). The wizard step builder in
 
 Find the existing "Quickstart" or "Getting Started" section in `README.md`. Add a "Quickstart by track" subsection:
 
-```markdown
+````markdown
 ### Quickstart by track
 
 For RAG-focused work:
@@ -2147,7 +2147,7 @@ For agentic-app engineering:
 Other tracks: `gen-ai-creative`, `ml-eng`, `data-eng`. Run `./start.sh
 --list-tracks` to see service membership for each. Use `--track all` for
 the full wizard (every configurable service).
-```
+````
 
 - [ ] **Step 3: Verify the docs-drift gate is still green**
 

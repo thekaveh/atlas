@@ -140,3 +140,92 @@ def test_irreducible_bundle_overflow_is_reported_without_archive(export_screen, 
     assert "support bundle not written" in "\n".join(preview)
     assert "metadata" in "\n".join(preview)
     assert not screen._support_bundle_running
+
+
+@pytest.mark.parametrize("assignment", [
+    "BASE_PORT=64000\n",
+    "export BASE_PORT=64000\n",
+    "  export\tBASE_PORT = 64000 # custom port\n",
+    "\ufeffBASE_PORT=64000\n",
+    "\ufeffBASE_PORT=63000\r\nexport BASE_PORT=64000 # winner\r\n",
+])
+@pytest.mark.parametrize("origin", [None, "consumer.yml", "override.env"])
+def test_doctor_archive_preserves_supported_active_env_origins(tmp_path, monkeypatch, assignment, origin):
+    import json
+    from click.testing import CliRunner
+    from core.config_parser import ConfigParser
+    import start
+
+    env_file = tmp_path / "active.env"
+    secret = "SyntheticBundleOriginSecret79"
+    env_file.write_bytes((assignment + "SYNTHETIC_API_KEY=" + secret + "\n").encode())
+    parser = ConfigParser(str(tmp_path))
+    parser.env_file_path = env_file
+    assert parser.parse_env_file()["BASE_PORT"] == "64000"
+    before = env_file.read_bytes()
+    origins = {"BASE_PORT": str(tmp_path / origin)} if origin else {}
+    starter = SimpleNamespace(config_parser=parser, _env_origins=lambda: origins,
+                              materialize_consumer_env_for_preflight=lambda: {})
+    build = start.AtlasStarter.build_support_bundle
+    starter.build_support_bundle = lambda options, checks=None: build(starter, options, checks)
+    monkeypatch.setattr(start, "AtlasStarter", lambda: starter)
+    check = lambda _: {"id": "port", "status": "fail", "message": "BASE_PORT conflict", "details": {}}
+    monkeypatch.setattr(start, "DOCTOR_CHECKS", [check])
+    output = tmp_path / "bundle.tar.gz"
+    result = CliRunner().invoke(start.main, ["doctor", "--format", "json", "--bundle", str(output)])
+    assert result.exit_code == 1 and json.loads(result.stdout)["ok"] is False
+    with tarfile.open(output) as archive:
+        body = json.load(archive.extractfile("atlas-support-bundle/bundle.json"))
+    expected = str(tmp_path / origin) if origin else str(env_file)
+    _assert_bundle_base_port_origin(body, expected)
+    assert env_file.read_bytes() == before
+    assert secret not in json.dumps(body) + result.output
+
+
+def _assert_bundle_base_port_origin(body, expected):
+    entry = next(entry for entry in body["config"] if entry["key"] == "BASE_PORT")
+    assert entry["origin"] == expected and expected in entry["action"]
+    assert ".env.example default" not in entry["action"]
+    assert body["findings"][0]["keys"] == [entry]
+
+
+@pytest.mark.parametrize("file_state", ["none", "missing", "other-key"])
+def test_bundle_origin_keeps_genuine_default_fallback(tmp_path, file_state):
+    from core.support_bundle import BundleRequest, Redactor, config_entries
+    env_file = None if file_state == "none" else tmp_path / "active.env"
+    if file_state == "other-key":
+        env_file.write_text("PROJECT_NAME=synthetic\n")
+    request = BundleRequest(env={"BASE_PORT": "63000"}, env_file=env_file)
+    entries, omitted = config_entries(request, Redactor())
+    assert omitted == 0 and len(entries) == 1
+    assert entries[0]["origin"] == "default"
+    assert entries[0]["action"] == "Set BASE_PORT in .env; it currently takes the .env.example default."
+
+
+@pytest.mark.parametrize("case", [
+    ("\ufeffexport BASE_PORT=${OTHER}\r\n# IGNORED_SOURCE=disabled\r\nSYNTHETIC_API_KEY=PrivateValue79\n", {"BASE_PORT", "SYNTHETIC_API_KEY"}),
+    ("VALUE='one\x85FAKE_SOURCE=disabled'\nPROJECT_NAME=synthetic\n", {"VALUE", "PROJECT_NAME"}),
+    ("export\tBASE_PORT = '64=000'\rPROJECT_NAME=synthetic\r", {"BASE_PORT", "PROJECT_NAME"}),
+    ("BASE_PORT: 64000\nBAD_SOURCE: disabled=wrong\n# COMMENT_SOURCE=disabled\n", set()),
+])
+def test_bundle_file_key_discovery_is_quiet_and_uses_reader_lines(tmp_path, capsys, case):
+    from core.support_bundle import _file_keys
+    text, expected = case
+    path = tmp_path / "active.env"
+    path.write_bytes(text.encode())
+    assert _file_keys(path) == expected
+    captured = capsys.readouterr()
+    assert captured.out == "" and captured.err == ""
+
+
+def test_bundle_file_key_read_errors_still_propagate(tmp_path, monkeypatch):
+    from core.support_bundle import _file_keys
+    path = tmp_path / "active.env"
+    path.write_text("BASE_PORT=64000\n")
+
+    def unreadable(*args, **kwargs):
+        raise OSError("synthetic metadata read error")
+
+    monkeypatch.setattr(Path, "read_text", unreadable)
+    with pytest.raises(OSError, match="synthetic metadata read error"):
+        _file_keys(path)

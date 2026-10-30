@@ -176,14 +176,10 @@ def resolve_cloud_provider(
     secret_value: str | None,
     selected_models: Sequence[str] | None,
     existing_key_set: bool,
-    existing_source: str,
 ) -> CloudResolution:
     """Reconcile the secret step and the models step for one provider.
 
     ``provider_key`` must be a key declared in ``CLOUD_PROVIDERS``.
-    ``existing_source`` remains a required keyword for caller
-    compatibility. It is intentionally unused: current verdicts do not
-    depend on the provider's saved source.
 
     With ``selected_models=None`` or a non-empty selection, the secret
     step decides both fields:

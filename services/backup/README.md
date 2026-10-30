@@ -7,7 +7,10 @@ On-demand backup runner for the Atlas stack. The host orchestrator captures four
 - a native online Weaviate snapshot;
 - a Supabase Storage archive.
 
-It uploads them to an S3-compatible bucket with deployment-authenticated manifests. PostgreSQL restore stages the dump and keeps a rollback database. Neo4j and Weaviate restore through their exact pinned database contracts.
+It uploads the captured artifacts to an S3-compatible bucket. Deployment-authenticated manifests cover the three database artifact sets.
+The Supabase Storage archive has no authenticated manifest or restore procedure.
+
+PostgreSQL restore stages the dump and keeps a rollback database. Neo4j and Weaviate restore through their exact pinned database contracts.
 
 The container is **never long-running** (`BACKUP_SCALE=0`). It is in Compose to share the stack network, env vars and volume mounts. It does work only when you invoke it. Before the first backup, set `BACKUP_MANIFEST_HMAC_KEY` and `BACKUP_DEPLOYMENT_ID` (§3).
 

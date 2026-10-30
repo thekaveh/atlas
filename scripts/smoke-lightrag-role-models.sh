@@ -61,9 +61,9 @@ DOC
 
 # LightRAG authenticates the key as X-API-Key; a Bearer header is parsed as
 # a JWT and rejected with 401 (services/lightrag/README.md). The header goes
-# on curl's stdin (-K-) so `ps` never shows the key.
+# on curl's stdin (--header @-) so `ps` never shows the key.
 lightrag_curl() {
-  printf 'header = "X-API-Key: %s"\n' "$api_key" | curl -fsS -K- "$@"
+  printf 'X-API-Key: %s\n' "$api_key" | curl -fsS --header @- "$@"
 }
 
 echo "[smoke] uploading one small document"

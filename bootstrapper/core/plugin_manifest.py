@@ -123,7 +123,26 @@ class PluginManifest:
 
 def _format_jsonschema_error(error) -> str:
     path = ".".join(str(p) for p in error.absolute_path) or "(root)"
-    return f"{path}: {error.message}"
+    if error.validator == "required" and isinstance(error.instance, dict):
+        # Property names come from the schema, never from manifest values.
+        missing = [name for name in error.validator_value if name not in error.instance]
+        return f"{path}: missing required properties {missing}"
+    if error.validator == "additionalProperties" and isinstance(error.instance, dict):
+        # A mis-indented value can parse as a key, so name the keys the
+        # schema allows rather than echo the unexpected ones.
+        allowed = list(error.schema.get("properties", {}))
+        return f"{path}: unexpected properties; allowed properties are {allowed}"
+    return f"{path}: schema {error.validator} constraint {error.validator_value!r} not satisfied"
+
+
+def _format_parse_error(exc: Exception, manifest_path: Path) -> str:
+    location = str(manifest_path)
+    if isinstance(exc, yaml.MarkedYAMLError) and exc.problem_mark is not None:
+        location += f", line {exc.problem_mark.line + 1}, column {exc.problem_mark.column + 1}"
+    kind = type(exc).__name__
+    if isinstance(exc, yaml.constructor.ConstructorError):
+        kind += ", invalid structure or duplicate key"
+    return f"could not parse YAML ({kind} at {location})"
 
 
 def _strict_timeout_type_errors(raw: dict) -> list[str]:
@@ -148,7 +167,7 @@ def load_plugin_manifest(plugin_dir: Path) -> PluginManifest | None:
     try:
         raw = load_yaml_strict(manifest_path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, yaml.YAMLError) as exc:
-        raise PluginManifestError(hint, f"could not parse YAML ({exc})") from exc
+        raise PluginManifestError(hint, _format_parse_error(exc, manifest_path)) from None
     if not isinstance(raw, dict):
         raise PluginManifestError(hint, "manifest must be a mapping at the top level")
     wrong_timeout_types = _strict_timeout_type_errors(raw)
@@ -160,7 +179,8 @@ def load_plugin_manifest(plugin_dir: Path) -> PluginManifest | None:
         raise PluginManifestError(hint, f"schema violation(s): {details}")
     errors = sorted(_get_validator().iter_errors(raw), key=lambda e: list(e.absolute_path))
     if errors:
-        details = "; ".join(_format_jsonschema_error(e) for e in errors)
+        # jsonschema reports one `required` error per missing name; say it once.
+        details = "; ".join(dict.fromkeys(_format_jsonschema_error(e) for e in errors))
         raise PluginManifestError(hint, f"schema violation(s): {details}")
     _reject_trailing_newlines(raw, hint)
     return PluginManifest(

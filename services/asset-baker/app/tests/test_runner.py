@@ -112,3 +112,107 @@ def test_run_bake_timeout_raises_timeout_kind(tmp_path, monkeypatch):
     with pytest.raises(runner.BakeError) as excinfo:
         runner.run_bake(tmp_path / "in.glb", tmp_path / "out", _params())
     assert excinfo.value.kind == "timeout"
+
+
+def _compiled_post_bake_script():
+    import ast
+    from asset_baker import runner
+
+    tree = ast.parse(runner.BAKE_SCRIPT.read_text(encoding="utf-8"))
+    definitions = {node.name: node for node in tree.body if isinstance(node, (ast.FunctionDef, ast.ClassDef))}
+    process = definitions["process"]
+    start = next(index for index, node in enumerate(process.body) if isinstance(node, ast.Assign)
+                 and getattr(node.targets[0], "id", None) == "mb")
+    process.body = process.body[start:]
+    names = ("log", "err", "BlackBake", "parse_args", "main", "_write_summary", "process")
+    nodes = [definitions[name] for name in names]
+    return compile(ast.fix_missing_locations(ast.Module(body=nodes, type_ignores=[])), str(runner.BAKE_SCRIPT), "exec")
+
+
+def _synthetic_post_bake_namespace(measured):
+    import glob
+    import os
+    import sys
+    import time
+    import traceback
+
+    mesh = types.SimpleNamespace(hide_set=lambda value: None, hide_render=False)
+    image = types.SimpleNamespace(pack=lambda: None, save_render=lambda path: Path(path).write_bytes(b"synthetic-png"))
+    bpy = types.SimpleNamespace(
+        context=types.SimpleNamespace(scene=object()),
+        ops=types.SimpleNamespace(wm=types.SimpleNamespace(read_factory_settings=lambda **kwargs: None)),
+        data=types.SimpleNamespace(objects=types.SimpleNamespace(remove=lambda *args, **kwargs: None)),
+    )
+    return dict(
+        os=os, sys=sys, time=time, traceback=traceback, json=json, glob=glob, bpy=bpy,
+        TARGET_TRIS=39000, TEX_COLOR=2048, TEX_NORMAL=2048, CANONICAL=4.0,
+        BRIGHTNESS_MIN=0.05, MODE="bake", TRY_GPU=False, OUTDIR=None, SUMMARY=None,
+        import_glb=lambda path: mesh, enable_cycles=lambda scene: None,
+        mean_brightness=lambda baked_image: measured, col=image, nrm=image,
+        _export_glb=lambda obj, path: Path(path).write_bytes(b"synthetic-glb"),
+        lp=mesh, base="synthetic", shr=False, sh=False, t0=time.time(),
+        faces_in=12, tris_out=6, shells_kept=1,
+    )
+
+
+def _install_synthetic_post_bake_command(monkeypatch, measured):
+    import contextlib
+    import io
+    import sys
+    from asset_baker import runner
+
+    code = _compiled_post_bake_script()
+    observed = {}
+
+    def fake_run(command, **kwargs):
+        stdout, stderr = io.StringIO(), io.StringIO()
+        namespace = _synthetic_post_bake_namespace(measured)
+        exec(code, namespace)
+        with monkeypatch.context() as context, contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            context.setattr(sys, "argv", command)
+            with pytest.raises(SystemExit) as exitinfo:
+                namespace["main"]()
+        observed.update(stdout=stdout.getvalue(), stderr=stderr.getvalue(), returncode=exitinfo.value.code)
+        return types.SimpleNamespace(**observed)
+
+    monkeypatch.setattr(runner.subprocess, "run", fake_run)
+    return observed
+
+
+def _assert_precise_post_bake_artifacts(artifacts, measured):
+    assert artifacts.summary["color_mean"] == measured
+    assert artifacts.glb_path.exists()
+    assert artifacts.basecolor_path.exists() and artifacts.normal_path.exists()
+
+
+@pytest.mark.parametrize("case", [
+    pytest.param((0.05004, 0.050045, True), id="custom-threshold-above"),
+    pytest.param((0.05, 0.05001, True), id="ordinary-threshold-above"),
+    pytest.param((0.05, 0.05, True), id="ordinary-threshold-equal"),
+    pytest.param((0.05004, 0.05004, True), id="custom-threshold-equal"),
+    pytest.param((0.05, 0.04999, False), id="ordinary-threshold-below"),
+    pytest.param((0.05004, 0.05003, False), id="custom-threshold-below"),
+])
+def test_post_bake_machine_summary_preserves_brightness_precision(tmp_path, monkeypatch, case):
+    from asset_baker import runner
+
+    threshold, measured, accepted = case
+
+    input_path = tmp_path / "input.glb"
+    input_path.write_bytes(b"synthetic-input")
+    output = tmp_path / "out"
+    observed = _install_synthetic_post_bake_command(monkeypatch, measured)
+    params = _params(brightness_min=threshold)
+    if accepted:
+        artifacts = runner.run_bake(input_path, output, params)
+        _assert_precise_post_bake_artifacts(artifacts, measured)
+    else:
+        with pytest.raises(runner.BakeError) as error:
+            runner.run_bake(input_path, output, params)
+        assert error.value.kind == "black_bake"
+        assert not list(output.glob("*.glb")) and not list(output.glob("*.png"))
+    record = json.loads((output / "summary.json").read_text(encoding="utf-8"))[0]
+    assert record["ok"] is accepted
+    assert record.get("black_bake", False) is (not accepted)
+    assert observed["returncode"] == (0 if accepted else 1)
+    assert f"color-bake mean brightness {measured:.3f}" in observed["stdout"]

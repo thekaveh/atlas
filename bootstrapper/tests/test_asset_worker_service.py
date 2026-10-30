@@ -273,3 +273,11 @@ def test_asset_worker_normalization_budget_configuration() -> None:
     assert compose["services"]["asset-worker"]["environment"][name] == "${ASSET_WORKER_MAX_NORMALIZATION_VERTICES:-250000}"
     assert f"{name}=250000" in (ROOT / ".env.example").read_text()
     assert name in README.read_text()
+
+
+def test_asset_services_share_identical_upload_body() -> None:
+    """Each asset service builds from its own context, so the bounded-ingress
+    helper is vendored twice; a fix applied to one copy must reach both."""
+    baker = SERVICES / "asset-baker" / "app" / "asset_baker" / "upload_body.py"
+    worker = SERVICES / "asset-worker" / "app" / "asset_worker" / "upload_body.py"
+    assert baker.read_bytes() == worker.read_bytes()

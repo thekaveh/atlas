@@ -26,7 +26,7 @@ WhisperX becomes valuable when Atlas can name a product path such as meeting rec
 
 Future service shape, if a later audio-ingestion ticket promotes this:
 
-- Track membership: `rag`, `voice`, and `all`. Do not add it to default setup paths.
+- Track membership: roadmap labels `rag` and `voice`, with runtime `all` proposed if adopted. The roadmap labels are not runtime track keys. Any additional runtime membership needs a decision using the [runtime track registry](../../../bootstrapper/tracks.yml). Do not add it to default setup paths.
 - Service category: `media`, matching STT/TTS and document-processing services.
 - Source values/default: `WHISPERX_SOURCE=disabled|container-gpu|localhost`, disabled by default.
 - Relationship to STT selector: explicitly decide whether WhisperX is a separate service or a new `STT_PROVIDER_SOURCE` option. Do not silently make it the default STT engine.

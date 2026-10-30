@@ -1610,6 +1610,50 @@ def test_concurrent_comfyui_cancel_confirmation_is_monotonic(monkeypatch):
     ] is True
 
 
+def test_stale_comfyui_poll_preserves_confirmed_cancellation(monkeypatch):
+    _reset_comfyui_fake()
+    main = _fresh_main_comfyui(monkeypatch)
+    monkeypatch.setattr(main, "ComfyUIMediaClient", _FakeComfyUIMediaClient)
+    from fastapi.testclient import TestClient
+
+    client = TestClient(main.app)
+    submitted = client.post("/media/generate", json={
+        "provider": "comfyui", "modality": "image", "model": "krea2-turbo-bf16",
+        "input": {"prompt": "p"},
+    })
+    assert submitted.status_code == 202
+    op_id = submitted.json()["operation_id"]
+    _FakeComfyUIMediaClient.cancel_result = False
+    assert client.post(f"/media/operations/{op_id}/cancel").status_code == 200
+    started, release = asyncio.Event(), asyncio.Event()
+
+    class DelayedPollClient(_FakeComfyUIMediaClient):
+        async def get_media_operation(self, **kwargs):
+            started.set()
+            await release.wait()
+            return {**await super().get_media_operation(**kwargs), "status": "running"}
+
+    monkeypatch.setattr(main, "ComfyUIMediaClient", DelayedPollClient)
+    DelayedPollClient.cancel_result = True
+
+    async def scenario():
+        principal = main.BackendPrincipal(kind="service", subject="auth-disabled")
+        polling = asyncio.create_task(main.get_media_operation(op_id, principal))
+        await asyncio.wait_for(started.wait(), timeout=1)
+        confirmed = await main.cancel_media_operation(op_id, principal)
+        assert confirmed.provenance["provider_cancellation_requested"] is True
+        calls = DelayedPollClient.cancel_calls
+        release.set()
+        polled = await polling
+        assert polled.status == "cancellation_requested"
+        assert polled.provenance["provider_cancellation_requested"] is True
+        repeated = await main.cancel_media_operation(op_id, principal)
+        assert repeated.provenance["provider_cancellation_requested"] is True
+        assert DelayedPollClient.cancel_calls == calls
+
+    asyncio.run(scenario())
+
+
 def test_comfyui_cancel_on_terminal_returns_409(monkeypatch):
     _reset_comfyui_fake()
     main = _fresh_main_comfyui(monkeypatch)

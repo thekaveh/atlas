@@ -645,7 +645,7 @@ git commit -m "feat(tei-reranker): include fragment in top-level compose + regen
 
 - [ ] **Step 1: Create README**
 
-```markdown
+````markdown
 # TEI Reranker
 
 > **Image:** `ghcr.io/huggingface/text-embeddings-inference:cpu-1.9` (CPU) / `:1.9` (GPU)
@@ -716,7 +716,7 @@ Container `start_period` is 120 s (first run downloads the model).
 - **Out of memory on CPU variant** — bump `TEI_RERANKER_MEMORY_LIMIT`. BGE-reranker-v2-m3 needs ~3 GB on CPU under typical load.
 - **Slow inference** — switch to `container-gpu` if NVIDIA is available; CPU latency is ~150 ms per pair vs ~15 ms on GPU.
 - **Model not found** — verify `TEI_RERANKER_MODEL_ID` matches a public HF repo. Private repos need an `HF_TOKEN` env var (not wired by default; hand-add to the compose env block).
-```
+````
 
 - [ ] **Step 2: Regenerate the `## 5. Dependencies & Integrations` section**
 
@@ -1750,7 +1750,7 @@ git commit -m "feat(lightrag): include fragment in top-level compose + regen .en
 
 - [ ] **Step 1: Create README**
 
-```markdown
+````markdown
 # LightRAG
 
 > **Image:** `ghcr.io/hkuds/lightrag:1.5.0`
@@ -1862,7 +1862,7 @@ curl -sX POST http://localhost:${LITELLM_PORT}/v1/chat/completions \
 - **`OPENAI_API_KEY` warning at startup** — LightRAG checks env even when using `openai`-compatible Ollama. Harmless; the actual key is the `LITELLM_MASTER_KEY` forwarded as `LLM_BINDING_API_KEY`.
 - **Empty KG after ingestion** — verify `LIGHTRAG_LLM_MODEL` actually points at a chat-capable model. Some embedding-only Ollama tags will silently produce empty triples.
 - **`pgvector` dim mismatch** — drop and rerun the migration when changing `LIGHTRAG_EMBEDDING_DIM`: `psql ... -c "DROP SCHEMA lightrag CASCADE"` then restart.
-```
+````
 
 - [ ] **Step 2: Regenerate `## 5` section + diagrams**
 
@@ -2656,7 +2656,7 @@ When `LIGHTRAG_SOURCE != disabled`, the backend receives `LIGHTRAG_ENDPOINT` and
 
 **`services/litellm/README.md`** — add a subsection:
 
-```markdown
+````markdown
 ### Built-in `lightrag` model
 
 When `LIGHTRAG_SOURCE != disabled`, `litellm-init` registers a `lightrag` model that proxies to LightRAG's Ollama-shim (`{LIGHTRAG_ENDPOINT}/api`). Encode the query mode in the user message prefix: `/hybrid`, `/local`, `/global`, `/naive`, `/mix`. Default mode is `/hybrid`.
@@ -2666,7 +2666,7 @@ curl -sX POST http://localhost:${LITELLM_PORT}/v1/chat/completions \
   -H "Authorization: Bearer ${LITELLM_MASTER_KEY}" \
   -d '{"model":"lightrag","messages":[{"role":"user","content":"/hybrid What is RAG?"}]}'
 ```
-```
+````
 
 **`services/supabase/README.md`** — add:
 

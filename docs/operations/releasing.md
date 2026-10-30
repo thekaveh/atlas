@@ -117,7 +117,8 @@ installs no release framework, needs no credentials and publishes nothing.
 with a generated block between the `GENERATED RELEASE NOTES` markers. The block
 lists breaking changes, security fixes and features one by one, and counts the
 other entries. The curated entries below the block are the detailed history;
-the tool never changes them.
+the tool never changes them. Curated entries are newest first, so add new ones
+directly after the block's end marker.
 
 The block records its range (`<!-- generated-range: v0.1.0..<commit> -->`), so
 it is reproducible. `--check-changelog` fails when the block differs from what

@@ -15,9 +15,11 @@ Related operator pages:
 
 ## 1. Runtime Commands
 
-Each line below is a complete command. None of them deletes data or edits the
-host; §1.1 lists the commands that do. The `--consumer` lines need an
-`atlas.consumer.yml` file in the current directory.
+Each line below is a complete command. Starts and env backfill can update local
+configuration. A start can also provision or launch enabled managed host
+services (§8). Section 1.1 highlights destructive actions and explicit host
+cleanup. The `--consumer` lines need an `atlas.consumer.yml` file in the current
+directory.
 
 ```bash
 ./start.sh

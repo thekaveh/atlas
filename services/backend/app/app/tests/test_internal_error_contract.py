@@ -4,6 +4,9 @@ import ast
 import logging
 import os
 from pathlib import Path
+from uuid import uuid4
+
+import pytest
 
 
 def _stub_celery_env(monkeypatch) -> None:
@@ -199,3 +202,83 @@ def test_memory_execution_allows_only_one_duplicate_recovery(monkeypatch):
 
     assert first == ("claimed", None)
     assert second == ("busy", None)
+
+
+@pytest.fixture
+def owned_status_app(monkeypatch):
+    import celery_app as subject
+    from celery import Celery, current_app
+
+    original_app = current_app._get_current_object()
+    application = Celery("atlas-owned-status", broker="memory://",
+                         backend="cache+memory://", set_as_current=False)
+    monkeypatch.setattr(subject, "celery_app", application)
+    yield subject, application
+    application.close()
+    assert current_app._get_current_object() is original_app
+
+
+def _read_owned_job_status(monkeypatch, owned_status_app, states):
+    subject, application = owned_status_app
+    reads = []
+
+    def metadata(task_id):
+        reads.append(task_id)
+        state = states[min(len(reads) - 1, len(states) - 1)]
+        value = {"owned": True} if state == "SUCCESS" else None
+        if state == "FAILURE":
+            value = ValueError("owned private failure detail")
+        return {"task_id": task_id, "status": state, "result": value,
+                "traceback": "owned private traceback", "children": []}
+
+    monkeypatch.setattr(application.backend, "get_task_meta", metadata)
+    payload = subject.get_celery_job_status("owned-status-job")
+    assert reads and all(task_id == "owned-status-job" for task_id in reads)
+    assert "owned private" not in repr(payload)
+    return payload
+
+
+@pytest.mark.parametrize("states", [
+    ["PENDING", "SUCCESS"], ["STARTED", "SUCCESS"], ["RETRY", "SUCCESS"],
+    ["PENDING", "FAILURE"], ["STARTED", "FAILURE"], ["RETRY", "FAILURE"],
+])
+def test_job_status_remains_one_coherent_snapshot_during_task_transition(
+    monkeypatch, owned_status_app, states
+):
+    payload = _read_owned_job_status(monkeypatch, owned_status_app, states)
+    assert payload["ready"] == (payload["status"] in {"success", "failure", "revoked"})
+    assert payload["successful"] == (payload["status"] == "success")
+    assert payload["failed"] == (payload["status"] == "failure")
+
+
+@pytest.mark.parametrize(("state", "expected"), [
+    ("PENDING", ("pending", False, False, False, None, None)),
+    ("RECEIVED", ("pending", False, False, False, None, None)),
+    ("STARTED", ("running", False, False, False, None, None)),
+    ("RETRY", ("retry", False, False, False, None, None)),
+    ("SUCCESS", ("success", True, True, False, {"owned": True}, None)),
+    ("FAILURE", ("failure", True, False, True, None, "Background job failed")),
+    ("REVOKED", ("revoked", True, False, False, None, None)),
+    ("PROGRESS", ("progress", False, False, False, None, None)),
+])
+def test_job_status_preserves_stable_states_results_and_sanitization(
+    monkeypatch, owned_status_app, state, expected
+):
+    payload = _read_owned_job_status(monkeypatch, owned_status_app, [state])
+    assert (payload["status"], payload["ready"], payload["successful"],
+            payload["failed"], payload["result"], payload["error"]) == expected
+    assert payload["traceback"] is None
+
+
+def test_job_status_preserves_a_successful_none_result(owned_status_app):
+    subject, application = owned_status_app
+    task_id = "owned-status-" + str(uuid4())
+    application.backend.store_result(task_id, None, "SUCCESS")
+    try:
+        payload = subject.get_celery_job_status(task_id)
+        assert payload["status"] == "success"
+        assert payload["ready"] is True and payload["successful"] is True
+        assert payload["result"] is None and payload["error"] is None
+        assert payload["traceback"] is None
+    finally:
+        application.AsyncResult(task_id).forget()

@@ -102,12 +102,13 @@ def test_table_endpoint_and_existing_source_styles(preview, monkeypatch):
 def test_linear_alias_and_status_follow_source_before_scale(preview):
     summary = preview.starter.build_pre_launch_summary_table()
     table = summary.renderables[0]
-    index = table.columns[1]._cells.index('LLM Engine')
-    alias = table.columns[4]._cells[index].plain
-    status = table.columns[5]._cells[index].plain
+    cells = [list(column.cells) for column in table.columns]
+    index = cells[1].index('LLM Engine')
+    alias = cells[4][index].plain
+    status = cells[5][index].plain
     expected = 'ollama.localhost:63000' if preview.available else '-'
     assert alias == expected
-    assert table.columns[3]._cells[index].plain == preview.source
+    assert cells[3][index].plain == preview.source
     expected_status = {'ollama-container-cpu': '● on', 'ollama-container-gpu': '● GPU',
                        'ollama-localhost': '● local'}.get(preview.source, '● off')
     assert status == expected_status

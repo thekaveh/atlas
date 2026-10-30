@@ -38,6 +38,17 @@ _APP_DIR = str(Path(__file__).parent.parent)
 if _APP_DIR not in sys.path:
     sys.path.insert(0, _APP_DIR)
 
+# Load the pinned Ray SDK (requirements.txt) before any test module is
+# collected. Several modules install a bare ``ray`` stub when ``ray`` is not
+# yet in sys.modules; importing the real SDK first keeps those stubs inert, so
+# the actual-SDK tests in test_ray_client/test_ray_routes really run.
+try:
+    import ray  # noqa: F401
+    import ray.job_submission  # noqa: F401
+    import ray.dashboard.modules.job.common  # noqa: F401
+except ImportError:
+    pass
+
 
 @pytest.fixture(autouse=True)
 def backend_identity_auth_disabled(monkeypatch):
@@ -109,3 +120,85 @@ def fastapi_client(monkeypatch, ray_enabled_env, mock_job_submission_client):
     from fastapi.testclient import TestClient
     from main import app  # noqa: sys.path set above
     return TestClient(app)
+
+
+class _OfflineRayDashboard:
+    """Drive the real pinned SDK without opening any network connection."""
+
+    def __init__(self):
+        self.outcome = "success"
+        self.preflight = None
+        self.calls = []
+        self.accepted = []
+
+    @staticmethod
+    def response(status, payload):
+        import json
+        import requests
+
+        response = requests.Response()
+        response.status_code = status
+        response._content = json.dumps(payload).encode()
+        return response
+
+    def request(self, method, url, **kwargs):
+        import requests
+
+        self.calls.append((method, url, kwargs))
+        if self.preflight and self.preflight in url:
+            raise requests.ReadTimeout("synthetic preflight failure")
+        if url.endswith("/api/version"):
+            return self.response(200, {"version": "4", "ray_version": "2.56.0"})
+        if method == "GET" and "/api/jobs/" in url:
+            if self.outcome != "duplicate":
+                return self.response(404, "synthetic job missing")
+            return self.response(200, {
+                "type": "SUBMISSION", "status": "RUNNING", "entrypoint": "echo synthetic",
+                "submission_id": url.rsplit("/", 1)[-1],
+            })
+        assert method == "POST" and url.endswith("/api/jobs/")
+        return self.submit_response(kwargs["json"]["submission_id"])
+
+    def submit_response(self, submission_id):
+        import requests
+
+        if self.outcome in {"rejected", "duplicate"}:
+            return self.response(400, "synthetic explicit rejection")
+        self.accepted.append(submission_id)
+        failures = {
+            "connection": requests.ConnectionError,
+            "chunked": requests.exceptions.ChunkedEncodingError,
+            "decoding": requests.exceptions.ContentDecodingError,
+            "timeout": requests.ReadTimeout,
+        }
+        if self.outcome in failures:
+            raise failures[self.outcome]("synthetic accepted job, lost reply")
+        response = self.response(200, {"job_id": submission_id, "submission_id": submission_id})
+        if self.outcome == "malformed-json":
+            response._content = b"not-json-after-acceptance"
+        elif self.outcome == "missing-field":
+            response = self.response(200, {"submission_id": submission_id})
+        elif self.outcome == "wrong-id":
+            response = self.response(200, {"job_id": submission_id, "submission_id": "raysubmit_other"})
+        return response
+
+
+@pytest.fixture
+def offline_ray_dashboard(monkeypatch):
+    """Point RayClient at the real pinned SDK, served by _OfflineRayDashboard."""
+    import ray
+    import requests
+    import ray_client
+
+    # conftest imports the pinned SDK before collection; a stub here means the
+    # real SDK is missing or shadowed, which must fail rather than skip.
+    assert getattr(ray, "__file__", None), "real Ray SDK is shadowed by a test stub"
+    assert ray.__version__ == "2.56.0"
+    dashboard = _OfflineRayDashboard()
+    monkeypatch.setattr(requests, "request", dashboard.request)
+    monkeypatch.setenv("RAY_ADDRESS", "ray://synthetic-ray:10001")
+    for name in ("RAY_DASHBOARD_URL", "RAY_API_SERVER_ADDRESS"):
+        monkeypatch.setenv(name, "http://synthetic-ray.invalid:8265")
+    monkeypatch.setenv("RAY_JOB_API_TOKEN", "ray-test-token")
+    monkeypatch.setattr(ray_client.RayClient, "_instance", None)
+    return dashboard

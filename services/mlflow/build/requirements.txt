@@ -9,7 +9,7 @@ psycopg2-binary==2.9.12
 # guard, #1287), whose base carries the same class of findings, so these move
 # here, inside MLflow's own declared ranges (gitpython<4, sqlparse<1, unchanged
 # in 3.16.1), through the audited lock instead.
-GitPython==3.1.62
+GitPython==3.2.1
 sqlparse==0.6.0
-setuptools==84.0.0
+setuptools==84.1.0
 wheel==0.48.0

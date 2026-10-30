@@ -35,6 +35,8 @@ Ingestion uses `profile.parser_order` for both synchronous and Celery jobs. Each
 
 These paths require the selected parser's configured endpoint and enforce the Backend extraction size and timeout limits. Tika output remains degraded plain text. Successful extraction depends on Tika's ability to parse the file; this configuration does not guarantee support for every document.
 
+The Backend accepts only successful HTTP responses from Tika. It rejects redirects without following them, so redirect pages cannot become extracted text.
+
 ## 5. Guardrails
 - Keep Tika disabled unless long-tail extraction or explicit ingestion needs it.
 - Do not expose Tika directly to untrusted networks; it accepts document bytes and has no built-in Atlas auth.

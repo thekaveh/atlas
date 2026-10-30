@@ -343,8 +343,11 @@ def test_invalid_duplicate_marker_is_value_free_expected_error(tmp_path, value):
     with pytest.raises(click.ClickException) as caught:
         starter.run_port_migration(False)
     assert (env.read_bytes(), list(tmp_path.glob(".env.backup.*")), events) == (original, [], [])
-    assert str(env) in str(caught.value) and _MARKER in str(caught.value)
-    assert value not in str(caught.value)
+    message = str(caught.value)
+    assert message.startswith(f"{env}:") and _MARKER in message
+    # The contextual path can itself contain the test value (for example a
+    # dated checkout containing '-1'). Inspect the diagnostic payload only.
+    assert value not in message.removeprefix(f"{env}:")
 
 
 @pytest.mark.parametrize("failure", ["backup", "before-write", "after-replace"])

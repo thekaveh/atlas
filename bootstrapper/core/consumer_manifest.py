@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import json
+import math
 import os
 import re
+from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from functools import lru_cache
 from pathlib import Path
@@ -563,6 +566,44 @@ def _split_manifest_env(raw: str) -> list[str]:
     return pieces
 
 
+@contextmanager
+def consumer_manifest_cli_paths(paths: Iterable[str], *, restore_primary: bool = True):
+    """Keep explicit CLI paths lossless without changing legacy env lists."""
+    selected = list(paths)
+    selector = os.pathsep.join(selected)
+    primary = "ATLAS_CONSUMER_MANIFEST"
+    companion = "_ATLAS_CONSUMER_MANIFEST_CLI"
+    previous = {key: os.environ.get(key) for key in (primary, companion)}
+    os.environ[primary] = selector
+    os.environ[companion] = json.dumps({
+        "selector": selector, "paths": [path for path in selected if path],
+    })
+    try:
+        yield
+    finally:
+        for key, value in previous.items():
+            if key == primary and not restore_primary:
+                continue
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+
+def _consumer_manifest_env_paths() -> list[str]:
+    raw = os.environ.get("ATLAS_CONSUMER_MANIFEST", "")
+    try:
+        selection = json.loads(os.environ.get("_ATLAS_CONSUMER_MANIFEST_CLI", ""))
+    except (ValueError, RecursionError):
+        selection = None
+    if isinstance(selection, dict) and set(selection) == {"selector", "paths"}:
+        paths = selection["paths"]
+        if (selection["selector"] == raw and isinstance(paths, list)
+                and all(isinstance(path, str) and "\0" not in path for path in paths)):
+            return paths
+    return _split_manifest_env(raw)
+
+
 def _list_items(value: str, separator: str) -> list[str]:
     """A separated list as its stripped items, so `a, b` equals `a,b`."""
     return [item.strip() for item in value.split(separator) if item.strip()]
@@ -616,8 +657,7 @@ def discover_consumer_manifest_paths(
     root = Path(root_dir)
     raw_paths = list(explicit_paths or [])
     if not raw_paths:
-        env_value = os.environ.get("ATLAS_CONSUMER_MANIFEST", "").strip()
-        raw_paths = _split_manifest_env(env_value) if env_value else []
+        raw_paths = _consumer_manifest_env_paths()
 
     base_dir = _invoker_relative_base(root)
     resolved: list[Path] = []
@@ -738,8 +778,7 @@ def _merge_profile_overrides_block(
                     if ks in sub and sub[ks] != vs:
                         raise ConsumerManifestError(
                             f"profile_overrides.{prof_name}.{fname}.{ks} has "
-                            f"conflicting consumer manifest values: {sub[ks]!r} "
-                            f"vs {vs!r} ({origin})"
+                            f"conflicting consumer manifest values ({origin})"
                         )
                     sub[ks] = vs
             else:
@@ -747,8 +786,7 @@ def _merge_profile_overrides_block(
                 if fname in bucket and bucket[fname] != vs:
                     raise ConsumerManifestError(
                         f"profile_overrides.{prof_name}.{fname} has conflicting "
-                        f"consumer manifest values: {bucket[fname]!r} vs {vs!r} "
-                        f"({origin})"
+                        f"consumer manifest values ({origin})"
                     )
                 bucket[fname] = vs
 
@@ -780,7 +818,7 @@ def _set_scalar(
     if key in env and env[key] != rendered:
         raise ConsumerManifestError(
             f"{key} has conflicting consumer manifest values: "
-            f"{origins[key]}={env[key]!r}, {origin}={rendered!r}"
+            f"{origins[key]}, {origin}"
         )
     env[key] = rendered
     origins[key] = origin
@@ -1322,13 +1360,17 @@ def _resolve_litellm_api_base(raw: str, *, alias: str, origin: str) -> str:
     if "${" in resolved or "$(" in resolved:
         raise ConsumerManifestError(
             f"litellm_models entry {alias!r} api_base has unresolved interpolation "
-            f"after template substitution: {resolved!r} ({origin})"
+            f"after template substitution ({origin})"
         )
-    parsed = urllib.parse.urlparse(resolved)
+    try:
+        parsed = urllib.parse.urlparse(resolved)
+    except ValueError:
+        raise ConsumerManifestError(
+            f"litellm_models entry {alias!r} api_base is not a valid URL ({origin})"
+        ) from None
     if parsed.scheme not in ("http", "https"):
         raise ConsumerManifestError(
-            f"litellm_models entry {alias!r} api_base must be an http(s) URL: "
-            f"{resolved!r} ({origin})"
+            f"litellm_models entry {alias!r} api_base must be an http(s) URL ({origin})"
         )
     if parsed.username or parsed.password or "@" in parsed.netloc:
         raise ConsumerManifestError(
@@ -1344,8 +1386,7 @@ def _resolve_litellm_api_base(raw: str, *, alias: str, origin: str) -> str:
     if parsed.query or parsed.fragment:
         raise ConsumerManifestError(
             f"litellm_models entry {alias!r} api_base may not contain a query string "
-            f"or fragment (credentials belong in api_key_var, not the URL): "
-            f"{resolved!r} ({origin})"
+            f"or fragment (credentials belong in api_key_var, not the URL) ({origin})"
         )
     allowed = _approved_litellm_hosts()
     if parsed.netloc not in allowed:
@@ -2249,10 +2290,17 @@ def _parse_host_health(raw: Any, *, name: str, origin: str) -> HealthProbe:
     expect = block.get("expect_json") or {}
     if not isinstance(expect, Mapping):
         raise ConsumerManifestError(f"{label}.expect_json must be a mapping ({origin})")
+    raw_timeout = block.get("timeout", 5.0)
     try:
-        timeout = float(block.get("timeout", 5.0))
-    except (TypeError, ValueError):
-        raise ConsumerManifestError(f"{label}.timeout must be a number ({origin})") from None
+        if isinstance(raw_timeout, bool):
+            raise ValueError
+        timeout = float(raw_timeout)
+        if not math.isfinite(timeout) or timeout <= 0:
+            raise ValueError
+    except (TypeError, ValueError, OverflowError):
+        raise ConsumerManifestError(
+            f"{label}.timeout must be a finite positive number ({origin})"
+        ) from None
     path = str(block.get("path") or "/")
     if not path.startswith("/"):
         # `health` became http://127.0.0.1:PORThealth (cycle 39).
@@ -2267,6 +2315,8 @@ def _parse_host_health(raw: Any, *, name: str, origin: str) -> HealthProbe:
 
 def _parse_host_port(raw: Any, *, name: str, origin: str) -> int:
     try:
+        if isinstance(raw, bool) or not isinstance(raw, (int, str)):
+            raise ValueError
         port = int(raw)
     except (TypeError, ValueError):
         raise ConsumerManifestError(

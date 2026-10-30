@@ -43,9 +43,9 @@ JUPYTERHUB_SOURCE=disabled
 - **Database Clients**: Weaviate, Neo4j, PostgreSQL, Redis, Supabase
 - **Lakehouse Clients**: PySpark Connect, `boto3`, `s3fs`, `pyiceberg`, `pyarrow`, and `duckdb` for MinIO + Iceberg REST workflows
 - **Financial Research Kit**: OpenBB + CCXT libraries and a guarded paper-portfolio notebook for read-only market research
-- **Sample Notebooks**: 16 ready-to-use notebooks (00-15) demonstrating service integration
+- **Sample Notebooks**: 16 notebooks (00-15) demonstrating service integration; Ray Client needs a compatible kernel (§5).
 - **Persistent Storage**: Your work is saved in the `jupyterhub-data` volume (§7)
-- **Environment Variables**: Auto-configured connections for the integrations declared in `services/jupyterhub/service.yml`; optional endpoints, including `MCP_SERVERS_URL`, remain empty when their source is disabled
+- **Environment Variables**: Connections follow `services/jupyterhub/service.yml`. Selected endpoints, including `MCP_SERVERS_URL`, remain empty when their source is disabled (§6).
 - **Multi-kernel runtime**: Python 3 (default), R, Julia 1.12, **Scala 2.13**, and **Scala 3**. Pick one from JupyterLab's launcher or VS Code's kernel picker. See §11.
 - **VS Code-ready**: configured for remote-Jupyter access out of the box. Open local `.ipynb` files in VS Code and run them on this container as the kernel. See §10.
 
@@ -109,9 +109,13 @@ The repository gate keeps this inventory in sync with the image welcome page and
 
 ## 6. Service Integration Examples
 
-Notebooks reach LLMs only through LiteLLM's OpenAI-compatible API, never Ollama directly. `startup.sh` writes `OPENAI_API_BASE` and `OPENAI_API_KEY` to `/home/jovyan/work/.env`. They are not in the process environment, so call `load_dotenv()` before `os.getenv`.
+Notebooks reach LLMs only through LiteLLM's OpenAI-compatible API, never Ollama directly. `startup.sh` exports `OPENAI_API_BASE` and `OPENAI_API_KEY` from the LiteLLM settings when those aliases are unset. Existing aliases, including empty values, take precedence. The process aliases preserve literal credential values.
 
-Other clients read injected process variables, so no credentials need hand-assembly. A variable is empty when its service is disabled.
+The script also writes `/home/jovyan/work/.env`, without quoting or escaping arbitrary values. Use the process environment for exact credential values. By default, `load_dotenv()` keeps existing process variables.
+
+Other clients read injected process variables, so no credentials need hand-assembly. Endpoint adaptation depends on the service.
+
+`WEAVIATE_URL`, `NEO4J_URI`, `RAY_ADDRESS`, `MLFLOW_TRACKING_URI` and `MCP_SERVERS_URL` are empty when their corresponding services are disabled. `COMFYUI_BASE_URL` and `SPARK_REMOTE` retain fallback URLs; `N8N_BASE_URL` and `SEARXNG_URL` retain fixed internal URLs. Enable each required service before using these endpoints; a nonempty URL does not confirm that it is enabled.
 
 | Client | Variables |
 |---|---|
@@ -296,7 +300,7 @@ Scala/Almond versions are pinned by build args near the top of `services/jupyter
 
 ## 12. Architecture
 
-JupyterHub runs inside the Docker Compose network and receives environment variables for the enabled services. It reaches LLMs through the always-on LiteLLM gateway (`LITELLM_BASE_URL` / `LITELLM_API_KEY`). `startup.sh` also writes them as `OPENAI_API_BASE` / `OPENAI_API_KEY` to `work/.env`. When they are available, it connects directly to these services:
+JupyterHub runs inside the Docker Compose network and receives environment variables for the enabled services. It reaches LLMs through the always-on LiteLLM gateway (`LITELLM_BASE_URL` / `LITELLM_API_KEY`). `startup.sh` provides `OPENAI_API_BASE` / `OPENAI_API_KEY` process aliases when unset (§6). When they are available, it connects directly to these services:
 
 - data: Weaviate, Neo4j, PostgreSQL/Supabase, Redis, MinIO, Iceberg REST;
 - compute and ML: Spark Connect, the Ray Jobs API, MLflow;

@@ -20,9 +20,9 @@ from core.support_bundle_logs import LogSnapshot, RAW_SNAPSHOT_BYTES
 from . import session_log_retention as _retention
 from .session_log_retention import admission, identity, track_descriptor, _close_fd
 
-SEGMENT_MAX_BYTES = 32 * 1024 * 1024
-MAX_SEGMENTS = 3
-RETAINED_SESSIONS = 5
+SEGMENT_MAX_BYTES = _retention.SEGMENT_MAX_BYTES
+MAX_SEGMENTS = _retention.MAX_SEGMENTS
+RETAINED_SESSIONS = _retention.MAX_GROUPS
 
 _LIVE_TEES = weakref.WeakSet()
 
@@ -47,8 +47,8 @@ def _utf8_window_end(data: bytes, start: int, capacity: int) -> int:
 def retention_summary() -> str:
     return (
         f"{MAX_SEGMENTS} × {SEGMENT_MAX_BYTES // (1024 * 1024)} MiB per session "
-        f"(first segment always kept), up to {RETAINED_SESSIONS} managed sessions / "
-        "480 MiB reserved; active sessions protected"
+        f"(first segment always kept), up to {_retention.MAX_GROUPS} managed sessions / "
+        f"{_retention.MAX_PAYLOAD_BYTES // (1024 * 1024)} MiB reserved; active sessions protected"
     )
 
 
@@ -88,9 +88,6 @@ class _SessionWriter:
                 raise OSError("session-log write made no progress")
             offset += written
         return len(text)
-
-    def flush(self):
-        self.fileno()  # Raw writes have no userspace buffer to flush.
 
     def close(self):
         with _retention._FORK_LOCK:
@@ -181,8 +178,8 @@ class SessionLogTee:
 
     # -- writing -----------------------------------------------------------
     def _write_raw(self, text: str) -> None:
+        # Raw descriptor writes have no userspace buffer to flush.
         self._fh.write(text)
-        self._fh.flush()
         self._bytes += len(text.encode("utf-8", errors="replace"))
 
     def write(self, text: str) -> None:
@@ -195,9 +192,8 @@ class SessionLogTee:
             if not text:
                 return
             try:
-                self._check_paths()
+                # _write_bounded and _rotate check the paths around every write.
                 self._write_bounded(text.encode("utf-8"))
-                self._check_paths()
             except OSError as exc:
                 self._enter_degraded()
                 failure = exc
@@ -223,8 +219,7 @@ class SessionLogTee:
             if self._degraded or self._closed:
                 return
             try:
-                self._check_paths()
-                self._fh.flush()
+                # Writes are unbuffered, so flush is only a health check.
                 self._check_paths()
             except OSError as exc:
                 self._enter_degraded()

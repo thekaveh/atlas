@@ -432,11 +432,12 @@ def _storage_fields(
     fields: list[ExportField] = []
     keys = sorted(k for k in env if k.startswith(STORAGE_EXPORT_PREFIX))
     for key in keys:
-        value = env.get(key, "").strip()
+        raw_value = env.get(key, "")
+        value = raw_value.strip()
         if key.endswith(_STORAGE_CRED_SUFFIXES):
             # value is the name of the var holding the scoped secret.
             if with_secrets and value and _is_scoped_cred_target(value):
-                resolved = env.get(value, "").strip()
+                resolved = env.get(value, "")
                 base = key.rsplit("_VAR", 1)[0]  # ..._ACCESS_KEY_VAR → ..._ACCESS_KEY
                 if resolved:
                     fields.append(ExportField(base, resolved))
@@ -450,7 +451,7 @@ def _storage_fields(
             # Hand-authored bare credential value (Atlas never emits these).
             # Only surface it under --with-secrets; never leak in default output.
             if with_secrets:
-                fields.append(ExportField(key, value))
+                fields.append(ExportField(key, raw_value))
             else:
                 fields.append(ExportField(key, "", secret=True))
         else:

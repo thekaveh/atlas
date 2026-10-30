@@ -346,3 +346,108 @@ def test_null_buffering_flags_are_rejected_like_the_schema(tmp_path, field):
     with pytest.raises(PluginManifestError):
         load_manifest(_write(
             tmp_path, f"plugin_manifest_version: 1\nname: stream\nroute_prefix: /stream\n{field}: null\n"))
+
+
+@pytest.mark.parametrize("case", [
+    ('default: "SYNTHETIC_PLUGIN_SECRET_037\n', "ScannerError"),
+    ('default: [SYNTHETIC_PLUGIN_SECRET_037\n    description: invalid\n', "ParserError"),
+    ('default: SYNTHETIC_PLUGIN_SECRET_037\n    default: SYNTHETIC_PLUGIN_SECRET_037\n', "ConstructorError"),
+])
+def test_yaml_diagnostics_hide_secret_source_and_traceback(tmp_path, case):
+    import traceback
+
+    tail, error_type = case
+    body = (
+        "plugin_manifest_version: 1\nname: secretplug\nroute_prefix: /secretplug\n"
+        "env:\n  - name: PLUGIN_SECRET\n    secret: true\n    " + tail
+    )
+    plugin = _write(tmp_path, body)
+    with pytest.raises(PluginManifestError) as caught:
+        load_manifest(plugin)
+    error = caught.value
+    assert error.plugin == "plug"
+    assert "could not parse YAML" in error.message
+    assert "SYNTHETIC_PLUGIN_SECRET_037" not in str(error)
+    assert "SYNTHETIC_PLUGIN_SECRET_037" not in "".join(traceback.format_exception(error))
+    assert error_type in error.message
+    assert str(plugin / "plugin.yml") in error.message
+    assert "line " in error.message and "column " in error.message
+
+
+def test_valid_secret_default_stays_accepted_and_masked(tmp_path):
+    manifest = load_manifest(_write(tmp_path, (
+        "plugin_manifest_version: 1\nname: secretplug\nroute_prefix: /secretplug\n"
+        "env:\n  - name: PLUGIN_SECRET\n    secret: true\n"
+        '    default: "SYNTHETIC_PLUGIN_SECRET_037"\n'
+    )))
+    assert manifest.env[0].default == "SYNTHETIC_PLUGIN_SECRET_037"
+    summary = manifest.env_summary({"PLUGIN_SECRET": "SYNTHETIC_PLUGIN_SECRET_037"})
+    assert summary[0]["value"] == "***"
+    assert "SYNTHETIC_PLUGIN_SECRET_037" not in repr(summary)
+
+
+@pytest.mark.parametrize("default_yaml", [
+    "[SYNTHETIC_PLUGIN_SECRET_037]",
+    "{value: SYNTHETIC_PLUGIN_SECRET_037}",
+])
+def test_schema_diagnostic_traceback_hides_secret_default(tmp_path, default_yaml):
+    import traceback
+
+    body = (
+        "plugin_manifest_version: 1\nname: secretplug\nroute_prefix: /secretplug\n"
+        "env:\n  - name: PLUGIN_SECRET\n    secret: true\n"
+        f"    default: {default_yaml}\n"
+    )
+    with pytest.raises(PluginManifestError) as caught:
+        load_manifest(_write(tmp_path, body))
+    assert "env.0.default" in caught.value.message
+    assert "Input should be a valid string" in caught.value.message
+    assert "SYNTHETIC_PLUGIN_SECRET_037" not in str(caught.value)
+    assert "SYNTHETIC_PLUGIN_SECRET_037" not in "".join(traceback.format_exception(caught.value))
+
+
+@pytest.mark.parametrize("surface", ["inventory", "logs"])
+def test_malformed_secret_default_is_not_in_plugin_diagnostics(tmp_path, monkeypatch, caplog, surface):
+    import asyncio
+    import logging
+    import sys
+    from tests.test_plugin_seam import _plugin_pkg
+    import json
+    from starlette.testclient import TestClient
+    from tests.test_fal_media_provider import _fresh_main
+
+    plugins = tmp_path / "plugins"
+    plugins.mkdir()
+    _plugin_pkg(plugins, "isolation_good_plugin", "/good/ping",
+                "plugin_manifest_version: 1\nname: good\nroute_prefix: /good\n")
+    broken = _plugin_pkg(plugins, "isolation_broken_plugin", "/broken", (
+        "plugin_manifest_version: 1\nname: broken\nroute_prefix: /broken\n"
+        "env:\n  - name: PLUGIN_SECRET\n    secret: true\n"
+        '    default: "SYNTHETIC_PLUGIN_SECRET_037\n'
+    ))
+    (broken / "__init__.py").write_text("raise AssertionError('malformed plugin imported')\n")
+    monkeypatch.setenv("BACKEND_PLUGINS_DIR", str(plugins))
+    monkeypatch.setenv("BACKEND_PLUGINS_SITE_DIR", str(tmp_path / "site"))
+    monkeypatch.setenv("BACKEND_IDENTITY_AUTH", "disabled")
+    monkeypatch.setenv("BACKEND_STATE_STORE_MODE", "memory")
+    monkeypatch.setenv("MEDIA_BUDGET_STORE", "memory")
+    monkeypatch.setenv("ATLAS_OTEL_ENABLED", "false")
+    caplog.set_level(logging.ERROR, logger="uvicorn.error")
+    main = _fresh_main(monkeypatch, fal_source="disabled")
+    client = TestClient(main.app, raise_server_exceptions=False)
+    try:
+        response = client.get("/plugins")
+        assert response.status_code == 200
+        inventory = response.json()["plugins"]
+        assert [(row["name"], row["status"]) for row in inventory] == [
+            ("isolation_broken_plugin", "error"), ("good", "loaded")
+        ]
+        assert client.get("/good/ping").json() == {"ok": True}
+        assert "isolation_broken_plugin" not in sys.modules
+        shown = json.dumps(inventory) if surface == "inventory" else caplog.text
+        assert "could not parse YAML" in shown
+        assert "SYNTHETIC_PLUGIN_SECRET_037" not in shown
+    finally:
+        client.close()
+        asyncio.run(main.n8n_client.aclose())
+        sys.modules.pop("isolation_good_plugin", None)

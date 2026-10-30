@@ -18,6 +18,15 @@ echo "  • Supabase: ${SUPABASE_URL:-not configured}"
 echo "  • MinIO: ${MINIO_ENDPOINT:-not configured}"
 echo "  • Iceberg REST: ${ICEBERG_REST_URI:-not configured}"
 
+# Preserve literal aliases for notebook clients before dotenv parses the file.
+# An inherited alias, including an explicitly empty value, keeps precedence.
+if [ "${OPENAI_API_BASE+x}" != x ]; then
+    export OPENAI_API_BASE="${LITELLM_BASE_URL:-http://litellm:4000}/v1"
+fi
+if [ "${OPENAI_API_KEY+x}" != x ]; then
+    export OPENAI_API_KEY="${LITELLM_API_KEY:-}"
+fi
+
 # Create .env file in work directory with all environment variables.
 # It holds the LiteLLM master key and DB/S3 secrets inside the notebook-visible
 # work volume, so keep it owner-only (umask covers creation, chmod an old file).
@@ -32,8 +41,8 @@ LITELLM_BASE_URL=${LITELLM_BASE_URL:-http://litellm:4000}
 LITELLM_API_KEY=${LITELLM_API_KEY:-}
 # OPENAI_API_BASE/KEY are set so the openai Python client (and any LangChain
 # OpenAI-style clients) talk to LiteLLM out of the box.
-OPENAI_API_BASE=${LITELLM_BASE_URL:-http://litellm:4000}/v1
-OPENAI_API_KEY=${LITELLM_API_KEY:-}
+OPENAI_API_BASE=${OPENAI_API_BASE}
+OPENAI_API_KEY=${OPENAI_API_KEY}
 # No default: compose passes the auto-managed value, blank when disabled.
 WEAVIATE_URL=${WEAVIATE_URL:-}
 NEO4J_URI=${NEO4J_URI:-}
@@ -107,7 +116,7 @@ Check the `examples/` directory for sample notebooks demonstrating:
 - `04_supabase_data.ipynb` - Database and storage operations
 - `05_comfyui_images.ipynb` - Image generation with ComfyUI
 - `06_n8n_workflows.ipynb` - Workflow automation with n8n
-- `07_ray_cluster.ipynb` - Distributed compute on the Ray cluster
+- `07_ray_cluster.ipynb` - Ray Client example (needs a Python 3.10 kernel; see the notebook)
 - `08_scala_basics.ipynb` - Scala basics on the scala3 kernel
 - `09_spark_connect.ipynb` - Spark Connect (gRPC) from Python
 - `10_spark_scala.ipynb` - Spark with the Scala kernel

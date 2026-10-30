@@ -228,7 +228,6 @@ def test_fal_resolves_every_intent_exactly_like_a_cloud_provider():
             cloud = resolve_cloud_provider(
                 provider_key="openai", secret_value=secret,
                 selected_models=None, existing_key_set=existing_key_set,
-                existing_source="disabled",
             )
             assert resolve_secret_verdict(
                 secret, existing_key_set=existing_key_set,

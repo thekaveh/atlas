@@ -1,4 +1,4 @@
-"""Bounded PostgreSQL scan and cached-version maintenance for memory intents.
+"""PostgreSQL scans and canonical-state maintenance for memory intents.
 
 The service owns the cache, scan tokens and pass lock. These helpers use its
 caller-owned connection; they never acquire a pool slot or contact a vector
@@ -73,3 +73,56 @@ async def _refresh_rejected_vector_rows(conn, rejected) -> None:
         del rejected[key]
         if key in valid:
             rejected[key] = stamp
+
+
+async def _clear_active_vector_intent(conn, row, new_weaviate_id) -> None:
+    """Capture the current version only while it owns the vector just written."""
+    await conn.execute(
+        """
+        WITH vector_owner AS MATERIALIZED (
+            SELECT updated_at FROM public.memory_facts
+            WHERE id = $1 AND vector_sync_pending = true
+              AND user_id = $3
+              AND namespace IS NOT DISTINCT FROM $4
+              AND content IS NOT DISTINCT FROM $5
+              AND fact_type IS NOT DISTINCT FROM $6
+              AND confidence IS NOT DISTINCT FROM $7
+              AND is_active = true
+        )
+        UPDATE public.memory_facts AS fact
+        SET vector_sync_pending = false,
+            weaviate_id = COALESCE($2, fact.weaviate_id),
+            updated_at = now()
+        FROM vector_owner
+        WHERE fact.id = $1 AND fact.vector_sync_pending = true
+          AND fact.updated_at = vector_owner.updated_at
+        """,
+        row["id"], new_weaviate_id, row["user_id"], row["namespace"],
+        row["content"], row["fact_type"], row["confidence"],
+    )
+
+
+async def _clear_pending_vector_intent(conn, row, new_weaviate_id) -> None:
+    """Clear only the canonical vector state this reconciliation owns.
+
+    Active writes advance updated_at through the embedding UPDATE trigger.
+    Capture the resulting version while its vector-bearing fields still
+    match, then guard the clear against any later canonical edit. Retired
+    facts and legacy NULL versions keep their original timestamp guard.
+    """
+    if row["is_active"] and row["updated_at"] is not None:
+        await _clear_active_vector_intent(conn, row, new_weaviate_id)
+        return
+    await conn.execute(
+        """
+        UPDATE public.memory_facts
+        SET vector_sync_pending = false,
+            weaviate_id = COALESCE($2, weaviate_id),
+            updated_at = now()
+        WHERE id = $1 AND vector_sync_pending = true
+          AND updated_at = $3
+        """,
+        row["id"],
+        new_weaviate_id,
+        row["updated_at"],
+    )

@@ -563,15 +563,15 @@ Append the Qdrant entry to `sections` → `services` → `service-guides` → `c
 
 ```yaml
 - id: service-qdrant
-  number: '5.2.62'
-  title: Qdrant
+  number: 5.2.62
+  title: qdrant
   source: services/qdrant/README.md
   diagrams:
   - service-qdrant
 ```
 
-Here, `5.2.62` illustrates the next number after the current last guide, `5.2.61`.
-Use the actual next sequential sibling number when you add a service.
+Here, `5.2.62` stands for the next sequential number after the last `service-guides` child.
+Use the service folder name as the `title`, as the existing guide entries do.
 Keep existing page IDs and numbers unchanged; wiki page URLs derive from the stable IDs.
 
 Set the canonical README's first H1 to the same page number:
@@ -680,7 +680,7 @@ Runs on `main` and `develop` are never cancelled.
 
 - *Bootstrapper and Backend suites (with containers)*: `validate_fragments`, ShellCheck, and the pull-request title and changelog checks. It also runs the 7,000+ bootstrapper tests (with the container-backed backup/restore tests and the coverage floor) and the backend suite (`services/backend/app/app/tests/`).
 - *Bootstrapper suite without Docker (fast)*: the whole suite with no Docker daemon, so a failing unit test turns red first.
-- *Bootstrapper suite on Python 3.10*: the full suite on the supported floor.
+- *Bootstrapper suite on Python 3.11*: the full suite on the supported floor.
 - *MCP and asset API tests*: those isolated suites.
 
 **Docs drift + audit scripts** runs, in the `audit-scripts` job:
@@ -695,7 +695,7 @@ Runs on `main` and `develop` are never cancelled.
 Run this representative local subset before pushing (from the repository root
 unless a subshell changes directory). The authoritative command list is
 `.github/workflows/services-lint.yml`, which also runs ShellCheck, isolated MCP
-and asset-service suites, and the bootstrapper suite under Python 3.10:
+and asset-service suites, and the bootstrapper suite under Python 3.11:
 
 ```bash
 (

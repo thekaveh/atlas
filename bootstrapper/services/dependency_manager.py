@@ -18,10 +18,23 @@ failed startup with a false "trino requires minio" violation.
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Mapping, Optional
 
 from core.config_parser import ConfigParser
 from utils.source_override_manager import SourceOverrideManager
+
+
+def conditional_rule_selected(rule: Dict, env: Mapping[str, str]) -> bool:
+    """Whether a ``conditional_requires`` rule applies to ``env``.
+
+    An absent or explicitly empty value uses ``when_defaults``, matching
+    Compose and POSIX-shell ``${VAR:-default}``; nonempty values always win.
+    """
+    defaults = rule.get('when_defaults', {})
+    return all(
+        (env.get(name) or defaults.get(name, '')) == expected
+        for name, expected in rule.get('when', {}).items()
+    )
 
 
 @dataclass(frozen=True)
@@ -313,19 +326,12 @@ class DependencyManager:
         """Configuration-time dependency failures for a manifest rule.
 
         These are intentionally independent of replica scale so declarative
-        one-shot services can fail bootstrap before Compose launch. An absent
-        or explicitly empty value uses ``when_defaults``, matching Compose and
-        POSIX-shell ``${VAR:-default}``; nonempty values always win.
+        one-shot services can fail bootstrap before Compose launch. Rule
+        selection is ``conditional_rule_selected``.
         """
         violations: List[Dict] = []
         for rule in dep_config.get('conditional_requires', []):
-            conditions = rule.get('when', {})
-            defaults = rule.get('when_defaults', {})
-            selected = all(
-                (env_vars.get(name) or defaults.get(name, '')) == expected
-                for name, expected in conditions.items()
-            )
-            if not selected:
+            if not conditional_rule_selected(rule, env_vars):
                 continue
             for required_service in rule.get('requires', []):
                 if (

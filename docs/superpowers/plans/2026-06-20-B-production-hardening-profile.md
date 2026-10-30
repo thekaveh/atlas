@@ -4,9 +4,38 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add a `prod` deployment profile to the bootstrapper that (1) confines all service host-port bindings to `127.0.0.1` (so only the public edge is reachable), (2) enforces memory/CPU limits on the heavy services, (3) turns Docker log rotation on, and (4) defaults Prometheus + Grafana on — all opt-in, with zero change to the default (dev) behaviour. The profile is selectable BOTH via `--profile prod` AND an equivalent **wizard step**, and in prod the wizard hides — and the CLI validator rejects — every source option **marked dev-only** via a declarative `profiles:` field on the option in the service manifest (the `localhost` variants are the initial dev-only set, being unreachable on a remote host).
+**Goal:** Add a `prod` deployment profile to the bootstrapper. It:
 
-**Architecture:** A single global env var `HOST_BIND_IP` (default empty → `0.0.0.0`) is prefixed onto every published port in every fragment (`"${HOST_BIND_IP:-}${X_PORT}:CONTAINER"`). The resolved profile (from the wizard step OR `--profile prod`) writes `HOST_BIND_IP=127.0.0.1:` into `.env`, flips `PROMETHEUS_SOURCE`/`GRAFANA_SOURCE` to `container` (unless overridden), sets the `*_MEMORY_LIMIT`/`*_CPU_LIMIT` vars, and sets log-rotation vars consumed by per-fragment `logging:` blocks. This avoids Compose's port-merge limitation (you can't *remove* a published port via an override file) by changing emission at the env layer, which is the only clean mechanism. The wizard profile step mirrors the existing TRACK picker. Each source option carries an explicit `profiles:` list in its manifest (omitted = all profiles; dev-only options marked `[default]`); the wizard option-builder and the CLI validator filter on that declared metadata rather than a name heuristic, making the rule data-driven and "vice-versa"-capable (an option can be marked prod-only). `container-gpu` is NOT auto-marked dev-only (host-capability, not a profile concern) — a separate optional guard, out of scope here.
+- Confines all service host-port bindings to `127.0.0.1` (so only the public edge is reachable).
+- Enforces memory/CPU limits on the heavy services.
+- Turns Docker log rotation on.
+- Defaults Prometheus + Grafana on.
+
+The profile is opt-in, with zero change to the default (dev) behaviour.
+Select it via `--profile prod` or an equivalent **wizard step**.
+
+In prod, the wizard hides every source option **marked dev-only**. The CLI validator rejects these options.
+Each source option carries a declarative `profiles:` field in its service manifest.
+The `localhost` variants form the initial dev-only set. They are unreachable on a remote host.
+
+**Architecture:** A single global env var `HOST_BIND_IP` has a default of empty → `0.0.0.0`.
+Each fragment prefixes it onto every published port (`"${HOST_BIND_IP:-}${X_PORT}:CONTAINER"`).
+
+The resolved profile comes from the wizard step or `--profile prod`.
+It writes `HOST_BIND_IP=127.0.0.1:` into `.env` and flips `PROMETHEUS_SOURCE`/`GRAFANA_SOURCE` to `container` (unless overridden).
+It also sets `*_MEMORY_LIMIT`/`*_CPU_LIMIT` vars and log-rotation vars consumed by per-fragment `logging:` blocks.
+
+The env layer avoids Compose's port-merge limitation: an override file cannot *remove* a published port.
+Changing emission here is the only clean mechanism.
+
+The wizard profile step mirrors the existing TRACK picker.
+Each source option carries an explicit `profiles:` list in its manifest.
+Omitted means all profiles; dev-only options are marked `[default]`.
+The wizard option-builder and CLI validator filter on this declared metadata, rather than a name heuristic.
+This makes the rule data-driven and "vice-versa"-capable: an option can be marked prod-only.
+
+`container-gpu` is NOT auto-marked dev-only (host-capability, not a profile concern).
+That optional guard is out of scope here.
 
 **Tech Stack:** Click CLI in `bootstrapper/start.py`; env writing via the existing source-override/env path; Compose interpolation; pytest + the fragment byte-equivalence baseline.
 

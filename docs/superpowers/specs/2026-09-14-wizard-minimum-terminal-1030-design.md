@@ -32,16 +32,22 @@ panel becomes a three-row bordered identity strip whose single content row says
 overview is hidden while a prompt is active, and all decorative vertical
 gutters collapse. The command summary keeps its bordered one-row minimum and
 the footer keeps its bordered action strip; every remaining row belongs to the
-prompt. Prompt caption spacing contracts, and a long subtitle is capped so it
+prompt.
+
+Prompt caption spacing contracts, and a long subtitle is capped so it
 cannot displace the focused control or option viewport. The full subtitle and
 overview return as soon as the terminal grows.
 
 The compact footer uses shorter, prompt-specific labels and tighter separators:
 options show move/next/back, multiselect shows move/mark/next/back, and text,
 number and secret inputs show next/back. `Ctrl+Q quit` remains named in the
-footer title. The full 120-cell setup inventory returns once the terminal is at
+footer title.
+
+The full 120-cell setup inventory returns once the terminal is at
 least 132 columns wide, which accounts for the screen, border and content
-padding around it. During launch, the compact footer prioritizes filters and
+padding around it.
+
+During launch, the compact footer prioritizes filters and
 the applicable cancel, detach or stop action. Tabs remain on the brand panel's
 bottom border. These are presentation changes only; every existing binding
 continues to work.
@@ -80,7 +86,9 @@ the primary and inset backgrounds against that target; issue-specific
 measurements record 10.76:1 for the compact accent, 11.43:1 for primary text,
 9.16:1 for success, 11.05:1 for warning, 6.18:1 for error and 4.54:1 for
 the faintest text on the primary background (all are slightly higher on the
-inset panel background). Selected rows retain cursor glyphs, checkbox text and labels,
+inset panel background).
+
+Selected rows retain cursor glyphs, checkbox text and labels,
 and launch status retains words/icons, so meaning is never color-only.
 
 Keyboard verification covers every prompt kind, the filter/search focus path,

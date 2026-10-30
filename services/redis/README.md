@@ -1,6 +1,7 @@
 # 5.2.44. Redis
 
-Shared cache, queue and pub/sub broker. Redis is the most cross-cutting service in the stack: one instance serves every consumer in §12.2. It has one container, one source variant (`container`), no GPU path and no init container.
+Shared cache, queue and pub/sub broker. One Redis instance serves every consumer in §12.2, with an optional monitoring sidecar.
+It has one source variant (`container`), no GPU path and no init container.
 
 Consumers are separated by **database index**, not by service. The §3 table lists which consumer uses which index.
 
@@ -15,7 +16,7 @@ Volume: `${PROJECT_NAME}-redis-data` (AOF files and RDB snapshots). `./stop.sh -
 | Path | URL | Notes |
 |---|---|---|
 | Host (debug) | `localhost:${REDIS_PORT}` (default `63025`) | Use with `redis-cli -h 127.0.0.1 -p 63025 -a "$REDIS_PASSWORD"`. |
-| Internal | `redis://:${REDIS_PASSWORD}@redis:6379/<db>` | What sibling containers use. |
+| Internal | `redis://:${REDIS_PASSWORD_URI}@redis:6379/<db>` | What sibling containers use; the password component is percent-encoded. |
 | Kong | — | Redis is infrastructure; no Kong route. |
 
 Canonical port table: [Ports and Routes](../../docs/reference/ports-routes.md).
@@ -26,12 +27,22 @@ Canonical port table: [Ports and Routes](../../docs/reference/ports-routes.md).
 REDIS_SOURCE=container                                 # only value
 REDIS_PORT=63025                                       # host port; container port is always 6379
 REDIS_PASSWORD=redis_password                          # placeholder; ./start.sh replaces it with a random value on first run
-REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0      # default; consumers override db index
+REDIS_PASSWORD_URI=redis_password                      # derived automatically from REDIS_PASSWORD
+REDIS_URL=redis://:${REDIS_PASSWORD_URI}@redis:6379/0  # default; consumers override db index
 REDIS_MAXMEMORY=0                                      # no cap; see §9
 REDIS_MAXMEMORY_POLICY=volatile-lru
 ```
 
 To change `REDIS_PASSWORD`, edit `.env` and rerun `./start.sh`. Redis and every consumer read the password only when their containers start, so all of them must be recreated.
+
+Keep `REDIS_PASSWORD` as the raw password. Startup synchronizes `REDIS_PASSWORD_URI` with its percent-encoded value, including after rotation.
+URL consumers use the encoded value; Redis server arguments, `REDISCLI_AUTH` and separate password fields use the raw value.
+Treat both values as secrets. Encoding does not hide a password.
+
+Compose refuses a blank `REDIS_PASSWORD`, because Redis would otherwise start without authentication. `./start.sh` replaces a blank value in `.env` with a random one.
+
+Atlas resolves password references and shell overrides for its Compose child processes. It keeps resolved credentials out of the saved file.
+In those cases, recreate services through `./start.sh`; a bare Compose command does not receive those derived values.
 
 Database-index convention (consumer-built URLs):
 
@@ -43,7 +54,7 @@ Database-index convention (consumer-built URLs):
 | 4 | celery | broker + result backend (`CELERY_BROKER_URL` / `CELERY_RESULT_BACKEND`) |
 | 5 | trueforge | `REDIS_URL` |
 
-A consumer that needs its own namespace builds a URL from `${REDIS_PASSWORD}` and `redis:6379/<db>`.
+A consumer that needs its own namespace builds a URL from `${REDIS_PASSWORD_URI}` and `redis:6379/<db>`.
 
 ## 4. Architecture & wiring
 
@@ -85,7 +96,7 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 
 ## 7. Troubleshooting
 
-**`NOAUTH Authentication required`.** Consumer's `REDIS_URL` is missing the password segment. Inspect with `docker exec <project>-backend env | grep REDIS_URL`. Expected shape: `redis://:${REDIS_PASSWORD}@redis:6379/<db>` — note the leading colon before the password (no username).
+**`NOAUTH Authentication required`.** Consumer's `REDIS_URL` is missing the password segment. Inspect with `docker exec <project>-backend env | grep REDIS_URL`. Expected shape: `redis://:${REDIS_PASSWORD_URI}@redis:6379/<db>` — note the leading colon before the encoded password (no username). Keep this output private.
 
 **n8n `EXECUTIONS_MODE=queue` workflows hang.** Check `docker logs <project>-redis` for connection errors from n8n. n8n's queue mode uses Redis db `/0` (`QUEUE_BULL_REDIS_DB: 0`). If the password changed and n8n was not recreated, its workers retry forever (§3).
 
@@ -250,8 +261,8 @@ _No upstream calls._
 <a id="64-future--missing-pair-integrations"></a>
 
 - **redis ↔ comfyui** — *Why:* ComfyUI's compose declares `depends_on: redis` (startup ordering only) but the container receives no `REDIS_URL`. A real link would let n8n or the Backend queue generation jobs in a Redis list or stream. A sidecar publisher would return `progress`/`executed` events and replace the per-caller websocket pattern. *Mechanism:* ComfyUI custom node + `redis-py` writing `XADD comfyui:events` on progress; producers `BLPOP comfyui:jobs` from a tiny worker that calls `/prompt`. *Effort:* medium. *Confidence:* medium.
-- **redis ↔ local-deep-researcher** — *Why:* LDR's compose has no `REDIS_URL`. Dbs `/3`, `/4` and `/5` belong to JupyterHub, Celery and TrueForge, so an LDR checkpointer would take a new index such as `/6`. LangGraph's Redis checkpointer would let long-running research runs survive container restarts and let backend stream node-by-node progress. *Mechanism:* `redis://:${REDIS_PASSWORD}@redis:6379/6` consumed by `langgraph.checkpoint.redis.RedisSaver`; `PUBSUB` channel `ldr:run:<id>` for progress. *Effort:* small. *Confidence:* high.
-- **redis ↔ hermes** — *Why:* Hermes has no shared state between requests; conversation memory, tool-call rate-limits, and per-user budget counters live in process. *Mechanism:* Hermes custom skill reads/writes `hermes:session:<id>` hashes and `hermes:ratelimit:<user>` counters via `redis-py`. *Effort:* small. *Confidence:* medium.
+- **redis ↔ local-deep-researcher** — *Why:* LDR's compose has no `REDIS_URL`. Dbs `/3`, `/4` and `/5` belong to JupyterHub, Celery and TrueForge, so an LDR checkpointer would take a new index such as `/6`. LangGraph's Redis checkpointer would let long-running research runs survive container restarts and let backend stream node-by-node progress. *Mechanism:* `redis://:${REDIS_PASSWORD_URI}@redis:6379/6` consumed by `langgraph.checkpoint.redis.RedisSaver`; `PUBSUB` channel `ldr:run:<id>` for progress. *Effort:* small. *Confidence:* high.
+- **redis ↔ hermes** — *Why:* Hermes persists sessions and memories in `hermes-data`, without a shared database. Redis could provide counters and session state shared across replicas. *Mechanism:* Hermes custom skill reads/writes `hermes:session:<id>` hashes and `hermes:ratelimit:<user>` counters via `redis-py`. *Effort:* small. *Confidence:* medium.
 - **redis ↔ doc-processor** — *Why:* document parsing is expensive and idempotent on file SHA. A Redis cache keyed on `sha256(file)` lets repeat ingests (common during n8n flow iteration) short-circuit; a Redis stream broadcasts `doc:parsed` events to backend + weaviate ingest. *Mechanism:* cache: `SETEX doc:parsed:<sha> 86400 <json>`; event bus: `XADD doc:events`. *Effort:* small. *Confidence:* medium.
 - **redis ↔ weaviate** — *Why:* embedding generation dominates ingest latency; a content-hash → vector cache cuts repeat-ingest cost dramatically and de-duplicates concurrent embeddings across n8n/backend. *Mechanism:* `GET emb:<model>:<sha>` before calling Weaviate's vectorizer; `SETEX` on miss. Lives behind a tiny helper in backend. *Effort:* medium. *Confidence:* medium.
 

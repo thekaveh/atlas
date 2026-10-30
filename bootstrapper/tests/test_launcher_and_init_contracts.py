@@ -73,7 +73,7 @@ def test_the_fallback_does_not_regate_python_version_on_a_refresh():
     a hard launch failure.
     """
     source = RUN_SH.read_text(encoding="utf-8")
-    gate = source.index("Atlas requires Python 3.10 or newer")
+    gate = source.index("Atlas requires Python 3.11 or newer")
     guard = source.rindex('if [ "$VENV_USABLE" = "0" ]; then', 0, gate)
     assert guard < gate, "the version gate escaped the not-usable branch"
     # A pure STAMP refresh (venv usable, declaration changed) must not reach it

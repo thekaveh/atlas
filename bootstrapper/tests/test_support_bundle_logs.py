@@ -2,7 +2,6 @@
 from base64 import b64encode
 from dataclasses import replace
 import io
-import json
 import tarfile
 
 import pytest

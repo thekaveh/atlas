@@ -5,6 +5,9 @@ so a failed stop was undetectable to scripts and CI.
 """
 from __future__ import annotations
 
+import os
+from types import SimpleNamespace
+
 import click.testing
 import pytest
 import sys
@@ -453,3 +456,53 @@ def test_cold_stop_that_dropped_consumer_overlays_is_not_reported_as_a_full_wipe
 
     assert manager.perform_cold_stop_cleanup() is False
     assert manager.teardown_overlays_dropped is True
+
+
+@pytest.mark.parametrize("directories", [("ordinary",), ("Research, Inc",), ("Research: Lab",), ("second: lab", "first, lab")])
+@pytest.mark.parametrize("previous", [None, "previous private value"])
+def test_stop_cli_consumer_paths_reach_real_teardown_overlay_selection(tmp_path, monkeypatch, directories, previous):
+    import stop
+    from core.docker_manager import DockerManager
+
+    (tmp_path / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+    overlays = []
+    args = []
+    for index, directory in enumerate(directories):
+        folder = tmp_path / directory
+        folder.mkdir()
+        overlay = folder / "overlay.yml"
+        overlay.write_text("services: {}\n", encoding="utf-8")
+        manifest = folder / "atlas.consumer.yml"
+        manifest.write_text(f"name: selected-{index}\ncompose_overlays:\n  - ./overlay.yml\n", encoding="utf-8")
+        overlays.append(str(overlay))
+        args.extend(["--consumer", str(manifest)])
+    manager = DockerManager(str(tmp_path))
+    monkeypatch.setattr(manager, "detect_docker_compose_command", lambda: "docker compose")
+    calls = []
+    monkeypatch.setattr("core.docker_manager.subprocess.run", lambda argv, **kwargs: SimpleNamespace(returncode=0))
+    monkeypatch.setattr("core.docker_manager.run_compose_child", lambda argv, *rest: calls.append(argv) or 0)
+    stopper = SimpleNamespace(
+        root_dir=tmp_path,
+        banner=SimpleNamespace(show_status_message=lambda *args: None),
+        validate_persisted_project_name=lambda project: True,
+        show_configuration_info=lambda *args, **kwargs: "atlas",
+        ensure_dependencies_available=lambda: True,
+        stop_services=lambda cold, project: manager.execute_compose_command(["down", "-v"], project_name=project) == 0,
+        report_managed_hosts_left_running=lambda: None,
+        show_final_status=lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(stop, "AtlasStopper", lambda: stopper)
+    monkeypatch.setattr(stop, "warn_if_submodule_pin_drifted", lambda root: None)
+    monkeypatch.setenv("ATLAS_CONSUMER_MANIFEST", "previous.yml")
+    if previous is None:
+        monkeypatch.delenv("_ATLAS_CONSUMER_MANIFEST_CLI", raising=False)
+    else:
+        monkeypatch.setenv("_ATLAS_CONSUMER_MANIFEST_CLI", previous)
+
+    result = click.testing.CliRunner().invoke(stop.main, [*args, "--cold"])
+
+    assert result.exit_code == 0, result.output
+    assert len(calls) == 1
+    assert calls[0] == ["docker", "compose", "-p", "atlas", "-f", "docker-compose.yml", *[arg for overlay in overlays for arg in ("-f", overlay)], "down", "-v"]
+    assert os.environ["ATLAS_CONSUMER_MANIFEST"] == os.pathsep.join(args[1::2])
+    assert os.environ.get("_ATLAS_CONSUMER_MANIFEST_CLI") == previous

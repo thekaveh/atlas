@@ -48,7 +48,7 @@ driver_calls = {
     ("llm_rules", "selected_llm_source"): lambda f: f({}, {}),
     ("cloud_rules", "resolve_cloud_provider"): lambda f: f(
         provider_key="openai", secret_value=None, selected_models=None,
-        existing_key_set=False, existing_source="disabled",
+        existing_key_set=False,
     ),
     ("cloud_rules", "resolve_secret_verdict"): lambda f: f(
         "<DISABLE>", existing_key_set=True,
