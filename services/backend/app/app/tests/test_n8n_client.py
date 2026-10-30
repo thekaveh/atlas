@@ -218,3 +218,88 @@ async def test_list_workflows_caps_total_pages():
         await client.aclose()
 
     assert calls == 100
+
+
+@pytest.mark.parametrize("row", [
+    None, {}, [], 3, {"id": "owned", "name": "Owned"},
+    {"id": "owned", "name": "Owned", "active": {}},
+    {"id": None, "name": "SENTINEL_PROVIDER", "active": False},
+])
+@pytest.mark.parametrize("detail", [False, True])
+def test_workflow_gateway_rejects_invalid_workflow_objects(monkeypatch, row, detail):
+    payload = row if detail else {"data": [row]}
+    reply = httpx.Response(200, content=json.dumps(payload).encode("ascii"))
+    with _workflow_gateway(monkeypatch, [reply]) as (_main, client, requests):
+        response = client.get("/workflows/owned" if detail else "/workflows")
+
+    assert response.status_code == 502
+    assert response.json() == {"detail": "Get workflow failed" if detail else "List workflows failed"}
+    assert len(requests) == 1
+    assert "SENTINEL_PROVIDER" not in response.text
+
+
+@pytest.mark.parametrize("content", [
+    b"not-json", b"\xff", b"[" * 1100 + b"0" + b"]" * 1100, b"7" * 4301,
+])
+def test_workflow_detail_rejects_malformed_successful_json(monkeypatch, content):
+    with _workflow_gateway(monkeypatch, [httpx.Response(200, content=content)]) as (
+        _main, client, requests
+    ):
+        response = client.get("/workflows/owned")
+
+    assert response.status_code == 502
+    assert response.json() == {"detail": "Get workflow failed"}
+    assert len(requests) == 1
+
+
+@pytest.mark.parametrize("field", ["id", "name", "createdAt", "updatedAt"])
+@pytest.mark.parametrize("detail", [False, True])
+@pytest.mark.parametrize("invalid", [False, True])
+def test_workflow_response_requires_serializable_utf8(monkeypatch, field, detail, invalid):
+    row = {"id": "owned", "name": "Owned", "active": False}
+    row[field] = "\ud800" if invalid else "é雪🙂"
+    payload = row if detail else {"data": [row]}
+    reply = httpx.Response(200, content=json.dumps(payload).encode("ascii"))
+    with _workflow_gateway(monkeypatch, [reply]) as (_main, client, requests):
+        response = client.get("/workflows/owned" if detail else "/workflows")
+
+    assert response.status_code == (502 if invalid else 200)
+    assert len(requests) == 1
+    if invalid:
+        assert response.json() == {"detail": "Get workflow failed" if detail else "List workflows failed"}
+    else:
+        actual = response.json() if detail else response.json()[0]
+        output_field = {"createdAt": "created_at", "updatedAt": "updated_at"}.get(field, field)
+        assert actual[output_field] == "é雪🙂"
+
+
+@pytest.mark.parametrize("detail", [False, True])
+@pytest.mark.parametrize("reply, expected", [
+    (ValueError("SENTINEL_LOCAL_VALUE"), 500),
+    (RuntimeError("SENTINEL_LOCAL_RUNTIME"), 500),
+    (httpx.Response(404, json={"message": "SENTINEL_PROVIDER"}), 404),
+    (httpx.Response(401, json={"message": "SENTINEL_PROVIDER"}), 502),
+    (httpx.ConnectError("SENTINEL_TRANSPORT"), 503),
+])
+def test_workflow_routes_preserve_other_error_categories(monkeypatch, detail, reply, expected):
+    with _workflow_gateway(monkeypatch, [reply]) as (_main, client, requests):
+        response = client.get("/workflows/owned" if detail else "/workflows")
+
+    assert response.status_code == (502 if not detail and expected == 404 else expected)
+    assert len(requests) == 1
+    assert "SENTINEL" not in response.text
+
+
+@pytest.mark.parametrize("detail", [False, True])
+def test_workflow_response_preserves_aliases_nulls_and_coercion(monkeypatch, detail):
+    row = {"id": "owned", "name": "Owned", "active": "true", "createdAt": None,
+           "updated_at": None, "extra": "ignored"}
+    reply = httpx.Response(200, json=row if detail else {"data": [row]})
+    with _workflow_gateway(monkeypatch, [reply]) as (_main, client, requests):
+        response = client.get("/workflows/owned" if detail else "/workflows")
+
+    assert response.status_code == 200
+    assert len(requests) == 1
+    expected = {"id": "owned", "name": "Owned", "active": True,
+                "created_at": None, "updated_at": None}
+    assert response.json() == (expected if detail else [expected])

@@ -90,9 +90,19 @@ The padding is recomputed on resize. Verified rendering (90 cols):
 | Footer | Hint set swaps per tab via the existing `FooterBar.update_hints()`. |
 | Failure toast | While Setup is active during launch, a worker failure surfaces as a toast pointing at the Logs tab — see the correction note below. |
 
-**Correction — the pre-launch tab strip.** This table originally read "Logs visible but dimmed/disabled — discoverable, not activatable". That is not what ships and, following a review of the live wizard, is not what will be built. `on_mount` calls `set_tabs(TAB_SETUP, enabled=False)` and only `_transition_to_launch` enables the strip, so the brand panel keeps its original byline-only bottom border for the whole wizard; the `1`/`2` footer hint is gated on `_logs_enabled` for the same reason, so there is no tab affordance during setup either. The repo owner confirmed this behavior deliberately: there is nothing to show on a Logs tab before a launch exists, and keeping tabs off pre-launch is what preserves the byline-only border byte-identically to its pre-feature rendering — a property that took three fix rounds to establish (a stray `╰─ ─` corner artifact and a byline that ellipsized two characters early). Discoverability is served instead by the strip appearing exactly when it becomes useful, at launch.
+**Correction — the pre-launch tab strip.** This table originally read "Logs visible but dimmed/disabled — discoverable, not activatable". That is not what ships and, following a review of the live wizard, is not what will be built.
 
-**Correction — the activity marker.** The "Logs label gains a subtle marker" design above was never built: the original task set's self-review recorded it as a deliberate deviation (it needs a hook into the error path plus label-rendering changes, which would have widened Task 5 past a layout-only change; the `y`/`Y` copy affordances and auto-switch-on-launch were judged to already cover the primary risk). A later whole-branch review (finding M10) found the real gap this left — a launch failure while the user sits on Setup produced no toast, no marker, no auto-switch, so the run was silently dead until they happened to switch tabs — and required a minimal real fix instead of shipping the gap. What ships: `on_worker_state_changed`'s launch-failure branch checks `_active_tab` and, when the user is on Setup, calls `self.notify(...)` with error severity naming the Logs tab — a toast, not a persistent marker on the tab label itself.
+`on_mount` calls `set_tabs(TAB_SETUP, enabled=False)`; only `_transition_to_launch` enables the strip. The brand panel therefore keeps its original byline-only bottom border for the whole wizard. The `1`/`2` footer hint is gated on `_logs_enabled` for the same reason. There is no tab affordance during setup either.
+
+The repo owner confirmed this behavior deliberately: there is nothing to show on a Logs tab before a launch exists. Keeping tabs off pre-launch preserves the byline-only border byte-identically to its pre-feature rendering. Establishing that property took three fix rounds. They addressed a stray `╰─ ─` corner artifact and a byline that ellipsized two characters early.
+
+Discoverability is served by the strip appearing exactly when it becomes useful, at launch.
+
+**Correction — the activity marker.** The "Logs label gains a subtle marker" design above was never built. The original task set's self-review recorded it as a deliberate deviation. It needs a hook into the error path plus label-rendering changes, which would have widened Task 5 past a layout-only change. The `y`/`Y` copy affordances and auto-switch-on-launch were judged to already cover the primary risk.
+
+A later whole-branch review (finding M10) found the gap this left. A launch failure while the user sat on Setup produced no toast, marker, or auto-switch. The run was silently dead until they happened to switch tabs. The review required a minimal real fix instead of shipping the gap.
+
+What ships: `on_worker_state_changed`'s launch-failure branch checks `_active_tab`. When the user is on Setup, it calls `self.notify(...)` with error severity naming the Logs tab. This is a toast, not a persistent marker on the tab label itself.
 
 ## 6. State and data flow
 
@@ -104,7 +114,11 @@ No state moves; tabs only change visibility. New state on `WizardScreen`: `_acti
 | Log lines (`_write_status` / `_safe_log` → `LogPane.write_log`) | compose stream + pipeline | Keeps appending. `LogPane` is already bounded (`RichLog(max_lines=10_000)` + `_records` cap), so a long hidden run cannot grow unbounded. |
 | Filter chips (`add_source`) | `LogPane.set_on_new_source` | Unchanged; new sources register regardless of visibility. |
 
-**Consequence — corrected during implementation.** Log widgets are created up front (hidden) rather than at transition time, so `_log_pane` is non-`None` for the screen's whole life. An earlier draft of this spec claimed that as a side benefit ("wizard-time warnings will land in the log pane"). That was wrong, and the Task 2 review caught it: `on_worker_state_changed` used `_log_pane is None` as a sentinel for "still in setup", and its toast fallback became unreachable dead code. A setup-phase worker crash would have written into the hidden, not-yet-reachable Logs tab — invisible until the user finished the whole wizard. That branch must be gated on `self._phase` instead, so setup-phase failures still surface as a toast. Any other behavior keyed off `_log_pane`'s None-ness must be re-checked for the same reason.
+**Consequence — corrected during implementation.** Log widgets are created up front (hidden) rather than at transition time. Thus `_log_pane` is non-`None` for the screen's whole life. An earlier draft claimed that as a side benefit ("wizard-time warnings will land in the log pane").
+
+That was wrong, and the Task 2 review caught it. `on_worker_state_changed` used `_log_pane is None` as a sentinel for "still in setup", and its toast fallback became unreachable dead code. A setup-phase worker crash would have written into the hidden, not-yet-reachable Logs tab. It would remain invisible until the user finished the whole wizard.
+
+That branch must be gated on `self._phase` instead, so setup-phase failures still surface as a toast. Any other behavior keyed off `_log_pane`'s None-ness must be re-checked for the same reason.
 
 ## 7. Selectable / copyable content
 

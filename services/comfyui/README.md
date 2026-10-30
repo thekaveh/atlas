@@ -130,7 +130,7 @@ The files under `volumes/comfyui/` are **gitignored runtime artifacts**. Each no
 
 CLI alternative (works for all non-disabled sources):
 ```bash
-./start.sh --comfyui-models=sdxl-base-1.0,sdxl-vae,flux1-dev-Q4_K_S
+./start.sh --comfyui-models=sd_xl_base_1.0,sdxl-vae,flux1-dev-Q4_K_S
 ```
 Unknown names log a warning at bootstrapper start but don't block startup.
 

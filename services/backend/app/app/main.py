@@ -4,7 +4,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 from storage3 import SyncStorageClient as StorageClient
 from typing import Optional, cast, Dict, Any, List, Union, Literal
 from contextlib import asynccontextmanager
@@ -832,6 +832,23 @@ class WorkflowResponse(BaseModel):
     created_at: Optional[str] = Field(default=None, validation_alias="createdAt")
     updated_at: Optional[str] = Field(default=None, validation_alias="updatedAt")
 
+    @field_validator("id", "name", "created_at", "updated_at")
+    @classmethod
+    def _serializable_utf8(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None:
+            try:
+                value.encode("utf-8")
+            except UnicodeEncodeError as exc:
+                raise ValueError("workflow fields must be valid UTF-8") from exc
+        return value
+
+
+def _validated_workflow_response(payload: Any) -> WorkflowResponse:
+    try:
+        return WorkflowResponse.model_validate(payload)
+    except ValidationError as exc:
+        raise N8nResponseError("n8n returned an invalid workflow") from exc
+
 
 
 @app.get(
@@ -843,7 +860,7 @@ async def list_workflows():
     """List all n8n workflows"""
     try:
         workflows = await n8n_client.list_workflows()
-        return workflows
+        return [_validated_workflow_response(workflow) for workflow in workflows]
     except Exception as exc:
         raise _n8n_gateway_error("List workflows", exc)
 
@@ -857,7 +874,7 @@ async def get_workflow(workflow_id: str):
     """Get a specific n8n workflow by ID"""
     try:
         workflow = await n8n_client.get_workflow(workflow_id)
-        return workflow
+        return _validated_workflow_response(workflow)
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code == 404:
             raise HTTPException(
@@ -1085,6 +1102,12 @@ def _rerank_admission():
         return _RERANK_ADMISSION
 
 
+def _retrieve_heavy_work_exception(future) -> None:
+    """Observe a late outcome while leaving result() available to its caller."""
+    if not future.cancelled():
+        future.exception()
+
+
 async def _run_heavy_work(fn, request, operation: str):
     """Run ``fn(request)`` on the bounded pool: 503 + Retry-After when full,
     504 after BACKEND_HEAVY_WORK_TIMEOUT_SECONDS."""
@@ -1098,7 +1121,9 @@ async def _run_heavy_work(fn, request, operation: str):
     timeout = _positive_env_number("BACKEND_HEAVY_WORK_TIMEOUT_SECONDS", "600", float)
     # asyncio.wait, not wait_for: a TimeoutError raised BY the job must keep
     # its own meaning, not read as the deadline passing.
-    done, _pending = await asyncio.wait({asyncio.wrap_future(job)}, timeout=timeout)
+    future = asyncio.wrap_future(job)
+    future.add_done_callback(_retrieve_heavy_work_exception)
+    done, _pending = await asyncio.wait({future}, timeout=timeout)
     if not done:
         raise HTTPException(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
@@ -2089,6 +2114,19 @@ async def _cancel_unpersisted_media_operation(
                 operation_id=operation_id,
                 modality=modality,
             )
+    except Exception:
+        return False
+
+
+async def _cancel_unpersisted_comfyui_operation(
+    *, model: str, operation_id: str, modality: str
+) -> bool:
+    """Stop one untracked local prompt without replacing its recovery outcome."""
+    try:
+        return await _cancel_media_provider(
+            provider="comfyui", model=model,
+            operation_id=operation_id, modality=modality,
+        )
     except Exception:
         return False
 
@@ -3169,9 +3207,18 @@ async def submit_media_generation(
                     post_accept_cancellation,
                 )
             else:
-                # Local providers (comfyui) are free (cost_usd=0); an unpersisted
-                # operation has no paid work to reconcile, so no provider cancel.
-                provider_cancellation_requested = False
+                # An untracked local prompt still owns GPU/CPU work. Stop that
+                # exact job even though it has no monetary spend to recover.
+                provider_cancellation_requested = await _join_owned_task(
+                    asyncio.create_task(
+                        _cancel_unpersisted_comfyui_operation(
+                            model=submitted_model,
+                            operation_id=operation_id,
+                            modality=modality,
+                        )
+                    ),
+                    post_accept_cancellation,
+                )
             # FAL confirms only that cancellation was requested, not that paid work
             # stopped. Without durable operation state Atlas cannot poll that request
             # to a terminal outcome, so retain spend for manual reconciliation.

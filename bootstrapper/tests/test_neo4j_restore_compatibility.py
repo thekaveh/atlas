@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import types
 
@@ -368,3 +369,239 @@ def test_manual_restore_marks_an_unfinished_load() -> None:
     load = script.index("neo4j-admin database load")
     assert script.index('touch "${RESTORE_MARKER}"') < load
     assert 'rm -f "${RESTORE_MARKER}"' in script[load:]
+
+
+def _legacy_marker_commands(fake_bin):
+    """Delegate normal filesystem operations and inject only marker failures."""
+    for command, argument in (("mkdir", '"$2" = "$MARKER_PARENT"'),
+                              ("touch", '"$1" = "$NEO4J_RESTORE_MARKER"'),
+                              ("rm", '"$2" = "$NEO4J_RESTORE_MARKER"')):
+        actual = shutil.which(command)
+        assert actual
+        (fake_bin / command).write_text(
+            f'#!/bin/sh\nif [ "$FAIL_MARKER_STEP" = {command} ] && [ {argument} ]; then\n'
+            f'  echo "synthetic {command} failure" >&2; exit 73\nfi\n'
+            f'exec "{actual}" "$@"\n',
+            encoding="utf-8",
+        )
+
+
+@pytest.fixture(params=["auto_restore.sh", "restore.sh"])
+def legacy_restore(tmp_path, request):
+    snapshot = tmp_path / "snapshot"
+    snapshot.mkdir()
+    dump = snapshot / "backup_20261028.dump"
+    dump.write_bytes(b"synthetic dump")
+    database = tmp_path / "databases" / "neo4j"
+    database.mkdir(parents=True)
+    marker = tmp_path / "markers" / ".atlas-restore-incomplete"
+    admin_log = tmp_path / "admin.log"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    _legacy_marker_commands(fake_bin)
+    # The image uses GNU find's -printf, unavailable on a macOS test host.
+    (fake_bin / "find").write_text(
+        '#!/bin/sh\nprintf "1 %s\\n" "$SYNTHETIC_DUMP"\n', encoding="utf-8"
+    )
+    (fake_bin / "neo4j").write_text('#!/bin/sh\nexit 3\n', encoding="utf-8")
+    (fake_bin / "neo4j-admin").write_text(
+        '#!/bin/sh\nprintf "%s\\n" "$*" >> "$SYNTHETIC_ADMIN_LOG"\n'
+        'cat >/dev/null\nprintf partial > "$NEO4J_DATABASE_DIR/neostore"\n'
+        '[ "$FAIL_LOAD" != 1 ]\n', encoding="utf-8",
+    )
+    for executable in fake_bin.iterdir():
+        executable.chmod(0o755)
+    source = SCRIPTS / request.param
+    if request.param == "restore.sh":
+        # The legacy manual command fixes /snapshot; rebase only that path.
+        body = source.read_text(encoding="utf-8")
+        assert body.count("SNAPSHOT_DIR=/snapshot") == 1
+        source = tmp_path / "restore.sh"
+        source.write_text(body.replace("SNAPSHOT_DIR=/snapshot", f'SNAPSHOT_DIR="{snapshot}"'), encoding="utf-8")
+    env = {
+        "PATH": f"{fake_bin}{os.pathsep}{os.defpath}",
+        "NEO4J_SNAPSHOT_DIR": str(snapshot),
+        "NEO4J_DATABASE_DIR": str(database),
+        "NEO4J_RESTORE_MARKER": str(marker),
+        "MARKER_PARENT": str(marker.parent),
+        "SYNTHETIC_DUMP": str(dump),
+        "SYNTHETIC_ADMIN_LOG": str(admin_log),
+        "FAIL_MARKER_STEP": "",
+        "FAIL_LOAD": "0",
+    }
+
+    def run(**overrides):
+        return subprocess.run(
+            ["bash", str(source)], env={**env, **overrides}, cwd=tmp_path,
+            text=True, capture_output=True, check=False, timeout=10,
+        )
+
+    return types.SimpleNamespace(run=run, marker=marker, database=database,
+                                 admin_log=admin_log, automatic=request.param == "auto_restore.sh")
+
+
+@pytest.mark.parametrize("failure", ["mkdir", "touch"])
+def test_legacy_restore_refuses_load_without_recovery_marker(legacy_restore, failure):
+    case = legacy_restore
+    for _ in range(2):
+        result = case.run(FAIL_MARKER_STEP=failure, FAIL_LOAD="1")
+        assert result.returncode != 0
+        assert "restored successfully" not in result.stdout
+        assert not case.admin_log.exists(), "destructive load ran without a recovery marker"
+        assert not any(case.database.iterdir())
+
+
+def test_legacy_restore_refuses_success_until_marker_is_cleared(legacy_restore):
+    case = legacy_restore
+    for _ in range(2):
+        result = case.run(FAIL_MARKER_STEP="rm")
+        assert result.returncode != 0
+        assert "restored successfully" not in result.stdout
+        assert case.marker.is_file()
+        assert "skipping automatic restore" not in result.stdout
+    assert len(case.admin_log.read_text().splitlines()) == 2
+
+
+def test_legacy_restore_success_and_failed_load_retry(legacy_restore):
+    case = legacy_restore
+    failed = case.run(FAIL_LOAD="1")
+    assert failed.returncode != 0
+    assert case.marker.is_file() and any(case.database.iterdir())
+    retried = case.run()
+    assert retried.returncode == 0, retried.stderr
+    assert "restored successfully" in retried.stdout
+    assert not case.marker.exists()
+    assert len(case.admin_log.read_text().splitlines()) == 2
+    if case.automatic:
+        _assert_populated_restore_skips(case)
+
+
+def _assert_populated_restore_skips(case):
+    populated = case.run()
+    assert populated.returncode == 0
+    assert "skipping automatic restore" in populated.stdout
+    assert len(case.admin_log.read_text().splitlines()) == 2
+
+
+def _offline_backup_signal_sender():
+    return '''
+pid = int(Path(os.environ["OWNED_PID_FILE"]).read_text())
+assert os.getppid() == pid, (os.getppid(), pid)
+marker = Path(os.environ["SIGNAL_MARKER"])
+if os.environ["FIXTURE_PHASE"] == phase and not marker.exists():
+    marker.write_text("owned signal sent")
+    os.kill(pid, int(os.environ["FIXTURE_SIGNAL"]))
+'''
+
+
+def _offline_backup_recorders(fake_bin):
+    import sys
+
+    python = f"#!{sys.executable}\n"
+    sender = _offline_backup_signal_sender()
+    scripts = {
+        "timeout": '#!/bin/sh\nshift 5\nexec "$@"\n',
+        "neo4j": "#!/bin/sh\nexit 3\n",
+        "date": python + 'import os\nfrom pathlib import Path\nphase = "date"\n'
+        + sender + '\nprint("2026-10-29T12:00:00Z")\n',
+        "sha256sum": python + 'import hashlib,sys\nfrom pathlib import Path\n'
+        + 'print(hashlib.sha256(Path(sys.argv[1]).read_bytes()).hexdigest()+"  "+sys.argv[1])\n',
+        "neo4j-admin": python + '''import os,sys
+from pathlib import Path
+args = sys.argv[1:]
+if args == ["--version"]:
+    print("5.26.31")
+    sys.exit(0)
+assert args[:2] == ["database", "dump"], args
+if os.environ["FIXTURE_MODE"] == "dump-error":
+    sys.exit(42)
+target = next(arg.split("=", 1)[1] for arg in args if arg.startswith("--to-path="))
+(Path(target) / (args[2] + ".dump")).write_bytes(b"owned synthetic archive")
+phase = "dump"
+''' + sender,
+    }
+    for name, body in scripts.items():
+        path = fake_bin / name
+        path.write_text(body, encoding="utf-8")
+        path.chmod(0o700)
+
+
+@pytest.fixture
+def offline_backup_signal(tmp_path):
+    import signal
+
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    _offline_backup_recorders(fake_bin)
+    snapshot = tmp_path / "snapshot"
+    snapshot.mkdir()
+    pid_file = tmp_path / "pid"
+    marker = tmp_path / "signal"
+
+    def run(mode="ordinary", phase="none", name="TERM"):
+        env = {
+            "PATH": f"{fake_bin}{os.pathsep}{os.defpath}", "HOME": str(tmp_path),
+            "FIXTURE_MODE": mode, "FIXTURE_PHASE": phase,
+            "FIXTURE_SIGNAL": str(getattr(signal, "SIG" + name)),
+            "OWNED_PID_FILE": str(pid_file), "SIGNAL_MARKER": str(marker),
+            "NEO4J_SNAPSHOT_ROOT": str(snapshot), "BACKUP_TIMESTAMP": "20261029_120000",
+            "BACKUP_DATABASE_QUIESCE_TIMEOUT_SECONDS": "120",
+        }
+        process = subprocess.Popen(
+            ["bash", str(OFFLINE_BACKUP)], env=env, cwd=tmp_path,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True,
+        )
+        pid_file.write_text(str(process.pid), encoding="utf-8")
+        try:
+            stdout, stderr = process.communicate(timeout=10)
+        finally:
+            if process.poll() is None:
+                os.killpg(process.pid, signal.SIGKILL)
+                process.communicate()
+        return subprocess.CompletedProcess(process.args, process.returncode, stdout, stderr)
+
+    return types.SimpleNamespace(run=run, snapshot=snapshot, marker=marker)
+
+
+@pytest.mark.parametrize("name", ["HUP", "INT", "TERM"])
+@pytest.mark.parametrize("phase", ["date", "dump"])
+def test_offline_backup_signals_fail_and_remove_unpublished_stage(offline_backup_signal, name, phase):
+    case = offline_backup_signal
+    result = case.run(mode="signal", phase=phase, name=name)
+    assert case.marker.read_text() == "owned signal sent"
+    assert result.returncode == {"HUP": 129, "INT": 130, "TERM": 143}[name]
+    assert not list(case.snapshot.iterdir())
+    assert "neo4j backup: complete" not in result.stdout
+
+
+@pytest.mark.parametrize("mode", ["ordinary", "dump-error"])
+def test_offline_backup_keeps_success_and_failure_publication_contract(offline_backup_signal, mode):
+    case = offline_backup_signal
+    result = case.run(mode=mode)
+    assert not case.marker.exists()
+    assert not list(case.snapshot.glob(".atlas-*"))
+    assert result.returncode == (0 if mode == "ordinary" else 42), result.stderr
+    if mode == "dump-error":
+        assert not list(case.snapshot.iterdir())
+        assert "neo4j backup: complete" not in result.stdout
+        return
+    _assert_offline_backup_publication(case, result)
+
+
+def _assert_offline_backup_publication(case, result):
+    import hashlib
+
+    published = case.snapshot / "20261029_120000"
+    assert sorted(path.name for path in published.iterdir()) == ["neo4j.dump", "snapshot.metadata", "system.dump"]
+    metadata = dict(line.split("=", 1) for line in (published / "snapshot.metadata").read_text().splitlines())
+    for database in ["system", "neo4j"]:
+        payload = (published / (database + ".dump")).read_bytes()
+        assert payload == b"owned synthetic archive"
+        assert metadata[database + "_sha256"] == hashlib.sha256(payload).hexdigest()
+        assert metadata[database + "_bytes"] == str(len(payload))
+    assert metadata["snapshot_state"] == "complete" and metadata["neo4j_version"] == PINNED
+    assert result.stdout.splitlines() == [
+        f"neo4j backup: dumping offline system database with neo4j:{PINNED}",
+        f"neo4j backup: dumping offline neo4j database with neo4j:{PINNED}",
+        f"neo4j backup: complete -> {published}",
+    ]

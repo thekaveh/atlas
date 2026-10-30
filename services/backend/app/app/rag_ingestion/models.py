@@ -7,12 +7,39 @@ models the FastAPI surface uses. Nothing here does I/O.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import re
+import uuid
 
 from dataclasses import asdict, dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
+
+
+if TYPE_CHECKING:
+    from .profiles import LoadedProfile
+
+
+def ingestion_idempotency_key(
+    profile: LoadedProfile, corpus: Dict[str, Any], corpus_fingerprint: str,
+    embedding_model: str = "",
+) -> str:
+    # The embedding model is part of the job identity: an unchanged corpus
+    # resubmitted after LITELLM_EMBEDDING_MODEL changes must re-embed, not
+    # return the old job (#1364).
+    payload = "|".join(
+        [
+            profile.consumer,
+            profile.name,
+            profile.revision,
+            json.dumps(corpus, sort_keys=True, separators=(",", ":")),
+            corpus_fingerprint,
+        ]
+        + ([f"embedding_model={embedding_model}"] if embedding_model else [])
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def weaviate_class_name(collection_prefix: str, profile_name: str) -> str:
@@ -28,6 +55,29 @@ def weaviate_class_name(collection_prefix: str, profile_name: str) -> str:
     """
     safe_name = re.sub(r"[^0-9A-Za-z]", "_", profile_name)
     return f"{collection_prefix}_{safe_name}"
+
+def weaviate_objects(class_name: str, profile, chunks) -> list:
+    """Weaviate payloads for this run's chunks.
+
+    The id is `uuid5(class|profile|source|index)`, so re-running the same
+    corpus overwrites rather than duplicating, and two profiles never share
+    an id (#1364) — and `source` is carried as a property so the
+    reconcile can preserve per-document.
+    """
+    return [
+        {
+            "id": str(uuid.uuid5(
+                uuid.NAMESPACE_URL, f"{class_name}|{profile.name}|{c['source']}|{c['index']}"
+            )),
+            "properties": {
+                "content": c["content"], "source": c["source"],
+                "profile": profile.name, "chunkIndex": c["index"],
+            },
+            "vector": c["vector"],
+        }
+        for c in chunks
+    ]
+
 
 # Ordered ingestion lifecycle. Every phase is recorded even when skipped, so a
 # status reader can see exactly where a job is (or why a target was skipped).
@@ -67,6 +117,15 @@ class PhaseRecord:
     counts: Dict[str, int] = field(default_factory=dict)
     note: Optional[str] = None
     error: Optional[Dict[str, Any]] = None
+
+
+def http_error_details(exc: Exception) -> tuple[Optional[int], Optional[str]]:
+    response = getattr(exc, "response", None)
+    if response is None:
+        return None, None
+    status = getattr(response, "status_code", None)
+    body = (getattr(response, "text", "") or "")[:500] or None
+    return status, body
 
 
 @dataclass
@@ -139,6 +198,30 @@ class IngestionRecord:
 
     def add_error(self, error: IngestionError) -> None:
         self.errors.append(asdict(error))
+
+    def has_fatal_phase(self) -> bool:
+        return any(p.status == STATUS_FAILED for p in self.phases)
+
+    def mark_failed_phase(self, name: str, error: IngestionError) -> None:
+        phase = self.phase(name)
+        phase.status = STATUS_FAILED
+        phase.error = {
+            "message": error.message,
+            "service": error.service,
+            "http_status": error.http_status,
+            "body": error.body,
+        }
+
+    def defer_retry(self, note: str) -> None:
+        running = next(
+            (phase for phase in self.phases if phase.status == STATUS_RUNNING),
+            self.phase("finalize"),
+        )
+        running.status = STATUS_PENDING
+        running.started_at = running.ended_at = running.duration_ms = None
+        running.error = None
+        running.note = note
+        self.status = STATUS_PENDING
 
     @property
     def is_terminal(self) -> bool:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import shutil
 import struct
@@ -18,6 +19,10 @@ DEFAULT_MAX_NORMALIZATION_VERTICES = 250_000
 
 class NormalizationWorkLimitError(RuntimeError):
     """The supported POSITION workload exceeds the configured admission limit."""
+
+
+class NormalizationValueError(RuntimeError):
+    """Normalized geometry cannot be represented by finite float32 values."""
 
 
 def _normalization_vertex_limit() -> int:
@@ -100,46 +105,57 @@ def _resource_entries(doc: dict) -> list | None:
     return [*groups[0], *groups[1]]
 
 
+def _glb_chunks(data: bytes):
+    """Yield zero-copy chunks only while the GLB v2 framing is valid."""
+    if len(data) < 20:
+        raise ValueError("Incomplete GLB header")
+    magic, version, length = struct.unpack_from("<III", data, 0)
+    if (magic, version, length) != (0x46546C67, 2, len(data)):
+        raise ValueError("Invalid GLB header")
+    offset = 12
+    view = memoryview(data)
+    while offset < len(data):
+        if offset + 8 > len(data):
+            raise ValueError("Incomplete GLB chunk header")
+        chunk_length, chunk_type = struct.unpack_from("<II", data, offset)
+        offset += 8
+        end = offset + chunk_length
+        if chunk_length % 4 or end > len(data):
+            raise ValueError("Invalid GLB chunk length")
+        yield chunk_type, view[offset:end]
+        offset = end
+
+
 def _glb_json_chunk(data: bytes) -> dict | None:
-    """The JSON chunk of a GLB v2 file, or None when the input is not one we
-    can read (the caller rejects it: the converters would still parse it)."""
-    if len(data) < 20 or struct.unpack_from("<I", data, 0)[0] != 0x46546C67:
-        return None
+    """Read the unique first JSON chunk after checking every chunk boundary.
+
+    Reject duplicate JSON/BIN chunks instead of letting validation and
+    normalization select different documents. Unknown extension chunks remain
+    allowed after the JSON and optional BIN chunks.
+    """
     try:
-        chunk_length, chunk_type = struct.unpack_from("<II", data, 12)
+        chunks = _glb_chunks(data)
+        chunk_type, chunk = next(chunks)
         if chunk_type != JSON_CHUNK:
             return None
-        doc = json.loads(data[20: 20 + chunk_length].rstrip(b" \x00").decode("utf-8-sig"))
-    except (ValueError, struct.error, RecursionError):
+        doc = json.loads(bytes(chunk).rstrip(b" \x00").decode("utf-8-sig"))
+        for index, (chunk_type, _) in enumerate(chunks, 1):
+            if chunk_type == JSON_CHUNK or (chunk_type == BIN_CHUNK and index != 1):
+                return None
+    except (ValueError, struct.error, RecursionError, StopIteration):
         return None
     return doc if isinstance(doc, dict) else None
 
 
 def _parse_glb(data: bytes) -> tuple[dict, bytearray] | None:
-    if len(data) < 20:
+    doc = _glb_json_chunk(data)
+    if doc is None:
         return None
-    magic, version, _length = struct.unpack_from("<III", data, 0)
-    if magic != 0x46546C67 or version != 2:
-        return None
-    offset = 12
-    doc = None
     bin_chunk = None
-    try:
-        while offset + 8 <= len(data):
-            chunk_length, chunk_type = struct.unpack_from("<II", data, offset)
-            offset += 8
-            chunk = data[offset: offset + chunk_length]
-            offset += chunk_length
-            if chunk_type == JSON_CHUNK:
-                doc = json.loads(chunk.rstrip(b" \x00").decode("utf-8"))
-            elif chunk_type == BIN_CHUNK:
-                bin_chunk = bytearray(chunk)
-    except (ValueError, struct.error):
-        # A GLB with valid magic but a malformed JSON/UTF-8 chunk (or bad chunk
-        # framing): fall through to copy-through so `gltf-transform validate`
-        # produces the authoritative error (422) rather than a 500 raised here.
-        return None
-    if not isinstance(doc, dict) or bin_chunk is None:
+    for chunk_type, chunk in _glb_chunks(data):
+        if chunk_type == BIN_CHUNK:
+            bin_chunk = bytearray(chunk)
+    if bin_chunk is None:
         return None
     return doc, bin_chunk
 
@@ -349,8 +365,18 @@ def _write_positions(
                 return
             offset = accessor.offset + i * accessor.stride
             if offset + 12 <= len(bin_chunk):
-                struct.pack_into("<fff", bin_chunk, offset, *transformed[cursor])
+                _write_position(bin_chunk, offset, transformed[cursor])
             cursor += 1
+
+
+def _write_position(bin_chunk: bytearray, offset: int, point: tuple[float, float, float]) -> None:
+    message = "Normalized POSITION values must fit finite glTF float32 coordinates"
+    if not all(math.isfinite(value) for value in point):
+        raise NormalizationValueError(message)
+    try:
+        struct.pack_into("<fff", bin_chunk, offset, *point)
+    except OverflowError as exc:
+        raise NormalizationValueError(message) from exc
 
 
 def _update_accessor_bounds(doc: dict, accessors: list[PositionAccessor], bin_chunk: bytearray) -> None:

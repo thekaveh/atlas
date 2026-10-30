@@ -9,6 +9,8 @@ The visual hover behavior itself is validated live in the TUI, not here.
 
 from __future__ import annotations
 
+import pytest
+
 from ui.textual.widgets.service_table import ServiceRow, ServiceTable
 
 
@@ -63,6 +65,53 @@ def test_launch_flow_row_rebuild_preserves_hover_metadata():
             f"run_launch_flow no longer preserves {field} on its ServiceRow "
             f"rebuild — CLI-flag launch mode would drop hover-card metadata."
         )
+
+
+@pytest.mark.parametrize("provider_key", ["openai", "anthropic", "openrouter"])
+@pytest.mark.parametrize("case", [
+    (False, "", "enabled", "replacement", (True, True)),
+    (True, "saved", "disabled", None, (False, True)),
+    (True, "saved", "enabled", "", (True, False)),
+    (True, "saved", None, None, (True, True)),
+])
+def test_cli_launch_cloud_overview_uses_effective_flags(
+    tmp_path, monkeypatch, provider_key, case,
+):
+    from types import SimpleNamespace
+    from core.config_parser import ConfigParser
+    from core.port_manager import PortManager
+    from ui.textual import integration
+    from ui.textual.screens import wizard_screen
+    from ui.textual.widgets.info_box import CloudApiSummary
+    from utils.cloud_providers import CLOUD_PROVIDERS
+
+    old_enabled, old_key, source_override, key_override, expected = case
+    provider = next(p for p in CLOUD_PROVIDERS if p.key == provider_key)
+    env = {provider.source_var: "enabled" if old_enabled else "disabled", provider.api_key_var: old_key}
+    parser = ConfigParser(str(tmp_path))
+    monkeypatch.setattr(parser, "parse_env_file", lambda: dict(env))
+    summaries = [CloudApiSummary(name=provider.name, enabled=old_enabled, key_set=bool(old_key))]
+    monkeypatch.setattr(integration, "_build_steps_and_rows", lambda *a, **kw: (
+        [], [], [], 63000, SimpleNamespace(consumers=[]), summaries,
+    ))
+    monkeypatch.setattr(PortManager, "port_offsets", lambda self: {})
+    monkeypatch.setattr(wizard_screen, "WizardScreen", lambda **kwargs: kwargs)
+    captured = []
+
+    def mount(app):
+        app.push_screen = captured.append
+        app.on_mount()
+
+    monkeypatch.setattr(integration, "_run_app_with_process_cleanup", mount)
+    sources = {} if source_override is None else {provider.source_var.lower(): source_override}
+    keys = {} if key_override is None else {provider.api_key_var: key_override}
+    starter = SimpleNamespace(run_port_migration=lambda *a: None)
+    integration.run_launch_flow(parser, None, starter=starter, source_args=sources,
+                                stack_options={"cloud_api_keys": keys})
+
+    actual = captured[0]["cloud_apis"][0]
+    assert (actual.enabled, actual.key_set) == expected
+    assert "replacement" not in repr(actual)
 
 
 def test_tooltip_pairs_appends_extra():

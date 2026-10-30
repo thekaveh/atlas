@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import signal
 import socket
@@ -237,6 +238,108 @@ def test_venv_metal_rejects_non_boolean_values(tmp_path, value):
             },
         )
 
+
+@pytest.mark.parametrize('port', [True, False, 8799.9, 8799.0, float('nan'), float('inf')])
+def test_a_noninteger_managed_port_is_rejected_at_load(tmp_path, port):
+    with pytest.raises(ConsumerManifestError, match='managed_host_services.*port') as error:
+        _load(tmp_path, {'name': 'svc', 'command': 'app', 'port': port})
+    assert 'atlas.consumer.yml' in str(error.value)
+
+@pytest.mark.parametrize('port', [1, 65535, 8799, '8799'])
+def test_a_managed_port_preserves_integer_values_and_exports(tmp_path, port):
+    spec = _load(tmp_path, {'name': 'svc', 'command': 'app', 'port': port}).managed_host_services[0]
+    assert spec.port == int(port)
+    fields = {item.name: item.value for item in build_export({}, host_services=[spec])}
+    assert fields[spec.endpoint_var] == f'tcp://127.0.0.1:{int(port)}'
+
+@pytest.mark.parametrize('timeout', [-1, 0, True, False, float('nan'), float('inf'), float('-inf')])
+def test_an_invalid_managed_health_timeout_is_rejected_at_load(tmp_path, timeout):
+    with pytest.raises(ConsumerManifestError, match='managed_host_services.*timeout') as error:
+        _load(tmp_path, {'name': 'svc', 'command': 'app', 'port': 8799, 'health': {'timeout': timeout}})
+    assert 'atlas.consumer.yml' in str(error.value)
+
+@pytest.mark.parametrize('timeout', [5, 0.25, '2.5'])
+def test_a_positive_managed_health_timeout_preserves_numeric_values(tmp_path, timeout):
+    spec = _load(tmp_path, {'name': 'svc', 'command': 'app', 'port': 8799, 'health': {'timeout': timeout}}).managed_host_services[0]
+    assert spec.health.timeout == float(timeout)
+
+@pytest.mark.parametrize('timeout', [-1, float('nan'), float('inf')])
+def test_cli_health_rejects_invalid_timeout_before_probing(tmp_path, monkeypatch, timeout):
+    from click.testing import CliRunner
+    import start
+    service = {'name': 'svc', 'command': 'app', 'port': 8799, 'health': {'timeout': timeout}}
+    probes = []
+
+    def manager(_name):
+        spec = _load(tmp_path, service).managed_host_services[0]
+        return ManagedHostManager(spec, tmp_path / 'state')
+
+    def no_connection(*_args, **_kwargs):
+        probes.append(True)
+        raise OSError('synthetic refusal; no socket connection attempted')
+    monkeypatch.setattr(start, '_managed_host_manager', manager)
+    monkeypatch.setattr(socket, 'create_connection', no_connection)
+    result = CliRunner().invoke(start.managed_host_health_command, ['svc'])
+    assert isinstance(result.exception, ConsumerManifestError)
+    assert 'health.timeout' in str(result.exception)
+    assert probes == []
+
+@pytest.mark.parametrize('kind', ['tcp', 'http'])
+@pytest.mark.parametrize('error_type', [ValueError, OverflowError])
+def test_cli_health_reports_timeout_conversion_failure_as_unreachable(tmp_path, monkeypatch, kind, error_type):
+    from click.testing import CliRunner
+    import urllib.request
+    import start
+    spec = _load(tmp_path, {'name': 'svc', 'command': 'app', 'port': 8799, 'health': {'kind': kind, 'path': '/healthz', 'timeout': 1e+300}}).managed_host_services[0]
+    manager = ManagedHostManager(spec, tmp_path / 'state')
+    probes = []
+
+    def no_connection(address, timeout, *_args, **_kwargs):
+        probes.append((address, timeout))
+        raise error_type('timeout cannot be represented by the platform')
+    monkeypatch.setattr(start, '_managed_host_manager', lambda _name: manager)
+    monkeypatch.setattr(socket, 'create_connection', no_connection)
+    monkeypatch.setattr(urllib.request, '_opener', urllib.request.build_opener(urllib.request.ProxyHandler({})))
+    result = CliRunner().invoke(start.managed_host_health_command, ['svc'])
+    assert result.exit_code == 1
+    assert isinstance(result.exception, SystemExit)
+    assert json.loads(result.output)['reachable'] is False
+    assert probes == [(('127.0.0.1', 8799), 1e+300)]
+
+@pytest.mark.parametrize('kind', ['tcp', 'http'])
+def test_cli_health_preserves_successful_positive_timeout_probes(tmp_path, monkeypatch, kind):
+    from click.testing import CliRunner
+    import urllib.request
+    import start
+    spec = _load(tmp_path, {'name': 'svc', 'command': 'app', 'port': 8799, 'health': {'kind': kind, 'path': '/healthz', 'timeout': 0.25}}).managed_host_services[0]
+    manager = ManagedHostManager(spec, tmp_path / 'state')
+    probes = []
+
+    class Response:
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            pass
+
+        def read(self, _limit):
+            return b'{}'
+
+        def getcode(self):
+            return 200
+
+    def connected(address, timeout):
+        probes.append((address, timeout))
+        return Response()
+    monkeypatch.setattr(start, '_managed_host_manager', lambda _name: manager)
+    monkeypatch.setattr(socket, 'create_connection', connected)
+    monkeypatch.setattr(urllib.request, 'urlopen', connected)
+    result = CliRunner().invoke(start.managed_host_health_command, ['svc'])
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)['reachable'] is True
+    expected = ('127.0.0.1', 8799) if kind == 'tcp' else 'http://127.0.0.1:8799/healthz'
+    assert probes == [(expected, 0.25)]
 
 @pytest.mark.parametrize("manager_kind", ["generic", "blender"])
 def test_live_legacy_linux_identity_remains_owned_during_upgrade(

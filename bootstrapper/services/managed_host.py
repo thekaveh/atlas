@@ -833,7 +833,7 @@ class ManagedHostManager:
             with urllib.request.urlopen(url, timeout=timeout) as response:  # noqa: S310
                 body = response.read(65536).decode("utf-8", errors="replace")
                 code = response.getcode()
-        except (urllib.error.URLError, OSError, ValueError, http.client.HTTPException) as exc:
+        except (urllib.error.URLError, OSError, ValueError, OverflowError, http.client.HTTPException) as exc:
             return {"reachable": False, "error": str(exc)}
         out: dict[str, Any] = {"reachable": True, "code": code}
         expect = self.spec.health.expect_json
@@ -920,7 +920,7 @@ class ManagedHostManager:
         try:
             with socket.create_connection((self._probe_host(), self.spec.port), timeout=timeout):
                 return True
-        except OSError:
+        except (OSError, ValueError, OverflowError):
             return False
 
     def _read_pid(self) -> Optional[int]:

@@ -41,6 +41,56 @@ def test_parse_manifest_wraps_yaml_errors() -> None:
         parse_manifest("sections: [")
 
 
+@pytest.mark.parametrize("identifier", ["", ".", "..", "../escaped", "/escaped", r"..\escaped", "two words"])
+@pytest.mark.parametrize("kind", ["page", "diagram"])
+def test_manifest_rejects_ids_that_are_not_output_slugs(identifier, kind) -> None:
+    import yaml
+
+    data = yaml.safe_load(_manifest_text())
+    if kind == "page":
+        data["sections"][1]["children"][0]["id"] = identifier
+    else:
+        data["diagrams"] = [{"id": identifier, "master": "docs/diagram.html"}]
+
+    with pytest.raises(ManifestError, match="ID.*slug"):
+        parse_manifest(yaml.safe_dump(data))
+
+
+@pytest.mark.parametrize("identifier,wiki_name", [
+    ("setup", "Setup.md"), ("Service-2", "Service-2.md"), ("service_cpu", "Service-Cpu.md"),
+])
+def test_valid_output_ids_preserve_site_and_wiki_names(identifier, wiki_name) -> None:
+    text = _manifest_text().replace("id: setup", f"id: {identifier}")
+    text = text.replace("source: docs/guides/setup.md", "source: GUIDE.md")
+    page = parse_manifest(text).pages[1]
+
+    assert page.site_path.as_posix() == f"reference/{identifier}.md"
+    assert page.wiki_path.as_posix() == wiki_name
+
+
+@pytest.mark.parametrize("surface", ["site", "wiki"])
+def test_direct_surface_render_rejects_escaping_page_before_reset(tmp_path, surface) -> None:
+    from scripts.docs.build_docs import render_site, render_wiki
+    from scripts.docs.manifest import Manifest, Section
+
+    (tmp_path / "GUIDE.md").write_text("# 1. Guide\n", encoding="utf-8")
+    manifest = Manifest(
+        ("repo", "site", "wiki"), "baked", "../../escaped",
+        (Section("../../escaped", "1", "Guide", "GUIDE.md"),), (),
+    )
+    destination = tmp_path / "projection" / surface
+    destination.mkdir(parents=True)
+    sentinel = destination / "existing.txt"
+    sentinel.write_text("keep", encoding="utf-8")
+    render = render_site if surface == "site" else render_wiki
+
+    with pytest.raises(ManifestError, match="ID.*slug"):
+        render(manifest, tmp_path, destination)
+
+    assert sentinel.read_text(encoding="utf-8") == "keep"
+    assert not (tmp_path / "projection" / "escaped.md").exists()
+
+
 def test_manifest_rejects_source_and_children_on_same_section() -> None:
     text = _manifest_text().replace(
         "    children:\n",
@@ -249,3 +299,34 @@ def test_diagram_pages_carry_the_content_their_titles_name():
     assert platform.startswith("# 8.1. Platform Architecture") and "diagrams/img/atlas-platform.png" in platform
     catalogs = [p for p in (root / "docs").rglob("*.md") if "## 1. Generated Diagram Index" in p.read_text(encoding="utf-8")]
     assert len(catalogs) == 1, catalogs  # a single catalog page
+
+def test_submodule_recovery_restart_keeps_the_manifest_overlay(tmp_path, monkeypatch) -> None:
+    import shlex
+    from markdown_it import MarkdownIt
+    from core.consumer_manifest import load_consumer_config
+    from start import main
+
+    root = Path(__file__).resolve().parents[2]
+    guide = (root / "docs/operations/submodule-usage.md").read_text(encoding="utf-8")
+    tokens = MarkdownIt("commonmark").parse(guide)
+    start = next(index for index, token in enumerate(tokens)
+                 if token.type == "inline" and token.content.startswith("8.5."))
+    end = next(index for index in range(start + 1, len(tokens))
+               if tokens[index].type == "heading_open")
+    commands = [token.content for token in tokens[start:end]
+                if token.type == "fence" and token.info == "bash"]
+    assert commands, "The recovery procedure needs a runnable restart example"
+    argv = shlex.split(commands[0])
+    overlay = tmp_path / "compose" / "app.yml"
+    overlay.parent.mkdir()
+    overlay.write_text("services: {}\n", encoding="utf-8")
+    (tmp_path / "atlas.consumer.yml").write_text(
+        "name: example\ncompose_overlays: [./compose/app.yml]\n", encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("ATLAS_CONSUMER_MANIFEST", raising=False)
+
+    with main.make_context(argv[0], argv[1:]) as context:
+        config = load_consumer_config(tmp_path, explicit_paths=context.params["consumer_manifests"])
+
+    assert config.compose_overlays == [overlay]

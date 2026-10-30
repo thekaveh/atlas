@@ -1277,10 +1277,8 @@ def test_streamed_cancellation_preserves_cancellation_when_cleanup_fails(
         task.cancel()
         with pytest.raises(asyncio.CancelledError) as raised:
             await task
-        # Python 3.10's Task boundary replaces CancelledError and drops its
-        # explicit cause; 3.11+ preserves the cleanup diagnostic.
-        if sys.version_info >= (3, 11):
-            assert isinstance(raised.value.__cause__, OSError)
+        # The cleanup diagnostic survives as the CancelledError's cause.
+        assert isinstance(raised.value.__cause__, OSError)
         assert len(diagnostics) == 1
         assert isinstance(diagnostics[0]["exception"], OSError)
         assert diagnostics[0]["task"] is not None

@@ -42,9 +42,9 @@ from rag_ingestion.service import (
     IngestionExecutionLeaseLost,
     RagIngestionService,
 )
-from rag_ingestion.models import PHASES, IngestionRecord, PhaseRecord
+from rag_ingestion.models import PHASES, IngestionRecord, PhaseRecord, weaviate_objects
 from rag_ingestion.store import (
-    ExecutionClaim,
+    ExecutionClaim, PublicationClaim,
     InMemoryIngestionStore,
     RedisIngestionStore,
 )
@@ -2436,10 +2436,13 @@ def test_a_retry_does_not_inherit_the_previous_attempt_s_failures(tmp_path, monk
     )
 
     # Attempt 1: flaky.txt fails to chunk (lands in errors[]), then the run
-    # dies on a TRANSIENT so the SAME record is left retryable — this is the
-    # Celery retry path, not a fresh submission. A new `submit()` would create
-    # a new record with an empty errors[], which is why the earlier version of
-    # this test could not tell the two implementations apart.
+    # dies on a TRANSIENT after its Weaviate mutation began, which leaves a
+    # dirty publication guard. After the documented operator recovery
+    # (simulated by `_recover_joined_synthetic_publication`), the retry of the
+    # SAME record must not inherit attempt 1's failures. A new `submit()`
+    # would create a new record with an empty errors[], which is why the
+    # earlier version of this test could not tell the two implementations
+    # apart.
     _poison_chunker(monkeypatch)
     (root / "docs" / "flaky.txt").write_text("POISON", encoding="utf-8")
     record, _ = service.submit("showcase-default")
@@ -2463,6 +2466,7 @@ def test_a_retry_does_not_inherit_the_previous_attempt_s_failures(tmp_path, monk
     # Attempt 2 of the SAME record: the corpus is healthy again. `record.errors`
     # still carries attempt 1's entry; `failed_sources` must not.
     (root / "docs" / "flaky.txt").write_text("beta content restored", encoding="utf-8")
+    _recover_joined_synthetic_publication(service, record)
     asyncio.run(service.run(record.id, retry_transient=True))
 
     assert weaviate.preserved[-1] == [], (
@@ -3020,8 +3024,8 @@ def test_two_profiles_never_produce_the_same_object_id():
     from rag_ingestion.service import RagIngestionService
 
     chunks = [{"content": "t", "source": "doc.md", "index": 0, "vector": [0.1]}]
-    first = RagIngestionService._weaviate_objects("Docs_a_b", SimpleNamespace(name="a-b"), chunks)
-    second = RagIngestionService._weaviate_objects("Docs_a_b", SimpleNamespace(name="a.b"), chunks)
+    first = weaviate_objects("Docs_a_b", SimpleNamespace(name="a-b"), chunks)
+    second = weaviate_objects("Docs_a_b", SimpleNamespace(name="a.b"), chunks)
     assert first[0]["id"] != second[0]["id"]
 
 
@@ -3149,6 +3153,7 @@ def test_class_rebuild_note_survives_a_retried_worker(tmp_path, monkeypatch, reb
 
     # A fresh worker reloads the serialized record, rather than attempt state.
     next_worker = RagIngestionService(store=first_worker.store, deps=deps, profiles_path=profiles)
+    _recover_joined_synthetic_publication(next_worker, record)
     final = asyncio.run(next_worker.run(record.id, retry_transient=True))
     note = final.phase("vector_write").note
     assert final.status == "completed" and "bad.pdf" in note
@@ -3546,6 +3551,7 @@ def test_corpus_invalidation_survives_a_retry_that_rediscovers_original_bytes(
     worker = RagIngestionService(
         store=store, deps=service.deps, profiles_path=service._profiles_path
     )
+    _recover_joined_synthetic_publication(worker, submitted)
     final = asyncio.run(worker.run(submitted.id))
     assert final.status == "completed" and not final.is_dedup_candidate
     assert store.find_by_idempotency_key(submitted.idempotency_key).id == newer.id
@@ -3702,6 +3708,7 @@ def test_provenance_after_lost_schema_ack_does_not_claim_preserved_vectors(monke
     saved = store.get(record.id)
     assert (saved.status, saved.counts.get("class_rebuilt:Rag_p"), world.sources("Rag_p")) == ("pending", None, [])
     assert ("Rag_p" in world.schemas) is (mode == "schema-ack-after-create")
+    _recover_joined_synthetic_publication(RagIngestionService(store=store, deps=deps), record)
     final = asyncio.run(RagIngestionService(store=store, deps=deps).run(
         record.id, retry_transient=True, execution_owner="worker-b",
     ))
@@ -3744,6 +3751,7 @@ def test_provenance_after_lease_loss_preserves_new_owner_without_claiming_vector
     assert (store.save_claimed(stale, "worker-a"), store.release_execution(record.id, "worker-a")) == (False, False)
     assert store.get(record.id).counts["new-owner-sentinel"] == 42
     assert store.release_execution(record.id, "new-owner")
+    _recover_joined_synthetic_publication(RagIngestionService(store=store, deps=deps), record)
     final = asyncio.run(RagIngestionService(store=store, deps=deps).run(record.id, execution_owner="worker-c"))
     assert (final.status, final.counts["new-owner-sentinel"], world.sources("Rag_p")) == (
         "completed", 42, [_PROVENANCE_GOOD],
@@ -3760,6 +3768,7 @@ def test_provenance_partial_writes_and_multiple_classes_keep_real_survivors(monk
         asyncio.run(RagIngestionService(store=store, deps=deps).run(record.id, retry_transient=True))
     assert store.get(record.id).counts.get("class_rebuilt:RagA_p") == 1
     parser.fail = {_PROVENANCE_BAD, _PROVENANCE_BAD2}
+    _recover_joined_synthetic_publication(RagIngestionService(store=store, deps=deps), record)
     final = asyncio.run(RagIngestionService(store=store, deps=deps).run(record.id, retry_transient=True))
     assert {name: world.sources(name) for name in world.objects} == {
         "RagA_p": [_PROVENANCE_BAD, _PROVENANCE_GOOD],
@@ -3900,10 +3909,12 @@ def test_vector_mutation_supersedes_history_before_later_outcomes(
     change(b"A")
     restored, created = service.submit("showcase-default")
     assert created and restored.id != first.id, "actual mutation supersedes A even when B never completes"
-    _restore_after_failed_generation(service, restored, originals)
+    _restore_after_failed_generation(service, restored, originals, outcome)
 
 
-def _restore_after_failed_generation(service, restored, originals):
+def _restore_after_failed_generation(service, restored, originals, outcome):
+    if outcome in {"partial", "rebuild", "reconcile"}:
+        _recover_joined_synthetic_publication(service, restored)
     weaviate = service.deps.weaviate
     (weaviate.ensure_class, weaviate.write_objects, weaviate.reconcile_objects,
      service._phase_lightrag_upload) = originals
@@ -3943,14 +3954,20 @@ def _pending_copy(record):
     return incoming
 
 
+def _test_publication_claim(owner="owner", token="store-test-attempt"):
+    return PublicationClaim(owner, token)
+
+
 def _publish_for_test(store, record):
     assert store.create_if_absent(record)[1]
     assert store.claim_execution(record.id, ExecutionClaim("owner", 60))
+    assert store.claim_publications(record.id, _test_publication_claim())
     for target in record.publication_targets:
-        assert store.mark_publication(record.id, "owner", (target, False))
-        assert store.mark_publication(record.id, "owner", (target, True))
+        assert store.mark_publication(record.id, _test_publication_claim("owner"), (target, False))
+        assert store.mark_publication(record.id, _test_publication_claim("owner"), (target, True))
     record.status = "completed"
     assert store.save_claimed(record, "owner")
+    store.release_publications(record.id, _test_publication_claim(), record.publication_targets)
 
 
 def _remove_retained_authority(store, record, boundary):
@@ -3977,7 +3994,7 @@ def test_publication_currentness_fails_closed_across_retention_and_stale_saves(l
     assert not store.create_if_absent(_pending_copy(old))[1]
     _remove_retained_authority(store, old, boundary)
     store.save(IngestionRecord.from_dict(old.to_dict()))
-    assert not store.mark_publication(old.id, "owner", (old.publication_targets[0], True))
+    assert not store.mark_publication(old.id, _test_publication_claim("owner"), (old.publication_targets[0], True))
     assert store.create_if_absent(_pending_copy(old))[1]
 
 
@@ -3988,12 +4005,13 @@ def test_publication_transitions_are_fenced_and_declared(live_redis):
     target = record.publication_targets[0]
     assert store.create_if_absent(record)[1]
     assert store.claim_execution(record.id, ExecutionClaim("owner", 60))
-    assert not store.mark_publication(record.id, "wrong-owner", (target, False))
-    assert not store.mark_publication(record.id, "owner", ("undeclared-target", False))
-    assert store.mark_publication(record.id, "owner", (target, False))
+    assert store.claim_publications(record.id, _test_publication_claim())
+    assert not store.mark_publication(record.id, _test_publication_claim("wrong-owner"), (target, False))
+    assert not store.mark_publication(record.id, _test_publication_claim("owner"), ("undeclared-target", False))
+    assert store.mark_publication(record.id, _test_publication_claim("owner"), (target, False))
     record.status = "completed"
     assert store.save_claimed(record, "owner")
-    assert not store.mark_publication(record.id, "owner", (target, True))
+    assert not store.mark_publication(record.id, _test_publication_claim("owner"), (target, True))
 
 
 @pytest.mark.parametrize("live_redis", [False, True])
@@ -4099,9 +4117,10 @@ def test_publication_finish_cannot_restore_authority_after_ownership_loss(live_r
     target = record.publication_targets[0]
     assert store.create_if_absent(record)[1]
     assert store.claim_execution(record.id, ExecutionClaim("owner", 60))
-    assert store.mark_publication(record.id, "owner", (target, False))
+    assert store.claim_publications(record.id, _test_publication_claim())
+    assert store.mark_publication(record.id, _test_publication_claim("owner"), (target, False))
     _lose_publication_ownership(store, record, boundary)
-    store.mark_publication(record.id, "owner", (target, True))
+    store.mark_publication(record.id, _test_publication_claim("owner"), (target, True))
     if boundary == "lease-expired":
         assert store.claim_execution(record.id, ExecutionClaim("replacement", 60))
     owner = "replacement" if boundary.startswith("lease-") else "owner"
@@ -4184,6 +4203,8 @@ def test_nonmutating_skips_preserve_old_currentness_without_claiming_new_publica
     _, _, final = _run(service)
     assert final.status == "completed"
     assert service.submit("showcase-default")[1], "a skipped configured target has no current-publication proof"
+    # Restore the original configured capability before reusing its publication.
+    getattr(service.deps, unavailable)._available = True
     change(b"A")
     current, created = service.submit("showcase-default")
     assert not created and current.id == first.id
@@ -4293,15 +4314,23 @@ def test_first_target_publication_before_second_target_failure_restores_both(tmp
     weaviate = service.deps.weaviate
     original_objects = dict(weaviate.objects)
     change(b"B")
-    available, checks = weaviate.available, iter((True, False))
-    weaviate.available = lambda: next(checks)
+    reconcile = weaviate.reconcile_objects
+
+    async def reconcile_and_disconnect(*args, **kwargs):
+        result = await reconcile(*args, **kwargs)
+        weaviate._available = False
+        return result
+
+    weaviate.reconcile_objects = reconcile_and_disconnect
     second, _, failed = _run(service)
     assert failed.status == "failed"
+    assert failed.phase("vector_write").status == "failed"
     _assert_split_target_publication(service, (first, second))
     assert [name for name, _profile, _ids in weaviate.reconciled] == [
         "X_showcase_default", "Y_showcase_default", "X_showcase_default",
     ]
-    weaviate.available = available
+    weaviate.reconcile_objects = reconcile
+    weaviate._available = True
     change(b"A")
     restored, created = service.submit("showcase-default")
     assert created, "one superseded target rejects the aggregate old completion"
@@ -4311,3 +4340,909 @@ def test_first_target_publication_before_second_target_failure_restores_both(tmp
     assert _class_publication_authorities(service.store, ("X_showcase_default", "Y_showcase_default")) == {
         "X_showcase_default": restored.id, "Y_showcase_default": restored.id,
     }
+
+
+def _overlap_publication_trace(service, first, second):
+    class_name = "RagShowcase_showcase_default"
+    return {
+        "first_id": first.id, "second_id": second.id,
+        "publication_targets": second.publication_targets,
+        "authority": _class_publication_authorities(service.store, [class_name]),
+        "vector_ids": sorted(service.deps.weaviate.objects),
+        "contents": sorted(_current_fake_contents(service.deps.weaviate)),
+    }
+
+
+async def _overlapping_corpus_generations(tmp_path, monkeypatch):
+    """Pause A's accepted write while B publishes the same physical class."""
+    from rag_ingestion.service import IngestionExecutionBusy
+
+    root = _corpus(tmp_path, monkeypatch, {"a.txt": "A"})
+    (root / "other").mkdir()
+    (root / "other/b.txt").write_text("B", encoding="utf-8")
+    monkeypatch.setattr("chunking_service.chunk_text", lambda request: SimpleNamespace(
+        chunks=[SimpleNamespace(index=0, content=request.text)],
+    ))
+    write_started, release_write = asyncio.Event(), asyncio.Event()
+
+    class PausedWeaviate(FakeWeaviate):
+        async def write_objects(self, class_name, objects):
+            written = await super().write_objects(class_name, objects)
+            if objects[0]["properties"]["content"] == "A":
+                write_started.set()
+                await release_write.wait()
+            return written
+
+    store = InMemoryIngestionStore()
+    service = _corpus_change_service(tmp_path, {"source": "mount", "path": "docs"}, store)
+    service.deps.weaviate = PausedWeaviate()
+    first, created = service.submit("showcase-default", corpus_path="docs")
+    second, second_created = service.submit("showcase-default", corpus_path="other")
+    assert created and second_created and first.id != second.id
+    pending, created = service.submit("showcase-default", corpus_path="other")
+    assert not created and pending.id == second.id, "identical pending work must still dedup"
+    first_task = asyncio.create_task(service.run(first.id, execution_owner="generation-a"))
+    deferred, trace = False, {}
+    try:
+        await asyncio.wait_for(write_started.wait(), timeout=2)
+        try:
+            final = await asyncio.wait_for(
+                service.run(second.id, execution_owner="generation-b"), timeout=2,
+            )
+        except IngestionExecutionBusy:
+            deferred = True
+            assert _current_fake_contents(service.deps.weaviate) == {"A"}
+        else:
+            assert final.status == "completed", final.errors
+            assert _current_fake_contents(service.deps.weaviate) == {"B"}
+        trace["before_a_resumes"] = _overlap_publication_trace(service, first, second)
+    finally:
+        release_write.set()
+        await asyncio.wait_for(first_task, timeout=2)
+    if deferred:
+        final = await service.run(second.id, execution_owner="generation-b-retry")
+        assert final.status == "completed", final.errors
+    trace["after_a_finishes"] = _overlap_publication_trace(service, first, second)
+    return service, second, trace
+
+
+@pytest.mark.parametrize("invariant", ["current-vectors", "dedup-requires-vectors"])
+def test_overlapping_corpus_generations_preserve_current_publication(
+    tmp_path, monkeypatch, invariant,
+):
+    service, second, trace = asyncio.run(_overlapping_corpus_generations(tmp_path, monkeypatch))
+    contents = _current_fake_contents(service.deps.weaviate)
+    if invariant == "current-vectors":
+        assert contents == {"B"}, json.dumps(trace, sort_keys=True)
+    else:
+        repeated, created = service.submit("showcase-default", corpus_path="other")
+        trace["resubmit_b"] = {"created": created, "id": repeated.id, "status": repeated.status}
+        assert created or contents == {"B"}, (
+            "completed B reused while vectors missing: " + json.dumps(trace, sort_keys=True)
+        )
+        if not created:
+            assert repeated.id == second.id
+
+
+@pytest.mark.parametrize("competing_profile", ["showcase-default", "showcase.default"])
+def test_publication_begin_excludes_other_active_jobs_for_the_same_physical_class(
+    competing_profile,
+):
+    from rag_ingestion.models import weaviate_class_name
+    from rag_ingestion.store import publication_target
+
+    class_name = weaviate_class_name("RagShowcase", "showcase-default")
+    assert weaviate_class_name("RagShowcase", competing_profile) == class_name
+    target = publication_target(class_name)
+    store = InMemoryIngestionStore()
+    first, second = _generation_record([target]), _generation_record([target])
+    second.profile = competing_profile
+    for record, owner in ((first, "owner-a"), (second, "owner-b")):
+        assert store.create_if_absent(record)[1]
+        assert store.claim_execution(record.id, ExecutionClaim(owner, 60))
+    assert store.claim_publications(first.id, _test_publication_claim("owner-a"))
+    assert not store.claim_publications(second.id, _test_publication_claim("owner-b"))
+    assert store.mark_publication(first.id, _test_publication_claim("owner-a"), (target, False))
+    assert not store.mark_publication(second.id, _test_publication_claim("owner-b"), (target, False)), (
+        "a different active ingestion must not replace physical-target ownership"
+    )
+
+
+class _AcceptedRemoteWrite(FakeWeaviate):
+    """An accepted remote write outlives the HTTP caller's wait."""
+    def __init__(self, interruption):
+        super().__init__()
+        self.interruption = interruption
+        self.accepted = asyncio.Event()
+        self.finish = asyncio.Event()
+        self.remote = None
+
+    async def _complete_remote(self, class_name, objects):
+        await self.finish.wait()
+        await super().write_objects(class_name, objects)
+
+    async def write_objects(self, class_name, objects):
+        if self.remote is None:
+            self.remote = asyncio.create_task(self._complete_remote(class_name, objects))
+            self.accepted.set()
+            if self.interruption == "timeout":
+                raise httpx.ReadTimeout("accepted write acknowledgement was lost")
+            await asyncio.Event().wait()
+        return await super().write_objects(class_name, objects)
+
+
+def _uncertain_publication_service(tmp_path, monkeypatch, interruption):
+    root = _corpus(tmp_path, monkeypatch, {"a.txt": "A"})
+    (root / "other").mkdir()
+    (root / "other/b.txt").write_text("B", encoding="utf-8")
+    monkeypatch.setattr("chunking_service.chunk_text", lambda request: SimpleNamespace(
+        chunks=[SimpleNamespace(index=0, content=request.text)],
+    ))
+    service = _corpus_change_service(
+        tmp_path, {"source": "mount", "path": "docs"}, InMemoryIngestionStore(),
+    )
+    service.deps.weaviate = _AcceptedRemoteWrite(interruption)
+    return service
+
+
+async def _interrupt_accepted_publication(service, record, interruption):
+    task = asyncio.create_task(service.run(
+        record.id, retry_transient=True, execution_owner="reused-owner",
+    ))
+    await asyncio.wait_for(service.deps.weaviate.accepted.wait(), 2)
+    if interruption == "cancel":
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    else:
+        with pytest.raises(httpx.ReadTimeout):
+            await task
+
+
+@pytest.mark.parametrize("interruption", ["timeout", "cancel"])
+def test_uncertain_remote_write_blocks_a_later_generation(tmp_path, monkeypatch, interruption):
+    from rag_ingestion.service import IngestionExecutionBusy
+
+    async def scenario():
+        service = _uncertain_publication_service(tmp_path, monkeypatch, interruption)
+        first, _ = service.submit("showcase-default")
+        second, _ = service.submit("showcase-default", corpus_path="other")
+        try:
+            await _interrupt_accepted_publication(service, first, interruption)
+            with pytest.raises(IngestionExecutionBusy):
+                await service.run(second.id, execution_owner="reused-owner")
+            assert service.store.get(second.id).status == "pending"
+            assert not service.deps.weaviate.objects
+        finally:
+            service.deps.weaviate.finish.set()
+            if service.deps.weaviate.remote is not None:
+                await asyncio.wait_for(service.deps.weaviate.remote, 2)
+        assert _current_fake_contents(service.deps.weaviate) == {"A"}
+        assert service.store.get(second.id).status != "completed"
+    asyncio.run(scenario())
+
+
+def test_uncertain_remote_write_cannot_be_adopted_by_a_reused_execution_owner(tmp_path, monkeypatch):
+    from rag_ingestion.service import IngestionExecutionBusy
+
+    async def scenario():
+        service = _uncertain_publication_service(tmp_path, monkeypatch, "timeout")
+        record, _ = service.submit("showcase-default")
+        try:
+            await _interrupt_accepted_publication(service, record, "timeout")
+            with pytest.raises(IngestionExecutionBusy):
+                await service.run(record.id, execution_owner="reused-owner")
+        finally:
+            service.deps.weaviate.finish.set()
+            if service.deps.weaviate.remote is not None:
+                await asyncio.wait_for(service.deps.weaviate.remote, 2)
+    asyncio.run(scenario())
+
+
+def test_publication_begin_reserves_all_physical_targets_without_partial_mutation():
+    store = InMemoryIngestionStore()
+    held = _generation_record(["shared"])
+    incoming = _generation_record(["free", "shared"])
+    for record, owner in ((held, "holder"), (incoming, "contender")):
+        assert store.create_if_absent(record)[1]
+        assert store.claim_execution(record.id, ExecutionClaim(owner, 60))
+    assert store.claim_publications(held.id, _test_publication_claim("holder"))
+    assert store.mark_publication(held.id, _test_publication_claim("holder"), ("shared", False))
+    assert not store.claim_publications(incoming.id, _test_publication_claim("contender"))
+    assert "free" not in store._publication_guards
+    assert not store.mark_publication(incoming.id, _test_publication_claim("contender"), ("free", False)), (
+        "admission must check the entire physical target set before its first mutation"
+    )
+    assert "free" not in store._publications
+
+
+def _advance_publication_stage(store, record, claim, stage):
+    target = record.publication_targets[0]
+    if stage != "reserved":
+        assert store.mark_publication(record.id, claim, (target, False))
+    if stage == "published":
+        assert store.mark_publication(record.id, claim, (target, True))
+        record.status = "completed"
+        assert store.save_claimed(record, claim.execution_owner)
+
+
+def _recover_joined_synthetic_publication(service, record):
+    """Operator fixture after joined, non-background fake mutations only.
+
+    These synchronous fakes and MockTransport handlers cannot finish a remote
+    mutation after returning. Production operators must establish that fact
+    independently for every publisher; job termination alone is insufficient.
+    """
+    from rag_ingestion.store import (
+        _PUBLICATION_GUARD_PREFIX, _PUBLICATION_PREFIX,
+    )
+    from rag_ingestion.service import IngestionExecutionBusy
+    with pytest.raises(IngestionExecutionBusy):
+        asyncio.run(service.run(record.id, retry_transient=True))
+    targets = service.store.get(record.id).publication_targets
+    assert any(_publication_guard_value(service.store, target) for target in targets)
+    if isinstance(service.store, RedisIngestionStore):
+        keys = [prefix + target for target in targets
+                for prefix in (_PUBLICATION_GUARD_PREFIX, _PUBLICATION_PREFIX)]
+        service.store._redis.delete(*keys)
+    else:
+        for target in targets:
+            service.store._publication_guards.pop(target, None)
+            service.store._publications.pop(target, None)
+
+
+def _publication_guard_value(store, target):
+    if isinstance(store, RedisIngestionStore):
+        from rag_ingestion.store import _PUBLICATION_GUARD_PREFIX
+        key = _PUBLICATION_GUARD_PREFIX + target
+        value = store._redis.get(key)
+        if value is not None:
+            assert store._redis.ttl(key) == -1, "collection guards must not expire"
+        return value
+    return store._publication_guards.get(target)
+
+
+def _reserved_publication(store, targets=None):
+    record = _generation_record(targets)
+    claim = _test_publication_claim(token=str(uuid.uuid4()))
+    assert store.create_if_absent(record)[1]
+    assert store.claim_execution(record.id, ExecutionClaim(claim.execution_owner, 60))
+    assert store.claim_publications(record.id, claim)
+    return record, claim
+
+
+@pytest.mark.parametrize("live_redis", [False, True])
+@pytest.mark.parametrize("stage", ["reserved", "dirty", "published"])
+def test_publication_guard_never_adopts_an_existing_attempt(live_redis, stage):
+    store = _ingestion_regression_store(live_redis)
+    record, claim = _reserved_publication(store)
+    target = record.publication_targets[0]
+    _advance_publication_stage(store, record, claim, stage)
+    before = _publication_guard_value(store, target)
+    assert not store.claim_publications(record.id, claim)
+    other_attempt = PublicationClaim(claim.execution_owner, str(uuid.uuid4()))
+    assert not store.claim_publications(record.id, other_attempt)
+    assert not store.create_if_absent(_pending_copy(record))[1]
+    contender = _pending_copy(record)
+    contender.idempotency_key = str(uuid.uuid4())
+    assert store.create_if_absent(contender)[1]
+    assert store.claim_execution(contender.id, ExecutionClaim(claim.execution_owner, 60))
+    assert not store.claim_publications(contender.id, other_attempt)
+    assert _publication_guard_value(store, target) == before
+
+
+@pytest.mark.parametrize("live_redis", [False, True])
+@pytest.mark.parametrize("boundary", ["missing-record", "missing-marker", "lease-expired", "lease-replaced"])
+def test_uncertain_publication_guard_outlives_retention_and_execution(live_redis, boundary):
+    store = _ingestion_regression_store(live_redis)
+    record, claim = _reserved_publication(store)
+    target = record.publication_targets[0]
+    assert store.mark_publication(record.id, claim, (target, False))
+    before = _publication_guard_value(store, target)
+    if boundary.startswith("missing-"):
+        _remove_retained_authority(store, record, boundary)
+    else:
+        _lose_publication_ownership(store, record, boundary)
+    store.release_publications(record.id, claim, [target])
+    assert _publication_guard_value(store, target) == before
+    assert not store.mark_publication(record.id, claim, (target, True))
+    contender = _pending_copy(record)
+    contender.idempotency_key = str(uuid.uuid4())
+    assert store.create_if_absent(contender)[1]
+    assert store.claim_execution(contender.id, ExecutionClaim(claim.execution_owner, 60))
+    assert not store.claim_publications(contender.id, PublicationClaim(claim.execution_owner, "new-attempt"))
+    assert _publication_guard_value(store, target) == before
+
+
+@pytest.mark.parametrize("live_redis", [False, True])
+def test_publication_guard_cleanup_is_exact_attempt_and_clean_only(live_redis):
+    store = _ingestion_regression_store(live_redis)
+    first, first_claim = _reserved_publication(store)
+    target = first.publication_targets[0]
+    wrong = PublicationClaim(first_claim.execution_owner, "different-attempt")
+    before = _publication_guard_value(store, target)
+    store.release_publications(first.id, wrong, [target])
+    assert _publication_guard_value(store, target) == before
+    store.release_publications(first.id, first_claim, [target])
+    assert _publication_guard_value(store, target) is None
+    second, second_claim = _reserved_publication(store, [target])
+    for published in (False, True):
+        assert store.mark_publication(second.id, second_claim, (target, published))
+        before = _publication_guard_value(store, target)
+        store.release_publications(first.id, first_claim, [target])
+        assert _publication_guard_value(store, target) == before
+        if not published:
+            store.release_publications(second.id, second_claim, [target])
+            assert _publication_guard_value(store, target) == before
+    store.release_publications(second.id, second_claim, [target])
+    assert _publication_guard_value(store, target) is None
+
+
+@pytest.mark.parametrize("live_redis", [False, True])
+def test_atomic_publication_guard_refusal_leaves_free_targets_and_proofs_untouched(live_redis):
+    store = _ingestion_regression_store(live_redis)
+    held, _claim = _reserved_publication(store)
+    shared = held.publication_targets[0]
+    free = str(uuid.uuid4())
+    previous = _generation_record([free])
+    _publish_for_test(store, previous)
+    contender = _generation_record([free, shared])
+    claim = _test_publication_claim("contender", str(uuid.uuid4()))
+    assert store.create_if_absent(contender)[1]
+    assert store.claim_execution(contender.id, ExecutionClaim(claim.execution_owner, 60))
+    assert not store.claim_publications(contender.id, claim)
+    assert _publication_guard_value(store, free) is None
+    assert not store.create_if_absent(_pending_copy(previous))[1]
+
+
+@pytest.mark.parametrize("live_redis", [False, True])
+def test_publication_guard_uses_physical_class_for_historical_profile_aliases(live_redis):
+    from rag_ingestion.models import weaviate_class_name
+    from rag_ingestion.store import publication_target
+
+    store = _ingestion_regression_store(live_redis)
+    prefix = "Alias_" + uuid.uuid4().hex
+    classes = [weaviate_class_name(prefix, name) for name in ("showcase-default", "showcase.default")]
+    assert classes[0] == classes[1]
+    first, _claim = _reserved_publication(store, [publication_target(classes[0])])
+    second = _generation_record([publication_target(classes[1])])
+    second.profile = "showcase.default"
+    assert store.create_if_absent(second)[1]
+    assert store.claim_execution(second.id, ExecutionClaim("alias-owner", 60))
+    assert not store.claim_publications(second.id, PublicationClaim("alias-owner", str(uuid.uuid4())))
+    assert _publication_guard_value(store, first.publication_targets[0]) is not None
+
+
+def test_cancelled_publication_admission_joins_and_releases_clean_guard(tmp_path, monkeypatch):
+    service = _uncertain_publication_service(tmp_path, monkeypatch, "timeout")
+    service.deps.weaviate = FakeWeaviate()
+    record, _ = service.submit("showcase-default")
+    started, finish = threading.Event(), threading.Event()
+    original = service.store.claim_publications
+
+    def delayed_claim(*args):
+        started.set()
+        assert finish.wait(5)
+        return original(*args)
+
+    monkeypatch.setattr(service.store, "claim_publications", delayed_claim)
+
+    async def scenario():
+        task = asyncio.create_task(service.run(record.id))
+        try:
+            assert await asyncio.to_thread(started.wait, 2)
+            task.cancel()
+            await asyncio.sleep(0)
+            assert not task.done(), "late admission must join before cleanup"
+        finally:
+            finish.set()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(task, 2)
+    asyncio.run(scenario())
+    assert not service.store._publication_guards
+    assert not service.deps.weaviate.classes
+
+
+def test_cancelled_publication_begin_cannot_dirty_a_released_guard(tmp_path, monkeypatch):
+    service = _uncertain_publication_service(tmp_path, monkeypatch, "timeout")
+    service.deps.weaviate = FakeWeaviate()
+    record, _ = service.submit("showcase-default")
+    started, finish = threading.Event(), threading.Event()
+    original = service.store.mark_publication
+    late_results = []
+
+    def delayed_begin(*args):
+        started.set()
+        assert finish.wait(5)
+        late_results.append(original(*args))
+
+    monkeypatch.setattr(service.store, "mark_publication", delayed_begin)
+
+    async def scenario():
+        task = asyncio.create_task(service.run(record.id))
+        try:
+            assert await asyncio.to_thread(started.wait, 2)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await asyncio.wait_for(task, 2)
+            assert not service.store._publication_guards
+        finally:
+            finish.set()
+    asyncio.run(scenario())
+    assert late_results == [False], "late begin must compare the full clean guard token"
+    assert not service.deps.weaviate.classes
+
+
+def test_completed_vectors_release_clean_guard_when_final_record_save_fails(tmp_path, monkeypatch):
+    service = _uncertain_publication_service(tmp_path, monkeypatch, "timeout")
+    service.deps.weaviate = FakeWeaviate()
+    record, _ = service.submit("showcase-default")
+    second, _ = service.submit("showcase-default", corpus_path="other")
+    original = service.store.save_claimed
+
+    def failed_final_save(current, owner):
+        if current.status == "completed" and current.id == record.id:
+            raise RedisConnectionError("final record acknowledgement lost")
+        return original(current, owner)
+
+    monkeypatch.setattr(service.store, "save_claimed", failed_final_save)
+    with pytest.raises(RedisConnectionError):
+        asyncio.run(service.run(record.id))
+    assert _current_fake_contents(service.deps.weaviate) == {"A"}
+    assert not service.store._publication_guards
+    assert asyncio.run(service.run(second.id)).status == "completed"
+    assert _current_fake_contents(service.deps.weaviate) == {"B"}
+
+
+def test_collection_busy_does_not_hide_foreign_execution_lease(tmp_path, monkeypatch):
+    service = _uncertain_publication_service(tmp_path, monkeypatch, "timeout")
+    record, _ = service.submit("showcase-default")
+
+    def replace_execution(ingestion_id, claim):
+        assert service.store.claim_execution(
+            ingestion_id, ExecutionClaim("new-owner", 60, claim.execution_owner),
+        )
+        latest = service.store.get(ingestion_id)
+        latest.counts["new-owner-sentinel"] = 42
+        assert service.store.save_claimed(latest, "new-owner")
+        return False
+
+    monkeypatch.setattr(service.store, "claim_publications", replace_execution)
+    with pytest.raises(IngestionExecutionLeaseLost):
+        asyncio.run(service.run(record.id, execution_owner="old-owner"))
+    assert service.store.get(record.id).counts["new-owner-sentinel"] == 42
+    assert not service.store.claim_execution(record.id, ExecutionClaim("contender", 60))
+    assert service.store.release_execution(record.id, "new-owner")
+
+
+def test_sync_collection_busy_stays_pending_and_resubmits_the_same_job(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    from rag_ingestion.models import IngestionRecord
+    from rag_ingestion.store import ExecutionClaim, PublicationClaim
+
+    main = _reload_main(monkeypatch)
+    service = _fake_service(tmp_path, monkeypatch)
+    record, _ = service.submit("showcase-default")
+    holder = IngestionRecord.from_dict(record.to_dict())
+    holder.id, holder.idempotency_key = "other-physical-writer", "other-corpus-key"
+    assert service.store.create_if_absent(holder)[1]
+    claim = PublicationClaim("other-owner", "other-attempt")
+    assert service.store.claim_execution(holder.id, ExecutionClaim(claim.execution_owner, 60))
+    assert service.store.claim_publications(holder.id, claim)
+    monkeypatch.setattr(main, "get_rag_ingestion_service", lambda: service)
+    monkeypatch.setattr(main, "celery_is_enabled", lambda: False)
+    client = TestClient(main.app)
+    request = {"profile": "showcase-default"}
+    blocked = client.post("/api/rag/ingestions", json=request)
+    repeated = client.post("/api/rag/ingestions", json=request)
+    assert (blocked.status_code, blocked.json()["status"], repeated.json()["status"]) == (202, "pending", "pending")
+    assert blocked.json()["ingestion_id"] == repeated.json()["ingestion_id"] == record.id
+    assert "waiting for collection publication" in service.store.get(record.id).phase("vector_write").note
+    # This holder never began a mutation; its normal clean release is sufficient.
+    service.store.release_publications(holder.id, claim, holder.publication_targets)
+    assert service.store.release_execution(holder.id, claim.execution_owner)
+    finished = client.post("/api/rag/ingestions", json=request)
+    assert (finished.status_code, finished.json()["ingestion_id"], finished.json()["status"]) == (202, record.id, "completed")
+
+
+def _hold_publication_guard(service, record):
+    """Another active attempt reserves the record's physical classes."""
+    holder = IngestionRecord.from_dict(record.to_dict())
+    holder.id, holder.idempotency_key = str(uuid.uuid4()), str(uuid.uuid4())
+    assert service.store.create_if_absent(holder)[1]
+    claim = PublicationClaim("holder-owner", str(uuid.uuid4()))
+    assert service.store.claim_execution(holder.id, ExecutionClaim(claim.execution_owner, 60))
+    assert service.store.claim_publications(holder.id, claim)
+    return holder, claim
+
+
+class _HeldDrainLightrag(FakeLightrag):
+    """Keeps a job in drain until the test releases it."""
+    def __init__(self):
+        super().__init__()
+        self.draining = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def pipeline_busy(self):
+        self.draining.set()
+        return not self.release.is_set()
+
+
+def test_clean_publication_guards_are_released_when_the_vector_phase_ends(tmp_path, monkeypatch):
+    service = _uncertain_publication_service(tmp_path, monkeypatch, "timeout")
+    path = Path(service._profiles_path)
+    document = json.loads(path.read_text())
+    document["profiles"][0]["graph_targets"][0]["timeout_seconds"] = 30
+    path.write_text(json.dumps(document))
+    weaviate = service.deps.weaviate = FakeWeaviate()
+    held = service.deps.lightrag = _HeldDrainLightrag()
+    service.deps.poll_interval = 0.01
+    other = RagIngestionService(store=service.store, profiles_path=service._profiles_path, deps=Deps(
+        embedder=FakeEmbedder(), weaviate=weaviate, lightrag=FakeLightrag(available=False),
+    ))
+    first, _ = service.submit("showcase-default")
+    second, _ = other.submit("showcase-default", corpus_path="other")
+
+    async def scenario():
+        task = asyncio.create_task(service.run(first.id))
+        try:
+            await asyncio.wait_for(held.draining.wait(), 5)
+            assert not service.store._publication_guards, "a job in drain must not hold its collection"
+            assert (await other.run(second.id)).status == "completed"
+            assert _current_fake_contents(weaviate) == {"B"}
+        finally:
+            held.release.set()
+        return await asyncio.wait_for(task, 5)
+    assert asyncio.run(scenario()).status == "completed"
+    assert not service.store._publication_guards
+
+
+@pytest.mark.parametrize("then", ["admitted", "cancelled"])
+def test_guarded_collection_turns_a_job_away_before_parse_and_embed(tmp_path, monkeypatch, then):
+    from rag_ingestion.service import CollectionPublicationBusy
+
+    service = _uncertain_publication_service(tmp_path, monkeypatch, "timeout")
+    service.deps.weaviate = FakeWeaviate()
+    embedded = []
+    real_embed = service.deps.embedder.embed
+
+    async def counting_embed(texts):
+        embedded.append(list(texts))
+        return await real_embed(texts)
+
+    service.deps.embedder.embed = counting_embed
+    record, _ = service.submit("showcase-default")
+    holder, claim = _hold_publication_guard(service, record)
+    with pytest.raises(CollectionPublicationBusy):
+        asyncio.run(service.run(record.id))
+    blocked = service.store.get(record.id)
+    assert (blocked.status, blocked.phase("discover").status, blocked.counts["files_discovered"]) == ("pending", "pending", 0)
+    assert "waiting for collection publication" in blocked.phase("vector_write").note
+    assert not embedded, "a guarded collection must refuse the job before any embedding"
+    if then == "cancelled":
+        # A waiting job stays cancellable: cancellation is checked before admission.
+        assert service.store.request_cancel(record.id)
+        assert asyncio.run(service.run(record.id)).status == "cancelled"
+        assert not embedded
+        return
+    service.store.release_publications(holder.id, claim, holder.publication_targets)
+    assert asyncio.run(service.run(record.id)).status == "completed"
+    assert embedded
+
+
+def test_guarded_collection_does_not_hold_back_a_job_without_weaviate(tmp_path, monkeypatch):
+    service = _uncertain_publication_service(tmp_path, monkeypatch, "timeout")
+    service.deps.weaviate = FakeWeaviate(available=False)
+    record, _ = service.submit("showcase-default")
+    _hold_publication_guard(service, record)
+    finished = asyncio.run(service.run(record.id))
+    # vector_write reports the unavailable target as before; the guard is untouched.
+    assert finished.status != "pending"
+    assert "waiting for collection publication" not in (finished.phase("vector_write").note or "")
+    assert service.deps.weaviate.classes == []
+
+
+def test_collection_wait_backs_off_without_consuming_retry_budgets(monkeypatch):
+    import celery_tasks
+    import rag_ingestion
+    from rag_ingestion.service import CollectionPublicationBusy
+
+    class RetryScheduled(RuntimeError):
+        pass
+
+    captured, backoffs = [], []
+
+    def capture_retry(**kwargs):
+        captured.append(kwargs)
+        raise RetryScheduled()
+
+    def backoff(**kwargs):
+        backoffs.append(kwargs)
+        return 7
+
+    monkeypatch.setenv("RAG_INGESTION_EXECUTION_LEASE_SECONDS", "45")
+    monkeypatch.setattr(celery_tasks, "get_exponential_backoff_interval", backoff)
+    monkeypatch.setattr(celery_tasks.rag_ingestion_task, "retry", capture_retry)
+    for busy, waited in ((CollectionPublicationBusy, 0), (CollectionPublicationBusy, 30),
+                         (rag_ingestion.IngestionExecutionBusy, 3)):
+        def refuse(*_args, _busy=busy, **_kwargs):
+            raise _busy("not admitted")
+
+        monkeypatch.setattr(rag_ingestion, "run_rag_ingestion", refuse)
+        with pytest.raises(RetryScheduled):
+            celery_tasks.rag_ingestion_task.run("ingestion-1", retry_state={
+                "phase_attempt": 2, "infrastructure_attempt": 5,
+                "recovery_owner": "stale-owner", "publication_wait_attempt": waited,
+            })
+    budgets = {"phase_attempt": 2, "infrastructure_attempt": 5}
+    assert [c["kwargs"]["retry_state"] for c in captured] == [
+        {**budgets, "publication_wait_attempt": 1},
+        {**budgets, "publication_wait_attempt": 31},
+        {**budgets, "publication_wait_attempt": 3},
+    ]
+    assert [c["countdown"] for c in captured] == [7, 7, 45]
+    assert backoffs == [
+        {"factor": 1, "retries": 0, "maximum": 600, "full_jitter": True},
+        {"factor": 1, "retries": 10, "maximum": 600, "full_jitter": True},
+    ]
+    with pytest.raises(ValueError, match="retry_state.publication_wait_attempt"):
+        celery_tasks.rag_ingestion_task.run("ingestion-1", retry_state={"publication_wait_attempt": -1})
+
+
+class _RejectingWeaviate(FakeWeaviate):
+    """Answers the next class check with an HTTP error status."""
+    def __init__(self):
+        super().__init__()
+        self.reject = None
+
+    async def ensure_class(self, class_name, embedding=None):
+        status, self.reject = self.reject, None
+        if status is not None:
+            request = httpx.Request("POST", "http://weaviate:8080/v1/schema")
+            response = httpx.Response(status, request=request, text="rejected")
+            raise httpx.HTTPStatusError(f"schema rejected with {status}", request=request, response=response)
+        return await super().ensure_class(class_name, embedding)
+
+
+def _rejected_publication(tmp_path, monkeypatch, corpus_path, status):
+    """Publish corpus A, then let Weaviate reject the next job's class check."""
+    service = _uncertain_publication_service(tmp_path, monkeypatch, "timeout")
+    (tmp_path / "corpus-root" / "empty").mkdir()
+    weaviate = service.deps.weaviate = _RejectingWeaviate()
+    previous, _, final = _run(service)
+    assert final.status == "completed"
+    weaviate.reject = status
+    _, _, final = _run(service, corpus_path=corpus_path)
+    assert (final.status, final.phase("vector_write").status) == ("failed", "failed")
+    assert str(status) in json.dumps(final.errors)
+    # Either way the rejected attempt invalidated the earlier publication proof.
+    restored, created = service.submit("showcase-default")
+    assert created and restored.id != previous.id
+    return service, restored
+
+
+@pytest.mark.parametrize("corpus_path", ["other", "empty"])
+@pytest.mark.parametrize("status", [422, 400])
+def test_definitive_weaviate_rejection_settles_the_guard_but_not_publication(
+    tmp_path, monkeypatch, corpus_path, status,
+):
+    service, restored = _rejected_publication(tmp_path, monkeypatch, corpus_path, status)
+    # Weaviate answered, so nothing is in flight: the class is free again.
+    assert not service.store._publication_guards
+    assert asyncio.run(service.run(restored.id)).status == "completed"
+    assert _current_fake_contents(service.deps.weaviate) == {"A"}
+
+
+@pytest.mark.parametrize("corpus_path", ["other", "empty"])
+def test_weaviate_server_error_keeps_the_guard_dirty(tmp_path, monkeypatch, corpus_path):
+    from rag_ingestion.models import weaviate_class_name
+    from rag_ingestion.service import CollectionPublicationBusy
+    from rag_ingestion.store import publication_target
+
+    service, restored = _rejected_publication(tmp_path, monkeypatch, corpus_path, 503)
+    target = publication_target(weaviate_class_name("RagShowcase", "showcase-default"))
+    assert _publication_guard_value(service.store, target).endswith(":dirty")
+    with pytest.raises(CollectionPublicationBusy):
+        asyncio.run(service.run(restored.id))
+
+
+@pytest.mark.parametrize("live_redis", [False, True])
+def test_publication_guard_probe_is_read_only_and_exact(live_redis):
+    store = _ingestion_regression_store(live_redis)
+    record, claim = _reserved_publication(store)
+    target, free = record.publication_targets[0], str(uuid.uuid4())
+    probes = [store.publication_guarded(targets) for targets in ([], [free], [free, target])]
+    assert probes == [False, False, True]
+    assert _publication_guard_value(store, target).endswith(":clean"), "the probe never claims"
+    store.release_publications(record.id, claim, [target])
+    assert not store.publication_guarded([target])
+
+
+@pytest.mark.parametrize("live_redis", [False, True])
+def test_rejection_settle_is_attempt_exact_and_keeps_reuse_invalid(live_redis):
+    store = _ingestion_regression_store(live_redis)
+    previous = _generation_record()
+    target = previous.publication_targets[0]
+    _publish_for_test(store, previous)
+    record, claim = _reserved_publication(store, [target])
+    assert not store.settle_publication(record.id, claim, target), "only a begun mutation settles"
+    assert store.mark_publication(record.id, claim, (target, False))
+    dirty = _publication_guard_value(store, target)
+    refused = [store.settle_publication(record.id, *attempt) for attempt in (
+        (PublicationClaim(claim.execution_owner, "other-attempt"), target), (claim, str(uuid.uuid4())),
+    )]
+    assert (refused, _publication_guard_value(store, target)) == ([False, False], dirty)
+    assert store.settle_publication(record.id, claim, target)
+    assert _publication_guard_value(store, target) == dirty[:-len(":dirty")] + ":clean"
+    assert not store.mark_publication(record.id, claim, (target, True)), "a rejection never proves publication"
+    store.release_publications(record.id, claim, [target])
+    assert store.create_if_absent(_pending_copy(previous))[1], "the rejected attempt invalidated reuse"
+
+
+@pytest.mark.parametrize("live_redis", [False, True])
+@pytest.mark.parametrize("boundary", ["lease-expired", "lease-replaced"])
+def test_rejection_settle_requires_the_live_execution_lease(live_redis, boundary):
+    store = _ingestion_regression_store(live_redis)
+    record, claim = _reserved_publication(store)
+    target = record.publication_targets[0]
+    assert store.mark_publication(record.id, claim, (target, False))
+    dirty = _publication_guard_value(store, target)
+    _lose_publication_ownership(store, record, boundary)
+    assert not store.settle_publication(record.id, claim, target)
+    assert _publication_guard_value(store, target) == dirty
+
+
+# Runtime destination identity is separate from the physical collection mutex.
+def _runtime_destination_deps(endpoints):
+    vector_url, graph_url = endpoints
+    weaviate = FakeWeaviate(available=bool(vector_url))
+    weaviate._url = vector_url
+    graph = FakeLightrag(available=bool(graph_url))
+    graph._endpoint = graph_url
+    return Deps(embedder=FakeEmbedder(), weaviate=weaviate, lightrag=graph)
+
+
+def _runtime_context_service(tmp_path, monkeypatch, targets=(True, True)):
+    _corpus(tmp_path, monkeypatch, {"a.txt": "trusted destination identity control"})
+    monkeypatch.setattr("chunking_service.chunk_text", lambda request: SimpleNamespace(
+        chunks=[SimpleNamespace(index=0, content=request.text)],
+    ))
+    profile_path = _profiles_file(
+        tmp_path, vector=None if targets[0] else [], graph=None if targets[1] else [],
+    )
+    document = json.loads(Path(profile_path).read_text())
+    document["profiles"][0]["revision"] = str(tmp_path)
+    Path(profile_path).write_text(json.dumps(document))
+    return _service(tmp_path, _runtime_destination_deps(("http://weaviate:8080", "http://lightrag:9621")), profile_path)
+
+
+def _with_runtime_destinations(service, endpoints):
+    return RagIngestionService(
+        store=service.store, deps=_runtime_destination_deps(endpoints),
+        profiles_path=service._profiles_path,
+    )
+
+
+@pytest.mark.parametrize("live_redis", [False, True])
+@pytest.mark.parametrize("case", [
+    ((True, False), ("http://weaviate:8080", ""), ("http://host.docker.internal:8080", "")),
+    ((False, True), ("", "http://lightrag:9621"), ("", "http://host.docker.internal:63068")),
+    ((False, True), ("", ""), ("", "http://lightrag:9621")),
+    ((True, True), ("http://weaviate:8080", ""), ("http://weaviate:8080", "http://lightrag:9621")),
+])
+def test_runtime_destination_change_ingests_the_current_target(tmp_path, monkeypatch, case, live_redis):
+    targets, before, after = case
+    service = _runtime_context_service(tmp_path, monkeypatch, targets)
+    service.store = _ingestion_regression_store(live_redis)
+    previous = _with_runtime_destinations(service, before)
+    first, _, final = _run(previous)
+    assert final.status == "completed"
+    preserved = service.store.get(first.id).to_dict()
+    current = _with_runtime_destinations(service, after)
+    second, created = current.submit("showcase-default")
+    assert created and second.id != first.id, "historical completion cannot populate a new destination"
+    completed = asyncio.run(current.run(second.id))
+    assert completed.status == "completed"
+    if targets[0]:
+        assert _current_fake_contents(current.deps.weaviate) == {"trusted destination identity control"}
+    if targets[1]:
+        assert current.deps.lightrag.uploaded == [{"text": "trusted destination identity control", "source": "docs/a.txt"}]
+    assert service.store.get(first.id).to_dict() == preserved
+
+
+@pytest.mark.parametrize("case", [
+    ((True, True), ("http://weaviate:8080", "http://lightrag:9621")),
+    ((True, False), ("http://weaviate:8080", "http://unrelated-graph:63068")),
+    ((False, True), ("http://unrelated-vector:8080", "http://lightrag:9621")),
+])
+def test_unchanged_declared_runtime_destinations_still_deduplicate(tmp_path, monkeypatch, case):
+    targets, endpoints = case
+    service = _runtime_context_service(tmp_path, monkeypatch, targets)
+    first, _, completed = _run(service)
+    current = _with_runtime_destinations(service, endpoints)
+    repeated, created = current.submit("showcase-default")
+    assert not created and repeated.id == first.id
+    assert repeated.to_dict() == completed.to_dict()
+    assert current.deps.weaviate.written == [] and current.deps.lightrag.uploaded == []
+
+
+@pytest.mark.parametrize("live_redis", [False, True])
+@pytest.mark.parametrize("status", ["pending", "running"])
+def test_pending_ingestion_runtime_destinations_have_separate_identity(tmp_path, monkeypatch, live_redis, status):
+    service = _runtime_context_service(tmp_path, monkeypatch, (True, False))
+    service.store = _ingestion_regression_store(live_redis)
+    first, _ = service.submit("showcase-default")
+    first.status = status
+    service.store.save(first)
+    current = _with_runtime_destinations(service, ("http://host.docker.internal:8080", ""))
+    second, created = current.submit("showcase-default")
+    assert created and second.id != first.id
+    assert service.submit("showcase-default")[0].id == first.id
+    assert current.submit("showcase-default")[0].id == second.id
+    assert first.status == status and second.status == "pending"
+
+
+@pytest.mark.parametrize("live_redis", [False, True])
+def test_runtime_destination_drift_invalidates_submitted_dedup(tmp_path, monkeypatch, live_redis):
+    service = _runtime_context_service(tmp_path, monkeypatch, (True, False))
+    service.store = _ingestion_regression_store(live_redis)
+    first, _ = service.submit("showcase-default")
+    service.deps = _runtime_destination_deps(("http://host.docker.internal:8080", ""))
+    completed = asyncio.run(service.run(first.id))
+    assert completed.status == "completed"
+    assert completed.counts.get("dedup_invalidated") == 1
+    assert _current_fake_contents(service.deps.weaviate) == {"trusted destination identity control"}
+    replacement, created = service.submit("showcase-default")
+    assert created and replacement.id != first.id
+
+
+@pytest.mark.parametrize("live_redis", [False, True])
+def test_context_free_completed_ingestion_is_conservatively_refreshed(tmp_path, monkeypatch, live_redis):
+    service = _runtime_context_service(tmp_path, monkeypatch, (True, False))
+    old_record, _ = service.submit("showcase-default")
+    profile = service._resolve_profile("showcase-default")
+    fingerprint = service.deps.corpus.fingerprint(profile.corpus, profile.corpus.get("path"))
+    old_record.idempotency_key = service._idempotency_key(profile, old_record.corpus, fingerprint)
+    service.store = _ingestion_regression_store(live_redis)
+    _publish_for_test(service.store, old_record)
+    preserved = service.store.get(old_record.id).to_dict()
+    current, created = service.submit("showcase-default")
+    assert created and current.id != old_record.id
+    assert service.store.get(old_record.id).to_dict() == preserved
+
+
+@pytest.mark.parametrize("changed", [
+    ("http://weaviate:8081", "http://lightrag:9621"),
+    ("http://weaviate:8080/other", "http://lightrag:9621"),
+    ("http://weaviate:8080", "http://lightrag:9622"),
+    ("http://weaviate:8080", "http://lightrag:9621/other"),
+])
+def test_runtime_destination_path_and_port_are_significant(tmp_path, monkeypatch, changed):
+    service = _runtime_context_service(tmp_path, monkeypatch)
+    first, _ = service.submit("showcase-default")
+    current = _with_runtime_destinations(service, changed)
+    second, created = current.submit("showcase-default")
+    assert created and second.id != first.id
+
+
+def test_runtime_destination_identity_excludes_auth_material(tmp_path, monkeypatch):
+    service = _runtime_context_service(tmp_path, monkeypatch)
+    before = ("http://alice:password-one@weaviate:8080/base?token=query-one#fragment-one",
+              "http://bob:password-two@lightrag:9621/base?key=query-two#fragment-two")
+    after = ("http://weaviate:8080/base/", "http://lightrag:9621/base/")
+    first, _ = _with_runtime_destinations(service, before).submit("showcase-default")
+    repeated, created = _with_runtime_destinations(service, after).submit("showcase-default")
+    assert not created and repeated.id == first.id
+    serialized = json.dumps(first.to_dict())
+    for secret in ("alice", "bob", "password-one", "password-two", "query-one", "query-two", "fragment-one", "fragment-two"):
+        assert secret not in serialized
+
+
+def test_runtime_destination_configured_availability_is_significant(tmp_path, monkeypatch):
+    service = _runtime_context_service(tmp_path, monkeypatch, (False, True))
+    service.deps.lightrag._available = False
+    first, _, completed = _run(service)
+    assert completed.phase("lightrag_upload").status == "skipped"
+    service.deps.lightrag._available = True  # Same URL, injected capability changed.
+    second, created = service.submit("showcase-default")
+    assert created and second.id != first.id

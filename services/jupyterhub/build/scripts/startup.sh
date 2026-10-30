@@ -18,6 +18,15 @@ echo "  • Supabase: ${SUPABASE_URL:-not configured}"
 echo "  • MinIO: ${MINIO_ENDPOINT:-not configured}"
 echo "  • Iceberg REST: ${ICEBERG_REST_URI:-not configured}"
 
+# Preserve literal aliases for notebook clients before dotenv parses the file.
+# An inherited alias, including an explicitly empty value, keeps precedence.
+if [ "${OPENAI_API_BASE+x}" != x ]; then
+    export OPENAI_API_BASE="${LITELLM_BASE_URL:-http://litellm:4000}/v1"
+fi
+if [ "${OPENAI_API_KEY+x}" != x ]; then
+    export OPENAI_API_KEY="${LITELLM_API_KEY:-}"
+fi
+
 # Create .env file in work directory with all environment variables.
 # It holds the LiteLLM master key and DB/S3 secrets inside the notebook-visible
 # work volume, so keep it owner-only (umask covers creation, chmod an old file).

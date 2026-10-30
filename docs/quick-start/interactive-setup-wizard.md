@@ -447,7 +447,7 @@ The TUI needs three Python libraries, all declared in `bootstrapper/pyproject.to
 - **rich** — styled text inside Textual widgets, and the `--no-tui` pre-launch summary table.
 - **textual-image** — the splash poster, drawn with the terminal's image protocol where supported.
 
-Python ≥ 3.10 is required. The linear stdout flow runs instead when stdin is not a TTY, the terminal is smaller than 60×20, or you pass `--no-tui`. It prints a pre-launch summary table and streams `docker compose` output.
+Python ≥ 3.11 is required. The linear stdout flow runs instead when stdin is not a TTY, the terminal is smaller than 60×20, or you pass `--no-tui`. It prints a pre-launch summary table and streams `docker compose` output.
 
 If you pass no configuration flag (§13) and no `--track`, the linear flow asks for a track on stdin. It then writes out-of-track services to `.env` as `disabled`. Without a terminal (cron, systemd, CI, `ssh` without `-t`), it takes `gen-ai-rag` without asking. Scripted runs should therefore pass `--track all` (no filtering) or `--track <key>`.
 

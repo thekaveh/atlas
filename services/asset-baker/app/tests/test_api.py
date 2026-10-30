@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import struct
 import threading
 
 import httpx2 as httpx
@@ -560,6 +561,33 @@ def test_bake_upload_invalid_form_param_returns_422() -> None:
     assert response.status_code == 422
 
 
+@pytest.mark.parametrize("number", ["NaN", "Infinity", "-Infinity", "1e309"])
+@pytest.mark.parametrize("encoding", ["multipart", "json"])
+def test_nonfinite_bake_parameters_return_422(monkeypatch, number, encoding):
+    from asset_baker import api
+
+    calls = []
+    monkeypatch.setattr(api, "run_bake", lambda *args: calls.append(args))
+    monkeypatch.setattr(api.ArtifactStorage, "fetch", lambda *args: calls.append(args))
+    app = api.create_app(api_token=_TOKEN)
+    client = TestClient(app, raise_server_exceptions=False,
+                        headers={"Authorization": f"Bearer {_TOKEN}"})
+    if encoding == "multipart":
+        response = client.post(
+            "/assets/bake", files={"file": ("scene.glb", RAW_GLB)},
+            data={"canonical_size": number},
+        )
+    else:
+        response = client.post(
+            "/assets/bake/ref", headers={"Content-Type": "application/json"},
+            content='{"input":{"bucket":"raw-assets","key":"scene.glb"},'
+                    '"params":{"canonical_size":' + number + '}}',
+        )
+    assert response.status_code == 422
+    assert any(error["loc"][-1] == "canonical_size" for error in response.json()["detail"])
+    assert calls == []
+
+
 def test_non_ascii_bearer_token_is_401_not_500() -> None:
     from asset_baker import api
 
@@ -642,3 +670,84 @@ def test_non_list_images_are_rejected_not_a_500(monkeypatch, tmp_path):
     monkeypatch.setenv("ASSET_BAKER_MINIO_ENABLED", "false")
     response = _client(api).post("/assets/bake", files={"file": ("x.glb", glb, "model/gltf-binary")}, data={"mode": "skip"})
     assert response.status_code == 400
+
+
+def _glb_chunk(kind, data):
+    return struct.pack("<II", len(data), kind) + data
+
+
+@pytest.mark.parametrize("framing", [
+    pytest.param((1, 0, RAW_GLB[12:]), id="version"),
+    pytest.param((2, 4, RAW_GLB[12:]), id="file-length"),
+    pytest.param((2, 0, struct.pack("<II", len(RAW_GLB) - 12, 0x4E4F534A) + RAW_GLB[20:]), id="json-length"),
+    pytest.param((2, 0, _glb_chunk(0x4E4F534A, RAW_GLB[20:] + b" ")), id="unaligned-json"),
+    pytest.param((2, 0, RAW_GLB[12:] + b"\x00" * 4), id="trailing-header"),
+    pytest.param((2, 0, RAW_GLB[12:] * 2), id="duplicate-json"),
+    pytest.param((2, 0, RAW_GLB[12:] + _glb_chunk(0x004E4942, b"\x00" * 4) * 2), id="duplicate-bin"),
+    pytest.param((2, 0, RAW_GLB[12:] + _glb_chunk(0x54534554, b"test") + _glb_chunk(0x004E4942, b"\x00" * 4)), id="misplaced-bin"),
+])
+def test_invalid_glb_framing_is_rejected_before_bake(monkeypatch, tmp_path, framing):
+    from asset_baker import api
+
+    version, length_delta, chunks = framing
+    length = 12 + len(chunks) + length_delta
+    payload = struct.pack("<III", 0x46546C67, version, length) + chunks
+    invoked = []
+
+    def fake_run(*args):
+        invoked.append(args)
+        raise AssertionError("Malformed input reached the converter")
+
+    monkeypatch.setattr(api, "run_bake", fake_run)
+    monkeypatch.setenv("ASSET_BAKER_ARTIFACT_DIR", str(tmp_path))
+    monkeypatch.setenv("ASSET_BAKER_MINIO_ENABLED", "false")
+    response = _client(api).post(
+        "/assets/bake", files={"file": ("mesh.glb", payload, "model/gltf-binary")},
+    )
+    assert response.status_code == 400
+    assert "binary glTF 2.0" in response.json()["detail"]
+    assert not invoked
+
+
+def test_valid_glb_extension_chunks_still_reach_bake(monkeypatch, tmp_path):
+    from asset_baker import api
+
+    # A valid JSON, BIN, unknown-extension sequence remains admissible.
+    chunks = RAW_GLB[12:] + _glb_chunk(0x004E4942, b"\x00" * 4)
+    chunks += _glb_chunk(0x54534554, b"test")
+    payload = struct.pack("<III", 0x46546C67, 2, 12 + len(chunks)) + chunks
+    invoked = []
+
+    def fake_run(input_path, out_dir, params):
+        invoked.append(input_path.read_bytes())
+        return _fake_artifacts(out_dir)
+
+    monkeypatch.setattr(api, "run_bake", fake_run)
+    monkeypatch.setenv("ASSET_BAKER_ARTIFACT_DIR", str(tmp_path))
+    monkeypatch.setenv("ASSET_BAKER_MINIO_ENABLED", "false")
+    response = _client(api).post(
+        "/assets/bake", files={"file": ("mesh.glb", payload, "model/gltf-binary")},
+    )
+    assert response.status_code == 200
+    assert invoked == [payload]
+
+
+@pytest.mark.parametrize("bad_limit", ["invalid", "nan", "inf", "1e309"])
+def test_minio_reference_closes_acquired_stream_on_invalid_limit(monkeypatch, bad_limit):
+    from io import BytesIO
+    from types import SimpleNamespace
+    from botocore.response import StreamingBody
+    from asset_baker.storage import ArtifactStorage
+
+    raw = BytesIO(b"owned object data")
+    body = StreamingBody(raw, 17)
+    client = SimpleNamespace(get_object=lambda **_kwargs: {"Body": body, "ContentLength": 17})
+    storage = ArtifactStorage()
+    monkeypatch.setattr(storage, "_client", lambda: client)
+    monkeypatch.setenv("ASSET_BAKER_MAX_UPLOAD_MB", bad_limit)
+    try:
+        with pytest.raises((ValueError, OverflowError)):
+            storage.fetch("raw-assets", "owned.glb")
+        assert raw.closed
+    finally:
+        body.close()

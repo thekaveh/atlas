@@ -8,6 +8,7 @@ import hashlib
 import importlib.util
 import json
 from pathlib import Path
+import re
 
 import pytest
 
@@ -15,7 +16,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "services/jupyterhub/build/refresh_pip_vendor.py"
 OLD_MSGPACK_REF = "pkg:pypi/msgpack@1.1.2"
-NEW_MSGPACK_REF = "pkg:pypi/msgpack@1.2.2"
+NEW_MSGPACK_REF = "pkg:pypi/msgpack@1.2.3"
 SETUPTOOLS_REF = "pkg:pypi/setuptools@70.3.0"
 PIP_REF = "bom-ref:pip"
 
@@ -110,9 +111,9 @@ def _fixture(tmp_path: Path) -> tuple[Path, Path, Path]:
         + "\n",
         encoding="utf-8",
     )
-    source = tmp_path / "msgpack-1.2.2"
+    source = tmp_path / "msgpack-1.2.3"
     source.mkdir()
-    (source / "__init__.py").write_text('__version__ = "1.2.2"\n', encoding="utf-8")
+    (source / "__init__.py").write_text('__version__ = "1.2.3"\n', encoding="utf-8")
     (source / "fallback.py").write_text("def pack(value):\n    return value\n", encoding="utf-8")
     record = tmp_path / "pip-26.2.1.dist-info" / "RECORD"
     record.parent.mkdir()
@@ -157,14 +158,14 @@ def test_refresh_replaces_vendored_msgpack_and_truthfully_updates_inventory(
         source / "__init__.py"
     ).read_bytes()
     assert (vendor / "vendor.txt").read_text(encoding="utf-8") == (
-        "msgpack==1.2.2\n"
+        "msgpack==1.2.3\n"
     )
     bom = json.loads((vendor / "bom.cdx.json").read_text(encoding="utf-8"))
     components = bom["components"]
     assert [item["name"] for item in components] == ["pip", "msgpack", "packaging"]
     assert components[1] == {
         "name": "msgpack",
-        "version": "1.2.2",
+        "version": "1.2.3",
         "bom-ref": NEW_MSGPACK_REF,
         "purl": NEW_MSGPACK_REF,
     }
@@ -398,3 +399,20 @@ def test_dockerfile_applies_exact_security_refreshes() -> None:
     assert "conda --version" in dockerfile
     assert "mamba --version" in dockerfile
     assert "python -m pip check" in dockerfile
+
+
+def test_vendored_msgpack_guard_moves_with_the_locked_pin() -> None:
+    """A lock-only msgpack bump broke the image build after #1019.
+
+    The pip-vendor refresh, its Dockerfile guard and both requirement files
+    must name one version, so a partial bump fails here instead.
+    """
+    build = ROOT / "services/jupyterhub/build"
+    version = _load_module().NEW_MSGPACK
+    for name in ("requirements.txt", "requirements-locked.txt"):
+        text = (build / name).read_text(encoding="utf-8")
+        assert re.findall(r"^msgpack==(\S+)", text, re.MULTILINE) == [version], name
+    dockerfile = (build / "Dockerfile").read_text(encoding="utf-8")
+    guards = re.findall(r"msgpack\.version == \((\d+), (\d+), (\d+)\)", dockerfile)
+    assert guards == [tuple(version.split("."))]
+    assert NEW_MSGPACK_REF == f"pkg:pypi/msgpack@{version}"

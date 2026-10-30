@@ -39,5 +39,11 @@ ensure_python_venv() {
     fi
 
     echo "Local Deep Researcher: Creating clean Python 3.11 environment"
-    uv venv --clear --python "$python_spec" "$venv_dir"
+    # uv >= 0.12 requires explicit consent to clear a corrupt, non-venv
+    # directory. Older releases already clear it and do not accept --force.
+    local force_clear=()
+    if uv venv --help | grep -F -- '--force' >/dev/null; then
+        force_clear=(--force)
+    fi
+    uv venv --clear "${force_clear[@]}" --python "$python_spec" "$venv_dir"
 }

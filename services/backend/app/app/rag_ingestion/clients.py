@@ -19,6 +19,28 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
+from urllib.parse import urlsplit, urlunsplit
+
+
+def ingestion_runtime_context(profile, weaviate, lightrag) -> List[tuple[str, str, bool]]:
+    """Declared destinations, independent from physical-class write fencing.
+
+    Credentials, query auth and fragments do not select an ingestion target.
+    Retain the endpoint host, path and port; the clients trim trailing slashes.
+    Availability is configured capability, not a network readiness probe.
+    """
+    context = []
+    for backend, declared, client, attribute in (
+        ("weaviate", profile.vector_targets, weaviate, "_url"),
+        ("lightrag", profile.graph_targets, lightrag, "_endpoint"),
+    ):
+        if declared:
+            parsed = urlsplit(str(getattr(client, attribute, "") or ""))
+            endpoint = urlunsplit((
+                parsed.scheme, parsed.netloc.rsplit("@", 1)[-1], parsed.path.rstrip("/"), "", "",
+            ))
+            context.append((backend, endpoint, bool(client.available())))
+    return context
 
 
 class CorpusPathError(ValueError):
@@ -573,6 +595,18 @@ class Embedder:
 
 # ─── vector store (Weaviate) ─────────────────────────────────────────
 
+def is_definitive_rejection(exc: BaseException) -> bool:
+    """True when the upstream answered with a 4xx status.
+
+    ``WeaviateClient`` sends one request at a time and raises only after a
+    response arrived, so none of that call's requests can still land. A 5xx,
+    a timeout or a dropped connection stays uncertain.
+    """
+    import httpx
+
+    return isinstance(exc, httpx.HTTPStatusError) and 400 <= exc.response.status_code < 500
+
+
 class WeaviateClient:
     """Idempotent class creation + object writes, mirroring memory_store's REST
     shapes. Vectors are supplied client-side (class vectorizer = ``none``)."""
@@ -940,3 +974,32 @@ class LightRagClient:
             resp.raise_for_status()
             data = resp.json()
         return bool(data.get("busy", False))
+
+
+# ─── orchestrator dependencies ───────────────────────────────────────
+
+class Deps:
+    """Injectable upstream clients. Defaults read env; tests pass fakes."""
+
+    def __init__(
+        self,
+        corpus: Optional[CorpusReader] = None,
+        parser: Optional[ParserAdapter] = None,
+        embedder: Optional[Embedder] = None,
+        weaviate: Optional[WeaviateClient] = None,
+        lightrag: Optional[LightRagClient] = None,
+        poll_interval: float = 2.0,
+        drain_backoff_base: float = 1.0,
+        drain_backoff_max: float = 15.0,
+    ) -> None:
+        self.corpus = corpus or CorpusReader()
+        self.parser = parser or ParserAdapter()
+        self.embedder = embedder or Embedder()
+        self.weaviate = weaviate or WeaviateClient()
+        self.lightrag = lightrag or LightRagClient()
+        self.poll_interval = poll_interval
+        # Bounded exponential backoff (seconds) applied between consecutive
+        # transient `pipeline_status` failures during drain (#673). Steady-state
+        # polling of a *reachable* busy pipeline still uses ``poll_interval``.
+        self.drain_backoff_base = drain_backoff_base
+        self.drain_backoff_max = drain_backoff_max

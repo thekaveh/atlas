@@ -1761,3 +1761,22 @@ def test_partial_install_controls_keep_healthy_environment_idempotent(partial_vl
     assert state["commands"] == commands
     assert len(state["downloads"]) == 1
     assert manager.preflight().status == "ok"
+
+@pytest.mark.parametrize("payload", ["[]", "null", "17", '"unexpected"'])
+def test_non_object_status_is_unknown_and_does_not_authorize_ownership(tmp_path, monkeypatch, payload):
+    manager = _mgr(tmp_path)
+    manager.state_dir.mkdir(parents=True)
+    manager.pid_file.write_text("4242\nstart_utc=unknown\n")
+    manager.status_file.write_text(payload)
+    before = manager.pid_file.read_bytes()
+    monkeypatch.setattr(manager, "_managed_process_alive", lambda _pid: True)
+    monkeypatch.setattr(manager, "_pid_is_stranger", lambda _pid: True)
+    monkeypatch.setattr(manager, "_installed_versions",
+                        lambda: (manager.plugin_version, manager.core_version))
+
+    status = manager.status()
+
+    assert not status.running and status.pid is None
+    assert status.installed_version is None and status.model == manager.model
+    assert manager._installed_versions_match() is False
+    assert manager.pid_file.read_bytes() == before

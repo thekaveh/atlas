@@ -547,7 +547,7 @@ def _write_restore_sidecar(
         "FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
         "WHERE c.relkind IN ('r', 'p') "
         "AND n.nspname NOT IN ('pg_catalog', 'information_schema') "
-        "AND n.nspname !~ '^pg_toast' ORDER BY n.nspname, c.relname",
+        "AND n.nspname !~ '^pg_' ORDER BY n.nspname, c.relname",
     ).stdout
     tables = fixture_dir / "postgres.tables"
     tables.write_text(inventory, encoding="utf-8")

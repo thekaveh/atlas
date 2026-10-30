@@ -623,7 +623,7 @@ FROM pg_class AS c
 JOIN pg_namespace AS n ON n.oid = c.relnamespace
 WHERE c.relkind IN ('r', 'p')
   AND n.nspname NOT IN ('pg_catalog', 'information_schema')
-  AND n.nspname !~ '^pg_toast'
+  AND n.nspname !~ '^pg_'
 ORDER BY n.nspname, c.relname;
 SQL
 staged_tables_sha_output="$(run_bounded sha256sum "$WORK/staged.tables")"; staged_tables_sha="${staged_tables_sha_output%% *}"

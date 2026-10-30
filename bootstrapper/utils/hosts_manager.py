@@ -187,6 +187,26 @@ class HostsManager:
             and fields[1] in set(self.get_atlas_hosts())
         )
 
+    def _retained_hosts_lines(self, lines: List[str]) -> List[str]:
+        """Keep operator lines using the exact generated-entry/header rules."""
+        filtered_lines = []
+        for line in lines:
+            # Skip the comment line, including the header the GenAI-era
+            # layout wrote before the rename (#108).
+            if line.strip() in (
+                "# Atlas subdomains (added by start.py)",
+                "# GenAI Stack subdomains (added by start.py)",
+            ):
+                continue
+
+            # Skip any line with Atlas hostnames. Whole-token
+            # comparison — a substring check deleted the user's own
+            # entries like `127.0.0.1 my-n8n.localhost` because they
+            # CONTAIN a stack alias.
+            if not self._is_atlas_written_line(line):
+                filtered_lines.append(line)
+        return filtered_lines
+
     def remove_hosts_entries_silent(self, hosts_file_path: str) -> bool:
         """
         Remove Atlas hosts entries without creating backup.
@@ -202,23 +222,7 @@ class HostsManager:
             with open(hosts_file_path, 'r', encoding="utf-8") as f:
                 lines = f.readlines()
             
-            # Filter out Atlas-related lines
-            filtered_lines = []
-            for line in lines:
-                # Skip the comment line, including the header the GenAI-era
-                # layout wrote before the rename (#108).
-                if line.strip() in (
-                    "# Atlas subdomains (added by start.py)",
-                    "# GenAI Stack subdomains (added by start.py)",
-                ):
-                    continue
-                    
-                # Skip any line with Atlas hostnames. Whole-token
-                # comparison — a substring check deleted the user's own
-                # entries like `127.0.0.1 my-n8n.localhost` because they
-                # CONTAIN a stack alias.
-                if not self._is_atlas_written_line(line):
-                    filtered_lines.append(line)
+            filtered_lines = self._retained_hosts_lines(lines)
             
             # Write back atomically: a truncate-write here would empty
             # /etc/hosts on a crash mid-write (system-wide name-resolution
@@ -248,16 +252,16 @@ class HostsManager:
                 if backup_path:
                     self._log(f"  • Created backup: {backup_path}", "info")
                     
-            # Remove existing Atlas entries first (cleanup)
-            self.remove_hosts_entries_silent(hosts_file_path)
-            
             # Add new entries. Normalize the trailing boundary instead of
             # blindly appending "\n" — repeated --setup-hosts cycles
             # otherwise accumulate blank lines at EOF (remove never
             # strips them).
             try:
                 with open(hosts_file_path, encoding="utf-8") as rf:
-                    existing = rf.read()
+                    # Prepare the complete replacement before publishing it:
+                    # a removal-only write would lose working aliases if
+                    # the later addition failed.
+                    existing = "".join(self._retained_hosts_lines(rf.readlines()))
             except OSError:
                 # Read failed but a write might still succeed — bailing
                 # beats truncating /etc/hosts down to just our block.

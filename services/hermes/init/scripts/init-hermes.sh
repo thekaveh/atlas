@@ -93,11 +93,11 @@ export LITELLM_MASTER_KEY="${LITELLM_MASTER_KEY:-}"
 # the two flows in sync; previously the second flow received an empty
 # catalog whenever the operator pinned HERMES_DEFAULT_MODEL.
 litellm_url="${LITELLM_BASE_URL:-http://litellm:4000}"
-# GET a LiteLLM path with the master key on curl's stdin (-K-), never on its
+# GET a LiteLLM path with the master key on curl's stdin (--header @-), never on its
 # argv, where `ps` / `docker top` would show it (#1381).
 litellm_get() {
-  printf 'header = "Authorization: Bearer %s"\n' "${LITELLM_MASTER_KEY}" \
-    | curl -fsS --max-time 15 -K- "${litellm_url}$1"
+  printf 'Authorization: Bearer %s\n' "${LITELLM_MASTER_KEY}" \
+    | curl -fsS --max-time 15 --header @- "${litellm_url}$1"
 }
 log "querying LiteLLM /v1/models"
 models_json=$(litellm_get "/v1/models" 2>/dev/null || true)
@@ -128,7 +128,7 @@ if [[ -z "${HERMES_DEFAULT_MODEL}" ]]; then
         "gpt-5" \
         "gpt-5-codex" \
         "gpt-5-mini"; do
-      if printf '%s\n' "${available_ids}" | grep -qx "${candidate}"; then
+      if printf '%s\n' "${available_ids}" | grep -Fqx "${candidate}"; then
         HERMES_DEFAULT_MODEL="${candidate}"
         log "  auto-selected ${candidate} from LiteLLM model_list"
         break
@@ -258,13 +258,18 @@ if [[ -n "${models_json:-}" ]]; then
 fi
 export LITELLM_MODELS_LIST
 
+# Encode YAML credential scalars without placing keys in command arguments.
+LITELLM_MASTER_KEY_YAML=$(jq -cn '$ENV.LITELLM_MASTER_KEY')
+STT_INTERNAL_API_KEY_YAML=$(jq -cn '$ENV.STT_INTERNAL_API_KEY')
+export LITELLM_MASTER_KEY_YAML STT_INTERNAL_API_KEY_YAML
+
 # Build the variable list explicitly so envsubst only touches the
 # ones we know about.
 # shellcheck disable=SC2016
-VARS='${HERMES_DEFAULT_MODEL} ${HERMES_CONTEXT_LENGTH} ${LITELLM_MASTER_KEY}
+VARS='${HERMES_DEFAULT_MODEL} ${HERMES_CONTEXT_LENGTH} ${LITELLM_MASTER_KEY_YAML}
 ${LITELLM_MODELS_LIST}
 ${TTS_INTERNAL_URL} ${TTS_INTERNAL_MODEL} ${TTS_INTERNAL_VOICE}
-${STT_INTERNAL_URL} ${STT_INTERNAL_API_KEY} ${COMFYUI_INTERNAL_URL}
+${STT_INTERNAL_URL} ${STT_INTERNAL_API_KEY_YAML} ${COMFYUI_INTERNAL_URL}
 ${SEARXNG_INTERNAL_URL}
 ${LIGHTRAG_INTERNAL_URL} ${LIGHTRAG_API_KEY}'
 

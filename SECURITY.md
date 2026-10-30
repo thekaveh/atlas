@@ -103,6 +103,13 @@ on their host.
   pins NeMo `3.0.0` and Transformers `5.16.1`. Atlas loads only the
   `PARAKEET_MODEL` chosen in process environment at startup. Transcription
   requests cannot supply or change a model repository.
+- Capped fsspec, Hydra and Zod advisories: **time-boxed exceptions**.
+  NeMo 3.0.0 and Lightning 2.4.0 hold the Parakeet GPU lock on fsspec
+  2024.12.0 and hydra-core 1.3.2, below their fixes. The n8n packages pin
+  Zod 3.25.76 in the community-node lock. Reachability is not proven. The
+  owner approved exceptions for PYSEC-2026-4217, PYSEC-2026-4221 and
+  GHSA-mrhx-c7xc-m3w5 on 2026-10-29; they expire on 2026-11-27 and
+  2026-11-28. `docs/maintenance/external-contract-ledger.md` records the review.
 - setuptools source-distribution exclusion bypass (CVE-2026-59890):
   **remediated**. Shipped compiled graphs and the Docling localhost lock now
   resolve setuptools 83.0.0 or newer.

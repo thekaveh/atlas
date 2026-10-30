@@ -2876,15 +2876,29 @@ class _ReconcileFacts:
         return [dict(r) for r in rows[:100]]
 
     async def execute(self, query, *args):
-        key, vector_id, stamp = args
         if self.clear_error:
             raise self.clear_error
+        if "WITH vector_owner AS MATERIALIZED" in query:
+            assert "AND fact.updated_at = vector_owner.updated_at" in query
+            return self._clear_vector_owner(args)
+        key, vector_id, stamp = args
         assert "AND updated_at = $3" in query
         row = self.rows[key]
         if stamp is not None and row["updated_at"] == stamp:
             row["vector_sync_pending"] = False
             return "UPDATE 1"
         return "UPDATE 0"
+
+    def _clear_vector_owner(self, args):
+        key, _vector_id, *expected = args
+        row = self.rows[key]
+        actual = [row[field] for field in (
+            "user_id", "namespace", "content", "fact_type", "confidence"
+        )]
+        if actual != expected or not row["is_active"] or row["updated_at"] is None:
+            return "UPDATE 0"
+        row["vector_sync_pending"] = False
+        return "UPDATE 1"
 
     async def close(self):
         self.closed += 1
@@ -2930,6 +2944,35 @@ async def _bounded_reconcile(service, conn, **kwargs):
     assert len(conn.queries) - queries <= 3
     assert len(service._rejected_rows()) <= 10_000
     return result
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("change", [
+    None, ("content", "newer"), ("fact_type", "instruction"),
+    ("confidence", 0.5), ("is_active", False), ("namespace", "other"),
+    ("user_id", UUID(int=3)),
+])
+async def test_reconcile_owns_current_vector_state_after_embedding_trigger(change):
+    service = _reconcile_service()
+    row = _reconcile_fact(1, content="valid")
+    conn = _ReconcileFacts([row])
+    original = service.store.update_embedding
+
+    async def trigger_then_change(**kwargs):
+        vector_id = await original(**kwargs)
+        # Every real embedding UPDATE invokes the shipped updated_at trigger.
+        row["updated_at"] += timedelta(seconds=1)
+        if change is not None:
+            field, value = change
+            row[field] = value
+            row["updated_at"] += timedelta(seconds=1)
+        return vector_id
+
+    service.store.update_embedding = trigger_then_change
+    assert await service._reconcile_pending_vectors(conn=conn) == 1
+    assert row["vector_sync_pending"] is (change is not None)
+    assert service.store.attempts == [row["id"]]
+    assert row["updated_at"] > _RECONCILE_TIME
 
 
 @pytest.mark.asyncio

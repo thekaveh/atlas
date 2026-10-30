@@ -191,7 +191,8 @@ class InventoryTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
-        self.root = Path(self.temporary.name) / "installed"
+        # Production records canonical paths (macOS /var is a symlink to /private/var).
+        self.root = Path(self.temporary.name).resolve(strict=True) / "installed"
         self.root.mkdir()
         first, second = self.root / "first.py", self.root / "second.py"
         first.write_text("synthetic identical module data\n")
@@ -268,7 +269,7 @@ class PackageInputTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
-        self.root = Path(self.temporary.name)
+        self.root = Path(self.temporary.name).resolve(strict=True)  # Mirrors the canonical install root.
         self.recipe, self.install = self.root / "recipe", self.root / "install"
         self.recipe.mkdir()
         self.install.mkdir()

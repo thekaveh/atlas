@@ -122,3 +122,32 @@ def test_generate_lightrag_rerank_adapter_token_returns_prefixed_secret():
     key = gen.generate_lightrag_rerank_adapter_token()
     assert key.startswith("sk-lightrag-rerank-")
     assert len(key) > len("sk-lightrag-rerank-") + 20  # token_urlsafe entropy floor
+
+
+@pytest.mark.parametrize("raw", ["synthetic-safe", "synthetic two words", "synthetic'secret", 'synthetic"quoted"secret', "synthetic\\secret", "syntheticé雪%2F"])
+def test_redis_command_keeps_one_literal_password_argument(tmp_path, raw):
+    import json
+    import os
+    import shutil
+    import subprocess
+    import yaml
+    from utils.atomic_write import render_env_assignment
+    if shutil.which("docker") is None or subprocess.run(
+        ["docker", "compose", "version"], capture_output=True, timeout=20, stdin=subprocess.DEVNULL
+    ).returncode != 0:
+        pytest.skip("docker compose unavailable")
+    # Compose prefers shell variables over --env-file values; keep the fixture authoritative.
+    scrubbed = {key: value for key, value in os.environ.items()
+                if not key.startswith(("REDIS_", "COMPOSE_")) and key != "PROJECT_NAME"}
+    fragment = yaml.safe_load((REPO_ROOT / "services/redis/compose.yml").read_text())
+    fragment["services"] = {"redis": fragment["services"]["redis"]}
+    fragment["networks"] = {"backend-network": {}}
+    compose = tmp_path / "compose.yml"
+    compose.write_text(yaml.safe_dump(fragment))
+    env = tmp_path / ".env"
+    env.write_text("PROJECT_NAME=atlas-redis-fixture\nREDIS_IMAGE=redis:fixture\nREDIS_PORT=63025\nREDIS_PASSWORD=" + render_env_assignment("REDIS_PASSWORD", raw) + "\n")
+    result = subprocess.run(["docker", "compose", "--env-file", str(env), "-f", str(compose), "config", "--format", "json"], capture_output=True, text=True, timeout=20, stdin=subprocess.DEVNULL, env=scrubbed)
+    assert result.returncode == 0, result.stderr
+    service = json.loads(result.stdout)["services"]["redis"]
+    assert service["command"] == ["redis-server", "--appendonly", "yes", "--requirepass", raw, "--maxmemory", "0", "--maxmemory-policy", "volatile-lru"]
+    assert service["environment"]["REDISCLI_AUTH"] == raw

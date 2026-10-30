@@ -6,7 +6,9 @@
 
 **Goal:** Require fail-closed authentication and bounded, killable work at the Docling and Parakeet provider boundaries while restoring the exact asynchronous Docling API expected by pinned LightRAG v1.5.4 through an isolated adapter.
 
-**Architecture:** Both provider applications install a small ASGI boundary before FastAPI parses multipart bodies. The boundary authenticates, reserves non-blocking capacity for expensive routes, and keeps the permit through cleanup; provider handlers run model work under a finite deadline and terminate the process only after returning a generic 504 when native work cannot be cancelled. A lightweight, isolated adapter implements LightRAG's submit/poll/result protocol, delegates one authenticated conversion to Docling's internal bundle route, and bounds queued uploads plus retained results.
+**Architecture:** Both provider applications install a small ASGI boundary before FastAPI parses multipart bodies. The boundary authenticates, reserves non-blocking capacity for expensive routes, and keeps the permit through cleanup; provider handlers run model work under a finite deadline and terminate the process only after returning a generic 504 when native work cannot be cancelled.
+
+A lightweight, isolated adapter implements LightRAG's submit/poll/result protocol, delegates one authenticated conversion to Docling's internal bundle route, and bounds queued uploads plus retained results.
 
 **Tech Stack:** Python 3.10+, FastAPI/Starlette, httpx2, Docling 2.102.1, NVIDIA NeMo / parakeet-mlx, Docker Compose, Atlas manifest synthesis, pytest, uv, MkDocs and Atlas documentation generators.
 

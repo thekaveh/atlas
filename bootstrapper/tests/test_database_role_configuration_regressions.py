@@ -662,3 +662,87 @@ def test_native_legacy_auth_ownership_allows_pinned_owner_migrations(native_owne
     assert types.returncode == 0, types.stderr
     assert types.stdout.splitlines()[-2:] == ['new', '2']
     _assert_auth_ownership_boundaries(sql, before)
+
+
+_SUPABASE_HEALTH_ENV = {
+    "SUPABASE_DB_USER": "supabase_admin",
+    "SUPABASE_DB_NAME": "postgres",
+    "SUPABASE_DB_PASSWORD": "owned health password$literal#suffix",
+}
+
+
+def _run_supabase_healthcheck_fixture(tmp_path, supplied, status=0):
+    from string import Template
+    import yaml
+    from utils.atomic_write import render_env_assignment
+
+    env_file = tmp_path / ".env"
+    env_file.write_text("".join(
+        f"{key}={render_env_assignment(key, value)}\n" for key, value in supplied.items()
+    ), encoding="utf-8")
+    parsed = ConfigParser(str(tmp_path)).parse_env_file()
+    assert parsed == supplied
+    service = yaml.safe_load((REPO / "services/supabase/compose.yml").read_text())["services"]["supabase-db"]
+    program = Template(service["healthcheck"]["test"][1]).substitute(parsed)
+    environment = {key: Template(value).substitute(parsed) for key, value in service["environment"].items()}
+    executable = tmp_path / "pg_isready"
+    receipt = tmp_path / "probe.json"
+    executable.write_text(
+        f"#!{sys.executable}\n"
+        "import json, os, sys\n"
+        "from pathlib import Path\n"
+        "Path(os.environ['OWNED_PROBE']).write_text(json.dumps({"
+        "'argv': sys.argv[1:], 'password': os.environ.get('POSTGRES_PASSWORD')}))\n"
+        "raise SystemExit(int(os.environ['OWNED_STATUS']))\n",
+        encoding="utf-8",
+    )
+    executable.chmod(0o700)
+    environment.update(PATH=f"{tmp_path}{os.pathsep}{os.defpath}",
+                       OWNED_PROBE=str(receipt), OWNED_STATUS=str(status))
+    result = subprocess.run(
+        ["/bin/sh", "-c", program], cwd=tmp_path, env=environment,
+        capture_output=True, text=True, timeout=10, check=False,
+    )
+    recorded = json.loads(receipt.read_text()) if receipt.exists() else {}
+    return result, recorded
+
+
+def _assert_supabase_healthcheck_probe(result, recorded, supplied, status):
+    assert result.returncode == status
+    assert recorded["argv"] == [
+        "-h", "localhost", "-U", supplied["SUPABASE_DB_USER"], "-d", supplied["SUPABASE_DB_NAME"],
+    ]
+    assert recorded["password"] == supplied["SUPABASE_DB_PASSWORD"]
+    assert result.stdout == ""
+    assert result.stderr == ""
+
+
+@pytest.mark.parametrize("field", ["SUPABASE_DB_USER", "SUPABASE_DB_NAME"])
+@pytest.mark.parametrize("identity", [
+    "synthetic_name", "synthetic name", "synthetic'name", 'synthetic"name',
+    r"synthetic\name", "synthetic$HOME", "synthetic_é界", "",
+    "synthetic$(touch owned-marker)", "synthetic`touch owned-marker2`",
+])
+def test_supabase_healthcheck_preserves_literal_identity(tmp_path, field, identity):
+    supplied = {**_SUPABASE_HEALTH_ENV, field: identity}
+    result, recorded = _run_supabase_healthcheck_fixture(tmp_path, supplied)
+    assert not (tmp_path / "owned-marker").exists()
+    assert not (tmp_path / "owned-marker2").exists()
+    _assert_supabase_healthcheck_probe(result, recorded, supplied, 0)
+
+
+@pytest.mark.parametrize("status", [0, 1, 2, 3, 42])
+def test_supabase_healthcheck_preserves_probe_exit_status(tmp_path, status):
+    result, recorded = _run_supabase_healthcheck_fixture(tmp_path, _SUPABASE_HEALTH_ENV, status)
+    _assert_supabase_healthcheck_probe(result, recorded, _SUPABASE_HEALTH_ENV, status)
+
+
+def test_supabase_healthcheck_preserves_transport_and_schedule():
+    import yaml
+
+    healthcheck = yaml.safe_load((REPO / "services/supabase/compose.yml").read_text())["services"]["supabase-db"]["healthcheck"]
+    assert healthcheck["test"][0] == "CMD-SHELL"
+    assert "pg_isready -h localhost" in healthcheck["test"][1]
+    assert {key: value for key, value in healthcheck.items() if key != "test"} == {
+        "interval": "10s", "timeout": "5s", "retries": 5, "start_period": "60s",
+    }

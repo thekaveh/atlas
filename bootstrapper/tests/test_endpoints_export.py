@@ -334,6 +334,71 @@ def test_with_secrets_refuses_the_stacks_own_minio_service_credentials() -> None
     assert "ATLAS_STORE_X_SECRET_KEY" not in _as_dict(fields)
 
 
+def _finalized_storage_fixture(tmp_path, monkeypatch, secret):
+    from core.config_parser import ConfigParser
+    from utils.atomic_write import render_env_assignment
+    from utils.key_generator import KeyGenerator
+    import start
+    manifest = tmp_path / "atlas.consumer.yml"
+    manifest.write_text("name: demo\nstorage:\n  buckets:\n    - {name: docs, bucket: demo-docs}\n")
+    monkeypatch.setenv("ATLAS_CONSUMER_MANIFEST", str(manifest))
+    env = dict(_base_env(), MINIO_DEMO_DOCS_ACCESS_KEY="syntheticaccess79", MINIO_DEMO_DOCS_SECRET_KEY=secret)
+    path = tmp_path / ".env"
+    path.write_text("".join(key + "=" + render_env_assignment(key, value) + "\n" for key, value in env.items()))
+    parser = ConfigParser(str(tmp_path))
+    parser.env_file_path = path
+    starter = start.AtlasStarter.__new__(start.AtlasStarter)
+    starter.root_dir, starter.config_parser = tmp_path, parser
+    starter.key_generator = KeyGenerator(str(tmp_path))
+    starter.key_generator.env_file_path = path
+    starter.banner = SimpleNamespace(show_status_message=lambda *_: None)
+    starter.docker_manager = SimpleNamespace(resolved_minio_environment=lambda: {})
+    assert starter._finalize_consumer_storage()
+    assert parser.parse_env_file()["MINIO_DEMO_DOCS_SECRET_KEY"] == secret
+    return starter
+
+
+@pytest.mark.parametrize("secret", ["SyntheticSecret79", " SyntheticSecret79", "SyntheticSecret79 ", " SyntheticSecret79 ", "\tSyntheticSecret79\t", " éSyntheticSecret79 ", "        "])
+@pytest.mark.parametrize("case", [(output, bare) for output in ("env", "json") for bare in (False, True)])
+def test_cli_storage_credentials_keep_exact_bytes(tmp_path, monkeypatch, secret, case):
+    import json
+    from click.testing import CliRunner
+    from core.config_parser import ConfigParser
+    from utils.atomic_write import set_env_assignment, render_env_assignment
+    import start
+    output_format, bare = case
+    starter = _finalized_storage_fixture(tmp_path, monkeypatch, secret)
+    path = starter.config_parser.env_file_path
+    if bare:
+        content = path.read_text().replace("ATLAS_STORE_DEMO_DOCS_SECRET_KEY_VAR=MINIO_DEMO_DOCS_SECRET_KEY\n", "")
+        path.write_text(set_env_assignment(content, "ATLAS_STORE_DEMO_DOCS_SECRET_KEY", render_env_assignment("ATLAS_STORE_DEMO_DOCS_SECRET_KEY", secret)))
+    monkeypatch.setattr(start, "AtlasStarter", lambda: starter)
+    output = tmp_path / ("endpoints." + output_format)
+    result = CliRunner().invoke(start.main, ["endpoints", "export", "--with-secrets", "--format", output_format, "--output", str(output)])
+    assert result.exit_code == 0, result.output
+    if output_format == "json":
+        exported = json.loads(output.read_text())
+    else:
+        reader = ConfigParser(str(tmp_path))
+        reader.env_file_path = output
+        exported = reader.parse_env_file()
+    assert exported["ATLAS_STORE_DEMO_DOCS_SECRET_KEY"] == secret
+    assert output.stat().st_mode & 0o777 == 0o600
+    assert secret not in result.output
+
+
+@pytest.mark.parametrize("secret", [None, ""])
+def test_empty_scoped_credential_keeps_reference_without_value(secret):
+    env = {"ATLAS_STORE_DEMO_DOCS_SECRET_KEY_VAR": " MINIO_DEMO_DOCS_SECRET_KEY ",
+           "ATLAS_STORE_DEMO_DOCS_BUCKET": " demo-docs "}
+    if secret is not None:
+        env["MINIO_DEMO_DOCS_SECRET_KEY"] = secret
+    exported = _as_dict(build_export(env, with_secrets=True))
+    assert exported["ATLAS_STORE_DEMO_DOCS_SECRET_KEY_VAR"] == "MINIO_DEMO_DOCS_SECRET_KEY"
+    assert exported["ATLAS_STORE_DEMO_DOCS_BUCKET"] == "demo-docs"
+    assert "ATLAS_STORE_DEMO_DOCS_SECRET_KEY" not in exported
+
+
 # ── deterministic / byte-stable output ──────────────────────────────
 
 def test_env_and_json_output_are_byte_stable() -> None:
@@ -718,3 +783,119 @@ def test_endpoints_export_refuses_unallocated_auto_base_port_by_default(
         assert "ATLAS_KONG_GATEWAY" not in result.output
     else:
         assert "ATLAS_KONG_GATEWAY=http://localhost:63000" in result.output
+
+
+
+def _private_endpoint_export_inputs(monkeypatch):
+    from types import SimpleNamespace
+    import start
+
+    marker = "SYNTHETIC_ENDPOINT_EXPORT_VALUE_040"
+    env = {"ATLAS_STORE_DEMO_DOCS_SECRET_KEY": marker, "LITELLM_BASE_URL": "http://litellm.invalid/v1"}
+    parser = SimpleNamespace(parse_env_file=lambda: env, load_consumer_config=lambda: SimpleNamespace())
+    monkeypatch.setattr(start, "AtlasStarter", lambda: SimpleNamespace(config_parser=parser))
+    return start, marker
+
+
+@pytest.mark.parametrize("case", [
+    (fmt, existing, relative) for fmt in ("env", "json")
+    for existing in (False, True) for relative in (False, True)
+])
+def test_secret_export_replaces_leaf_symlink_without_touching_target(tmp_path, monkeypatch, case):
+    from click.testing import CliRunner
+
+    start, marker = _private_endpoint_export_inputs(monkeypatch)
+    output_format, existing, relative = case
+    directory = tmp_path / "output"
+    directory.mkdir()
+    target = tmp_path / "other-file"
+    if existing:
+        target.write_text("ORIGINAL PRIVATE FIXTURE\n")
+        target.chmod(0o644)
+    destination = directory / "consumer-export"
+    destination.symlink_to(target)
+    monkeypatch.setenv("ATLAS_INVOKER_CWD", str(directory))
+    requested = destination.name if relative else str(destination)
+    result = CliRunner().invoke(start.main, ["endpoints", "export", "--with-secrets", "--format", output_format, "--output", requested])
+    assert result.exit_code == 0, result.output
+    assert marker not in result.output
+    assert not destination.is_symlink()
+    assert destination.stat().st_mode & 0o777 == 0o600
+    assert marker in destination.read_text()
+    assert f"to {destination}" in result.output
+    _assert_export_target_unchanged(target, existing)
+
+
+def _assert_export_target_unchanged(target, existing):
+    if existing:
+        assert target.read_text() == "ORIGINAL PRIVATE FIXTURE\n"
+        assert target.stat().st_mode & 0o777 == 0o644
+    else:
+        assert not target.exists()
+
+
+@pytest.mark.parametrize("case", [(fmt, form) for fmt in ("env", "json") for form in ("absolute", "relative", "tilde")])
+def test_export_preserves_linked_parent_and_invoker_tilde_paths(tmp_path, monkeypatch, case):
+    from click.testing import CliRunner
+
+    start, marker = _private_endpoint_export_inputs(monkeypatch)
+    output_format, form = case
+    real = tmp_path / "real-directory"
+    real.mkdir()
+    parent = tmp_path / "linked-directory"
+    parent.symlink_to(real, target_is_directory=True)
+    destination = parent / "consumer-export"
+    destination.write_text("stale\n")
+    destination.chmod(0o644)
+    monkeypatch.setenv("ATLAS_INVOKER_CWD", str(tmp_path))
+    monkeypatch.setenv("HOME", str(tmp_path))
+    requested = {"absolute": str(destination), "relative": "linked-directory/consumer-export", "tilde": "~/linked-directory/consumer-export"}[form]
+    result = CliRunner().invoke(start.main, ["endpoints", "export", "--with-secrets", "--format", output_format, "--output", requested])
+    assert result.exit_code == 0, result.output
+    assert marker not in result.output
+    assert parent.is_symlink()
+    assert marker in (real / "consumer-export").read_text()
+    assert destination.stat().st_mode & 0o777 == 0o600
+    assert f"to {real / 'consumer-export'}" in result.output
+
+
+def test_export_directory_destination_stays_intact_and_cleans_temporary(tmp_path, monkeypatch):
+    from click.testing import CliRunner
+
+    start, marker = _private_endpoint_export_inputs(monkeypatch)
+    destination = tmp_path / "output-directory"
+    destination.mkdir()
+    sentinel = destination / "keep"
+    sentinel.write_text("unchanged\n")
+    result = CliRunner().invoke(start.main, ["endpoints", "export", "--with-secrets", "--output", str(destination)])
+    assert result.exit_code == 1
+    assert isinstance(result.exception, OSError)
+    assert marker not in result.output
+    assert list(destination.iterdir()) == [sentinel]
+    assert sentinel.read_text() == "unchanged\n"
+    assert not list(tmp_path.glob(".*.tmp"))
+
+
+@pytest.mark.parametrize("symlink", [False, True])
+def test_failed_export_replace_preserves_output_target_and_cleans_temporary(tmp_path, monkeypatch, symlink):
+    from click.testing import CliRunner
+    from utils import atomic_write
+
+    start, marker = _private_endpoint_export_inputs(monkeypatch)
+    destination = tmp_path / "consumer-export"
+    target = tmp_path / "target"
+    if symlink:
+        target.write_text("unchanged\n")
+        destination.symlink_to(target)
+    else:
+        destination.write_text("unchanged\n")
+    def fail_replace(*args):
+        raise OSError("synthetic replace failure")
+    monkeypatch.setattr(atomic_write.os, "replace", fail_replace)
+    result = CliRunner().invoke(start.main, ["endpoints", "export", "--with-secrets", "--output", str(destination)])
+    assert result.exit_code == 1
+    assert str(result.exception) == "synthetic replace failure"
+    assert marker not in result.output
+    assert destination.is_symlink() == symlink
+    assert destination.read_text() == "unchanged\n"
+    assert not list(tmp_path.glob(".*.tmp"))

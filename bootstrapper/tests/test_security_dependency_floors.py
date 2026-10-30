@@ -4,16 +4,14 @@ import io
 import json
 import re
 from pathlib import Path
-import sys
 import tokenize
 
-if sys.version_info >= (3, 11):
-    import tomllib
-else:  # pragma: no cover - exercised by the Python 3.10 test environment
-    import tomli as tomllib
+import tomllib
 
 import yaml
 import pytest
+from packaging.requirements import Requirement
+from packaging.specifiers import SpecifierSet
 from packaging.version import Version
 
 
@@ -114,7 +112,7 @@ def test_small_api_frameworks_resolve_patched_security_baselines() -> None:
 
     parakeet_gpu = _text("services/parakeet/provider/gpu/requirements.txt")
     assert "nemo_toolkit[asr]>=3.0.0,<4.0" in parakeet_gpu
-    assert "transformers>=5.5.0,<6" in parakeet_gpu
+    assert "transformers>=5.10.0,<6" in parakeet_gpu
     assert "onnx>=1.22.0" in parakeet_gpu
     assert "protobuf>=5.29.6,<5.30" in parakeet_gpu
 
@@ -165,11 +163,11 @@ def test_airflow_uses_supported_core_and_unfrozen_provider_security_fixes() -> N
     assert "apache/airflow:3.3.2" in compose
     assert "ARG BASE_IMAGE=apache/airflow:3.3.2" in dockerfile
     assert "--constraint" not in dockerfile
-    assert "setuptools>=83.0.0" in requirements
+    assert "setuptools>=84.1.0" in requirements
     # #1329: the base's own tornado 6.5.8 and virtualenv 21.7.9 carry fixed
     # advisories, so the overlay raises them.
-    assert "tornado>=6.5.9" in requirements
-    assert "virtualenv>=21.7.13" in requirements
+    assert "tornado>=6.6" in requirements
+    assert "virtualenv>=21.14.10" in requirements
     # #782: the 6.x spark provider swapped its dep to pyspark-client, whose
     # overlapping module tree overwrites the pinned pyspark==4.1.2 files and
     # breaks `import pyspark` (SparkExecutorInfo ImportError → image build
@@ -185,7 +183,7 @@ def test_airflow_overlay_remains_compatible_with_the_upstream_image() -> None:
 
     assert {
         "botocore<1.43.76",
-        "filelock<4",
+        "filelock>=4.2.1,<5",
         "importlib-metadata<9",
         "protobuf<6.34",
         "websockets<17",
@@ -206,6 +204,69 @@ def test_airflow_overlay_remains_compatible_with_the_upstream_image() -> None:
     assert "rm -f /usr/bin/docker" in dockerfile
     assert "/home/airflow/.local/bin/uv" in dockerfile
     assert "/home/airflow/.local/bin/uvx" in dockerfile
+
+
+@pytest.mark.parametrize(("package", "floor"), (
+    ("certifi", "2026.10.19"),
+    ("authlib", "1.9.1"),
+    ("dnspython", "2.9.0"),
+    ("gitpython", "3.2.1"),
+    ("msgpack", "1.2.3"),
+    ("setuptools", "84.1.0"),
+    ("virtualenv", "21.14.10"),
+))
+def test_airflow_security_floors_survive_overlay_refresh(package, floor) -> None:
+    declarations = _text("services/airflow/build/requirements.txt").splitlines()
+    matching = _requirements_named(declarations, package)
+    assert len(matching) == 1, f"Missing durable {package} floor in Airflow inputs"
+    assert str(matching[0].specifier) == f">={floor}"
+    assert matching[0].marker is None
+
+
+@pytest.mark.parametrize(("package", "version"), (
+    ("certifi", "2026.10.19"),
+    ("authlib", "1.9.1"),
+    ("dnspython", "2.9.0"),
+    ("gitpython", "3.2.1"),
+    ("msgpack", "1.2.3"),
+    ("setuptools", "84.1.0"),
+    ("virtualenv", "21.14.10"),
+    ("packaging", "26.3"),
+))
+def test_airflow_lock_contains_the_compatible_security_patch_family(package, version) -> None:
+    lines = _text("services/airflow/build/requirements-locked.txt").splitlines()
+    assert f"{package}=={version}" in lines
+
+
+@pytest.mark.parametrize(("package", "floor"), (
+    ("opentelemetry-api", "1.45.1"),
+    ("opentelemetry-exporter-prometheus", "0.66b1"),
+))
+def test_airflow_otel_security_floors_preserve_the_base_overlay_contract(package, floor) -> None:
+    declarations = _text("services/airflow/build/requirements.txt").splitlines()
+    matching = _requirements_named(declarations, package)
+    assert len(matching) == 1, f"Missing durable {package} floor in Airflow inputs"
+    assert str(matching[0].specifier) == f">={floor}"
+    assert matching[0].marker is None
+
+
+@pytest.mark.parametrize(("package", "version"), (
+    ('opentelemetry-api', '1.45.1'),
+    ('opentelemetry-sdk', '1.45.1'),
+    ('opentelemetry-proto', '1.45.1'),
+    ('opentelemetry-exporter-otlp', '1.45.1'),
+    ('opentelemetry-exporter-otlp-proto-common', '1.45.1'),
+    ('opentelemetry-exporter-otlp-proto-grpc', '1.45.1'),
+    ('opentelemetry-exporter-otlp-proto-http', '1.45.1'),
+    ('opentelemetry-semantic-conventions', '0.66b1'),
+    ('opentelemetry-exporter-otlp-common', '0.66b1'),
+    ('opentelemetry-exporter-http-transport', '0.66b1'),
+    ('opentelemetry-exporter-prometheus', '0.66b1'),
+    ('prometheus-client', '0.26.0'),
+))
+def test_airflow_otel_lock_contains_the_coordinated_patched_family(package, version) -> None:
+    lines = _text("services/airflow/build/requirements-locked.txt").splitlines()
+    assert f"{package}=={version}" in lines
 
 
 def test_lakehouse_images_share_hadoops_minio_compatible_aws_sdk_bundle() -> None:
@@ -280,16 +341,16 @@ def test_airflow_build_validation_uses_runtime_core_release() -> None:
 
 def test_image_http_and_parser_security_floors() -> None:
     backend = _text("services/backend/app/app/requirements.txt")
-    assert "Pillow>=12.3.0" in backend
+    assert "Pillow>=13.0.0" in backend
     assert "PyJWT>=2.15.1" in backend
     assert "python-jose" not in backend
 
     pillow_manifests = {
-        "bootstrapper/pyproject.toml": "pillow>=12.3.0",
-        "services/backend/app/app/requirements.txt": "Pillow>=12.3.0",
-        "services/docling/provider/gpu/requirements.txt": "Pillow>=12.3.0",
-        "services/docling/provider/localhost/pyproject.toml": "pillow>=12.3.0",
-        "services/jupyterhub/build/requirements.txt": "Pillow>=12.3.0",
+        "bootstrapper/pyproject.toml": "pillow>=13.0.0",
+        "services/backend/app/app/requirements.txt": "Pillow>=13.0.0",
+        "services/docling/provider/gpu/requirements.txt": "Pillow>=13.0.0",
+        "services/docling/provider/localhost/pyproject.toml": "pillow>=13.0.0",
+        "services/jupyterhub/build/requirements.txt": "Pillow>=13.0.0",
     }
     for relative, requirement in pillow_manifests.items():
         assert requirement in _text(relative), relative
@@ -312,10 +373,9 @@ def test_image_http_and_parser_security_floors() -> None:
 
     assert _locked_version("bootstrapper/uv.lock", "requests") == "2.34.2"
     assert _locked_version("bootstrapper/uv.lock", "click") == "8.4.2"
-    assert _locked_version("bootstrapper/uv.lock", "pillow") == "12.3.0"
     assert (
         _locked_version("services/docling/provider/localhost/uv.lock", "pillow")
-        == "12.3.0"
+        == "13.0.0"
     )
     assert (
         _locked_version("services/docling/provider/localhost/uv.lock", "soupsieve")
@@ -341,9 +401,10 @@ def test_docling_localhost_and_jupyterhub_take_the_2026_10_01_fixes() -> None:
     assert _locked_version(docling_lock, "transformers") == "5.18.0"
     assert _locked_version(docling_lock, "accelerate") == "1.15.0"
 
-    # tornado 6.5.9: GHSA-3hv7-mjh2-fv65, GHSA-c2m8-h5v5-343r, GHSA-chx6-46f5-w4vp.
-    assert "\ntornado>=6.5.9\n" in _text("services/jupyterhub/build/requirements.txt")
-    assert "\ntornado==6.5.9\n" in _text(
+    # tornado 6.5.9: GHSA-3hv7-mjh2-fv65, GHSA-c2m8-h5v5-343r, GHSA-chx6-46f5-w4vp;
+    # 6.6: GHSA-pcg2-g6cj-q92c, GHSA-pw9p-v7r6-gx4p, GHSA-r4j5-9xpp-3985.
+    assert "\ntornado>=6.6\n" in _text("services/jupyterhub/build/requirements.txt")
+    assert "\ntornado==6.6\n" in _text(
         "services/jupyterhub/build/requirements-locked.txt"
     )
 
@@ -380,6 +441,117 @@ def test_docling_providers_share_one_pin_and_the_gpu_lock_is_patched() -> None:
     )
 
 
+def _requirements_named(declarations, package):
+    requirements = (Requirement(line) for line in declarations
+                    if line.strip() and not line.lstrip().startswith("#"))
+    return [item for item in requirements if item.name.lower() == package]
+
+
+def _uv_versions_for_environment(relative, package, environment):
+    packages = tomllib.loads(_text(relative))["package"]
+    return [item["version"] for item in packages if item["name"] == package
+            and (not item.get("resolution-markers") or any(
+                Requirement(f"{package}; {marker}").marker.evaluate(environment)
+                for marker in item["resolution-markers"]))]
+
+
+@pytest.mark.parametrize("mode", ("gpu", "localhost"))
+@pytest.mark.parametrize(("package", "floor"), (
+    ("certifi", "2026.10.19"),
+    ("setuptools", "84.1.0"),
+    ("fsspec", "2026.6.0"),
+))
+def test_docling_security_floors_survive_fresh_resolution(mode, package, floor) -> None:
+    base = f"services/docling/provider/{mode}"
+    if mode == "localhost":
+        project = tomllib.loads(_text(f"{base}/pyproject.toml"))["project"]
+        requirements = project["dependencies"]
+        version = _locked_version(f"{base}/uv.lock", package)
+    else:
+        requirements = _text(f"{base}/requirements.txt").splitlines()
+        version = dict(line.split("==", 1) for line in
+                       _text(f"{base}/requirements-locked.txt").splitlines())[package]
+    matching = _requirements_named(requirements, package)
+    assert len(matching) == 1, f"Missing durable {package} floor in {mode} inputs"
+    requirement = matching[0]
+    assert str(requirement.specifier) == f">={floor}"
+    assert Version(version) >= Version(floor)
+
+
+@pytest.mark.parametrize("mode", ("gpu", "localhost"))
+@pytest.mark.parametrize("package,floor", {
+    "docling": "2.142.0", "docling-core": "2.104.0",
+    "docling-ibm-models": "4.0.4", "docling-parse": "7.22.4",
+    "doclang": "0.8.0", "pillow": "13.0.0",
+}.items())
+def test_docling_patch_family_and_gpu_transformers_floor(mode, package, floor) -> None:
+    gpu = _text("services/docling/provider/gpu/requirements.txt")
+    lock = dict(line.split("==", 1) for line in
+                _text("services/docling/provider/gpu/requirements-locked.txt").splitlines())
+    if mode == "localhost":
+        lock = {p["name"]: p["version"] for p in tomllib.loads(
+            _text("services/docling/provider/localhost/uv.lock"))["package"]}
+    assert Version(lock[package]) >= Version(floor)
+    assert lock["docling-slim"] == lock["docling"]
+    assert "\ntransformers>=5.10.0\n" in gpu
+    assert Version(lock["transformers"]).major == 5
+
+
+@pytest.mark.parametrize("python_version", ("3.11", "3.12", "3.13"))
+def test_docling_filelock_floor_covers_supported_python(python_version) -> None:
+    base = "services/docling/provider/localhost"
+    project = tomllib.loads(_text(f"{base}/pyproject.toml"))["project"]
+    assert project["requires-python"] == ">=3.11"
+    environment = {"python_version": python_version,
+                   "python_full_version": f"{python_version}.0"}
+    matching = _requirements_named(project["dependencies"], "filelock")
+    assert len(matching) == 1, "Missing filelock security floor"
+    requirement = matching[0]
+    assert requirement.marker is None
+    assert Version("3.10.99") not in SpecifierSet(project["requires-python"])
+    assert Version(python_version) in SpecifierSet(project["requires-python"])
+    assert str(requirement.specifier) == ">=4.2.1"
+    gpu = _text("services/docling/provider/gpu/requirements.txt")
+    assert "\nfilelock>=4.2.1\n" in gpu
+
+
+@pytest.mark.parametrize("python_version", ("3.11", "3.12", "3.13"))
+def test_docling_filelock_lock_covers_supported_python(python_version) -> None:
+    environment = {"python_version": python_version,
+                   "python_full_version": f"{python_version}.0"}
+    selected = _uv_versions_for_environment(
+        "services/docling/provider/localhost/uv.lock", "filelock", environment,
+    )
+    assert len(selected) == 1
+    assert Version(selected[0]) >= Version("4.2.1")
+
+
+@pytest.mark.parametrize(("python_version", "platform", "expected"), (
+    ("3.13", "darwin", "1.16.0"),
+    ("3.11", "darwin", "1.16.0"),
+    ("3.12", "darwin", "1.16.0"),
+    ("3.11", "linux", "1.15.3"),
+    ("3.12", "linux", "1.15.3"),
+    ("3.12", "win32", "1.15.3"),
+))
+def test_docling_native_scipy_floor_is_platform_scoped(
+    python_version, platform, expected,
+) -> None:
+    base = "services/docling/provider/localhost"
+    project = tomllib.loads(_text(f"{base}/pyproject.toml"))["project"]
+    assert project["requires-python"] == ">=3.11"
+    matching = _requirements_named(project["dependencies"], "scipy")
+    assert len(matching) == 1, "Missing native SciPy compatibility floor"
+    requirement = matching[0]
+    environment = {"python_version": python_version,
+                   "python_full_version": f"{python_version}.0", "sys_platform": platform}
+    assert str(requirement.specifier) == ">=1.16.0"
+    assert requirement.marker is not None
+    assert requirement.marker.evaluate(environment) == (expected == "1.16.0")
+    selected = _uv_versions_for_environment(f"{base}/uv.lock", "scipy", environment)
+    assert selected == [expected]
+
+
 def test_jupyter_binary_ml_stack_uses_supported_security_baseline() -> None:
     requirements = _text("services/jupyterhub/build/requirements.txt")
     lock = _text("services/jupyterhub/build/requirements-locked.txt")
@@ -387,8 +559,8 @@ def test_jupyter_binary_ml_stack_uses_supported_security_baseline() -> None:
 
     assert "pyarrow==23.0.1" in requirements
     assert "torch==2.13.0" in requirements
-    assert "nltk>=3.10.3" in requirements
-    assert "\nnltk==3.10.3\n" in f"\n{lock}"
+    assert "nltk>=3.10.4" in requirements
+    assert "\nnltk==3.10.4\n" in f"\n{lock}"
     assert "torchvision==0.28.0" in requirements
     assert "torchaudio" not in requirements
     # The image resolves entirely from PyPI: `pyg_lib`'s only publisher
@@ -668,8 +840,8 @@ def test_required_ci_exercises_tier_a_runtime_constraints() -> None:
     ):
         assert f'uv venv --python 3.12 "${venv_var}"' in workflow
 
-    assert "name: Run bootstrapper tests on Python 3.10" in workflow
-    assert "uv run --python 3.10 --isolated --locked --group dev" in workflow
+    assert "name: Run bootstrapper tests on Python 3.11" in workflow
+    assert "uv run --python 3.11 --isolated --locked --group dev" in workflow
 
 
 def test_external_contract_ledger_matches_executable_pyg_pin() -> None:
@@ -977,3 +1149,143 @@ def test_default_speaches_quickstart_and_open_webui_wiring_are_accurate() -> Non
 def test_parakeet_localhost_docs_match_the_host_gateway_runtime() -> None:
     parakeet_manifest = _text("services/parakeet/service.yml")
     assert "host.docker.internal:${PARAKEET_LOCALHOST_PORT:-63042}" in parakeet_manifest
+
+
+def _bootstrapper_pillow_branches(environment):
+    project = tomllib.loads(_text("bootstrapper/pyproject.toml"))["project"]
+    assert project["requires-python"] == ">=3.11"
+    requirements = [Requirement(item) for item in project["dependencies"]
+                    if Requirement(item).name == "pillow"]
+    assert len(requirements) == 1
+    assert requirements[0].marker is None
+    assert Version("3.10.99") not in SpecifierSet(project["requires-python"])
+    assert Version(environment["python_version"]) in SpecifierSet(project["requires-python"])
+    return requirements
+
+
+def _locked_bootstrapper_pillow_versions(environment):
+    packages = tomllib.loads(_text("bootstrapper/uv.lock"))["package"]
+    return [item["version"] for item in packages if item["name"] == "pillow"
+            and (not item.get("resolution-markers") or any(
+                Requirement(f"pillow; {marker}").marker.evaluate(environment)
+                for marker in item["resolution-markers"]))]
+
+
+@pytest.mark.parametrize("python_version", ("3.11", "3.12", "3.13", "3.14", "3.15"))
+@pytest.mark.parametrize("sys_platform", ("linux", "darwin", "win32", "emscripten"))
+def test_bootstrapper_pillow_floor_covers_supported_python(python_version, sys_platform):
+    environment = {"python_version": python_version,
+                   "python_full_version": f"{python_version}.0",
+                   "sys_platform": sys_platform}
+    selected = _bootstrapper_pillow_branches(environment)
+    assert len(selected) == 1
+    expected = "13.0.0"
+    bounds = ">=13.0.0,<14"
+    assert selected[0].specifier == SpecifierSet(bounds)
+    assert _locked_bootstrapper_pillow_versions(environment) == [expected]
+    assert _exported_bootstrapper_pillow_versions(environment) == [SpecifierSet(f"=={expected}")]
+
+
+def _exported_bootstrapper_pillow_versions(environment):
+    lines = _text("bootstrapper/requirements-locked.txt").splitlines()
+    requirements = [Requirement(line) for line in lines if line.startswith("pillow==")]
+    return [item.specifier for item in requirements
+            if item.marker is None or item.marker.evaluate(environment)]
+
+
+@pytest.mark.parametrize(
+    ("name", "fixed"),
+    (
+        ('fastmcp', '3.4.10'),
+        ('brotli', '1.2.1'),
+        ('pillow', '13.0.0'),
+        ('setuptools', '84.1.0'),
+        ('gitpython', '3.2.1'),
+        ('mlflow', '3.17.2'),
+        ('aiohttp', '3.14.4'),
+        ('authlib', '1.9.1'),
+        ('banks', '2.5.1'),
+        ('dnspython', '2.9.0'),
+        ('filelock', '4.2.1'),
+        ('msgpack', '1.2.3'),
+        ('opentelemetry-api', '1.45.1'),
+        ('nltk', '3.10.4'),
+    ),
+)
+def test_jupyter_repaired_dependencies_have_security_floors(name, fixed):
+    from packaging.version import Version
+
+    requirements = [Requirement(line.split("#", 1)[0].strip())
+                    for line in _text("services/jupyterhub/build/requirements.txt").splitlines()
+                    if line.split("#", 1)[0].strip()]
+    selected = [item for item in requirements if item.name.lower() == name]
+    assert len(selected) == 1
+    assert Version(fixed) in selected[0].specifier
+    previous = {"fastmcp": "3.4.4", "brotli": "1.2.0", "pillow": "12.3.0",
+                "setuptools": "84.0.0", "gitpython": "3.1.62", "mlflow": "3.16.0",
+                "aiohttp": "3.14.3", "authlib": "1.8.0", "banks": "2.5.0",
+                "dnspython": "2.8.0", "filelock": "3.32.6", "msgpack": "1.2.2",
+                "opentelemetry-api": "1.44.0", "nltk": "3.10.3"}
+    assert Version(previous[name]) not in selected[0].specifier
+
+
+@pytest.mark.parametrize(
+    ("name", "fixed"),
+    (
+        ('aiohttp', '3.14.4'),
+        ('yarl', '1.25.1'),
+        ('authlib', '1.9.1'),
+        ('banks', '2.5.1'),
+        ('brotli', '1.2.1'),
+        ('dnspython', '2.9.0'),
+        ('fastmcp', '3.4.10'),
+        ('fastmcp-slim', '3.4.10'),
+        ('filelock', '4.2.1'),
+        ('gitpython', '3.2.1'),
+        ('msgpack', '1.2.3'),
+        ('opentelemetry-api', '1.45.1'),
+        ('opentelemetry-sdk', '1.45.1'),
+        ('opentelemetry-proto', '1.45.1'),
+        ('opentelemetry-semantic-conventions', '0.66b1'),
+        ('pillow', '13.0.0'),
+        ('setuptools', '84.1.0'),
+        ('mlflow', '3.17.2'),
+        ('mlflow-skinny', '3.17.2'),
+        ('mlflow-tracing', '3.17.2'),
+        ('nltk', '3.10.4'),
+    ),
+)
+def test_jupyter_repaired_lock_contains_the_compatible_fixed_family(name, fixed):
+    lines = _text("services/jupyterhub/build/requirements-locked.txt").splitlines()
+    locked = dict(line.split("==", 1) for line in lines if "==" in line)
+    assert locked[name] == fixed
+
+
+@pytest.mark.parametrize(("name", "fixed", "previous"), (
+    ("pillow", "13.0.0", "12.3.0"),
+    ("aiohttp", "3.14.4", "3.14.3"),
+    ("setuptools", "84.1.0", "83.0.0"),
+    ("filelock", "4.2.1", "3.32.2"),
+    ("msgpack", "1.2.3", "1.2.1"),
+    ("certifi", "2026.10.19", "2026.7.22"),
+    ("transformers", "5.10.0", "5.5.0"),
+))
+def test_nemo_gpu_repaired_dependencies_reject_older_vulnerable_versions(name, fixed, previous):
+    requirement, = _requirements_named(
+        (line.split("#", 1)[0] for line in
+         _text("services/parakeet/provider/gpu/requirements.txt").splitlines()), name,
+    )
+    assert (Version(fixed) in requirement.specifier
+            and Version(previous) not in requirement.specifier)
+
+
+@pytest.mark.parametrize(("name", "fixed"), (
+    ("pillow", "13.0.0"), ("aiohttp", "3.14.4"), ("yarl", "1.25.1"),
+    ("setuptools", "84.1.0"), ("filelock", "4.2.1"), ("msgpack", "1.2.3"),
+))
+def test_nemo_gpu_repaired_lock_keeps_the_fixed_leaf_family(name, fixed):
+    assert dict(
+        line.split("==", 1) for line in
+        _text("services/parakeet/provider/gpu/requirements-locked.txt").splitlines()
+        if "==" in line
+    )[name] == fixed

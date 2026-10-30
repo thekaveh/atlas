@@ -89,7 +89,10 @@ def test_the_init_container_receives_the_cache_vars() -> None:
 
 
 def _redis_command() -> str:
-    return " ".join(str(_services(REDIS_COMPOSE)["redis"]["command"]).split())
+    command = _services(REDIS_COMPOSE)["redis"]["command"]
+    if isinstance(command, list):
+        return " ".join(command)
+    return " ".join(str(command).split())
 
 
 def test_redis_evicts_only_expiring_keys() -> None:

@@ -6,7 +6,11 @@
 
 **Goal:** Restructure the opening of all three documentation surfaces (root `README.md`, the generated `.io` landing, and the generated GitHub wiki `Home`) into a nativ-grade centered header, and add a new ~130-word lead-in executive summary at the top.
 
-**Architecture:** Hand-author exactly two files. `README.md` gets a centered header block (poster, centered title, bold tagline, subtitle, stack badges) followed by the lead-in executive summary, with the wizard screenshot kept as the single anchor visual and the architecture diagram moved into the Service Topology section. `docs/index.md` gets its hero re-pointed to the same tagline and summary; because `docs/index.md` is the Layer-B source projected into both the `.io` landing and the wiki `Home` via `_render_pages`, that one edit updates both derived surfaces. One new pytest module locks the canonical tagline and summary anchor into both hand-authored files so they cannot drift.
+**Architecture:** Hand-author exactly two files. `README.md` gets a centered header block (poster, centered title, bold tagline, subtitle, stack badges) followed by the lead-in executive summary, with the wizard screenshot kept as the single anchor visual and the architecture diagram moved into the Service Topology section.
+
+`docs/index.md` gets its hero re-pointed to the same tagline and summary; because `docs/index.md` is the Layer-B source projected into both the `.io` landing and the wiki `Home` via `_render_pages`, that one edit updates both derived surfaces.
+
+One new pytest module locks the canonical tagline and summary anchor into both hand-authored files so they cannot drift.
 
 **Tech Stack:** Markdown with GitHub HTML blocks (`<p align="center">`, `<h1 align="center">`), MkDocs Material `md_in_html` (for the `docs/index.md` hero), pytest, and the Atlas docs pipeline (`make docs-build` / `make docs-check`, `scripts/number-markdown-headings.py`, `scripts/check-docs-drift.py`, `scripts/check_doc_links.py`).
 

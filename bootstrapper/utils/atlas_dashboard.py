@@ -13,6 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from html import escape
 from pathlib import Path
+import re
 from typing import Literal
 
 from core.config_parser import DEFAULT_BASE_PORT
@@ -191,16 +192,22 @@ def render_dashboard_html(model: DashboardModel) -> str:
         )
     sections_html = "\n".join(sections)
 
-    return (
-        _PAGE_TEMPLATE
-        .replace("__TITLE__", escape(model.brand_name))
-        .replace("__TAGLINE__", escape(model.tagline))
-        .replace("__TRACK__", escape(model.track_label))
-        .replace("__KONG_PORT__", escape(model.kong_port))
-        .replace("__ACTIVE__", str(active_count))
-        .replace("__DISABLED__", str(disabled_count))
-        .replace("__WARNINGS__", warning_html)
-        .replace("__SECTIONS__", sections_html)
+    return _render_page_template({
+        "__TITLE__": escape(model.brand_name),
+        "__TAGLINE__": escape(model.tagline),
+        "__TRACK__": escape(model.track_label),
+        "__KONG_PORT__": escape(model.kong_port),
+        "__ACTIVE__": str(active_count),
+        "__DISABLED__": str(disabled_count),
+        "__WARNINGS__": warning_html,
+        "__SECTIONS__": sections_html,
+    })
+
+
+def _render_page_template(replacements: dict[str, str]) -> str:
+    """Replace template slots once without rescanning inserted text."""
+    return re.sub(
+        "|".join(replacements), lambda match: replacements[match[0]], _PAGE_TEMPLATE,
     )
 
 
@@ -548,9 +555,9 @@ def _own_credential_note(name_l: str, name: str) -> str | None:
     return None
 
 
-def _hard_dependencies(manifest) -> set[str]:
+def _hard_dependencies(manifest, env: dict[str, str]) -> set[str]:
     """depends_on.required entries the service actually calls, plus its
-    runtime_deps requires. depends_on.required alone also holds slot-ordering
+    selected runtime_deps requires. depends_on.required alone also holds slot-ordering
     pins (ray for prometheus/grafana/loki/tempo/langfuse), reported as missing
     dependencies (2026-10-08 run, cycle 53); runtime_deps alone lost real ones
     such as spark→minio (cycle 63)."""
@@ -559,13 +566,26 @@ def _hard_dependencies(manifest) -> set[str]:
     called = {edge.target for edge in call_edges(manifest.data_flow)}
     deps = set(manifest.depends_on.required) & called
     for spec in (manifest.runtime_deps or {}).values():
-        rules = [spec, *spec.get("conditional_requires", [])] if isinstance(spec, dict) else []
-        deps.update(dep for rule in rules for dep in rule.get("requires") or ())
+        deps.update(_selected_runtime_requirements(spec, env))
     return deps
+
+
+def _selected_runtime_requirements(spec, env: dict[str, str]):
+    """Match the dependency manager's existing when/when_defaults contract."""
+    if not isinstance(spec, dict):
+        return ()
+    selected = [spec]
+    for rule in spec.get("conditional_requires", []):
+        defaults = rule.get("when_defaults", {})
+        if all((env.get(name) or defaults.get(name, "")) == expected
+               for name, expected in rule.get("when", {}).items()):
+            selected.append(rule)
+    return (dep for rule in selected for dep in rule.get("requires") or ())
 
 
 def _dependency_warnings(rows, service_sources: dict[str, str], env: dict[str, str]) -> list[str]:
     by_manifest = {row.manifest: row for row in rows}
+    effective_env = {**env, **service_sources}
     disabled_manifests = {
         row.manifest
         for row in rows
@@ -580,7 +600,7 @@ def _dependency_warnings(rows, service_sources: dict[str, str], env: dict[str, s
             if manifest.name in disabled_manifests:
                 continue
             missing = sorted(
-                dep for dep in _hard_dependencies(manifest)
+                dep for dep in _hard_dependencies(manifest, effective_env)
                 if dep in disabled_manifests and dep in by_manifest
             )
             if missing:

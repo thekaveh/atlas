@@ -6,7 +6,7 @@ The Curated MCP Servers service exposes the first Atlas Model Context Protocol t
 
 This is not a generic one-server-per-service pattern. The package starts with tools that are useful across Open WebUI, Hermes, and future agent workflows. Its query filters and routing hints bound common requests but are not a least-privilege security boundary.
 
-The runtime uses the standalone **FastMCP 3** framework (`fastmcp==3.4.4`), pinned exactly to control the framework version. It serves Streamable HTTP at `/mcp`.
+The runtime uses the standalone **FastMCP 3** framework (`fastmcp==3.4.10`), pinned exactly to control the framework version. It serves Streamable HTTP at `/mcp`.
 
 ## 2. Access
 
@@ -43,7 +43,11 @@ The runtime uses the standalone **FastMCP 3** framework (`fastmcp==3.4.4`), pinn
 
 The runtime serves Streamable HTTP (stateless, JSON responses) at `/mcp` on container port `8000`, published to loopback (`127.0.0.1`) on the host. Transport settings live on FastMCP 3's `run(transport="http", …)` call, not the constructor.
 
-FastMCP 3's **Host/Origin protection** is on. It accepts only the loopback forms (`127.0.0.1`, `localhost`, `::1`), the Compose hostname `mcp-servers` and the Kong hostname `mcp.localhost`. Any other `Host`/`Origin` gets `421`/`403`. This guard defends against DNS rebinding; it is not authentication. Kong Basic Auth + ACL protect only the Kong route. Backend-network containers can call the unauthenticated `http://mcp-servers:8000/mcp` with the `mcp-servers` Host.
+FastMCP 3's **Host/Origin protection** is on. Host matching strips the port and accepts loopback forms (`127.0.0.1`, `localhost`, `::1`), `mcp-servers` and `mcp.localhost`. FastMCP also accepts the local server address of each connection; under uvicorn, that is the container IP that accepted it. An unspecified address (`0.0.0.0` or `::`) is never added. Other Host values return `421`.
+
+A missing Origin is permitted. Otherwise, Origin must match the request's scheme, hostname and port. Loopback-to-loopback origins are also accepted across hostnames and ports. Other Origins return `403`.
+
+This guard defends against DNS rebinding; it is not authentication. Kong Basic Auth + ACL protect only the Kong route. Backend-network containers can call the unauthenticated `http://mcp-servers:8000/mcp` with the `mcp-servers` Host.
 
 Open WebUI and Hermes should consume the service directly as HTTP MCP clients where possible. LiteLLM MCP Gateway is reserved for cases where Atlas explicitly wants model-facing tool access under LiteLLM key/team/org policy.
 
@@ -87,7 +91,7 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 - Prompt-injection risk: treat database rows and web search results as untrusted tool output.
 - Rate and size limits: use `MCP_POSTGRES_MAX_ROWS`, `MCP_NEO4J_MAX_ROWS`, `MCP_SEARXNG_MAX_RESULTS`, and `MCP_TOOL_TIMEOUT_SECONDS` instead of unbounded queries.
 - Host/Origin boundary: see §4. The check defends against DNS rebinding; it is not authentication. All `backend-network` containers bypass Kong's Basic Auth/ACL policy.
-- Framework pinning: `fastmcp==3.4.4` and `mcp==1.28.1` are pinned exactly, because FastMCP permits breaking changes in minor releases. The image build runs `pip check`. Bump both together. Before upgrading, re-run `bootstrapper/tests/test_mcp_servers_framework.py`; it exercises the real FastMCP client, the `/mcp` transport and the Host/Origin guard.
+- Framework pinning: `fastmcp==3.4.10` and `mcp==1.30.0` are pinned exactly, because FastMCP permits breaking changes in minor releases. The image build runs `pip check`. Bump both together. Before upgrading, re-run `bootstrapper/tests/test_mcp_servers_framework.py`; it exercises the real FastMCP client, the `/mcp` transport and the Host/Origin guard.
 
 For a local Backend ownership exercise, see the [optional authorization recipe](../../docs/development.md#6-optional-local-authorization-evaluation). Its synthetic cases do not establish per-consumer MCP authorization or tenant isolation.
 

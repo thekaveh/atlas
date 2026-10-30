@@ -726,7 +726,7 @@ def test_the_wizard_up_and_bounded_capture_pin_project_name_too():
 
     from ui.textual.screens import wizard_screen
 
-    assert "compose_env(full_cmd)" in inspect.getsource(wizard_screen.WizardScreen._run_compose)
+    assert "asyncio.to_thread(compose_env, full_cmd)" in inspect.getsource(wizard_screen.WizardScreen._run_compose)
 
 
 def test_a_bounded_capture_runs_compose_under_the_p_project(monkeypatch, tmp_path):

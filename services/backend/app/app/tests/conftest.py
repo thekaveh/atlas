@@ -38,6 +38,17 @@ _APP_DIR = str(Path(__file__).parent.parent)
 if _APP_DIR not in sys.path:
     sys.path.insert(0, _APP_DIR)
 
+# Load the pinned Ray SDK (requirements.txt) before any test module is
+# collected. Several modules install a bare ``ray`` stub when ``ray`` is not
+# yet in sys.modules; importing the real SDK first keeps those stubs inert, so
+# the actual-SDK tests in test_ray_client/test_ray_routes really run.
+try:
+    import ray  # noqa: F401
+    import ray.job_submission  # noqa: F401
+    import ray.dashboard.modules.job.common  # noqa: F401
+except ImportError:
+    pass
+
 
 @pytest.fixture(autouse=True)
 def backend_identity_auth_disabled(monkeypatch):

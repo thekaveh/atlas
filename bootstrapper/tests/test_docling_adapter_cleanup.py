@@ -25,11 +25,15 @@ def _run_async(function):
     return wrapper
 
 
-def _load_app_module(monkeypatch):
+def _isolate_provider_package(monkeypatch):
     monkeypatch.syspath_prepend(str(PROVIDER_ROOT))
     for name in list(sys.modules):
         if name == "adapter" or name.startswith("adapter."):
             monkeypatch.delitem(sys.modules, name, raising=False)
+
+
+def _load_app_module(monkeypatch):
+    _isolate_provider_package(monkeypatch)
     from adapter import app as adapter_app
 
     return adapter_app
@@ -596,3 +600,246 @@ async def test_oversized_upload_leaves_no_partial_file(monkeypatch, tmp_path):
 
     assert response.status_code == 413
     assert not list(tmp_path.iterdir())
+
+
+@pytest.fixture
+def owned_result_failure(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+    _isolate_provider_package(monkeypatch)
+    from adapter import jobs, upstream
+
+    root = tmp_path / "owned-results"
+    now = [0]
+    registry = jobs.JobRegistry(root=root, max_jobs=1, result_ttl_seconds=10, clock=lambda: now[0])
+    denial = {"enabled": False}
+    real_unlink = Path.unlink
+
+    def controlled_unlink(path, *args, **kwargs):
+        if denial["enabled"] and path.parent == root:
+            raise PermissionError("owned result cleanup denied")
+        return real_unlink(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", controlled_unlink)
+    return SimpleNamespace(
+        root=root, now=now, registry=registry, denial=denial, jobs=jobs, upstream=upstream,
+        entered=asyncio.Event(), writer_started=threading.Event(), release_writer=threading.Event(),
+    )
+
+
+def _partial_result_provider(case, mode, deny):
+    import httpx2 as httpx
+
+    class Chunks(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            yield b"ZIP1"
+            if mode == "success":
+                return
+            if mode == "hang":
+                case.entered.set()
+                await asyncio.Event().wait()
+            case.denial["enabled"] = deny
+            if mode == "read-error":
+                raise httpx.ReadError("owned response read failed")
+            yield b"XX"
+
+    def response(request):
+        assert request.url.path == "/internal/lightrag/bundle"
+        assert request.headers["authorization"] == "Bearer synthetic-key"
+        return httpx.Response(200, headers={"content-type": "application/zip"}, stream=Chunks())
+
+    return case.upstream.DoclingUpstream(
+        endpoint="http://owned.invalid", token="synthetic-key", result_root=case.root,
+        transport=httpx.MockTransport(response), max_result_bytes=5,
+    )
+
+
+async def _finish_failed_result_retry(case, task_id, deny):
+    assert await case.registry.status(task_id) == "failure"
+    if deny:
+        assert await case.registry.reserve() is None
+        assert len(list(case.root.glob("*.zip"))) == 1
+    case.denial["enabled"] = False
+    case.now[0] = 20
+    await case.registry.cleanup_expired()
+    assert not list(case.root.iterdir())
+    replacement = await case.registry.reserve()
+    assert replacement is not None
+    await case.registry.release_reservation(replacement)
+
+
+@pytest.mark.parametrize("mode", ["oversized", "read-error"])
+@pytest.mark.parametrize("deny", [False, True])
+@_run_async
+async def test_stream_failure_retains_result_ownership_until_cleanup_retry(owned_result_failure, mode, deny):
+    case = owned_result_failure
+    upload = case.root / "upload.pdf"
+    upload.write_bytes(b"private document")
+    provider = _partial_result_provider(case, mode, deny)
+    reservation = await case.registry.reserve()
+
+    async def worker(path, name):
+        return await provider.convert(path, name, 1)
+
+    task_id = await case.registry.start(reservation, upload_path=upload, upload_name="upload.pdf", worker=worker)
+    try:
+        await asyncio.wait_for(case.registry._jobs[task_id].task, 2)
+        await _finish_failed_result_retry(case, task_id, deny)
+    finally:
+        case.denial["enabled"] = False
+        await case.registry.close()
+
+
+def _install_faulting_result_writer(case, monkeypatch, deny):
+    real_fdopen = case.jobs.os.fdopen
+
+    class Writer:
+        def __init__(self, stream):
+            self.stream = stream
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            self.stream.close()
+
+        def write(self, payload):
+            self.stream.write(payload[:4])
+            self.stream.flush()
+            case.writer_started.set()
+            assert case.release_writer.wait(2), "owned writer fixture was not released"
+            case.denial["enabled"] = deny
+            raise OSError("owned disk write failed")
+
+    monkeypatch.setattr(case.jobs.os, "fdopen", lambda fd, *a, **kw: Writer(real_fdopen(fd, *a, **kw)))
+
+
+@pytest.mark.parametrize("deny", [False, True])
+@pytest.mark.parametrize("cancel", [False, True])
+@_run_async
+async def test_byte_failure_adopts_result_before_cancellation_override(owned_result_failure, monkeypatch, deny, cancel):
+    case = owned_result_failure
+    _install_faulting_result_writer(case, monkeypatch, deny)
+    upload = case.root / "upload.pdf"
+    upload.write_bytes(b"private document")
+    reservation = await case.registry.reserve()
+
+    async def worker(_path, _name):
+        return b"ZIP1byte-result"
+
+    task_id = await case.registry.start(reservation, upload_path=upload, upload_name="upload.pdf", worker=worker)
+    task = case.registry._jobs[task_id].task
+    try:
+        assert await asyncio.to_thread(case.writer_started.wait, 1)
+        if cancel:
+            task.cancel()
+            await asyncio.sleep(0)
+            task.cancel()
+            await asyncio.sleep(0)
+        case.release_writer.set()
+        if cancel:
+            with pytest.raises(asyncio.CancelledError):
+                await task
+        else:
+            await task
+        assert task.cancelled() is cancel
+        await _finish_failed_result_retry(case, task_id, deny)
+    finally:
+        case.release_writer.set()
+        case.denial["enabled"] = False
+        await case.registry.close()
+
+
+@pytest.mark.parametrize("cancel", [False, True])
+@_run_async
+async def test_direct_conversion_keeps_ordinary_cancel_and_deadline(owned_result_failure, cancel):
+    case = owned_result_failure
+    upload = case.root / "upload.pdf"
+    upload.write_bytes(b"private document")
+    provider = _partial_result_provider(case, "hang", False)
+    task = asyncio.create_task(provider.convert(upload, "upload.pdf", 1 if cancel else 0.5))
+    await asyncio.wait_for(case.entered.wait(), 5)
+    if cancel:
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    else:
+        with pytest.raises(case.upstream.UpstreamConversionError, match="^Docling conversion failed$"):
+            await task
+    assert not list(case.root.glob("*.zip")) and upload.exists()
+    upload.unlink()
+    await case.registry.close()
+
+
+@_run_async
+async def test_direct_failed_result_cleanup_uses_value_free_internal_carrier(owned_result_failure):
+    case = owned_result_failure
+    upload = case.root / "upload.pdf"
+    upload.write_bytes(b"private document")
+    provider = _partial_result_provider(case, "oversized", True)
+    try:
+        with pytest.raises(Exception) as raised:
+            await provider.convert(upload, "upload.pdf", 1)
+        assert str(raised.value) == "Result cleanup is pending"
+        assert str(case.root) not in str(raised.value)
+        assert "owned result cleanup denied" not in str(raised.value)
+    finally:
+        case.denial["enabled"] = False
+        for path in case.root.iterdir():
+            path.unlink()
+        await case.registry.close()
+
+
+@pytest.mark.parametrize("mode,transient", [("close", True), ("cancel", True), ("cancel", False), ("repeat", True), ("repeat", False), ("clean", False)])
+@_run_async
+async def test_cancelled_stream_is_owned_through_response_close(owned_result_failure, monkeypatch, mode, transient):
+    import httpx2 as httpx
+    draining, release = asyncio.Event(), asyncio.Event()
+    denial = {"enabled": mode != "clean"}
+    owned_result_failure.denial = denial
+    closed = []
+    unlink = Path.unlink
+    def zip_unlink(path, *args, **kwargs):
+        if path.suffix == ".zip" and path.parent == owned_result_failure.root and denial["enabled"]:
+            denial["enabled"] = not transient
+            raise PermissionError("owned ZIP cleanup denied")
+        return unlink(path, *args, **kwargs)
+    monkeypatch.setattr(Path, "unlink", zip_unlink)
+    class Chunks(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            yield b"ZIP1"
+            owned_result_failure.entered.set()
+            await asyncio.Event().wait()
+        async def aclose(self):
+            draining.set()
+            await release.wait()
+            closed.append(True)
+    provider = owned_result_failure.upstream.DoclingUpstream(
+        endpoint="http://owned.invalid", token="synthetic-key", result_root=owned_result_failure.root,
+        transport=httpx.MockTransport(lambda request: httpx.Response(200, headers={"content-type": "application/zip"}, stream=Chunks())),
+    )
+    upload = owned_result_failure.root / "upload.pdf"
+    upload.write_bytes(b"private document")
+    async def worker(path, name):
+        return await provider.convert(path, name, 1)
+    task_id = await owned_result_failure.registry.start(await owned_result_failure.registry.reserve(), upload_path=upload, upload_name="upload.pdf", worker=worker)
+    task = owned_result_failure.registry._jobs[task_id].task
+    try:
+        await asyncio.wait_for(owned_result_failure.entered.wait(), 1)
+        stopping = asyncio.create_task(owned_result_failure.registry.close()) if mode in {"close", "clean"} else task
+        if stopping is task:
+            task.cancel()
+        await asyncio.wait_for(draining.wait(), 1)
+        if mode == "repeat":
+            task.cancel()
+            await asyncio.sleep(0)
+        release.set()
+        await asyncio.wait_for(asyncio.gather(stopping, return_exceptions=True), 2)
+        if mode not in {"close", "clean"}:
+            await _finish_failed_result_retry(owned_result_failure, task_id, denial["enabled"])
+        assert closed == [True]
+        assert not upload.exists() and not list(owned_result_failure.root.glob("*.zip"))
+        assert owned_result_failure.registry._occupied == 0
+    finally:
+        denial["enabled"] = False
+        release.set()
+        await owned_result_failure.registry.close()

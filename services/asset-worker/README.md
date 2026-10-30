@@ -87,6 +87,9 @@ Inputs (uploaded or MinIO-referenced) must be self-contained binary glTF 2.0 fil
 
 - a `.gltf` JSON file, whatever its name;
 - a GLB whose JSON chunk does not parse;
+- a GLB whose header has a version other than 2 or a length that differs from the file size;
+- a GLB with a truncated chunk header, or a chunk length that is not a multiple of 4 or runs past the file end;
+- a GLB with more than one JSON chunk, or a BIN chunk that is not the second chunk;
 - a `buffers[].uri` or `images[].uri` that is not a `data:` URI.
 
 These checks run before any converter. A converter would resolve such a URI against the container filesystem or network and embed what it reads. Asset Baker applies the same rules.
@@ -104,8 +107,8 @@ curl -H "Authorization: Bearer ${ASSET_WORKER_API_TOKEN}" \
 | Field | Required | Notes |
 |---|---:|---|
 | `file` | yes | Raw `.glb` file. |
-| `target_height_m` | no | Target height after normalization when `normalize_axis=height`. |
-| `target_width_m` | no | Target max horizontal width after normalization when `normalize_axis=width`. |
+| `target_height_m` | no | Finite positive target height after normalization when `normalize_axis=height`. |
+| `target_width_m` | no | Finite positive target max horizontal width after normalization when `normalize_axis=width`. |
 | `normalize_axis` | no | `height` or `width`; default `height`. |
 | `up_axis` | no | Orientation policy. `keep` (default) trusts +Y-up and only scales, centers and grounds. `auto` searches small pitch/roll tilts for the minimum bounding-box volume; it never rotates a model already within a few degrees of Y-up. `x`/`y`/`z` rotates that axis to +Y (a proper rotation, never a mirror). Only `POSITION` data changes; normals, tangents and node transforms are not rotated or applied. |
 | `simplify_ratio` | no | glTF-Transform simplification ratio, greater than `0` and up to `1`. Without it (and without `collider_decimation`), no simplification runs. |
@@ -113,6 +116,10 @@ curl -H "Authorization: Bearer ${ASSET_WORKER_API_TOKEN}" \
 | `meshopt` | no | Meshopt mesh compression. Default `true`; Draco takes precedence when `draco=true`. Pass `meshopt=false` for an uncompressed mesh, for example to re-import into Blender. |
 | `ktx2` | no | Requests KTX2 texture compression; otherwise WebP is used. KTX2 needs the KTX-Software `ktx` binary, which the stock image does not include, so the request is rejected with `422` there. |
 | `collider_decimation` | no | Ratio for collider decimation, used as the simplification ratio when `simplify_ratio` is absent (same range). |
+
+Invalid numeric parameters, including NaN and infinity, return `422` before conversion or object-store access. This applies to multipart and JSON requests.
+
+Normalized coordinates must fit finite glTF float32 values. Geometry that exceeds this range returns `422` before conversion.
 
 ### 4.2. MinIO Referenced GLB
 
@@ -199,6 +206,7 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 
 - `422 Normalization exceeds the <limit> decoded POSITION-entry limit`: reduce the referenced POSITION workload or raise the positive operator setting within available resources.
 - `400 Input must be a GLB file`: use a `.glb` filename and binary GLB payload.
+- `400 Input must be a binary glTF 2.0 GLB`: the input failed a check in §4.1. Re-export it as GLB 2.0 with 4-byte-padded chunks: one JSON chunk, then an optional BIN chunk.
 - `gltf-transform validate` failure: inspect the raw provider output; invalid GLB input is rejected before storage.
 - `401 Invalid Asset Worker bearer token`: pass `Authorization: Bearer ${ASSET_WORKER_API_TOKEN}`.
 - `403 Input bucket is not allowed`: add the intended bucket to `ASSET_WORKER_ALLOWED_INPUT_BUCKETS`; do not broaden the list to unrelated or private buckets.

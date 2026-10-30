@@ -4927,11 +4927,11 @@ vulnerabilities:
       the exact PURL can scope it. pip 26.2.1 is the newest release and vendors
       the same version, so no upgrade clears it. The vendored copy serves only
       pip's HTTP cache while pip itself runs at build time; Airflow imports the
-      site-packages msgpack, which the overlay lock pins at the fixed 1.2.1.
+      site-packages msgpack, which the overlay lock pins at the fixed 1.2.3.
       Cleared by a pip release that re-vendors msgpack >= 1.2.1.
       The same PURL matches two more images (#1289 coverage review). The
       quay.io/jupyter/datascience-notebook base carries the same pip 26.2.1
-      entry, which services/jupyterhub replaces with msgpack 1.2.2 at build time
+      entry, which services/jupyterhub replaces with msgpack 1.2.3 at build time
       (refresh_pip_vendor.py), so the JupyterHub image does not ship it.
       rayproject/ray:2.56.0 and its -gpu variant (services/ray) install msgpack
       1.1.2 themselves, which no path scope can separate from pip's pathless

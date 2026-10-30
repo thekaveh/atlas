@@ -7,10 +7,10 @@ Python implementation of configuration parsing from start.sh and stop.sh.
 import os
 import re
 import sys
-from typing import Dict, Optional, Any
+from typing import Dict, Optional, Any, Callable
 from pathlib import Path
 
-from utils.atomic_write import create_private_backup, decode_env_assignment
+from utils.atomic_write import assert_safe_env_assignment, create_private_backup, decode_env_assignment
 
 
 # Single source of truth for the default base port. Imported by start.py and
@@ -81,6 +81,69 @@ def _read_custom_env_file_var() -> str:
     return ''
 
 
+def external_env_user_overlay_path() -> Path | None:
+    """Resolve an external user overlay relative to the invoking directory."""
+    raw_path = os.environ.get("ATLAS_ENV_USER_FILE", "").strip()
+    if not raw_path:
+        return None
+    overlay_path = Path(raw_path).expanduser()
+    if not overlay_path.is_absolute():
+        invoker_cwd = os.environ.get("ATLAS_INVOKER_CWD", "").strip()
+        base_dir = Path(invoker_cwd).expanduser() if invoker_cwd else Path.cwd()
+        overlay_path = base_dir / overlay_path
+    return overlay_path.resolve()
+
+
+def _file_stamp(path: Path):
+    """Identity of ``path`` as it is right now, or None if unreadable."""
+    try:
+        info = path.stat()
+    except OSError:
+        return None
+    return (info.st_mtime_ns, info.st_size, info.st_ino)
+
+
+def parse_env_overlay_file(overlay_path: Path) -> Dict[str, str]:
+    """Read the canonical env grammar without changing the overlay or .env."""
+    env_vars: Dict[str, str] = {}
+    with open(overlay_path, "r", encoding="utf-8-sig") as handle:
+        for line_number, line in enumerate(handle, 1):
+            assignment = decode_env_assignment(line, origin=f"{overlay_path}:{line_number}")
+            if assignment is not None:
+                key, value = assignment
+                env_vars[key] = value
+    return env_vars
+
+
+def read_env_user_overlay(
+    overlay_path: Path, *, label: str,
+    reader: Callable[[Path], Dict[str, str]] = parse_env_overlay_file,
+    warn: Callable[[str], None] | None = None,
+) -> Dict[str, str] | None:
+    """Read a whole writable overlay, or warn and skip it without writing."""
+    if warn is None:
+        warn = lambda message: print(f"WARNING: {message}", file=sys.stderr)
+    if not overlay_path.exists():
+        warn(f"{label} points to {overlay_path}, but that file does not exist; skipping")
+        return None
+    if not overlay_path.is_file():
+        warn(f"{label} points to {overlay_path}, but it is not a file; skipping")
+        return None
+    try:
+        overrides = reader(overlay_path)
+    except (OSError, ValueError) as exc:
+        warn(f"{label} points to {overlay_path}, but it could not be read ({exc}); skipping")
+        return None
+    try:
+        for key, value in overrides.items():
+            assert_safe_env_assignment(key, value)
+    except ValueError as exc:
+        warn(f"{label} points to {overlay_path}, but one of its entries "
+             f"cannot be written safely ({exc}); skipping the overlay")
+        return None
+    return overrides
+
+
 def project_name_error(value: str) -> str | None:
     """Why ``value`` can't be the project name, for the wizard step (#1390)."""
     if value.strip().lower() == "clear":
@@ -116,6 +179,8 @@ class ConfigParser:
         """
         #: Keyed on the .env file's own stat identity; see parse_env_file.
         self._env_cache: dict = {}
+        #: Per overlay path: (stat identity, overrides); see _effective_overlay_env.
+        self._overlay_cache: dict = {}
         if root_dir is None:
             # Default to parent directory of bootstrapper
             self.root_dir = Path(__file__).resolve().parent.parent.parent
@@ -209,8 +274,9 @@ class ConfigParser:
 
         # #415: a consumer LightRAG query profile may only set enable_rerank=true
         # when this deployment has opted the backend rerank adapter in. Resolve
-        # the flag from .env so profile validation matches the runtime wiring.
+        # the flag from the effective env, before any early validation writes.
         env = self.parse_env_file()
+        env.update(self._effective_overlay_env())
         adapter_enabled = (
             (env.get("LIGHTRAG_RERANK_ADAPTER_ENABLED") or "").strip().lower() == "true"
         )
@@ -218,7 +284,28 @@ class ConfigParser:
             self.root_dir,
             lightrag_rerank_adapter_enabled=adapter_enabled,
         )
-    
+
+    def _effective_overlay_env(self) -> Dict[str, str]:
+        """`.env.user` then ATLAS_ENV_USER_FILE overrides, read once per file version.
+
+        load_consumer_config runs for every compose command, so re-reading
+        here repeated each skip and `${...}` warning on every call. Memoized
+        on the overlay's stat identity, like parse_env_file: an edit re-reads."""
+        merged: Dict[str, str] = {}
+        for path, label, warn_if_missing in (
+            (self.env_file_path.parent / ".env.user", ".env.user", False),
+            (external_env_user_overlay_path(), "ATLAS_ENV_USER_FILE", True),
+        ):
+            if path is None or not (warn_if_missing or path.exists()):
+                continue
+            stamp = _file_stamp(path)
+            cached = self._overlay_cache.get(path)
+            if cached is None or cached[0] != stamp:
+                cached = (stamp, read_env_user_overlay(path, label=label) or {})
+                self._overlay_cache[path] = cached
+            merged.update(cached[1])
+        return merged
+
     def parse_env_file(self) -> Dict[str, str]:
         """
         Parse .env file for all variables.
@@ -256,11 +343,7 @@ class ConfigParser:
 
     def _env_file_stamp(self):
         """Identity of the `.env` file as it is right now, or None if unreadable."""
-        try:
-            info = self.env_file_path.stat()
-        except OSError:
-            return None
-        return (info.st_mtime_ns, info.st_size, info.st_ino)
+        return _file_stamp(self.env_file_path)
     
     def parse_service_sources(self) -> Dict[str, str]:
         """

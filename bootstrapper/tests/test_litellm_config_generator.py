@@ -146,3 +146,103 @@ def test_a_read_only_init_config_with_an_empty_model_list_is_replaced(tmp_path) 
         assert stat.S_IMODE(os.stat(cfg).st_mode) == 0o644
     finally:
         cfg.chmod(0o644)
+
+
+def _rendered_retention_fixture(tmp_path, monkeypatch):
+    import start
+
+    from types import SimpleNamespace
+    from tests.test_cold_cleanup_scope import _stack, _stack_root
+
+    env, catalog, stack = _stack()
+    env["COMFYUI_SOURCE"] = "disabled"
+    root = _stack_root(tmp_path)
+    monkeypatch.setattr(start, "_exec", lambda project, service, *args: stack.run(
+        ["docker", "exec", f"{project}-{service}", *args]))
+    monkeypatch.setattr(start, "_storage_context", lambda: (env, root, "atlas"))
+    rendered = root / "volumes/litellm/config.yaml"
+    valid = {"model_list": [{"litellm_params": {"model": "ollama/" + catalog[1]}},
+                            {"litellm_params": {"model": "ollama_chat/someone/custom:7b"}}]}
+    return SimpleNamespace(env=env, root=root, rendered=rendered, valid=valid, stack=stack,
+                           selected=catalog[0], routed=catalog[1], custom="someone/custom:7b")
+
+
+def _assert_rendered_route_models_retained(fixture):
+    import start
+
+    labels = {item["path"]: item["label"] for item in start._live_model_items(
+        fixture.env, fixture.root, "atlas")}
+    assert labels[fixture.routed] == labels[fixture.custom] == "retained"
+
+
+def _change_rendered_retention_case(fixture, case, monkeypatch):
+    from pathlib import Path
+    import yaml
+
+    if case == "malformed-yaml":
+        fixture.rendered.write_text("model_list: [SENTINEL_CONFIG_VALUE\n", encoding="utf-8")
+    elif case == "wrong-root":
+        fixture.rendered.write_text("- SENTINEL_CONFIG_VALUE\n", encoding="utf-8")
+    elif case == "invalid-later-row":
+        fixture.rendered.write_text(yaml.safe_dump({"model_list": fixture.valid["model_list"] + [None]}))
+    elif case == "read-failure":
+        original_read = Path.read_text
+        def refuse(path, *args, **kwargs):
+            if path == fixture.rendered:
+                raise PermissionError("SENTINEL_CONFIG_VALUE")
+            return original_read(path, *args, **kwargs)
+        monkeypatch.setattr(Path, "read_text", refuse)
+    elif case == "valid-empty":
+        fixture.rendered.write_text("model_list: []\n", encoding="utf-8")
+
+
+def _assert_storage_retention_removals(fixture, before, expected, result):
+    assert set(before) - set(fixture.stack.ollama) == expected, result.output
+    assert fixture.selected in fixture.stack.ollama
+    assert result.exit_code == 0, result.output
+    assert "SENTINEL_CONFIG_VALUE" not in result.output
+
+
+@pytest.mark.parametrize("named", [False, True])
+@pytest.mark.parametrize("case", ["malformed-yaml", "wrong-root", "invalid-later-row", "read-failure",
+                                  "valid-routes", "valid-empty", "missing-first-start"])
+def test_storage_clean_refuses_unknown_existing_rendered_retention(tmp_path, monkeypatch, case, named):
+    import start
+    import yaml
+    from click.testing import CliRunner
+
+    fixture = _rendered_retention_fixture(tmp_path, monkeypatch)
+    if case != "missing-first-start":
+        fixture.rendered.parent.mkdir(parents=True)
+        fixture.rendered.write_text(yaml.safe_dump(fixture.valid), encoding="utf-8")
+    if case not in {"valid-empty", "missing-first-start"}:
+        _assert_rendered_route_models_retained(fixture)
+    _change_rendered_retention_case(fixture, case, monkeypatch)
+    before = dict(fixture.stack.ollama)
+    args = ["storage", "clean", "--yes"] + (["--name", fixture.custom] if named else [])
+    result = CliRunner().invoke(start.main, args)
+    allowed = {fixture.routed, fixture.custom} if named else {fixture.routed}
+    expected = allowed if case in {"valid-empty", "missing-first-start"} else set()
+    _assert_storage_retention_removals(fixture, before, expected, result)
+    if case in {"malformed-yaml", "wrong-root", "invalid-later-row", "read-failure"}:
+        with pytest.raises(OSError) as error:
+            start._rendered_litellm_models(fixture.root)
+        assert error.value.__suppress_context__
+        assert "SENTINEL_CONFIG_VALUE" not in str(error.value)
+        assert "Ollama model retention is unavailable" in result.output
+
+
+def test_unknown_ollama_retention_keeps_independent_comfyui_cleanup(tmp_path, monkeypatch):
+    import start
+    from click.testing import CliRunner
+
+    fixture = _rendered_retention_fixture(tmp_path, monkeypatch)
+    fixture.env["COMFYUI_SOURCE"] = "container-cpu"
+    fixture.rendered.parent.mkdir(parents=True)
+    fixture.rendered.write_text("model_list: [\n", encoding="utf-8")
+    before = dict(fixture.stack.ollama)
+    result = CliRunner().invoke(start.main, ["storage", "clean", "--yes", "--name", "loras/mystery.safetensors"])
+    assert result.exit_code == 0, result.output
+    assert fixture.stack.ollama == before
+    assert "loras/mystery.safetensors" not in fixture.stack.comfyui
+    assert "checkpoints/v1-5-pruned-emaonly.safetensors" in fixture.stack.comfyui

@@ -863,14 +863,7 @@ def _cleanup_message(outcome: LaunchCompensation) -> str:
 
 
 def _warn_control_flow(exc: BaseException, note: str) -> None:
-    if hasattr(exc, "add_note"):
-        exc.add_note(note)
-    else:  # Python 3.10 compatibility
-        notes = getattr(exc, "__notes__", None)
-        if notes is None:
-            notes = []
-            exc.__notes__ = notes
-        notes.append(note)
+    exc.add_note(note)
     print(f"WARNING: {note}", file=sys.stderr, flush=True)
 
 

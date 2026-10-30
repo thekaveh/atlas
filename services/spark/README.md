@@ -45,6 +45,8 @@ SPARK_WORKER_MEMORY_LIMIT=4g       # per worker replica
 SPARK_WORKER_CPU_LIMIT=2.0
 ```
 
+Spark workers run `python3 -` to write `core-site.xml`. A custom `SPARK_IMAGE` must therefore provide `python3`.
+
 `SPARK_SOURCE=container` requires `MINIO_SOURCE` other than `disabled`: `spark-init` waits on `minio-init`, so the bootstrapper refuses that combination.
 
 ## 4. Integration with the stack

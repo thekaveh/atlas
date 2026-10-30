@@ -298,7 +298,7 @@
 | FAL_OUTPUT_FORMAT | fal | jpeg | Requested output format for compatible fal.ai image models: jpeg or png. |
 | FAL_ENABLE_SAFETY_CHECKER | fal | true | Whether to request the provider-side safety checker for compatible fal.ai image models. |
 | PROJECT_NAME | globals | atlas | Docker Compose project name: the prefix for containers, volumes and networks, and the `docker compose -p` namespace. start.sh and stop.sh both read it. `./start.sh --project <name>` (or -p) writes it here. Use a unique name for a submodule consumer. |
-| BASE_PORT | globals | 63000 | Base port. Every service's *_PORT derives from this + a fixed offset. |
+| BASE_PORT | globals | 63000 | Base port for allocated stack ports. Each uses this plus a fixed offset. Native host-service port settings with `_LOCALHOST_` in their names stay independent. |
 | HOST_BIND_IP | globals | 127.0.0.1: | Published-port interface prefix (trailing colon). Default 127.0.0.1: is host-only; 0.0.0.0: is for deliberate remote access. Existing .env files with HOST_BIND_IP= are upgraded by backfill. Empty binds all interfaces except Ray, Zeppelin, mcp-servers, Supabase DB, Docling, Parakeet. LAN Supabase routes: KONG_SUPABASE_EXTRA_HOSTS. |
 | HOST_GATEWAY_IP | globals |  | Set by ./start.sh for the container runtime: host-gateway on Docker, the literal gateway IP on Podman. If you write .env without ./start.sh, use host-gateway on Docker, or the real bridge IP on rootless setups. |
 | BRAND_NAME | globals | Atlas | Wizard branding: the brand name shown by the wizard and --no-tui banner. Empty uses the Atlas default. |
@@ -561,7 +561,7 @@
 | LOCAL_DEEP_RESEARCHER_SOURCE | local-deep-researcher | container | Deployment source for Local Deep Researcher: container or disabled. |
 | LOCAL_DEEP_RESEARCHER_PORT | local-deep-researcher | 63097 | Host port for the Local Deep Researcher LangGraph API (in-container 2024). |
 | LOCAL_DEEP_RESEARCHER_REF | local-deep-researcher | 38f769f84380f2065de76021ac7c5215f88aa39e | Full upstream local-deep-researcher commit SHA materialized into the managed repo volume. Update deliberately after compatibility validation; runtime startup never follows a branch. |
-| LOCAL_DEEP_RESEARCHER_LANGGRAPH_CLI_VERSION | local-deep-researcher | 0.4.31 | Exact langgraph-cli[inmem] version used to serve the pinned source tree. |
+| LOCAL_DEEP_RESEARCHER_LANGGRAPH_CLI_VERSION | local-deep-researcher | 0.4.32 | Exact langgraph-cli[inmem] version used to serve the pinned source tree. |
 | LOCAL_DEEP_RESEARCHER_UPSTREAM_LOCK_SHA256 | local-deep-researcher | 26fc35ac377836de6628e5f7b180944c4d4bd50a5e9f0200bd6e663f20e35c1a | SHA-256 digest of uv.lock at LOCAL_DEEP_RESEARCHER_REF; startup rejects a source tree whose lock does not match. |
 | LOCAL_DEEP_RESEARCHER_LOOPS | local-deep-researcher | 3 | Maximum web research loops per run, passed as MAX_WEB_RESEARCH_LOOPS. |
 | LOCAL_DEEP_RESEARCHER_SEARCH_API | local-deep-researcher | searxng | Web search backend, passed as SEARCH_API. Default searxng. |
@@ -753,7 +753,7 @@
 | ATLAS_OTEL_ENABLED | otel-collector |  | Boolean string consumed by backend and LiteLLM tracing toggles. |
 | OTEL_COLLECTOR_IMAGE | otel-collector | otel/opentelemetry-collector-contrib:0.154.0 | Container image for `otel-collector`. |
 | STT_PROVIDER_SOURCE | parakeet | speaches-container-cpu | Speech-to-text engine: speaches-container-cpu, speaches-container-gpu, parakeet-container-gpu, parakeet-localhost, whisper-cpp-localhost or disabled. Drives STT_ENDPOINT and the engine scales. |
-| STT_PROVIDER_PORT | parakeet | 63055 | Wizard display slot. Real per-engine ports live on their own manifests (`PARAKEET_*`, `SPEACHES_*`, etc.). |
+| STT_PROVIDER_PORT | parakeet | 63055 | Host port for the Parakeet GPU container (in-container 8000), also shown by the wizard. Other STT sources keep their own port settings (for example, `PARAKEET_*` and `SPEACHES_*`). |
 | STT_PROVIDER_SCALE | parakeet |  | Set by ./start.sh; do not edit. 1 when a container engine serves speech-to-text, else 0. The wizard uses it to colour the STT row. |
 | PARAKEET_MODEL | parakeet | nvidia/parakeet-tdt-0.6b-v3 | Model the Parakeet GPU container loads (NeMo model ID), passed as PARAKEET_MODEL. |
 | PARAKEET_GPU_DEVICE | parakeet | cuda | Torch device for the Parakeet GPU container, passed as PARAKEET_DEVICE. |
@@ -803,7 +803,8 @@
 | REDIS_MAXMEMORY_POLICY | redis | volatile-lru | volatile-lru evicts TTL keys, including LiteLLM cache and ordinary media records (seven-day default). Budget-tracked in-flight records, unresolved submissions and pending ledger intents persist until settlement. Without TTL keys, writes fail with OOM. |
 | REDIS_PORT | redis | 63025 | Host port. Container port is always 6379. |
 | REDIS_PASSWORD | redis | redis_password | Used by Redis consumers, including n8n queues, litellm cache, open-webui websocket storage, and backend state and queues. The default is for fresh-install convenience only; rotate before any deployment. |
-| REDIS_URL | redis | redis://:${REDIS_PASSWORD}@redis:6379/0 | Default connection string (database 0, also n8n's queue and LiteLLM's cache). Consumers that need another DB index build their own URL: open-webui and lightrag share /2, jupyterhub uses /3. Compose substitutes REDIS_PASSWORD. |
+| REDIS_PASSWORD_URI | redis | redis_password | Startup keeps this percent-encoded REDIS_PASSWORD in sync for URI userinfo. Separate password fields use the raw value. |
+| REDIS_URL | redis | redis://:${REDIS_PASSWORD_URI}@redis:6379/0 | Default connection string (database 0, also n8n's queue and LiteLLM's cache). Consumers that need another DB index build their own URL: open-webui and lightrag share /2, jupyterhub uses /3. Compose substitutes REDIS_PASSWORD_URI. |
 | REDIS_EXPORTER_PORT | redis | 63026 | Host port for redis-exporter (in-container 9121). Sidecar gated by PROMETHEUS_SOURCE. |
 | REDIS_EXPORTER_SCALE | redis |  | Set by _generate_prometheus_config() to 1 when PROMETHEUS_SOURCE=container, 0 otherwise. |
 | REDIS_IMAGE | redis | redis:7.2.14-alpine | Bumping the redis version: change this default and rerun ./start.sh. |

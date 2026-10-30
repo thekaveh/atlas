@@ -72,13 +72,31 @@ def test_long_lived_commands_and_probes_carry_no_password_flags():
 
 def test_no_compose_probe_or_init_script_puts_a_bearer_secret_on_curl_argv():
     """`curl -H "Authorization: Bearer $KEY"` shows the key in `ps` and
-    `docker top` on every run (#1381); the header goes on stdin (-K-)."""
+    `docker top` on every run (#1381); the header goes on stdin (--header @-)."""
     import re
     from pathlib import Path
 
     repo = Path(__file__).resolve().parents[2]
     services = repo / "services"
     pattern = re.compile(r"-H\s*\\?[\"']Authorization: Bearer \$")
+    offenders = [
+        str(path.relative_to(repo))
+        for path in [*services.glob("*/compose.yml"), *services.glob("*/**/*.sh"), *(repo / "scripts").glob("*.sh")]
+        if pattern.search(path.read_text(encoding="utf-8", errors="replace"))
+    ]
+    assert offenders == []
+
+
+def test_no_compose_probe_or_script_reads_a_secret_header_as_curl_config():
+    """curl's config grammar (`-K-`) ends a quoted `header = "..."` at the
+    first `"` and rewrites backslashes, so such a key is sent corrupted;
+    `--header @-` sends the stdin line byte for byte."""
+    import re
+    from pathlib import Path
+
+    repo = Path(__file__).resolve().parents[2]
+    services = repo / "services"
+    pattern = re.compile(r"curl\b[^\n]*\s(?:-K ?-|--config[ =]-)(?=\s|$)")
     offenders = [
         str(path.relative_to(repo))
         for path in [*services.glob("*/compose.yml"), *services.glob("*/**/*.sh"), *(repo / "scripts").glob("*.sh")]

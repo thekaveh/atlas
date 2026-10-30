@@ -11,7 +11,9 @@
 
 ## 1. Summary
 
-The owner set `https://github.com/Blaizzy/nativ` as the reference for how a project should *open*. `nativ`'s README header is a centered block: full-width poster, centered title, a bold one-line tagline, a one-line subtitle, a centered badge row, then a two-paragraph executive summary written as lead-in prose with no heading. Atlas already has the poster, the name, and a one-line summary short enough for GitHub's About box, but its root `README.md` opens with a left-aligned `# Atlas`, an unstyled one-liner, no badges, no lead-in summary, and jumps straight into two images. The "detailed" summary the project already has is buried at `## 2. What is Atlas`.
+The owner set `https://github.com/Blaizzy/nativ` as the reference for how a project should *open*. `nativ`'s README header is a centered block: full-width poster, centered title, a bold one-line tagline, a one-line subtitle, a centered badge row, then a two-paragraph executive summary written as lead-in prose with no heading.
+
+Atlas already has the poster, the name, and a one-line summary short enough for GitHub's About box, but its root `README.md` opens with a left-aligned `# Atlas`, an unstyled one-liner, no badges, no lead-in summary, and jumps straight into two images. The "detailed" summary the project already has is buried at `## 2. What is Atlas`.
 
 This design restructures the opening of all three documentation surfaces (in-repo `README.md`, the generated `.io` landing, and the generated GitHub wiki `Home`) to match that professional layout, and introduces one new artifact: a structured, roughly 130-word executive summary that sits at the top as lead-in prose. A single parity test keeps the two hand-authored sources (`README.md` and `docs/index.md`) telling the same story.
 

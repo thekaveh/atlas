@@ -9,6 +9,7 @@ from pathlib import Path
 import platform
 import ctypes
 import subprocess
+from urllib.parse import quote
 
 
 def detect_os() -> str:
@@ -202,17 +203,140 @@ def compose_env(compose_cmd: list) -> dict:
     The value Compose would resolve is kept when it already names this
     project (a hand-edited `MyStack` is project `mystack`, and its volumes
     are `MyStack-*`; lowercasing it renamed them and orphaned the data); it
-    is replaced with `-p` only when it names a different project."""
+    is replaced with `-p` only when it names a different project.
+
+    It also applies Redis overrides to this child only: a shell
+    REDIS_PASSWORD re-derives REDIS_PASSWORD_URI and the Redis URLs the env
+    file sets. When the env file's REDIS_PASSWORD holds a `${...}`
+    reference, a blocking `docker compose config` probe (10 s deadline)
+    resolves it first. If that probe fails, including when Compose rejects
+    the env file, this raises RuntimeError rather than run with Redis URLs
+    that do not match the password."""
     env = os.environ.copy()
-    if "-p" not in compose_cmd[:-1]:
-        return env
-    project = compose_cmd[compose_cmd.index("-p") + 1]
-    # An exported empty value still wins over --env-file in Compose, so it
-    # must be replaced too, not read as unset (2026-10-08 run, cycle 47).
-    resolved = env["PROJECT_NAME"] if "PROJECT_NAME" in env else _env_file_project_name(compose_cmd)
-    if not resolved or _normalized_project(resolved) != project:
-        env["PROJECT_NAME"] = project
+    if "-p" in compose_cmd[:-1]:
+        project = compose_cmd[compose_cmd.index("-p") + 1]
+        # Empty shell values also win over the file. Pin before resolving a
+        # Redis password reference to PROJECT_NAME in that same child.
+        resolved = env["PROJECT_NAME"] if "PROJECT_NAME" in env else _env_file_project_name(compose_cmd)
+        if not resolved or _normalized_project(resolved) != project:
+            env["PROJECT_NAME"] = project
+    _redis_compose_environment(env, compose_cmd)
     return env
+
+
+def _redis_compose_environment(env: dict, compose_cmd: list) -> None:
+    """Apply shell Redis overrides to this child, never to the persisted env."""
+    if "REDIS_PASSWORD" in env:
+        env["REDIS_PASSWORD_URI"] = quote(env["REDIS_PASSWORD"], safe="")
+    elif "REDIS_PASSWORD_URI" not in env and _redis_password_expands(compose_cmd):
+        env["REDIS_PASSWORD"] = _resolve_redis_password(compose_cmd, env)
+        env["REDIS_PASSWORD_URI"] = quote(env["REDIS_PASSWORD"], safe="")
+    if "REDIS_PASSWORD_URI" not in env:
+        return
+    values = _compose_env_file_values(compose_cmd)
+    for name, database in (
+        ("CELERY_BROKER_URL", 4), ("CELERY_RESULT_BACKEND", 4),
+        ("LIGHTRAG_REDIS_URI", 2),
+    ):
+        if name not in env and values.get(name):
+            env[name] = f'redis://:{env["REDIS_PASSWORD_URI"]}@redis:6379/{database}'
+
+
+def _compose_options(compose_cmd: list, names: set) -> list:
+    """Retain ordered explicit options in either supported argument form."""
+    options = []
+    for index, argument in enumerate(compose_cmd):
+        name = argument.split("=", 1)[0]
+        if name not in names:
+            continue
+        if "=" in argument:
+            options.append((name, argument.split("=", 1)[1]))
+        elif index + 1 < len(compose_cmd):
+            options.append((name, compose_cmd[index + 1]))
+    return options
+
+
+def _redis_password_expands(compose_cmd: list) -> bool:
+    """Detect syntax only; Compose owns the actual interpolation rules."""
+    import re
+    from utils.atomic_write import decode_env_value, env_assignment_pattern, env_lines
+
+    expands = False
+    for _, filename in _compose_options(compose_cmd, {"--env-file"}):
+        try:
+            content = Path(filename).read_text(encoding="utf-8-sig")
+            for line in env_lines(content):
+                if env_assignment_pattern("REDIS_PASSWORD").match(line):
+                    raw = line.split("=", 1)[1].lstrip()
+                    expands = not raw.startswith("'") and re.search(r"\$\{[^}]+\}", decode_env_value(raw)) is not None
+        except (OSError, ValueError):
+            # A file this reader cannot decode skips the probe, so the original
+            # Compose command reports it. One that decodes here but that Compose
+            # rejects fails the probe instead (_resolve_redis_password raises).
+            continue
+    return expands
+
+
+def _redis_probe_command(compose_cmd: list, model: Path) -> list:
+    """Replace stack models with a constant probe, retaining file/name inputs."""
+    command = compose_cmd[:2] if compose_cmd[1:2] == ["compose"] else compose_cmd[:1]
+    options = _compose_options(compose_cmd, {"--env-file", "-p", "--project-name", "--project-directory"})
+    for name, value in options:
+        command.extend([name, value])
+    if not any(name == "--project-directory" for name, _ in options):
+        files = _compose_options(compose_cmd, {"-f", "--file"})
+        directory = Path(files[0][1]).resolve().parent if files and files[0][1] != "-" else Path.cwd()
+        command.extend(["--project-directory", str(directory)])
+    return command + ["-f", str(model), "config", "--format", "json"]
+
+
+def _resolve_redis_password(compose_cmd: list, env: dict) -> str:
+    """Resolve file references privately, bounded, without saving credentials."""
+    import json
+    import tempfile
+    from core.process_runner import run_with_deadline
+
+    try:
+        with tempfile.TemporaryDirectory(prefix="atlas-redis-env-") as directory:
+            model = Path(directory) / "compose.json"
+            model.write_text(json.dumps({"services": {"atlas-redis-env-probe": {
+                "image": "scratch", "environment": {"VALUE": "${REDIS_PASSWORD}"},
+            }}}), encoding="utf-8")
+            result = run_with_deadline(
+                _redis_probe_command(compose_cmd, model), env=env,
+                timeout_seconds=10, max_output_bytes=1024 * 1024,
+            )
+            if result.returncode != 0:
+                raise ValueError("probe failed")
+            value = json.loads(result.stdout)["services"]["atlas-redis-env-probe"]["environment"]["VALUE"]
+            if not isinstance(value, str):
+                raise ValueError("invalid probe value")
+            # Compose config escapes dollars when serializing for later reload.
+            return value.replace("$$", "$")
+    except Exception:
+        raise RuntimeError("Could not resolve Redis password references with Compose") from None
+
+
+def _compose_env_file_values(compose_cmd: list) -> dict:
+    """Read explicit env files in Compose order, using Atlas's env grammar."""
+    from core.config_parser import ConfigParser
+
+    values = {}
+    for index, argument in enumerate(compose_cmd):
+        if argument.startswith("--env-file="):
+            env_file = argument.split("=", 1)[1]
+        elif argument == "--env-file" and index + 1 < len(compose_cmd):
+            env_file = compose_cmd[index + 1]
+        else:
+            continue
+        try:
+            parser = ConfigParser()
+            parser.env_file_path = Path(env_file)
+            values.update(parser.parse_env_file())
+        except (OSError, ValueError):
+            # Compose owns diagnostics for an unreadable or invalid env file.
+            continue
+    return values
 
 
 SINK_COMPOSE_TIMEOUT_SECONDS = 600

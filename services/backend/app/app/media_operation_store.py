@@ -114,6 +114,24 @@ def _ttl_seconds() -> int:
     return max(60, value)
 
 
+def _preserve_confirmed_cancellation(
+    current_payload: dict[str, Any], payload: dict[str, Any]
+) -> dict[str, Any]:
+    """Copy a transition without losing a confirmed in-flight cancellation."""
+    next_payload = deepcopy(payload)
+    if (
+        current_payload.get("status") == "cancellation_requested"
+        and next_payload.get("status") == "cancellation_requested"
+        and (current_payload.get("provenance") or {}).get(
+            "provider_cancellation_requested"
+        ) is True
+    ):
+        provenance = dict(next_payload.get("provenance") or {})
+        provenance["provider_cancellation_requested"] = True
+        next_payload["provenance"] = provenance
+    return next_payload
+
+
 class InMemoryMediaOperationStore:
     """Process-local fallback with the same transition contract as Redis."""
 
@@ -212,7 +230,9 @@ class InMemoryMediaOperationStore:
                 return deepcopy(operation), False
             if expected_status is not None and current_status != expected_status:
                 return deepcopy(operation), False
-            operation["last_payload"] = deepcopy(payload)
+            operation["last_payload"] = _preserve_confirmed_cancellation(
+                operation["last_payload"], payload
+            )
             operation["state_version"] = int(operation.get("state_version", 0)) + 1
             self._sync_pending_index_locked(operation)
             return deepcopy(operation), True
@@ -501,7 +521,15 @@ end
 if ARGV[3] ~= '' and current ~= ARGV[3] then
     return {0, blob}
 end
-operation.last_payload = cjson.decode(ARGV[1])
+local next_payload = cjson.decode(ARGV[1])
+if current == 'cancellation_requested'
+   and tostring(next_payload.status or '') == 'cancellation_requested'
+   and (operation.last_payload.provenance or {}).provider_cancellation_requested == true then
+    local next_provenance = next_payload.provenance or {}
+    next_provenance.provider_cancellation_requested = true
+    next_payload.provenance = next_provenance
+end
+operation.last_payload = next_payload
 operation.state_version = tonumber(operation.state_version or 0) + 1
 blob = cjson.encode(operation)
 local next_status = tostring(operation.last_payload.status or '')

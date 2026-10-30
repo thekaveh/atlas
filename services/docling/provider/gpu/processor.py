@@ -79,7 +79,7 @@ def _render_content(document, output_format: str) -> str:
         import json
 
         return json.dumps(document.export_to_dict(), indent=2)
-    return document.export_to_document_tokens()
+    return document.export_to_doctags()
 
 
 def render_conversion(

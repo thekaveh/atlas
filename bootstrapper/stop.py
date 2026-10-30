@@ -517,6 +517,15 @@ def _persist_project_override(stopper: AtlasStopper, project_name: str) -> None:
         )
 
 
+def _select_cli_consumers(paths) -> None:
+    """Scope the lossless path companion to this CLI invocation."""
+    from core.consumer_manifest import consumer_manifest_cli_paths
+
+    click.get_current_context().with_resource(
+        consumer_manifest_cli_paths(paths, restore_primary=False)
+    )
+
+
 @click.command()
 @click.option('--project', '-p', 'project_name', type=str, default=None,
               help='Docker Compose project name — the container family to tear '
@@ -546,7 +555,7 @@ def main(project_name, consumer_manifests, cold, clean_hosts, stop_managed_hosts
     if consumer_manifests:
         # Same channel start.py uses: the compose seam reads the manifests
         # (and their overlays) from ATLAS_CONSUMER_MANIFEST.
-        os.environ["ATLAS_CONSUMER_MANIFEST"] = os.pathsep.join(consumer_manifests)
+        _select_cli_consumers(consumer_manifests)
 
     stopper = AtlasStopper()
 

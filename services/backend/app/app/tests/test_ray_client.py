@@ -309,3 +309,138 @@ def test_an_unanswering_dashboard_is_503_not_500(monkeypatch, failure):
     for call in (lambda: client.get_job_status("j"), client.cluster_status, lambda: client.stop_job("j")):
         with pytest.raises(ray_client.RayDisabledError):
             call()
+
+
+class _OfflineRayDashboard:
+    """Drive the real pinned SDK without opening any network connection."""
+
+    def __init__(self):
+        self.outcome = "success"
+        self.preflight = None
+        self.calls = []
+        self.accepted = []
+
+    @staticmethod
+    def response(status, payload):
+        import json
+        import requests
+
+        response = requests.Response()
+        response.status_code = status
+        response._content = json.dumps(payload).encode()
+        return response
+
+    def request(self, method, url, **kwargs):
+        import requests
+
+        self.calls.append((method, url, kwargs))
+        if self.preflight and self.preflight in url:
+            raise requests.ReadTimeout("synthetic preflight failure")
+        if url.endswith("/api/version"):
+            return self.response(200, {"version": "4", "ray_version": "2.56.0"})
+        if method == "GET" and "/api/jobs/" in url:
+            if self.outcome != "duplicate":
+                return self.response(404, "synthetic job missing")
+            return self.response(200, {
+                "type": "SUBMISSION", "status": "RUNNING", "entrypoint": "echo synthetic",
+                "submission_id": url.rsplit("/", 1)[-1],
+            })
+        assert method == "POST" and url.endswith("/api/jobs/")
+        return self.submit_response(kwargs["json"]["submission_id"])
+
+    def submit_response(self, submission_id):
+        import requests
+
+        if self.outcome in {"rejected", "duplicate"}:
+            return self.response(400, "synthetic explicit rejection")
+        self.accepted.append(submission_id)
+        failures = {
+            "connection": requests.ConnectionError,
+            "chunked": requests.exceptions.ChunkedEncodingError,
+            "decoding": requests.exceptions.ContentDecodingError,
+            "timeout": requests.ReadTimeout,
+        }
+        if self.outcome in failures:
+            raise failures[self.outcome]("synthetic accepted job, lost reply")
+        response = self.response(200, {"job_id": submission_id, "submission_id": submission_id})
+        if self.outcome == "malformed-json":
+            response._content = b"not-json-after-acceptance"
+        elif self.outcome == "missing-field":
+            response = self.response(200, {"submission_id": submission_id})
+        elif self.outcome == "wrong-id":
+            response = self.response(200, {"job_id": submission_id, "submission_id": "raysubmit_other"})
+        return response
+
+
+@pytest.fixture
+def offline_ray_dashboard(monkeypatch):
+    import ray
+    import requests
+    import ray_client
+
+    # conftest imports the pinned SDK before collection; a stub here means the
+    # real SDK is missing or shadowed, which must fail rather than skip.
+    assert getattr(ray, "__file__", None), "real Ray SDK is shadowed by a test stub"
+    assert ray.__version__ == "2.56.0"
+    dashboard = _OfflineRayDashboard()
+    monkeypatch.setattr(requests, "request", dashboard.request)
+    monkeypatch.setenv("RAY_ADDRESS", "ray://synthetic-ray:10001")
+    for name in ("RAY_DASHBOARD_URL", "RAY_API_SERVER_ADDRESS"):
+        monkeypatch.setenv(name, "http://synthetic-ray.invalid:8265")
+    monkeypatch.setenv("RAY_JOB_API_TOKEN", "ray-test-token")
+    monkeypatch.setattr(ray_client.RayClient, "_instance", None)
+    return dashboard
+
+
+@pytest.mark.parametrize("outcome", [
+    "connection", "chunked", "decoding", "timeout", "malformed-json", "missing-field", "wrong-id",
+])
+def test_actual_sdk_lost_submit_reply_is_ambiguous(offline_ray_dashboard, outcome):
+    from ray_client import RaySubmissionAmbiguousError
+
+    dashboard = offline_ray_dashboard
+    dashboard.outcome = outcome
+    submission_id = "raysubmit_" + outcome.replace("-", "_")
+    with pytest.raises(RaySubmissionAmbiguousError) as captured:
+        RayClient().submit_job(RayJobSubmission("echo synthetic", submission_id))
+    assert captured.value.submission_id == submission_id
+    assert submission_id in str(captured.value)
+    assert dashboard.accepted == [submission_id]
+    assert [method for method, url, _ in dashboard.calls if "/api/jobs/" in url] == ["POST"]
+    assert all(call[2]["timeout"] == (5.0, 30.0) for call in dashboard.calls)
+
+
+def test_actual_sdk_valid_submit_preserves_the_caller_id(offline_ray_dashboard):
+    submission_id = "raysubmit_valid"
+    assert RayClient().submit_job(RayJobSubmission("echo synthetic", submission_id)) == submission_id
+    assert offline_ray_dashboard.accepted == [submission_id]
+
+
+@pytest.mark.parametrize("outcome, error", [
+    ("rejected", RuntimeError), ("duplicate", RayJobAlreadyExistsError),
+])
+def test_actual_sdk_explicit_rejection_retains_duplicate_probe(offline_ray_dashboard, outcome, error):
+    dashboard = offline_ray_dashboard
+    dashboard.outcome = outcome
+    with pytest.raises(error) as captured:
+        RayClient().submit_job(RayJobSubmission("echo synthetic", "raysubmit_rejected"))
+    if outcome == "rejected":
+        assert "synthetic explicit rejection" in str(captured.value)
+    assert dashboard.accepted == []
+    assert [method for method, url, _ in dashboard.calls if "/api/jobs/" in url] == ["POST", "GET"]
+
+
+@pytest.mark.parametrize("stage", ["version", "packages"])
+def test_actual_sdk_preflight_transport_failure_is_unavailable(offline_ray_dashboard, monkeypatch, stage):
+    from ray.job_submission import JobSubmissionClient
+    from ray_client import RayUnavailableError
+
+    dashboard = offline_ray_dashboard
+    dashboard.preflight = "/api/" + stage
+    if stage == "packages":
+        monkeypatch.setattr(JobSubmissionClient, "_upload_working_dir_if_needed",
+                            lambda client, env: client._package_exists("gcs://synthetic.zip"))
+    with pytest.raises(RayUnavailableError):
+        RayClient().submit_job(RayJobSubmission("echo synthetic", "raysubmit_preflight"))
+    assert dashboard.accepted == []
+    assert all(method != "POST" for method, _, _ in dashboard.calls)

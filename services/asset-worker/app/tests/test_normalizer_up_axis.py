@@ -249,3 +249,20 @@ def test_normalize_copies_through_overflowing_numeric_metadata(tmp_path, group, 
     normalize_glb(src, dst, PostprocessParams())
 
     assert dst.read_bytes() == payload
+
+
+def test_normalizer_does_not_rebuild_duplicate_json_chunks(tmp_path):
+    import json
+    from asset_worker.normalizer import JSON_CHUNK
+
+    geometry = _glb_from_positions(_box_positions(2, 1, 2))
+    benign = json.dumps({"asset": {"version": "2.0"}}).encode()
+    benign += b" " * (-len(benign) % 4)
+    chunks = struct.pack("<II", len(benign), JSON_CHUNK) + benign + geometry[12:]
+    malformed = struct.pack("<III", 0x46546C67, 2, 12 + len(chunks)) + chunks
+    source, output = tmp_path / "in.glb", tmp_path / "out.glb"
+    source.write_bytes(malformed)
+
+    normalize_glb(source, output, PostprocessParams(target_height_m=3))
+
+    assert output.read_bytes() == malformed

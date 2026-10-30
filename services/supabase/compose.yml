@@ -31,7 +31,7 @@ services:
     healthcheck:
       # -h localhost: the unix socket already answers during initdb's
       # temporary server; start_period covers crash recovery.
-      test: ["CMD-SHELL", "pg_isready -h localhost -U ${SUPABASE_DB_USER} -d ${SUPABASE_DB_NAME}"]
+      test: ["CMD-SHELL", 'pg_isready -h localhost -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
       interval: 10s
       timeout: 5s
       retries: 5

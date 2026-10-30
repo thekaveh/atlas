@@ -292,6 +292,39 @@ def test_clearing_a_cloud_provider_emits_a_disabling_flag():
 # ─── item 4: the activity marker ─────────────────────────────────────
 
 
+@pytest.mark.parametrize("worker_thread", [False, True])
+@pytest.mark.parametrize("level,tab,expected", [
+    ("error", BrandPanel.TAB_SETUP, True),
+    ("warn", BrandPanel.TAB_SETUP, False),
+    ("error", BrandPanel.TAB_LOGS, False),
+])
+def test_streamed_logs_update_the_hidden_error_marker_once(
+    worker_thread, level, tab, expected,
+):
+    scr = _screen()
+    teed = []
+    scr._tee_to_log = lambda message, **kwargs: teed.append((message, kwargs))
+
+    async def scenario():
+        async with _App(scr).run_test(size=(140, 44)) as pilot:
+            await pilot.pause()
+            scr._phase = "launch"
+            scr._logs_enabled = True
+            scr.show_tab(tab)
+            if worker_thread:
+                await asyncio.to_thread(scr._safe_log, "container message", source="docker", level=level)
+            else:
+                scr._safe_log("container message", source="docker", level=level)
+            await pilot.pause()
+            marked = scr._brand_panel.has_tab_alert(BrandPanel.TAB_LOGS)
+            scr.show_tab(BrandPanel.TAB_LOGS)
+            assert not scr._brand_panel.has_tab_alert(BrandPanel.TAB_LOGS)
+            return marked
+
+    assert asyncio.run(scenario()) is expected
+    assert teed == [("container message", {"source": "docker", "level": level})]
+
+
 def test_an_error_while_on_setup_marks_the_logs_tab():
     """The failure toast is transient by design; an operator who stepped
     away sees nothing afterwards. The marker persists until the tab is

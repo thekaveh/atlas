@@ -528,3 +528,53 @@ def test_openai_speech_and_search_models_are_not_chat_picks(model_id):
 
     assert _openai_pass_filter(model_id) is False
     assert _openai_pass_filter("gpt-5") is True
+
+
+@pytest.mark.parametrize("description,expected", [
+    ({"unexpected": "object"}, ""), (["unexpected list"], ""), (7, ""),
+    (True, ""), (1.5, ""), (False, ""), (0, ""), ([], ""), ({}, ""),
+    (None, ""), ("", ""), ("A valid description", "A valid description"),
+    ("é" * 120, "é" * 120), ("é" * 121, "é" * 117 + "…"),
+])
+def test_openrouter_optional_description_remains_renderable(monkeypatch, description, expected):
+    """Malformed optional metadata cannot break an otherwise valid live row."""
+    import json
+
+    from core.config_parser import ConfigParser
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("cloud picker fixture must not construct or read config")
+
+    monkeypatch.setattr(ConfigParser, "__init__", forbidden)
+    monkeypatch.setattr(ConfigParser, "parse_env_file", forbidden)
+    payload = {"data": [{"id": "private/model", "name": "Private model", "description": description}]}
+    calls = []
+
+    def response(request, timeout):
+        calls.append((request.full_url, timeout))
+        return _Resp(json.dumps(payload).encode("utf-8"))
+
+    monkeypatch.setattr(urllib.request, "urlopen", response)
+    steps = build_cloud_steps({_OPENROUTER.source_var: "enabled"}, lambda _msg: None)
+    step = next(s for s in steps if s.title == cloud_models_title(_OPENROUTER.name))
+    options = step.options_provider({})
+    assert len(options) == 1
+    option = options[0]
+    assert option.value == "openrouter/private/model"
+    assert option.label == "Private model"
+    assert option.badges == [BADGE_LIVE]
+    _assert_openrouter_description_render(option, expected)
+    assert calls == [("https://openrouter.ai/api/v1/models", 5.0)]
+    assert "Live from the provider" in step.subtitle_provider(options)
+
+
+def _assert_openrouter_description_render(option, expected):
+    from ui.textual.widgets.option_row import OptionRow
+
+    row = OptionRow(option.label, hint=option.hint, badges=option.badges, multi=True)
+    rendered = row.render().plain
+    assert "Private model" in rendered
+    assert option.hint == expected
+    assert len(option.hint) <= 120
+    if expected:
+        assert "".join(expected.split()) in "".join(rendered.split())

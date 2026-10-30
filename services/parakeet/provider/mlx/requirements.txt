@@ -13,3 +13,8 @@ fastapi>=0.104.0
 uvicorn[standard]>=0.24.0
 python-multipart>=0.0.31
 pydantic>=2.0.0
+
+# Patched transitive floors for the existing model-cache and audio libraries.
+certifi>=2026.10.19
+filelock>=4.2.1
+msgpack>=1.2.3

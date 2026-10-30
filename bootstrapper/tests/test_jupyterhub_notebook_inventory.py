@@ -309,3 +309,180 @@ def test_jupyter_origin_defaults_to_same_origin_and_spark_kill_is_off():
     assert "${JUPYTER_ALLOW_ORIGIN:-*}" not in (repo / "services/jupyterhub/compose.yml").read_text()
     spark = yaml.safe_load((repo / "services/spark/compose.yml").read_text())
     assert "-Dspark.ui.killEnabled=false" in spark["services"]["spark-master"]["environment"]["SPARK_MASTER_OPTS"]
+
+
+import pytest
+
+
+def _run_jupyter_startup(tmp_path, settings):
+    import os
+    import subprocess
+    from types import SimpleNamespace
+
+    home = tmp_path / "owned-jovyan"
+    work = home / "work"
+    examples = work / "examples"
+    notebooks = home / "notebooks"
+    examples.mkdir(parents=True)
+    notebooks.mkdir()
+    (work / ".env").write_text("previous environment\n")
+    (work / ".env").chmod(0o644)
+    (examples / "existing.ipynb").write_text("keep user copy")
+    (notebooks / "existing.ipynb").write_text("replace user copy")
+    (notebooks / "new.ipynb").write_text("new sample")
+    script = tmp_path / "owned-startup.sh"
+    script.write_text(STARTUP_FILE.read_text().replace("/home/jovyan", str(home)))
+    assert "/home/jovyan" not in script.read_text()
+    proof = tmp_path / "owned-launch.json"
+    recorder = (
+        "import json,os,sys; from pathlib import Path; "
+        "Path(sys.argv[1]).write_text(json.dumps({'env':dict(os.environ),"
+        "'argv':sys.argv[2:],'umask':os.umask(0o22)}))"
+    )
+    result = subprocess.run(
+        ["/bin/bash", "-c", 'umask 027; exec "$@"', "owned-launch",
+         "/bin/bash", str(script), sys.executable, "-c", recorder, str(proof),
+         "--owned=two words", "literal$argument"],
+        env={"PATH": os.defpath, "HOME": str(home), **settings},
+        capture_output=True, text=True, timeout=5,
+    )
+    assert result.returncode == 0, result.stderr
+    launched = json.loads(proof.read_text())
+    _assert_jupyter_startup_artifacts(result, work, launched)
+    return SimpleNamespace(work=work, env=launched["env"])
+
+
+def _assert_jupyter_startup_artifacts(result, work, launched):
+    import stat
+
+    examples = work / "examples"
+    assert "Environment file created at" in result.stdout
+    assert "Sample notebooks available in" in result.stdout
+    assert "JupyterHub is ready!" in result.stdout
+    assert stat.S_IMODE((work / ".env").stat().st_mode) == 0o600
+    assert (examples / "existing.ipynb").read_text() == "keep user copy"
+    assert (examples / "new.ipynb").read_text() == "new sample"
+    assert launched["argv"] == ["--owned=two words", "literal$argument"]
+    assert launched["umask"] == 0o27
+
+
+def _first_litellm_notebook_client(started, monkeypatch):
+    import os
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    notebook = json.loads((NOTEBOOK_DIR / "01_litellm_basics.ipynb").read_text())
+    cell = next(cell for cell in notebook["cells"] if cell["cell_type"] == "code")
+    cell_path = started.work / "owned-notebook-cell.py"
+    cell_path.write_text("".join(cell["source"]))
+    captured = {}
+    monkeypatch.chdir(started.work)
+    for name in ("LITELLM_API_KEY", "LITELLM_BASE_URL", "OPENAI_API_KEY", "OPENAI_API_BASE"):
+        if name in started.env:
+            monkeypatch.setenv(name, started.env[name])
+        else:
+            monkeypatch.delenv(name, raising=False)
+    monkeypatch.delenv("OWNED_UNSET_LITERAL", raising=False)
+    monkeypatch.setitem(sys.modules, "openai", SimpleNamespace(
+        OpenAI=lambda **kwargs: captured.update(kwargs)))
+    with patch.dict(os.environ):
+        exec(compile(cell_path.read_text(), str(cell_path), "exec"), {})
+    return captured
+
+
+@pytest.mark.parametrize("key", [
+    "sk-synthetic #suffix", "  sk-synthetic  ", '"sk-synthetic"', "'sk-synthetic'",
+    "sk-\u0024{OWNED_UNSET_LITERAL}", r"sk-\t-literal", "sk-plain", "sk-no-space#suffix",
+])
+def test_startup_notebook_preserves_literal_litellm_key(tmp_path, monkeypatch, key):
+    from utils.atomic_write import decode_env_assignment, render_env_assignment
+
+    assignment = "LITELLM_MASTER_KEY=" + render_env_assignment("LITELLM_MASTER_KEY", key)
+    assert decode_env_assignment(assignment, origin="owned-input")[1] == key
+    started = _run_jupyter_startup(tmp_path, {
+        "LITELLM_API_KEY": key, "LITELLM_BASE_URL": "http://owned-litellm.invalid:4000"})
+    client = _first_litellm_notebook_client(started, monkeypatch)
+    assert client["api_key"] == key
+    assert client["base_url"] == "http://owned-litellm.invalid:4000/v1"
+    assert {"OPENAI_API_BASE", "OPENAI_API_KEY"} <= started.env.keys()
+    assert started.env["OPENAI_API_KEY"] == key
+    assert started.env["OPENAI_API_BASE"] == client["base_url"]
+
+
+@pytest.mark.parametrize(("settings", "expected"), [
+    ({}, ("http://litellm:4000/v1", "")),
+    ({"LITELLM_BASE_URL": "", "LITELLM_API_KEY": ""}, ("http://litellm:4000/v1", "")),
+    ({"LITELLM_BASE_URL": "http://owned.invalid/v1"}, ("http://owned.invalid/v1/v1", "")),
+    ({"LITELLM_BASE_URL": "http://owned.invalid/"}, ("http://owned.invalid//v1", "")),
+    ({"OPENAI_API_BASE": "http://inherited.invalid/v1", "OPENAI_API_KEY": " own #key "},
+     ("http://inherited.invalid/v1", " own #key ")),
+    ({"OPENAI_API_BASE": "", "OPENAI_API_KEY": ""}, ("", "")),
+    ({"OPENAI_API_BASE": "", "OPENAI_API_KEY": "inherited"}, ("", "inherited")),
+    ({"OPENAI_API_BASE": "http://inherited.invalid", "OPENAI_API_KEY": ""},
+     ("http://inherited.invalid", "")),
+    ({"OPENAI_API_KEY": ""}, ("http://litellm:4000/v1", "")),
+    ({"OPENAI_API_BASE": "", "LITELLM_API_KEY": "sk-own #key"}, ("", "sk-own #key")),
+    ({"OPENAI_API_KEY": " own #key ", "LITELLM_BASE_URL": "http://owned.invalid"},
+     ("http://owned.invalid/v1", " own #key ")),
+    ({"OPENAI_API_BASE": "http://inherited.invalid", "LITELLM_API_KEY": "sk-plain"},
+     ("http://inherited.invalid", "sk-plain")),
+])
+def test_startup_openai_alias_defaults_and_inherited_values(tmp_path, monkeypatch, settings, expected):
+    started = _run_jupyter_startup(tmp_path, settings)
+    client = _first_litellm_notebook_client(started, monkeypatch)
+    assert (client["base_url"], client["api_key"]) == expected
+    assert {"OPENAI_API_BASE", "OPENAI_API_KEY"} <= started.env.keys()
+    assert (started.env["OPENAI_API_BASE"], started.env["OPENAI_API_KEY"]) == expected
+
+
+def _invoke_notebook_cleanup_case(started, context, raises):
+    if raises:
+        with pytest.raises(RuntimeError, match="owned notebook failure"):
+            _first_litellm_notebook_client(started, context)
+    else:
+        client = _first_litellm_notebook_client(started, context)
+        assert client == {"base_url": "http://owned-cleanup.invalid:4000/v1",
+                          "api_key": "sk-owned-cleanup"}
+
+
+@pytest.mark.parametrize("case", [
+    ("absent", False), ("inherited", False),
+    ("absent", True), ("inherited", True),
+])
+def test_notebook_client_restores_dotenv_environment_on_success_and_failure(
+    tmp_path, monkeypatch, case
+):
+    import os
+    from dotenv import dotenv_values
+    from unittest.mock import patch
+
+    mode, raises = case
+    started = _run_jupyter_startup(tmp_path, {
+        "LITELLM_API_KEY": "sk-owned-cleanup",
+        "LITELLM_BASE_URL": "http://owned-cleanup.invalid:4000"})
+    if raises:
+        notebook = json.loads((NOTEBOOK_DIR / "01_litellm_basics.ipynb").read_text())
+        cell = next(cell for cell in notebook["cells"] if cell["cell_type"] == "code")
+        cell["source"] = ["".join(cell["source"]) + "\nraise RuntimeError('owned notebook failure')\n"]
+        private_notebooks = tmp_path / "raising-notebook"
+        private_notebooks.mkdir()
+        (private_notebooks / "01_litellm_basics.ipynb").write_text(json.dumps(notebook))
+        monkeypatch.setitem(globals(), "NOTEBOOK_DIR", private_notebooks)
+
+    # The outer scope cleans up even when this regression fails against an
+    # unisolated helper. Compare inside it, after the helper's own teardown.
+    with patch.dict(os.environ):
+        with pytest.MonkeyPatch.context() as setup:
+            for name in dotenv_values(started.work / ".env"):
+                if mode == "absent":
+                    setup.delenv(name, raising=False)
+                else:
+                    setup.setenv(name, "owned-inherited-" + name.lower())
+            before = dict(os.environ)
+            with pytest.MonkeyPatch.context() as context:
+                _invoke_notebook_cleanup_case(started, context, raises)
+            changed = sorted(
+                name for name in before.keys() | os.environ.keys()
+                if before.get(name) != os.environ.get(name)
+            )
+            assert changed == []

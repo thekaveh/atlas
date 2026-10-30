@@ -211,12 +211,20 @@ def _parse_tei_items(payload: object, doc_count: int) -> List[dict]:
             or not isinstance(index, int)
             or isinstance(score, bool)
             or not isinstance(score, (int, float))
-            or not math.isfinite(float(score))
         ):
             raise RerankAdapterUpstreamError(
                 "TEI /rerank item has invalid 'index'/'score' types"
             )
-        score = float(score)
+        try:
+            score = float(score)
+        except OverflowError as exc:
+            raise RerankAdapterUpstreamError(
+                "TEI /rerank item has invalid 'index'/'score' types"
+            ) from exc
+        if not math.isfinite(score):
+            raise RerankAdapterUpstreamError(
+                "TEI /rerank item has invalid 'index'/'score' types"
+            )
         # A returned index outside the input range means the two sides
         # disagree about the batch — refuse to map it to a wrong document.
         if index < 0 or index >= doc_count:

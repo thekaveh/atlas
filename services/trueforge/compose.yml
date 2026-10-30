@@ -39,7 +39,7 @@ services:
       # 2 = Open WebUI websockets, 3 = JupyterHub, 4 = celery). Carries
       # executor peering only, so the footprint is small; revisit against the
       # #1040 Redis capacity thread if session load grows.
-      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/5
+      REDIS_URL: redis://:${REDIS_PASSWORD_URI}@redis:6379/5
       # Host-facing origin for the UI and for MCP OAuth/DCR callbacks —
       # the Kong route, not the direct port (langfuse NEXTAUTH_URL precedent).
       PUBLIC_BASE_URL: http://trueforge.localhost:${KONG_HTTP_PORT}

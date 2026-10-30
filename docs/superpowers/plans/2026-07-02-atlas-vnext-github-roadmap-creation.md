@@ -455,7 +455,7 @@ For every issue labeled `wave:build-now`:
 
 Expected:
 
-- All 12 Build Now items have useful Project fields.
+- All 15 Build Now items have useful Project fields.
 
 - [ ] **Step 4: Set fields for non-active items**
 

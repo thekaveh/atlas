@@ -446,8 +446,10 @@ def _openrouter_models(rows: list) -> list[ModelInfo]:
         # response format ever includes the prefix already.
         oid = rid if rid.startswith("openrouter/") else f"openrouter/{rid}"
         label = r.get("name") or oid
-        desc = r.get("description") or ""
-        if isinstance(desc, str) and len(desc) > 120:
+        desc = r.get("description")
+        if not isinstance(desc, str):
+            desc = ""
+        if len(desc) > 120:
             desc = desc[:117] + "\u2026"
         out.append(ModelInfo(id=oid, label=str(label), description=desc))
     out.sort(key=lambda m: m.label.lower())

@@ -114,6 +114,7 @@ Recall and update confidence must be finite and in `0..1`. Invalid requests retu
 
 - Every memory write (edit, soft delete, consolidation, retention) marks a durable `vector_sync_pending` intent with the Postgres change.
 - While Weaviate serves recall, each write also updates a pgvector shadow. The intent clears only after both writes are durable.
+- Successful reconciliation clears the pending intent after the required vector writes. An edit to the fact's content or vector properties keeps the new version pending.
 - When Weaviate is unavailable, a pgvector write advances the dirty generation atomically with the vector update.
 - A Weaviate outage latches recall to pgvector, without readiness probes on each request.
 - Recall and writes check the generation before and after external I/O. On a change, the result is discarded or pgvector stays authoritative. No stale result or lost write crosses a switch.
@@ -187,7 +188,7 @@ NEO4J_USER=${GRAPH_DB_USER}
 NEO4J_PASSWORD=${GRAPH_DB_PASSWORD}
 KONG_URL=http://kong-api-gateway:8000
 SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
-REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+REDIS_URL=redis://:${REDIS_PASSWORD_URI}@redis:6379/0
 RAY_JOB_API_TOKEN=${RAY_JOB_API_TOKEN}
 CELERY_SOURCE=disabled
 CELERY_BROKER_URL=                 # auto-managed when CELERY_SOURCE=container
@@ -206,6 +207,7 @@ The list comes from `runtime_adaptive.backend.adapts_to` in `services/backend/se
 - On `/documents/extract` it retries for up to 30 s, then returns `503`. During corpus ingestion it retries for up to 120 s, then tries the next parser in the profile's `parser_order`, such as Tika.
 - Ingestion asks Docling for markdown only (`enable_chunking=false`), because it re-chunks the text itself. This also keeps long books under Docling's 10,000-chunk limit.
 - `POST /documents/extract` treats Docling and Tika as untrusted. A malformed success payload fails validation instead of being indexed as an empty document. The route returns a stable generic error, so no provider detail or document content leaks. The extraction route's code documents the required response shape.
+- Tika must return a successful HTTP status. Redirects are rejected without following them, so redirect pages cannot become extracted text.
 
 ### 3.6. Hosted media gateway
 
@@ -263,6 +265,8 @@ MEDIA_LEDGER_RECOVERY_MAX_CYCLES=4
 
 - Cancellation uses the pinned core's atomic `POST /api/jobs/{job_id}/cancel` and accepts only an exact boolean `cancelled`. Interrupted history becomes terminal `cancelled`.
 - An ambiguous ComfyUI cancellation delivery can be retried safely. A localhost ComfyUI without that endpoint fails closed; Atlas never falls back to the global `/interrupt`.
+- A stale poll cannot clear confirmed cancellation while the operation remains `cancellation_requested`. Repeated cancellation then returns the confirmed state.
+- If an accepted ComfyUI job cannot be recorded, Atlas requests cancellation of that exact job before returning `503`. Ledger recovery remains necessary.
 - A failed job's poll reports only `ComfyUI execution failed (<exception class>)`. The message, traceback and node inputs are logged, never returned.
 - A ComfyUI rejection on `/media/generate` returns a fixed message: `400` for a bad graph, `502` for any other upstream status. The upstream body is logged, never returned.
 
@@ -400,18 +404,37 @@ A disabled optional service degrades only its feature:
 
 **RAG ingestion job engine (`rag_ingestion/`).** `POST /api/rag/ingestions` runs an idempotent lifecycle over a consumer-declared `rag_ingestion_profile`. The phases are discover, parse, chunk, embed, vector-store write, LightRAG upload, drain and finalize. It runs through the Celery tier when enabled, and synchronously otherwise. Profile contract: [Consumer Manifest Reference §11](../../docs/reference/consumer-manifest.md#11-rag_ingestion_profiles).
 
-- **Submission:** the job snapshots the corpus path and profile definitions, so a queued worker runs what was submitted even if the registry changes. Mount and MinIO fingerprints hash bounded file bytes; the worker reads them again. A corpus change between submission and discovery clears that job's dedup eligibility before writes. Upgrading fingerprint formats may cause one new ingestion for unchanged content.
-- **Reuse:** pending and running duplicates share the existing job. Completed jobs are reused only while their Weaviate target publications remain current. Restoring earlier corpus bytes or an embedding model after another generation changes an overlapping class starts ingestion again. Empty-corpus publications follow the same rule. Missing or expired publication evidence can also cause another ingestion.
+- **Submission:** the job snapshots the corpus path and profile definitions, so a queued worker runs what was submitted even if the registry changes. Mount and MinIO fingerprints hash bounded file bytes; the worker reads them again. A corpus or declared destination change between submission and discovery clears that job's dedup eligibility before writes. Upgrading fingerprint or job-key formats may cause one new ingestion for unchanged content.
+- **Reuse:** pending and running duplicates with the same job key share the existing job. Completed jobs are reused only while their Weaviate target publications remain current. Restoring earlier corpus bytes or an embedding model after another generation changes an overlapping class starts ingestion again. Empty-corpus publications follow the same rule. Missing or expired publication evidence can also cause another ingestion.
+- **Destinations:** job identity includes each declared Weaviate or LightRAG endpoint and its configured availability. Changing endpoints or enabling a skipped destination creates a new job. URL credentials, query strings and fragments do not affect this identity. Data loss behind an unchanged endpoint still requires recovery.
 - **Progress:** each phase reports status, counts and actionable errors. Each run removes prior-generation Weaviate objects that are no longer in the source corpus. Failed sources are excluded from stale-object deletion; their earlier vectors can still be lost during class replacement.
-- **Rebuild reporting:** saved rebuild history survives later write failures and retries. Creation acknowledgement failure or lease loss before the checkpoint can leave vector availability unverified. Exclusion from cleanup does not prove that vectors exist. Restore missing vectors through a successful new ingestion. Follow the [consumer recovery requirements](../../docs/reference/consumer-manifest.md#11-rag_ingestion_profiles) for deduplication and profile regeneration.
+- **Rebuild reporting:** saved rebuild history survives later write failures and retries. Creation acknowledgement failure or lease loss before the checkpoint can leave vector availability unverified. Exclusion from cleanup does not prove that vectors exist. Restore missing vectors through a successful new ingestion after any blocked collection is recovered below. Follow the [consumer recovery requirements](../../docs/reference/consumer-manifest.md#11-rag_ingestion_profiles) for deduplication and profile regeneration.
 - **Bounds:** `RAG_INGESTION_MAX_FILE_BYTES`, `RAG_INGESTION_MAX_CORPUS_BYTES` and `RAG_INGESTION_MAX_FILES`.
 - **Listing:** `GET /api/rag/ingestions` returns at most 100 jobs by default (maximum 200). Pass `cursor` from `X-Atlas-Next-Cursor` and read `X-Atlas-Page-Limit` to page.
 - **Leases:** an owner-fenced execution lease (`RAG_INGESTION_EXECUTION_LEASE_SECONDS`) protects each phase. Every Celery delivery uses a fresh owner. After an ambiguous Redis response, only an exact compare-and-set against the prior owner can transfer the claim.
 - **Lease loss:** a renewal that errors is retried until the lease would expire. A failed renewal carries the current owner into recovery. A lost lease counts against the same 20-attempt limit as a Redis outage.
 - **Redis failures:** an error reply that will not change (for example `WRONGTYPE`) fails the task and the job without retry. Other failures, including `READONLY` and `OOM` replies during recovery, retry with full-jitter backoff capped at 600 s.
 - **Retry limit:** at most 20 Redis retries (about an hour on average). They do not use the three-retry budget of the upstream phases. At the limit the job is marked `failed`, unless another live worker holds its lease, so a resubmit starts a fresh job.
+- **Collection writers:** each attempt reserves all declared physical Weaviate classes before its first mutation, including punctuation aliases of one class. The reservation covers only the vector-store write phase. A job whose classes are reserved waits as `pending` before any parse or embed work. Celery retries it with full-jitter backoff capped at 600 s, outside the upstream and Redis retry budgets. Synchronous callers can resubmit the same pending job after the active writer finishes.
+- **Interrupted writes:** after mutation begins, only acknowledged schema, object and reconciliation completion, or a 4xx rejection from Weaviate, permits clean release. A rejection still invalidates completed-job reuse for that class. A 5xx response, cancellation, timeout, execution-lease expiry and job retention do not establish remote completion. There is no automatic takeover of an uncertain class. Its non-expiring guard blocks later attempts, including a retry of the same job.
 - **Exactly-once:** fencing stops two workers from persisting as the same owner. It does not make external services exactly-once. LightRAG retries use deterministic content-and-path identities.
 - **LightRAG conflicts:** only a matching duplicate in an admitted or processed state counts as uploaded. Celery retries scanning or deletion refusals within its transient budget. Synchronous ingestion fails without automatic retry. Failed records and unrecognized conflicts fail the upload phase.
+
+<a id="rag-collection-recovery"></a>
+
+**RAG collection recovery.**
+
+A collection blocked by an interrupted write requires operator recovery. Deleting a job or waiting for its TTL does not release its publication guard.
+
+Each guard value is a JSON array of ingestion id, execution owner and attempt token, followed by `:clean` or `:dirty`. A `:clean` guard records no uncertain mutation; writers release it when their vector-store write phase ends. A crash just before that release can leave it behind. You can delete it once `atlas:rag:execution:<ingestion id>` is missing or holds a different owner.
+
+A `:dirty` guard needs this procedure:
+
+1. Quiesce every writer of the affected classes, including Backend processes, Celery workers and other publishers. Confirm that no previously accepted remote mutation can still finish. If this cannot be confirmed, leave the classes blocked.
+2. After verified quiescence, remove each affected guard and invalidate its publication proof together. The keys are `atlas:rag:publication-guard:<target>` and `atlas:rag:publication:<target>` in the database selected by Backend `REDIS_URL` (default 0). The target is the SHA-256 hex digest of compact JSON `["weaviate","<physical_class_name>"]`.
+3. Reingest the affected corpus with its recorded profile. Check the job status and resulting vectors before resuming other publishers. This reestablishes publication evidence; clearing a guard alone does not restore vectors.
+
+Redis guards have no TTL and outlive ordinary job retention. Atlas enables AOF with Redis's default fsync policy, but lost or restored Redis state can lose fencing evidence. Quiesce and recover affected writers after such state loss; persistence does not guarantee fencing across every crash. Memory mode loses guards on process restart and is unsuitable for durable recovery.
 
 **Shared state store.**
 
@@ -426,13 +449,19 @@ A disabled optional service degrades only its feature:
 
 - Runtime dependencies are in `services/backend/app/app/requirements.txt`. Test dependencies are in `requirements-dev.txt` in the same directory; only test environments install them.
 - The Backend test suite is in `services/backend/app/app/tests/`. The `services-lint` job "Bootstrapper and Backend suites (with containers)" runs it.
-- Compose bind-mounts `./app/app` onto `/app`, so you edit the source in place. To apply a change, recreate the Backend. On a stack with no consumer manifest and no overlays, run:
+- Compose bind-mounts `./app/app` onto `/app`, so you edit the source in place. To apply a change, recreate the Backend.
+
+Use this command only without consumer manifests or overlays, and with literal Redis credentials in `.env`.
+Redis shell overrides must be unset.
 
 ```bash
 docker compose -p <PROJECT_NAME> up -d --force-recreate backend
 ```
 
 With a consumer manifest, run `./start.sh --consumer <manifest>` again instead. A bare Compose command drops the overlay that mounts the plugins.
+
+For Redis password references or shell overrides, rerun `./start.sh` with the deployment's usual options.
+See [Redis configuration](../redis/README.md#3-configuration) for transient credential handling.
 
 Recreate the Backend also after a runtime dependency change. Set `BACKEND_DEV_RELOAD=true` to run `uvicorn[standard] --reload` and hot-reload host-side edits. It is off by default, because git churn in the bind-mounted plugin directory can restart or crash-loop the Backend.
 

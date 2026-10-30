@@ -129,7 +129,7 @@ MinIO data lives in the `${PROJECT_NAME}-minio-data` named Docker volume mounted
 
 - **Add a bucket manually:** `mc mb local/<bucket>` from a host with `mc` and the root alias configured.
 - **Add a parent-owned consumer bucket:** set `MINIO_EXTRA_CONSUMERS` and its bucket, access and secret variables in a `_user` compose overlay and env overlay. Then run `./start.sh` again. A bare `docker compose` command does not load the `_user` overlay.
-- **Rotate a service-account key:** edit `MINIO_<NAME>_ACCESS_KEY` and `MINIO_<NAME>_SECRET_KEY` in `.env`, then run `docker compose -p <PROJECT_NAME> up --force-recreate minio-init` to re-provision. If the stack uses overlays or a consumer manifest, run `./start.sh` again instead.
+- **Rotate a service-account key:** edit `MINIO_<NAME>_ACCESS_KEY` and `MINIO_<NAME>_SECRET_KEY` in `.env`. Run `./start.sh` again to reprovision `minio-init` and recreate the affected consumer containers with the new credentials. Reload the credentials in any clients outside Atlas. Recreating only `minio-init` leaves running consumers with stale credentials; changing an access key also leaves the old account (§3).
 - **Logs:** `docker logs ${PROJECT_NAME}-minio` and `docker logs ${PROJECT_NAME}-minio-init`.
 
 ## 10. Capabilities & limitations

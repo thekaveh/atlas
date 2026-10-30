@@ -39,10 +39,19 @@ if [ -n "${LATEST_BACKUP}" ] && [ -f "${LATEST_BACKUP}" ]; then
 
   # Restore the database (5.x: `database load`; community ships no
   # `database restore` — see restore.sh).
-  mkdir -p "$(dirname "${RESTORE_MARKER}")"
-  touch "${RESTORE_MARKER}"
+  if ! mkdir -p "$(dirname "${RESTORE_MARKER}")"; then
+    echo "ERROR: cannot create restore marker directory for ${RESTORE_MARKER}; refusing to load the database." >&2
+    exit 1
+  fi
+  if ! touch "${RESTORE_MARKER}"; then
+    echo "ERROR: cannot create restore marker ${RESTORE_MARKER}; refusing to load the database." >&2
+    exit 1
+  fi
   if neo4j-admin database load neo4j --from-stdin --overwrite-destination < "${LATEST_BACKUP}"; then
-    rm -f "${RESTORE_MARKER}"
+    if ! rm -f "${RESTORE_MARKER}"; then
+      echo "ERROR: database load completed but restore marker ${RESTORE_MARKER} could not be removed; refusing to start." >&2
+      exit 1
+    fi
     echo "Database automatically restored successfully."
   else
     echo "ERROR: automatic restore from ${LATEST_BACKUP} FAILED (load exited non-zero)." >&2

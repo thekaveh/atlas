@@ -10,7 +10,18 @@ Part of the #333 creative-media epic. It complements — and never replaces — 
 
 **READY only as an isolated validation spike. A shippable `container` source is CONDITIONAL on that spike meeting the go/no-go thresholds in §7.**
 
-The agentic composition stage (compose → screenshot/render → judge → adjust) genuinely needs a *drivable* Blender the agent can see, and Atlas's `blender-mcp` service is the correct seam. But the container path crosses four unproven risks — add-on behaviour under a virtual display, GPU-less capture fidelity, in-network socket binding, and an arbitrary-code-execution security surface — that must be measured on an isolated spike before any manifest change. Until the spike passes, the production Composer has no in-network Blender. Atlas can run a managed headless host bridge for scene/object/code commands, but viewport capture still requires the human-attended `localhost:9876` GUI source; that is an accepted, documented gap, not a regression.
+The agentic composition loop (compose → screenshot/render → judge → adjust) needs a drivable Blender the agent can see. Atlas's `blender-mcp` service is the correct seam.
+
+The container path has four unproven risks:
+
+- Add-on behaviour under a virtual display.
+- GPU-less capture fidelity.
+- In-network socket binding.
+- An arbitrary-code-execution security surface.
+
+Measure these risks in an isolated spike before any manifest change.
+
+Until the spike passes, the production Composer has no in-network Blender. Atlas can run a managed headless host bridge for scene/object/code commands. Viewport capture still requires the human-attended `localhost:9876` GUI source. This is an accepted, documented gap, not a regression.
 
 This evaluation does not itself run Blender containers or report measured benchmark numbers. It defines *what the spike measures*, *the thresholds it must clear*, and *the contracts the eventual `container` source must honour*.
 

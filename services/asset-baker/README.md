@@ -113,6 +113,8 @@ curl -H "Authorization: Bearer ${ASSET_BAKER_API_TOKEN}" \
 | `canonical_size` | no | Canonical max-dimension normalization scale. Defaults to `ASSET_BAKER_CANONICAL_SIZE`. |
 | `mode` | no | `bake` (full HP→LP + texture bake, default) or `skip` (foliage bypass — normalize + export, no remesh/bake). |
 
+Invalid numeric parameters, including NaN and infinity, return `422` before baking or object-store access. This applies to multipart and JSON requests.
+
 ### 4.2. MinIO Referenced GLB
 
 `POST /assets/bake/ref` accepts JSON:
@@ -207,6 +209,7 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 ## 7. Troubleshooting
 
 - `400 Input must be a GLB file`: use a `.glb` filename and a binary GLB payload. Decompress EXT_meshopt GLBs to plain GLB first (Blender 4.3 can't import meshopt).
+- `400 Input must be a binary glTF 2.0 GLB`: the input failed a check in §4.1. Re-export it as GLB 2.0 with 4-byte-padded chunks: one JSON chunk, then an optional BIN chunk.
 - `422 baked color is black`: the mean-brightness QA gate fired — typically a `metallic=1` source (neutralized automatically, but check the source's textures) or dead UVs. The bake is refused rather than shipping a black asset.
 - Thin foliage fragments into shards: pass `mode=skip` (foliage bypass) — buildings/props bake, foliage skips.
 - `429 Bake worker is busy`: bounded concurrency (`ASSET_BAKER_CONCURRENCY`, default 1) rejected a concurrent bake; retry after the in-flight bake finishes.

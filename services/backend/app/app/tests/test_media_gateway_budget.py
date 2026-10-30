@@ -314,6 +314,112 @@ def test_state_persistence_failure_retains_spend_after_cancel_request(monkeypatc
     assert spend["reserved_usd"] == 0.05
 
 
+@pytest.fixture(params=[True, False], ids=["budget-enabled", "budget-disabled"])
+def unpersisted_comfyui_submission(monkeypatch, request):
+    main = _fresh_main(monkeypatch, budget_enabled=request.param, default_cap=10.0)
+    monkeypatch.setenv("COMFYUI_SOURCE", "container-cpu")
+
+    async def submit(**kwargs):
+        assert kwargs["route"][0] == "comfyui"
+        return {
+            "operation_id": "comfyui-unpersisted", "status": "queued",
+            "provider": "comfyui", "model": "local-model", "modality": "image",
+            "cost_usd": 0.0, "provenance": {}, "artifacts": [],
+        }
+
+    async def fail_create(_operation):
+        raise RuntimeError("synthetic operation persistence failure")
+
+    monkeypatch.setattr(main, "_submit_media_provider", submit)
+    monkeypatch.setattr(main.MEDIA_OPERATION_STORE, "create", fail_create)
+    monkeypatch.setattr(main, "_MEDIA_STATE_PERSIST_DELAYS", (0,))
+    request = main.MediaGenerateRequest(
+        provider="comfyui", modality="image", model="local-model",
+        input={"prompt": "p"}, consumer="acme",
+    )
+    principal = main.BackendPrincipal(kind="service", subject="test")
+    return main, request, principal
+
+
+@pytest.mark.parametrize("outcome", [True, False, RuntimeError("cancel unavailable")])
+def test_unpersisted_comfyui_submission_requests_targeted_cancel(
+    monkeypatch, unpersisted_comfyui_submission, outcome
+):
+    from fastapi import HTTPException
+
+    main, request, principal = unpersisted_comfyui_submission
+    calls = []
+
+    async def cancel(**kwargs):
+        calls.append(kwargs)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+    monkeypatch.setattr(main, "_cancel_media_provider", cancel)
+
+    async def scenario():
+        with pytest.raises(HTTPException) as captured:
+            await main.submit_media_generation(request, _direct_http_request(), principal)
+        assert captured.value.status_code == 503
+        assert captured.value.detail["provider_operation_id"] == "comfyui-unpersisted"
+        assert captured.value.detail["manual_reconciliation_required"] is True
+        assert captured.value.detail["recovery_ledger_ids"] == ["comfyui-unpersisted"]
+        assert captured.value.detail["provider_cancellation_requested"] is (outcome is True)
+        assert calls == [{
+            "provider": "comfyui", "operation_id": "comfyui-unpersisted",
+            "modality": "image", "model": "local-model",
+        }]
+        assert await main.MEDIA_OPERATION_STORE.get("comfyui-unpersisted") is None
+        record = await main.MEDIA_BUDGET_ENGINE.store.get("comfyui-unpersisted")
+        assert record is not None
+        assert record.reason == main.media_ledger.AMBIGUOUS_RECOVERY_REASON
+        assert record.status == (
+            "submitted" if main.MEDIA_BUDGET_ENGINE.config.enabled else "reserved"
+        )
+
+    asyncio.run(scenario())
+
+
+def test_unpersisted_comfyui_cancel_finishes_despite_repeated_caller_cancellation(
+    monkeypatch, unpersisted_comfyui_submission
+):
+    main, request, principal = unpersisted_comfyui_submission
+    started, release = asyncio.Event(), asyncio.Event()
+    calls = []
+
+    async def cancel(**kwargs):
+        calls.append(kwargs)
+        started.set()
+        await release.wait()
+        return True
+
+    monkeypatch.setattr(main, "_cancel_media_provider", cancel)
+
+    async def scenario():
+        submission = asyncio.create_task(main.submit_media_generation(
+            request, _direct_http_request(), principal
+        ))
+        await asyncio.wait_for(started.wait(), timeout=1)
+        submission.cancel()
+        await asyncio.sleep(0)
+        submission.cancel()
+        assert submission.done() is False
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await submission
+        assert len(calls) == 1
+        assert calls[0]["operation_id"] == "comfyui-unpersisted"
+        record = await main.MEDIA_BUDGET_ENGINE.store.get("comfyui-unpersisted")
+        assert record is not None
+        assert record.reason == main.media_ledger.AMBIGUOUS_RECOVERY_REASON
+        assert record.status == (
+            "submitted" if main.MEDIA_BUDGET_ENGINE.config.enabled else "reserved"
+        )
+
+    asyncio.run(scenario())
+
+
 def test_disabled_budget_persistence_failure_creates_reconcilable_row(monkeypatch):
     main = _fresh_main(monkeypatch, budget_enabled=False)
     monkeypatch.setattr(main, "FalClient", _CapturingFalClient, raising=False)

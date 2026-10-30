@@ -2,18 +2,25 @@
 name = "atlas-doc-processor-localhost"
 version = "1.0.0"
 description = "Atlas - Docling Document Processor localhost server"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
-    "docling==2.102.1",
+    "docling==2.142.0",
     "fastapi>=0.115.6",
     "uvicorn[standard]>=0.34.0",
     "python-multipart>=0.0.31",
     "pydantic>=2.10.6",
     "python-dotenv>=1.2.2",
-    "pillow>=12.3.0",
+    "pillow>=13.0.0",
     # torch imports pkg_resources/setuptools at runtime. Keep the resolved
     # package above the patched archive-extraction floor (GHSA-h35f-9h28-mq5c).
-    "setuptools>=83.0.0",
+    "setuptools>=84.1.0",
+    "certifi>=2026.10.19",
+    "fsspec>=2026.6.0",
+    # The supported Python floor admits the fixed filelock major.
+    "filelock>=4.2.1",
+    # SciPy 1.15.3's macOS wheel fails native import on the reviewed host.
+    # Keep the non-macOS branch unchanged.
+    "scipy>=1.16.0; sys_platform == 'darwin'",
     # docling-ibm-models and docling-core pull these in transitively. Keep the
     # resolved packages on every platform at or above their patched releases:
     # transformers for PYSEC-2026-3929 (5.10.0) and CVE-2026-80047, accelerate

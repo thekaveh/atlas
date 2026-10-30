@@ -1521,7 +1521,9 @@ def run_launch_flow(
     Returns exit code: 0 on detach, non-zero on interrupt.
     """
     from .widgets import BrandInfo
-    from .screens.wizard_screen import GuardedQuitMixin, WizardScreen, teardown_blocks_exit
+    from .screens.wizard_screen import (
+        GuardedQuitMixin, WizardScreen, teardown_blocks_exit, apply_cli_cloud_overrides,
+    )
     from core.port_manager import PortManager
     from wizard.model.state_builder import lookup_service_meta, resolve_port as _resolve_port
 
@@ -1558,6 +1560,7 @@ def run_launch_flow(
 
     port_offsets = _pm.port_offsets()
     env_vars = config_parser.parse_env_file()
+    apply_cli_cloud_overrides(cloud_summaries, source_args, stack_options.get("cloud_api_keys") or {})
 
     # Resolve the effective base port. CLI ``--base-port N`` wins; else
     # whatever's in .env today.

@@ -35,7 +35,7 @@ Verified against PyPI + the GitHub API at spike time (not research snapshots):
 | `langchain-ai/local-deep-researcher` | repo | MIT | — |
 
 - **The LangGraph license split is load-bearing and clean at the dependency level:** the §4 PoC confirmed `pip install langgraph` pulls **zero** ELv2 packages (`langgraph-api` absent from the environment). MIT-core is safe as a first-class library; only the `langgraph dev`/`langgraph up` server path drags in ELv2.
-- **DeepAgents' `>=3.11` floor is confirmed** — above the bootstrapper's `>=3.10` floor; it could only live in the 3.11+ images (backend/JupyterHub), never the bootstrapper.
+- **DeepAgents' `>=3.11` floor was above the bootstrapper's `>=3.10` floor at spike time.** Only the 3.11+ backend/JupyterHub images met that requirement then. The bootstrapper now requires Python `>=3.11`; this removes the version barrier without changing the **DEFER** verdict.
 - **Neither LDR nor ODR is archived or superseded** (LDR pushed 2026-06-28, ODR 2026-06-26; no deprecation banners). They are two distinct, simultaneously-maintained projects — see [`#525`-adjacent analysis in the ticket thread]: LDR = single-agent, local-first, key-free; ODR = multi-agent supervisor, provider-agnostic, heavier.
 - **openwiki identity resolved** (live repo check): `langchain-ai/openwiki` — *"a CLI that writes and maintains agent documentation for your codebase"* (TypeScript, MIT, active). It is a docs tool, **not** a deep-research agent; the earlier identity caveat is closed.
 

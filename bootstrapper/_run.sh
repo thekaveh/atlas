@@ -36,6 +36,7 @@ elif command -v python3 >/dev/null 2>&1; then
     BOOTSTRAPPER_VENV="${ATLAS_BOOTSTRAPPER_VENV:-$SELF_DIR/.venv}"
     VENV_PYTHON="$BOOTSTRAPPER_VENV/bin/python"
     BOOTSTRAPPER_LOCK="$SELF_DIR/requirements-locked.txt"
+    PYTHON_SUPPORTED='import sys; raise SystemExit(sys.version_info < (3, 11))'
     REQUIRED_IMPORTS="import click, jsonschema, PIL, requests, rich, textual, textual_image, urllib3, yaml"
 
     # Fingerprint the DEPENDENCY DECLARATION, not the module list. The guard
@@ -65,10 +66,12 @@ elif command -v python3 >/dev/null 2>&1; then
         HAVE_STAMP="$(cat "$DEPS_STAMP" 2>/dev/null || true)"
     fi
 
-    # Does the venv already satisfy every import? Along with the content stamp,
-    # this decides whether a locked refresh is required; failures always close.
+    # Does the venv meet the Python floor and satisfy every import? The stamp
+    # also decides whether a locked refresh is required; failures always close.
     VENV_USABLE=0
-    if [ -x "$VENV_PYTHON" ] && "$VENV_PYTHON" -c "$REQUIRED_IMPORTS" >/dev/null 2>&1; then
+    if [ -x "$VENV_PYTHON" ] \
+        && "$VENV_PYTHON" -c "$PYTHON_SUPPORTED" >/dev/null 2>&1 \
+        && "$VENV_PYTHON" -c "$REQUIRED_IMPORTS" >/dev/null 2>&1; then
         VENV_USABLE=1
     fi
 
@@ -91,13 +94,23 @@ elif command -v python3 >/dev/null 2>&1; then
             else
                 echo "Creating Atlas bootstrapper environment at $BOOTSTRAPPER_VENV..." >&2
             fi
-            if ! python3 -c 'import sys; raise SystemExit(sys.version_info < (3, 10))'; then
-                echo "❌ Atlas requires Python 3.10 or newer." >&2
+            if ! python3 -c "$PYTHON_SUPPORTED"; then
+                echo "❌ Atlas requires Python 3.11 or newer." >&2
                 exit 1
             fi
             if ! python3 -m venv "$BOOTSTRAPPER_VENV"; then
                 echo "❌ Could not create the Atlas bootstrapper virtual environment." >&2
                 echo "   Install the Python venv module or install uv, then retry." >&2
+                exit 1
+            fi
+            # venv creation can retain an older bin/python symlink. Never
+            # install into or launch an interpreter below the supported floor.
+            if ! "$VENV_PYTHON" -c "$PYTHON_SUPPORTED"; then
+                echo "❌ Atlas requires Python 3.11 or newer." >&2
+                echo "   The existing environment still has an unsupported interpreter." >&2
+                echo "   Delete $BOOTSTRAPPER_VENV and rerun this command to recreate it." >&2
+                echo "   Or create a fresh environment and select it with ATLAS_BOOTSTRAPPER_VENV," >&2
+                echo "   or install uv, then retry." >&2
                 exit 1
             fi
         else
@@ -119,7 +132,7 @@ else
     echo "" >&2
     echo "  Install one of:" >&2
     echo "    • uv (recommended):  https://github.com/astral-sh/uv" >&2
-    echo "    • Python 3.10+:      https://www.python.org/downloads/" >&2
+    echo "    • Python 3.11+:      https://www.python.org/downloads/" >&2
     echo "" >&2
     echo "  Then re-run the script that invoked this dispatcher." >&2
     exit 127

@@ -180,6 +180,7 @@ def parse_manifest(text: str) -> Manifest:
             )
         )
     manifest = Manifest(surfaces, numbering, index_id, sections, tuple(diagrams))
+    validate_output_ids(manifest)
     _validate_uniqueness(manifest)
     _validate_numbering(manifest.sections)
     if manifest.index_id not in {page.id for page in manifest.pages}:
@@ -187,6 +188,20 @@ def parse_manifest(text: str) -> Manifest:
             f"Manifest index references unknown page ID: {manifest.index_id}"
         )
     return manifest
+
+
+def validate_output_ids(manifest: Manifest) -> None:
+    """Reject IDs that cannot safely name one generated output component."""
+    for label, identifiers in (
+        ("Page", (page.id for page in manifest.pages)),
+        ("Diagram", (diagram.id for diagram in manifest.diagrams)),
+    ):
+        for identifier in identifiers:
+            if not isinstance(identifier, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", identifier):
+                raise ManifestError(
+                    f"{label} ID must be a non-empty filename slug "
+                    f"(letters, digits, '-' or '_'): {identifier!r}"
+                )
 
 
 def _validate_uniqueness(manifest: Manifest) -> None:

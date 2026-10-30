@@ -69,6 +69,7 @@ For coordinated restores of the signed `system` + `neo4j` artifacts, use `servic
 - **Automatic restoration at startup** is enabled by default
 - When the container starts with an empty `neo4j` database (a fresh data volume), it restores the latest `/snapshot/backup_*.dump` if one exists. `./stop.sh --cold` also removes the snapshot volume, so nothing is left to restore after it; copy dumps you want to keep out first
 - A failed load (automatic or `restore.sh`) leaves `/data/.atlas-restore-incomplete`. The next start then retries the load with `--overwrite-destination`. If no `backup_*.dump` is left, the container does not start: add a dump or delete the marker
+- Marker errors also fail closed. If the marker cannot be created, the load is refused. If it cannot be removed after a successful load, the script exits with an error, and at startup the container does not start. Fix the `/data` permissions, then retry. A marker left behind makes the next start reload the latest dump
 - A populated database is never overwritten at startup; to roll a live database back to a snapshot, use the offline `restore.sh` (§4.2)
 - To turn off automatic restore, delete the `auto_restore.sh` `COPY` and its `RUN chmod` from `build/Dockerfile`, then rebuild. The entrypoint then logs that automatic restore is disabled and starts normally
 

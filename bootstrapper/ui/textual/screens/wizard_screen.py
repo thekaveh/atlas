@@ -118,6 +118,22 @@ _FAMILY_FLAG_STEM = {
 }
 
 
+def apply_cli_cloud_overrides(cloud_apis, source_args: dict, api_keys: dict) -> None:
+    """Preview deferred CLI source/key writes using only provider booleans."""
+    from utils.cloud_providers import CLOUD_PROVIDERS
+
+    providers = {provider.name: provider for provider in CLOUD_PROVIDERS}
+    for summary in cloud_apis:
+        provider = providers.get(summary.name)
+        if provider is None:
+            continue
+        source = source_args.get(provider.source_var.lower())
+        if source is not None:
+            summary.enabled = source == "enabled"
+        if provider.api_key_var in api_keys:
+            summary.key_set = bool((api_keys[provider.api_key_var] or "").strip())
+
+
 def _model_names(models) -> list[str]:
     """A multiselect answer (set or CSV) as sorted names."""
     if isinstance(models, set):
@@ -1368,7 +1384,9 @@ class WizardScreen(Screen):
             title=" Stack startup · pipeline ",
             subtitle=" ctrl+c to cancel ",
         )
-        self._log_pane.set_on_new_source(self._log_chips.add_source)
+        self._log_pane.set_on_new_source(
+            lambda source: self._log_chips.add_source(source, normalized=True)
+        )
         self._active_tab = BrandPanel.TAB_SETUP
         self._logs_enabled = False
         # Armed teardown variant awaiting its confirming second press:
@@ -3579,13 +3597,16 @@ class WizardScreen(Screen):
         import threading
         self._tee_to_log(msg, source=source, level=level)
         on_main = threading.current_thread() is threading.main_thread()
+
+        def write_to_ui() -> None:
+            self._log_pane.write_log(msg, level=level, source=source)
+            self._flag_logs_alert(level)
+
         try:
             if on_main:
-                self._log_pane.write_log(msg, level=level, source=source)
+                write_to_ui()
             else:
-                self.app.call_from_thread(
-                    self._log_pane.write_log, msg, level=level, source=source,
-                )
+                self.app.call_from_thread(write_to_ui)
         except Exception:  # noqa: BLE001
             pass
 
@@ -4136,7 +4157,9 @@ class WizardScreen(Screen):
         # project's volumes than stop and --no-tui (2026-10-08 run, cycle 37).
         from utils.system import compose_env  # noqa: PLC0415
 
-        env = {**compose_env(full_cmd), "BUILDKIT_PROGRESS": "plain"}
+        # A `${...}` REDIS_PASSWORD makes compose_env run a bounded compose
+        # probe; keep it off the event loop so the TUI stays responsive.
+        env = {**(await asyncio.to_thread(compose_env, full_cmd)), "BUILDKIT_PROGRESS": "plain"}
         # Route through _safe_log so every compose line lands in the
         # launch-log tee (/tmp/atlas-launch-*.log). Direct
         # _log_pane.write_* calls bypassed the tee — image-pull errors

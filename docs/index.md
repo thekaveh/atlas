@@ -83,7 +83,7 @@ Atlas organizes 58 service families. Its configurable services are grouped into 
 
 <div class="atlas-home__quickstart" markdown="1">
 
-Install Docker with Docker Compose v2.20.3 or newer, `uv` or Python 3.10 or newer, and Git. Clone the repository, then run the commands from its root:
+Install Docker with Docker Compose v2.20.3 or newer, `uv` or Python 3.11 or newer, and Git. Clone the repository, then run the commands from its root:
 
 ```bash
 git clone https://github.com/thekaveh/atlas && cd atlas

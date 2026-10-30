@@ -14,8 +14,13 @@ except ImportError:  # pragma: no cover - lets guard tests run without runtime d
 # protection. Direct loopback forms (127.0.0.1 / localhost / ::1) are always
 # permitted by FastMCP; Atlas additionally reaches this runtime by the Compose
 # service hostname (`mcp-servers`, in-network DNS) and the Kong route hostname
-# (`mcp.localhost`). Any other Host/Origin is rejected (421/403). Ports are
-# stripped before matching, so no port suffixes are needed here.
+# (`mcp.localhost`). FastMCP also permits the local server address of each
+# connection (under uvicorn, the container IP that accepted it); an unspecified
+# address (0.0.0.0 / ::) is never added. Other Hosts are rejected (421). Host
+# matching strips ports, so no port suffixes are needed here. Origin normally
+# matches the request's scheme, hostname and port; loopback-to-loopback origins
+# are also permitted.
+# Other Origins are rejected (403); a missing Origin is permitted.
 _HTTP_PATH = "/mcp"
 _ALLOWED_HOSTS = ("mcp-servers", "mcp.localhost")
 

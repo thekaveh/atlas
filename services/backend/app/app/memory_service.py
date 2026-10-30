@@ -17,7 +17,10 @@ import httpx
 
 from db_connection import acquire_conn, connect_postgres
 from memory_models import _validate_consolidation_action
-from memory_reconciliation import _fetch_pending_vector_page, _refresh_rejected_vector_rows
+from memory_reconciliation import (
+    _clear_pending_vector_intent, _fetch_pending_vector_page,
+    _refresh_rejected_vector_rows,
+)
 from memory_store import (
     _VECTORIZER_SYSTEMATIC_TEXT,
     MemoryStore,
@@ -221,6 +224,8 @@ def _remember_rejected(rejected: dict, row, exc: BaseException) -> None:
     """Skip a row the target rejected on its own until it changes (bounded)."""
     if _is_row_rejection(exc) and (row["id"] in rejected or len(rejected) < 10_000):
         rejected[row["id"]] = row["updated_at"]
+
+
 
 
 class MemoryService:
@@ -763,27 +768,8 @@ Extract the facts as JSON:"""
 
     @staticmethod
     async def _clear_pending_flag(conn, row, new_weaviate_id) -> None:
-        """Clear vector_sync_pending, guarded on the updated_at we read.
-
-        If a concurrent update_memory changed this fact after we read it — and
-        re-flagged it for the NEW content — an unguarded clear would wipe that
-        flag against our now-stale vector write, stranding the newer content
-        unreconciled with the flag false (permanent divergence). Guarding makes
-        the clear a no-op in that case, so a later pass picks it up.
-        """
-        await conn.execute(
-            """
-            UPDATE public.memory_facts
-            SET vector_sync_pending = false,
-                weaviate_id = COALESCE($2, weaviate_id),
-                updated_at = now()
-            WHERE id = $1 AND vector_sync_pending = true
-              AND updated_at = $3
-            """,
-            row["id"],
-            new_weaviate_id,
-            row["updated_at"],
-        )
+        """Clear the owned canonical vector state through the SQL helper."""
+        await _clear_pending_vector_intent(conn, row, new_weaviate_id)
 
     async def _sync_one_row(self, row):
         """Push one fact's vector, or retire it. Returns the new weaviate id.

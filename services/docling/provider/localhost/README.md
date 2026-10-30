@@ -2,7 +2,10 @@
 
 Run the Atlas Docling provider natively on the host. Atlas containers reach it
 through `host.docker.internal` when `DOC_PROCESSOR_SOURCE=docling-localhost`.
-It needs Python 3.10 or later and [uv](https://docs.astral.sh/uv/).
+It needs Python 3.11 or later and [uv](https://docs.astral.sh/uv/).
+
+On Apple Silicon, the locked Torch and Docling Parse wheels require macOS 14 or later.
+Older macOS releases and source builds are unverified.
 
 ## 1. Quick Start
 
@@ -13,15 +16,22 @@ cd services/docling/provider/localhost
 uv sync
 ```
 
-This installs the locked dependencies, including `docling==2.102.1` and
+This installs the locked dependencies, including `docling==2.142.0` and
 `torch==2.13.0`. The PyPI torch wheel supports CUDA on Linux x86_64 and MPS on
 Apple Silicon, so no separate torch install is needed. Do not install another
 torch with `uv pip install`: `uv run` restores the locked version.
 
+The locks use Pillow 13.0.0 and filelock 4.2.1.
+The scoped GPU and native localhost audits reported no findings on 2026-10-28.
+These results do not establish safety against every parser issue.
+
+On macOS, the lock uses SciPy 1.16.0 for native import compatibility.
+Other platforms retain SciPy 1.15.3.
+
 ### 1.2. Generate the Atlas Credential
 
-From the repository root, start Atlas once so it generates and preserves
-`DOCLING_API_TOKEN` in `.env` before the provider imports its settings:
+From the repository root, start Atlas once.
+This generates and preserves `DOCLING_API_TOKEN` in `.env` before the provider imports its settings:
 
 ```bash
 # Terminal 1: return to the repository root after §1.1
@@ -136,15 +146,18 @@ containers use that port.
 ### 3.1. Input Formats
 
 The provider uses Docling's converter: PDF, DOCX, PPTX, XLSX, HTML and
-images (PNG, JPEG, TIFF). Docling does not convert legacy Office files (`.doc`,
-`.xls`, `.ppt`). The Atlas backend sends those to Tika; see the
+images (PNG, JPEG, TIFF). The Atlas backend sends legacy Office files (`.doc`,
+`.xls`, `.ppt`) to Tika; see the
 [Document Processor README](../../../doc-processor/README.md).
 
 Uploaded Docling JSON retains `data:`, `http:` and `https:` image references.
 Filesystem paths, `file:` URIs and other schemes are ignored before enrichment
 or export, including page images. Embedded images and images from other input
-formats keep their existing handling. The log reports only the discarded
-count. The same rule applies to the GPU provider and LightRAG bundle.
+formats keep their existing handling. The same rule applies to the GPU
+provider and LightRAG bundle.
+
+Discard logs include a count and may include the temporary input basename.
+They do not include discarded reference values.
 
 ### 3.2. Output Formats
 - **markdown** - Markdown (default)

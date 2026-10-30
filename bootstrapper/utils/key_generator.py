@@ -12,6 +12,7 @@ from typing import Optional, Dict
 from urllib.parse import quote
 
 from core.config_parser import ConfigParser
+from services.service_config import synchronize_redis_uri_credentials
 from utils.atomic_write import atomic_write_text, create_private_backup, render_env_assignment, set_env_assignment
 
 
@@ -140,6 +141,7 @@ class KeyGenerator:
         # rewrites it as a side effect so it is rotation-covered.
         "GRAPH_DB_AUTH": "neo4j/neo4j_password",
         "REDIS_PASSWORD": "redis_password",
+        "REDIS_PASSWORD_URI": "redis_password",
         "DASHBOARD_PASSWORD": "kong_password",
         "OPEN_WEB_UI_ADMIN_PASSWORD": "admin",
         "OPEN_WEB_UI_SECRET_KEY": "secret",
@@ -788,14 +790,17 @@ class KeyGenerator:
 
     def generate_and_update_redis_password(self, force: bool = False) -> bool:
         """Rotate `REDIS_PASSWORD` only when absent or still the `redis_password`
-        placeholder. `REDIS_URL` is a `${REDIS_PASSWORD}`-interpolated
-        compose-time expansion so no separate sync is required. Rotating a
+        placeholder, and synchronize its encoded URI companion. Rotating a
         live Redis without restart-with-`--requirepass` breaks every active
         consumer connection mid-flight.
         """
-        if not force and not self._is_placeholder_or_empty('REDIS_PASSWORD'):
-            return True
-        return self.update_env_key('REDIS_PASSWORD', self.generate_password())
+        password = self.get_current_env_value('REDIS_PASSWORD')
+        rewrite_password = force or self._is_placeholder_or_empty('REDIS_PASSWORD')
+        if rewrite_password:
+            password = self.generate_password()
+        return synchronize_redis_uri_credentials(
+            self.env_file_path, password, rewrite_password=rewrite_password,
+        )
 
     def generate_and_update_kong_dashboard_password(self, force: bool = False) -> bool:
         """Rotate Kong's `DASHBOARD_PASSWORD` only when absent or still the
@@ -1368,6 +1373,7 @@ class KeyGenerator:
                 != self.PLACEHOLDER_DEFAULTS.get('GRAPH_DB_AUTH')
             )
         results['REDIS_PASSWORD'] = self.generate_and_update_redis_password(force=False)
+        results['REDIS_PASSWORD_URI'] = results['REDIS_PASSWORD']
         results['DASHBOARD_PASSWORD'] = self.generate_and_update_kong_dashboard_password(force=False)
         results['BACKEND_KONG_API_KEY'] = self.generate_and_update_backend_kong_api_key(force=False)
         results['BACKEND_INTERNAL_API_TOKEN'] = (

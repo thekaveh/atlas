@@ -125,3 +125,19 @@ def test_semantic_embedding_model_env_uses_safe_default_for_blank(monkeypatch):
 
     monkeypatch.setenv("CHONKIE_SEMANTIC_EMBEDDING_MODEL", "   ")
     assert _semantic_embedding_model_override(None) == "minishlab/potion-base-32M"
+
+
+def test_huggingface_cache_lock_excludes_other_owner_and_releases(tmp_path):
+    import pytest
+    from filelock import FileLock, Timeout
+    from huggingface_hub.utils._fixes import WeakFileLock
+
+    path = tmp_path / "fixture-cache.lock"
+    with WeakFileLock(path):
+        other_owner = FileLock(str(path), timeout=0)
+        with pytest.raises(Timeout):
+            other_owner.acquire()
+        assert not other_owner.is_locked
+    with FileLock(str(path), timeout=0) as next_owner:
+        assert next_owner.is_locked
+    assert not next_owner.is_locked

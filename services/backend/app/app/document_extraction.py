@@ -297,7 +297,7 @@ class DocumentExtractor:
                 "Content-Type": content_type or "application/octet-stream",
             },
         )
-        if response.status_code >= 400:
+        if not 200 <= response.status_code < 300:
             logger.warning(
                 "Tika extraction failed with HTTP %s: %s",
                 response.status_code,

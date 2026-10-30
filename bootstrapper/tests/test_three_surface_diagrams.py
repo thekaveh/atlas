@@ -32,6 +32,30 @@ def test_extract_svg_rejects_missing_inline_svg() -> None:
         extract_svg("<html><body>No diagram</body></html>")
 
 
+@pytest.mark.parametrize("kind", ["page", "diagram"])
+def test_direct_diagram_render_rejects_escaping_ids_before_any_output(tmp_path, kind) -> None:
+    from scripts.docs.manifest import DiagramEntry, Manifest, ManifestError, Section
+
+    master = tmp_path / "diagram.html"
+    master.write_text('<svg xmlns="http://www.w3.org/2000/svg"/>', encoding="utf-8")
+    page_id = "../escaped" if kind == "page" else "overview"
+    diagram_id = "../../escaped" if kind == "diagram" else "overview"
+    manifest = Manifest(
+        ("repo", "site", "wiki"), "baked", page_id,
+        (Section(page_id, "1", "Overview", "README.md"),),
+        (DiagramEntry(diagram_id, "diagram.html"),),
+    )
+    site = tmp_path / "projection" / "site" / "assets" / "img"
+    png = tmp_path / "committed" / "img"
+
+    with pytest.raises(ManifestError, match="ID.*slug"):
+        render_all(manifest, tmp_path, site, png, check_png=True)
+
+    assert not (tmp_path / "projection").exists()
+    assert not (tmp_path / "committed").exists()
+    assert sorted(path.name for path in tmp_path.iterdir()) == ["diagram.html"]
+
+
 def test_extract_svg_normalizes_host_html_indentation() -> None:
     html = (
         "<div>\n"

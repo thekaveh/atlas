@@ -136,14 +136,14 @@ async def submit_job(payload: SubmitJobRequest) -> SubmitJobResponse:
             ),
         ) from exc
     except RaySubmissionAmbiguousError as exc:
-        # Bounded outcome for an unanswered submission (#1170): acceptance is
-        # unknown, so the stable id is the reconciliation handle. Clients must
+        # Unconfirmed submission (#1170): no reply, or a 200 without a usable
+        # acceptance body. The stable id is the reconciliation handle; clients
         # poll status or stop with the SAME id — never resubmit blindly.
         raise HTTPException(
             status_code=504,
             detail=(
-                f"Ray control plane did not answer; acceptance of "
-                f"{exc.submission_id!r} is unknown. Reconcile with "
+                f"Ray control plane did not confirm acceptance of "
+                f"{exc.submission_id!r}; acceptance is unknown. Reconcile with "
                 f"GET /api/ray/jobs/{exc.submission_id} or stop it with "
                 f"DELETE — do not resubmit blindly."
             ),

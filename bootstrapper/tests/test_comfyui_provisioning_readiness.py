@@ -42,7 +42,7 @@ def _run_health(tmp_path: Path, *, model_state: str = "ready", node_state: str =
     curl.chmod(0o755)
     env = {
         **os.environ,
-        "PATH": f"{fakebin}:/opt/homebrew/bin:/usr/bin:/bin",
+        "PATH": f"{fakebin}{os.pathsep}{os.environ.get('PATH', os.defpath)}",
         "COMFYUI_MANIFEST_ROOT": str(manifest),
         "COMFYUI_MODELS_PATH": str(models),
         "COMFYUI_CUSTOM_NODES_PATH": str(nodes),
@@ -79,7 +79,7 @@ def test_ready_status_with_required_failures_is_rejected_as_corrupt(tmp_path: Pa
         result.args,
         env={
             **os.environ,
-            "PATH": f"{tmp_path / 'bin'}:/opt/homebrew/bin:/usr/bin:/bin",
+            "PATH": f"{tmp_path / 'bin'}{os.pathsep}{os.environ.get('PATH', os.defpath)}",
             "COMFYUI_MANIFEST_ROOT": str(manifest),
             "COMFYUI_MODELS_PATH": str(models),
             "COMFYUI_CUSTOM_NODES_PATH": str(nodes),
@@ -102,7 +102,7 @@ def test_stale_success_for_a_different_plan_is_never_healthy(tmp_path: Path) -> 
         result.args,
         env={
             **os.environ,
-            "PATH": f"{tmp_path / 'bin'}:/opt/homebrew/bin:/usr/bin:/bin",
+            "PATH": f"{tmp_path / 'bin'}{os.pathsep}{os.environ.get('PATH', os.defpath)}",
             "COMFYUI_MANIFEST_ROOT": str(manifest),
             "COMFYUI_MODELS_PATH": str(tmp_path / "models"),
             "COMFYUI_CUSTOM_NODES_PATH": str(tmp_path / "nodes"),
@@ -119,7 +119,7 @@ def test_stale_success_for_a_different_plan_is_never_healthy(tmp_path: Path) -> 
 def _health_env(tmp_path: Path, manifest: Path, models: Path, nodes: Path) -> dict[str, str]:
     return {
         **os.environ,
-        "PATH": f"{tmp_path / 'bin'}:/opt/homebrew/bin:/usr/bin:/bin",
+        "PATH": f"{tmp_path / 'bin'}{os.pathsep}{os.environ.get('PATH', os.defpath)}",
         "COMFYUI_MANIFEST_ROOT": str(manifest),
         "COMFYUI_MODELS_PATH": str(models),
         "COMFYUI_CUSTOM_NODES_PATH": str(nodes),

@@ -737,7 +737,7 @@ def _pytest_commands(workflow: dict) -> dict[str, list[str]]:
 SUITE_INVOCATIONS = {
     "--cov-fail-under=69": ["lint"],  # the bootstrapper coverage floor, once
     "--cov-fail-under=79": ["lint"],  # the Backend suite
-    "uv run --python 3.10 --isolated --locked --group dev pytest tests/": ["python-floor"],
+    "uv run --python 3.11 --isolated --locked --group dev pytest tests/": ["python-floor"],
     "test_mcp_servers_framework.py": ["component-tests"],
     "-m pytest tests/ -q -W error": ["lint"],  # the Backend suite
     "cd services/asset-worker/app": ["component-tests"],
@@ -765,24 +765,24 @@ def test_every_suite_invocation_survives_the_split() -> None:
 
     assert {fragment: [job for job, command in flat if fragment in command]
             for fragment in SUITE_INVOCATIONS} == SUITE_INVOCATIONS
-    assert pythons == {"lint": ["3.12"], "unit-fast": ["3.12"], "python-floor": ["3.10"],
+    assert pythons == {"lint": ["3.12"], "unit-fast": ["3.12"], "python-floor": ["3.11"],
                        "component-tests": ["3.12"]}
     assert (set(events), events["pull_request"]["branches"], events["push"]["branches"]) == (
         {"pull_request", "push"}, ["main", "develop"], ["main", "develop"])
 
 
 def test_python_floor_runs_the_full_suite_with_the_images_lint_pulls() -> None:
-    """AC5: the 3.10 floor is the whole suite, not a subset, and its
+    """AC5: the 3.11 floor is the whole suite, not a subset, and its
     Docker-backed tests find the same pinned images locally."""
     jobs = _services_lint()["jobs"]
     pull = "Pull exact backup integration images"
     floor = {step.get("name"): step for step in jobs["python-floor"]["steps"]}
     lint = {step.get("name"): step for step in jobs["lint"]["steps"]}
-    command = " ".join(floor["Run bootstrapper tests on Python 3.10"]["run"].split())
+    command = " ".join(floor["Run bootstrapper tests on Python 3.11"]["run"].split())
 
     assert floor[pull] == lint[pull]
     assert command == (
-        "uv run --python 3.10 --isolated --locked --group dev pytest tests/ -q "
+        "uv run --python 3.11 --isolated --locked --group dev pytest tests/ -q "
         "--ignore=tests/test_fragment_equivalence.py --ignore=tests/test_source_permutations.py"
     )
 

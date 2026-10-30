@@ -385,8 +385,8 @@ class LogFilterChips(Container):
             return source
         return _strip_project(source)
 
-    def add_source(self, source: str) -> None:
-        source = self._normalize(source)
+    def add_source(self, source: str, *, normalized: bool = False) -> None:
+        source = source if normalized else self._normalize(source)
         if (
             not source
             or source in self._known_sources

@@ -10,9 +10,31 @@ from typing import Any
 
 import httpx2 as httpx
 
+from .jobs import _ResultCleanupPending, _delete_failed_result
+
 
 class UpstreamConversionError(RuntimeError):
     pass
+
+
+async def _settle_conversion(task: asyncio.Task[Path]) -> Path:
+    while not task.done():
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            break
+    return task.result()
+
+
+async def _owned_conversion(operation) -> Path:
+    task = asyncio.create_task(operation())
+    try:
+        return await asyncio.shield(task)
+    except asyncio.CancelledError:
+        task.cancel()
+        return await _settle_conversion(task)
 
 
 class DoclingUpstream:
@@ -46,11 +68,19 @@ class DoclingUpstream:
     ) -> Path:
         if not self.token:
             raise UpstreamConversionError("Docling provider credential is unavailable")
+        task = asyncio.create_task(
+            _owned_conversion(lambda: self._convert_with_retry(upload_path, upload_name))
+        )
         try:
-            return await asyncio.wait_for(
-                self._convert_with_retry(upload_path, upload_name),
-                timeout=timeout_seconds,
-            )
+            return await asyncio.wait_for(task, timeout=timeout_seconds)
+        except asyncio.CancelledError as interrupted:
+            try:
+                result = await _settle_conversion(task)
+            except _ResultCleanupPending as exc:
+                raise _ResultCleanupPending(exc.result_path, interrupted) from None
+            except BaseException:
+                raise interrupted
+            raise _ResultCleanupPending(result, interrupted) from None
         except (asyncio.TimeoutError, httpx.HTTPError) as exc:
             raise UpstreamConversionError("Docling conversion failed") from exc
 
@@ -121,5 +151,5 @@ class DoclingUpstream:
                     await asyncio.to_thread(stream.write, chunk)
             return path
         except BaseException:
-            path.unlink(missing_ok=True)
+            _delete_failed_result(path)
             raise

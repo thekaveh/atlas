@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import os
+import signal
+from pathlib import Path
 import subprocess
 import sys
 import types
@@ -240,3 +243,224 @@ def test_container_entrypoint_independently_rejects_unadmitted_sources(tmp_path,
     assert result.stderr == "backup: disabled; set BACKUP_SOURCE=container before running backup or restore\n"
     assert not trace.exists()
     assert not snapshot.exists()
+
+
+def _launch_pid_exists(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
+def _reap_launch_children(state):
+    for pid in state.pids:
+        try:
+            reaped, _status = os.waitpid(pid, os.WNOHANG)
+        except ChildProcessError:
+            continue
+        if reaped:
+            continue
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        os.waitpid(pid, 0)
+    assert not any(_launch_pid_exists(pid) for pid in state.pids)
+
+
+@pytest.fixture
+def launch_state(tmp_path, monkeypatch):
+    module = _module()
+    handled = (signal.SIGHUP, signal.SIGINT, signal.SIGTERM)
+    previous = {sig: signal.signal(sig, module._signal_as_exception) for sig in handled}
+    state = types.SimpleNamespace(
+        module=module, path=tmp_path, pids=[], sent=signal.SIGTERM, phase="none", fired=False, signals=None,
+        mask=signal.pthread_sigmask(signal.SIG_BLOCK, []), handled=handled,
+        runner=module.CommandRunner(token="e" * 32, timeout=2, scope="launch-test"),
+    )
+    original_fork = subprocess._fork_exec
+    original_clock = module.time.monotonic
+
+    def fork(*args, **kwargs):
+        pid = original_fork(*args, **kwargs)
+        state.pids.append(pid)
+        if state.phase == "fork":
+            for sent in state.signals or (state.sent,):
+                os.kill(os.getpid(), sent)
+        return pid
+
+    def clock():
+        if state.phase == "runtime" and not state.fired:
+            state.fired = True
+            os.kill(os.getpid(), state.sent)
+        return original_clock()
+
+    monkeypatch.setattr(subprocess, "_fork_exec", fork)
+    monkeypatch.setattr(module.time, "monotonic", clock)
+    try:
+        yield state
+    finally:
+        state.phase = "none"
+        try:
+            _reap_launch_children(state)
+        finally:
+            for sig, handler in previous.items():
+                signal.signal(sig, handler)
+
+
+def _assert_launch_environment_restored(state):
+    assert all(signal.getsignal(sig) == state.module._signal_as_exception for sig in state.handled)
+    assert signal.pthread_sigmask(signal.SIG_BLOCK, []) == state.mask
+
+
+def _finalize_launch_boundary(state, lock):
+    coordinator = types.SimpleNamespace(poison_reason=None, runner=state.runner, boundary_state="pre-cutover")
+    state.module.finalize_boundary_lock(lock, coordinator, retained=set())
+
+
+@pytest.mark.parametrize("sent", (signal.SIGHUP, signal.SIGINT, signal.SIGTERM))
+@pytest.mark.parametrize("input_text", (None, "payload"))
+def test_command_launch_interruption_cleans_before_unlock(launch_state, sent, input_text):
+    state = launch_state
+    lock = state.module.OwnedFileLock(state.path / "boundary.lock", token=state.runner.token)
+    lock.acquire()
+    state.sent, state.phase = sent, "fork"
+    with pytest.raises(state.module.SignalInterruption, match=f"received signal {sent}"):
+        state.runner.run([sys.executable, "-c", "import time; time.sleep(30)"], input_text=input_text)
+    assert not any(_launch_pid_exists(pid) for pid in state.pids)
+    _assert_launch_environment_restored(state)
+    _finalize_launch_boundary(state, lock)
+    assert not lock.path.exists()
+    assert state.runner.process_group_cleanup_failed is False
+
+
+@pytest.mark.parametrize("input_text", (None, "payload"))
+def test_runtime_interruption_keeps_existing_cleanup(launch_state, input_text):
+    state = launch_state
+    state.phase = "runtime"
+    with pytest.raises(state.module.SignalInterruption, match="received signal 15"):
+        state.runner.run([sys.executable, "-c", "import time; time.sleep(30)"], input_text=input_text)
+    assert not any(_launch_pid_exists(pid) for pid in state.pids)
+    _assert_launch_environment_restored(state)
+
+
+def test_command_launch_failure_restores_handlers(launch_state):
+    state = launch_state
+    with pytest.raises(FileNotFoundError):
+        state.runner.run([str(state.path / "missing-command")])
+    assert not any(_launch_pid_exists(pid) for pid in state.pids)
+    _assert_launch_environment_restored(state)
+    assert state.runner.process_group_cleanup_failed is False
+
+
+def test_command_child_inherits_original_signal_mask(launch_state):
+    state = launch_state
+    command = [sys.executable, "-c", "import json,signal; print(json.dumps(sorted(map(int,signal.pthread_sigmask(signal.SIG_BLOCK,[])))))"]
+    result = state.runner.run(command)
+    assert json.loads(result.stdout) == sorted(map(int, state.mask))
+    assert result.args == command
+    assert result.returncode == 0 and result.stderr == ""
+    _assert_launch_environment_restored(state)
+
+
+@pytest.mark.parametrize("input_text", (None, "payload"))
+def test_command_timeout_keeps_command_identity(launch_state, input_text):
+    state = launch_state
+    command = [sys.executable, "-c", "import time; time.sleep(30)"]
+    with pytest.raises(subprocess.TimeoutExpired) as captured:
+        state.runner.run(command, timeout=1, input_text=input_text)
+    assert captured.value.cmd == command
+    assert not any(_launch_pid_exists(pid) for pid in state.pids)
+    _assert_launch_environment_restored(state)
+
+
+def test_command_input_and_output_remain_literal(launch_state):
+    state = launch_state
+    result = state.runner.run([sys.executable, "-c", "import sys; sys.stdout.write(sys.stdin.read())"], input_text="literal input\n")
+    assert result.stdout == "literal input\n"
+    assert result.stderr == "" and result.returncode == 0
+    _assert_launch_environment_restored(state)
+
+
+def test_command_launch_unproven_cleanup_preserves_lock(launch_state, monkeypatch):
+    state = launch_state
+    original_cleanup = state.module._terminate_owned_process_group
+
+    def unproven(process):
+        assert original_cleanup(process)
+        return False
+
+    monkeypatch.setattr(state.module, "_terminate_owned_process_group", unproven)
+    lock = state.module.OwnedFileLock(state.path / "boundary.lock", token=state.runner.token)
+    lock.acquire()
+    state.phase = "fork"
+    with pytest.raises(state.module.SignalInterruption, match="received signal 15"):
+        state.runner.run([sys.executable, "-c", "import time; time.sleep(30)"])
+    assert state.runner.process_group_cleanup_failed is True
+    _finalize_launch_boundary(state, lock)
+    assert "state=poisoned\n" in lock.path.read_text()
+    _assert_launch_environment_restored(state)
+
+
+def test_deferred_signal_precedes_later_popen_error(launch_state):
+    state = launch_state
+    state.phase = "fork"
+    with pytest.raises(state.module.SignalInterruption, match="received signal 15"):
+        state.runner.run([str(state.path / "missing-command")])
+    assert not any(_launch_pid_exists(pid) for pid in state.pids)
+    _assert_launch_environment_restored(state)
+
+
+@pytest.mark.parametrize("earlier", ("body", "deferred"))
+def test_launch_deferral_preserves_interruption_order(launch_state, monkeypatch, earlier):
+    state = launch_state
+    launch = state.module._RecoverySignalDeferral()
+    original_mask = signal.pthread_sigmask
+    fired = False
+
+    def mask(how, values):
+        nonlocal fired
+        restored = signal.getsignal(signal.SIGTERM) == state.module._signal_as_exception
+        if earlier == "body" and how == signal.SIG_SETMASK and restored and not fired:
+            fired = True
+            os.kill(os.getpid(), signal.SIGTERM)
+        return original_mask(how, values)
+
+    monkeypatch.setattr(signal, "pthread_sigmask", mask)
+    with pytest.raises(KeyboardInterrupt):
+        with launch:
+            if earlier == "deferred":
+                os.kill(os.getpid(), signal.SIGTERM)
+            raise KeyboardInterrupt("body interruption")
+    assert (launch.interruption is None) == (earlier == "body")
+    assert launch.body_interruption_precedes_deferred == (earlier == "body")
+    _assert_launch_environment_restored(state)
+
+
+@pytest.mark.parametrize("signals", [(signal.SIGTERM,), (signal.SIGTERM, signal.SIGINT),
+                                    (signal.SIGINT, signal.SIGTERM), (signal.SIGTERM, signal.SIGTERM)])
+@pytest.mark.parametrize("input_text", (None, "payload"))
+def test_command_launch_preserves_outer_recovery_owner(launch_state, signals, input_text):
+    state = launch_state
+    outer = state.module._RecoverySignalDeferral()
+    state.phase, state.signals = "fork", signals
+    with outer:
+        result = state.runner.run([sys.executable, "-c", "print('compensation completed')"], input_text=input_text)
+        assert result.stdout == "compensation completed\n"
+    assert str(outer.interruption) == f"received signal {signals[0]}"
+    assert result.returncode == 0 and result.stderr == ""
+    assert not any(_launch_pid_exists(pid) for pid in state.pids)
+    _assert_launch_environment_restored(state)
+
+
+def test_command_launch_preserves_already_recorded_outer_signal(launch_state):
+    state = launch_state
+    outer = state.module._RecoverySignalDeferral()
+    state.phase, state.signals = "fork", (signal.SIGINT,)
+    with outer:
+        os.kill(os.getpid(), signal.SIGTERM)
+        result = state.runner.run([sys.executable, "-c", "print('compensation completed')"])
+    assert result.stdout == "compensation completed\n"
+    assert str(outer.interruption) == "received signal 15"
+    _assert_launch_environment_restored(state)

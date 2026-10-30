@@ -1174,6 +1174,8 @@ Source variants `external` (ComfyUI), `ollama-external` (Ollama), and `ray-exter
 
 ## 14. Verification matrix
 
+> Historical note: the base-port smoke example below retains its original draft offsets. The post-implementation correction in section 5.2 supersedes those offsets.
+
 Run pre-PR. Per `docs/CONTRIBUTING-services.md` + memory `project_service_addition_checklist`:
 
 ```bash
