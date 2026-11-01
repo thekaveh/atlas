@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import replace
 from datetime import timedelta
+from pathlib import Path
 
 import pytest
 
@@ -68,6 +69,8 @@ def _budget_env(monkeypatch, **overrides):
         ("MEDIA_BUDGET_ALLOW_UNKNOWN_COST", "sometimes"),
         ("MEDIA_BUDGET_RETENTION_DAYS", "0"),
         ("MEDIA_BUDGET_RETENTION_DAYS", "1.5"),
+        # public.media_spend_ledger.currency is VARCHAR(8).
+        ("MEDIA_BUDGET_CURRENCY", "US-DOLLAR"),
     ],
 )
 def test_budget_config_rejects_fail_open_values(monkeypatch, name, value):
@@ -267,7 +270,7 @@ def test_clear_attach_protection_cannot_overwrite_terminal_settlement():
 
 
 def test_concurrent_protection_and_release_cannot_resurrect_terminal_row():
-    engine = _engine(default_cap_usd=10.0)
+    engine = _suspending_engine()
 
     async def run():
         await _reserve(engine, "temporary", 0.05)
@@ -313,6 +316,19 @@ def test_reserve_at_exact_cap_allowed():
     asyncio.run(run())
 
 
+def test_project_cap_overrides_consumer_cap():
+    # MEDIA_BUDGET_CONSUMER_CAPS: a "consumer:project" key wins over "consumer".
+    engine = _engine(consumer_caps={"acme": 5.0, "acme:demo": 1.0})
+
+    async def run():
+        with pytest.raises(BudgetExceeded):
+            await _reserve(engine, "demo-1", 2.0, project="demo")
+        return await _reserve(engine, "default-1", 2.0, project="default")
+
+    admitted = asyncio.run(run())
+    assert admitted.status == STATUS_RESERVED
+
+
 # --- concurrency-safe reservation at the boundary ---------------------------
 
 
@@ -332,6 +348,46 @@ class _YieldingStore(InMemoryLedgerStore):
     async def append(self, record):
         await asyncio.sleep(0)  # yield in the check→append gap
         await super().append(record)
+
+
+class _SuspendingStore(InMemoryLedgerStore):
+    """Suspends after every read, as the Postgres store's round trip does.
+
+    The plain store's get never awaits, so gathered coroutines ran one after
+    the other and a race test passed with its store predicate removed.
+    """
+
+    async def get(self, operation_id):
+        record = await super().get(operation_id)
+        await asyncio.sleep(0)
+        return record
+
+
+def _suspending_engine(store=None) -> BudgetEngine:
+    cfg = MediaBudgetConfig(enabled=True, store="memory", default_cap_usd=10.0)
+    return BudgetEngine(cfg, store if store is not None else _SuspendingStore())
+
+
+def test_reconcile_race_guard_catches_an_unconditional_settle():
+    """Meta-test: with settle_if_reserved overwriting any status, the
+    suspending store lets both opposite reconciliations win."""
+
+    class _UnconditionalSettle(_SuspendingStore):
+        async def settle_if_reserved(self, record):
+            self._records[record.operation_id] = record
+            return record
+
+    engine = _suspending_engine(_UnconditionalSettle())
+
+    async def run():
+        await _reserve(engine, "op-race", 0.05)
+        return await asyncio.gather(
+            engine.reconcile(operation_id="op-race", status="succeeded", final_cost_usd=0.04),
+            engine.reconcile(operation_id="op-race", status="failed"),
+        )
+
+    winners = asyncio.run(run())
+    assert {winner.status for winner in winners} == {"committed", "released"}
 
 
 def test_concurrent_reservations_at_boundary_admit_exactly_one():
@@ -575,7 +631,7 @@ def test_reconcile_does_not_mutate_attribution():
 
 
 def test_concurrent_opposite_reconciliations_preserve_first_winner():
-    engine = _engine(default_cap_usd=10.0)
+    engine = _suspending_engine()
 
     async def run():
         await _reserve(engine, "op-race", 0.05)
@@ -670,7 +726,7 @@ def test_ambiguous_recovery_rejects_existing_operation_identity_collision():
 
 
 def test_concurrent_ambiguous_append_cannot_overwrite_identity():
-    engine = _engine(default_cap_usd=10.0)
+    engine = _suspending_engine()
 
     async def write(consumer):
         return await engine.record_ambiguous(
@@ -767,8 +823,26 @@ def test_a_free_request_is_admitted_after_spend_passes_the_cap():
     assert seen_caps == [None]
 
 
+_MEDIA_LEDGER_SQL = (
+    Path(__file__).resolve().parents[4] / "supabase/db/scripts/17-backend-media-ledger.sql"
+)
+
+
+async def _provision_media_ledger_schema(conn) -> None:
+    """Apply the idempotent ledger script. Its RLS policy needs auth.role(),
+    which a plain PostgreSQL lacks; an existing one (Supabase) is kept."""
+    await conn.execute(
+        "CREATE SCHEMA IF NOT EXISTS auth; "
+        "DO $$ BEGIN IF to_regprocedure('auth.role()') IS NULL THEN "
+        "CREATE FUNCTION auth.role() RETURNS text LANGUAGE sql AS "
+        "'SELECT ''service_role''::text'; END IF; END $$;"
+    )
+    await conn.execute(_MEDIA_LEDGER_SQL.read_text(encoding="utf-8"))
+
+
 # Both implementations execute the same behavioral retention contract. The
-# PostgreSQL case is explicitly opt-in to a disposable owner-provided fixture.
+# PostgreSQL case is opt-in to a disposable database and provisions its own
+# schema from the seed script.
 @pytest.fixture(params=["memory", "postgres"])
 def retention_engine(request, monkeypatch):
     import os
@@ -787,6 +861,7 @@ def retention_engine(request, monkeypatch):
             from media_ledger_postgres import PostgresLedgerStore
 
             conn = await asyncpg.connect(url)
+            await _provision_media_ledger_schema(conn)
             store = PostgresLedgerStore(url)
 
             @asynccontextmanager

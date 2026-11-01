@@ -12,10 +12,10 @@ Atlas does not run a FAL container. The backend reads `FAL_SOURCE`, `FAL_API_KEY
 |---|---|---|
 | Atlas SOURCE | `FAL_SOURCE=disabled` | Default. No FAL calls are made and no API key is required. |
 | FAL provider | `FAL_SOURCE=enabled` | Enables FAL-backed hosted media generation through the backend. |
-| Media gateway (image) | `POST /media/generate` with `{"provider":"fal","modality":"image"}` | Submits a FAL image operation (text→image with `fal-ai/flux/dev`, or image-to-image with an init image) and returns an operation id. Custom endpoints take `input.provider_arguments`. `provider=comfyui` uses the same route for the managed or local ComfyUI host. Schema: backend `/docs` (OpenAPI). |
+| Media gateway (image) | `POST /media/generate` with `{"provider":"fal","modality":"image"}` | Submits a FAL image operation (text→image with `fal-ai/flux/dev`, or image-to-image with an init image) and returns an operation id. Custom endpoints take `input.provider_arguments`. `provider=comfyui` uses the same route for any enabled ComfyUI source. Accepted `input` keys: [Backend §3.6](../backend/README.md#36-hosted-media-gateway). |
 | Media gateway (image→3D) | `POST /media/generate` with `{"modality":"image_to_3d"}` | Submits a hosted image→3D operation through a verified Hunyuan3D, TRELLIS, Tripo, or Rodin endpoint and returns an operation id. |
 | Operation polling | `GET /media/operations/{operation_id}` | Polls provider status and returns normalized artifacts (the GLB is the primary `artifact_url`), cost, license, and provenance. |
-| Operation cancel | `POST /media/operations/{operation_id}/cancel` | Requests cancellation from FAL. Budget stays reserved until polling confirms a terminal provider outcome. Idempotent. Status codes: backend `/docs`. |
+| Operation cancel | `POST /media/operations/{operation_id}/cancel` | Requests cancellation from FAL. Budget stays reserved until polling confirms a terminal provider outcome. Idempotent: a repeat or a terminal operation returns `409` and changes nothing. An unknown or foreign id returns `404`. |
 | Ambiguous submission reconciliation | `POST /media/operations/{operation_id}/reconcile` | An operator with `BACKEND_INTERNAL_API_TOKEN` records `outcome=commit` or `outcome=release` after checking FAL billing. A missing provider id counts as ambiguous. Intents and recovery rows do not expire before settlement; same-outcome retries are safe. `recovery_ledger_ids` names cleanup candidates if operation persistence fails. The default Postgres store survives restarts; `memory` is ephemeral. |
 | Spend read | `GET /media/spend?consumer=<c>` | Scoped spend read (committed/reserved totals + rows for one consumer). Empty unless `MEDIA_BUDGET_ENABLED=true`. |
 | Compatibility route | `POST /comfyui/generate` | Uses FAL for simple image generation when `FAL_SOURCE=enabled`; otherwise preserves the existing ComfyUI path. |
@@ -43,7 +43,7 @@ FAL still appears in the services grid as a media service. Its row shows the res
 | `FAL_SOURCE` | `disabled` | Enables or disables the FAL provider. |
 | `FAL_API_KEY` | empty | Required when `FAL_SOURCE=enabled`; not required when disabled. |
 | `FAL_MODEL` | `fal-ai/flux/dev` | Default FAL model endpoint used by the media gateway for text-to-image generation. |
-| `FAL_IMAGE_TO_3D_MODEL` | `fal-ai/trellis` | Default endpoint id for the `image_to_3d` modality. Must resolve to a curated registry entry (see below); TRELLIS is the MIT-licensed default. |
+| `FAL_IMAGE_TO_3D_MODEL` | `fal-ai/trellis` | Default endpoint id for the `image_to_3d` modality. Must resolve to a verified registry entry (see below). With `FAL_SOURCE=enabled`, any other value fails Backend startup. TRELLIS is the MIT-licensed default. |
 | `FAL_MODEL_LICENSE` | `fal/provider-terms` | License or terms marker returned in normalized media operation responses when provider-specific model licensing is not more specific. For `image_to_3d`, the per-model registry license overrides this. |
 | `BACKEND_MEDIA_INPUT_BUCKET` | `default` | Supabase Storage bucket the gateway hosts `image_to_3d` inputs in (under the `media-inputs/` prefix) when a provider rejects data-URI inputs. Declared on the backend service. |
 | `BACKEND_MEDIA_INPUT_PUBLIC_BASE_URL` | empty | Optional public base URL for hosted inputs (`<base>/<bucket>/<key>`), so the provider's cloud can fetch them through a reachable ingress. Empty uses the storage client's public URL. Declared on the backend service. |
@@ -60,7 +60,7 @@ Atlas models FAL as a virtual media service:
 - Source values: `disabled` and `enabled`.
 - Runtime ownership: no compose service, no container, no volume, and no Kong route.
 - Backend integration: `POST /media/generate` validates the selected model's full schema before any state, budget, storage or provider work, then submits hosted image operations to FAL. `GET /media/operations/{operation_id}` polls provider status. `POST /media/operations/{operation_id}/cancel` records a cancellation request and keeps spend reserved until polling confirms FAL's terminal outcome.
-- Compatibility route: `POST /comfyui/generate` uses FAL first when `FAL_SOURCE=enabled`, for the default `fal-ai/flux/dev` contract. It reserves no budget, so it returns `409` while `MEDIA_BUDGET_ENABLED=true`, and `504` on a FAL timeout. For custom endpoint schemas, use `POST /media/generate` with `input.provider_arguments`.
+- Compatibility route: `POST /comfyui/generate` uses FAL first when `FAL_SOURCE=enabled`, for the default `fal-ai/flux/dev` contract. It reserves no budget, so it returns `409` while `MEDIA_BUDGET_ENABLED=true`, `504` on a FAL timeout and `502` when FAL's reply cannot be parsed. For custom endpoint schemas, use `POST /media/generate` with `input.provider_arguments`.
 - Deadlines: a budget-tracked `/media/generate` FAL job past its deadline becomes `cancellation_requested` and keeps its reservation until a poll sees FAL's terminal state. If FAL never reports one, settle it with `POST /media/operations/{id}/reconcile`.
 - ComfyUI-specific routes: workflow execution, queue inspection, history lookup, cancellation, and image file proxying remain ComfyUI-specific.
 - Secret handling: `FAL_API_KEY` is server-side only. The backend maps it to `FAL_KEY` for the fal.ai Python client and never exposes it to browser clients.
@@ -77,7 +77,7 @@ The backend handles provider differences, so consumers do not need to:
 - It composites transparent inputs onto a neutral background before submission, to avoid a known fal Hunyuan3D v2 crop bug.
 - For providers that reject data URIs, it uploads inputs to `BACKEND_MEDIA_INPUT_BUCKET`. An uploaded data URI must be PNG, JPEG or WebP and match its declared type, else HTTP 400. `image/jpg` is accepted as JPEG.
 
-The per-provider field names, seed ranges and response-key mappings are in the backend `/docs` OpenAPI.
+Callers send only `image` and an optional `seed`; any other key returns HTTP 400. Rodin seeds range from 0 to 65,535 and other families from 0 to 2,147,483,647. The per-family request field names are in the Backend's `fal_media_client.py`, and the response-key mappings are in `media_registry.py`.
 
 Limits:
 
@@ -85,7 +85,7 @@ Limits:
 - **Timeouts.** With media budgets off, `FAL_TIMEOUT_SECONDS` (120 s) is also the whole-operation deadline. A slower image→3D job (Rodin, Hunyuan, queued work) is marked `timeout` and its result is not fetched, although FAL may finish and bill it. Raise `FAL_TIMEOUT_SECONDS` for 3D work.
 - **Per-request timeout.** A larger `timeout_seconds` (1–3600) extends Atlas's deadline and FAL's server-side queue-start limit together, so a long-queued job is not dropped. The queue-start limit is never below `FAL_TIMEOUT_SECONDS`, which still bounds each submit and poll HTTP call.
 - **No GLB.** A completed job with no GLB in its result stays `succeeded`, with `artifact_url: null` and `provenance.glb_missing: true`. FAL billed it, so its spend settles as spent.
-- An unrecognised FAL queue status returns HTTP 502, not 400.
+- An unrecognised FAL queue status or an unreadable result returns HTTP 502, not 400.
 - **Baking.** A successful GLB (`artifact_url` + `license`/`provenance`) stays on FAL's CDN. To bake it, download it and upload it to the `raw-assets` MinIO bucket. The asset-baker `/assets/bake/ref` endpoint accepts only `{bucket, key}` in an allowlisted bucket, and the gateway never calls it.
 
 | Endpoint id | Family | License | Commercial use | Input hosting |
@@ -110,7 +110,7 @@ Hosted media generation has no LiteLLM-style spend accounting, so the media gate
 - `GET /media/spend?consumer=<c>[&project=<p>]` returns that consumer's totals and rows only.
 - An accepted cancellation is not a settlement: spend stays reserved until a provider poll proves a terminal outcome.
 
-The full status-code, concurrency-safety and unknown-cost contract is in the backend `/docs` OpenAPI.
+The status codes, ambiguous-submission recovery and reconciliation rules are in [Backend §3.6](../backend/README.md#36-hosted-media-gateway).
 
 Attribution comes from the authenticated Backend principal plus optional request `consumer`/`project` fields or `X-Atlas-Consumer`/`X-Atlas-Project` headers (default `default`). A `consumer`, `project` or `model` value is rejected with `400` if it is longer than 255 characters or contains a control character (such as NUL). Operation polling and cancellation are owner-scoped. Spend reads require the same Backend application-auth boundary. `MEDIA_BUDGET_*` and `MEDIA_DISABLED_PROVIDERS` are declared on the backend service.
 
@@ -118,7 +118,7 @@ Attribution comes from the authenticated Backend principal plus optional request
 
 When `FAL_SOURCE=enabled` and `FAL_API_KEY` is set, `litellm-init` also registers a **`fal-image`** model on the LiteLLM gateway. It uses LiteLLM's native `fal_ai` image provider (`model: fal_ai/${FAL_MODEL}`), gated and disabled-tolerant like the `hermes`/`vllm-metal` rows. OpenAI-shaped clients (Open WebUI image generation, n8n, notebooks) then reach FAL **text→image** through `http://litellm:4000/v1/images/generations`. They get LiteLLM's unified auth, spend logging and retries, with no bespoke backend call.
 
-- **Scope is text→image only.** FAL **image→3D** (§4.1), video and audio stay on the Backend media gateway. LiteLLM has no 3D or video modality. The gateway owns the curated registry, normalized provenance, and hosting of image inputs in Supabase Storage (results stay on FAL's CDN).
+- **Scope is text→image only.** FAL **image→3D** (§4.1) stays on the Backend media gateway. Atlas has no FAL video or audio route, and LiteLLM has no 3D or video modality. The gateway owns the curated registry, normalized provenance, and hosting of image inputs in Supabase Storage (results stay on FAL's CDN).
 - **Provenance boundary.** The LiteLLM route returns raw image data (b64/URL) and does **not** perform Atlas provenance or storage. The Backend media gateway (`POST /media/generate`) is authoritative for provenance and spend accounting. It does not copy artifacts: `artifact_url` is FAL's own CDN URL, which expires, so download results you need to keep. The two paths **complement** each other.
 - **Key wiring.** The `fal-image` row references `os.environ/FAL_AI_API_KEY`, which the LiteLLM *server* resolves at request time. The compose fragment sets `FAL_AI_API_KEY=${FAL_API_KEY}` on the litellm container. The key is never written into `config.yaml`.
 

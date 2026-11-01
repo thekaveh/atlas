@@ -21,10 +21,6 @@ MANIFEST = SERVICE_DIR / "service.yml"
 COMPOSE = SERVICE_DIR / "compose.yml"
 README = SERVICE_DIR / "README.md"
 RUNTIME = SERVICE_DIR / "runtime" / "atlas_mcp_server.py"
-SUPABASE_MANIFEST = REPO_ROOT / "services" / "supabase" / "service.yml"
-MEMORY_RLS_SQL = (
-    REPO_ROOT / "services" / "supabase" / "db" / "scripts" / "14-backend-memory.sql"
-)
 NEO4J_COMPOSE = REPO_ROOT / "services" / "neo4j" / "compose.yml"
 
 

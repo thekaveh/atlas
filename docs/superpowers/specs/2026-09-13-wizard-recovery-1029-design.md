@@ -1,6 +1,6 @@
 # Wizard recovery guidance (#1029)
 
-> **Status: archived spec** — dated 2026-09-13; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+> **Status: archived spec** — dated 2026-09-13; a point-in-time record kept for archaeology, not current guidance. It landed in `0b0d56cb` (#1068), which has no CHANGELOG entry.
 
 ## 1. Verified problem
 
@@ -30,9 +30,13 @@ Cold stop remains a separate `Ctrl+X` action. Before confirmation, the persisten
 log and notification describe the target project, Compose-managed named and
 attached anonymous volumes, and the database records, object files, histories,
 models and caches held in those volumes. Explain that bind mounts, external
-volumes, `.env`, and managed host processes remain. Two matching presses must
+volumes, `.env`, and managed host processes remain.
+
+Two matching presses must
 occur within eight seconds; an expired or different first press cannot authorize
-deletion. Cold-start selection separately explains env/key regeneration.
+deletion.
+
+Cold-start selection separately explains env/key regeneration.
 Its warning opts into a wrapping subtitle, reclaiming decorative panel spacing
 so the complete warning and choices fit together; other prompts retain their
 existing one-line subtitle.

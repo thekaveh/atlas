@@ -12,7 +12,8 @@ dependencies, including authentication, are resolved. Route classes:
   route-level ``UploadFile`` reads are already streamed and bounded, but the
   multipart parser spools the whole body to disk before those bounds apply;
   a rule caps that spool at the route's own documented limit plus parser
-  overhead.
+  overhead. Each rule also authenticates the scope with its route's own
+  header check first, so an unauthenticated caller cannot force that spool.
 - Every other body-bearing method — a default JSON envelope far above any
   documented payload (Ragas batches are service-bounded, chunking text is
   capped at 1M characters) but far below "buffer arbitrary bytes".
@@ -20,10 +21,6 @@ dependencies, including authentication, are resolved. Route classes:
 Content-Length is validated when present but never trusted: chunked and
 lying-length bodies are counted as they stream and cut off at the cap.
 Responses are stable 413/400 JSON that never echo request bytes.
-
-``MediaRequestLimitMiddleware`` remains as the single-route configuration of
-the general middleware (media rule only, no default envelope), preserving its
-original contract byte-for-byte for existing deployments and tests.
 """
 
 from __future__ import annotations
@@ -67,11 +64,12 @@ def media_request_max_bytes_from_env() -> int:
 class BodyLimitRule:
     """An exact (method, path) byte envelope.
 
-    ``authenticate``/``replay`` select the media-style gate: authenticate the
-    scope first, then spool the bounded body and replay it to the app. Rules
-    without them stream-count the body and reject mid-flight at the cap.
-    ``limit_message`` overrides the 413 detail (the media rule keeps its
-    original wording).
+    ``authenticate`` checks the scope's headers before any body byte is
+    read, with ``authenticator`` when set and the middleware's default check
+    otherwise. ``replay`` spools the bounded body and replays it to the app
+    (the media-style gate). Rules without ``replay`` stream-count the body and
+    reject mid-flight at the cap. ``limit_message`` overrides the 413 detail
+    (the media rule keeps its original wording).
     """
 
     method: str
@@ -80,6 +78,9 @@ class BodyLimitRule:
     authenticate: bool = False
     replay: bool = False
     limit_message: Optional[str] = None
+    authenticator: Optional[Callable[[Dict[str, Any]], Awaitable[Any]]] = field(
+        default=None, compare=False
+    )
 
     def too_large_detail(self) -> str:
         if self.limit_message is not None:
@@ -148,9 +149,6 @@ class RequestLimitMiddleware:
         self._streaming_prefixes = tuple(p.rstrip("/") for p in policy.streaming_prefixes)
         self._streaming_auth = {p.rstrip("/"): fn for p, fn in policy.streaming_auth.items()}
 
-    def _streams(self, path: str) -> bool:
-        return self._stream_prefix(path) is not None
-
     def _stream_prefix(self, path: str) -> Optional[str]:
         return next((p for p in self._streaming_prefixes if path == p or path.startswith(p + "/")), None)
 
@@ -187,7 +185,8 @@ class RequestLimitMiddleware:
         )
 
         if rule is not None and rule.authenticate:
-            if not await self._authenticated(self.authenticate, scope, send):
+            authenticate = rule.authenticator or self.authenticate
+            if not await self._authenticated(authenticate, scope, send):
                 return
 
         headers = {key.lower(): value for key, value in scope.get("headers", [])}
@@ -344,30 +343,3 @@ def media_rule(max_bytes: int) -> BodyLimitRule:
             f"({max_bytes} bytes)"
         ),
     )
-
-
-class MediaRequestLimitMiddleware(RequestLimitMiddleware):
-    """Authenticate and bound ``POST /media/generate`` before route parsing.
-
-    The original single-route configuration: only the media route is gated,
-    everything else passes through with the original receive/send untouched.
-    """
-
-    def __init__(
-        self,
-        app: Callable[..., Awaitable[None]],
-        max_bytes: int | None = None,
-        *,
-        authenticate: Callable[[Dict[str, Any]], Awaitable[Any]],
-    ):
-        resolved = (
-            media_request_max_bytes_from_env() if max_bytes is None else max_bytes
-        )
-        if resolved <= 0:
-            raise ValueError("MEDIA_REQUEST_MAX_BYTES must be a positive integer")
-        super().__init__(
-            app,
-            policy=LimitPolicy(rules=[media_rule(resolved)], default_max_bytes=None),
-            authenticate=authenticate,
-        )
-        self.max_bytes = resolved

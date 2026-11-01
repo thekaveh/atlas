@@ -9,14 +9,15 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
-def _forget_imported_plugins():
+def _forget_imported_plugins(tmp_path):
     """Tests reuse plugin names in fresh tmp dirs; drop modules a test
     imported so the next one loads its own copy, as a fresh process would."""
     before = set(sys.modules)
     yield
     for name in set(sys.modules) - before:
         module = sys.modules.get(name)
-        if "pytest-of-" in str(getattr(module, "__file__", "") or ""):
+        source = getattr(module, "__file__", None)
+        if source and Path(source).resolve().is_relative_to(tmp_path.resolve()):
             del sys.modules[name]
 
 

@@ -19,7 +19,7 @@ upstream: https://github.com/kyutai-labs/unmute
 A self-hosted, MIT-licensed WebSocket service that wraps any text LLM with Kyutai's streaming STT + TTS in an OpenAI-Realtime-compatible protocol.
 
 ## 2. Problem it solves
-Today the stack's voice loop is half-duplex: open-webui or backend records a full utterance, sends it to parakeet/speaches for transcription, calls LiteLLM, then waits for the full WAV back from chatterbox/speaches. End-to-end latency is several seconds and there's no barge-in. Unmute terminates a single browser WebSocket and streams partial tokens in both directions, matching the OpenAI Realtime API format the JS SDKs already speak, so it slots in without rewriting clients.
+Today the stack's voice loop is half-duplex: Open WebUI records a full utterance, sends it to parakeet/speaches for transcription, calls LiteLLM, then waits for the full WAV back from chatterbox/speaches. End-to-end latency is several seconds and there's no barge-in. Unmute terminates a single browser WebSocket and streams partial tokens in both directions, matching the OpenAI Realtime API format the JS SDKs already speak, so it slots in without rewriting clients.
 
 ## 3. Deferred decision (2026-07-04)
 

@@ -43,9 +43,9 @@ JUPYTERHUB_SOURCE=disabled
 - **Database Clients**: Weaviate, Neo4j, PostgreSQL, Redis, Supabase
 - **Lakehouse Clients**: PySpark Connect, `boto3`, `s3fs`, `pyiceberg`, `pyarrow`, and `duckdb` for MinIO + Iceberg REST workflows
 - **Financial Research Kit**: OpenBB + CCXT libraries and a guarded paper-portfolio notebook for read-only market research
-- **Sample Notebooks**: 16 ready-to-use notebooks (00-15) demonstrating service integration
+- **Sample Notebooks**: 16 notebooks (00-15) demonstrating service integration; Ray Client needs a compatible kernel (§5).
 - **Persistent Storage**: Your work is saved in the `jupyterhub-data` volume (§7)
-- **Environment Variables**: Auto-configured connections for the integrations declared in `services/jupyterhub/service.yml`; optional endpoints, including `MCP_SERVERS_URL`, remain empty when their source is disabled
+- **Environment Variables**: Connections follow `services/jupyterhub/service.yml`. Selected endpoints, including `MCP_SERVERS_URL`, remain empty when their source is disabled (§6).
 - **Multi-kernel runtime**: Python 3 (default), R, Julia 1.12, **Scala 2.13**, and **Scala 3**. Pick one from JupyterLab's launcher or VS Code's kernel picker. See §11.
 - **VS Code-ready**: configured for remote-Jupyter access out of the box. Open local `.ipynb` files in VS Code and run them on this container as the kernel. See §10.
 
@@ -68,6 +68,8 @@ The base image is pinned by digest, and a base change requires a reviewed pin up
 
 ### 4.2. Authentication
 
+The commands on this page use `${PROJECT_NAME}`. Set it in your shell to the value in `.env` (default `atlas`).
+
 - **No token set**: Auto-generated token shown in logs
 - **Custom token**: Set `JUPYTERHUB_TOKEN` in `.env`
 - **View token**: `docker logs ${PROJECT_NAME}-jupyterhub 2>&1 | grep token=`
@@ -88,7 +90,7 @@ The notebooks read MinIO bucket names from the `MINIO_BUCKET_*` variables (`MINI
 | `01_litellm_basics.ipynb` | Chat, streaming and embeddings through the LiteLLM gateway, using `LITELLM_DEFAULT_MODEL` / `LITELLM_EMBEDDING_MODEL`. |
 | `02_langchain_rag.ipynb` | RAG pipeline with Weaviate. With Weaviate disabled it says so and skips the Weaviate cells. |
 | `03_neo4j_graphs.ipynb` | Knowledge graph queries |
-| `04_supabase_data.ipynb` | Database and storage operations |
+| `04_supabase_data.ipynb` | PostgreSQL queries and a read-only Storage bucket listing. Both use the read-only database login, because JupyterHub has no Storage service-role key. |
 | `05_comfyui_images.ipynb` | AI image generation |
 | `06_n8n_workflows.ipynb` | Workflow automation |
 | `07_ray_cluster.ipynb` | Distributed compute on the Ray cluster. Currently fails at `ray.init()`: the kernel runs Python 3.13 and the Ray image 3.10 (see the Ray README, §6). |
@@ -109,9 +111,13 @@ The repository gate keeps this inventory in sync with the image welcome page and
 
 ## 6. Service Integration Examples
 
-Notebooks reach LLMs only through LiteLLM's OpenAI-compatible API, never Ollama directly. `startup.sh` writes `OPENAI_API_BASE` and `OPENAI_API_KEY` to `/home/jovyan/work/.env`. They are not in the process environment, so call `load_dotenv()` before `os.getenv`.
+Notebooks reach LLMs only through LiteLLM's OpenAI-compatible API, never Ollama directly. `startup.sh` exports `OPENAI_API_BASE` and `OPENAI_API_KEY` from the LiteLLM settings when those aliases are unset. Existing aliases, including empty values, take precedence. The process aliases preserve literal credential values.
 
-Other clients read injected process variables, so no credentials need hand-assembly. A variable is empty when its service is disabled.
+The script also writes `/home/jovyan/work/.env`, without quoting or escaping arbitrary values. Use the process environment for exact credential values. By default, `load_dotenv()` keeps existing process variables.
+
+Other clients read injected process variables, so no credentials need hand-assembly. Endpoint adaptation depends on the service.
+
+`WEAVIATE_URL`, `NEO4J_URI`, `RAY_ADDRESS`, `MLFLOW_TRACKING_URI` and `MCP_SERVERS_URL` are empty when their corresponding services are disabled. `COMFYUI_BASE_URL` and `SPARK_REMOTE` retain fallback URLs; `N8N_BASE_URL` and `SEARXNG_URL` retain fixed internal URLs. Enable each required service before using these endpoints; a nonempty URL does not confirm that it is enabled.
 
 | Client | Variables |
 |---|---|
@@ -186,7 +192,13 @@ docker exec ${PROJECT_NAME}-jupyterhub python -c \
 
 ### 9.1. GPU-aware workflows
 
-JupyterHub itself is configured through `.env` and the stack startup flow. Prefer enabling GPU-backed upstream services through their SOURCE variables, for example `LLM_PROVIDER_SOURCE=ollama-container-gpu`, `COMFYUI_SOURCE=container-gpu`, or `MULTI2VEC_CLIP_SOURCE=container-gpu`.
+JupyterHub itself is configured through `.env` and the stack startup flow. The notebook container has no GPU source. For GPU work, enable a GPU-backed upstream service through its SOURCE variable. Atlas attaches an NVIDIA device only for these sources:
+
+- `DOC_PROCESSOR_SOURCE=docling-container-gpu`
+- `STT_PROVIDER_SOURCE=parakeet-container-gpu`
+- `TTS_PROVIDER_SOURCE=chatterbox-container-gpu`
+
+Other `container-gpu` sources request no GPU device. `COMFYUI_SOURCE=container-gpu` runs on CPU (see the [ComfyUI README](../comfyui/README.md)). `MULTI2VEC_CLIP_SOURCE=container-gpu` leaves Weaviate not ready (see the [multi2vec-clip README](../multi2vec-clip/README.md)). `LLM_PROVIDER_SOURCE=ollama-container-gpu` uses a GPU only when the host's default Docker runtime is `nvidia`.
 
 Avoid direct `docker-compose.yml` edits for normal operation; local compose edits are unsupported experiments and can be overwritten or invalidated by future stack changes.
 
@@ -233,6 +245,8 @@ The image `ENTRYPOINT` (`build/scripts/startup.sh`, set in `services/jupyterhub/
 - `--ServerApp.allow_remote_access=True`: admits connections from the Docker bridge network.
 - `--ServerApp.disable_check_xsrf=False`: keeps CSRF protection on (the Jupyter default, listed explicitly).
 
+Compose also sets `init: true`, so Docker's init process runs as PID 1. It reaps processes orphaned by kernel restarts or closed terminals.
+
 `JUPYTERHUB_TOKEN` is the access control. Do not set `JUPYTER_ALLOW_ORIGIN` to `*`. With `*`, a page on any other localhost port can use the browser's Jupyter cookie to open a terminal websocket. To admit one browser origin, set `JUPYTER_ALLOW_ORIGIN` to that exact origin in `.env` and restart. Jupyter compares the value as one string, so a comma-separated list matches no origin.
 
 ### 10.4. Notebook layout: where files live
@@ -248,7 +262,7 @@ The image `ENTRYPOINT` (`build/scripts/startup.sh`, set in `services/jupyterhub/
 - **Kernel starts but cells hang.** WebSocket upgrade failure — confirm the three `--ServerApp.*` flags are present in `docker inspect ${PROJECT_NAME}-jupyterhub --format='{{json .Config.Cmd}}'`. If the compose file was edited but the container wasn't rebuilt, run `./stop.sh && ./start.sh`.
 - **CORS error in VS Code's developer console.** Connect with the token URL: token-authenticated requests skip the origin check. If a browser page on another origin must connect, set `JUPYTER_ALLOW_ORIGIN` to that one origin, not `*`.
 - **"Address already in use" on 63094.** `./start.sh --base-port 64000` to relocate the whole stack.
-- **Scala 2.13 / Scala 3 missing from the kernel picker.** The running image predates the Almond layer in `services/jupyterhub/build/Dockerfile`. Run `./start.sh`, which rebuilds the stale image, or rebuild only this container with `docker compose -p "$PROJECT_NAME" up jupyterhub --build --no-deps -d`. Confirm via `docker exec ${PROJECT_NAME}-jupyterhub jupyter kernelspec list` — both `scala213` and `scala3` should appear alongside `python3`. See §11 for full kernel-install details.
+- **Scala 2.13 / Scala 3 missing from the kernel picker.** The running image predates the Almond layer in `services/jupyterhub/build/Dockerfile`. Run `./start.sh`, which rebuilds the stale image, or rebuild only this container with `atlas_compose up -d --build --no-deps jupyterhub` (helper in [Troubleshooting](../../docs/quick-start/troubleshooting.md)). Confirm via `docker exec ${PROJECT_NAME}-jupyterhub jupyter kernelspec list` — both `scala213` and `scala3` should appear alongside `python3`. See §11 for full kernel-install details.
 - **Server connects but no kernels listed.** Look at the URL VS Code stored — it must include `/?token=<value>`. If you pasted the URL without the token, VS Code thinks it's connected but every kernel request 403s. `Jupyter: Specify Jupyter Server for Connections` → re-enter the URL with the token suffix.
 - **Cell output appears in the wrong notebook.** VS Code occasionally caches a stale kernel binding when you switch between two notebooks on the same server. Right-click the notebook tab → `Restart Kernel` resets the binding.
 
@@ -278,10 +292,10 @@ docker exec ${PROJECT_NAME}-jupyterhub jupyter kernelspec list
 You should see `python3`, `ir`, `julia-1.12`, `scala213`, and `scala3`. If `julia-1.11` appears instead, or either Scala kernel is absent, rebuild with the args at the top of the Dockerfile baked in:
 
 ```bash
-docker compose -p "$PROJECT_NAME" up jupyterhub --build --no-deps -d
+atlas_compose up -d --build --no-deps jupyterhub
 ```
 
-Set `PROJECT_NAME` in your shell to the value in `.env` (default `atlas`); without `-p`, Compose uses the checkout directory name and creates a second project. `--no-deps` replaces only the jupyterhub container. The rebuild reuses cached layers after the first run.
+`atlas_compose` is the Compose helper from [Troubleshooting](../../docs/quick-start/troubleshooting.md). Define it first and run it from the repository root. It applies the project name, overlays and `ATLAS_ENV_FILE`. `--no-deps` replaces only the jupyterhub container. The rebuild reuses cached layers after the first run.
 
 **Smoke-test a Scala cell** without opening JupyterLab — useful in CI / cold-start verification:
 
@@ -296,7 +310,7 @@ Scala/Almond versions are pinned by build args near the top of `services/jupyter
 
 ## 12. Architecture
 
-JupyterHub runs inside the Docker Compose network and receives environment variables for the enabled services. It reaches LLMs through the always-on LiteLLM gateway (`LITELLM_BASE_URL` / `LITELLM_API_KEY`). `startup.sh` also writes them as `OPENAI_API_BASE` / `OPENAI_API_KEY` to `work/.env`. When they are available, it connects directly to these services:
+JupyterHub runs inside the Docker Compose network and receives environment variables for the enabled services. It reaches LLMs through the always-on LiteLLM gateway (`LITELLM_BASE_URL` / `LITELLM_API_KEY`). `startup.sh` provides `OPENAI_API_BASE` / `OPENAI_API_KEY` process aliases when unset (§6). When they are available, it connects directly to these services:
 
 - data: Weaviate, Neo4j, PostgreSQL/Supabase, Redis, MinIO, Iceberg REST;
 - compute and ML: Spark Connect, the Ray Jobs API, MLflow;

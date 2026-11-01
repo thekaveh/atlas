@@ -170,8 +170,8 @@ def _build_test_env() -> Path:
     """Materialize a deterministic env file from .env.example + overrides.
 
     Returns the path to a tempfile that callers should pass to
-    `docker compose --env-file ...`. The file is leaked on purpose (pytest
-    cleans up the temp dir at session end); short-lived enough not to matter.
+    `docker compose --env-file ...`. It lives in the system temp directory,
+    which pytest does not manage, so callers must unlink it.
     """
     if not ENV_EXAMPLE.is_file():
         pytest.skip(f".env.example missing at {ENV_EXAMPLE}")
@@ -209,22 +209,25 @@ def _render(compose_file: Path) -> dict:
     # name from .env). Without it, the rendered `name:` field defaults to the
     # parent directory, which causes baseline drift when the worktree is on a
     # different path than where the baseline was captured.
-    result = subprocess.run(
-        [
-            "docker",
-            "compose",
-            "--env-file",
-            str(env_file),
-            "-p",
-            "atlas",
-            "-f",
-            str(compose_file),
-            "config",
-        ],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    try:
+        result = subprocess.run(
+            [
+                "docker",
+                "compose",
+                "--env-file",
+                str(env_file),
+                "-p",
+                "atlas",
+                "-f",
+                str(compose_file),
+                "config",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    finally:
+        env_file.unlink(missing_ok=True)
     assert result.returncode == 0, (
         f"`docker compose config` failed for {compose_file}:\n{result.stderr}"
     )
@@ -340,19 +343,23 @@ def test_published_ports_default_to_loopback_and_allow_explicit_remote_bind() ->
             for name, service in payload["services"].items()
         }
 
-    default_host_ips = [
-        host_ip for host_ips in render_host_ips(env_file).values() for host_ip in host_ips
-    ]
-    assert default_host_ips
-    assert set(default_host_ips) == {"127.0.0.1"}
     remote_env = env_file.with_name(f"{env_file.name}-remote")
-    remote_env.write_text(
-        env_file.read_text(encoding="utf-8").replace(
-            "HOST_BIND_IP=127.0.0.1:\n", "HOST_BIND_IP=0.0.0.0:\n", 1
-        ),
-        encoding="utf-8",
-    )
-    assert set(render_host_ips(remote_env)["supabase-db"]) == {"0.0.0.0"}
+    try:
+        default_host_ips = [
+            host_ip for host_ips in render_host_ips(env_file).values() for host_ip in host_ips
+        ]
+        assert default_host_ips
+        assert set(default_host_ips) == {"127.0.0.1"}
+        remote_env.write_text(
+            env_file.read_text(encoding="utf-8").replace(
+                "HOST_BIND_IP=127.0.0.1:\n", "HOST_BIND_IP=0.0.0.0:\n", 1
+            ),
+            encoding="utf-8",
+        )
+        assert set(render_host_ips(remote_env)["supabase-db"]) == {"0.0.0.0"}
+    finally:
+        env_file.unlink(missing_ok=True)
+        remote_env.unlink(missing_ok=True)
 
 
 def test_a_disabled_supabase_subservice_starts_no_container(monkeypatch):

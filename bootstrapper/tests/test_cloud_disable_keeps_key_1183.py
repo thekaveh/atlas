@@ -48,7 +48,6 @@ def _resolve(secret, **kw):
         secret_value=secret,
         selected_models=["gpt-5"],
         existing_key_set=True,
-        existing_source="disabled",
     )
     defaults.update(kw)
     return resolve_cloud_provider(**defaults)
@@ -64,19 +63,13 @@ def test_a_disabled_provider_with_a_saved_key_stays_disabled_on_enter():
     assert r.api_key is None, "no verdict — the stored key is untouched"
 
 
-def test_an_enabled_provider_with_a_saved_key_stays_enabled_on_enter():
-    r = _resolve(SECRET_KEEP, existing_source="enabled")
-    assert r.source is None
-    assert r.api_key is None
-
-
-@pytest.mark.parametrize("existing_source", ["disabled", "enabled", "", "DISABLED"])
-def test_enter_never_writes_either_field_whatever_env_says(existing_source):
+@pytest.mark.parametrize("env_source", ["disabled", "enabled", "", "DISABLED"])
+def test_enter_never_writes_either_field_whatever_env_says(env_source):
     """The migration obligation: an upgrade must neither enable a disabled
-    provider nor erase a stored key when the user just presses Enter."""
-    r = _resolve(SECRET_KEEP, existing_source=existing_source)
-    assert r.source is None
-    assert r.api_key is None
+    provider nor erase a stored key when the user just presses Enter. The
+    resolver never sees the saved source, so drive the Textual mapping,
+    which reads it from .env."""
+    assert _args_for(SECRET_KEEP, env=_env(source=env_source)) == (None, "<unwritten>")
 
 
 def test_enter_on_a_provider_with_no_key_still_writes_nothing():
@@ -172,12 +165,10 @@ def test_every_provider_resolves_the_same_way():
         keep = resolve_cloud_provider(
             provider_key=provider.key, secret_value=SECRET_KEEP,
             selected_models=["m"], existing_key_set=True,
-            existing_source="disabled",
         )
         off = resolve_cloud_provider(
             provider_key=provider.key, secret_value=SECRET_DISABLE,
             selected_models=["m"], existing_key_set=True,
-            existing_source="enabled",
         )
         assert (keep.source, keep.api_key) == (None, None), provider.key
         assert (off.source, off.api_key) == ("disabled", None), provider.key

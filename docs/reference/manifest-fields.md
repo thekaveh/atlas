@@ -28,5 +28,5 @@ Schema-required marks the keys the JSON schema requires. The validator and tests
 | runtime_sc | no | Per-source runtime scale/environment/deploy/extra_hosts slices |
 | runtime_adaptive | no | Per-container adaptive-service descriptors |
 | runtime_deps | no | Launch-time dependency rules (requires / optional / conditional_requires); a missing requirement auto-disables the service |
-| runtime_dependency_tiers | no | Stack-wide startup tier order (the `globals` manifest only) |
+| runtime_dependency_tiers | no | Informational container tier grouping (the `globals` manifest only); not used for startup order |
 | rows | no | Box rows this manifest renders |

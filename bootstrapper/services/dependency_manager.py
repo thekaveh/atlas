@@ -18,10 +18,23 @@ failed startup with a false "trino requires minio" violation.
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Mapping, Optional
 
 from core.config_parser import ConfigParser
 from utils.source_override_manager import SourceOverrideManager
+
+
+def conditional_rule_selected(rule: Dict, env: Mapping[str, str]) -> bool:
+    """Whether a ``conditional_requires`` rule applies to ``env``.
+
+    An absent or explicitly empty value uses ``when_defaults``, matching
+    Compose and POSIX-shell ``${VAR:-default}``; nonempty values always win.
+    """
+    defaults = rule.get('when_defaults', {})
+    return all(
+        (env.get(name) or defaults.get(name, '')) == expected
+        for name, expected in rule.get('when', {}).items()
+    )
 
 
 @dataclass(frozen=True)
@@ -123,6 +136,21 @@ def _manifest_source_var(manifest) -> Optional[str]:
     return row_vars.pop() if len(row_vars) == 1 else None
 
 
+def _alias_family_name(manifest, declared: Dict[str, str]) -> Dict[str, str]:
+    """Scale a manifest name that is not a container by its one scaled container.
+
+    parakeet's only container is parakeet-gpu. Without this, 'parakeet' fell
+    back to the STT row aggregate STT_PROVIDER_SCALE, which is 1 whenever
+    Speaches serves STT, so Parakeet was reported as connected while off.
+    A manifest name that is also a container (redis, litellm) keeps its own
+    lookup: aliasing it would read a sibling's scale (the exporter, the init).
+    """
+    scale_vars = set(declared.values())
+    if manifest.name in {str(c) for c in manifest.containers} or len(scale_vars) != 1:
+        return declared
+    return {**declared, manifest.name: scale_vars.pop()}
+
+
 def _manifest_enablement(manifest) -> Dict[str, "_ServiceEnablementInfo"]:
     """name → enablement info for a manifest and each of its containers."""
     source_var = _manifest_source_var(manifest)
@@ -132,7 +160,7 @@ def _manifest_enablement(manifest) -> Dict[str, "_ServiceEnablementInfo"]:
     # reported the always-on database as disabled when pg-meta was off.
     row_scales = {r.scale_var for r in manifest.rows if r.scale_var}
     primary_scale = row_scales.pop() if len(row_scales) == 1 else None
-    declared = _compose_replica_vars(manifest)
+    declared = _alias_family_name(manifest, _compose_replica_vars(manifest))
 
     out: Dict[str, _ServiceEnablementInfo] = {}
     for name in [manifest.name, *[str(c) for c in manifest.containers]]:
@@ -313,19 +341,12 @@ class DependencyManager:
         """Configuration-time dependency failures for a manifest rule.
 
         These are intentionally independent of replica scale so declarative
-        one-shot services can fail bootstrap before Compose launch. An absent
-        or explicitly empty value uses ``when_defaults``, matching Compose and
-        POSIX-shell ``${VAR:-default}``; nonempty values always win.
+        one-shot services can fail bootstrap before Compose launch. Rule
+        selection is ``conditional_rule_selected``.
         """
         violations: List[Dict] = []
         for rule in dep_config.get('conditional_requires', []):
-            conditions = rule.get('when', {})
-            defaults = rule.get('when_defaults', {})
-            selected = all(
-                (env_vars.get(name) or defaults.get(name, '')) == expected
-                for name, expected in conditions.items()
-            )
-            if not selected:
+            if not conditional_rule_selected(rule, env_vars):
                 continue
             for required_service in rule.get('requires', []):
                 if (
@@ -483,25 +504,3 @@ class DependencyManager:
             list: List of violation dictionaries
         """
         return self.dependency_violations.copy()
-        
-    def print_dependency_results(self) -> None:
-        """Print dependency check results to console."""
-        if self.dependency_violations:
-            print("[ERROR] Service dependency violations found:")
-            for violation in self.dependency_violations:
-                print(f"   {violation['error_message']}")
-        else:
-            print("[OK] All service dependencies satisfied")
-            
-    def get_dependency_info(self, service_name: str) -> Dict:
-        """
-        Get dependency information for a specific service.
-        
-        Args:
-            service_name: Name of the service
-            
-        Returns:
-            dict: Dependency information (requires, optional, messages)
-        """
-        dependencies = self.get_service_dependencies()
-        return dependencies.get(service_name, {})

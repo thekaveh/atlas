@@ -97,11 +97,12 @@ GRANT ALL ON ALL SEQUENCES IN SCHEMA storage TO service_role;
 
 -- `anon` is deliberately EXCLUDED here. RLS is disabled on these tables (see
 -- above), so a GRANT is the only control — and PostgREST publishes `storage`
--- (PGRST_DB_SCHEMA: "public,storage") on a port that binds 0.0.0.0 unless
--- HOST_BIND_IP is set. Granting anon SELECT therefore made every object's
+-- (PGRST_DB_SCHEMA: "public,storage") on a port that binds loopback by
+-- default (HOST_BIND_IP=127.0.0.1:) and every interface when HOST_BIND_IP is
+-- empty or 0.0.0.0:. Granting anon SELECT therefore made every object's
 -- path, owner and metadata, and every bucket row, readable by any
--- unauthenticated network peer. Verified before this change: an
--- unauthenticated request with `Accept-Profile: storage` returned
+-- unauthenticated peer that can reach that port. Verified before this
+-- change: an unauthenticated request with `Accept-Profile: storage` returned
 -- `alice/private/tax-return-2025.pdf`.
 --
 -- Nothing reads these tables as anon: the Storage service has its own HTTP

@@ -211,7 +211,7 @@ class MediaBudgetConfig:
         return cls(
             enabled=enabled,
             store=store,
-            currency=(os.getenv("MEDIA_BUDGET_CURRENCY") or "USD").strip() or "USD",
+            currency=_currency_from_env(),
             default_cap_usd=_optional_nonnegative_float(
                 "MEDIA_BUDGET_DEFAULT_USD", os.getenv("MEDIA_BUDGET_DEFAULT_USD")
             ),
@@ -224,6 +224,15 @@ class MediaBudgetConfig:
             ),
             database_url=database_url,
         )
+
+
+def _currency_from_env() -> str:
+    currency = (os.getenv("MEDIA_BUDGET_CURRENCY") or "USD").strip() or "USD"
+    if len(currency) > 8:
+        # public.media_spend_ledger.currency is VARCHAR(8): a longer label
+        # failed every ledger write while startup and /ready stayed green.
+        raise ValueError("MEDIA_BUDGET_CURRENCY must be 1-8 characters")
+    return currency
 
 
 def _nonnegative_float(name: str, raw: Any) -> float:
@@ -341,18 +350,6 @@ class InMemoryLedgerStore:
                 self._records[record.operation_id] = record
                 return record
             return current
-
-    async def rekey(self, old_id: str, new_id: str) -> None:
-        async with self._lock:
-            record = self._records.get(old_id)
-            if record is None:
-                return
-            if new_id in self._records:
-                raise LedgerOperationCollisionError(
-                    f"media ledger operation id collision: {new_id}"
-                )
-            del self._records[old_id]
-            self._records[new_id] = replace(record, operation_id=new_id)
 
     async def totals(self, consumer: str, project: str) -> Tuple[float, float]:
         reserved = 0.0

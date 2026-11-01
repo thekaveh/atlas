@@ -38,15 +38,13 @@ def _wizard_steps(env_file: Path | None = None):
     wiring-table defaults, so default-assertions must not read it."""
     from core.config_parser import ConfigParser
     from ui.textual.integration import _build_steps_and_rows
-    from utils.hosts_manager import HostsManager
 
     repo_root = Path(__file__).resolve().parent.parent.parent
     cp = ConfigParser(str(repo_root))
     if env_file is not None:
         cp.env_file_path = env_file
     cp.parse_env_file()
-    hm = HostsManager()
-    steps, _rows, _info, _bp, _state, _cloud = _build_steps_and_rows(cp, hm)
+    steps, _rows, _info, _bp, _state, _cloud = _build_steps_and_rows(cp)
     return steps
 
 

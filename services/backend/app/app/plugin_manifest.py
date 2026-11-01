@@ -322,7 +322,14 @@ def load_manifest(plugin_dir: Path) -> Optional[PluginManifest]:
     try:
         raw = _load_yaml_strict(manifest_path.read_text(encoding="utf-8"))
     except (OSError, UnicodeError, yaml.YAMLError) as exc:
-        raise PluginManifestError(plugin_hint, f"could not parse YAML ({exc})") from exc
+        location = str(manifest_path)
+        if isinstance(exc, yaml.MarkedYAMLError) and exc.problem_mark is not None:
+            location += f", line {exc.problem_mark.line + 1}, column {exc.problem_mark.column + 1}"
+        kind = type(exc).__name__
+        if isinstance(exc, yaml.constructor.ConstructorError):
+            kind += ", invalid structure or duplicate key"
+        message = f"could not parse YAML ({kind} at {location})"
+        raise PluginManifestError(plugin_hint, message) from None
     if raw is None:
         raise PluginManifestError(plugin_hint, "manifest is empty")
     if not isinstance(raw, dict):
@@ -330,7 +337,7 @@ def load_manifest(plugin_dir: Path) -> Optional[PluginManifest]:
     try:
         manifest = PluginManifest.model_validate(raw)
     except ValidationError as exc:
-        raise PluginManifestError(plugin_hint, _format_pydantic_error(exc)) from exc
+        raise PluginManifestError(plugin_hint, _format_pydantic_error(exc)) from None
     return manifest
 
 

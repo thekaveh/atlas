@@ -55,13 +55,13 @@ For TUI/CLI visual work: after each change, describe exactly what changed visual
 
 Build validation runs on every workflow run and is a required check in the live `gitflow` ruleset. Despite its name, it builds no local Dockerfile. It verifies the pinned remote build contexts against their reviewed base-image digests and scans changed remote images. Local Dockerfile and requirements breakage shows in `Final-image scan (local Compose and init images)`, which is not a required check.
 
-When an upstream floating tag (`nginx:alpine`, `node:20`, `python:3.12-slim`) is republished, build validation fails on every pull request. It passes again after you refresh the reviewed digest in three places: `.container-scan-exclusions.yml`, the `test_container_security.py` fixture and the row in `docs/maintenance/external-contract-ledger.md`.
+When an upstream floating tag (`nginx:alpine`, `node:20`, `python:3.12-slim`) is republished, build validation fails on every pull request. It passes again after you refresh the reviewed digest in `.container-scan-exclusions.yml` and the `test_container_security.py` fixture. Update the row in `docs/maintenance/external-contract-ledger.md` and record the review in a new dated §7.2 evidence subsection. For `python:3.12-slim`, also point the ledger provenance assertions in `test_container_security.py` at that subsection.
 
 `Manifest lint + unit tests` is an aggregate gate (job `required-lint`, `if: always()`). It succeeds only when four parallel jobs all succeed:
 
 - `lint`: the bootstrapper suite with the container-backed integration tests, manifest lint, shell lint, title and changelog checks, and the Backend suite. Container cleanup always runs.
 - `unit-fast`: the whole bootstrapper suite without a Docker daemon (the early red signal).
-- `python-floor`: the full suite on Python 3.10.
+- `python-floor`: the full suite on Python 3.11.
 - `component-tests`: the MCP and asset API suites.
 
 A new push or edit to a pull request cancels its superseded `services-lint` run. Title edits rerun the full workflow. Runs on `main` and `develop` are never cancelled.
@@ -165,6 +165,11 @@ Key modules:
   is the source of truth for the complete sequence, gates, and current purpose
   of each version. Add a new versioned module instead of editing a migration
   that existing `.env` files may already have stamped.
+- `services/migrations/build_pin_refresh.py` — not a chained migration. Every
+  `backfill_missing_env_vars` call (each start and `./start.sh env backfill`)
+  runs it, and `--no-port-migrate` does not skip it. It moves a build pin that
+  still holds a retired shipped default to the `.env.example` value. A shipped
+  pin bump appends the replaced value to its `RETIRED_DEFAULTS` table.
 - `ui/textual/integration.py` — public entry points. `run_setup_flow` runs the interactive wizard, pipeline and log streaming in one Textual app. `run_launch_flow` is CLI-flag mode: it skips the wizard and opens the launch screen with the user's overrides applied.
 - `ui/textual/screens/wizard_screen.py` — `WizardScreen` hosts the wizard prompts, then transitions in-place to the launch phase (service-table + log pane + filter chips)
 - `ui/textual/widgets/` — Textual widgets composed by `WizardScreen` (prompt panel, service table, info / brand panels, log pane + filter chips, command summary, footer bar)
@@ -208,7 +213,7 @@ The `.env` reader accepts `KEY=value` and single-line literal values. It rejects
 
 Consumer `env.values` pins may use `{value: SCALAR, reason: TEXT}`. Doctor reports reasons, and source overrides warn when replacing those pins. See [pin reasons](docs/reference/consumer-manifest.md#35-pin-reasons).
 
-Dependencies are managed via `uv` (with a pip fallback) and declared in `bootstrapper/pyproject.toml`, including the Python-version markers needed at the supported Python `>=3.10` floor. Treat that file and `bootstrapper/uv.lock` as the dependency source of truth rather than duplicating the inventory here.
+Dependencies are managed via `uv` (with a pip fallback) and declared in `bootstrapper/pyproject.toml`, which requires Python `>=3.11`. Treat that file and `bootstrapper/uv.lock` as the dependency source of truth rather than duplicating the inventory here.
 
 **Brand customization.** `BRAND_*` env vars in `.env` configure the wizard's brand panel and info box. They set brand name, tagline, version, author, author email, license and repo URL. Defaults are Atlas; forks can rebrand by setting these. See the `BRAND_*` block in `.env.example`.
 
@@ -231,7 +236,7 @@ suite is separate from the bootstrapper suite.
 
 ### Docker Compose (`docker-compose.yml`)
 
-Thin ~90-line top-level shell that merges per-service compose fragments via the native `include:` directive. Each fragment under `services/<name>/compose.yml` owns its containers; cross-fragment `depends_on` and merged top-level `volumes:` work via Compose v2.20+ (v2.26+ recommended).
+Thin ~90-line top-level shell that merges per-service compose fragments via the native `include:` directive. Each fragment under `services/<name>/compose.yml` owns its containers; cross-fragment `depends_on` and merged top-level `volumes:` work via Compose v2.20+. The minimum is v2.23.1, for inline top-level `configs.content` in the langfuse fragment (v2.26+ recommended).
 
 ### Service Init Containers
 
@@ -298,25 +303,42 @@ uv run --project bootstrapper pytest bootstrapper/tests/test_manifests.py -v    
 uv run --project bootstrapper pytest bootstrapper/tests -k weaviate                 # filter by name
 ```
 
+Some bootstrapper tests need an opt-in variable:
+
+- `ATLAS_TEST_NATIVE_POSTGRES_BIN=<PostgreSQL bin directory>` runs the native role-ownership and restore settings-copy SQL drills. CI sets it in the lint and python-floor jobs.
+- `ATLAS_LIVE_STACK=1` runs `test_live_catalog_sync.py` against the running stack.
+- `ATLAS_VLLM_METAL_LIVE=1` runs the live vLLM Metal smoke in `test_vllm_metal_manager.py -m live` on Apple Silicon.
+- `ATLAS_COMFYUI_MPS_LIVE=1` runs the live ComfyUI MPS smoke in `test_comfyui_mps_manager.py -m live` on Apple Silicon.
+- `ATLAS_DOCKER_LIVE=1` runs the rebuild proof in `test_source_drift_rebuild.py`. It needs Docker and Git.
+- `ATLAS_COMFYUI_LIVE_ENDPOINT=<url>` runs the Krea 2 and Hunyuan3D live smokes against a running ComfyUI.
+
 The Backend's runtime and test dependencies are separate. Run its default,
 non-live suite under Python 3.12 with both requirement sets and the tested lock
-constraint:
+constraint. The subshell keeps the `cd` and the cleanup local, and `set -e`
+stops at the first failing step:
 
 ```bash
-cd services/backend/app/app
-BACKEND_TEST_ROOT="$(mktemp -d)"
-trap 'rm -rf "$BACKEND_TEST_ROOT"' EXIT
-BACKEND_TEST_VENV="$BACKEND_TEST_ROOT/venv"
-uv venv --python 3.12 "$BACKEND_TEST_VENV"
-VIRTUAL_ENV="$BACKEND_TEST_VENV" uv pip install \
-  -r requirements.txt -r requirements-dev.txt -c requirements-test-locked.txt
-env -u ATLAS_TEST_REDIS_URL -u ATLAS_COMFYUI_LIVE_ENDPOINT \
-  -u ATLAS_TEI_RERANKER_LIVE_ENDPOINT \
-  "$BACKEND_TEST_VENV/bin/python" -m pytest tests/ -q -W error
+(
+  set -e
+  cd services/backend/app/app
+  BACKEND_TEST_ROOT="$(mktemp -d)"
+  trap 'rm -rf "$BACKEND_TEST_ROOT"' EXIT
+  BACKEND_TEST_VENV="$BACKEND_TEST_ROOT/venv"
+  uv venv --python 3.12 "$BACKEND_TEST_VENV"
+  VIRTUAL_ENV="$BACKEND_TEST_VENV" uv pip install \
+    -r requirements.txt -r requirements-dev.txt -c requirements-test-locked.txt
+  env -u ATLAS_TEST_REDIS_URL -u ATLAS_COMFYUI_LIVE_ENDPOINT \
+    -u ATLAS_TEI_RERANKER_LIVE_ENDPOINT \
+    -u ATLAS_TEST_MEMORY_RECONCILE_POSTGRES_URL -u ATLAS_TEST_MEDIA_LEDGER_POSTGRES_URL \
+    "$BACKEND_TEST_VENV/bin/python" -m pytest tests/ -q -W error
+)
 ```
 
 This suite is not collected by the bootstrapper tests. Opt-in live smokes remain
-skipped unless their documented `ATLAS_*` endpoint variables are configured.
+skipped unless their documented `ATLAS_*` endpoint variables are configured:
+
+- `ATLAS_TEST_REDIS_URL=redis://127.0.0.1:<port>/15` runs the Redis Lua and paging tests. Use a throwaway Redis, because they flush database 15.
+- `ATLAS_TEST_MEMORY_RECONCILE_POSTGRES_URL` and `ATLAS_TEST_MEDIA_LEDGER_POSTGRES_URL` name a disposable PostgreSQL database. They run the memory-reconcile and media-ledger SQL tests, and CI sets both.
 
 ### Audit scripts (`scripts/`)
 

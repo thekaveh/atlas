@@ -104,17 +104,29 @@ services:
         set -euo pipefail
         export HADOOP_CONF_DIR=/tmp/atlas-spark-hadoop-conf
         mkdir -p "$${HADOOP_CONF_DIR}"
-        cat > "$${HADOOP_CONF_DIR}/core-site.xml" <<EOF
-        <configuration>
-          <property><name>fs.s3a.endpoint</name><value>http://minio:9000</value></property>
-          <property><name>fs.s3a.endpoint.region</name><value>${MINIO_REGION:-us-east-1}</value></property>
-          <property><name>fs.s3a.path.style.access</name><value>true</value></property>
-          <property><name>fs.s3a.connection.ssl.enabled</name><value>false</value></property>
-          <property><name>fs.s3a.aws.credentials.provider</name><value>org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider</value></property>
-          <property><name>fs.s3a.access.key</name><value>${MINIO_SPARK_ACCESS_KEY}</value></property>
-          <property><name>fs.s3a.secret.key</name><value>${MINIO_SPARK_SECRET_KEY}</value></property>
-        </configuration>
-        EOF
+        # Serialize literal daemon credentials as XML text, preserving & and <.
+        python3 - <<'PY'
+        import os
+        import xml.etree.ElementTree as ET
+
+        configuration = ET.Element("configuration")
+        for name, value in (
+            ("fs.s3a.endpoint", "http://minio:9000"),
+            ("fs.s3a.endpoint.region", os.environ["AWS_REGION"]),
+            ("fs.s3a.path.style.access", "true"),
+            ("fs.s3a.connection.ssl.enabled", "false"),
+            ("fs.s3a.aws.credentials.provider", "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider"),
+            ("fs.s3a.access.key", os.environ["AWS_ACCESS_KEY_ID"]),
+            ("fs.s3a.secret.key", os.environ["AWS_SECRET_ACCESS_KEY"]),
+        ):
+            entry = ET.SubElement(configuration, "property")
+            ET.SubElement(entry, "name").text = name
+            ET.SubElement(entry, "value").text = value
+        ET.ElementTree(configuration).write(
+            os.path.join(os.environ["HADOOP_CONF_DIR"], "core-site.xml"),
+            encoding="utf-8",
+        )
+        PY
         exec /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077 --webui-port 8081
     depends_on:
       spark-master:
@@ -150,8 +162,9 @@ services:
     deploy:
       replicas: ${SPARK_CONNECT_SCALE:-0}
     # Intentionally NO `ports:` block. Spark Connect is backend-only —
-    # in-Compose clients (Zeppelin's interpreter, Airflow DAGs running in
-    # the scheduler) reach it at `sc://spark-connect:15002` via the
+    # in-Compose clients (JupyterHub kernels via SPARK_REMOTE and Airflow DAG
+    # tasks running in the scheduler; Zeppelin uses the standalone master)
+    # reach it at `sc://spark-connect:15002` via the
     # backend-network. External client access can be added later by
     # publishing the port; not in scope for the in-stack-only baseline.
     environment:
@@ -258,7 +271,7 @@ services:
     ports:
       - "${HOST_BIND_IP-127.0.0.1:}${SPARK_HISTORY_PORT}:18080"
     environment:
-      # NOTE: dual-write per project_runtime_sc_vs_compose_env_dual_write.md.
+      # NOTE: dual-write — this block is the injection point.
       # Same SPARK_HISTORY_OPTS must appear in service.yml::runtime_sc.
       SPARK_KAFKA_BOOTSTRAP_SERVERS: ${SPARK_KAFKA_BOOTSTRAP_SERVERS:-}
       SPARK_HISTORY_OPTS: >-
@@ -283,7 +296,7 @@ services:
       - backend-network
 
   # Use the same MinIO Client (mc) image as minio-init. The vanilla-alpine +
-  # inline apk pattern (project_init_container_pattern.md) FAILS here because
+  # inline apk pattern (CONTRIBUTING-services §14.3) FAILS here because
   # Alpine's `mc` package is GNU Midnight Commander (a TUI file manager),
   # NOT MinIO Client — `mc alias set` would error and spark-history would
   # never start. minio-init solves this by pinning the mc image; spark-init
@@ -297,10 +310,14 @@ services:
       minio-init:
         condition: service_completed_successfully
     entrypoint: ["sh", "-c"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    # Keys on stdin, not argv: argv is world-readable in /proc while mc runs.
     command:
       - |
         set -e
-        mc alias set minio http://minio:9000 "${MINIO_ROOT_USER}" "${MINIO_ROOT_PASSWORD}"
+        printf '%s\n%s\n' "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}" | mc alias set minio http://minio:9000 >/dev/null
         mc mb --ignore-existing minio/${MINIO_BUCKET_SPARK_HISTORY:-spark-history}
         echo "spark-init: spark-history bucket ready"
     networks:

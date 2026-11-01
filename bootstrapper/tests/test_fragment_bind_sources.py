@@ -31,8 +31,7 @@ fragment cannot pass by accidentally matching a buggy fixture.
 
 Why not check that every resolved path *exists* on disk? Several
 fragments legitimately mount runtime-generated paths that aren't on disk
-in a fresh checkout (litellm's `volumes/litellm/config.yaml`, neo4j's
-`build/snapshot`, supabase's `db/snapshot`, kong's
+in a fresh checkout (litellm's `volumes/litellm/config.yaml`, kong's
 `volumes/api/kong-dynamic.yml`). An existence check produces false
 positives for those without catching anything the structural checks
 miss for either bug class above.

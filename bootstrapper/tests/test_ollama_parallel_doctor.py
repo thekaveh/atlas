@@ -217,6 +217,14 @@ def test_too_few_resident_slots_is_a_shortfall() -> None:
     )
 
 
+def test_exactly_enough_resident_slots_is_not_a_shortfall() -> None:
+    from services.ollama_localhost import residency_shortfall
+
+    short, why = residency_shortfall(3, {"OLLAMA_MAX_LOADED_MODELS": 3}, "5m")
+    assert short is False
+    assert "meets the declared minimum of 3" in why
+
+
 def test_enough_slots_is_not_a_shortfall() -> None:
     from services.ollama_localhost import residency_shortfall
 

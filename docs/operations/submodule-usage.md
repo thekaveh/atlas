@@ -250,8 +250,9 @@ Validation checklist before committing a parent consumer update:
 
 The manifest covers this layout's project wiring: the force-set
 `PROJECT_NAME`/`BRAND_*` values, the `*_SOURCE` overrides, the
-`services/_user/<name>/compose.yml` overlay, backend plugin mounts and
-`MINIO_EXTRA_CONSUMERS` buckets. Move these declarations into the manifest
+`services/_user/<name>/compose.yml` overlay, backend plugin roots and
+`MINIO_EXTRA_CONSUMERS` buckets. The plugin mount itself stays in a
+`compose_overlays` file. Move these declarations into the manifest
 before removing the symlink and `setup-overlay.sh`.
 
 Keep `.env.user` until you have migrated every needed value. Keep secrets and
@@ -395,8 +396,8 @@ services:
       - infra-network
     environment:
       # Reach Atlas services by their compose service name
-      DATABASE_URL: postgresql://${SUPABASE_DB_USER}:${SUPABASE_DB_PASSWORD}@supabase-db:5432/postgres
-      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      DATABASE_URL: postgresql://${APP_DB_USER}:${APP_DB_PASSWORD_URI}@supabase-db:5432/postgres
+      REDIS_URL: redis://:${REDIS_PASSWORD_URI}@redis:6379
       LITELLM_BASE_URL: http://litellm:4000
       LITELLM_API_KEY: ${LITELLM_MASTER_KEY}
       KONG_URL: http://kong-api-gateway:8000
@@ -405,10 +406,19 @@ services:
 ```
 
 The parent Compose project does not read `infra/.env`. Export
-`SUPABASE_DB_USER`, `SUPABASE_DB_PASSWORD`, `REDIS_PASSWORD` and
-`LITELLM_MASTER_KEY` to it from your secret store. Service names are stable and
-do not depend on `PROJECT_NAME`
+`APP_DB_USER`, `APP_DB_PASSWORD_URI` (the percent-encoded application
+role password), `REDIS_PASSWORD_URI` (the
+percent-encoded `REDIS_PASSWORD`) and `LITELLM_MASTER_KEY` to it from your
+secret store. Service names are stable and do not depend on `PROJECT_NAME`
 ([Reusing Atlas §3.3](reusing-atlas.md#33-service-addresses-inside-the-shared-network)).
+
+Do not give the application `SUPABASE_DB_USER`. That is `supabase_admin`, the
+Postgres superuser, which can read and change every service database on the
+shared server. Create a scoped login role in your own SQL
+([Reusing Atlas §6.2](reusing-atlas.md#62-adding-supabase-sql-via-the-user-migration-slot)).
+Keep its password out of that file, because `supabase-db-init` prints every SQL
+line to its log. Set the password afterwards with psql `\password` as
+`supabase_admin` ([§2.4](#24-access-services)).
 
 The Atlas services belong to a separate Compose project, so they cannot appear
 in this file's `depends_on`. Start Atlas first, as shown below. If the
@@ -468,6 +478,7 @@ endpoints from `./infra/start.sh endpoints export --format env`. Do not use
 
 ```python
 import os
+from urllib.parse import quote
 
 # Host-side endpoints from `endpoints export`; the defaults are for BASE_PORT=63000
 LITELLM_BASE_URL = os.getenv("ATLAS_LITELLM_HOST_ENDPOINT", "http://localhost:63040")
@@ -475,7 +486,8 @@ LITELLM_API_KEY = os.getenv("LITELLM_MASTER_KEY")  # from infra/.env
 SUPABASE_URL = os.getenv("ATLAS_KONG_GATEWAY", "http://localhost:63000")  # Kong gateway; clients add /rest/v1
 # Redis always requires a password. Atlas's own REDIS_URL uses the in-network
 # host `redis`, so build the host URL from REDIS_PASSWORD and REDIS_PORT.
-REDIS_URL = f"redis://:{os.getenv('REDIS_PASSWORD')}@localhost:{os.getenv('REDIS_PORT', '63025')}/0"
+# Percent-encode the password: a raw `@`, `:`, `/`, `#` or `%` breaks the URL.
+REDIS_URL = f"redis://:{quote(os.getenv('REDIS_PASSWORD', ''), safe='')}@localhost:{os.getenv('REDIS_PORT', '63025')}/0"
 ```
 
 ### 6.4. Pattern 4: Service Extension
@@ -609,13 +621,19 @@ DATABASE_URL=postgresql://user:pass@localhost:63012/postgres
 
 **Symptom**: Updated `.env` values don't apply to running services.
 
-**Solution**: Run a normal start. Every `./start.sh` recreates the containers
-(`--force-recreate`) with the current `.env`. A cold start would instead rebuild
-`.env` from `.env.example`, which loses the edit, and delete the project
-volumes.
+**Solution**: Run a normal start with the same consumer manifest used at launch.
+It re-applies the manifest and recreates the containers (`--force-recreate`).
+Edit manifest-pinned settings in its `env.values`; those values replace the
+matching `.env` values on every manifest start. Keep the manifest selected so
+its Compose overlays are included.
+
 ```bash
-./infra/start.sh
+./infra/start.sh --consumer ./atlas.consumer.yml
 ```
+
+For standalone or legacy consumers without a manifest, run `./infra/start.sh`
+to apply the current `.env`. A cold start rebuilds `.env` from `.env.example`,
+which loses the edit, and deletes the project volumes.
 
 ### 8.6. Issue: Permission Denied for Volumes
 
@@ -768,4 +786,4 @@ For every service and value, see [Source Configuration](source-configuration.md)
 - [Reusing Atlas as Infrastructure](reusing-atlas.md)
 - [Source Configuration](source-configuration.md)
 - [Git Submodules Documentation](https://git-scm.com/book/en/v2/Git-Tools-Submodules)
-- Container logs: run `docker compose -p <PROJECT_NAME> logs` from `infra/`, or `docker logs <PROJECT_NAME>-<service>`. A bare `docker compose logs` in `infra/` uses the folder name, `infra`, as the project.
+- Container logs: run `docker logs <PROJECT_NAME>-<service>`, or define the `atlas_compose` helper from [Quick Start Troubleshooting](../quick-start/troubleshooting.md) and run `atlas_compose logs <service>` from `infra/`. Set `ATLAS_CONSUMER_MANIFEST` to the launch manifest and keep the launch's `ATLAS_ENV_FILE`. A bare `docker compose logs` in `infra/` uses the folder name, `infra`, as the project.

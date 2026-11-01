@@ -92,7 +92,7 @@ env:
     description: "Container CPU limit for tei-reranker (deploy.resources.limits.cpus)."
     default: "2.0"
   - name: TEI_RERANKER_HF_CACHE_DIR
-    description: "In-container Hugging Face cache (HF_HOME). The default /data is the tei-reranker-data volume, so models persist across restarts."
+    description: "In-container model cache passed to TEI as HUGGINGFACE_HUB_CACHE. The default /data is the tei-reranker-data volume, so models persist across restarts; another path persists only if you mount a volume there."
     default: "/data"
   - name: TEI_RERANKER_SCALE
     description: "Set by ./start.sh from TEI_RERANKER_SOURCE; do not edit. 1 runs tei-reranker for container-cpu and container-gpu, 0 otherwise."

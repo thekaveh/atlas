@@ -2,7 +2,6 @@
 """
 Atlas - Stop Script
 
-Python implementation of stop.sh with full feature parity.
 Cross-platform stop script for Atlas — the self-hosted engineering platform.
 """
 
@@ -517,6 +516,15 @@ def _persist_project_override(stopper: AtlasStopper, project_name: str) -> None:
         )
 
 
+def _select_cli_consumers(paths) -> None:
+    """Scope the lossless path companion to this CLI invocation."""
+    from core.consumer_manifest import consumer_manifest_cli_paths
+
+    click.get_current_context().with_resource(
+        consumer_manifest_cli_paths(paths, restore_primary=False)
+    )
+
+
 @click.command()
 @click.option('--project', '-p', 'project_name', type=str, default=None,
               help='Docker Compose project name — the container family to tear '
@@ -526,7 +534,7 @@ def _persist_project_override(stopper: AtlasStopper, project_name: str) -> None:
                    'this (or set PROJECT_NAME in .env) to stop a specific stack '
                    'when running Atlas as a submodule; it persists to .env.')
 @click.option('--consumer', 'consumer_manifests', multiple=True,
-              type=click.Path(exists=False, dir_okay=False),
+              type=click.Path(exists=False),
               help='atlas.consumer.yml the stack was started with (repeatable). '
                    'Its compose overlays are loaded so --cold also removes the '
                    'volumes they declare. Relative paths resolve from the '
@@ -546,7 +554,7 @@ def main(project_name, consumer_manifests, cold, clean_hosts, stop_managed_hosts
     if consumer_manifests:
         # Same channel start.py uses: the compose seam reads the manifests
         # (and their overlays) from ATLAS_CONSUMER_MANIFEST.
-        os.environ["ATLAS_CONSUMER_MANIFEST"] = os.pathsep.join(consumer_manifests)
+        _select_cli_consumers(consumer_manifests)
 
     stopper = AtlasStopper()
 

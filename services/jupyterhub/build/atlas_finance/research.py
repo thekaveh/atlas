@@ -141,11 +141,19 @@ def paper_portfolio_summary(
     positions: Sequence[Mapping[str, float | str]],
     marks: Mapping[str, float],
 ) -> dict[str, Any]:
-    """Summarize paper positions against mark prices without side effects."""
+    """Summarize paper positions against mark prices without side effects.
+
+    A negative quantity is a short position. Percentages divide by the absolute
+    cost basis, so a loss is always negative. Weights are signed and relative
+    to gross exposure (the sum of absolute market values). The totals for cost
+    basis and market value stay net.
+    """
 
     rows: list[dict[str, Any]] = []
     total_cost = 0.0
     total_value = 0.0
+    gross_cost = 0.0
+    gross_value = 0.0
 
     for position in positions:
         symbol = str(position["symbol"])
@@ -157,6 +165,8 @@ def paper_portfolio_summary(
         pnl = market_value - cost_value
         total_cost += cost_value
         total_value += market_value
+        gross_cost += abs(cost_value)
+        gross_value += abs(market_value)
         rows.append(
             {
                 "symbol": symbol,
@@ -166,12 +176,12 @@ def paper_portfolio_summary(
                 "cost_value": cost_value,
                 "market_value": market_value,
                 "unrealized_pnl": pnl,
-                "unrealized_pnl_pct": (pnl / cost_value) if cost_value else 0.0,
+                "unrealized_pnl_pct": (pnl / abs(cost_value)) if cost_value else 0.0,
             }
         )
 
     for row in rows:
-        row["weight"] = (row["market_value"] / total_value) if total_value else 0.0
+        row["weight"] = (row["market_value"] / gross_value) if gross_value else 0.0
 
     total_pnl = total_value - total_cost
     return {
@@ -179,5 +189,5 @@ def paper_portfolio_summary(
         "total_cost_basis": total_cost,
         "total_market_value": total_value,
         "unrealized_pnl": total_pnl,
-        "unrealized_pnl_pct": (total_pnl / total_cost) if total_cost else 0.0,
+        "unrealized_pnl_pct": (total_pnl / gross_cost) if gross_cost else 0.0,
     }

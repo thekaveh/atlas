@@ -43,11 +43,21 @@ def test_returns_entry_when_enabled(monkeypatch):
     # api_base is the bare endpoint; the ollama_chat adapter appends /api/chat
     # internally to reach LightRAG's Ollama-shim endpoint.
     assert entry["litellm_params"]["api_base"] == "http://lightrag:9621"
-    # api_key is literal-embedded (not the `os.environ/X` directive
-    # pattern). LIGHTRAG_API_KEY is auto-generated once and never
-    # force-rotated; rotation would need a litellm-init re-seed
-    # regardless, so a runtime env-directive buys nothing here.
-    assert entry["litellm_params"]["api_key"] == "sk-lightrag-test"
+    # api_key is the `os.environ/X` directive, never the literal: the rendered
+    # config.yaml sits world-readable on the host bind mount, and the litellm
+    # server resolves the directive from its own environment.
+    assert entry["litellm_params"]["api_key"] == "os.environ/LIGHTRAG_API_KEY"
+    assert "sk-lightrag-test" not in repr(entry)
+
+
+def test_litellm_server_receives_the_lightrag_key_the_row_references():
+    import yaml
+
+    compose = yaml.safe_load(
+        (REPO_ROOT / "services/litellm/compose.yml").read_text(encoding="utf-8")
+    )
+    env = compose["services"]["litellm"]["environment"]
+    assert env["LIGHTRAG_API_KEY"] == "${LIGHTRAG_API_KEY:-}"
 
 
 def test_adapter_is_ollama_chat_not_openai(monkeypatch):

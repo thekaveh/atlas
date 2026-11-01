@@ -140,3 +140,177 @@ def test_irreducible_bundle_overflow_is_reported_without_archive(export_screen, 
     assert "support bundle not written" in "\n".join(preview)
     assert "metadata" in "\n".join(preview)
     assert not screen._support_bundle_running
+
+
+@pytest.mark.parametrize("assignment", [
+    "BASE_PORT=64000\n",
+    "export BASE_PORT=64000\n",
+    "  export\tBASE_PORT = 64000 # custom port\n",
+    "\ufeffBASE_PORT=64000\n",
+    "\ufeffBASE_PORT=63000\r\nexport BASE_PORT=64000 # winner\r\n",
+])
+@pytest.mark.parametrize("origin", [None, "consumer.yml", "override.env"])
+def test_doctor_archive_preserves_supported_active_env_origins(tmp_path, monkeypatch, assignment, origin):
+    import json
+    from click.testing import CliRunner
+    from core.config_parser import ConfigParser
+    import start
+
+    env_file = tmp_path / "active.env"
+    secret = "SyntheticBundleOriginSecret79"
+    env_file.write_bytes((assignment + "SYNTHETIC_API_KEY=" + secret + "\n").encode())
+    parser = ConfigParser(str(tmp_path))
+    parser.env_file_path = env_file
+    assert parser.parse_env_file()["BASE_PORT"] == "64000"
+    before = env_file.read_bytes()
+    origins = {"BASE_PORT": str(tmp_path / origin)} if origin else {}
+    starter = SimpleNamespace(config_parser=parser, _env_origins=lambda: origins,
+                              materialize_consumer_env_for_preflight=lambda: {})
+    build = start.AtlasStarter.build_support_bundle
+    starter.build_support_bundle = lambda options, checks=None: build(starter, options, checks)
+    monkeypatch.setattr(start, "AtlasStarter", lambda: starter)
+    check = lambda _: {"id": "port", "status": "fail", "message": "BASE_PORT conflict", "details": {}}
+    monkeypatch.setattr(start, "DOCTOR_CHECKS", [check])
+    output = tmp_path / "bundle.tar.gz"
+    result = CliRunner().invoke(start.main, ["doctor", "--format", "json", "--bundle", str(output)])
+    assert result.exit_code == 1 and json.loads(result.stdout)["ok"] is False
+    with tarfile.open(output) as archive:
+        body = json.load(archive.extractfile("atlas-support-bundle/bundle.json"))
+    expected = str(tmp_path / origin) if origin else str(env_file)
+    _assert_bundle_base_port_origin(body, expected)
+    assert env_file.read_bytes() == before
+    assert secret not in json.dumps(body) + result.output
+
+
+def test_bundle_ok_agrees_with_doctor_for_an_unavailable_check():
+    """doctor exits 1 on an `unavailable` check; bundle.json must not say ok."""
+    from core import support_bundle as sb
+
+    def raising(_):
+        raise RuntimeError("x")
+
+    results, _notes = sb.run_checks([raising], None, sb.BundleLimits())
+    body = sb.build_bundle(sb.BundleRequest(env={}, checks=results)).body
+    assert results[0]["status"] == "unavailable"
+    assert body["ok"] is False and body["checks"][0]["available"] is False
+    for status in ("warn", "skipped"):
+        check = {"id": "c", "status": status, "message": "m"}
+        assert sb.build_bundle(sb.BundleRequest(env={}, checks=[check])).body["ok"] is True
+
+
+def test_secret_named_config_is_redacted_by_key_whatever_its_value_shape(monkeypatch):
+    """Short and word-like secrets bypass value matching, so the key name must redact them."""
+    import io
+    from core import support_bundle as sb
+
+    monkeypatch.setattr(sb.os, "environ", {})
+    env = {"SUPABASE_DB_PASSWORD": "hunter", "REDIS_PASSWORD": "x9Q", "LLM_PROVIDER_SOURCE": "none"}
+    bundle = sb.build_bundle(sb.BundleRequest(env=env, include_unlisted=True))
+    values = {entry["key"]: entry["value"] for entry in bundle.body["config"]}
+    assert values == {"LLM_PROVIDER_SOURCE": "none", "REDIS_PASSWORD": sb.REDACTED,
+                      "SUPABASE_DB_PASSWORD": sb.REDACTED}
+    with tarfile.open(fileobj=io.BytesIO(sb.archive_bytes(bundle))) as archive:
+        payload = b"".join(archive.extractfile(member).read() for member in archive.getmembers())
+    shown = "\n".join(sb.preview_lines(bundle))
+    for secret in ("hunter", "x9Q"):
+        assert secret.encode() not in payload and secret not in shown
+
+
+def _assert_bundle_base_port_origin(body, expected):
+    entry = next(entry for entry in body["config"] if entry["key"] == "BASE_PORT")
+    assert entry["origin"] == expected and expected in entry["action"]
+    assert ".env.example default" not in entry["action"]
+    assert body["findings"][0]["keys"] == [entry]
+
+
+def test_doctor_bundle_replaces_a_symlink_at_path_instead_of_its_target(tmp_path, monkeypatch):
+    from click.testing import CliRunner
+    from core.config_parser import ConfigParser
+    import start
+
+    parser = ConfigParser(str(tmp_path))
+    parser.env_file_path = tmp_path / "active.env"
+    parser.env_file_path.write_text("BASE_PORT=63000\n")
+    starter = SimpleNamespace(config_parser=parser, _env_origins=lambda: {},
+                              materialize_consumer_env_for_preflight=lambda: {})
+    build = start.AtlasStarter.build_support_bundle
+    starter.build_support_bundle = lambda options, checks=None: build(starter, options, checks)
+    monkeypatch.setattr(start, "AtlasStarter", lambda: starter)
+    monkeypatch.setattr(start, "DOCTOR_CHECKS", [])
+    target, link = tmp_path / "keep.txt", tmp_path / "shared" / "bundle.tar.gz"
+    target.write_text("untouched\n")
+    link.parent.mkdir()
+    link.symlink_to(target)
+    result = CliRunner().invoke(start.main, ["doctor", "--bundle", str(link)])
+    assert (result.exit_code, target.read_text(), link.is_symlink(), tarfile.is_tarfile(link),
+            link.stat().st_mode & 0o777) == (0, "untouched\n", False, True, 0o600), result.output
+    # --support-bundle resolves its PATH the same way.
+    assert start._invoker_output_path(link) == link.parent.resolve() / link.name
+
+
+@pytest.mark.parametrize("file_state", ["none", "missing", "other-key"])
+def test_bundle_origin_keeps_genuine_default_fallback(tmp_path, file_state):
+    from core.support_bundle import BundleRequest, Redactor, config_entries
+    env_file = None if file_state == "none" else tmp_path / "active.env"
+    if file_state == "other-key":
+        env_file.write_text("PROJECT_NAME=synthetic\n")
+    request = BundleRequest(env={"BASE_PORT": "63000"}, env_file=env_file)
+    entries, omitted = config_entries(request, Redactor())
+    assert omitted == 0 and len(entries) == 1
+    assert entries[0]["origin"] == "default"
+    assert entries[0]["action"] == "Set BASE_PORT in .env; it currently takes the .env.example default."
+
+
+@pytest.mark.parametrize("case", [
+    ("\ufeffexport BASE_PORT=${OTHER}\r\n# IGNORED_SOURCE=disabled\r\nSYNTHETIC_API_KEY=PrivateValue79\n", {"BASE_PORT", "SYNTHETIC_API_KEY"}),
+    ("VALUE='one\x85FAKE_SOURCE=disabled'\nPROJECT_NAME=synthetic\n", {"VALUE", "PROJECT_NAME"}),
+    ("export\tBASE_PORT = '64=000'\rPROJECT_NAME=synthetic\r", {"BASE_PORT", "PROJECT_NAME"}),
+    ("BASE_PORT: 64000\nBAD_SOURCE: disabled=wrong\n# COMMENT_SOURCE=disabled\n", set()),
+])
+def test_bundle_file_key_discovery_is_quiet_and_uses_reader_lines(tmp_path, capsys, case):
+    from core.support_bundle import _file_keys
+    text, expected = case
+    path = tmp_path / "active.env"
+    path.write_bytes(text.encode())
+    assert _file_keys(path) == expected
+    captured = capsys.readouterr()
+    assert captured.out == "" and captured.err == ""
+
+
+def test_bundle_file_key_read_errors_still_propagate(tmp_path, monkeypatch):
+    from core.support_bundle import _file_keys
+    path = tmp_path / "active.env"
+    path.write_text("BASE_PORT=64000\n")
+
+    def unreadable(*args, **kwargs):
+        raise OSError("synthetic metadata read error")
+
+    monkeypatch.setattr(Path, "read_text", unreadable)
+    with pytest.raises(OSError, match="synthetic metadata read error"):
+        _file_keys(path)
+
+
+def test_bundle_sends_a_sidecar_derived_key_to_the_manifest_field(tmp_path, monkeypatch):
+    """OLLAMA_CUSTOM_MODELS is rewritten from model_sidecars.ollama on every start."""
+    from core.consumer_manifest import load_consumer_config
+    from core import support_bundle as sb
+    import start
+
+    (tmp_path / ".env.example").write_text("PROJECT_NAME=atlas\n", encoding="utf-8")
+    manifest = tmp_path / "parent" / "atlas.consumer.yml"
+    manifest.parent.mkdir()
+    manifest.write_text("name: parent\nmodel_sidecars:\n  ollama: [llama3.2:latest]\n")
+    config = load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
+    env_file = tmp_path / ".env"
+    env_file.write_text("OLLAMA_CUSTOM_MODELS=llama3.2:latest\n")
+    monkeypatch.delenv("ATLAS_ENV_USER_FILE", raising=False)
+    starter = SimpleNamespace(_env_user_overlay_path=lambda: None,
+                              config_parser=SimpleNamespace(load_consumer_config=lambda: config))
+    request = sb.BundleRequest(env={"OLLAMA_CUSTOM_MODELS": "llama3.2:latest"},
+                               env_origins=start.AtlasStarter._env_origins(starter), env_file=env_file)
+    entries, _omitted = sb.config_entries(request, sb.Redactor())
+    origin = str(config.consumers[0].manifest_path)
+    assert (entries[0]["origin"], entries[0]["action"]) == (origin, (
+        f"Change `model_sidecars.ollama` in {origin}. Every start writes the manifest's "
+        "values into .env, so an edit to .env alone does not stick."))
+    assert Path(origin).resolve() == manifest.resolve()

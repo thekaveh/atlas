@@ -129,6 +129,16 @@ def validate_fal_config() -> None:
     fal_timeout_seconds_from_env()
     _output_format(os.getenv("FAL_OUTPUT_FORMAT", "jpeg") or "jpeg")
     _env_bool("FAL_ENABLE_SAFETY_CHECKER", True)
+    # Otherwise every image_to_3d request without `model` answers 400. Only
+    # an enabled FAL needs it: a disabled one must not stop the Backend.
+    fal_enabled = (os.getenv("FAL_SOURCE") or "disabled").strip().lower() == "enabled"
+    default_3d = (os.getenv("FAL_IMAGE_TO_3D_MODEL") or "").strip()
+    if fal_enabled and default_3d:
+        entry = media_registry.lookup(default_3d)
+        if entry is None or not entry.endpoint_verified:
+            raise ValueError(
+                "FAL_IMAGE_TO_3D_MODEL must name a verified image_to_3d registry entry"
+            )
 
 
 class FalClient:
@@ -227,9 +237,14 @@ class FalClient:
             init_image=None,
         )
 
-        result = await self._call_async_with_timeout(
-            self._subscribe, arguments
-        )
+        try:
+            result = await self._call_async_with_timeout(
+                self._subscribe, arguments
+            )
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            # Narrow on purpose: the SDK's own pre-request ValueError (a start
+            # timeout <= 1 s) is the caller's and stays a 400.
+            raise FalUpstreamError("FAL returned a response the SDK could not parse") from exc
         request_id = (
             result.get("request_id")
             or result.get("requestId")
@@ -371,9 +386,13 @@ class FalClient:
         normalized_status = self._normalize_status(status_payload)
         result_payload: Dict[str, Any] = {}
         if normalized_status == "succeeded":
-            result_payload = await self._call_async_with_timeout(
-                self._result, self.model, operation_id
-            )
+            try:
+                result_payload = await self._call_async_with_timeout(
+                    self._result, self.model, operation_id
+                )
+            except ValueError as exc:
+                # An unreadable body (JSONDecodeError) or a re-poll's unknown status.
+                raise FalUpstreamError(f"FAL returned a result the SDK could not parse: {exc}") from exc
 
         raw = {
             "status": self._object_to_dict(status_payload),

@@ -10,7 +10,9 @@ from rich.console import Console
 from services.topology import get_topology
 from start import AtlasStarter
 from ui.textual import palette as P
-from ui.textual.widgets.info_box import CloudApiSummary, CloudApisRow
+from ui.textual.widgets.info_box import (
+    CloudApiSummary, CloudApisRow, InfoBoxFooter, ServiceSummary,
+)
 from ui.textual.widgets.service_table import ServiceRow, ServiceTable, service_card
 from utils.atlas_dashboard import (
     _direct_url, _render_card, build_dashboard_model, render_dashboard_html,
@@ -102,12 +104,13 @@ def test_table_endpoint_and_existing_source_styles(preview, monkeypatch):
 def test_linear_alias_and_status_follow_source_before_scale(preview):
     summary = preview.starter.build_pre_launch_summary_table()
     table = summary.renderables[0]
-    index = table.columns[1]._cells.index('LLM Engine')
-    alias = table.columns[4]._cells[index].plain
-    status = table.columns[5]._cells[index].plain
+    cells = [list(column.cells) for column in table.columns]
+    index = cells[1].index('LLM Engine')
+    alias = cells[4][index].plain
+    status = cells[5][index].plain
     expected = 'ollama.localhost:63000' if preview.available else '-'
     assert alias == expected
-    assert table.columns[3]._cells[index].plain == preview.source
+    assert cells[3][index].plain == preview.source
     expected_status = {'ollama-container-cpu': '● on', 'ollama-container-gpu': '● GPU',
                        'ollama-localhost': '● local'}.get(preview.source, '● off')
     assert status == expected_status
@@ -225,8 +228,55 @@ def test_off_track_keeps_existing_label_and_dimming(source, available):
     assert _style_at(text, '●') == f'dim {P.style_for_source_choice(source)}'
 
 
+@pytest.mark.parametrize('source', ['none', 'disabled', 'ollama-container-cpu'])
+def test_unanswered_off_track_row_renders_disabled_not_pending(source):
+    """A track-skipped step is never confirmed, so its row keeps pending=True;
+    the launch force-disables it, so it must read as off-track, not pending."""
+    row = ServiceRow(name='LLM Engine', source=source, port=':11434',
+                     alias='ollama.localhost', alias_port='63000', category='llm',
+                     configurable=True, pending=True, off_track=True)
+    text = ServiceTable([row])._slot_text(row, is_cursor=False, widths=(8, 14, 25, 40))
+    assert 'disabled (off-track)' in text.plain
+    assert 'pending…' not in text.plain and '◌' not in text.plain
+    assert _style_at(text, '●') == f'dim {P.style_for_source_choice(source)}'
+
+
 @pytest.mark.parametrize('source', ['none', 'disabled'])
 def test_unavailable_direct_endpoint_ignores_stale_port(source):
     row = next(row for row in get_topology().rows if row.display_name == 'LLM Engine')
     stale = replace(row, port_var='STALE_PORT')
     assert _direct_url(stale, source, {'STALE_PORT': '11434'}) is None
+
+
+@pytest.mark.parametrize('source,expected', [
+    ('enabled', P.ACCENT), ('api', P.ACCENT), ('ollama-localhost', P.ACCENT),
+    ('container', P.OK), ('none', P.TEXT_MUTED), ('disabled', P.TEXT_MUTED),
+])
+def test_source_choice_hue_follows_endpoint_intent(source, expected):
+    """An enabled cloud row (FAL ``enabled``) must not share the off hue."""
+    assert P.style_for_source_choice(source) == expected
+
+
+def test_overview_counts_follow_endpoint_availability():
+    """``none`` runs nothing and off-track rows are shown as disabled, so both
+    count as off; FAL ``enabled`` is a cloud passthrough, not a container."""
+    footer = InfoBoxFooter([
+        ServiceSummary('LLM Engine', 'none'),
+        ServiceSummary('FAL Cloud Media', 'enabled'),
+        ServiceSummary('Redis', 'container'),
+        ServiceSummary('Weaviate', 'container', off_track=True),
+        ServiceSummary('n8n', 'container', pending=True, off_track=True),
+        ServiceSummary('ComfyUI', 'container-gpu'),
+        ServiceSummary('Grafana', 'disabled'),
+    ])
+    pending, container, local, gpu, off = footer._counts()
+    # The unanswered off-track n8n row is never asked about, so it is off.
+    assert (pending, container, local, gpu, off) == (0, 1, 1, 1, 4)
+
+
+def test_overview_counts_keep_in_track_unanswered_rows_pending():
+    footer = InfoBoxFooter([
+        ServiceSummary('n8n', 'container', pending=True),
+        ServiceSummary('Weaviate', 'container', pending=True, off_track=True),
+    ])
+    assert footer._counts() == (1, 0, 0, 0, 1)

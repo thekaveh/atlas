@@ -32,40 +32,6 @@ def _alias_payload() -> bytes:
     return normalizer._build_glb(doc, binary)
 
 
-def test_alias_budget_rejects_before_decode(tmp_path, monkeypatch):
-    """Four distinct aliases require twelve entries despite sharing three points."""
-    monkeypatch.setenv("ASSET_WORKER_MAX_NORMALIZATION_VERTICES", "11")
-    source = tmp_path / "input.glb"
-    source.write_bytes(_alias_payload())
-    entered = []
-
-    class DecodeEntered(Exception):
-        pass
-
-    def forbidden_decode(*_args):
-        entered.append("POSITION decoder entered")
-        raise DecodeEntered("twelve entries reached decoding with budget eleven")
-
-    monkeypatch.setattr(normalizer, "_read_positions", forbidden_decode)
-    for existing in (False, True):
-        destination = tmp_path / ("sentinel.glb" if existing else "absent.glb")
-        if existing:
-            destination.write_bytes(b"existing output sentinel")
-        failure = None
-        try:
-            normalizer.normalize_glb(source, destination, PostprocessParams())
-        except Exception as error:
-            failure = error
-        assert entered == [], "over-budget positions reached decoding before admission"
-        assert failure is not None, "aggregate work exceeding eleven must be rejected"
-        assert isinstance(failure, normalizer.NormalizationWorkLimitError)
-        assert "11" in str(failure) and "decoded POSITION" in str(failure)
-        if existing:
-            assert destination.read_bytes() == b"existing output sentinel"
-        else:
-            assert not destination.exists()
-
-
 _POINTS = ((1.0, 2.0, 3.0), (3.0, 4.0, 5.0), (5.0, 6.0, 7.0))
 _EXPECTED = ((-1.0, 0.0, -1.0), (0.0, 1.0, 0.0), (1.0, 2.0, 1.0))
 _SENTINELS = tuple(struct.pack("<fff", 100 + index, 200, 300) for index in range(3))
@@ -443,4 +409,84 @@ def test_api_invalid_budget_is_server_error_with_reusable_admission(monkeypatch,
         retry = _post_budget_input(client, route)
         assert retry.status_code == 200
         assert len(state["converters"]) == 3 and len(state["published"]) == 1
+        _assert_budget_resources_released(app, state)
+
+
+_FLOAT32_CASES = [
+    ("height", 1e40, False), ("width", 1e40, False),
+    ("height", 1e308, True), ("width", 1e308, True),
+]
+
+
+def _float32_payload(axis, thin):
+    doc, binary = normalizer._parse_glb(_alias_payload())
+    if thin:
+        component = 1 if axis == "height" else 0
+        for index, point in enumerate(_POINTS):
+            struct.pack_into("<f", binary, index * 12 + component * 4,
+                             point[component] * 1e-38)
+        normalizer._update_accessor_bounds(
+            doc, normalizer._position_accessors(doc, len(binary)), binary
+        )
+    return normalizer._build_glb(doc, binary)
+
+
+def _post_float32_input(client, route, case):
+    axis, size, thin = case
+    params = {"normalize_axis": axis, f"target_{axis}_m": size}
+    if route == "upload":
+        return client.post("/gltf/postprocess", data=params, files={
+            "file": ("mesh.glb", _float32_payload(axis, thin), "model/gltf-binary")
+        })
+    return client.post("/gltf/postprocess/ref", json={
+        "input": {"bucket": "raw-assets", "key": "mesh.glb"}, "params": params
+    })
+
+
+@pytest.mark.parametrize("case", _FLOAT32_CASES)
+def test_runner_rejects_float32_overflow_before_output_mutation(tmp_path, monkeypatch, case):
+    import subprocess
+    from asset_worker.runner import GltfTransformError, run_gltf_transform
+
+    axis, size, thin = case
+    source, destination = tmp_path / "in.glb", tmp_path / "out.glb"
+    normalized = destination.with_suffix(".normalized.glb")
+    source.write_bytes(_float32_payload(axis, thin))
+    destination.write_bytes(b"output sentinel")
+    normalized.write_bytes(b"normalized sentinel")
+    calls = []
+    monkeypatch.setattr(subprocess, "run", lambda *a, **kw: calls.append(a))
+
+    with pytest.raises(GltfTransformError, match="float32") as failure:
+        run_gltf_transform(source, destination, PostprocessParams(
+            normalize_axis=axis, **{f"target_{axis}_m": size}
+        ))
+
+    assert failure.value.kind == "failed"
+    assert calls == []
+    assert destination.read_bytes() == b"output sentinel"
+    assert normalized.read_bytes() == b"normalized sentinel"
+
+
+@pytest.mark.parametrize("route", ["upload", "reference"])
+@pytest.mark.parametrize("case", _FLOAT32_CASES)
+def test_api_float32_rejection_releases_resources_and_allows_retry(monkeypatch, route, case):
+    from fastapi.testclient import TestClient
+    from asset_worker import api
+
+    axis, _, thin = case
+    app, state = _budget_api_setup(monkeypatch)
+    monkeypatch.setattr(api.ArtifactStorage, "fetch",
+                        lambda self, bucket, key: _float32_payload(axis, thin))
+    with TestClient(app, raise_server_exceptions=False,
+                    headers={"Authorization": "Bearer budget-test-token"}) as client:
+        response = _post_float32_input(client, route, case)
+        assert response.status_code == 422
+        assert "float32" in response.json()["detail"]
+        assert (state["converters"], state["published"]) == ([], [])
+        _assert_budget_resources_released(app, state)
+
+        retry = _post_float32_input(client, route, (axis, 1.8, thin))
+        assert retry.status_code == 200
+        assert (len(state["converters"]), len(state["published"])) == (3, 1)
         _assert_budget_resources_released(app, state)

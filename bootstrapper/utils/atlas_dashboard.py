@@ -13,6 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from html import escape
 from pathlib import Path
+import re
 from typing import Literal
 
 from core.config_parser import DEFAULT_BASE_PORT
@@ -75,11 +76,10 @@ def build_dashboard_model(
     env = config_parser.parse_env_file()
     service_sources = config_parser.parse_service_sources()
     kong_port = (env.get("KONG_HTTP_PORT") or str(DEFAULT_BASE_PORT)).strip()
-    brand_name = env.get("BRAND_NAME") or "Atlas"
-    tagline = (
-        env.get("BRAND_TAGLINE")
-        or "A self-hosted, source-configurable engineering platform."
-    )
+    from wizard.model.state import AppState  # manifest-mirrored brand defaults
+
+    brand_name = env.get("BRAND_NAME") or AppState.brand_name
+    tagline = env.get("BRAND_TAGLINE") or AppState.tagline
     track_label = _track_label(track_key)
     overridden = overridden_services or frozenset()
 
@@ -101,7 +101,7 @@ def build_dashboard_model(
         disabled_reason = None
         if not available:
             disabled_reason = "No Ollama upstream selected" if source.lower() == "none" else _disabled_reason(
-                row.manifest,
+                _row_service_key(row),
                 row.locked,
                 track_key=track_key,
                 overridden_services=overridden,
@@ -112,7 +112,7 @@ def build_dashboard_model(
 
         direct_url = _direct_url(row, source, env)
         kong_url = _kong_url(row.alias, kong_port) if available else None
-        health_url = kong_url or direct_url
+        health_url = _health_url(row, kong_url, direct_url)
         if "localhost" in source and available:
             warnings.append(
                 f"{row.display_name} uses a host-installed source; start it on the configured localhost port before using the Kong alias."
@@ -191,16 +191,22 @@ def render_dashboard_html(model: DashboardModel) -> str:
         )
     sections_html = "\n".join(sections)
 
-    return (
-        _PAGE_TEMPLATE
-        .replace("__TITLE__", escape(model.brand_name))
-        .replace("__TAGLINE__", escape(model.tagline))
-        .replace("__TRACK__", escape(model.track_label))
-        .replace("__KONG_PORT__", escape(model.kong_port))
-        .replace("__ACTIVE__", str(active_count))
-        .replace("__DISABLED__", str(disabled_count))
-        .replace("__WARNINGS__", warning_html)
-        .replace("__SECTIONS__", sections_html)
+    return _render_page_template({
+        "__TITLE__": escape(model.brand_name),
+        "__TAGLINE__": escape(model.tagline),
+        "__TRACK__": escape(model.track_label),
+        "__KONG_PORT__": escape(model.kong_port),
+        "__ACTIVE__": str(active_count),
+        "__DISABLED__": str(disabled_count),
+        "__WARNINGS__": warning_html,
+        "__SECTIONS__": sections_html,
+    })
+
+
+def _render_page_template(replacements: dict[str, str]) -> str:
+    """Replace template slots once without rescanning inserted text."""
+    return re.sub(
+        "|".join(replacements), lambda match: replacements[match[0]], _PAGE_TEMPLATE,
     )
 
 
@@ -221,8 +227,7 @@ def _render_card(row: DashboardService, accent: str) -> str:
     status_html = (
         f'<span class="status" data-status="{row.status}"{health_attr}>'
         f'<span class="dot" aria-hidden="true"></span>'
-        # Until the page's probe answers, an enabled row is only "checking".
-        f'<span class="status-text">{"checking" if row.status == "degraded" else row.status}</span></span>'
+        f'<span class="status-text">{_status_label(row)}</span></span>'
     )
     desc = escape(row.description) if row.description else ""
     desc_html = f'<p class="card-desc">{desc}</p>' if desc else ""
@@ -445,11 +450,27 @@ __SECTIONS__
 """
 
 
-def _link(url: str | None) -> str:
-    if not url:
-        return '<span class="muted">-</span>'
-    safe = escape(url, quote=True)
-    return f'<a href="{safe}">{escape(url)}</a>'
+# Published host ports that speak a raw TCP protocol, not HTTP. A browser fetch
+# there reports a healthy service "unreachable", and Redis logs each one as a
+# cross-protocol attack.
+_NON_HTTP_PORT_VARS = frozenset({"SUPABASE_DB_PORT", "REDIS_PORT", "BLENDER_MCP_LOCALHOST_PORT"})
+
+
+def _health_url(row, kong_url: str | None, direct_url: str | None) -> str | None:
+    """The URL the page probes: the Kong route, else an HTTP direct port."""
+    if kong_url:
+        return kong_url
+    if {row.port_var, row.localhost_port_var} & _NON_HTTP_PORT_VARS:
+        return None
+    return direct_url
+
+
+def _status_label(row) -> str:
+    """Until the page's probe answers, an enabled row is only "checking"; one
+    with nothing to probe (a raw TCP port) stays "not probed"."""
+    if row.status != "degraded":
+        return row.status
+    return "checking" if row.health_url else "not probed"
 
 
 def _direct_url(row, source: str, env: dict[str, str]) -> str | None:
@@ -487,8 +508,22 @@ def _track_label(track_key: str | None) -> str:
         return track_key
 
 
+def _row_service_key(row) -> str:
+    """The track key for a row, taken from its SOURCE var, not its manifest.
+
+    tracks.yml and the track force-disable name Multi2Vec CLIP, Document
+    Processor and STT Provider by their SOURCE var. Their manifests are
+    weaviate, docling and parakeet.
+    """
+    from tracks import normalize_service_key  # noqa: PLC0415
+
+    return normalize_service_key(
+        row.source_var.removesuffix("_SOURCE").lower().replace("_", "-")
+    )
+
+
 def _disabled_reason(
-    manifest: str,
+    service_key: str,
     locked: bool,
     *,
     track_key: str | None,
@@ -504,8 +539,8 @@ def _disabled_reason(
         if (
             track is not None
             and track.services is not None
-            and manifest not in overridden_services
-            and not is_in_track(track, manifest, always_on=registry.always_on)
+            and service_key not in overridden_services
+            and not is_in_track(track, service_key, always_on=registry.always_on)
         ):
             return "disabled-by-track"
     except Exception:  # noqa: BLE001
@@ -548,39 +583,70 @@ def _own_credential_note(name_l: str, name: str) -> str | None:
     return None
 
 
-def _hard_dependencies(manifest) -> set[str]:
+def _hard_dependencies(manifest, env: dict[str, str]) -> set[str]:
     """depends_on.required entries the service actually calls, plus its
-    runtime_deps requires. depends_on.required alone also holds slot-ordering
+    selected runtime_deps requires. depends_on.required alone also holds slot-ordering
     pins (ray for prometheus/grafana/loki/tempo/langfuse), reported as missing
-    dependencies (2026-10-08 run, cycle 53); runtime_deps alone lost real ones
-    such as spark→minio (cycle 63)."""
+    dependencies; runtime_deps alone lost real ones such as spark→minio."""
     from services.manifests import call_edges  # noqa: PLC0415
 
     called = {edge.target for edge in call_edges(manifest.data_flow)}
     deps = set(manifest.depends_on.required) & called
     for spec in (manifest.runtime_deps or {}).values():
-        rules = [spec, *spec.get("conditional_requires", [])] if isinstance(spec, dict) else []
-        deps.update(dep for rule in rules for dep in rule.get("requires") or ())
+        deps.update(_selected_runtime_requirements(spec, env))
     return deps
+
+
+def _selected_runtime_requirements(spec, env: dict[str, str]):
+    """Unconditional requires plus those of each rule the dependency manager selects."""
+    from services.dependency_manager import conditional_rule_selected  # noqa: PLC0415
+
+    if not isinstance(spec, dict):
+        return ()
+    selected = [spec]
+    selected.extend(
+        rule for rule in spec.get("conditional_requires", [])
+        if conditional_rule_selected(rule, env)
+    )
+    return (dep for rule in selected for dep in rule.get("requires") or ())
+
+
+def _disabled_manifests(manifests, rows, service_sources: dict[str, str], env: dict[str, str]) -> set[str]:
+    """Names of the manifests whose service is off.
+
+    A sub-row's own SOURCE var (Supabase Studio, Multi2Vec CLIP) does not turn
+    its manifest off. A manifest with a ``sources`` block is off when that var
+    is ``disabled``. One without (supabase) is off only when all its rows are.
+    """
+    row_vars: dict[str, set[str]] = {}
+    for row in rows:
+        row_vars.setdefault(row.manifest, set()).add(row.source_var)
+    disabled = set()
+    for manifest in manifests:
+        own_vars = {manifest.sources.var} if manifest.sources else row_vars.get(manifest.name)
+        if own_vars and all(
+            (service_sources.get(var) or env.get(var) or "container") == "disabled"
+            for var in own_vars
+        ):
+            disabled.add(manifest.name)
+    return disabled
 
 
 def _dependency_warnings(rows, service_sources: dict[str, str], env: dict[str, str]) -> list[str]:
     by_manifest = {row.manifest: row for row in rows}
-    disabled_manifests = {
-        row.manifest
-        for row in rows
-        if (service_sources.get(row.source_var) or env.get(row.source_var) or "container") == "disabled"
-    }
+    effective_env = {**env, **service_sources}
     warnings = []
     try:
         from services.manifests import load_manifests
 
         services_root = Path(__file__).resolve().parent.parent.parent / "services"
-        for manifest in load_manifests(services_root):
+        manifests = load_manifests(services_root)
+        disabled_manifests = _disabled_manifests(manifests, rows, service_sources, env)
+        for manifest in manifests:
             if manifest.name in disabled_manifests:
                 continue
             missing = sorted(
-                dep for dep in _hard_dependencies(manifest)
+                dep for dep in _hard_dependencies(manifest, effective_env)
                 if dep in disabled_manifests and dep in by_manifest
             )
             if missing:

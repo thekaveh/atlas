@@ -30,8 +30,8 @@ class _App(App):
         self.push_screen(self._screen)
 
 
-# M5: WizardScreen.__init__ opens /tmp/atlas-launch-*.log eagerly via
-# NamedTemporaryFile(delete=False) (so wizard-time warnings land somewhere
+# M5: WizardScreen.__init__ eagerly opens a session log in the private
+# session-log store via SessionLogTee (so wizard-time warnings land somewhere
 # even before the user reaches the Logs tab) — every screen built via
 # _screen()/_multiselect_screen() below leaks that fd + file unless closed
 # and unlinked. Mirrors the close+unlink pattern in test_tui_launch_log.py.
@@ -331,6 +331,30 @@ def test_search_focused_digit_keys_land_in_the_input_not_a_tab_switch():
     )
 
 
+def test_search_focused_arrow_keys_still_walk_the_option_list():
+    """``move`` is whitelisted while search has focus: up/down are not
+    printable, so ``check_action`` alone decides whether they reach the list."""
+    scr = _multiselect_screen()
+
+    async def scenario():
+        async with _App(scr).run_test(size=(140, 44)) as pilot:
+            await pilot.pause()
+            scr._prompt.focus_search()
+            await pilot.pause()
+            assert scr._prompt.has_search_focus()
+            allowed = scr.check_action("move", (1,))
+            before = scr._prompt._selected_index
+            await pilot.press("down")
+            await pilot.pause()
+            return allowed, before, scr._prompt._selected_index, scr._prompt.has_search_focus()
+
+    allowed, before, after, still_searching = asyncio.run(scenario())
+
+    assert allowed is True
+    assert after == before + 1, "down must move the highlight while the search box has focus"
+    assert still_searching, "moving the highlight must not take focus from the search box"
+
+
 def test_logs_written_while_setup_is_active_are_not_lost():
     """The Logs body stays mounted, so a failure during launch is still in the
     pane when the user switches over."""
@@ -530,6 +554,39 @@ def test_source_popup_is_dismissed_when_switching_away_from_logs():
     assert popup_open_after is False, "switching to Setup must dismiss the orphaned popup"
 
 
+def test_source_popup_is_usable_from_the_keyboard():
+    """The screen binds Up/Down/Space with priority, so they used to fire
+    the (launch-phase no-op) wizard actions and never reach the popup's
+    focused SelectionList: `s` opened the picker, but no key could move
+    or toggle a source. While the picker is open those keys must pass
+    through, and Esc must still close it and apply the selection.
+    """
+    scr = _screen()
+
+    async def scenario():
+        async with _App(scr).run_test(size=(140, 44)) as pilot:
+            await pilot.pause()
+            scr._logs_enabled = True
+            scr._phase = "launch"
+            scr.show_tab(BrandPanel.TAB_LOGS)
+            await pilot.pause()
+            for source in ("kong", "redis", "weaviate"):
+                scr._log_pane.write_log(f"{source} up", level="info", source=source)
+            await pilot.pause()
+            await pilot.press("s")
+            await pilot.pause()
+            opened = scr._log_chips.source_picker_open
+            await pilot.press("down", "space", "escape")
+            await pilot.pause()
+            return opened, scr._log_chips.source_picker_open, set(scr._log_chips._disabled_svcs)
+
+    opened, still_open, disabled = asyncio.run(scenario())
+
+    assert opened is True, "`s` must open the picker for this test to mean anything"
+    assert still_open is False, "Esc must close the picker"
+    assert disabled == {"redis"}, "Down then Space must deselect the second source"
+
+
 def test_action_filter_sources_is_a_no_op_while_on_setup():
     """I2: ``action_filter_sources`` previously gated only on ``_phase ==
     "launch"``, not the active tab — pressing `s` while on Setup mid-launch
@@ -727,3 +784,51 @@ def test_the_prompt_is_visible_during_the_wizard():
     prompt, summary = asyncio.run(scenario())
     assert prompt is True
     assert summary is True
+
+
+def _overview_screen(track: str | None) -> WizardScreen:
+    """A wizard with real service rows, so the overview footer has counts."""
+    from ui.textual.widgets.service_table import ServiceRow
+
+    step = PromptStep(
+        title="Dummy", step_index=1, step_total=1,
+        heading="Dummy step", subtitle="",
+        options=[PromptOption(value="a", label="A")], default_value="a",
+    )
+    rows = [
+        ServiceRow(name="Redis", source="container", category="infra",
+                   configurable=False),
+        ServiceRow(name="LLM Engine", source="none", category="llm"),
+    ]
+    return _register(WizardScreen(
+        steps=[step], services=rows, no_splash=True, track_display_name=track,
+    ))
+
+
+@pytest.mark.parametrize("track", [None, "Gen AI RAG"])
+def test_the_overview_footer_is_actually_rendered(track):
+    """The footer's CSS gave it one row and filled that row with top padding,
+    so the track banner and the count line never reached the screen."""
+    from ui.textual.widgets.info_box import InfoBoxFooter
+
+    scr = _overview_screen(track)
+
+    async def scenario():
+        async with _App(scr).run_test(size=(140, 44)) as pilot:
+            await pilot.pause()
+            footer = scr.query_one(InfoBoxFooter)
+            screen_lines = [
+                "".join(seg.text for seg in strip)
+                for strip in scr.app.screen._compositor.render_strips()
+            ]
+            return footer.content_region.height, screen_lines
+
+    height, screen_lines = asyncio.run(scenario())
+
+    assert height == (2 if track else 1)
+    counts = [line for line in screen_lines if "1 container" in line]
+    assert counts, "the count line is not on screen"
+    # LLM Engine=none runs nothing, so it counts as off, not as a container.
+    assert "1 off" in counts[0]
+    banner = [line for line in screen_lines if "Track: Gen AI RAG" in line]
+    assert bool(banner) is bool(track)

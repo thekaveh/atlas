@@ -18,6 +18,7 @@ All data is pulled from manifests + topology so the prompt is current.
 from __future__ import annotations
 
 import sys
+from datetime import date
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -109,6 +110,7 @@ def build_research_prompt(doc_folder: str) -> str:
     others_count = len([f for f in _all_doc_folders() if f != doc_folder])
 
     primary_manifest = members[0] if members else "(none)"
+    generated = date.today().isoformat()
 
     return f"""You are the Phase B research subagent for **{doc_folder}** in Atlas.
 
@@ -120,7 +122,7 @@ Three research deliverables, in order:
 
 1. **Missing-pair integrations** — pairs of services ALREADY IN the stack that should be wired together but aren't. For each candidate pair, the bullet must include: *Why valuable*, *Mechanism sketch* (named endpoint or protocol), *Effort* (small | medium | large), *Risks / open questions*, *Confidence* (high | medium | low). Confidence must be backed by an entry in `sources_consulted`.
 
-2. **Candidate new services** — services NOT currently in the stack that would plug in cleanly here. Maximum **5 candidates per row file**. For each, write a full one-pager at `docs/research/candidates/<slug>.md` per the candidate schema below — UNLESS a one-pager already exists, in which case append a `## Cross-references` line to your row pointing at the existing file.
+2. **Candidate new services** — services NOT currently in the stack that would plug in cleanly here. Maximum **5 candidates per row file**. For each, write a full one-pager at `docs/research/candidates/<slug>.md` per the candidate schema below — UNLESS a one-pager already exists: then link it from your row (`../candidates/<slug>.md`) and append one `## Cross-references` line to that one-pager.
 
 3. **Per-service feature gaps** — capabilities the upstream project ({doc_folder}) exposes that we don't yet leverage in this stack.
 
@@ -150,7 +152,7 @@ The file MUST begin with a YAML frontmatter block (the `---` fenced header below
 ---
 service: {doc_folder}
 category: <one of: infra | data | llm | media | agents | apps>
-generated: 2026-05-18
+generated: {generated}
 generator: phase-b-subagent
 sources_consulted:
   - https://...                # upstream docs/repo
@@ -185,7 +187,7 @@ sources_consulted:
 
 ## Candidate one-pager schema (write to `docs/research/candidates/<slug>.md`)
 
-If a one-pager already exists at that path, do NOT overwrite it — instead, append a `## Cross-references` line to it linking from your row. The merge step will reconcile `referenced-by:` later. Do NOT re-propose a candidate whose existing one-pager has `lifecycle: shipped` or `lifecycle: rejected`: that proposal is closed, and its record is history.
+If a one-pager already exists at that path, do NOT overwrite it — instead, link it from your row and append one `## Cross-references` line to it naming your row file. The merge step will reconcile `referenced-by:` later. Do NOT re-propose a candidate whose existing one-pager has `lifecycle: shipped` or `lifecycle: rejected`: that proposal is closed, and its record is history.
 
 A new one-pager starts at `lifecycle: proposed`. Only a maintainer decision moves it to `planned`, `deferred`, `rejected` or `shipped`, adding `decided: YYYY-MM-DD` and, where one exists, `superseded-by: <issue URL or repo path>`.
 
@@ -195,7 +197,7 @@ slug: <kebab-case>
 name: <Display Name>
 type: external-service
 category-fit: <one of: infra | data | llm | media | agents | apps>
-generated: 2026-05-18
+generated: {generated}
 upstream: <URL>
 license: <SPDX or "unknown">
 lifecycle: proposed
@@ -248,11 +250,11 @@ referenced-by: [{doc_folder}]
 ## Process
 
 1. Read `services/{primary_manifest}/service.yml`, the existing README at `services/{doc_folder}/README.md`, and any init scripts.
-2. Identify the strongest 3-7 missing-pair integration candidates from the other-20-services table.
+2. Identify the strongest 3-7 missing-pair integration candidates from the other-services table above.
 3. Identify 0-5 candidate new services that would slot in cleanly.
 4. Identify 0-N per-service feature gaps from upstream docs.
 5. Write the row file at the path above following the schema EXACTLY.
-6. For each candidate, write the one-pager (or append `## Cross-references` if it exists).
+6. For each candidate, write the one-pager (or, if it exists, link it from your row and append one `## Cross-references` line).
 7. Validate yourself: run `python scripts/validate_research_schema.py docs/research/rows/{doc_folder}.md` from the repo root, then the same command on each candidate file you wrote. Exit 0 = pass.
 
 ## When you are done
@@ -264,5 +266,5 @@ Report:
 - Validator exit code.
 - Word count of the row file body.
 
-Do NOT modify code under `bootstrapper/` or `services/`. Do NOT touch other doc folders or other row/candidate files. Stay within your `docs/research/rows/{doc_folder}.md` and the candidate files you author.
+Do NOT modify code under `bootstrapper/` or `services/`. Do NOT touch other doc folders or other row/candidate files, except the one `## Cross-references` line you append to each existing one-pager you link. Stay within your `docs/research/rows/{doc_folder}.md` and the candidate files you author.
 """

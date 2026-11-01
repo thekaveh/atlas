@@ -39,6 +39,8 @@ def test_memory_migration_is_dimension_parameterized_and_advisory_locked():
     assert "NOT VALID" in sql
     assert "VALIDATE CONSTRAINT memory_facts_embedding_dimension" in sql
     assert "vector_dims(embedding)" in sql
+    # #1611: the closing parenthesis stops `= 76` from matching `= 768)`.
+    assert "position(format('vector_dims(embedding) = %s)', desired)" in sql
     assert "embedding vector(768)" not in sql
 
 
@@ -333,6 +335,79 @@ def test_real_pgvector_expand_backfill_contract_preserves_existing_768_data(
     )
     assert mixed.returncode != 0
     assert "memory_facts_embedding_dimension" in mixed.stderr
+
+
+def test_real_pgvector_prefix_dimension_shrink_replaces_the_constraint(
+    disposable_pgvector,
+):
+    """#1611: 76 is a decimal prefix of 768. Matching the old constraint
+    without its closing parenthesis kept `= 768`, so every write at the
+    selected dimension failed after the change."""
+    container = disposable_pgvector
+    _apply_seed_scripts(container, 768)
+    _psql(
+        container,
+        "INSERT INTO public.memory_facts (content, embedding) VALUES "
+        "('legacy', array_fill(0.125::real, ARRAY[768])::vector(768));",
+    )
+
+    _apply_seed_scripts(container, 76, only_memory=True)
+    definition = _psql(
+        container,
+        """
+        SELECT pg_get_constraintdef(oid) FROM pg_constraint
+         WHERE conrelid = 'public.memory_facts'::regclass
+           AND conname = 'memory_facts_embedding_dimension';
+        """,
+    ).stdout.strip()
+    assert "vector_dims(embedding) = 76)" in definition
+    selected = _psql(
+        container,
+        """
+        INSERT INTO public.memory_facts (
+            content, embedding, embedding_model, embedding_generation
+        ) SELECT 'selected', array_fill(0.5::real, ARRAY[76])::vector(76),
+                 pgvector_target_model, pgvector_target_generation
+            FROM public.memory_embedding_schema_state;
+        SELECT content || ':' || vector_dims(embedding)
+          FROM public.memory_facts ORDER BY content;
+        """,
+        check=False,
+    )
+    assert selected.returncode == 0, selected.stderr
+    assert selected.stdout.strip().splitlines()[-2:] == ["legacy:768", "selected:76"]
+
+
+def test_real_pgvector_pending_null_vector_does_not_hold_backfill(disposable_pgvector):
+    """A fact the provider rejected at write time keeps a NULL vector with
+    pending sync intent. Counting it as a mismatch kept phase 'backfill' on
+    every start, so backend initialization failed on every restart."""
+    container = disposable_pgvector
+    _apply_seed_scripts(container, 768)
+    _psql(
+        container,
+        "INSERT INTO public.memory_facts (content, vector_sync_pending) "
+        "VALUES ('rejected', true);",
+    )
+    _apply_memory_script(container, 768)
+    pending = _psql(container, "SELECT phase FROM public.memory_embedding_schema_state;")
+    assert pending.stdout.strip() == "ready"
+
+    _psql(container, "INSERT INTO public.memory_facts (content) VALUES ('legacy-null');")
+    _apply_memory_script(container, 768)
+    legacy = _psql(container, "SELECT phase FROM public.memory_embedding_schema_state;")
+    assert legacy.stdout.strip() == "backfill"
+    premature = _psql(
+        container,
+        """
+        SELECT public.contract_memory_embedding_contract(
+            pgvector_target_model, target_dimension, pgvector_target_generation
+        ) FROM public.memory_embedding_schema_state;
+        """,
+        check=False,
+    )
+    assert premature.returncode != 0
+    assert "backfill incomplete: 1 mismatched row(s)" in premature.stderr
 
 
 def test_real_pgvector_rerun_preserves_equivalent_index_and_function_privileges(

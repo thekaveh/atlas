@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import types
 
@@ -368,3 +369,351 @@ def test_manual_restore_marks_an_unfinished_load() -> None:
     load = script.index("neo4j-admin database load")
     assert script.index('touch "${RESTORE_MARKER}"') < load
     assert 'rm -f "${RESTORE_MARKER}"' in script[load:]
+
+
+def _legacy_marker_commands(fake_bin):
+    """Delegate normal filesystem operations and inject only marker failures."""
+    for command, argument in (("mkdir", '"$2" = "$MARKER_PARENT"'),
+                              ("touch", '"$1" = "$NEO4J_RESTORE_MARKER"'),
+                              ("rm", '"$2" = "$NEO4J_RESTORE_MARKER"')):
+        actual = shutil.which(command)
+        assert actual
+        (fake_bin / command).write_text(
+            f'#!/bin/sh\nif [ "$FAIL_MARKER_STEP" = {command} ] && [ {argument} ]; then\n'
+            f'  echo "synthetic {command} failure" >&2; exit 73\nfi\n'
+            f'exec "{actual}" "$@"\n',
+            encoding="utf-8",
+        )
+
+
+@pytest.fixture(params=["auto_restore.sh", "restore.sh"])
+def legacy_restore(tmp_path, request):
+    snapshot = tmp_path / "snapshot"
+    snapshot.mkdir()
+    dump = snapshot / "backup_20261028.dump"
+    dump.write_bytes(b"synthetic dump")
+    database = tmp_path / "databases" / "neo4j"
+    database.mkdir(parents=True)
+    marker = tmp_path / "markers" / ".atlas-restore-incomplete"
+    admin_log = tmp_path / "admin.log"
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    _legacy_marker_commands(fake_bin)
+    # The image uses GNU find's -printf, unavailable on a macOS test host.
+    (fake_bin / "find").write_text(
+        '#!/bin/sh\nprintf "1 %s\\n" "$SYNTHETIC_DUMP"\n', encoding="utf-8"
+    )
+    (fake_bin / "neo4j").write_text('#!/bin/sh\nexit 3\n', encoding="utf-8")
+    (fake_bin / "neo4j-admin").write_text(
+        '#!/bin/sh\nprintf "%s\\n" "$*" >> "$SYNTHETIC_ADMIN_LOG"\n'
+        'cat >/dev/null\nprintf partial > "$NEO4J_DATABASE_DIR/neostore"\n'
+        '[ "$FAIL_LOAD" != 1 ]\n', encoding="utf-8",
+    )
+    for executable in fake_bin.iterdir():
+        executable.chmod(0o755)
+    source = SCRIPTS / request.param
+    if request.param == "restore.sh":
+        # The legacy manual command fixes /snapshot; rebase only that path.
+        body = source.read_text(encoding="utf-8")
+        assert body.count("SNAPSHOT_DIR=/snapshot") == 1
+        source = tmp_path / "restore.sh"
+        source.write_text(body.replace("SNAPSHOT_DIR=/snapshot", f'SNAPSHOT_DIR="{snapshot}"'), encoding="utf-8")
+    env = {
+        "PATH": f"{fake_bin}{os.pathsep}{os.defpath}",
+        "NEO4J_SNAPSHOT_DIR": str(snapshot),
+        "NEO4J_DATABASE_DIR": str(database),
+        "NEO4J_RESTORE_MARKER": str(marker),
+        "MARKER_PARENT": str(marker.parent),
+        "SYNTHETIC_DUMP": str(dump),
+        "SYNTHETIC_ADMIN_LOG": str(admin_log),
+        "FAIL_MARKER_STEP": "",
+        "FAIL_LOAD": "0",
+    }
+
+    def run(**overrides):
+        return subprocess.run(
+            ["bash", str(source)], env={**env, **overrides}, cwd=tmp_path,
+            text=True, capture_output=True, check=False, timeout=10,
+        )
+
+    return types.SimpleNamespace(run=run, marker=marker, database=database,
+                                 admin_log=admin_log, automatic=request.param == "auto_restore.sh")
+
+
+@pytest.mark.parametrize("failure", ["mkdir", "touch"])
+def test_legacy_restore_refuses_load_without_recovery_marker(legacy_restore, failure):
+    case = legacy_restore
+    for _ in range(2):
+        result = case.run(FAIL_MARKER_STEP=failure, FAIL_LOAD="1")
+        assert result.returncode != 0
+        assert "restored successfully" not in result.stdout
+        assert not case.admin_log.exists(), "destructive load ran without a recovery marker"
+        assert not any(case.database.iterdir())
+
+
+def test_legacy_restore_refuses_success_until_marker_is_cleared(legacy_restore):
+    case = legacy_restore
+    for _ in range(2):
+        result = case.run(FAIL_MARKER_STEP="rm")
+        assert result.returncode != 0
+        assert "restored successfully" not in result.stdout
+        assert case.marker.is_file()
+        assert "skipping automatic restore" not in result.stdout
+    assert len(case.admin_log.read_text().splitlines()) == 2
+
+
+def test_legacy_restore_success_and_failed_load_retry(legacy_restore):
+    case = legacy_restore
+    failed = case.run(FAIL_LOAD="1")
+    assert failed.returncode != 0
+    assert case.marker.is_file() and any(case.database.iterdir())
+    retried = case.run()
+    assert retried.returncode == 0, retried.stderr
+    assert "restored successfully" in retried.stdout
+    assert not case.marker.exists()
+    assert len(case.admin_log.read_text().splitlines()) == 2
+    if case.automatic:
+        _assert_populated_restore_skips(case)
+
+
+def _assert_populated_restore_skips(case):
+    populated = case.run()
+    assert populated.returncode == 0
+    assert "skipping automatic restore" in populated.stdout
+    assert len(case.admin_log.read_text().splitlines()) == 2
+
+
+def _offline_backup_signal_sender():
+    return '''
+pid = int(Path(os.environ["OWNED_PID_FILE"]).read_text())
+assert os.getppid() == pid, (os.getppid(), pid)
+marker = Path(os.environ["SIGNAL_MARKER"])
+if os.environ["FIXTURE_PHASE"] == phase and not marker.exists():
+    marker.write_text("owned signal sent")
+    os.kill(pid, int(os.environ["FIXTURE_SIGNAL"]))
+'''
+
+
+def _offline_backup_recorders(fake_bin):
+    import sys
+
+    python = f"#!{sys.executable}\n"
+    sender = _offline_backup_signal_sender()
+    scripts = {
+        "timeout": '#!/bin/sh\nshift 5\nexec "$@"\n',
+        "neo4j": "#!/bin/sh\nexit 3\n",
+        "date": python + 'import os\nfrom pathlib import Path\nphase = "date"\n'
+        + sender + '\nprint("2026-10-29T12:00:00Z")\n',
+        "sha256sum": python + 'import hashlib,sys\nfrom pathlib import Path\n'
+        + 'print(hashlib.sha256(Path(sys.argv[1]).read_bytes()).hexdigest()+"  "+sys.argv[1])\n',
+        "neo4j-admin": python + '''import os,sys
+from pathlib import Path
+args = sys.argv[1:]
+if args == ["--version"]:
+''' + "    print(" + repr(PINNED) + ")\n" + '''    sys.exit(0)
+assert args[:2] == ["database", "dump"], args
+if os.environ["FIXTURE_MODE"] == "dump-error":
+    sys.exit(42)
+target = next(arg.split("=", 1)[1] for arg in args if arg.startswith("--to-path="))
+(Path(target) / (args[2] + ".dump")).write_bytes(b"owned synthetic archive")
+phase = "dump"
+''' + sender,
+    }
+    for name, body in scripts.items():
+        path = fake_bin / name
+        path.write_text(body, encoding="utf-8")
+        path.chmod(0o700)
+
+
+@pytest.fixture
+def offline_backup_signal(tmp_path):
+    import signal
+
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    _offline_backup_recorders(fake_bin)
+    snapshot = tmp_path / "snapshot"
+    snapshot.mkdir()
+    pid_file = tmp_path / "pid"
+    marker = tmp_path / "signal"
+
+    def run(mode="ordinary", phase="none", name="TERM"):
+        env = {
+            "PATH": f"{fake_bin}{os.pathsep}{os.defpath}", "HOME": str(tmp_path),
+            "FIXTURE_MODE": mode, "FIXTURE_PHASE": phase,
+            "FIXTURE_SIGNAL": str(getattr(signal, "SIG" + name)),
+            "OWNED_PID_FILE": str(pid_file), "SIGNAL_MARKER": str(marker),
+            "NEO4J_SNAPSHOT_ROOT": str(snapshot), "BACKUP_TIMESTAMP": "20261029_120000",
+            "BACKUP_DATABASE_QUIESCE_TIMEOUT_SECONDS": "120",
+        }
+        process = subprocess.Popen(
+            ["bash", str(OFFLINE_BACKUP)], env=env, cwd=tmp_path,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True,
+        )
+        pid_file.write_text(str(process.pid), encoding="utf-8")
+        try:
+            stdout, stderr = process.communicate(timeout=10)
+        finally:
+            if process.poll() is None:
+                os.killpg(process.pid, signal.SIGKILL)
+                process.communicate()
+        return subprocess.CompletedProcess(process.args, process.returncode, stdout, stderr)
+
+    return types.SimpleNamespace(run=run, snapshot=snapshot, marker=marker)
+
+
+@pytest.mark.parametrize("name", ["HUP", "INT", "TERM"])
+@pytest.mark.parametrize("phase", ["date", "dump"])
+def test_offline_backup_signals_fail_and_remove_unpublished_stage(offline_backup_signal, name, phase):
+    case = offline_backup_signal
+    result = case.run(mode="signal", phase=phase, name=name)
+    assert case.marker.read_text() == "owned signal sent"
+    assert result.returncode == {"HUP": 129, "INT": 130, "TERM": 143}[name]
+    assert not list(case.snapshot.iterdir())
+    assert "neo4j backup: complete" not in result.stdout
+
+
+@pytest.mark.parametrize("mode", ["ordinary", "dump-error"])
+def test_offline_backup_keeps_success_and_failure_publication_contract(offline_backup_signal, mode):
+    case = offline_backup_signal
+    result = case.run(mode=mode)
+    assert not case.marker.exists()
+    assert not list(case.snapshot.glob(".atlas-*"))
+    assert result.returncode == (0 if mode == "ordinary" else 42), result.stderr
+    if mode == "dump-error":
+        assert not list(case.snapshot.iterdir())
+        assert "neo4j backup: complete" not in result.stdout
+        return
+    _assert_offline_backup_publication(case, result)
+
+
+def _assert_offline_backup_publication(case, result):
+    import hashlib
+
+    published = case.snapshot / "20261029_120000"
+    assert sorted(path.name for path in published.iterdir()) == ["neo4j.dump", "snapshot.metadata", "system.dump"]
+    metadata = dict(line.split("=", 1) for line in (published / "snapshot.metadata").read_text().splitlines())
+    for database in ["system", "neo4j"]:
+        payload = (published / (database + ".dump")).read_bytes()
+        assert payload == b"owned synthetic archive"
+        assert metadata[database + "_sha256"] == hashlib.sha256(payload).hexdigest()
+        assert metadata[database + "_bytes"] == str(len(payload))
+    assert metadata["snapshot_state"] == "complete" and metadata["neo4j_version"] == PINNED
+    assert result.stdout.splitlines() == [
+        f"neo4j backup: dumping offline system database with neo4j:{PINNED}",
+        f"neo4j backup: dumping offline neo4j database with neo4j:{PINNED}",
+        f"neo4j backup: complete -> {published}",
+    ]
+
+
+# --- capture refuses an unrestorable Neo4j snapshot set ----------------------
+# database-snapshots.sh signs and publishes what it captures. Each negative
+# changes one property of an otherwise valid offline snapshot directory.
+_CAPTURE_TIMESTAMP = "20260830_010203"
+
+
+def _neo4j_snapshot(root: Path, overrides: dict[str, str]) -> Path:
+    import hashlib
+
+    snapshot = root / _CAPTURE_TIMESTAMP
+    snapshot.mkdir(parents=True)
+    fields = {
+        "snapshot_format": "1", "snapshot_state": "complete",
+        "backup_timestamp": _CAPTURE_TIMESTAMP, "neo4j_image": NEO4J_IMAGE,
+        "neo4j_version": PINNED, "started_at": "2026-08-30T01:02:01Z",
+        "completed_at": "2026-08-30T01:02:02Z",
+    }
+    for database in ("neo4j", "system"):
+        payload = f"{database}-consistent".encode()
+        (snapshot / f"{database}.dump").write_bytes(payload)
+        fields[f"{database}_sha256"] = hashlib.sha256(payload).hexdigest()
+        fields[f"{database}_bytes"] = str(len(payload))
+    fields.update(overrides)
+    (snapshot / "snapshot.metadata").write_text(
+        "".join(f"{key}={value}\n" for key, value in fields.items()), encoding="utf-8"
+    )
+    return snapshot
+
+
+def _capture_neo4j(tmp_path: Path, archive_limit: str = "1048576") -> tuple[subprocess.CompletedProcess[str], Path]:
+    work = tmp_path / "work"
+    work.mkdir()
+    script = (
+        f'set -eu\n. "{SNAPSHOTS}"\nrun_bounded() {{ "$@"; }}\n'
+        f"capture_database_snapshots '{work}' {_CAPTURE_TIMESTAMP} {'a' * 32}\n"
+    )
+    result = subprocess.run(
+        ["sh", "-c", script],
+        env={
+            **os.environ, "DATABASE_NEO4J_SNAPSHOT_ROOT": str(tmp_path / "neo4j"),
+            "BACKUP_MANIFEST_HMAC_KEY": "5" * 64, "BACKUP_DEPLOYMENT_ID": "atlas-test",
+            "BACKUP_NEO4J_SOURCE": "container", "BACKUP_WEAVIATE_SOURCE": "disabled",
+            "BACKUP_DATABASE_QUIESCE_TIMEOUT_SECONDS": "5",
+            "BACKUP_MAX_DATABASE_ARCHIVE_BYTES": archive_limit,
+        },
+        text=True, capture_output=True, check=False, timeout=30,
+    )
+    return result, work
+
+
+def _tamper_neo4j_snapshot(snapshot: Path, tamper: str) -> None:
+    if tamper in ("duplicate-key", "duplicate-started"):
+        line = "snapshot_state=complete" if tamper == "duplicate-key" else "started_at=2026-08-30T01:02:09Z"
+        with (snapshot / "snapshot.metadata").open("a", encoding="utf-8") as metadata:
+            metadata.write(line + "\n")
+    elif tamper == "extra-file":
+        (snapshot / "notes.txt").write_text("operator notes\n", encoding="utf-8")
+    elif tamper == "rewritten-dump":
+        (snapshot / "neo4j.dump").write_bytes(b"neo4j-rewritten!")
+
+
+def test_neo4j_capture_publishes_a_complete_pinned_snapshot(tmp_path: Path) -> None:
+    _neo4j_snapshot(tmp_path / "neo4j", {})
+    result, work = _capture_neo4j(tmp_path)
+    assert result.returncode == 0, result.stderr
+    manifest = (work / "databases.manifest").read_text(encoding="utf-8")
+    assert "neo4j_state=complete\n" in manifest and "weaviate_state=disabled\n" in manifest
+
+
+_INCOMPATIBLE = "Neo4j snapshot metadata is incomplete or incompatible"
+
+
+@pytest.mark.parametrize("case", [
+    ({"snapshot_state": "partial"}, None, 65, _INCOMPATIBLE),
+    ({"backup_timestamp": "20260830_010204"}, None, 65, _INCOMPATIBLE),
+    # Restorable, but a new capture must record the exact pin.
+    ({"neo4j_image": f"neo4j:{PREVIOUS}"}, None, 65, _INCOMPATIBLE),
+    ({"neo4j_version": PREVIOUS}, None, 65, _INCOMPATIBLE),
+    ({}, "duplicate-key", 65, _INCOMPATIBLE),
+    # A second value would otherwise reach the signed manifest as an extra line.
+    ({}, "duplicate-started", 1, ""),
+    ({}, "extra-file", 65, "unexpected inner names"),
+    ({}, "rewritten-dump", 65, "inner artifact changed before publication"),
+    ({"system_bytes": "999"}, None, 65, "inner artifact changed before publication"),
+    ({}, "archive-limit", 1, "Neo4j snapshot archive exceeds the configured limit"),
+], ids=["partial", "other-timestamp", "previous-image", "previous-version", "duplicate-key",
+        "duplicate-started", "extra-file", "rewritten-dump", "wrong-size", "archive-limit"])
+def test_neo4j_capture_refuses_to_publish_an_unrestorable_snapshot(tmp_path: Path, case) -> None:
+    overrides, tamper, status, message = case
+    snapshot = _neo4j_snapshot(tmp_path / "neo4j", overrides)
+    _tamper_neo4j_snapshot(snapshot, tamper)
+    result, work = _capture_neo4j(tmp_path, "16" if tamper == "archive-limit" else "1048576")
+    assert result.returncode == status, result.stderr
+    assert message in result.stderr
+    assert not (work / "databases.manifest").exists()
+    assert not (work / "databases.complete").exists()
+
+
+@pytest.mark.parametrize("pair", [
+    (f"neo4j:{PREVIOUS}", PREVIOUS, 0), (NEO4J_IMAGE, PINNED, 0),
+    (f"neo4j:{PREVIOUS}", PINNED, 1), (NEO4J_IMAGE, PREVIOUS, 1),
+    ("neo4j:5.26.29", PINNED, 1), ("neo4j:5.26.29", "5.26.29", 1),
+])
+def test_signed_snapshot_gate_needs_an_agreeing_restorable_image_and_version(pair) -> None:
+    """restore-databases.sh admits a signed set through this predicate (#1312)."""
+    image, version, status = pair
+    result = subprocess.run(
+        ["sh", "-c", '. "$1"; neo4j_snapshot_is_restorable "$2" "$3"', "sh", str(SNAPSHOTS), image, version],
+        text=True, capture_output=True, check=False, timeout=10,
+    )
+    assert result.returncode == status, result.stderr

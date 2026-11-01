@@ -597,18 +597,12 @@ def test_repository_manifest_inventory_has_72_unique_literal_image_refs():
     assert len(watch.load_manifest_image_refs(REPO_ROOT / "services")) == 72
 
 
-def test_probe_ollama_library_requires_the_plausible_catalog_threshold(monkeypatch):
-    monkeypatch.setattr(
-        watch.ollama_library,
-        "list_library_entries",
-        lambda: [object()] * watch.ollama_library.MIN_PLAUSIBLE_ENTRIES,
-    )
-    assert watch.probe_ollama_library().ok is True
-
-    monkeypatch.setattr(watch.ollama_library, "list_library_entries", lambda: [])
+@pytest.mark.parametrize("count", (0, watch.ollama_library.MIN_PLAUSIBLE_ENTRIES - 1, watch.ollama_library.MIN_PLAUSIBLE_ENTRIES))
+def test_probe_ollama_library_requires_the_plausible_catalog_threshold(monkeypatch, count):
+    monkeypatch.setattr(watch.ollama_library, "list_library_entries", lambda: [object()] * count)
     result = watch.probe_ollama_library()
-    assert result.ok is False
-    assert "0" in result.detail
+    assert result.ok is (count >= watch.ollama_library.MIN_PLAUSIBLE_ENTRIES)
+    assert f"observed {count} entries" in result.detail
 
 
 def test_probe_ollama_tags_uses_bounded_atlas_request_and_validates_schema(monkeypatch):

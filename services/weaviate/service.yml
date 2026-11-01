@@ -62,7 +62,7 @@ env:
     # default removed — computed by services/topology.py slot allocator
   - name: WEAVIATE_INIT_SOURCE
     default: container
-    description: "Auto-managed by weaviate. Container/disabled."
+    description: "Init-container selector listed in the SOURCE matrix (container or disabled). No code reads it: WEAVIATE_INIT_SCALE follows WEAVIATE_SOURCE."
   - name: MULTI2VEC_CLIP_SOURCE
     default: container-cpu
     description: "Options: container-cpu, container-gpu, disabled. container-gpu sets ENABLE_CUDA=1, but Compose reserves no GPU device yet. The CLIP container then fails to start; use container-cpu."
@@ -78,10 +78,6 @@ env:
   - name: WEAVIATE_URL
     auto_managed: true
     description: "Resolved per WEAVIATE_SOURCE. Consumed by n8n, backend, jupyterhub."
-  - name: WEAVIATE_LITELLM_API_KEY
-    auto_managed: true
-    secret: true
-    description: "Mirror of LITELLM_MASTER_KEY for Weaviate's vectorizer auth."
   - name: WEAVIATE_SCALE
     description: "Set by ./start.sh from WEAVIATE_SOURCE; do not edit. 1 runs weaviate for container, 0 otherwise."
     auto_managed: true
@@ -211,9 +207,7 @@ runtime_sc:
 runtime_adaptive:
   weaviate-init:
     adapts_to: llm_provider
-    environment_adaptation:
-      LITELLM_BASE_URL: http://litellm:4000
-      LITELLM_API_KEY: ${LITELLM_MASTER_KEY}
+    environment_adaptation: {}
     extra_hosts_adaptation: inherit from llm_provider
 
 data_flow:

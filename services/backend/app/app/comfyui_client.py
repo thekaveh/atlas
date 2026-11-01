@@ -108,13 +108,32 @@ def _target_history(
     return target
 
 
+DEFAULT_COMFYUI_MAX_IMAGE_BYTES = 20 * 1024 * 1024
+
+
+def comfyui_max_image_bytes_from_env() -> int:
+    """``COMFYUI_MAX_IMAGE_BYTES`` as a positive integer (default 20 MiB).
+
+    Shared by both ComfyUI clients and the startup check, so a malformed
+    value fails startup instead of answering every request with an error.
+    """
+    raw = (
+        os.getenv("COMFYUI_MAX_IMAGE_BYTES") or str(DEFAULT_COMFYUI_MAX_IMAGE_BYTES)
+    ).strip()
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise ValueError("COMFYUI_MAX_IMAGE_BYTES must be a positive integer") from exc
+    if value <= 0:
+        raise ValueError("COMFYUI_MAX_IMAGE_BYTES must be a positive integer")
+    return value
+
+
 class ComfyUIClient:
     def __init__(self, base_url: Optional[str] = None):
         self.base_url = base_url or os.getenv("COMFYUI_BASE_URL", "http://comfyui:18188")
         self.base_url = self.base_url.rstrip('/')
-        self.max_image_bytes = int(os.getenv("COMFYUI_MAX_IMAGE_BYTES", "20971520"))
-        if self.max_image_bytes <= 0:
-            raise ValueError("COMFYUI_MAX_IMAGE_BYTES must be positive")
+        self.max_image_bytes = comfyui_max_image_bytes_from_env()
         # connect=5 fails fast on a down ComfyUI (single budget=60 would
         # wait the full minute before reporting unhealthy); read=60 keeps
         # the long budget for image-generation HTTP rounds that legitimately

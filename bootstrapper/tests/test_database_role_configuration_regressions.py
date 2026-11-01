@@ -6,6 +6,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 from urllib.parse import quote, unquote, urlsplit
@@ -14,7 +15,7 @@ import pytest
 
 from core.config_parser import ConfigParser
 from services.service_config import ServiceConfig
-from tests.test_database_role_boundaries import TEST_SECRETS, _add_exception_note
+from tests.test_database_role_boundaries import TEST_SECRETS
 from utils.key_generator import KeyGenerator
 
 
@@ -145,7 +146,27 @@ def test_key_generation_preserves_raw_database_names_and_derives_path_components
 
     for name in database_vars:
         assert values[name] == raw_database
+    # Label Studio takes discrete DB parameters, so it has no DSN twin.
+    for name in database_vars[:-1]:
         assert values[f"{name}_URI"] == quote(raw_database, safe="")
+    assert "LABEL_STUDIO_DB_NAME_URI" not in values
+
+
+def _declared_env_keys(path: Path) -> set[str]:
+    lines = path.read_text(encoding="utf-8").splitlines()
+    return {line.split("=", 1)[0] for line in lines if line[:1].isalpha() and "=" in line}
+
+
+def test_key_generation_adds_only_declared_keys(tmp_path, monkeypatch) -> None:
+    """URI twins exist only for DSN consumers; nothing undeclared lands in .env."""
+    example = REPO / ".env.example"
+    shutil.copyfile(example, tmp_path / ".env")
+    monkeypatch.setattr(KeyGenerator, "_project_volume_exists", lambda *_a, **_k: False)
+
+    KeyGenerator(str(tmp_path)).generate_missing_keys()
+
+    undeclared = _declared_env_keys(tmp_path / ".env") - _declared_env_keys(example)
+    assert undeclared == set()
 
 
 def test_scoped_uri_userinfo_never_interpolates_raw_credentials() -> None:
@@ -194,6 +215,10 @@ def test_scoped_uri_paths_never_interpolate_raw_database_names() -> None:
 def test_hostile_database_names_round_trip_through_rendered_dsn_paths(
     tmp_path: Path,
 ) -> None:
+    if shutil.which("docker") is None:
+        if os.environ.get("CI", "").lower() in {"1", "true", "yes"}:
+            pytest.fail("docker CLI is required to render the hostile-name Compose contract")
+        pytest.skip("docker CLI unavailable")
     raw_database = "atlas /?#% database"
     source = (REPO / ".env.example").read_text(encoding="utf-8")
     for name in (
@@ -388,11 +413,14 @@ def native_ownership_postgres():
 
     Set ATLAS_TEST_NATIVE_POSTGRES_BIN to a local PostgreSQL bin directory.
     These catalog/ownership tests do not qualify the pinned Supabase image.
+    CI sets the switch, so an unset value there fails instead of skipping.
     """
     import tempfile
 
     configured = os.environ.get("ATLAS_TEST_NATIVE_POSTGRES_BIN")
     if not configured:
+        if os.environ.get("CI") == "true":
+            pytest.fail("CI must set ATLAS_TEST_NATIVE_POSTGRES_BIN for isolated ownership SQL")
         pytest.skip("set ATLAS_TEST_NATIVE_POSTGRES_BIN for isolated ownership SQL")
     binaries = Path(configured)
     for name in ("initdb", "pg_ctl", "psql"):
@@ -439,7 +467,7 @@ def _stop_native_ownership_postgres(binaries, data, environment, failure) -> Non
     except (OSError, subprocess.SubprocessError) as cleanup_error:
         if failure is None:
             raise
-        _add_exception_note(failure, f"native PostgreSQL cleanup failed: {cleanup_error}")
+        failure.add_note(f"native PostgreSQL cleanup failed: {cleanup_error}")
 
 
 def _ownership_loop(marker: str) -> str:
@@ -662,3 +690,87 @@ def test_native_legacy_auth_ownership_allows_pinned_owner_migrations(native_owne
     assert types.returncode == 0, types.stderr
     assert types.stdout.splitlines()[-2:] == ['new', '2']
     _assert_auth_ownership_boundaries(sql, before)
+
+
+_SUPABASE_HEALTH_ENV = {
+    "SUPABASE_DB_USER": "supabase_admin",
+    "SUPABASE_DB_NAME": "postgres",
+    "SUPABASE_DB_PASSWORD": "owned health password$literal#suffix",
+}
+
+
+def _run_supabase_healthcheck_fixture(tmp_path, supplied, status=0):
+    from string import Template
+    import yaml
+    from utils.atomic_write import render_env_assignment
+
+    env_file = tmp_path / ".env"
+    env_file.write_text("".join(
+        f"{key}={render_env_assignment(key, value)}\n" for key, value in supplied.items()
+    ), encoding="utf-8")
+    parsed = ConfigParser(str(tmp_path)).parse_env_file()
+    assert parsed == supplied
+    service = yaml.safe_load((REPO / "services/supabase/compose.yml").read_text())["services"]["supabase-db"]
+    program = Template(service["healthcheck"]["test"][1]).substitute(parsed)
+    environment = {key: Template(value).substitute(parsed) for key, value in service["environment"].items()}
+    executable = tmp_path / "pg_isready"
+    receipt = tmp_path / "probe.json"
+    executable.write_text(
+        f"#!{sys.executable}\n"
+        "import json, os, sys\n"
+        "from pathlib import Path\n"
+        "Path(os.environ['OWNED_PROBE']).write_text(json.dumps({"
+        "'argv': sys.argv[1:], 'password': os.environ.get('POSTGRES_PASSWORD')}))\n"
+        "raise SystemExit(int(os.environ['OWNED_STATUS']))\n",
+        encoding="utf-8",
+    )
+    executable.chmod(0o700)
+    environment.update(PATH=f"{tmp_path}{os.pathsep}{os.defpath}",
+                       OWNED_PROBE=str(receipt), OWNED_STATUS=str(status))
+    result = subprocess.run(
+        ["/bin/sh", "-c", program], cwd=tmp_path, env=environment,
+        capture_output=True, text=True, timeout=10, check=False,
+    )
+    recorded = json.loads(receipt.read_text()) if receipt.exists() else {}
+    return result, recorded
+
+
+def _assert_supabase_healthcheck_probe(result, recorded, supplied, status):
+    assert result.returncode == status
+    assert recorded["argv"] == [
+        "-h", "localhost", "-U", supplied["SUPABASE_DB_USER"], "-d", supplied["SUPABASE_DB_NAME"],
+    ]
+    assert recorded["password"] == supplied["SUPABASE_DB_PASSWORD"]
+    assert result.stdout == ""
+    assert result.stderr == ""
+
+
+@pytest.mark.parametrize("field", ["SUPABASE_DB_USER", "SUPABASE_DB_NAME"])
+@pytest.mark.parametrize("identity", [
+    "synthetic_name", "synthetic name", "synthetic'name", 'synthetic"name',
+    r"synthetic\name", "synthetic$HOME", "synthetic_é界", "",
+    "synthetic$(touch owned-marker)", "synthetic`touch owned-marker2`",
+])
+def test_supabase_healthcheck_preserves_literal_identity(tmp_path, field, identity):
+    supplied = {**_SUPABASE_HEALTH_ENV, field: identity}
+    result, recorded = _run_supabase_healthcheck_fixture(tmp_path, supplied)
+    assert not (tmp_path / "owned-marker").exists()
+    assert not (tmp_path / "owned-marker2").exists()
+    _assert_supabase_healthcheck_probe(result, recorded, supplied, 0)
+
+
+@pytest.mark.parametrize("status", [0, 1, 2, 3, 42])
+def test_supabase_healthcheck_preserves_probe_exit_status(tmp_path, status):
+    result, recorded = _run_supabase_healthcheck_fixture(tmp_path, _SUPABASE_HEALTH_ENV, status)
+    _assert_supabase_healthcheck_probe(result, recorded, _SUPABASE_HEALTH_ENV, status)
+
+
+def test_supabase_healthcheck_preserves_transport_and_schedule():
+    import yaml
+
+    healthcheck = yaml.safe_load((REPO / "services/supabase/compose.yml").read_text())["services"]["supabase-db"]["healthcheck"]
+    assert healthcheck["test"][0] == "CMD-SHELL"
+    assert "pg_isready -h localhost" in healthcheck["test"][1]
+    assert {key: value for key, value in healthcheck.items() if key != "test"} == {
+        "interval": "10s", "timeout": "5s", "retries": 5, "start_period": "60s",
+    }

@@ -175,6 +175,19 @@ def _row_is_checked_comfyui(opt_sizes: tuple[str, ...], checked: set[str]) -> bo
     return any(v in checked for v in opt_sizes)
 
 
+def _matches_name_query(opt: "PromptOption", query: str) -> bool:
+    """Name-search match for one multiselect parent row.
+
+    ``query`` is already lowercased. Ollama rows match on ``opt.value``,
+    the model id users type. A ComfyUI family parent's value is the
+    synthetic ``family:<root>``, so it also matches when any member's
+    catalog name (its ``sizes`` / ``leaf_details`` keys) contains the query.
+    """
+    if query in opt.value.lower():
+        return True
+    return bool(opt.leaf_details) and any(query in n.lower() for n in opt.sizes)
+
+
 def _row_variants(row_value: str, checked: set[str]) -> frozenset[str]:
     """Tags currently selected for ``row_value`` in ``checked``.
 
@@ -575,17 +588,33 @@ def secondary_input_for(step: "PromptStep", inputs: list, sel: "PromptOption"):
     return None
 
 
+def _control_word_hint(word: str, has_saved_key: bool) -> str | None:
+    """Hint naming the action a typed or restored control word will commit.
+
+    None when ``word`` is not a control word. The secret input is masked,
+    so this is the only sign that "remove" or "disable" was read as an
+    action rather than as a key of that length. "enable" with nothing
+    saved resolves to disabled, so it must not claim the saved key.
+    """
+    entry = SECRET_CONTROL_WORDS.get(word)
+    if entry is None:
+        return None
+    if entry[0] == SECRET_CLEAR:
+        return "pending removal  ·  Enter to confirm removal  ·  edit to change"
+    if entry[0] == SECRET_ENABLE and not has_saved_key:
+        return "no saved key to enable  ·  paste a key to enable  ·  edit to change"
+    return f"pending: {entry[1]}  ·  Enter to confirm  ·  edit to change"
+
+
 def _secret_input_hint(step: "PromptStep", *, include_restored: bool = True) -> str:
     existing = (step.default_value or "").strip()
     restored = (step.restored_input_value or "").strip() if include_restored else ""
     placeholder = _mask_secret(existing) if existing else "paste API key here…"
-    if restored.lower() == "clear":
-        return "pending removal  ·  Enter to confirm removal  ·  edit to change"
-    if restored.lower() in ("enable", "disable"):
-        # Back onto a step answered with a control word restores the WORD
-        # (#1183); calling it a "replacement" read as if it were a new key.
-        label = SECRET_CONTROL_WORDS[restored.lower()][1]
-        return f"pending: {label}  ·  Enter to confirm  ·  edit to change"
+    # Back onto a step answered with a control word restores the WORD
+    # (#1183); calling it a "replacement" read as if it were a new key.
+    word_hint = _control_word_hint(restored.lower(), bool(existing))
+    if word_hint is not None:
+        return word_hint
     if restored:
         return "pending replacement loaded  ·  Enter to confirm replacement"
     if existing:
@@ -594,6 +623,20 @@ def _secret_input_hint(step: "PromptStep", *, include_restored: bool = True) -> 
             "type a new key to replace  ·  type \"clear\" + Enter to remove"
         )
     return "paste a key + Enter to enable  ·  Enter (empty) to leave disabled"
+
+
+def _live_secret_hint(step: "PromptStep", value: str) -> str:
+    """Hint under the masked key input while the user types (``value``
+    stripped). The masked dots can scroll out of view on long keys, so a
+    key reports its length; a control word names the action it commits."""
+    if not value:
+        return _secret_input_hint(step, include_restored=False)
+    has_saved_key = bool((step.default_value or "").strip())
+    word_hint = _control_word_hint(value.lower(), has_saved_key)
+    if word_hint is not None:
+        return word_hint
+    n = len(value)
+    return f"✓ {n} char{'s' if n != 1 else ''} entered  ·  Enter to confirm"
 
 
 def _live_text_hint(step: "PromptStep", value: str) -> str:
@@ -796,7 +839,6 @@ class PromptPanel(Container):
         # doesn't fire a second fetch.
         self._variant_cache: dict[str, list] = {}
         self._variant_loading: set[str] = set()
-        self._on_change: Callable[[int, PromptOption], None] | None = None
 
     def compose(self) -> ComposeResult:
         yield self._heading
@@ -807,9 +849,6 @@ class PromptPanel(Container):
         yield self._option_list
         yield self._number_slot
         yield self._conflict_slot
-
-    def set_on_change(self, callback: Callable[[int, PromptOption], None]) -> None:
-        self._on_change = callback
 
     def _render_step_caption(self, step: PromptStep) -> None:
         """Render caption text with the space required by destructive warnings."""
@@ -840,6 +879,9 @@ class PromptPanel(Container):
         # forms it doesn't belong to.
         if self._search_input is not None:
             self._search_input.display = False
+        # The chip row gets the same treatment: only a multiselect step
+        # with ``filter_tags`` shows it (the multiselect branch remounts).
+        self._drop_filter_chips_off_multiselect(step)
 
         if step.kind == "number":
             # Free integer input — reuse the persistent Input/Static
@@ -1168,6 +1210,16 @@ class PromptPanel(Container):
         )
         self._filter_slot.mount(self._filter_chips)
 
+    def _drop_filter_chips_off_multiselect(self, step: PromptStep) -> None:
+        """Remove a chip row left by an earlier multiselect step.
+
+        Only the multiselect branch of ``load_step`` mounts chips, so
+        without this an options / number / secret / text step reached
+        after the Ollama or ComfyUI models step kept a dead chip row.
+        """
+        if step.kind != "multiselect":
+            self._mount_filter_chips(())
+
     def _mount_search_input(self, filter_tags: tuple[str, ...]) -> None:
         """Show (or hide) the search-by-name input above the chip row.
 
@@ -1312,8 +1364,9 @@ class PromptPanel(Container):
             # Empty query matches everything. Matched against
             # ``opt.value`` (the canonical Ollama model id) which is
             # what users type when they go looking for ``qwen3.6`` or
-            # ``llama3.1``.
-            if query and query not in opt.value.lower():
+            # ``llama3.1``; a ComfyUI family parent also matches on its
+            # member catalog names (see _matches_name_query).
+            if query and not _matches_name_query(opt, query):
                 continue
             out.append(_VisibleRow(
                 kind="parent", abs_idx=i,
@@ -1930,8 +1983,6 @@ class PromptPanel(Container):
                 # Best-effort: pre-mount or test contexts may not have a
                 # parent scroller; selection still updates correctly.
                 pass
-        if self._on_change and self.selected_option is not None:
-            self._on_change(new, self.selected_option)
 
     def on_input_changed(self, event: "Input.Changed") -> None:
         """Live updates from the Input widgets mounted in the panel.
@@ -1943,7 +1994,8 @@ class PromptPanel(Container):
           results narrow live as they type.
         * **Secret input** (cloud API key step): show a char-count
           confirmation hint since the masked dots can scroll out of
-          view on long keys.
+          view on long keys, or the action a typed control word
+          commits (``_live_secret_hint``).
         * **Secondary inputs** (options step with ``secondary_number``):
           mirror the typed value across every sibling input so the
           inline textboxes on each eligible row stay consistent (they
@@ -2000,18 +2052,9 @@ class PromptPanel(Container):
             or event.input is not self._secret_input
         ):
             return
-        value = (event.value or "").strip()
-        n = len(value)
-        if n == 0:
-            self._secret_hint.update(
-                _secret_input_hint(self._step, include_restored=False)
-            )
-        elif value.strip().lower() == "clear":
-            self._secret_hint.update(
-                "pending removal  ·  Enter to confirm removal  ·  edit to change"
-            )
-        else:
-            self._secret_hint.update(f"✓ {n} char{'s' if n != 1 else ''} entered  ·  Enter to confirm")
+        self._secret_hint.update(
+            _live_secret_hint(self._step, (event.value or "").strip())
+        )
 
     def toggle_focused(self) -> None:
         """Multi-select: Space on the focused row.

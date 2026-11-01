@@ -84,7 +84,7 @@ Each cloud model row is badged `live`, `catalog` or `saved`. See [Interactive Se
 
 ### 3.5. Numeric wizard entries
 
-The wizard accepts `BASE_PORT` and the inline numbers (`RAY_WORKER_COUNT`, `SPARK_WORKER_COUNT`, `PROMETHEUS_RETENTION_DAYS`, the STT provider ports) as typed, or refuses them. Empty keeps the current value, and `auto` is a valid `BASE_PORT` value. See [Interactive Setup Wizard §7.2](../quick-start/interactive-setup-wizard.md#72-invalid-numbers-are-refused-not-adjusted).
+The wizard accepts `BASE_PORT` and its inline numbers as typed, or refuses them. The inline numbers are `RAY_WORKER_COUNT`, `SPARK_WORKER_COUNT`, `PROMETHEUS_RETENTION_DAYS` and the localhost port inputs listed in [Interactive Setup Wizard §6](../quick-start/interactive-setup-wizard.md#6-inline-secondary-numeric-inputs). Empty keeps the current value, and `auto` is a valid `BASE_PORT` value. See [Interactive Setup Wizard §7.2](../quick-start/interactive-setup-wizard.md#72-invalid-numbers-are-refused-not-adjusted).
 
 ## 4. Detailed SOURCE Configurations
 
@@ -144,7 +144,7 @@ Each row lists the options from the service's `service.yml` `sources:` block; **
 | `AIRFLOW_SOURCE` | `container`, **`disabled`** | DAG orchestrator (LocalExecutor, metadata in Supabase Postgres). UI and `/api/v2/` at `airflow.localhost`. See §4.3.1. | [Airflow](../../services/airflow/README.md) |
 | `ASSET_BAKER_SOURCE` | `container-cpu`, **`disabled`** | Blender high-poly to low-poly bake (Cycles CPU). | [Asset Baker](../../services/asset-baker/README.md) |
 | `ASSET_WORKER_SOURCE` | `container`, **`disabled`** | glTF post-processing. | [Asset Worker](../../services/asset-worker/README.md) |
-| `BACKUP_SOURCE` | `container`, **`disabled`** | Postgres and database snapshots to S3. Run with `docker compose run --rm backup`. | [Backup](../../services/backup/README.md) |
+| `BACKUP_SOURCE` | `container`, **`disabled`** | Postgres and database snapshots to S3. Run backups with `services/backup/run-consistent-backup.sh`. A direct `docker compose run --rm backup` works only with `BACKUP_DATABASES=false`. | [Backup](../../services/backup/README.md) |
 | `BLENDER_MCP_SOURCE` | `localhost`†, `managed-localhost`†, **`disabled`** | Host Blender MCP bridge. `managed-localhost` runs an Atlas-provisioned headless Blender. No Kong route. | [Blender MCP](../../services/blender-mcp/README.md) |
 | `CELERY_SOURCE` | `container`, **`disabled`** | Backend Celery worker and Flower monitor. | [Celery](../../services/celery/README.md) |
 | `CLOUDFLARED_SOURCE` | `container`, **`disabled`** | Cloudflare Tunnel public edge, proxied to Kong. | [Cloudflare Tunnel](../../services/cloudflared/README.md) |
@@ -162,7 +162,7 @@ Each row lists the options from the service's `service.yml` `sources:` block; **
 | `LIGHTRAG_SOURCE` | `container`, `localhost`†, **`disabled`** | `container` stores data in Supabase pgvector, Neo4j and Redis. If one is disabled, LightRAG fails to start unless its `LIGHTRAG_*_STORAGE` names an in-process class. `localhost` uses `LIGHTRAG_LOCALHOST_PORT` (default `63068`). | [LightRAG](../../services/lightrag/README.md) |
 | `LLM_GRAPH_BUILDER_SOURCE` | `container`, **`disabled`** | Neo4j LLM Graph Builder (pinned source build). | [LLM Graph Builder](../../services/llm-graph-builder/README.md) |
 | `LLM_PROVIDER_SOURCE` | **`ollama-container-cpu`**, `ollama-container-gpu`, `ollama-localhost`†, `none` | Ollama upstream for LiteLLM. See §4.1.1. | [Ollama](../../services/ollama/README.md) |
-| `LOCAL_DEEP_RESEARCHER_SOURCE` | **`container`**, `disabled` | LangGraph research agent. | [Local Deep Researcher](../../services/local-deep-researcher/README.md) |
+| `LOCAL_DEEP_RESEARCHER_SOURCE` | **`container`**, `disabled` | LangGraph research agent. Requires `SEARXNG_SOURCE=container`; otherwise the start auto-disables it with a warning. | [Local Deep Researcher](../../services/local-deep-researcher/README.md) |
 | `LOKI_SOURCE` | `container`, **`disabled`** | Local queryable log store. | [Loki](../../services/loki/README.md) |
 | `MCP_SERVERS_SOURCE` | `container`, **`disabled`** | Read-only Postgres, Neo4j and SearXNG tools over Streamable HTTP at `/mcp` (`mcp.localhost`). Requires `NEO4J_GRAPH_DB_SOURCE=container` and `SEARXNG_SOURCE=container`. Tool output is untrusted. | [MCP Servers](../../services/mcp-servers/README.md) |
 | `MINIO_SOURCE` | **`container`**, `disabled` | S3-compatible object storage with scoped per-consumer buckets. See §4.3.3. | [MinIO](../../services/minio/README.md) |
@@ -265,6 +265,8 @@ FAL_MODEL=fal-ai/flux/dev
 
 ## 5. Configuration Patterns
 
+The patterns that pass `--searxng-source disabled` also stop Local Deep Researcher. The start auto-disables it with a warning, because it searches only through SearXNG.
+
 ### 5.1. Development Setup
 Best for local development with minimal resources:
 
@@ -289,11 +291,14 @@ Best for production with full features. `--profile prod` does not accept localho
 ```
 
 ### 5.3. Minimal Setup
-Best for testing or resource-constrained environments:
+Best for testing or resource-constrained environments.
+
+Before you start, set the API key of each cloud provider you enable in `.env`, or pass it with its key flag. Without a key, Atlas disables that provider. In this setup no other LLM upstream remains, so the start fails.
 
 ```bash
 ./start.sh --llm-provider-source none \
           --cloud-openai-source enabled \
+          --openai-api-key <your-openai-key> \
           --comfyui-source disabled \
           --weaviate-source disabled \
           --n8n-source disabled \
@@ -302,8 +307,6 @@ Best for testing or resource-constrained environments:
           --jupyterhub-source disabled \
           --minio-source disabled
 ```
-
-Set `OPENAI_API_KEY` in `.env`, or the key for the `CLOUD_*_SOURCE` you enabled.
 
 ### 5.4. Mixed Setup
 Combine host and container sources:
@@ -372,9 +375,8 @@ curl http://localhost:63040/health/liveliness  # LiteLLM gateway (always-on)
 curl http://localhost:8000/           # ComfyUI default localhost URL
 curl http://localhost:8188/           # ComfyUI if you overrode COMFYUI_LOCALHOST_PORT to 8188
 
-# Check service logs (after the COMPOSE_PROJECT_NAME setup line in
-# troubleshooting.md; PROJECT_NAME is not exported to your shell)
-docker compose logs -f backend
+# Check service logs (define the atlas_compose helper from troubleshooting.md first)
+atlas_compose logs -f backend
 ```
 
 **Port conflicts**:
@@ -406,11 +408,11 @@ grep localhost /etc/hosts
 grep -E '^(LLM_PROVIDER|COMFYUI|N8N|WEAVIATE)_SOURCE=' .env
 
 # Test service connectivity (LLM goes via LiteLLM, not Ollama directly)
-# Run after the COMPOSE_PROJECT_NAME setup line in troubleshooting.md.
+# Define the atlas_compose helper from troubleshooting.md first.
 # The LiteLLM and Kong images ship no curl; probe from backend, which does.
-docker compose exec backend curl -sf http://litellm:4000/health/liveliness
-docker compose exec litellm python -c "import urllib.request; print(urllib.request.urlopen('http://ollama:11434/api/tags', timeout=5).status)"
-docker compose exec backend curl -sf http://comfyui:18188/
+atlas_compose exec -T backend curl -sf http://litellm:4000/health/liveliness
+atlas_compose exec -T litellm python -c "import urllib.request; print(urllib.request.urlopen('http://ollama:11434/api/tags', timeout=5).status)"
+atlas_compose exec -T backend curl -sf http://comfyui:18188/
 
 # Monitor resource usage
 docker stats

@@ -205,3 +205,16 @@ def test_committed_prose_baseline_matches_the_current_text():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     assert module.check_prose_length() == []
+
+
+def test_docs_drift_scope_skips_ignored_logs_and_caches_ci_never_sees():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "check_docs_drift", _REPO_ROOT / "scripts" / "check-docs-drift.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    for ignored in (".audit/x.md", ".pytest_cache/README.md", "upstream-drift-report.md"):
+        assert not module.included(module.ROOT / ignored)
+    assert module.included(module.ROOT / "docs" / "development.md")

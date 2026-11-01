@@ -87,7 +87,17 @@ Create `bootstrapper/schemas/models.schema.json` validating the section shape. T
 
 - [ ] **Step 3: Author `services/ollama/models.yaml` and `services/litellm/models.yaml`**
 
-Translate EVERY entry in the current `OLLAMA_DEFAULT_CATALOG` → `services/ollama/models.yaml`, and EVERY entry in the current `CLOUD_CATALOG` → `services/litellm/models.yaml` (grouped by provider). Placement rule: put each model in the section(s) for which its current score is `> 0` (content / embeddings / vision). Carry `name`, `description`, `badges`, and `default: true` (only when `default_active` is true). A multi-role model (e.g. `qwen3.6:latest` with content>0 AND vision>0) appears under both `content:` and `vision:` — put the full `description`/`badges` on its FIRST (content) occurrence; later occurrences may carry just `name`. Validate both files against the schema.
+Translate EVERY entry in the current `OLLAMA_DEFAULT_CATALOG` → `services/ollama/models.yaml`.
+Translate EVERY entry in the current `CLOUD_CATALOG` → `services/litellm/models.yaml`, grouped by provider.
+
+Placement rule: use each section whose model score is `> 0` (content / embeddings / vision).
+Carry `name`, `description`, `badges`, and `default: true` (only when `default_active` is true).
+
+A multi-role model appears under each applicable section.
+For example, `qwen3.6:latest` with content>0 AND vision>0 appears under both `content:` and `vision:`.
+Put the full `description`/`badges` on its FIRST (content) occurrence. Later occurrences may carry just `name`.
+
+Validate both files against the schema.
 
 Ollama file skeleton:
 ```yaml

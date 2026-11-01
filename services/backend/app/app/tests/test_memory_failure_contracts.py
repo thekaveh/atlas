@@ -192,7 +192,6 @@ async def test_store_embedding_uses_fact_uuid_as_deterministic_weaviate_id(
         namespace="default",
         fact_type="observation",
         confidence=0.9,
-        metadata={},
     )
 
     assert object_id == "00000000-0000-4000-8000-000000000001"
@@ -647,9 +646,9 @@ class _FakeReconcileConnection:
 
 @pytest.mark.asyncio
 async def test_reconcile_clear_guards_on_updated_at(monkeypatch):
-    """The reconcile flag-clear must carry an optimistic updated_at guard so a
-    concurrent update_memory that re-flags the fact for new content isn't
-    silently wiped against our now-stale vector write (permanent divergence)."""
+    """Guard the current matching vector state, including its trigger version,
+    so a concurrent canonical edit cannot lose its newer pending intent. The
+    opt-in Postgres cases in test_memory_dimension_contract run the guard SQL."""
     import memory_service
     from datetime import datetime, timezone
 
@@ -687,16 +686,19 @@ async def test_reconcile_clear_guards_on_updated_at(monkeypatch):
     ]
     assert clears, "reconcile must clear the pending flag"
     query, *params = clears[0]
-    assert "AND updated_at = $3" in query, "clear must be guarded on the read updated_at"
-    assert params == [row["id"], "vec-new", ts]
+    assert "WITH vector_owner AS MATERIALIZED" in query
+    assert "AND fact.updated_at = vector_owner.updated_at" in query
+    assert params == [row["id"], "vec-new", row["user_id"], row["namespace"],
+                      row["content"], row["fact_type"], row["confidence"]]
 
 
 @pytest.mark.asyncio
 async def test_pgvector_write_casts_bind_param_to_vector(monkeypatch):
-    """The pgvector fallback write must cast `$1::vector`. Without the cast
-    asyncpg infers the column's `vector` type for the bind param, has no codec
-    for it, and raises at execute — breaking every memory write whenever
-    Weaviate is disabled/unavailable. Mirrors the read path (`<=> $1::vector`)."""
+    """The pgvector fallback write must cast `$1::public.vector`. Without the
+    cast asyncpg infers the column's `vector` type for the bind param, has no
+    codec for it, and raises at execute — breaking every memory write whenever
+    Weaviate is disabled/unavailable. Mirrors the read path. The type is
+    schema-qualified so a type planted in public cannot win the lookup."""
     import memory_store
 
     executed = []
@@ -725,7 +727,7 @@ async def test_pgvector_write_casts_bind_param_to_vector(monkeypatch):
 
     assert executed, "pgvector write must execute an UPDATE"
     query, _params = executed[0]
-    assert "SET embedding = $1::vector" in query
+    assert "SET embedding = $1::public.vector" in query
     assert "WHERE id = $2 AND content = $3" in query
 
 

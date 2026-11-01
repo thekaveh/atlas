@@ -110,7 +110,12 @@ class _OwnedProcess:
         return 0
 
 
-def test_stop_uses_live_owned_child_when_pid_file_is_missing(tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    "ignores_sigterm", [False, True], ids=["sigterm", "sigkill-escalation"]
+)
+def test_stop_uses_live_owned_child_when_pid_file_is_missing(
+    tmp_path, monkeypatch, ignores_sigterm
+):
     manager = _generic_lifecycle_manager(tmp_path)
     signals = []
     owned = _OwnedProcess()
@@ -121,10 +126,17 @@ def test_stop_uses_live_owned_child_when_pid_file_is_missing(tmp_path, monkeypat
         "_signal",
         lambda pid, sig: signals.append((pid, sig)) or True,
     )
-    monkeypatch.setattr(manager, "_managed_process_alive", lambda _pid: False)
+    # A child that ignores SIGTERM outlives the grace window until SIGKILL.
+    monkeypatch.setattr(
+        manager,
+        "_managed_process_alive",
+        lambda _pid: ignores_sigterm and len(signals) < 2,
+    )
+    monkeypatch.setattr(managed_host, "_STOP_POLL_SECONDS", 0)
 
     assert manager.stop() is True
-    assert signals == [(4242, signal.SIGTERM)]
+    expected = [(4242, signal.SIGTERM), (4242, signal.SIGKILL)]
+    assert signals == expected[: 1 + ignores_sigterm]
     assert owned.wait_calls == 1
     assert manager._owned_process is None
     assert not manager.pid_file.exists()

@@ -11,6 +11,8 @@ from typing import NamedTuple
 import pytest
 import yaml
 
+from scripts import container_security
+from scripts.upstream_drift_watch import load_expected_remote_base_digests
 from scripts.docs.build_docs import render_mkdocs_yml
 from scripts.docs.manifest import load_manifest
 from tests.three_surface_test_utils import (
@@ -142,3 +144,44 @@ def test_policy_parakeet_versions_match_gpu_runtime_lock() -> None:
     for package, label in (("nemo-toolkit", "NeMo"), ("transformers", "Transformers")):
         version = re.search(rf"^{package}==([^\s]+)$", lock, re.MULTILINE).group(1)
         assert re.search(rf"\b{label}\s+`{re.escape(version)}`", example), label
+
+
+def _compose_build_base_images() -> set[str]:
+    return set().union(
+        *(
+            build.base_images
+            for build in container_security.load_compose_builds(ROOT / "services")
+        )
+    )
+
+
+def _container_security_ledger_row() -> str:
+    ledger = (ROOT / "docs/maintenance/external-contract-ledger.md").read_text()
+    row = next(
+        line for line in ledger.splitlines()
+        if line.startswith("| Container image vulnerability gate |")
+    )
+    assert "(#71-container-image-vulnerability-gate-evidence)" in row
+    heading = "### 7.1. Container image vulnerability gate evidence\n"
+    assert heading in ledger
+    evidence = ledger.split(heading, 1)[1].split("\n### ", 1)[0]
+    return row + "\n" + evidence
+
+
+def test_container_security_ledger_does_not_claim_registry_discovery() -> None:
+    row = _container_security_ledger_row()
+
+    assert "attempted on both" in row
+    assert "not registry discovery" in row
+    assert "registry-derived" not in row
+    assert "registry-supported" not in row
+    images = container_security.load_image_inventory(ROOT / "services")
+    scans = container_security.load_image_scans(ROOT / "services")
+    build_only = _compose_build_base_images() - set(images)
+    remote_bases = load_expected_remote_base_digests(
+        ROOT / ".container-scan-exclusions.yml"
+    )
+    assert f"All {len(images)} manifest-owned image defaults" in row
+    assert f"{len(build_only)} Dockerfile-only build inputs" in row
+    assert f"{len(remote_bases)} digest-qualified bases" in row
+    assert f"currently producing {len(scans)} isolated image-platform scans" in row

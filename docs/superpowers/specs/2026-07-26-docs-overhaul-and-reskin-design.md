@@ -11,7 +11,13 @@
 
 ## 1. Summary
 
-Atlas already has a disciplined, manifest-driven three-surface documentation system (in-repo Markdown · `.io` MkDocs site · GitHub wiki) whose *synchronisation is enforced by construction*. The problems are not in the plumbing — they are in **information architecture** (a 659-line root README acting as a competing mini-site, the same facts told in 3–4 places, folders that no longer map to nav sections, ~40% of files unnavigated), in **content quality** (diagram-narrating prose, a copy-pasted block on 9 pages, three marketing-tone READMEs, a few ungrounded facts), and most visibly in the **`.io` site's look** (stock Material for MkDocs, dark-first, no logo/favicon/custom font — it reads as lackluster next to the reference the owner set, `https://dspy.ai`).
+Atlas already has a disciplined, manifest-driven three-surface documentation system (in-repo Markdown · `.io` MkDocs site · GitHub wiki) whose *synchronisation is enforced by construction*.
+
+The problems are not in the plumbing. They are in:
+
+- **information architecture**: a 659-line root README acting as a competing mini-site, the same facts told in 3–4 places, folders that no longer map to nav sections, ~40% of files unnavigated.
+- **content quality**: diagram-narrating prose, a copy-pasted block on 9 pages, three marketing-tone READMEs, a few ungrounded facts.
+- Most visibly, **`.io` site's look**: stock Material for MkDocs, dark-first, no logo/favicon/custom font — it reads as lackluster next to the reference the owner set, `https://dspy.ai`.
 
 This effort is a single, comprehensive overhaul delivered in two phases — **Foundation first (structure · content · sync), then the visual reskin** — with every change routed through the existing single source of truth so all three surfaces stay in sync automatically.
 

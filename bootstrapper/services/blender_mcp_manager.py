@@ -374,7 +374,6 @@ class BlenderMcpManager:
         if status.running:
             return await_owned_process_readiness(
                 self,
-                status,
                 wait_timeout,
                 ("Blender MCP", self.bind, self.port, BlenderMcpError, time),
             )
@@ -787,11 +786,6 @@ def pool_members(base: BlenderMcpManager, *, include_strays: bool = False) -> li
                 if (index := _small_int(d.name)) and (d / "blender-mcp.pid").exists()
             }
     return [base] + [_pool_member(base, index) for index in sorted(indices)]
-
-
-def stray_pool_members(env: dict[str, str]) -> list[BlenderMcpManager]:
-    """Instances above the configured pool size that still have a pid file."""
-    return stray_members(manager_from_env(env))
 
 
 def stray_members(base: BlenderMcpManager) -> list[BlenderMcpManager]:

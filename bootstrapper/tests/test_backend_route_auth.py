@@ -24,19 +24,28 @@ BACKEND_APP = Path(__file__).resolve().parents[2] / "services" / "backend" / "ap
 
 _HTTP_METHODS = {"get", "post", "put", "patch", "delete", "head", "options"}
 #: Decorators that register a route without naming an HTTP verb. A websocket
-#: endpoint or an `api_route(methods=[...])` is just as reachable.
-_ROUTE_DECORATORS = _HTTP_METHODS | {"websocket", "api_route"}
+#: endpoint, an `api_route(methods=[...])` or a Starlette `route` /
+#: `websocket_route` is just as reachable.
+_ROUTE_DECORATORS = _HTTP_METHODS | {"websocket", "api_route", "route", "websocket_route"}
 
 #: Vendored third-party code that happens to live under the app directory.
 _VENDORED = ("site-packages", ".ci-venv", ".venv", "node_modules", "/tests/")
 
-#: Deliberately public. Each returns a fixed liveness/readiness token and
-#: reveals nothing about configuration — `/ready` answers only
-#: `ready`/`unavailable` per dependency.
+#: Calls that register a route without a decorator. Only `add_api_route` can
+#: carry a literal auth `dependencies=[...]`; the Starlette forms cannot.
+_IMPERATIVE_ROUTE_CALLS = {
+    "add_api_route", "add_api_websocket_route", "add_route", "add_websocket_route", "mount",
+}
+
+#: Deliberately public. The first three return a fixed liveness/readiness token
+#: and reveal nothing about configuration — `/ready` answers only
+#: `ready`/`unavailable` per dependency. `/metrics` is the Prometheus scrape
+#: endpoint that services/backend/README.md lists as public diagnostics.
 _PUBLIC_ROUTES = {
     ("main.py", "GET", "/"),
     ("main.py", "GET", "/health"),
     ("main.py", "GET", "/ready"),
+    ("main.py", "GET", "/metrics"),
 }
 
 
@@ -121,6 +130,39 @@ def _collect_routes() -> list[tuple[str, str, str, bool, str]]:
         for node in ast.walk(tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 rows.extend(_routes_on(node, rel, router_authed))
+        rows.extend(_imperative_routes(tree, rel))
+    return rows
+
+
+def _imperative_route(call: ast.Call) -> tuple[str, str] | None:
+    """(method label, path) when ``call`` registers a route imperatively.
+
+    A keyword-only registration (``path=...``) is scanned too; its path reads
+    as ``?`` when not literal, which never matches ``_PUBLIC_ROUTES``.
+    """
+    if not isinstance(call.func, ast.Attribute):
+        return None
+    if call.func.attr in _IMPERATIVE_ROUTE_CALLS:
+        return call.func.attr.upper(), _decorated_path(call)
+    if call.func.attr == "expose":
+        # prometheus_fastapi_instrumentator: expose(app, endpoint="/metrics") adds GET <endpoint>.
+        endpoint = next((kw.value for kw in call.keywords if kw.arg == "endpoint"), ast.Constant("/metrics"))
+        return "GET", endpoint.value if isinstance(endpoint, ast.Constant) else "?"
+    return None
+
+
+def _imperative_routes(tree: ast.AST, rel: str) -> list:
+    """Routes registered by a call rather than a decorator.
+
+    Only a literal auth ``dependencies=[...]`` counts, so a Starlette route,
+    a mount or an exposed endpoint fails closed until it is listed as public.
+    """
+    rows = []
+    for node in ast.walk(tree):
+        route = _imperative_route(node) if isinstance(node, ast.Call) else None
+        if route:
+            method, path = route
+            rows.append((rel, method, path, _declares_dependencies(node), f"<{node.func.attr} call>"))
     return rows
 
 
@@ -136,7 +178,10 @@ def _route_decorators(func: ast.AST):
 
 
 def _decorated_path(decorator: ast.Call) -> str:
-    first = decorator.args[0] if decorator.args else None
+    """The route path, positional or ``path=``; ``?`` when not a literal."""
+    first = decorator.args[0] if decorator.args else next(
+        (kw.value for kw in decorator.keywords if kw.arg == "path"), None
+    )
     return first.value if isinstance(first, ast.Constant) else "?"
 
 
@@ -223,6 +268,19 @@ def _ruled_paths(rules: ast.expr | None) -> set[str]:
     return paths
 
 
+def _rule_authenticators(rules: ast.expr | None) -> dict[str, str]:
+    """Path -> authenticator name for each ``BodyLimitRule(..., authenticate=True)``."""
+    found: dict[str, str] = {}
+    for element in getattr(rules, "elts", []):
+        keywords = {kw.arg: kw.value for kw in getattr(element, "keywords", [])}
+        path, enabled = keywords.get("path"), keywords.get("authenticate")
+        if not (isinstance(path, ast.Constant) and isinstance(enabled, ast.Constant) and enabled.value is True):
+            continue
+        authenticator = keywords.get("authenticator")
+        found[path.value] = getattr(authenticator, "id", "<middleware default>")
+    return found
+
+
 def _limit_policy_call(tree, registration):
     """The LimitPolicy(...) call a registration installs. main.py builds it in
     _request_limit_policy so it can take the plugin inventory (2026-10-08
@@ -273,6 +331,12 @@ def test_request_limit_middleware_is_wired_to_header_authentication():
     )
     assert isinstance(authenticate, ast.Name)
     assert authenticate.id == "authenticate_backend_scope"
+    # FastAPI spools a multipart body before route dependencies run, so each
+    # upload rule authenticates first, with the check its route dependency uses.
+    assert _rule_authenticators(rules) == {
+        "/storage/upload": "authenticate_n8n_operator_scope",
+        "/documents/extract": "authenticate_stateless_scope",
+    }
 
     prometheus_instrument = [
         node
@@ -338,9 +402,43 @@ def test_websocket_and_api_route_decorators_are_scanned() -> None:
         "async def ws(websocket): ...\n"
         "@app.api_route('/any', methods=['GET', 'POST'])\n"
         "async def any_(): ...\n"
+        "@app.websocket_route('/w')\n"
+        "async def w(websocket): ...\n"
+        "@router.route('/rr')\n"
+        "async def rr(request): ...\n"
+        "@app.get(path='/kw')\n"
+        "async def kw(): ...\n"
     )
     rows = [r for f in tree.body for r in _routes_on(f, "x.py", {})]
     assert {(r[1], r[2], r[3]) for r in rows} == {
         ("WEBSOCKET", "/ws", False),
         ("API_ROUTE", "/any", False),
+        ("WEBSOCKET_ROUTE", "/w", False),
+        ("ROUTE", "/rr", False),
+        ("GET", "/kw", False),
+    }
+
+
+def test_imperative_route_registrations_are_scanned() -> None:
+    tree = ast.parse(
+        "app.add_api_route('/a', a)\n"
+        "app.add_api_route('/b', b, dependencies=[Depends(require_x)])\n"
+        "router.add_route('/c', c)\n"
+        "app.add_websocket_route('/d', d)\n"
+        "app.mount('/static', files)\n"
+        "Instrumentator().instrument(app).expose(app, endpoint='/m')\n"
+        "Instrumentator().expose(app)\n"
+        "app.add_middleware(Middleware)\n"
+        "app.add_api_websocket_route('/aw', h)\n"
+        "app.add_api_route(path='/k', endpoint=f)\n"
+        "app.add_route(path='/r', route=f)\n"
+        "app.mount(path='/s', app=files)\n"
+        "app.add_api_route(path=PATH, endpoint=f)\n"
+    )
+    assert {(r[1], r[2], r[3]) for r in _imperative_routes(tree, "x.py")} == {
+        ("ADD_API_ROUTE", "/a", False), ("ADD_API_ROUTE", "/b", True),
+        ("ADD_ROUTE", "/c", False), ("ADD_WEBSOCKET_ROUTE", "/d", False),
+        ("MOUNT", "/static", False), ("GET", "/m", False), ("GET", "/metrics", False),
+        ("ADD_API_WEBSOCKET_ROUTE", "/aw", False), ("ADD_API_ROUTE", "/k", False),
+        ("ADD_ROUTE", "/r", False), ("MOUNT", "/s", False), ("ADD_API_ROUTE", "?", False),
     }

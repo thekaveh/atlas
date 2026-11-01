@@ -17,7 +17,7 @@ The container runs [Silo](https://github.com/pgsty/silo) (`pgsty/silo` and `pgst
 | Admin console (direct port) | `http://localhost:${MINIO_CONSOLE_PORT}` (default `63021`) | Equivalent; no hosts setup required. |
 | S3 API (host port) | `http://localhost:${MINIO_PORT}` (default `63020`) | **Recommended for s3 clients** (no proxy hop). Stable per `BASE_PORT`. See §2.1. |
 | S3 API (Kong alias) | `http://s3.minio.localhost:${KONG_HTTP_PORT}` | `BASE_PORT`-independent host. Requires `./start.sh --setup-hosts`. Proxies to `minio:9000` with `preserve_host` so S3 SigV4 validates. Metrics paths answer 403 (§2.2). |
-| S3 API (internal) | `http://minio:9000` | What sibling containers (backend, n8n, ComfyUI, JupyterHub, docling consumers) call via the per-bucket service-account credentials. |
+| S3 API (internal) | `http://minio:9000` | What sibling containers call; §12.2 lists them. Application callers use per-bucket service-account credentials (§5). |
 | Admin console (internal) | `http://minio:9001` | What Kong proxies for the console alias. |
 
 Both Kong routes are generated in `bootstrapper/utils/kong_config_generator.py` when `MINIO_SOURCE != disabled`. They use `preserve_host`, so the client keeps its real Host header. The console SPA then builds correct redirect URLs, and the S3 client's SigV4 signature validates.
@@ -49,10 +49,11 @@ The endpoint is stable across restarts for a given `BASE_PORT`, so you can hard-
 - **Root user:** `MINIO_ROOT_USER` (default `minioadmin`)
 - **Root password:** `MINIO_ROOT_PASSWORD` — auto-generated to `.env` on first `./start.sh`. Retrieve with `grep ^MINIO_ROOT_PASSWORD= .env`. Use these credentials to log into the admin console.
 
-Consumers do not get the root credentials. They use the scoped service accounts in §5, including Spark's worker, connect and history containers. Two exceptions are deliberate:
+Consumers do not get the root credentials. They use the scoped service accounts in §5, including Spark's worker, connect and history containers. Three exceptions are deliberate:
 
 - **Airflow**: its containers and seeded `minio_default` connection carry the root pair, so DAG authors must be trusted. The Airflow README states this trusted-DAG boundary.
 - **Backup runner**: it falls back to the root pair in local S3 mode (see the backup README).
+- **Spark init**: the one-shot `spark-init` uses the root pair once, for an idempotent `mc mb` of the spark-history bucket.
 
 `minio-init` applies a changed secret key to the existing account. A changed access key creates a new account, and `minio-init` never removes earlier ones. Remove a leaked key yourself with `mc admin user svcacct rm local <old-access-key>`.
 
@@ -129,8 +130,8 @@ MinIO data lives in the `${PROJECT_NAME}-minio-data` named Docker volume mounted
 
 - **Add a bucket manually:** `mc mb local/<bucket>` from a host with `mc` and the root alias configured.
 - **Add a parent-owned consumer bucket:** set `MINIO_EXTRA_CONSUMERS` and its bucket, access and secret variables in a `_user` compose overlay and env overlay. Then run `./start.sh` again. A bare `docker compose` command does not load the `_user` overlay.
-- **Rotate a service-account key:** edit `MINIO_<NAME>_ACCESS_KEY` and `MINIO_<NAME>_SECRET_KEY` in `.env`, then run `docker compose -p <PROJECT_NAME> up --force-recreate minio-init` to re-provision. If the stack uses overlays or a consumer manifest, run `./start.sh` again instead.
-- **Logs:** `docker logs ${PROJECT_NAME}-minio` and `docker logs ${PROJECT_NAME}-minio-init`.
+- **Rotate a service-account key:** edit `MINIO_<NAME>_ACCESS_KEY` and `MINIO_<NAME>_SECRET_KEY` in `.env`. Run `./start.sh` again to reprovision `minio-init` and recreate the affected consumer containers with the new credentials. Reload the credentials in any clients outside Atlas. Recreating only `minio-init` leaves running consumers with stale credentials; changing an access key also leaves the old account (§3).
+- **Logs:** set `PROJECT_NAME` in your shell to the value in `.env` (default `atlas`). Then run `docker logs ${PROJECT_NAME}-minio` and `docker logs ${PROJECT_NAME}-minio-init`.
 
 ## 10. Capabilities & limitations
 
@@ -204,7 +205,7 @@ _No upstream calls._
 <a id="104-future--missing-pair-integrations"></a>
 
 - **minio ↔ backend (general artifact API)** — *Why:* Backend RAG ingestion reads consumer-declared corpora with each store's scoped MinIO account. The built-in `backend` bucket is not yet a general destination for large blobs, model checkpoints or embedding caches. *Mechanism:* add an artifact client at `http://minio:9000` using `MINIO_BACKEND_ACCESS_KEY`/`SECRET_KEY`, with upload/download routes and path-style addressing. *Effort:* small. *Confidence:* high.
-- **minio ↔ n8n** — *Why:* the `n8n` bucket and keys are pre-provisioned, and n8n's S3 node supports a custom endpoint. Workflows could store files above Supabase Storage's 50 MB limit. *Mechanism:* n8n S3 credential at `http://minio:9000`; optional `N8N_EXTERNAL_BINARY_DATA_MODE=s3`. *Effort:* small. *Confidence:* high.
+- **minio ↔ n8n** — *Why:* the `n8n` bucket and keys are pre-provisioned, and n8n's S3 node supports a custom endpoint. Workflows could store files above Supabase Storage's 50 MB limit. *Mechanism:* n8n S3 credential at `http://minio:9000`. Binary-data offload also needs `N8N_AVAILABLE_BINARY_DATA_MODES=filesystem,s3`, `N8N_DEFAULT_BINARY_DATA_MODE=s3`, `N8N_EXTERNAL_STORAGE_S3_*` and a Business or Enterprise license; without one, n8n does not start. *Effort:* small. *Confidence:* high.
 - **minio ↔ weaviate (direct `backup-s3`)** — *Why:* the backup runner already archives native `backup-filesystem` snapshots. `backup-s3` would write straight to the bucket and skip the local snapshot volume. *Mechanism:* enable `backup-s3` in `WEAVIATE_ENABLE_MODULES`, set `BACKUP_S3_BUCKET=weaviate-backups`, `BACKUP_S3_ENDPOINT=minio:9000`, `BACKUP_S3_USE_SSL=false`; add `weaviate-backups` entry in `init-minio.sh`. *Effort:* small. *Confidence:* high.
 - **minio ↔ comfyui** — *Why:* ComfyUI outputs use a named volume for this project, and a `comfyui` bucket exists. Uploaded renders would let Backend, n8n and Open WebUI share artifacts across ordinary restarts.
 
@@ -227,6 +228,6 @@ _No high-confidence opportunities identified._
 <a id="106-future--unused-features-in-this-service"></a>
 
 - **Bucket notifications (webhook/Redis/NATS targets)** — *Why pursue:* MinIO can POST object-created events to a webhook or Redis stream. Backend, n8n and Weaviate could react to uploads instead of polling. *Effort:* medium.
-- **Object lifecycle rules (expiration + versioning)** — *Why pursue:* the `comfyui` and `jupyter` buckets grow without limit. Per-bucket ILM rules (expire after N days, keep N versions) are one `mc ilm` config in `init-minio.sh`. *Effort:* small.
+- **Object lifecycle rules (expiration + versioning)** — *Why pursue:* the `jupyter` bucket grows without limit, and the proposed ComfyUI upload hook (§12.4) would add another unbounded bucket. Per-bucket ILM rules (expire after N days, keep N versions) are one `mc ilm` config in `init-minio.sh`. *Effort:* small.
 - **Server-side encryption (SSE-S3 / SSE-KMS)** — *Why pursue:* the stack stores secrets and user uploads in plaintext on the host volume. SSE-S3 with a generated KEK encrypts at rest with no consumer change. *Effort:* medium.
 - **STS / AssumeRole for per-user JupyterHub creds** — *Why pursue:* replaces the single shared `MINIO_JUPYTER_*` credential with short-lived per-user tokens. *Effort:* large.

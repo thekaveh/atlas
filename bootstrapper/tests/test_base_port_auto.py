@@ -121,11 +121,7 @@ def test_the_real_base_port_step_opts_in() -> None:
     from core.config_parser import ConfigParser
     from ui.textual import integration as I
 
-    class _HM:
-        def __getattr__(self, _n):
-            return lambda *a, **k: False
-
-    steps, *_ = I._build_steps_and_rows(ConfigParser(), _HM())
+    steps, *_ = I._build_steps_and_rows(ConfigParser())
     step = next(s for s in steps if s.title.startswith("Base port"))
     assert step.accepts_auto is True
     assert "auto" in (step.subtitle or "").lower()
@@ -181,11 +177,7 @@ def _step_from_fake_root(tmp_path, env_body: str | None):
     if env_body is not None:
         (tmp_path / ".env").write_text(env_body)
 
-    class _HM:
-        def __getattr__(self, _n):
-            return lambda *a, **k: False
-
-    steps, *_ = I._build_steps_and_rows(ConfigParser(root_dir=str(tmp_path)), _HM())
+    steps, *_ = I._build_steps_and_rows(ConfigParser(root_dir=str(tmp_path)))
     return next(s for s in steps if s.title.startswith("Base port"))
 
 

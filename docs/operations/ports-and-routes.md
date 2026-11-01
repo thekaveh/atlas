@@ -120,11 +120,13 @@ The generated [port and route reference](../reference/ports-routes.md) lists eve
 
 ## 5. Advanced overrides
 
-`BASE_PORT` is the only supported way to move ports. Each `./start.sh` recomputes every `*_PORT` from `BASE_PORT` (`port_manager.update_env_ports`). A hand-edited `*_PORT` in `.env`, `.env.user` or a consumer manifest's `env.values` is reset on the next start, so change `BASE_PORT` or pass `--base-port`. `*_LOCALHOST_PORT` variables are not derived from `BASE_PORT` and stay as set.
+`BASE_PORT` moves the allocated stack ports. Each `./start.sh` recomputes these ports from `BASE_PORT` (`port_manager.update_env_ports`). A hand-edited allocated port in `.env`, `.env.user` or a consumer manifest's `env.values` is reset on the next start. Change `BASE_PORT` or pass `--base-port`. Native host-service port variables with `_LOCALHOST_` in their names are independent of `BASE_PORT` and stay as set.
 
 Each start also writes the port into the service URLs in `.env` (for example `WEAVIATE_URL`, `NEO4J_URI`, `COMFYUI_ENDPOINT`).
 
 Env migrations (`bootstrapper/services/migrations/`) rewrite `.env` when the port layout changes between versions. They keep your custom values and save a backup to `.env.backup.v<N>.<timestamp>.<random>`. The wizard and `--no-tui` both migrate before they apply the run's source, profile, key and model overrides. `--no-port-migrate` skips migrations for one run.
+
+Backfill also moves a build pin that still holds a default an earlier Atlas shipped, such as `ASSET_WORKER_GLTF_TRANSFORM_VERSION`, to the current default. `--no-port-migrate` does not skip that, and a value you set yourself stays.
 
 For duplicate `BOOTSTRAPPER_PORT_LAYOUT_VERSION` assignments, Atlas uses the last value. If that version is older, it first saves `.env.backup.migration-marker.<timestamp>.<random>`. It comments the original assignments, writes one active marker, and runs the migration chain. Current or future versions stay unchanged. `--no-port-migrate` skips this repair too. Invalid duplicate metadata or repair write failures stop startup.
 

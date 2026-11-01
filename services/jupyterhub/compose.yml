@@ -7,6 +7,10 @@ services:
         BASE_IMAGE: ${JUPYTERHUB_IMAGE}
     container_name: ${PROJECT_NAME}-jupyterhub
     restart: unless-stopped
+    # startup.sh replaces the base image's tini ENTRYPOINT, so Docker's init
+    # runs as PID 1 instead. It forwards signals and reaps processes orphaned
+    # by kernel restarts or closed terminals; jupyter lab never reaps them.
+    init: true
     deploy:
       replicas: ${JUPYTERHUB_SCALE:-1}
     depends_on:
@@ -34,7 +38,7 @@ services:
       # honor that env name; the CLI flags below are the authoritative knob.
       JUPYTER_ALLOW_ORIGIN: ${JUPYTER_ALLOW_ORIGIN:-}
       DATABASE_URL: postgresql://${JUPYTER_DB_USER_URI:?JUPYTER_DB_USER_URI is required}:${JUPYTER_DB_PASSWORD_URI:?JUPYTER_DB_PASSWORD_URI is required}@supabase-db:5432/${SUPABASE_DB_NAME_URI:?SUPABASE_DB_NAME_URI is required}
-      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/3
+      REDIS_URL: redis://:${REDIS_PASSWORD_URI}@redis:6379/3
       LITELLM_BASE_URL: http://litellm:4000
       LITELLM_API_KEY: ${LITELLM_MASTER_KEY}
       # 08_scala_basics.ipynb requires this: the Scala kernel reads
@@ -123,6 +127,7 @@ services:
     # flags VS Code (and any other remote Jupyter client) needs.
     #
     # Full launch chain after this override (see README §10.3):
+    #   PID 1      = docker-init                 (compose `init: true`; reaps orphans)
     #   ENTRYPOINT = /usr/local/bin/startup.sh   (our wrapper; exec "$@")
     #   CMD        = [the list below]
     #   →  startup.sh start-notebook.sh <flags>

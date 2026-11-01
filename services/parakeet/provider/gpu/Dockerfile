@@ -16,9 +16,8 @@ COPY gpu/requirements-locked.txt /app/requirements-locked.txt
 RUN pip install --no-cache-dir \
       -r requirements.txt -c requirements-locked.txt
 
-# Copy shared API server and utilities
+# Copy shared API server and provider modules
 COPY shared/api_server.py /app/
-COPY shared/utils.py /app/
 COPY bounded_upload.py /app/
 COPY provider_boundary.py /app/
 COPY startup.py /app/

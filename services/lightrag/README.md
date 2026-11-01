@@ -13,7 +13,7 @@ In this stack, LightRAG reuses existing infrastructure:
 - **LLM + embeddings** routed through LiteLLM (`LLM_BINDING_HOST=http://litellm:4000/v1`).
 - **Vector store** → Supabase pgvector (`PGVectorStorage`).
 - **Graph store** → Neo4j (`Neo4JStorage`). `LIGHTRAG_NEO4J_URI` follows `NEO4J_GRAPH_DB_SOURCE`: `bolt://neo4j-graph-db:7687` for the container, `bolt://host.docker.internal:${NEO4J_LOCALHOST_BOLT_PORT}` for a host-run Neo4j.
-- **KV + doc-status** → Redis (`RedisKVStorage`).
+- **KV + doc-status** → Redis (`RedisKVStorage`). Atlas URL-encodes the password when generating `LIGHTRAG_REDIS_URI`.
 - **Document parsing** → LightRAG's `native` engine for docx/md/textpack, and `legacy` text extraction for everything else, including PDFs. Compose fixes `LIGHTRAG_PARSER=*:native-teP,*:legacy-R`; `.env` cannot change it. When in-stack LightRAG and Docling are both enabled, a file goes to Docling only if its name has the `.[docling].` hint (for example `report.[docling].pdf`). Docling is reached through an isolated adapter (`LIGHTRAG_DOCLING_ENDPOINT`) that holds the Docling credential (§4.3). Without that route, images get text extraction only.
 - **Credentials** → the base and embedding LLM bindings always send `LITELLM_MASTER_KEY`. Point `LIGHTRAG_LLM_BINDING_HOST` and `LIGHTRAG_EMBEDDING_BINDING_HOST` only at LiteLLM. Any other host, native Ollama included, also receives the master key.
 - **Reranking** is off by default. To enable it, set `LIGHTRAG_RERANK_ADAPTER_ENABLED=true` with `TEI_RERANKER_SOURCE` enabled (see §3.6 and the [backend README §5.1](../backend/README.md)).
@@ -97,6 +97,8 @@ A native LightRAG 1.5.4 binding does not send them. The Ollama binding forwards 
 - **Explicit role settings win.** A role that sets its own `LIGHTRAG_<ROLE>_LLM_BINDING`, `_BINDING_HOST` or `_BINDING_API_KEY` is never re-routed. If those settings put it on a native host, it cannot receive its model's defaults, and the start log and doctor say so.
 - **Where to see it.** At start, the container logs one `lightrag: <ROLE> role: …` line per role, with binding, host, model and request defaults (never a key). `./start.sh doctor` reports the same in its `lightrag-role-transport` check and warns when a role loses its defaults. LightRAG's `/health` shows each role's `binding`, `host` and `model` under `configuration.role_llm_config`, with keys stripped.
 - **End-to-end test.** On a development stack, `scripts/smoke-lightrag-role-models.sh` uploads a document, runs a query, and checks LiteLLM's logs for each role's model. The two role models must differ. `LIGHTRAG_SMOKE_WAIT_SECONDS` (default 30) sets the extraction wait.
+    - Run it from the repo root. It reads `PROJECT_NAME`, `LIGHTRAG_API_PORT`, `LIGHTRAG_API_KEY` and both role models from `./.env` without sourcing the file.
+    - A value exported in the shell wins over `./.env`.
 
 ### 3.5. Extract-role caps on native Ollama
 
@@ -115,14 +117,15 @@ In LightRAG v1.5.4, a role whose binding differs from the base binding (`openai`
 
 - **Why the caps matter.** Without them a degenerate extraction generates until a timeout fires, because Ollama's own `num_predict` default is unbounded.
 - **Choosing `NUM_PREDICT`.**
-  - A dense chunk can legitimately need several thousand output tokens, and a cap that cuts one off loses entities without any error.
-  - Extraction results are cached, and the cache key ignores these options, so after raising the cap clear LightRAG's LLM cache (`POST /documents/clear_cache`) to re-extract.
+    - A dense chunk can legitimately need several thousand output tokens, and a cap that cuts one off loses entities without any error.
+    - Extraction results are cached, and the cache key ignores these options, so after raising the cap clear LightRAG's LLM cache (`POST /documents/clear_cache`) to re-extract.
 - **Choosing `NUM_CTX`.** The same role runs three kinds of call, so the context window has to fit the largest:
-  - the extraction prompt, about 1.75k tokens, with a paragraph chunk of up to 2000 tokens;
-  - the gleaning pass, which resends the first answer;
-  - merge summaries of up to 12000 input tokens.
+    - the extraction prompt, about 1.75k tokens, with a paragraph chunk of up to 2000 tokens;
+    - the gleaning pass, which resends the first answer;
+    - merge summaries of up to 12000 input tokens.
 
-  16384 covers all three plus the output cap. It overrides Ollama's VRAM-based default and any `OLLAMA_CONTEXT_LENGTH` for these calls. If other callers load the same model at a different context length, Ollama reloads it on each switch.
+    16384 covers all three plus the output cap. It overrides Ollama's VRAM-based default and any `OLLAMA_CONTEXT_LENGTH` for these calls. If other callers load the same model at a different context length, Ollama reloads it on each switch.
+
 - **Keep them numeric.** LightRAG sends a non-integer value, including an empty one, as a string, and Ollama then rejects every extract call. Compose falls back to the defaults above when a value is empty.
 - **When they apply.** Both caps take effect only while `EXTRACT` is bound to Ollama. Other bindings ignore them.
 - **EXTRACT API key.** On native Ollama the key is required, because LightRAG needs a key for a role on its own binding. Ollama ignores the value, so any string works. If it is empty, the container stops at start and names the variable (role-key rules above).
@@ -247,7 +250,7 @@ When `lightrag-init` starts, it:
 
 1. Runs after LiteLLM's Compose health gate and reads LiteLLM `/v1/models`.
 2. Resolves the base `LIGHTRAG_LLM_MODEL` / `LIGHTRAG_EMBEDDING_MODEL` / `LIGHTRAG_EMBEDDING_DIM` from explicit overrides, LiteLLM defaults, or LiteLLM's model list. Writes LightRAG's native `LLM_MODEL` / `EMBEDDING_MODEL` / `EMBEDDING_DIM` to `/app/data/.env`. If no chat model can be resolved, init exits non-zero instead of starting LightRAG with an empty `LLM_MODEL`. Role-specific `LIGHTRAG_EXTRACT_*`, `LIGHTRAG_KEYWORD_*`, and `LIGHTRAG_QUERY_*` variables are passed directly to the runtime container.
-3. Polls Postgres for up to 120 s until it accepts connections, then runs the idempotent pgvector migration. `supabase-db` is SOURCE-replaceable, so `lightrag-init` has no compose `depends_on` on it.
+3. Polls Postgres for up to 120 s until it accepts connections, then runs the idempotent pgvector migration. `lightrag-init` has no direct compose `depends_on` on `supabase-db`; it waits on LiteLLM, which waits on `supabase-db`.
 4. Runs the Neo4j migration, which is non-fatal. It pre-creates the range index on `(:base).entity_id`; otherwise LightRAG creates it on first write. It posts to the HTTP endpoint of the Bolt URI's host: `neo4j-graph-db:7474`, or `NEO4J_LOCALHOST_HTTP_PORT` for `NEO4J_GRAPH_DB_SOURCE=localhost`.
 
 ## 8. Troubleshooting
@@ -271,11 +274,15 @@ When `lightrag-init` starts, it:
     2. On the old settings, clear all documents: `curl -sX DELETE http://localhost:${LIGHTRAG_API_PORT}/documents -H "X-API-Key: ${LIGHTRAG_API_KEY}"`.
     3. Set the new `LIGHTRAG_EMBEDDING_MODEL` and `LIGHTRAG_EMBEDDING_DIM` in `.env`.
     4. Run `./start.sh`, then upload the documents again.
-    5. Optional: list the old, empty tables and drop them by name:
+    5. Optional, for the in-stack Supabase container: list the old, empty tables, then drop only the verified old tables.
+
+        Set `PROJECT_NAME` in your shell to the stack's project name. The container's `POSTGRES_DB` holds the configured `SUPABASE_DB_NAME`; no host database variable is needed.
+
+        List the tables first. Before running the second command, replace `<old_suffix>` with the suffix of the old, empty tables.
 
         ```bash
-        docker exec -it ${PROJECT_NAME}-supabase-db psql -U supabase_admin -d postgres -c '\dt public.lightrag_vdb_*'
-        docker exec -it ${PROJECT_NAME}-supabase-db psql -U supabase_admin -d postgres -c 'DROP TABLE public.lightrag_vdb_chunks_<old_suffix>, public.lightrag_vdb_entity_<old_suffix>, public.lightrag_vdb_relation_<old_suffix>'
+        docker exec -it "${PROJECT_NAME}-supabase-db" sh -c 'exec psql -U supabase_admin -d "$POSTGRES_DB" -c "$1"' sh '\dt public.lightrag_vdb_*'
+        docker exec -it "${PROJECT_NAME}-supabase-db" sh -c 'exec psql -U supabase_admin -d "$POSTGRES_DB" -c "$1"' sh 'DROP TABLE public.lightrag_vdb_chunks_<old_suffix>, public.lightrag_vdb_entity_<old_suffix>, public.lightrag_vdb_relation_<old_suffix>'
         ```
 
     Do not drop the `lightrag` schema. It holds only Atlas's `lightrag.vectors_meta` marker, not the vector tables, so the drop removes no vectors.

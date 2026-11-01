@@ -535,8 +535,9 @@ def main() -> int:
         endpoint = _run("docker", "port", container_id, "5000/tcp").stdout.strip()
         base_url = f"http://127.0.0.1:{endpoint.rsplit(':', 1)[1]}"
         if not _wait_for_health(base_url):
-            logs = _run("docker", "logs", container_id, check=False).stdout
-            raise RuntimeError(f"guarded MLflow server did not become healthy:\n{logs}")
+            logs = _run("docker", "logs", container_id, check=False)
+            detail = (logs.stdout + logs.stderr).strip()[-4000:]
+            raise RuntimeError(f"guarded MLflow server did not become healthy:\n{detail}")
 
         for path in (
             f"{STATIC_PREFIX}/gateway/proxy/atlas/chat/completions",

@@ -26,6 +26,6 @@ RUN pip install --no-cache-dir \
 
 WORKDIR /app
 
-# Scripts are bind-mounted at runtime (see docker-compose.yml).
+# Scripts are bind-mounted at runtime (see services/litellm/compose.yml).
 
 ENTRYPOINT ["python", "/scripts/init.py"]

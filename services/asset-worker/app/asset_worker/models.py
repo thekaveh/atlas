@@ -13,8 +13,8 @@ UpAxis = Literal["keep", "auto", "x", "y", "z"]
 
 
 class PostprocessParams(BaseModel):
-    target_height_m: float | None = Field(default=None, gt=0)
-    target_width_m: float | None = Field(default=None, gt=0)
+    target_height_m: float | None = Field(default=None, gt=0, allow_inf_nan=False)
+    target_width_m: float | None = Field(default=None, gt=0, allow_inf_nan=False)
     normalize_axis: NormalizeAxis = "height"
     up_axis: UpAxis = "keep"
     simplify_ratio: float | None = Field(default=None, gt=0, le=1)

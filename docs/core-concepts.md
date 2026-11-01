@@ -29,7 +29,7 @@ Overlay precedence is `.env.example` baseline, generated or existing `.env`, sib
 The backend's provider-neutral media API is `POST /media/generate`, `GET /media/operations/{operation_id}` and `POST /media/operations/{operation_id}/cancel`. Requests choose `provider`, `modality` and `model`:
 
 - `provider=fal`: `modality=image` and `modality=image_to_3d` (verified TRELLIS, Hunyuan3D, Tripo and Rodin endpoints).
-- `provider=comfyui`: `modality=image`, on the managed or local ComfyUI host.
+- `provider=comfyui`: `modality=image`, on any enabled ComfyUI source.
 
 Provider API keys stay in the backend. Responses normalize status, artifacts, cost, license and provenance. The `artifact_url` depends on the provider. For `fal` it is absolute (a hosted CDN URL). For `comfyui` it is gateway-relative: `/media/operations/{operation_id}/artifacts/{index}`, an owner-checked backend path. Consumers MUST resolve a relative `artifact_url` (one that starts with `/` and has no `http(s)://` scheme) against their gateway or backend base URL.
 
@@ -39,7 +39,7 @@ Cancellation keeps reserved spend until provider polling proves a terminal outco
 
 ## 7. RAG Chunking Gateway
 
-The backend exposes `POST /api/chunk` as the shared Chonkie-powered text-splitting surface for RAG ingestion clients. The endpoint supports token, recursive and semantic strategies. It returns stable character offsets and strategy metadata, so n8n workflows, notebooks and future ingestion services share one chunking contract.
+The backend exposes `POST /api/chunk` as the shared Chonkie-powered text-splitting surface for RAG ingestion clients. The endpoint supports token, recursive and semantic strategies. It returns stable character offsets and strategy metadata, so notebooks and other authorized callers share one chunking contract.
 
 JupyterHub also installs Chonkie for exploratory notebook work, including `13_chonkie_chunking.ipynb`. Production workflows should still call the Backend endpoint instead of each service adding its own Chonkie dependency.
 

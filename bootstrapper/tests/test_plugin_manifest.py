@@ -165,10 +165,31 @@ def test_schema_violation_raises(tmp_path):
     assert "schema violation" in exc.value.message
 
 
+def test_missing_required_fields_are_named_once(tmp_path):
+    """The names come from the schema, so naming them leaks no manifest value."""
+    with pytest.raises(PluginManifestError) as exc:
+        load_plugin_manifest(_pkg(tmp_path, "plug", "plugin_manifest_version: 1\n"))
+    message = exc.value.message
+    assert message.count("(root): missing required properties ['name', 'route_prefix']") == 1
+    assert "plugin_manifest_version'" not in message
+
+
 def test_unknown_field_rejected(tmp_path):
     body = "plugin_manifest_version: 1\nname: x\nroute_prefix: /x\nbogus: 1\n"
     with pytest.raises(PluginManifestError):
         load_plugin_manifest(_pkg(tmp_path, "plug", body))
+
+
+def test_unknown_field_error_lists_the_allowed_properties(tmp_path):
+    """A misspelled key is found against the schema's own names; the key
+    itself is not echoed, since a mis-indented value can parse as one."""
+    body = "plugin_manifest_version: 1\nname: plug\nroute_prefix: /x\nroute_prefx: /typo\n"
+    with pytest.raises(PluginManifestError) as exc:
+        load_plugin_manifest(_pkg(tmp_path, "plug", body))
+    message = exc.value.message
+    assert "(root): unexpected properties; allowed properties are [" in message
+    assert "'route_prefix'" in message and "'depends_on'" in message
+    assert "route_prefx" not in message and "/typo" not in message
 
 
 @pytest.mark.parametrize(
@@ -420,3 +441,127 @@ def test_buffering_flags_load_derive_and_reject_non_booleans(tmp_path):
     assert derive_route_timeouts([manifest]) == [("stream", "/stream", {"request_buffering": False})]
     with pytest.raises(PluginManifestError):
         load_plugin_manifest(_pkg(tmp_path, "bad", body.replace("name: stream", "name: bad").replace("false", '"no"')))
+
+
+_HOST_PLUGIN_DIAGNOSTIC_CANARY = "SYNTHETIC_046"
+
+
+def _host_plugin_diagnostic_body(case):
+    header = ("plugin_manifest_version: 1\nname: private-test\nroute_prefix: /private-test\n"
+              "env:\n  - name: PRIVATE_CREDENTIAL\n    secret: true\n")
+    value = _HOST_PLUGIN_DIAGNOSTIC_CANARY
+    tails = {
+        "scanner": f'    default: "{value}\n',
+        "parser": f"    default: [{value}\n    description: invalid\n",
+        "duplicate": f"    default: {value}\n    default: {value}\n",
+        "list": f"    default: [{value}]\n",
+        "mapping": f"    default: {{private: {value}}}\n",
+        "unknown-key": f"    {value}: private\n",
+    }
+    return header + tails[case]
+
+
+@pytest.mark.usefixtures("forbid_host_side_effects")
+@pytest.mark.parametrize(("case", "kind"), [
+    ("scanner", "ScannerError"), ("parser", "ParserError"), ("duplicate", "ConstructorError"),
+])
+def test_host_plugin_diagnostic_parse_errors_hide_values_and_chains(tmp_path, case, kind):
+    import traceback
+
+    plugin = _pkg(tmp_path, "invalid", _host_plugin_diagnostic_body(case))
+    with pytest.raises(PluginManifestError) as caught:
+        load_plugin_manifest(plugin)
+    error = caught.value
+    assert error.plugin == "invalid" and "could not parse YAML" in error.message
+    assert kind in error.message and str(plugin / "plugin.yml") in error.message
+    assert "line " in error.message and "column " in error.message
+    if case == "duplicate":
+        assert "duplicate key" in error.message
+    assert _HOST_PLUGIN_DIAGNOSTIC_CANARY not in str(error)
+    assert _HOST_PLUGIN_DIAGNOSTIC_CANARY not in "".join(traceback.format_exception(error))
+
+
+@pytest.mark.usefixtures("forbid_host_side_effects")
+@pytest.mark.parametrize("case", ["list", "mapping", "unknown-key"])
+def test_host_plugin_diagnostic_schema_errors_use_only_schema_context(tmp_path, case):
+    import traceback
+
+    with pytest.raises(PluginManifestError) as caught:
+        load_plugin_manifest(_pkg(tmp_path, "invalid", _host_plugin_diagnostic_body(case)))
+    error = caught.value
+    assert "schema violation" in error.message and "env.0" in error.message
+    if case != "unknown-key":
+        assert "env.0.default" in error.message and "string" in error.message
+    assert _HOST_PLUGIN_DIAGNOSTIC_CANARY not in str(error)
+    assert _HOST_PLUGIN_DIAGNOSTIC_CANARY not in "".join(traceback.format_exception(error))
+
+
+@pytest.mark.usefixtures("forbid_host_side_effects")
+@pytest.mark.parametrize("case", ["parser", "list", "mapping"])
+@pytest.mark.parametrize("output_format", ["text", "json"])
+def test_host_plugin_diagnostic_actual_doctor_output_is_value_free(tmp_path, monkeypatch, case, output_format):
+    import json
+    from types import SimpleNamespace
+    from click.testing import CliRunner
+
+    import start
+
+    plugins = tmp_path / "plugins"
+    _pkg(plugins, "invalid", _host_plugin_diagnostic_body(case))
+    _pkg(plugins, "healthy", "plugin_manifest_version: 1\nname: healthy\nroute_prefix: /synthetic-ok\n")
+    calls = []
+    def env():
+        calls.append("env-double")
+        return {"BACKEND_PLUGINS_DIR": str(plugins)}
+    fake = SimpleNamespace(
+        config_parser=SimpleNamespace(root_dir=tmp_path, parse_env_file=env),
+        materialize_consumer_env_for_preflight=lambda: calls.append("materialize-double"),
+    )
+    monkeypatch.setattr(start, "AtlasStarter", lambda: fake)
+    monkeypatch.setattr(start, "DOCTOR_CHECKS", [start._doctor_check_plugin_manifests])
+    result = CliRunner().invoke(start.main, ["doctor", "--format", output_format])
+    assert result.exit_code == 0 and result.exception is None
+    assert calls == ["materialize-double", "env-double"]
+    assert "plugin-manifests" in result.output and "invalid" in result.output
+    if output_format == "json":
+        checks = json.loads(result.output)["checks"]
+        assert len(checks) == 1 and checks[0]["status"] == "warn"
+        assert checks[0]["details"]["plugins"] == ["healthy"]
+    assert _HOST_PLUGIN_DIAGNOSTIC_CANARY not in result.output
+
+
+@pytest.mark.usefixtures("forbid_host_side_effects")
+def test_host_plugin_diagnostic_read_failure_keeps_type_and_path_only(tmp_path, monkeypatch):
+    import traceback
+
+    plugin = _pkg(tmp_path, "unreadable", TABLEAU_YML)
+    original = Path.read_text
+    def denied(path, *args, **kwargs):
+        if path == plugin / "plugin.yml":
+            raise PermissionError(_HOST_PLUGIN_DIAGNOSTIC_CANARY)
+        return original(path, *args, **kwargs)
+    monkeypatch.setattr(Path, "read_text", denied)
+    with pytest.raises(PluginManifestError) as caught:
+        load_plugin_manifest(plugin)
+    assert "PermissionError" in caught.value.message
+    assert str(plugin / "plugin.yml") in caught.value.message
+    assert _HOST_PLUGIN_DIAGNOSTIC_CANARY not in "".join(traceback.format_exception(caught.value))
+
+
+@pytest.mark.usefixtures("forbid_host_side_effects")
+def test_host_plugin_diagnostic_valid_secret_and_discovery_policy_controls(tmp_path):
+    body = ("plugin_manifest_version: 1\nname: healthy\nroute_prefix: /synthetic-ok\n"
+            "auth: key-auth\nread_timeout: 60000\nenv:\n"
+            "  - name: PRIVATE_CREDENTIAL\n    type: int\n    secret: true\n"
+            f"    default: {_HOST_PLUGIN_DIAGNOSTIC_CANARY}\n")
+    _pkg(tmp_path, "invalid", "name: [\n")
+    _pkg(tmp_path, "healthy", body)
+    result = discover_plugin_manifests([tmp_path])
+    assert [item.name for item in result.manifests] == ["healthy"]
+    assert len(result.errors) == 1 and "invalid" in result.errors[0]
+    manifest = result.manifests[0]
+    assert manifest.env[0]["default"] == _HOST_PLUGIN_DIAGNOSTIC_CANARY
+    warnings = validate_plugin_env(manifest, {"PRIVATE_CREDENTIAL": _HOST_PLUGIN_DIAGNOSTIC_CANARY})
+    assert warnings and "***" in warnings[0] and _HOST_PLUGIN_DIAGNOSTIC_CANARY not in warnings[0]
+    assert derive_route_auth(result.manifests) == [("/synthetic-ok", "key-auth")]
+    assert derive_route_timeouts(result.manifests) == [("healthy", "/synthetic-ok", {"read_timeout": 60000})]

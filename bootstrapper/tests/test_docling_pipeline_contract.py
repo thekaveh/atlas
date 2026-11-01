@@ -191,9 +191,15 @@ def test_both_docling_processors_separate_conversion_from_rendering():
         source = (ROOT / relative).read_text(encoding="utf-8")
         assert "def convert_document_once(" in source
         assert "def render_conversion(" in source
-        assert "result = await asyncio.to_thread(" in source
-        assert "convert_document_once," in source
+    # The APIs convert once, render, and offload both through the deadline.
+    for relative in (
+        "services/docling/provider/shared/api_server.py",
+        "services/docling/provider/localhost/server.py",
+    ):
+        source = (ROOT / relative).read_text(encoding="utf-8")
+        assert "result = convert_document_once(" in source
         assert "return render_conversion(" in source
+        assert "lambda: _convert_and_render(" in source
 
 
 def test_both_docling_apis_install_boundary_and_deadline_expensive_routes():
@@ -326,11 +332,11 @@ def _stub_converter_construction(monkeypatch):
             self.format_options = {"json": default, **format_options}
 
     modules = {
-        "docling.datamodel.base_models": dict(InputFormat=SimpleNamespace(PDF="pdf", JSON_DOCLING="json")),
+        "docling.datamodel.base_models": dict(InputFormat=SimpleNamespace(PDF="pdf", IMAGE="image", JSON_DOCLING="json")),
         "docling.datamodel.pipeline_options": dict(AcceleratorDevice=str, AcceleratorOptions=SimpleNamespace,
             PdfPipelineOptions=PDFOptions, TableFormerMode=str),
         "docling.document_converter": dict(DocumentConverter=Converter, PdfFormatOption=SimpleNamespace,
-            FormatOption=SimpleNamespace),
+            ImageFormatOption=SimpleNamespace, FormatOption=SimpleNamespace),
         "docling.backend.json.docling_json_backend": dict(DoclingJSONBackend=JSONBackend),
         "docling.pipeline.simple_pipeline": dict(SimplePipeline=SimplePipeline),
     }
@@ -386,6 +392,7 @@ def test_registered_json_backend_preserves_parse_error_and_pdf_cache(monkeypatch
     pipeline, converter, settings = _stub_converter_construction(monkeypatch)
     assert pipeline.build_converter(settings) is converter
     options = converter.format_options["pdf"].pipeline_options
+    assert converter.format_options["image"].pipeline_options is options
     assert options.do_ocr and options.ocr_options.force_full_page_ocr
     assert options.table_structure_options.mode == "fast"
     assert options.accelerator_options.device == "mps"

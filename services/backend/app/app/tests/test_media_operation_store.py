@@ -2,15 +2,20 @@ from __future__ import annotations
 
 import asyncio
 import json
+import uuid
 
 import pytest
 
 from media_operation_store import (
+    _KEY_PREFIX,
+    _PENDING_LEDGER_KEY,
+    _PENDING_LEDGER_ZSET,
     InMemoryMediaOperationStore,
     MediaOperationCollisionError,
     RedisMediaOperationStore,
     build_media_operation_store,
 )
+from tests.conftest import disposable_redis_url
 
 
 def _operation() -> dict:
@@ -34,54 +39,167 @@ def _operation() -> dict:
     }
 
 
-def test_first_terminal_media_transition_wins_and_remains_stable() -> None:
-    async def scenario():
-        store = InMemoryMediaOperationStore()
-        await store.create(_operation())
+def _op(operation_id: str, status: str = "queued", budget_tracked: bool = True, **provenance) -> dict:
+    """An operation under its own id, so Redis runs never share a key."""
+    operation = _operation()
+    operation.update(operation_id=operation_id, budget_tracked=budget_tracked)
+    operation["last_payload"].update(operation_id=operation_id, status=status)
+    if provenance:
+        operation["last_payload"]["provenance"] = provenance
+    return operation
+
+
+async def _forget(store, *operation_ids: str) -> None:
+    """Drop the operations' Redis records and both pending-index entries."""
+    if not isinstance(store, RedisMediaOperationStore):
+        return
+    for operation_id in operation_ids:
+        await store._redis.delete(_KEY_PREFIX + operation_id)
+        await store._redis.srem(_PENDING_LEDGER_KEY, operation_id)
+        await store._redis.zrem(_PENDING_LEDGER_ZSET, operation_id)
+
+
+@pytest.fixture(params=["memory", "redis"])
+def run_store(request):
+    """Run ``scenario(store, operation_id)`` on each store in one event loop.
+
+    Redis is the production default (BACKEND_STATE_STORE_MODE=redis), so its
+    Lua scripts must keep the in-memory contract. The Redis case skips unless
+    ATLAS_TEST_REDIS_URL names the disposable database.
+    """
+    url = disposable_redis_url() if request.param == "redis" else None
+
+    def run(scenario) -> None:
+        async def in_one_loop() -> None:
+            # The redis.asyncio pool is bound to the loop that created it.
+            store = RedisMediaOperationStore(url) if url else InMemoryMediaOperationStore()
+            operation_id = f"media-op-{uuid.uuid4().hex}"
+            try:
+                await scenario(store, operation_id)
+            finally:
+                await _forget(store, operation_id)
+                await store.aclose()
+
+        asyncio.run(in_one_loop())
+
+    return run
+
+
+def test_first_terminal_media_transition_wins_and_remains_stable(run_store) -> None:
+    async def scenario(store, oid):
+        await store.create(_op(oid))
         succeeded = {
-            **_operation()["last_payload"],
+            **_op(oid)["last_payload"],
             "status": "succeeded",
             "artifact_url": "https://example.test/output.png",
         }
-        cancelled = {**_operation()["last_payload"], "status": "cancelled"}
+        cancelled = {**_op(oid)["last_payload"], "status": "cancelled"}
 
         results = await asyncio.gather(
-            store.transition_payload("media-op-1", succeeded),
-            store.transition_payload("media-op-1", cancelled),
+            store.transition_payload(oid, succeeded),
+            store.transition_payload(oid, cancelled),
         )
-        final = await store.get("media-op-1")
+        final = await store.get(oid)
         assert final is not None
         assert final["last_payload"]["status"] in {"succeeded", "cancelled"}
         assert sum(changed for _, changed in results) == 1
 
         opposite = cancelled if final["last_payload"]["status"] == "succeeded" else succeeded
-        stable, changed = await store.transition_payload("media-op-1", opposite)
+        stable, changed = await store.transition_payload(oid, opposite)
         assert changed is False
         assert stable["last_payload"] == final["last_payload"]
 
-    asyncio.run(scenario())
+    run_store(scenario)
 
 
-def test_expected_status_rejects_stale_nonterminal_poll() -> None:
-    async def scenario():
-        store = InMemoryMediaOperationStore()
-        await store.create(_operation())
+def test_a_late_poll_never_reopens_a_succeeded_operation(run_store) -> None:
+    """Sequential, so the terminal winner is always ``succeeded``."""
+    async def scenario(store, oid):
+        await store.create(_op(oid))
+        _, changed = await store.transition_payload(oid, _op(oid, "succeeded")["last_payload"])
+        assert changed is True
+
+        late_poll = _op(oid, "running")["last_payload"]
+        persisted, changed = await store.transition_payload(oid, late_poll)
+        assert changed is False
+        assert persisted["last_payload"]["status"] == "succeeded"
+
+    run_store(scenario)
+
+
+def test_expected_status_rejects_stale_nonterminal_poll(run_store) -> None:
+    async def scenario(store, oid):
+        await store.create(_op(oid))
         cancelling = {
-            **_operation()["last_payload"],
+            **_op(oid)["last_payload"],
             "status": "cancellation_requested",
         }
         _, changed = await store.transition_payload(
-            "media-op-1", cancelling, expected_status="queued"
+            oid, cancelling, expected_status="queued"
         )
         assert changed is True
 
-        stale_poll = {**_operation()["last_payload"], "status": "running"}
+        stale_poll = {**_op(oid)["last_payload"], "status": "running"}
         persisted, changed = await store.transition_payload(
-            "media-op-1", stale_poll, expected_status="queued"
+            oid, stale_poll, expected_status="queued"
         )
 
         assert changed is False
         assert persisted["last_payload"]["status"] == "cancellation_requested"
+
+    run_store(scenario)
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        ("cancellation_requested", "cancellation_requested", True, False, True),
+        ("cancellation_requested", "cancellation_requested", True, None, True),
+        ("cancellation_requested", "cancellation_requested", False, False, False),
+        ("cancellation_requested", "cancellation_requested", 1, False, False),
+        ("cancellation_requested", "cancellation_requested", "true", False, False),
+        ("queued", "cancellation_requested", True, False, False),
+        ("cancellation_requested", "running", True, False, False),
+        ("cancellation_requested", "succeeded", True, False, False),
+    ],
+)
+def test_cancellation_confirmation_survives_only_matching_status_transitions(
+    case,
+) -> None:
+    current_status, next_status, confirmed, incoming, expected = case
+
+    async def scenario():
+        store = InMemoryMediaOperationStore()
+        try:
+            operation = _operation()
+            operation["last_payload"].update(
+                status=current_status,
+                provenance={
+                    "provider_cancellation_requested": confirmed,
+                    "old_observation": "do not merge",
+                },
+            )
+            await store.create(operation)
+            payload = {
+                **operation["last_payload"],
+                "status": next_status,
+                "provenance": {"poll_observation": "fresh"},
+            }
+            if incoming is not None:
+                payload["provenance"]["provider_cancellation_requested"] = incoming
+            before = json.loads(json.dumps(payload))
+            persisted, changed = await store.transition_payload(
+                "media-op-1", payload, expected_status=current_status
+            )
+            assert changed is True
+            assert persisted["last_payload"]["status"] == next_status
+            provenance = persisted["last_payload"]["provenance"]
+            assert provenance["provider_cancellation_requested"] is expected
+            assert provenance["poll_observation"] == "fresh"
+            assert "old_observation" not in provenance
+            assert payload == before
+        finally:
+            await store.aclose()
 
     asyncio.run(scenario())
 
@@ -194,6 +312,19 @@ def test_recovered_attach_terminal_is_pending_even_when_top_level_untracked() ->
     asyncio.run(scenario())
 
 
+def test_in_flight_attach_protection_clear_is_pending_work() -> None:
+    # Without the index entry the background drain never clears the marker.
+    async def scenario():
+        store = InMemoryMediaOperationStore()
+        await store.create(
+            _op("attach-clear", ledger_attach_protection_clear_pending=True)
+        )
+        page = await store.pending_ledger_intent_page()
+        assert [item["operation_id"] for item in page.records] == ["attach-clear"]
+
+    asyncio.run(scenario())
+
+
 def test_terminal_payload_can_only_be_enriched_without_changing_status() -> None:
     async def scenario():
         store = InMemoryMediaOperationStore()
@@ -228,41 +359,82 @@ def test_terminal_payload_can_only_be_enriched_without_changing_status() -> None
     asyncio.run(scenario())
 
 
-def test_ledger_fallback_can_replace_unreconciled_terminal_winner() -> None:
-    async def scenario():
-        store = InMemoryMediaOperationStore()
-        await store.create(_operation())
-        succeeded = {**_operation()["last_payload"], "status": "succeeded"}
-        await store.transition_payload("media-op-1", succeeded)
+def test_ledger_fallback_can_replace_unreconciled_terminal_winner(run_store) -> None:
+    async def scenario(store, oid):
+        await store.create(_op(oid))
+        succeeded = {**_op(oid)["last_payload"], "status": "succeeded"}
+        await store.transition_payload(oid, succeeded)
         failed = {
             **succeeded,
             "status": "failed",
             "provenance": {"manual_reconciliation_outcome": "release"},
         }
         persisted, changed = await store.adopt_ledger_fallback(
-            "media-op-1", 1, failed
+            oid, 1, failed
         )
         assert changed is True
         assert persisted["last_payload"]["status"] == "failed"
 
-    asyncio.run(scenario())
+    run_store(scenario)
 
 
-def test_ledger_fallback_rejects_stale_observed_version() -> None:
-    async def scenario():
-        store = InMemoryMediaOperationStore()
-        await store.create(_operation())
-        succeeded = {**_operation()["last_payload"], "status": "succeeded"}
-        terminal, _ = await store.transition_payload("media-op-1", succeeded)
+def test_ledger_fallback_rejects_stale_observed_version(run_store) -> None:
+    async def scenario(store, oid):
+        await store.create(_op(oid))
+        succeeded = {**_op(oid)["last_payload"], "status": "succeeded"}
+        terminal, _ = await store.transition_payload(oid, succeeded)
         observed_version = terminal["state_version"]
         enriched = {**succeeded, "artifact_url": "https://cdn.example/new.png"}
-        await store.replace_terminal_payload("media-op-1", "succeeded", enriched)
+        await store.replace_terminal_payload(oid, "succeeded", enriched)
         failed = {**succeeded, "status": "failed"}
         persisted, changed = await store.adopt_ledger_fallback(
-            "media-op-1", observed_version, failed
+            oid, observed_version, failed
         )
         assert changed is False
         assert persisted["last_payload"]["artifact_url"].endswith("new.png")
+
+    run_store(scenario)
+
+
+def test_redis_pending_ledger_records_never_expire_and_stay_indexed() -> None:
+    """The production Lua scripts, run on a disposable Redis: a pending ledger
+    record has no TTL and stays in the pending index; other records expire."""
+    url = disposable_redis_url()
+    ids = [f"media-op-{uuid.uuid4().hex}" for _ in range(4)]
+    attach, plain, terminal, recreated = ids
+
+    async def scenario() -> None:
+        store = RedisMediaOperationStore(url)
+        client = store._redis
+        try:
+            await store.create(_op(attach, budget_tracked=False, ledger_attach_pending=True))
+            await store.create(_op(plain, budget_tracked=False))
+            assert await client.ttl(_KEY_PREFIX + attach) == -1
+            assert await client.ttl(_KEY_PREFIX + plain) > 0
+
+            # Completing a protection clear the record never requested is a no-op.
+            before = await client.get(_KEY_PREFIX + plain)
+            _, changed = await store.complete_attach_protection_clear(plain)
+            assert changed is False
+            assert await client.get(_KEY_PREFIX + plain) == before
+
+            # An enriched, unreconciled budget-tracked terminal stays durable.
+            await store.create(_op(terminal, "succeeded"))
+            enriched = {**_op(terminal, "succeeded")["last_payload"], "artifact_url": "x"}
+            _, changed = await store.replace_terminal_payload(terminal, "succeeded", enriched)
+            assert changed is True
+            assert await client.ttl(_KEY_PREFIX + terminal) == -1
+            assert await client.zscore(_PENDING_LEDGER_ZSET, terminal) is not None
+
+            # Re-creating a pending record re-indexes it when the index lost it.
+            await store.create(_op(recreated, ledger_attach_pending=True))
+            await client.zrem(_PENDING_LEDGER_ZSET, recreated)
+            await client.srem(_PENDING_LEDGER_KEY, recreated)
+            await store.create(_op(recreated, ledger_attach_pending=True))
+            assert await client.zscore(_PENDING_LEDGER_ZSET, recreated) is not None
+        finally:
+            await _forget(store, *ids)
+            await store.aclose()
 
     asyncio.run(scenario())
 
@@ -501,3 +673,48 @@ def test_in_memory_failed_intent_defers_behind_current_work_before_later_arrival
         assert seen == ["existing", "failed", "later"]
 
     asyncio.run(scenario())
+
+
+def _lua_cjson_round_trip(value):
+    """What a Redis Lua decode + re-encode does: an empty table becomes {}."""
+    if isinstance(value, dict):
+        return {key: _lua_cjson_round_trip(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_lua_cjson_round_trip(item) for item in value] or {}
+    return value
+
+
+def test_redis_media_store_keeps_empty_lists_through_lua_rewrites(monkeypatch) -> None:
+    """Every script after create re-encodes the whole operation with cjson,
+    which turned the provider's [] into {} in the default Redis mode."""
+    import redis.asyncio as redis
+
+    class FakeRedis:
+        blob = None
+
+        async def eval(self, _script, _key_count, *args):
+            if self.blob is None:  # create stores ARGV[1] verbatim
+                self.blob = args[4]
+            else:  # transition_payload: decode, replace, re-encode
+                operation = json.loads(self.blob)
+                operation["last_payload"] = json.loads(args[4])
+                self.blob = json.dumps(_lua_cjson_round_trip(operation))
+            return [1, self.blob]
+
+        async def get(self, _key):
+            return self.blob
+
+    monkeypatch.setattr(redis.Redis, "from_url", lambda *_a, **_k: FakeRedis())
+    store = RedisMediaOperationStore("redis://redis:6379/0")
+    operation = {**_operation(), "artifacts": [], "tags": {}}
+    payload = {
+        **operation["last_payload"], "status": "running", "artifacts": [[], {"a": []}],
+        "raw": {"status": {"logs": []}}, "provenance": {"provider_fields": {}},
+    }
+
+    assert asyncio.run(store.create(operation)) == {**operation, "state_version": 0}
+    transitioned, _changed = asyncio.run(store.transition_payload("media-op-1", payload))
+    assert transitioned["last_payload"] == payload
+    stored = asyncio.run(store.get("media-op-1"))
+    assert stored["artifacts"] == [] and stored["tags"] == {}
+    assert stored["last_payload"] == payload

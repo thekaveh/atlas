@@ -382,28 +382,6 @@ def embedding_dimension_contract(
     return dimension
 
 
-def embedding_dim_warning(
-    model: str | None,
-    configured_dimension: int = MEMORY_FACTS_EMBEDDING_DIM,
-) -> Optional[str]:
-    """Warn when catalog metadata disagrees with the configured contract.
-
-    The dimension is read from the YAML catalog (:func:`dim_for_model_id`), so
-    declaring ``dim:`` on a new embedding entry is all it takes to extend this
-    guard. Returns ``None`` for matching, unknown, or empty model ids.
-    """
-    if not model:
-        return None
-    dim = dim_for_model_id(model)
-    if dim is not None and dim != configured_dimension:
-        return (
-            f"LITELLM_EMBEDDING_MODEL='{model}' produces {dim}-dim embeddings, but the "
-            f"configured LANGMEM_EMBEDDING_DIM is {configured_dimension}. "
-            f"Select a matching contract before startup."
-        )
-    return None
-
-
 # ---------------------------------------------------------------------------
 # Private activation helpers
 # ---------------------------------------------------------------------------

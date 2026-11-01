@@ -271,6 +271,32 @@ def test_content_step_excludes_embedding_models():
     assert "ollama/nomic-embed-text:latest" in embed_values, embed_values
 
 
+def test_custom_ollama_models_are_offered_as_defaults():
+    """LiteLLM registers OLLAMA_CUSTOM_MODELS, but the default pickers read
+    only the models step: a custom-only selection skipped every step."""
+    from wizard.llm_steps import (
+        LLM_DEFAULT_CONTENT_TITLE,
+        LLM_DEFAULT_EMBED_DIM_TITLE,
+        LLM_DEFAULT_EMBED_TITLE,
+        OLLAMA_CUSTOM_TITLE,
+        build_default_model_steps,
+    )
+
+    env = {**_default_env(), "OLLAMA_USER_MODELS": ""}
+    steps = {s.title: s for s in build_default_model_steps(env)}
+    selections = {**_ollama_selections(""), OLLAMA_CUSTOM_TITLE: "llama3.3, mxbai-embed-large"}
+
+    content = steps[LLM_DEFAULT_CONTENT_TITLE]
+    assert not content.skip_if_prev(selections)
+    assert [o.value for o in content.options_provider(selections)] == ["ollama/llama3.3"]
+    embed = steps[LLM_DEFAULT_EMBED_TITLE]
+    assert not embed.skip_if_prev(selections)
+    # The saved LITELLM_EMBEDDING_MODEL stays listed with its "saved" badge.
+    assert "ollama/mxbai-embed-large" in [o.value for o in embed.options_provider(selections)]
+    selections[LLM_DEFAULT_EMBED_TITLE] = "ollama/mxbai-embed-large"
+    assert not steps[LLM_DEFAULT_EMBED_DIM_TITLE].skip_if_prev(selections)
+
+
 # ── test 3: embedding step default_value + caveat text ──────────────────────
 
 def test_embed_step_default_value_and_caveat():
@@ -975,6 +1001,24 @@ def test_corrected_catalog_dimension_reaches_an_existing_env(tmp_path, capsys):
     )
     assert starter.reconcile_default_models() is True
     assert starter.config_parser.parse_env_file()["LANGMEM_EMBEDDING_DIM"] == "1024"
+    assert "1536 -> 1024" in capsys.readouterr().out
+
+
+def test_catalog_dimension_repair_runs_when_a_chat_default_also_moves(tmp_path, capsys):
+    """Repointing an unrouted chat default skipped the dimension repair, so the
+    Backend ran that launch against the stale 1536 contract."""
+    starter = _reconcile_starter(
+        tmp_path,
+        "LLM_PROVIDER_SOURCE=ollama-container-cpu\n"
+        "LITELLM_DEFAULT_MODEL=ollama/retired-model:1b\n"
+        "LITELLM_EMBEDDING_MODEL=ollama/qwen3-embedding:0.6b\n"
+        "LANGMEM_EMBEDDING_MODEL=ollama/qwen3-embedding:0.6b\n"
+        "LANGMEM_EMBEDDING_DIM=1536\n",
+    )
+    assert starter.reconcile_default_models() is True
+    env = starter.config_parser.parse_env_file()
+    assert env["LITELLM_DEFAULT_MODEL"] != "ollama/retired-model:1b"
+    assert env["LANGMEM_EMBEDDING_DIM"] == "1024"
     assert "1536 -> 1024" in capsys.readouterr().out
 
 

@@ -1,4 +1,7 @@
-"""Qualify incremental loads, schema evolution and retry recovery with local fixtures."""
+"""Qualify incremental loads, schema evolution and retry recovery with local fixtures.
+
+Run it with the isolated launcher in docs/operations/dlt-duckdb.md (section 5).
+"""
 
 import argparse
 from contextlib import ExitStack
@@ -398,16 +401,16 @@ def assert_variant(changed):
     require(changed["rows"][0]["amount"] is None, "variant did not preserve original nullable amount")
     require(changed["rows"][0][variant] == "unknown", "variant lost incompatible source value")
     require(all(row[variant] is None for row in changed["rows"][1:]), "variant changed unrelated ids")
+    return variant
 
 
 def assert_evolution(results):
-    before, added, changed = [results[name]["snapshot"] for name in ("delta", "column", "variant")]
+    before, added = [results[name]["snapshot"] for name in ("delta", "column")]
     require("region" not in {column[0] for column in before["columns"]}, "region existed before addition")
     require([column for column in added["columns"] if column[0] == "region"] == [["region", "VARCHAR", "YES"]],
             "nullable text region was not added")
     require(added["rows"][0]["region"] is None and added["rows"][2]["region"] is None,
             "added region changed absent source keys")
-    assert_variant(changed)
 
 
 def assert_recovery(results):
@@ -440,9 +443,7 @@ def expected_evolution(expected, results):
     expected[2]["revision"] = 3
     assert_batch(results["column"]["snapshot"], expected, 3)
     changed = results["variant"]["snapshot"]
-    assert_variant(changed)
-    variant = next(name for name, column in changed["dlt_columns"].items()
-                   if column.get("variant") and name.startswith("amount"))
+    variant = assert_variant(changed)
     for row in expected.values():
         row[variant] = "unknown" if row["id"] == 1 else None
     expected[1].update(amount=None, revision=4)
@@ -482,8 +483,6 @@ def initialize(root, fixture):
     write_json(root / "artifacts" / "dependencies.json", versions)
     require(importlib.metadata.version("dlt") == "1.31.0", "dlt version differs")
     require(importlib.metadata.version("duckdb") == "1.5.5", "DuckDB version differs")
-
-
 
 
 def main():

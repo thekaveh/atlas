@@ -20,7 +20,9 @@ Exit codes:
     0  — all PASS
     1  — at least one FAIL line printed
     2  — usage error, or internal failure (PyYAML missing, or docker compose
-         config errored with stderr surfaced)
+         config errored). The compose error text is forwarded when rendering
+         the non-secret ``.env.example``; for a caller-supplied ``--env-file``
+         it is redacted, since compose can echo that file's values.
 """
 from __future__ import annotations
 
@@ -32,6 +34,7 @@ from bounded_subprocess import (
     CommandLaunchError,
     CommandOutputTooLarge,
     CommandTimedOut,
+    forwarded_failure,
     redacted_failure,
     run_bounded,
 )
@@ -252,16 +255,31 @@ def load_compose(env_file: Path = ENV_FILE) -> dict:
         )
         sys.exit(2)
     if result.returncode != 0:
-        # docker is present but `compose config` failed — surface the
-        # stderr instead of producing wrong-answer output.
-        print(
-            "FAIL load_compose: `docker compose config` exited "
-            f"{result.returncode}",
-            file=sys.stderr,
-        )
-        print(redacted_failure("docker compose config", result.returncode), file=sys.stderr)
+        # docker is present but `compose config` failed — report it instead
+        # of producing wrong-answer output.
+        _report_compose_failure(env_file, result)
         sys.exit(2)
     return yaml.safe_load(result.stdout) or {}
+
+
+def _report_compose_failure(env_file: Path, result) -> None:
+    """Print a failed `docker compose config` render to stderr.
+
+    The default ``.env.example`` holds no secrets, so the compose error text
+    follows the FAIL line. A caller-supplied ``--env-file`` may hold secrets
+    that compose echoes in its errors, so that output stays redacted.
+    """
+    print(
+        "FAIL load_compose: `docker compose config` exited "
+        f"{result.returncode}",
+        file=sys.stderr,
+    )
+    if env_file.resolve() != ENV_FILE.resolve():
+        print(redacted_failure("docker compose config", result.returncode), file=sys.stderr)
+        return
+    print(forwarded_failure("docker compose config", result.returncode), file=sys.stderr)
+    if result.stderr:
+        print(result.stderr.rstrip("\n"), file=sys.stderr)
 
 
 def dependency_names(service_def: dict) -> set[str]:

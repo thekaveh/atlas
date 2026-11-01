@@ -1,7 +1,7 @@
 -- 13-backend-research.sql
 -- OWNER: backend/local-deep-researcher — research_* tables. user_id FKs
 -- reference public.users (slice 10, sorts first). Only this service's objects
--- belong here. Renamed verbatim from the former 09-research-tables.sql.
+-- belong here.
 
 -- Create research schema
 CREATE SCHEMA IF NOT EXISTS research;

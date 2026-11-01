@@ -107,7 +107,7 @@ def test_nonzero_stop_never_begins_rollback_copy_and_requires_manual_recovery(po
         module.ContractError("stop returned nonzero")
     )
     with pytest.raises(module.ContractError, match="stop returned nonzero"):
-        coordinator.cutover({})
+        coordinator.cutover()
     assert created == []
     assert coordinator.boundary_state == "pre-cutover"
     assert coordinator.poison_reason and "quiesce" in coordinator.poison_reason
@@ -137,7 +137,7 @@ def test_all_enabled_services_are_reproved_stopped_before_any_rollback_write():
         prune_retained_rollbacks=lambda *_args, **_kwargs: None,
     )
     with pytest.raises(module.ContractError, match="not proven stopped"):
-        coordinator.cutover({})
+        coordinator.cutover()
     assert created == []
     assert coordinator.poison_reason
 
@@ -185,7 +185,7 @@ def test_post_mutation_exit_is_clean_only_after_fully_verified_recovery(recovery
 
     coordinator.compose = compose; coordinator._copy_volume = copy; coordinator._verify_volume_copy = verify
     with pytest.raises(module.ContractError):
-        coordinator.cutover({})
+        coordinator.cutover()
     if recovery_failure is None:
         assert coordinator.boundary_state == "recovery-proven"
         assert coordinator.poison_reason is None
@@ -373,7 +373,7 @@ def test_rollback_preparation_cleanup_failure_preserves_signal(capsys):
     )
 
     with pytest.raises(module.SignalInterruption, match="signal 15"):
-        coordinator.cutover({})
+        coordinator.cutover()
 
     assert coordinator.poison_reason and "rollback preparation" in coordinator.poison_reason
     assert "volume removal unproven" in capsys.readouterr().err
@@ -400,7 +400,7 @@ def test_live_recovery_failure_preserves_signal_and_poisons(capsys):
     )
 
     with pytest.raises(module.SignalInterruption, match="signal 15"):
-        coordinator.cutover({})
+        coordinator.cutover()
 
     assert coordinator.poison_reason and "recovery" in coordinator.poison_reason
     assert "rollback recovery unproven" in capsys.readouterr().err
@@ -747,7 +747,7 @@ coordinator._validate_weaviate_data_volume = lambda *_args: None
 
 exit_code = 0
 try:
-    coordinator.cutover({})
+    coordinator.cutover()
 except BaseException:
     exit_code = 130
 finally:

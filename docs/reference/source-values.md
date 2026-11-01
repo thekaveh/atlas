@@ -7,7 +7,7 @@
 | AIRFLOW_SOURCE | airflow | disabled | container, disabled |
 | ASSET_BAKER_SOURCE | asset-baker | disabled | container-cpu, disabled |
 | ASSET_WORKER_SOURCE | asset-worker | disabled | container, disabled |
-| BACKEND_SOURCE | backend | container | - |
+| BACKEND_SOURCE | backend | container | container |
 | BACKUP_SOURCE | backup | disabled | container, disabled |
 | BLENDER_MCP_SOURCE | blender-mcp | disabled | localhost, managed-localhost, disabled |
 | CELERY_SOURCE | celery | disabled | container, disabled |

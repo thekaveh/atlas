@@ -147,10 +147,14 @@ Content-Type: application/json
 Chatterbox voice cloning uses **multipart upload**, not a JSON
 `reference_audio` field. Either register a voice with `POST /voices`
 (fields `voice_name` and `voice_file`) and use its name as `voice`. Or send the
-reference clip with the request to `/v1/audio/speech/upload`:
+reference clip with the request to `/v1/audio/speech/upload`.
+
+From the host, use `CHATTERBOX_PORT` (default `63059`) for
+`chatterbox-container-gpu`, or `CHATTERBOX_LOCALHOST_PORT` (default `63044`)
+for `chatterbox-localhost`. The example below uses the container port:
 
 ```bash
-curl -X POST http://chatterbox:4123/v1/audio/speech/upload \
+curl -X POST http://localhost:63059/v1/audio/speech/upload \
   -F "input=Hello in this voice." \
   -F "voice_file=@/host/path/to/sample.wav" \
   --output cloned.wav

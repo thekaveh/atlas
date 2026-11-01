@@ -8,13 +8,8 @@ table, and the table will be removed in a future major release. CI invokes
 """
 from __future__ import annotations
 
-import sys
+import tomllib
 from pathlib import Path
-
-if sys.version_info >= (3, 11):
-    import tomllib
-else:  # pragma: no cover
-    import tomli as tomllib
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]

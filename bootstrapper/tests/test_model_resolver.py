@@ -25,7 +25,7 @@ from utils.model_resolver import (
     active_models,
     best,
     dim_for_model_id,
-    embedding_dim_warning,
+    embedding_dimension_contract,
     looks_like_embedding,
     resolved_defaults,
 )
@@ -447,32 +447,35 @@ class TestEmbeddingDimensionSafety:
         # so existing deployments retain their compatible default.
         assert best("embeddings", {}) == "ollama/nomic-embed-text"
 
-    def test_warning_none_for_768_models(self):
-        assert embedding_dim_warning("nomic-embed-text") is None
-        assert embedding_dim_warning("ollama/nomic-embed-text") is None
+    def test_contract_accepts_768_models(self):
+        for name in ("nomic-embed-text", "ollama/nomic-embed-text"):
+            assert (
+                embedding_dimension_contract(name, MEMORY_FACTS_EMBEDDING_DIM)
+                == MEMORY_FACTS_EMBEDDING_DIM
+            )
 
-    def test_warning_none_for_empty_or_unknown(self):
-        assert embedding_dim_warning("") is None
-        assert embedding_dim_warning(None) is None
-        assert embedding_dim_warning("some/unlisted-embedder") is None
+    def test_contract_keeps_explicit_dimension_for_empty_or_unknown(self):
+        # No catalog row to compare against, so the explicit value stands.
+        for name in ("", None, "some/unlisted-embedder"):
+            assert embedding_dimension_contract(name, 768) == 768
 
-    def test_warning_flags_1024_dim_qwen(self):
+    def test_contract_rejects_1024_dim_qwen_on_768_contract(self):
         for name in ("qwen3-embedding:0.6b", "ollama/qwen3-embedding:0.6b"):
-            msg = embedding_dim_warning(name)
-            assert msg is not None
-            assert "1024" in msg
-            assert str(MEMORY_FACTS_EMBEDDING_DIM) in msg
+            with pytest.raises(
+                ValueError,
+                match=f"produces 1024.*configured.*{MEMORY_FACTS_EMBEDDING_DIM}",
+            ):
+                embedding_dimension_contract(name, MEMORY_FACTS_EMBEDDING_DIM)
 
-    def test_warning_accepts_wide_model_with_matching_contract(self):
-        assert embedding_dim_warning("ollama/qwen3-embedding:0.6b", 1024) is None
-        assert embedding_dim_warning("text-embedding-3-large", 3072) is None
+    def test_contract_accepts_wide_model_with_matching_dimension(self):
+        assert embedding_dimension_contract("ollama/qwen3-embedding:0.6b", 1024) == 1024
+        assert embedding_dimension_contract("text-embedding-3-large", 3072) == 3072
 
-    def test_warning_flags_3072_dim_openai(self):
+    def test_contract_rejects_3072_dim_openai_on_768_contract(self):
         # canonical (bare) and provider-prefixed forms both resolve
         for name in ("text-embedding-3-large", "openai/text-embedding-3-large"):
-            msg = embedding_dim_warning(name)
-            assert msg is not None
-            assert "3072" in msg
+            with pytest.raises(ValueError, match="produces 3072"):
+                embedding_dimension_contract(name, MEMORY_FACTS_EMBEDDING_DIM)
 
     def test_dim_sourced_from_yaml_catalog(self):
         # The dims come from services/*/models.yaml `dim:` fields, not a Python
@@ -489,8 +492,8 @@ class TestEmbeddingDimensionSafety:
         assert dim_for_model_id("") is None
         assert dim_for_model_id(None) is None
 
-    def test_warning_tolerates_surrounding_whitespace(self):
-        assert embedding_dim_warning("  ollama/qwen3-embedding:0.6b  ") is not None
+    def test_contract_tolerates_surrounding_whitespace(self):
+        assert embedding_dimension_contract("  ollama/qwen3-embedding:0.6b  ", None) == 1024
 
     @pytest.mark.parametrize(
         ("model", "expected"),

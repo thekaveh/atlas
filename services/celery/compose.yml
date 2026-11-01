@@ -43,7 +43,6 @@ services:
       # service that is not running and defeats the consumer's
       # not-configured branch. Matches STT/TTS/DOCLING_ENDPOINT alongside.
       WEAVIATE_URL: ${WEAVIATE_URL}
-      WEAVIATE_ENABLED: true
       COMFYUI_BASE_URL: ${COMFYUI_ENDPOINT:-http://comfyui:18188}
       N8N_BASE_URL: http://n8n:5678
       REDIS_URL: ${REDIS_URL}
@@ -130,9 +129,10 @@ services:
       # the shared dashboard credential sat in the process argv for life.
       # :- matches Kong's fallback for an empty username (kong_admin).
       FLOWER_BASIC_AUTH: ${DASHBOARD_USERNAME:-kong_admin}:${DASHBOARD_PASSWORD}
+    # No --broker flag: Celery reads CELERY_BROKER_URL (set above) itself, and
+    # the URL carries the Redis password, which argv would expose to ps.
     command:
       - celery
-      - --broker=${CELERY_BROKER_URL:-}
       - flower
       - --address=0.0.0.0
       - --port=5555

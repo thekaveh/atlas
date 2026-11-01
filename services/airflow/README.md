@@ -89,7 +89,7 @@ The same pattern works for `spark_default`. Use direct `airflow.settings.Session
 2. `summarize_via_litellm` calls LiteLLM's chat-completions endpoint through `OpenAIHook.get_conn()`. It defaults to `ollama/qwen3.8:latest`. With `--llm-provider-source none` and `CLOUD_OPENAI_SOURCE=enabled`, switch to a cloud model such as `gpt-4o-mini`.
 3. `list_minio_buckets` calls `S3Hook.list_buckets()` against `minio_default`.
 
-A commented LangChain block at the end of the file shows chain-based LLM steps in a `PythonOperator`. Apache publishes no LangChain provider, so wrap chains in a Python callable.
+A commented LangChain block at the end of the file shows chain-based LLM steps in a `PythonOperator`. It reads the LiteLLM URL and key from the seeded `litellm_default` Connection. Apache publishes no LangChain provider, so wrap chains in a Python callable.
 
 Use it as a template. Put your own DAGs in `services/airflow/dags/`. The folder is bind-mounted into the scheduler, DAG processor and API server.
 
@@ -146,22 +146,12 @@ New DAGs start paused, so unpause `lakehouse_spark_submit_smoke` first. Trigger 
 
 Hermes has no built-in Airflow client. A Hermes skill, or any other client, triggers a DAG over the REST API. Airflow 3's `/api/v2/` uses JWT bearer tokens, not HTTP basic auth, so this takes two steps:
 
-```bash
-# 1. Exchange admin password for a short-lived JWT.
-TOKEN=$(curl -fsS -X POST \
-  -H 'Content-Type: application/json' \
-  -d "{\"username\":\"admin\",\"password\":\"${AIRFLOW_ADMIN_PASSWORD}\"}" \
-  http://airflow.localhost:${KONG_HTTP_PORT}/auth/token | jq -r .access_token)
+1. POST the admin username and password to `/auth/token` for a short-lived JWT.
+2. POST the run to `/api/v2/dags/<dag_id>/dagRuns` with `Authorization: Bearer <token>`.
 
-# 2. Trigger the DAG. `logical_date` is REQUIRED-but-nullable in
-# Airflow 3.x's TriggerDAGRunPostBody schema — omit it and the API
-# returns 422. Set to null to let the scheduler assign one.
-curl -fsS -X POST \
-  -H "Authorization: Bearer $TOKEN" \
-  -H 'Content-Type: application/json' \
-  -d '{"logical_date": null, "conf": {}}' \
-  http://airflow.localhost:${KONG_HTTP_PORT}/api/v2/dags/example_etl_with_llm/dagRuns
-```
+Run both steps with the Python block in the [Hermes README](../hermes/README.md) §8. It reads `AIRFLOW_ADMIN_PASSWORD` and `KONG_HTTP_PORT` from the active env file. It stops before any request if the password is blank, and it keeps the password off the `curl` argv.
+
+The trigger body must include `logical_date`. Airflow 3.x's `TriggerDAGRunPostBody` schema requires the field but accepts null. If you omit it, the API returns 422. Send `{"logical_date": null, "conf": {}}` to let the scheduler assign one.
 
 New DAGs start paused. Unpause the DAG in the UI before you trigger it.
 
@@ -182,6 +172,8 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 | Distributed executor and control-plane HA | not-supported | documented | Atlas fixes one scheduler, API server, and DAG processor around LocalExecutor; it configures neither Celery/KubernetesExecutor nor a multi-replica Airflow control plane. |
 
 ## 8. Troubleshooting
+
+Set `PROJECT_NAME` in your shell to its value in the active env file (default `atlas`) before you run these commands.
 
 - **`airflow-init` fails with "database does not exist"** — the Airflow database is created by `supabase-db-init`. `airflow-init` depends_on `supabase-db-init: service_completed_successfully`, so this points at a failed or skipped db-init: check `docker logs ${PROJECT_NAME}-supabase-db-init`, then `docker logs ${PROJECT_NAME}-airflow-init` for the psql error.
 - **Web UI login rejected** — `AIRFLOW_ADMIN_PASSWORD` in `.env` may have rotated. Check the value; if rotated, `airflow-init` re-runs and re-syncs the admin user on next `./start.sh`.

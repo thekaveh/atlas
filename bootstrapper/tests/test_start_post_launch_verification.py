@@ -121,6 +121,8 @@ def test_one_shot_init_failure_fails_startup(monkeypatch):
         "failed_one_shot_services",
         lambda services, **_kwargs: [("n8n-init", "exit 1")],
     )
+    # The failure path tails the init log; keep it off the real compose project.
+    monkeypatch.setattr(starter.docker_manager, "one_shot_log_tail", lambda service, lines=40: [])
 
     assert starter.verify_one_shot_init_containers() is False
 
@@ -194,6 +196,33 @@ def test_one_shot_init_checks_enabled_post_start_init_services(monkeypatch):
     ]
 
 
+def test_one_shot_skips_n8n_seed_when_n8n_is_disabled(monkeypatch):
+    """With N8N_SOURCE=disabled the seed overlay is dropped, so there is no
+    n8n-seed run to wait for even when workflows are declared."""
+    import start as start_module
+
+    starter = start_module.AtlasStarter()
+    monkeypatch.setattr(
+        starter.config_parser,
+        "parse_env_file",
+        lambda: {"N8N_SOURCE": "disabled", "OPEN_WEB_UI_INIT_SCALE": "1"},
+    )
+    monkeypatch.setattr(
+        starter.config_parser,
+        "load_consumer_config",
+        lambda: type("ConsumerConfig", (), {"n8n_workflows": [object()]})(),
+    )
+    calls = []
+    monkeypatch.setattr(
+        starter.docker_manager,
+        "failed_one_shot_services",
+        lambda services, **kwargs: calls.append(services) or [],
+    )
+
+    assert starter.verify_one_shot_init_containers() is True
+    assert calls == [["open-webui-init"]]
+
+
 def test_one_shot_waits_for_terminal_failure(monkeypatch):
     from core.docker_manager import DockerManager
 
@@ -230,6 +259,25 @@ def test_one_shot_times_out_when_not_terminal(monkeypatch):
     )
 
     assert failures == [("n8n-init", "timed out waiting for terminal state (Up)")]
+
+
+def test_one_shot_never_listed_is_reported_as_timed_out(monkeypatch):
+    from core.docker_manager import DockerManager
+
+    dm = DockerManager()
+    monkeypatch.setattr(dm, "_compose_ps_json", lambda _s: ([], None))
+    assert dm.failed_one_shot_services(["n8n-init"], timeout_seconds=0, poll_interval_seconds=0) == [
+        ("n8n-init", "timed out waiting for terminal state (container not observed yet)")]
+
+
+def test_one_shot_persistent_ps_failure_is_reported(monkeypatch):
+    from core.docker_manager import DockerManager
+
+    dm = DockerManager()
+    monkeypatch.setattr(dm, "_compose_ps_json", lambda _s: ([], "docker compose ps failed"))
+    monkeypatch.setattr("core.process_runner.sleep_unless_stopped", lambda *_a: None)
+    assert dm.failed_one_shot_services(["n8n-init"], timeout_seconds=0, poll_interval_seconds=0) == [
+        ("n8n-init", "docker compose ps failed")]
 
 
 def test_blender_live_child_cannot_adopt_foreign_tcp_listener(

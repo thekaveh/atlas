@@ -82,6 +82,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import math
 import os
 import sys
 import tempfile
@@ -178,6 +179,15 @@ def _derive_filename(entry: ComfyUILibraryEntry | ComfyUIModelFile) -> str:
     return entry.filename or _filename_from_url(entry.url)
 
 
+def _finite_manifest_float(value, field: str) -> float | None:
+    if value is None:
+        return None
+    converted = float(value)
+    if not math.isfinite(converted):
+        raise ValueError(f"{field} must be finite")
+    return converted
+
+
 def _manifest_row_for_entry(
     entry: ComfyUILibraryEntry,
     *,
@@ -213,12 +223,12 @@ def _manifest_row_for_entry(
         "filename":             _derive_filename(file or entry),
         "download_url":         url,               # url → download_url
         "sha256":               sha256,
-        "file_size_gb":         float(file_size_gb) if file_size_gb is not None else None,
+        "file_size_gb":         _finite_manifest_float(file_size_gb, "file_size_gb"),
         "file_size_bytes":      int(file_size_bytes) if file_size_bytes is not None else None,
         "family":               entry.family,
         "target_dir":           target_dir,
-        "min_vram_gb":          float(entry.min_vram_gb) if entry.min_vram_gb is not None else None,
-        "min_ram_gb":           float(entry.min_ram_gb) if entry.min_ram_gb is not None else None,
+        "min_vram_gb":          _finite_manifest_float(entry.min_vram_gb, "min_vram_gb"),
+        "min_ram_gb":           _finite_manifest_float(entry.min_ram_gb, "min_ram_gb"),
         "cpu_supported":        bool(entry.cpu_supported),
         "requires_custom_node": list(entry.requires_custom_node),
         "popularity":           int(entry.popularity or 0),

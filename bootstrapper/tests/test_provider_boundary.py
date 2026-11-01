@@ -60,6 +60,63 @@ def _make_app(boundary: ModuleType, settings, *, fail: bool = False) -> FastAPI:
     return app
 
 
+def _scope(method: str, path: str) -> dict:
+    return {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": method,
+        "scheme": "http",
+        "path": path,
+        "raw_path": path.encode("ascii"),
+        "query_string": b"",
+        "headers": [(b"authorization", b"Bearer secret-token")],
+        "client": ("127.0.0.1", 1),
+        "server": ("provider.test", 80),
+        "root_path": "",
+    }
+
+
+async def _asgi_status(app, method: str, path: str, receive=None) -> int:
+    """Drive one bounded ASGI request and return its response status."""
+    sent = []
+
+    async def one_shot_receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(message):
+        sent.append(message)
+
+    await asyncio.wait_for(
+        app(_scope(method, path), receive or one_shot_receive, send), timeout=5
+    )
+    return next(m["status"] for m in sent if m["type"] == "http.response.start")
+
+
+def _run_admission_scenario(scenario):
+    """Run an admission scenario off the test thread.
+
+    A regression to a blocking acquire freezes the event loop itself, where
+    asyncio.wait_for cannot fire; the join bound still fails the test.
+    """
+    outcome = []
+
+    def target():
+        try:
+            outcome.append((True, asyncio.run(scenario())))
+        except BaseException as exc:  # re-raised on the test thread
+            outcome.append((False, exc))
+
+    worker = threading.Thread(target=target, daemon=True)
+    worker.start()
+    worker.join(30)
+    assert not worker.is_alive(), "provider admission deadlocked the event loop"
+    succeeded, value = outcome[0]
+    if not succeeded:
+        raise value
+    return value
+
+
 def _settings(boundary: ModuleType, **overrides):
     values = {
         "service_name": "Docling",
@@ -293,7 +350,7 @@ def test_full_capacity_returns_429_without_reading_second_request_body():
             "root_path": "",
         }
         first = asyncio.create_task(app(scope, first_receive, first_send))
-        await entered.wait()
+        await asyncio.wait_for(entered.wait(), timeout=5)
 
         body_was_read = False
 
@@ -307,17 +364,69 @@ def test_full_capacity_returns_429_without_reading_second_request_body():
         async def second_send(message):
             second_sent.append(message)
 
-        await app(scope, forbidden_receive, second_send)
-        release.set()
+        try:
+            # A regressed admission parks the second request on `release`.
+            await asyncio.wait_for(
+                app(scope, forbidden_receive, second_send), timeout=5
+            )
+        finally:
+            release.set()
         await first
         return body_was_read, second_sent
 
-    body_was_read, messages = asyncio.run(scenario())
+    body_was_read, messages = _run_admission_scenario(scenario)
     start = next(message for message in messages if message["type"] == "http.response.start")
     headers = dict(start["headers"])
     assert start["status"] == 429
     assert headers[b"retry-after"] == b"1"
     assert body_was_read is False
+
+
+def test_requests_that_take_no_permit_never_release_a_held_one():
+    """A health probe or cheap POST must not free the permit a running
+    inference holds; that would double native-inference concurrency."""
+    boundary = _load_boundary()
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    app = FastAPI()
+
+    @app.get("/health")
+    async def health():
+        return {"status": "healthy"}
+
+    @app.post("/cheap")
+    async def cheap():
+        return {"status": "ok"}
+
+    @app.post("/work")
+    async def work():
+        if not entered.is_set():
+            entered.set()
+            await release.wait()
+        return {"status": "ok"}
+
+    boundary.install_provider_boundary(app, _settings(boundary))
+
+    async def forbidden_receive():
+        raise AssertionError("capacity rejection read the request body")
+
+    async def scenario():
+        first = asyncio.create_task(_asgi_status(app, "POST", "/work"))
+        await asyncio.wait_for(entered.wait(), timeout=5)
+        try:
+            interleaved = [
+                await _asgi_status(app, "GET", "/health"),
+                await _asgi_status(app, "POST", "/cheap"),
+                await _asgi_status(app, "POST", "/work", forbidden_receive),
+            ]
+        finally:
+            release.set()
+        held = await first
+        return interleaved, held, await _asgi_status(app, "POST", "/work")
+
+    interleaved, held, after_release = _run_admission_scenario(scenario)
+    assert interleaved == [200, 200, 429]
+    assert (held, after_release) == (200, 200)
 
 
 def test_permit_is_released_after_success_and_downstream_exception():

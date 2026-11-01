@@ -172,7 +172,9 @@ Reword the track step to workload language (e.g. title `"Track  ·  pick your wo
 - Consumes: the `#tab-setup` / `#tab-logs` structure from the tabs work.
 - Produces: nothing.
 
-**This is a regression introduced by the tabs change (#911).** Pre-tabs, `_transition_to_launch` called `await lower.remove_children()`, which took the prompt panel and command summary down; the old code comments say so explicitly. The tab swap replaced that teardown and nothing assumed the job, so the Setup tab permanently shows the last answered question (`67/67`) under the stack overview. The stack overview **must stay live** — that was the whole point of keeping both bodies mounted — so hide/retire only the prompt and the command summary.
+**This is a regression introduced by the tabs change (#911).** Pre-tabs, `_transition_to_launch` called `await lower.remove_children()`, which took the prompt panel and command summary down; the old code comments say so explicitly. The tab swap replaced that teardown and nothing assumed the job, so the Setup tab permanently shows the last answered question (`67/67`) under the stack overview.
+
+The stack overview **must stay live** — that was the whole point of keeping both bodies mounted — so hide/retire only the prompt and the command summary.
 
 - [ ] **Step 1: Write the failing test**
 

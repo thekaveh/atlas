@@ -139,3 +139,124 @@ def test_hba_recovery_copy_survives_a_second_start(tmp_path: Path) -> None:
     )
     assert second.returncode == 0, second.stderr
     assert hba.with_name("pg_hba.conf.atlas.bak").read_text(encoding="utf-8") == original
+
+
+def _write_hba_signal_commands(commands):
+    import sys
+    sender = commands / "awk"
+    sender.write_text(
+        f"#!{sys.executable}\n"
+        "import os, signal, sys\nfrom pathlib import Path\n"
+        "counter = Path(os.environ['OWNED_AWK_COUNTER'])\n"
+        "count = int(counter.read_text()) + 1 if counter.exists() else 1\n"
+        "counter.write_text(str(count))\n"
+        "if count == int(os.environ['OWNED_INTERRUPT_AT']):\n"
+        "    name = os.environ['OWNED_SIGNAL']\n"
+        "    if name == 'command-error':\n        sys.exit(42)\n"
+        "    pid = int(Path(os.environ['OWNED_PID_FILE']).read_text())\n"
+        "    assert os.getppid() == pid\n"
+        "    Path(os.environ['OWNED_SIGNAL_MARKER']).write_text(name)\n"
+        "    os.kill(pid, getattr(signal, 'SIG' + name))\n"
+        "os.execv('/usr/bin/awk', ['/usr/bin/awk', *sys.argv[1:]])\n",
+        encoding="utf-8",
+    )
+    sender.chmod(0o700)
+    entry = commands / "entry"
+    entry.write_text('#!/bin/sh\nprintf reached > "$OWNED_ENTRY_MARKER"\n', encoding="utf-8")
+    entry.chmod(0o700)
+
+
+def _run_owned_hba_guard(env):
+    import signal
+
+    process = subprocess.Popen(
+        ["/bin/sh", "-c", 'printf "%s" "$$" > "$OWNED_PID_FILE"; exec /bin/sh "$OWNED_GUARD"'],
+        env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True, start_new_session=True,
+    )
+    try:
+        stdout, stderr = process.communicate(timeout=10)
+    except BaseException:
+        if process.poll() is None:
+            os.killpg(process.pid, signal.SIGKILL)
+        process.communicate()
+        raise
+    return subprocess.CompletedProcess(process.args, process.returncode, stdout, stderr)
+
+
+@pytest.fixture
+def interrupted_hba_guard(tmp_path):
+    """Run the complete guard against private files and an owned signal sender."""
+    commands = tmp_path / "commands"
+    commands.mkdir()
+    _write_hba_signal_commands(commands)
+    pgdata = tmp_path / "pgdata"
+    pgdata.mkdir()
+    original = "host all all 127.0.0.1/32 trust\n"
+    hba = pgdata / "pg_hba.conf"
+    hba.write_text(original, encoding="utf-8")
+    hba.chmod(0o640)
+    (pgdata / "PG_VERSION").write_text("17\n", encoding="utf-8")
+
+    def run(name, interrupt_at):
+        env = {
+            "PATH": str(commands) + ":/usr/bin:/bin", "HOME": str(tmp_path),
+            "PGDATA": str(pgdata), "ATLAS_POSTGRES_ENTRYPOINT": str(commands / "entry"),
+            "OWNED_SIGNAL": name, "OWNED_INTERRUPT_AT": str(interrupt_at),
+            "OWNED_AWK_COUNTER": str(tmp_path / "counter"),
+            "OWNED_PID_FILE": str(tmp_path / "pid"),
+            "OWNED_SIGNAL_MARKER": str(tmp_path / "signal"),
+            "OWNED_ENTRY_MARKER": str(tmp_path / "entry"),
+            "OWNED_GUARD": str(HBA_GUARD),
+        }
+        return _run_owned_hba_guard(env)
+
+    return run, hba, original
+
+
+def _assert_interrupted_hba_files(hba, original, interrupt_at):
+    assert hba.read_text(encoding="utf-8") == original
+    assert hba.stat().st_mode & 0o777 == 0o640
+    leftovers = [p.name for p in hba.parent.iterdir()
+                 if p.name.startswith((".pg_hba.conf.atlas.", "pg_hba.conf.atlas.bak."))]
+    assert leftovers == []
+    backup = hba.with_name("pg_hba.conf.atlas.bak")
+    assert backup.exists() == (interrupt_at == 4)
+    if backup.exists():
+        assert backup.read_text(encoding="utf-8") == original
+
+
+@pytest.mark.parametrize("signal_case", [("HUP", 129), ("INT", 130), ("TERM", 143)])
+@pytest.mark.parametrize("interrupt_at", [1, 4], ids=["preflight", "candidate-validation"])
+def test_hba_guard_signals_stop_before_database_entry_and_clear_temporaries(
+    tmp_path, interrupted_hba_guard, signal_case, interrupt_at,
+):
+    name, status = signal_case
+    run, hba, original = interrupted_hba_guard
+    result = run(name, interrupt_at)
+    assert (tmp_path / "signal").read_text(encoding="utf-8") == name
+    assert result.returncode == status, result.stderr
+    assert not (tmp_path / "entry").exists()
+    _assert_interrupted_hba_files(hba, original, interrupt_at)
+
+
+def test_hba_guard_command_failure_keeps_its_status_and_cleans_candidates(interrupted_hba_guard, tmp_path):
+    run, hba, original = interrupted_hba_guard
+    result = run("command-error", 3)
+    assert result.returncode == 42
+    assert not (tmp_path / "signal").exists() and not (tmp_path / "entry").exists()
+    assert hba.read_text(encoding="utf-8") == original
+    assert not list(hba.parent.glob(".pg_hba.conf.atlas.*"))
+
+
+def test_hba_guard_ordinary_success_still_reaches_entry_with_same_bytes(interrupted_hba_guard, tmp_path):
+    run, hba, original = interrupted_hba_guard
+    result = run("ordinary", 999)
+    assert result.returncode == 0 and result.stderr == ""
+    assert result.stdout == "supabase-db: upgraded host authentication rules to scram-sha-256\n"
+    assert (tmp_path / "entry").read_text(encoding="utf-8") == "reached"
+    assert not (tmp_path / "signal").exists()
+    assert hba.read_text(encoding="utf-8") == "host all all 127.0.0.1/32 scram-sha-256\n"
+    assert hba.stat().st_mode & 0o777 == 0o640
+    assert hba.with_name("pg_hba.conf.atlas.bak").read_text(encoding="utf-8") == original
+    assert not list(hba.parent.glob(".pg_hba.conf.atlas.*"))

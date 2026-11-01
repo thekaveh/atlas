@@ -1,5 +1,5 @@
 """Regression test for the asymmetric-override class documented in
-`feedback_localhost_url_override_symmetry.md`.
+docs/CONTRIBUTING-services.md §14.2 (URL / localhost handling).
 
 The wizard writes each localhost-source port override to a
 `<SERVICE>_LOCALHOST_PORT` variable in `.env`
@@ -134,7 +134,7 @@ def test_localhost_port_var_referenced_by_consumer(var_name: str) -> None:
         f"The wizard writes the user's host port to this var, but no "
         f"in-container ENDPOINT generator reads it — so the override "
         f"silently dies. This is the asymmetric-override class "
-        f"documented in feedback_localhost_url_override_symmetry.md.\n\n"
+        f"documented in docs/CONTRIBUTING-services.md §14.2.\n\n"
         f"Either:\n"
         f"  1. Add a `${{{var_name}:-...}}` interpolation in the "
         f"     service's runtime_sc.environment block (preferred when "

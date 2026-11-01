@@ -43,27 +43,31 @@ from typing import Any
 
 import yaml
 
+# Operator hint for every missing-catalog exit: the mount lives in the
+# litellm-init service of services/litellm/compose.yml.
+_CATALOG_MOUNT_HINT = (
+    "the ``../../bootstrapper/utils:/catalog:ro`` bind mount is missing or "
+    "misconfigured. Check the litellm-init service block in "
+    "services/litellm/compose.yml."
+)
+
 
 def _load_shared_settings():
     """Import ``litellm_settings`` from the bind-mounted /catalog dir.
 
-    Sibling mount of /scripts (see docker-compose.yml). Register in sys.modules before
+    Sibling mount of /scripts (see services/litellm/compose.yml). Register in sys.modules before
     exec_module so dataclass / future-annotations machinery resolves
     cleanly.
 
     Fails loudly when the bind mount is misconfigured: a silent fallback
     that duplicates ``litellm_settings.base_settings()`` here would
     eventually drift, and a missing mount means the operator's
-    docker-compose.yml needs fixing — surfacing it now is more honest
+    services/litellm/compose.yml needs fixing — surfacing it now is more honest
     than papering over it.
     """
     path = _catalog_dir() / "litellm_settings.py"
     if not path.exists():
-        sys.exit(
-            f"❌ {path} not found — the ``./bootstrapper/utils:/catalog:ro`` "
-            f"bind mount is missing or misconfigured. Check the litellm-init "
-            f"service block in docker-compose.yml."
-        )
+        sys.exit(f"❌ {path} not found — {_CATALOG_MOUNT_HINT}")
     spec = importlib.util.spec_from_file_location("litellm_settings", path)
     module = importlib.util.module_from_spec(spec)
     sys.modules["litellm_settings"] = module
@@ -192,8 +196,7 @@ def _catalog_dir() -> Path:
     else:
         sys.exit(
             "❌ /catalog not found and ATLAS_CATALOG_DIR is not set — "
-            "the ``./bootstrapper/utils:/catalog:ro`` bind mount is missing or "
-            "misconfigured. Check the litellm-init service block in docker-compose.yml."
+            + _CATALOG_MOUNT_HINT
         )
     if catalog.is_dir() and str(catalog) not in sys.path:
         sys.path.insert(0, str(catalog))
@@ -222,11 +225,7 @@ def _load_catalog_module(name: str):
     catalog = _catalog_dir()
     path = catalog / f"{name}.py"
     if not path.exists():
-        sys.exit(
-            f"❌ {path} not found — the ``./bootstrapper/utils:/catalog:ro`` "
-            f"bind mount is missing or misconfigured. Check the litellm-init "
-            f"service block in docker-compose.yml."
-        )
+        sys.exit(f"❌ {path} not found — {_CATALOG_MOUNT_HINT}")
     spec = importlib.util.spec_from_file_location(name, path)
     module = importlib.util.module_from_spec(spec)
     sys.modules[name] = module
@@ -548,11 +547,11 @@ def lightrag_model_entry() -> dict[str, Any] | None:
         "litellm_params": {
             "model": "ollama_chat/lightrag",
             "api_base": endpoint.rstrip("/"),
-            # Literal embed (not `os.environ/LIGHTRAG_API_KEY`): the key
-            # is auto-generated once by generate_and_update_lightrag_api_key
-            # (idempotent, never force-rotated). Rotation would require a
-            # re-seed anyway, so a runtime env-directive buys nothing.
-            "api_key": os.environ.get("LIGHTRAG_API_KEY", ""),
+            # Env directive (not a literal), like the Hermes and FAL rows:
+            # config.yaml is world-readable on the host bind mount, and this
+            # key authorises LightRAG's document routes (DELETE /documents).
+            # The litellm server resolves it from its own environment.
+            "api_key": "os.environ/LIGHTRAG_API_KEY",
         },
         "model_info": {
             "mode": "chat",

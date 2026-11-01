@@ -41,7 +41,7 @@ sources:
   default: disabled
   options:
     - id: container
-      label: "Enable the backup runner (invoke via docker compose run --rm backup)."
+      label: "Enable the backup runner (run services/backup/run-consistent-backup.sh)."
     - id: disabled
       label: "No backup service (default)."
 
@@ -81,7 +81,7 @@ env:
     description: "Deprecated pre-M11 endpoint variable accepted only as a migration fallback when BACKUP_S3_ENDPOINT remains at its local default."
   - name: BACKUP_COMMAND_TIMEOUT_SECONDS
     default: 900
-    description: "Positive per-command deadline in seconds for package install, database, archive, and S3 operations."
+    description: "Positive per-command deadline in seconds, at most 86400, for each database, archive, digest and S3 command. A whole orchestrated backup run gets three times this value, at least 900 s."
   - name: BACKUP_RESTORE_GLOBAL_TIMEOUT_SECONDS
     default: 28800
     description: "Finite active-restore deadline; must exceed BACKUP_COMMAND_TIMEOUT_SECONDS. Hard-kill grace covers three bounded commands plus 60 seconds for compensation and exact lock cleanup."

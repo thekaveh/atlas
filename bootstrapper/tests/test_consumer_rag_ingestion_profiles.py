@@ -380,11 +380,16 @@ def test_bad_corpus_source_rejected(tmp_path: Path) -> None:
         load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
 
 
-def test_bad_parser_rejected(tmp_path: Path) -> None:
+# crawl4ai was accepted but the Backend has no crawl4ai parser, so plain_text
+# silently handled every file; an unimplemented parser now fails at load.
+@pytest.mark.parametrize("parser", ["magic", "crawl4ai"])
+def test_bad_parser_rejected(tmp_path: Path, parser: str) -> None:
     _write_root(tmp_path)
     manifest = _write_consumer(
         tmp_path, "c",
-        "rag_ingestion_profiles:\n  version: 1\n  profiles:\n    - name: p\n      corpus: {source: mount, path: a}\n      parser_order: [magic]\n      vector_targets: [{backend: weaviate, collection_prefix: A, on_unavailable: skip}]\n",
+        "rag_ingestion_profiles:\n  version: 1\n  profiles:\n    - name: p\n      corpus: {source: mount, path: a}\n"
+        f"      parser_order: [{parser}]\n"
+        "      vector_targets: [{backend: weaviate, collection_prefix: A, on_unavailable: skip}]\n",
     )
     with pytest.raises(ConsumerManifestError, match="invalid parser"):
         load_consumer_config(tmp_path, explicit_paths=[str(manifest)])

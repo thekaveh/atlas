@@ -25,7 +25,7 @@ TRINO_PORT=                          # topology-assigned
 TRINO_SCALE=                         # set by ./start.sh from TRINO_SOURCE
 ```
 
-`TRINO_SOURCE=container` also needs `MINIO_SOURCE=container` and `ICEBERG_REST_SOURCE=container`. If either is disabled, `./start.sh` reports a dependency violation and scales Trino to 0.
+`TRINO_SOURCE=container` also needs `MINIO_SOURCE=container` and `ICEBERG_REST_SOURCE=container`. If either is disabled, `./start.sh` stops with an error before Compose starts. Enable both, or set `TRINO_SOURCE=disabled`.
 
 ## 4. Architecture & Wiring
 
@@ -62,7 +62,7 @@ SHOW TABLES FROM lakehouse.bronze;
 
 The seeded profile uses `jdbc:trino://trino:8080/lakehouse`, driver `io.trino.jdbc.TrinoDriver` and Maven artifact `io.trino:trino-jdbc:482`. Atlas registers it as the named interpreter `%trino`, not as a `%jdbc(prefix)` profile.
 
-Python clients inside the Docker network can use the official `trino` DB-API package:
+Python clients inside the Docker network can use the official `trino` DB-API package. The JupyterHub and Airflow images do not include it. Install it first, for example with `%pip install trino` in a notebook. The [JupyterHub README](../jupyterhub/README.md#8-custom-packages) covers permanent installs. Then connect:
 
 ```python
 import trino

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 import media_registry
 
 
@@ -73,6 +75,35 @@ def test_default_model_id_honors_env(monkeypatch):
     assert media_registry.default_model_id() == "fal-ai/trellis"
     monkeypatch.setenv("FAL_IMAGE_TO_3D_MODEL", "fal-ai/hunyuan3d/v2")
     assert media_registry.default_model_id() == "fal-ai/hunyuan3d/v2"
+
+
+@pytest.mark.parametrize("value", ["fal-ai/trelis", "pixal3d"])
+def test_startup_rejects_an_unknown_or_unverified_default_3d_model(monkeypatch, value):
+    # A typo or unverified id used to start cleanly, then 400 every request.
+    from fal_media_client import validate_fal_config
+
+    monkeypatch.setenv("FAL_SOURCE", "enabled")
+    monkeypatch.setenv("FAL_IMAGE_TO_3D_MODEL", value)
+    with pytest.raises(ValueError, match="FAL_IMAGE_TO_3D_MODEL"):
+        validate_fal_config()
+
+
+@pytest.mark.parametrize("source", ["disabled", ""])
+def test_startup_ignores_the_default_3d_model_while_fal_is_disabled(monkeypatch, source):
+    from fal_media_client import validate_fal_config
+
+    monkeypatch.setenv("FAL_SOURCE", source)
+    monkeypatch.setenv("FAL_IMAGE_TO_3D_MODEL", "pixal3d")
+    assert validate_fal_config() is None
+
+
+@pytest.mark.parametrize("value", ["trellis", "fal-ai/hunyuan3d/v2", ""])
+def test_startup_accepts_a_verified_default_3d_model(monkeypatch, value):
+    from fal_media_client import validate_fal_config
+
+    monkeypatch.setenv("FAL_SOURCE", "enabled")
+    monkeypatch.setenv("FAL_IMAGE_TO_3D_MODEL", value)
+    assert validate_fal_config() is None
 
 
 def test_known_ids_are_canonical():

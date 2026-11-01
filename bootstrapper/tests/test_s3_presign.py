@@ -260,6 +260,42 @@ def test_endpoint_without_scheme_raises():
 
 
 @pytest.mark.parametrize(
+    ("endpoint", "message"),
+    [
+        # A scheme-less netloc parses with an empty scheme; only the scheme
+        # guard stops it from signing a "://minio.example:9000" URL.
+        ("//minio.example:9000", "must include a scheme"),
+        # urlsplit reads "localhost" as the scheme here, so the host guard fires.
+        ("localhost:63018", "must include a host"),
+        ("", "non-empty URL"),
+    ],
+)
+def test_endpoint_errors_name_the_failed_guard(endpoint, message):
+    with pytest.raises(ValueError, match=message):
+        presign_get_url(endpoint=endpoint, bucket="b", key="k", now=FIXED_NOW, **CREDS)
+
+
+@pytest.mark.parametrize("expires", [True, 1.5, "60"])
+def test_non_integer_expires_raises(expires):
+    with pytest.raises(ValueError, match="integer number of seconds"):
+        presign_get_url(
+            endpoint="http://localhost:63018",
+            bucket="b",
+            key="k",
+            expires=expires,
+            now=FIXED_NOW,
+            **CREDS,
+        )
+
+
+def test_ipv6_endpoint_keeps_its_brackets():
+    url = presign_get_url(
+        endpoint="http://[::1]:9000", bucket="b", key="k.png", now=FIXED_NOW, **CREDS
+    )
+    assert url.startswith("http://[::1]:9000/b/k.png?")
+
+
+@pytest.mark.parametrize(
     "field",
     ["endpoint", "access_key", "secret_key"],
 )

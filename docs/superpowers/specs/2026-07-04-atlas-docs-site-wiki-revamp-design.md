@@ -1,6 +1,6 @@
 # Atlas Docs Site And Wiki Revamp Design
 
-> **Status: archived spec** — dated 2026-07-04; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+> **Status: archived spec** — dated 2026-07-04; a point-in-time record kept for archaeology, not current guidance. It landed in `d2eba4cf`, which has no CHANGELOG entry.
 
 ## 1. Overview
 

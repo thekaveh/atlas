@@ -14,6 +14,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from prometheus_fastapi_instrumentator import Instrumentator
 from pydantic import ValidationError
@@ -34,6 +35,17 @@ from .upload_body import UploadBody, UploadRejected
 
 
 logger = logging.getLogger(__name__)
+
+
+def _validation_detail(exc):
+    return jsonable_encoder(
+        exc.errors(),
+        custom_encoder={float: lambda value: value if math.isfinite(value) else str(value)},
+    )
+
+
+async def _request_validation_error(_request, exc):
+    return JSONResponse(status_code=422, content={"detail": _validation_detail(exc)})
 
 
 async def _join_request_task(task: asyncio.Task):
@@ -168,6 +180,7 @@ def create_app(*, api_token: str | None = None) -> FastAPI:
     concurrency = max(1, int(os.getenv("ASSET_WORKER_CONCURRENCY", "1")))
     app.state.transform_semaphore = threading.Semaphore(concurrency)
 
+    app.add_exception_handler(RequestValidationError, _request_validation_error)
     app.add_middleware(_RequestAdmission, owner=app, expected_token=expected_token)
 
     @app.get("/health")
@@ -181,7 +194,6 @@ def create_app(*, api_token: str | None = None) -> FastAPI:
 
     @app.post("/gltf/postprocess", response_model=PostprocessResponse)
     async def postprocess_upload(
-        request: Request,
         file: UploadFile = File(...),
         target_height_m: float | None = Form(default=None),
         target_width_m: float | None = Form(default=None),
@@ -210,16 +222,15 @@ def create_app(*, api_token: str | None = None) -> FastAPI:
                 collider_decimation=collider_decimation,
             )
         except ValidationError as exc:
-            raise HTTPException(status_code=422, detail=jsonable_encoder(exc.errors())) from exc
-        return await _run_blocking_request(request, _process_upload, file.file, params)
+            raise HTTPException(status_code=422, detail=_validation_detail(exc)) from exc
+        return await _run_blocking_request(_process_upload, file.file, params)
 
     @app.post("/gltf/postprocess/ref", response_model=PostprocessResponse)
     async def postprocess_ref(
         payload: RefPostprocessRequest,
-        request: Request,
     ) -> PostprocessResponse:
         _require_allowed_bucket(payload.input.bucket)
-        return await _run_blocking_request(request, _process_reference, payload)
+        return await _run_blocking_request(_process_reference, payload)
 
     def _process_reference(payload: RefPostprocessRequest) -> PostprocessResponse:
         storage = ArtifactStorage()
@@ -260,9 +271,8 @@ def create_app(*, api_token: str | None = None) -> FastAPI:
     return app
 
 
-async def _run_blocking_request(request: Request, function, *args):
+async def _run_blocking_request(function, *args):
     task = asyncio.create_task(asyncio.to_thread(function, *args))
-    request.state.asset_work_task = task
     return await asyncio.shield(task)
 
 

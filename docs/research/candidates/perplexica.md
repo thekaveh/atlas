@@ -60,7 +60,7 @@ small — single docker image (`itzcrazykns1337/vane:latest`), one new manifest 
 - Project was recently renamed Perplexica → Vane; upstream image tag and config keys may shift. Pin to a known-good tag.
 - Duplicates some Open WebUI functionality once `ENABLE_WEB_SEARCH` is wired (see searxng row, missing-pair #1). Worth keeping both only if the UX really diverges.
 - Requires SearXNG `formats: [..., json]` to be enabled (already true in `services/searxng/config/settings.yml`).
-- No native auth; sits behind Kong but Kong does not currently enforce auth on alias routes.
+- No native auth in the proposed integration. Kong already protects selected alias routes with basic-auth and an ACL, but Vane still needs an explicit route-auth design. Gateway ports bind to loopback by default; LAN access depends on `HOST_BIND_IP` and separate access controls.
 
 ## 7. Why now (and why not sooner)
 SearXNG + LiteLLM + Ollama are all in place, and an `ENABLE_WEB_SEARCH` wiring for Open WebUI (the higher-priority gap) covers most of the use case. Perplexica becomes interesting once users want a UI tuned specifically for cited web answers rather than a general chat with a toggle.

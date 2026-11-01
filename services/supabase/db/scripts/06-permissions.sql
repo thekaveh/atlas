@@ -64,10 +64,11 @@ DO $$ BEGIN
     -- storage.buckets/objects (04-storage.sql, "managing access through
     -- GRANTs instead"), so this grant is the ONLY control — and PostgREST
     -- publishes `storage` (PGRST_DB_SCHEMA: "public,storage") on a port that
-    -- binds 0.0.0.0 unless HOST_BIND_IP is set. Granting anon here made every
+    -- binds loopback by default (HOST_BIND_IP=127.0.0.1:) and every interface
+    -- when HOST_BIND_IP is empty or 0.0.0.0:. Granting anon here made every
     -- object path, owner and bucket row readable by any unauthenticated
-    -- network peer. (For `public` the grant below is fine: RLS is enabled on
-    -- every table there and is the intended gate.)
+    -- peer that can reach that port. (For `public` the per-table grants below
+    -- are fine: they apply only where RLS is enabled, the intended gate.)
     -- `authenticated` is EXCLUDED here too, for the same reason and not a
     -- milder version of it. GOTRUE_DISABLE_SIGNUP is "false", so an
     -- `authenticated` JWT is self-service, and with RLS off on these tables the

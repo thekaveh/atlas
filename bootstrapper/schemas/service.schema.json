@@ -449,7 +449,7 @@
     },
     "runtime_dependency_tiers": {
       "type": "object",
-      "description": "Globals-only. Stack-wide tier ordering (data_tier, init_tier, core_services, app_tier).",
+      "description": "Globals-only. Informational grouping of containers by tier (data_tier, init_tier, core_services, app_tier). The validator checks each name; nothing reads it at runtime. Compose depends_on orders startup.",
       "additionalProperties": {
         "type": "array",
         "items": { "type": "string" }

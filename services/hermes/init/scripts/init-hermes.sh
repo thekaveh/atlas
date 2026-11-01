@@ -2,7 +2,7 @@
 # shellcheck shell=bash
 # init-hermes.sh — render /opt/data/config.yaml (and supporting files)
 # from environment, then exit. Runs before the hermes service starts
-# (see docker-compose.yml depends_on).
+# (see services/hermes/compose.yml depends_on).
 #
 # Idempotent: re-running overwrites the GENERATED files but leaves
 # user-edited files (sessions/, memories/MEMORY.md, etc.) intact.
@@ -14,9 +14,9 @@
 #      via envsubst, surgically dropping provider blocks whose
 #      *_INTERNAL_URL is empty (i.e. the underlying stack service is
 #      disabled).
-#   3. Drop a comfyui-host override file under /opt/data/skills/ so
-#      Hermes's bundled creative-comfyui skill targets our internal
-#      comfyui:18188 instead of its hardcoded 127.0.0.1:8188.
+#   3. Install a companion skill at skills/creative/atlas-comfyui-host/SKILL.md
+#      naming COMFYUI_INTERNAL_URL, because the bundled comfyui skill
+#      defaults to 127.0.0.1:8188.
 #
 # Exits non-zero on any unexpected condition so docker compose surfaces
 # the failure instead of letting hermes start with a broken config.
@@ -84,8 +84,7 @@ export LITELLM_MASTER_KEY="${LITELLM_MASTER_KEY:-}"
 # at least one match because the wizard refuses to start if every
 # provider is disabled.
 #
-# This block runs after the apk-add bootstrap, so curl + jq are
-# already on the PATH.
+# curl and jq are baked into the init image (init/Dockerfile).
 #
 # We always query /v1/models once here — the result is used for BOTH
 # the HERMES_DEFAULT_MODEL auto-pick (when blank) AND the filtered
@@ -93,11 +92,11 @@ export LITELLM_MASTER_KEY="${LITELLM_MASTER_KEY:-}"
 # the two flows in sync; previously the second flow received an empty
 # catalog whenever the operator pinned HERMES_DEFAULT_MODEL.
 litellm_url="${LITELLM_BASE_URL:-http://litellm:4000}"
-# GET a LiteLLM path with the master key on curl's stdin (-K-), never on its
+# GET a LiteLLM path with the master key on curl's stdin (--header @-), never on its
 # argv, where `ps` / `docker top` would show it (#1381).
 litellm_get() {
-  printf 'header = "Authorization: Bearer %s"\n' "${LITELLM_MASTER_KEY}" \
-    | curl -fsS --max-time 15 -K- "${litellm_url}$1"
+  printf 'Authorization: Bearer %s\n' "${LITELLM_MASTER_KEY}" \
+    | curl -fsS --max-time 15 --header @- "${litellm_url}$1"
 }
 log "querying LiteLLM /v1/models"
 models_json=$(litellm_get "/v1/models" 2>/dev/null || true)
@@ -128,7 +127,7 @@ if [[ -z "${HERMES_DEFAULT_MODEL}" ]]; then
         "gpt-5" \
         "gpt-5-codex" \
         "gpt-5-mini"; do
-      if printf '%s\n' "${available_ids}" | grep -qx "${candidate}"; then
+      if printf '%s\n' "${available_ids}" | grep -Fqx "${candidate}"; then
         HERMES_DEFAULT_MODEL="${candidate}"
         log "  auto-selected ${candidate} from LiteLLM model_list"
         break
@@ -258,15 +257,18 @@ if [[ -n "${models_json:-}" ]]; then
 fi
 export LITELLM_MODELS_LIST
 
+# Encode YAML credential scalars without placing keys in command arguments.
+LITELLM_MASTER_KEY_YAML=$(jq -cn '$ENV.LITELLM_MASTER_KEY')
+STT_INTERNAL_API_KEY_YAML=$(jq -cn '$ENV.STT_INTERNAL_API_KEY')
+export LITELLM_MASTER_KEY_YAML STT_INTERNAL_API_KEY_YAML
+
 # Build the variable list explicitly so envsubst only touches the
 # ones we know about.
 # shellcheck disable=SC2016
-VARS='${HERMES_DEFAULT_MODEL} ${HERMES_CONTEXT_LENGTH} ${LITELLM_MASTER_KEY}
+VARS='${HERMES_DEFAULT_MODEL} ${HERMES_CONTEXT_LENGTH} ${LITELLM_MASTER_KEY_YAML}
 ${LITELLM_MODELS_LIST}
 ${TTS_INTERNAL_URL} ${TTS_INTERNAL_MODEL} ${TTS_INTERNAL_VOICE}
-${STT_INTERNAL_URL} ${STT_INTERNAL_API_KEY} ${COMFYUI_INTERNAL_URL}
-${SEARXNG_INTERNAL_URL}
-${LIGHTRAG_INTERNAL_URL} ${LIGHTRAG_API_KEY}'
+${STT_INTERNAL_URL} ${STT_INTERNAL_API_KEY_YAML}'
 
 if [[ ! -f "${TEMPLATE_DIR}/config.yaml.tmpl" ]]; then
   log "❌ template ${TEMPLATE_DIR}/config.yaml.tmpl is missing — check the bind mount"

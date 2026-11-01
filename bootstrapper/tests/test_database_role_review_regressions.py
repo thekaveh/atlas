@@ -347,7 +347,7 @@ def test_readers_do_not_inherit_cluster_wide_read_privileges(
     assert memberships.stdout.splitlines() == []
 
 
-@pytest.mark.parametrize(("reader", "password"), READERS)
+@pytest.mark.parametrize(("reader", "password"), READERS, ids=[reader for reader, _ in READERS])
 def test_each_reader_is_denied_auth_and_every_dedicated_database(
     disposable_postgres: DisposablePostgres,
     reader: str,
@@ -368,7 +368,7 @@ def test_each_reader_is_denied_auth_and_every_dedicated_database(
         assert connection.returncode != 0, f"{reader} connected to {database}"
 
 
-@pytest.mark.parametrize(("reader", "password"), READERS)
+@pytest.mark.parametrize(("reader", "password"), READERS, ids=[reader for reader, _ in READERS])
 def test_each_reader_receives_only_owner_specific_future_relation_reads(
     disposable_postgres: DisposablePostgres,
     reader: str,
@@ -512,7 +512,8 @@ def _supavisor_container(network: str):
             "-e", f"API_JWT_SECRET={'a' * 64}",
             "-e", f"METRICS_JWT_SECRET={'m' * 64}",
             "-e", "REGION=local",
-            "-e", "ERL_AFLAGS=-proto_dist inet_tcp",
+            "-e", "ERL_AFLAGS=-proto_dist inet_tcp -kernel inet_dist_use_interface {127,0,0,1}",
+            "-e", "ERL_EPMD_ADDRESS=127.0.0.1",
             "-e", "POSTGRES_HOST=supabase-db",
             "-e", "POSTGRES_PORT=5432",
             "-e", "POSTGRES_DB=postgres",

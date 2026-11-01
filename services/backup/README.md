@@ -7,9 +7,14 @@ On-demand backup runner for the Atlas stack. The host orchestrator captures four
 - a native online Weaviate snapshot;
 - a Supabase Storage archive.
 
-It uploads them to an S3-compatible bucket with deployment-authenticated manifests. PostgreSQL restore stages the dump and keeps a rollback database. Neo4j and Weaviate restore through their exact pinned database contracts.
+It uploads the captured artifacts to an S3-compatible bucket. Deployment-authenticated manifests cover the three database artifact sets.
+The Supabase Storage archive has no authenticated manifest or restore procedure.
+
+PostgreSQL restore stages the dump and keeps a rollback database. Neo4j and Weaviate restore through their exact pinned database contracts.
 
 The container is **never long-running** (`BACKUP_SCALE=0`). It is in Compose to share the stack network, env vars and volume mounts. It does work only when you invoke it. Before the first backup, set `BACKUP_MANIFEST_HMAC_KEY` and `BACKUP_DEPLOYMENT_ID` (§3).
+
+`atlas_compose` is the Compose helper from [Troubleshooting](../../docs/quick-start/troubleshooting.md). Define it first and run it from the repository root. It applies the project name, overlays and `ATLAS_ENV_FILE`.
 
 ```bash
 # Persist the enabled SOURCE through the Atlas CLI
@@ -19,12 +24,12 @@ The container is **never long-running** (`BACKUP_SCALE=0`). It is in Compose to 
 services/backup/run-consistent-backup.sh
 
 # Restore the latest backup after quiescing every database writer
-docker compose run --rm \
+atlas_compose run --rm \
   -e BACKUP_RESTORE_MAINTENANCE_MODE=confirmed \
   backup /scripts/restore-postgres.sh
 
 # Restore a specific timestamp
-docker compose run --rm \
+atlas_compose run --rm \
   -e BACKUP_RESTORE_MAINTENANCE_MODE=confirmed \
   -e BACKUP_TIMESTAMP=20240101_120000 \
   backup /scripts/restore-postgres.sh
@@ -155,12 +160,13 @@ The client imports credentials through a private per-run `0600` configuration fi
 
 **Deadlines.** Each value is a canonical positive decimal integer, with no leading zeroes.
 
-- `BACKUP_COMMAND_TIMEOUT_SECONDS` (default 900, maximum 86,400) ends any single package-install, PostgreSQL, archive, digest, sidecar-parse or S3 command.
+- `BACKUP_COMMAND_TIMEOUT_SECONDS` (default 900, maximum 86,400) ends any single PostgreSQL, archive, digest, sidecar-parse or S3 command.
 - `BACKUP_RESTORE_GLOBAL_TIMEOUT_SECONDS` (default 28,800 = eight hours, maximum 604,800 = seven days) bounds active restore work and the lock-holder lifetime. It must exceed the command deadline.
 - On global timeout the trap receives `TERM`. The hard-kill grace is three command deadlines plus 60 seconds. It covers the foreground command remainder, one cutover compensation or drop command, and lock-session termination.
 - The host orchestrator bounds a whole backup run at `max(3 × BACKUP_COMMAND_TIMEOUT_SECONDS, 900)` seconds, because the run chains dumps, the snapshot wait and uploads.
 - The Weaviate snapshot wait inside the runner uses `BACKUP_COMMAND_TIMEOUT_SECONDS`, not the 120 s quiesce timeout. A larger command deadline gives a large snapshot more time in total.
 - A staged Weaviate restore waits up to `max(BACKUP_DATABASE_QUIESCE_TIMEOUT_SECONDS, 900)` seconds.
+- A Neo4j dump job gets four data windows, and a staged Neo4j load gets eight, plus a short grace. A data window is `max(BACKUP_DATABASE_QUIESCE_TIMEOUT_SECONDS, 900)` seconds.
 - When a host orchestrator step times out it exits 124. Configuration and contract errors exit 64; an interruption exits 130.
 
 **Known gap: Weaviate cancellation.** Atlas cancels a timed-out Weaviate operation with `wget --method=DELETE`. The BusyBox `wget` in the runner and in the Weaviate image rejects that option ([#1376](https://github.com/thekaveh/atlas/issues/1376)).
@@ -184,6 +190,8 @@ The client imports credentials through a private per-run `0600` configuration fi
 - The key is exactly 64 lowercase hexadecimal characters. OpenSSL's `hexkey` option decodes it to 32 raw key bytes; the 64-character text is not used verbatim.
 - Do not reuse a JWT, database password, S3 secret or other application credential.
 - If you lose either value, authenticated restore is not possible. If either is disclosed, an attacker can forge backup publications.
+- A Neo4j restore also restores the users and passwords in its `system` database. Keep the backup-time `GRAPH_DB_PASSWORD` and `GRAPH_DB_AUTH` with these secrets.
+- If `.env` was rebuilt, for example on a new host or by `./start.sh --cold`, set both values before the restore. Staged validation and the live health check log in with them.
 - To rotate the key, keep the old key wherever old backups must stay restorable.
 
 **Secret exposure.** The default Compose wiring passes the HMAC key and S3 credentials as container environment variables. The OpenSSL CLI receives the HMAC `hexkey` option in its short-lived process arguments. Administrators with Docker inspection or host process-inspection access can therefore see them.
@@ -230,6 +238,7 @@ This section covers the Neo4j and Weaviate restore. The PostgreSQL restore is in
 
 - It loads both Neo4j dumps into a fresh exact-5.26.31 volume and starts a disposable node to query-validate both databases.
 - It restores Weaviate only into a fresh exact-1.38.17 volume. It requires native `SUCCESS`, exact version metadata, readiness, and readable schema and object APIs.
+- Weaviate stages enable the configured `WEAVIATE_ENABLE_MODULES`, so restored classes keep their vectorizers. CLIP inference is stubbed there, because stages cannot reach `multi2vec-clip`.
 - It does not compare a mutable live pre-backup object count with the online snapshot.
 
 **Cutover.** Only after every enabled stage passes, the coordinator stops the initially running database services. It prepares and content-verifies every live rollback volume, replaces live contents from the validated stages, and validates again. Compose cannot atomically switch its fixed named-volume pointers. This is therefore a bounded offline copy cutover with compensating rollback, not a pointer swap.
@@ -336,6 +345,8 @@ Arbitrary authenticated archives generally require superuser-equivalent restore 
 
 **Compose scope.** The host entry points (`run-consistent-backup.sh`, `run-database-restore.sh`) scope every `docker compose` call to `PROJECT_NAME` and this checkout's `docker-compose.yml`. They set `COMPOSE_PROJECT_NAME` / `COMPOSE_FILE` unless you set them. They therefore work from cron, a worktree or a consumer submodule. A bare `docker compose` there would name the project after the working directory and mistake running databases for stopped ones.
 
+**Env file.** The host entry points honor `ATLAS_ENV_FILE` like `./start.sh`, and pass that file to every `docker compose` call. A missing file is refused.
+
 **PostgreSQL versions.** Restore reads PostgreSQL 17 target catalogs, including libc, ICU and builtin locale-provider metadata. Backups from older supported server majors can restore into PostgreSQL 17. A backup from a newer major is rejected.
 
 **Client binaries.** `init/Dockerfile` copies `/usr/bin/mc` from `pgsty/mc:RELEASE.2026-09-16T00-00-00Z@sha256:cfc83108c3abb371f8fb84d99c1fdc88f8c237e022409b0081fb7c0a3be634dd` to `/usr/local/bin/mc`. `minio-init` runs the same image. Backup and restore never download a client.
@@ -366,17 +377,19 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 
 ## 6. Troubleshooting
 
+The `atlas_compose` commands below use the Compose helper from [Troubleshooting](../../docs/quick-start/troubleshooting.md).
+
 **`backup image is missing the pinned mc` / `pinned mc checksum verification failed`**. The image's `/usr/local/bin/mc` is absent, or is not the binary that `init/Dockerfile` copies from the digest-pinned `pgsty/mc` image.
 
 - The usual cause is a `backup` image built before the client was baked in. Backup and restore runs reuse the existing local image and do not rebuild it.
 - Otherwise the image was built from a modified Dockerfile or an overridden `MC_IMAGE`.
-- Do not bypass verification or substitute Alpine's mutable `minio-client` package. Rebuild from the committed Dockerfile (`docker compose build backup`), check the architecture, and retry.
+- Do not bypass verification or substitute Alpine's mutable `minio-client` package. Rebuild from the committed Dockerfile (`atlas_compose build backup`), check the architecture, and retry.
 
 **`Backup local S3 mode requires MINIO_SOURCE to be enabled`**. Either enable on-stack MinIO for local mode, or explicitly select `BACKUP_S3_MODE=external` and provide dedicated external credentials before disabling MinIO.
 
-**`pg_dump: connection refused`.** `supabase-db` is not healthy. Check `docker compose ps supabase-db` and wait for the health check to pass before running the backup.
+**`pg_dump: connection refused`.** `supabase-db` is not healthy. Check `atlas_compose ps supabase-db` and wait for the health check to pass before running the backup.
 
-**`ERROR: bucket does not exist`.** The bucket is auto-created by the script (`mc mb --ignore-existing`). In local mode, check `docker compose ps minio`. In external mode, verify the endpoint, region, dedicated credentials, bucket-creation permission, and provider network policy.
+**`ERROR: bucket does not exist`.** The bucket is auto-created by the script (`mc mb --ignore-existing`). In local mode, check `atlas_compose ps minio`. In external mode, verify the endpoint, region, dedicated credentials, bucket-creation permission, and provider network policy.
 
 **`BACKUP_S3_ACCESS_KEY and BACKUP_S3_SECRET_KEY are required for external endpoints`.** External mode never falls back to `MINIO_ROOT_*`. Supply a dedicated pair and, when using temporary credentials, the matching session token.
 

@@ -14,6 +14,14 @@ def test_provider_boundary_modules_are_byte_identical():
     ).read_bytes()
 
 
+def test_docling_localhost_shared_module_copies_are_byte_identical():
+    # localhost imports its own copies; the GPU image ships shared/.
+    for name in ("utils.py", "models.py"):
+        assert (DOCLING / "localhost" / name).read_bytes() == (
+            DOCLING / "shared" / name
+        ).read_bytes(), name
+
+
 def test_gpu_dockerfiles_copy_provider_boundary_module():
     docling_dockerfile = (DOCLING / "gpu" / "Dockerfile").read_text(encoding="utf-8")
     parakeet_dockerfile = (PARAKEET / "gpu" / "Dockerfile").read_text(encoding="utf-8")

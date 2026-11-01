@@ -71,17 +71,30 @@ _ANY_SLASH = r'(?:/|\x252[Ff])+'
 _KONG_MAX_TIMEOUT_MS = 2**31 - 2
 
 
-def _bake_timeout_ms(raw: object, default: str = "600") -> int:
-    """Kong timeout for the asset-baker route: the worker's own
-    float(ASSET_BAKER_TIMEOUT_SECONDS) + 30 s, capped below Kong's 2^31 ms
-    limit (a larger value would stop the whole declarative config loading)."""
+def _positive_seconds(raw: object, default: str) -> float:
+    """float(raw), as the workers read it; the default when the value does
+    not parse, is not finite or is not positive."""
     try:
         seconds = float(str(raw or default).strip())
     except ValueError:
         seconds = float(default)
     if not math.isfinite(seconds) or seconds <= 0:
         seconds = float(default)
-    return min(int((seconds + 30) * 1000), _KONG_MAX_TIMEOUT_MS)
+    return seconds
+
+
+def _bake_timeout_ms(raw: object, default: str = "600") -> int:
+    """Kong timeout for the asset-baker route: the worker's own
+    float(ASSET_BAKER_TIMEOUT_SECONDS) + 30 s, capped below Kong's 2^31 ms
+    limit (a larger value would stop the whole declarative config loading)."""
+    return int(min((_positive_seconds(raw, default) + 30) * 1000, _KONG_MAX_TIMEOUT_MS))
+
+
+def _asset_worker_timeout_ms(raw: object, default: str = "300") -> int:
+    """Kong timeout for the asset-worker route: inspect, validate and optimize
+    each get float(ASSET_WORKER_TIMEOUT_SECONDS), so 3 x that + 60 s,
+    capped below Kong's 2^31 ms limit like the baker's."""
+    return int(min((3 * _positive_seconds(raw, default) + 60) * 1000, _KONG_MAX_TIMEOUT_MS))
 
 def _is_bare_origin(parsed) -> bool:
     """scheme://host with no path, query, fragment or userinfo; browsers send
@@ -154,8 +167,8 @@ class KongConfigGenerator:
         Returns ``http://host.docker.internal:<port>/`` where <port> is
         the value of ``port_var`` in .env if set, else ``default_port``.
         Centralized helper so all the localhost routes share one
-        substitution path — drift between them is the bug class memory
-        ``feedback_localhost_url_override_symmetry`` warns against.
+        substitution path — drift between them is the bug class
+        docs/CONTRIBUTING-services.md §14.2 warns against.
         """
         port = self.get_env_value(port_var) or str(default_port)
         return f"http://host.docker.internal:{port}/"
@@ -259,26 +272,44 @@ class KongConfigGenerator:
             }
         ]
 
-        consumers.extend(self._supabase_key_auth_consumers())
+        supabase_consumers = self._supabase_key_auth_consumers()
+        consumers.extend(supabase_consumers)
 
         if self._backend_uses_key_auth():
-            backend_api_key = self.get_env_value('BACKEND_KONG_API_KEY', '')
-            if not backend_api_key:
-                raise ValueError(
-                    "BACKEND_KONG_AUTH=key-auth requires BACKEND_KONG_API_KEY"
-                )
-            consumers.append(
-                {
-                    'username': 'backend_api_user',
-                    'keyauth_credentials': [
-                        {'key': backend_api_key},
-                    ],
-                    'acls': [
-                        {'group': 'backend_api'},
-                    ],
-                }
-            )
+            consumers.append(self._backend_key_auth_consumer(supabase_consumers))
         return consumers
+
+    def _backend_key_auth_consumer(
+        self, supabase_consumers: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """The ``backend_api_user`` consumer holding ``BACKEND_KONG_API_KEY``.
+
+        The key must differ from both Supabase keys. A duplicate key-auth
+        credential makes Kong reject the whole declarative file, taking the
+        entire gateway down. Skipping the backend consumer is no fix either:
+        the Supabase consumer holding that key lacks the ``backend_api``
+        group, so the backend gate would answer 403.
+        """
+        backend_api_key = self.get_env_value('BACKEND_KONG_API_KEY', '')
+        if not backend_api_key:
+            raise ValueError(
+                "BACKEND_KONG_AUTH=key-auth requires BACKEND_KONG_API_KEY"
+            )
+        supabase_keys = {c['keyauth_credentials'][0]['key'] for c in supabase_consumers}
+        if backend_api_key.strip() in supabase_keys:
+            raise ValueError(
+                "BACKEND_KONG_API_KEY must differ from SUPABASE_ANON_KEY "
+                "and SUPABASE_SERVICE_KEY"
+            )
+        return {
+            'username': 'backend_api_user',
+            'keyauth_credentials': [
+                {'key': backend_api_key},
+            ],
+            'acls': [
+                {'group': 'backend_api'},
+            ],
+        }
 
     #: Supabase consumers, mirroring upstream Supabase's own `kong.yml`.
     _SUPABASE_KEY_CONSUMERS = (
@@ -650,6 +681,10 @@ class KongConfigGenerator:
             present.update(parts[1:])
         return bool(needed & present)
 
+    # Streaming LLM upstreams. Kong buffers each route's response, which
+    # batches SSE tokens, unless the route sets response_buffering: false.
+    _UNBUFFERED_ALIAS_SERVICES = frozenset({"ollama-api"})
+
     def get_alias_only_services(self) -> List[Dict[str, Any]]:
         """Kong routes for the 7 aliases added in the topology rework
         that lacked dedicated routing logic before.
@@ -670,8 +705,8 @@ class KongConfigGenerator:
         # each service's ``<SVC>_LOCALHOST_PORT`` env var (with the
         # manifest's default-port as fallback). Compose's runtime_sc reads
         # the same PORT var, so Kong and the in-container consumers stay
-        # in sync — closing the symmetry gap memory note
-        # ``feedback_localhost_url_override_symmetry`` warns against.
+        # in sync — closing the symmetry gap
+        # docs/CONTRIBUTING-services.md §14.2 warns against.
         rows: List[tuple] = [
             # (alias, service_name, source_var,
             #  container_url_factory, localhost_url_factory)
@@ -751,15 +786,18 @@ class KongConfigGenerator:
             if not url:
                 # Source not recognized for this alias — skip silently.
                 continue
+            route = {
+                "name": f"{service_name}-all",
+                "strip_path": False,
+                "preserve_host": True,
+                "hosts": [alias],
+            }
+            if service_name in self._UNBUFFERED_ALIAS_SERVICES:
+                route["response_buffering"] = False
             services.append({
                 "name": service_name,
                 "url": url,
-                "routes": [{
-                    "name": f"{service_name}-all",
-                    "strip_path": False,
-                    "preserve_host": True,
-                    "hosts": [alias],
-                }],
+                "routes": [route],
                 "plugins": [{"name": "cors"}],
             })
         return services
@@ -1258,8 +1296,8 @@ class KongConfigGenerator:
                     # Without preserve_host, Kong forwards the upstream
                     # service's host (openclaw-gateway:18789) and the SPA's
                     # asset URLs / redirects bake that internal hostname,
-                    # which is unreachable from the operator's browser.
-                    # See reference_kong_preserve_host memory.
+                    # which is unreachable from the operator's browser
+                    # (docs/CONTRIBUTING-services.md §14.2).
                     'preserve_host': True,
                 }
             ],
@@ -1395,9 +1433,17 @@ class KongConfigGenerator:
         """
         if self.get_env_value("ASSET_WORKER_SOURCE", "disabled") == "disabled":
             return None
+        # One request runs three converter commands, each up to
+        # ASSET_WORKER_TIMEOUT_SECONDS; the gateway's 300 s default 504'd a
+        # long one while the worker kept its only slot.
+        worker_ms = _asset_worker_timeout_ms(
+            self.get_env_value("ASSET_WORKER_TIMEOUT_SECONDS", "300")
+        )
         return {
             "name": "asset-worker",
             "url": "http://asset-worker:8095/",
+            "read_timeout": worker_ms,
+            "write_timeout": worker_ms,
             "routes": [
                 {
                     "name": "asset-worker-all",
@@ -1468,8 +1514,8 @@ class KongConfigGenerator:
                     "name": "lightrag-all",
                     "strip_path": False,
                     # LightRAG WebUI SPA at /webui derives asset and API URLs
-                    # from the Host header — preserve_host is mandatory.
-                    # See reference_kong_preserve_host memory.
+                    # from the Host header — preserve_host is mandatory
+                    # (docs/CONTRIBUTING-services.md §14.2).
                     "preserve_host": True,
                     "hosts": ["lightrag.localhost"],
                 }
@@ -1655,7 +1701,7 @@ class KongConfigGenerator:
     # ── Uniform SPA-style routes ─────────────────────────────────────
     # Four services share one exact route shape: gate on SOURCE ==
     # 'container', route the whole host with preserve_host (SPAs bake
-    # hostnames into redirects/assets — reference_kong_preserve_host)
+    # hostnames into redirects/assets — CONTRIBUTING-services.md §14.2)
     # and CORS only. Data-driven so the next observability-style
     # service is one row, not a 26-line method.
     #   (env var, kong service name, upstream url, alias host)
@@ -2289,6 +2335,10 @@ class KongConfigGenerator:
                     # route.
                     'preserve_host': True,
                     'hosts': ['litellm.localhost'],
+                    # Kong's `location /` forces proxy_buffering on, so
+                    # KONG_NGINX_PROXY_PROXY_BUFFERING has no effect. Only
+                    # this route field streams SSE completions as they arrive.
+                    'response_buffering': False,
                     'plugins': [
                         {
                             'name': 'pre-function',

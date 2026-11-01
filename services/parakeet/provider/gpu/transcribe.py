@@ -1,6 +1,5 @@
 """NVIDIA NeMo transcription implementation for Parakeet-TDT."""
 
-import asyncio
 from collections.abc import Mapping
 import logging
 import os
@@ -110,21 +109,3 @@ def transcribe_audio_sync(
     except Exception as exc:
         logger.error("Transcription failed (error_type=%s)", type(exc).__name__)
         raise
-
-
-async def transcribe_audio(
-    audio_path: str,
-    language: str = None,
-    temperature: float = 0.0,
-    return_timestamps: bool = False,
-    word_timestamps: bool = False,
-):
-    """Compatibility wrapper for existing async callers."""
-    return await asyncio.to_thread(
-        transcribe_audio_sync,
-        audio_path,
-        language,
-        temperature,
-        return_timestamps,
-        word_timestamps,
-    )

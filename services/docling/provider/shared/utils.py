@@ -3,7 +3,6 @@ Utility functions for Docling document processing
 """
 
 import os
-import hashlib
 from typing import Dict, Any, List
 from pathlib import Path
 
@@ -13,15 +12,6 @@ MAX_CHUNKS = 10_000
 
 class ChunkLimitError(ValueError):
     """Raised when one conversion would emit an unsafe number of chunks."""
-
-
-def get_file_hash(file_path: str) -> str:
-    """Calculate SHA256 hash of file"""
-    sha256_hash = hashlib.sha256()
-    with open(file_path, "rb") as f:
-        for byte_block in iter(lambda: f.read(4096), b""):
-            sha256_hash.update(byte_block)
-    return sha256_hash.hexdigest()
 
 
 def get_file_size(file_path: str) -> int:
@@ -48,11 +38,6 @@ def detect_format(file_path: str) -> str:
         '.tif': 'image',
     }
     return format_map.get(suffix, 'unknown')
-
-
-def validate_file_size(file_path: str, max_size: int) -> bool:
-    """Validate file size against maximum"""
-    return get_file_size(file_path) <= max_size
 
 
 def chunk_text(text: str, chunk_size: int = 512, chunk_overlap: int = 50) -> List[Dict[str, Any]]:

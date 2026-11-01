@@ -20,8 +20,8 @@ trailing blank lines are trimmed; every other line is taken verbatim
 (internal spacing preserved). Keep the art **6 rows tall** to fit the brand
 panel (ANSI-Shadow figlet output is 6 rows regardless of text length).
 
-An unset / empty / missing / unreadable / all-blank ``BRAND_LOGO_FILE``
-falls back to the built-in ATLAS art, byte-for-byte.
+An unset / empty / missing / unreadable / non-UTF-8 / all-blank
+``BRAND_LOGO_FILE`` falls back to the built-in ATLAS art, byte-for-byte.
 
 ``resolve(env)`` returns ``(full_rows, compact_rows, width_threshold)``; both
 render surfaces consume it, so a custom lockup stays in parity across the TUI
@@ -95,8 +95,8 @@ def resolve(env: Mapping[str, str]) -> tuple[list[str], list[str], int]:
     Reads ``BRAND_LOGO_FILE`` from ``env``. A readable file with at least one
     non-blank wide-lockup row overrides the built-in ATLAS art (its compact
     section — or the wide rows when none is given — is the narrow fallback).
-    Any problem (unset, empty, missing, unreadable, all-blank) falls back to
-    the built-in ATLAS lockup byte-for-byte.
+    Any problem (unset, empty, missing, unreadable, not UTF-8, all-blank)
+    falls back to the built-in ATLAS lockup byte-for-byte.
     """
     path = (env.get("BRAND_LOGO_FILE", "") or "").strip()
     if path:
@@ -108,8 +108,8 @@ def resolve(env: Mapping[str, str]) -> tuple[list[str], list[str], int]:
                     if not compact:
                         compact = full
                     return full, compact, width_threshold(full)
-        except OSError:
-            pass  # unreadable → built-in fallback
+        except (OSError, ValueError):
+            pass  # unreadable or not UTF-8 → built-in fallback
     return list(ATLAS_FULL), list(ATLAS_COMPACT), width_threshold(ATLAS_FULL)
 
 

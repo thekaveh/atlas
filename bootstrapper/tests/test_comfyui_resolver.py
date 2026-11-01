@@ -475,6 +475,16 @@ class TestUnknownModelDropped:
         )
         captured = capsys.readouterr()
         assert "ghost-model" in captured.err
+        assert "known-model" not in captured.err
+
+    def test_missing_configured_sidecar_warns_and_unset_does_not(self, tmp_path, capsys):
+        catalog = [_entry("m", essential=True)]
+        missing = str(tmp_path / "missing.yaml")
+        active_comfyui_models({"COMFYUI_CUSTOM_MODELS_FILE": missing}, catalog=catalog)
+        err = capsys.readouterr().err
+        assert missing in err and "does not exist" in err
+        active_comfyui_models({}, catalog=catalog)
+        assert "does not exist" not in capsys.readouterr().err
 
     def test_all_unknown_returns_empty_catalog(self, tmp_path, capsys):
         catalog = [_entry("real")]

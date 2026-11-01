@@ -9,6 +9,7 @@ test enables the required policy.
 from __future__ import annotations
 
 import os
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -236,6 +237,33 @@ def test_memory_update_rejects_oversized_metadata(monkeypatch):
     )
 
     assert resp.status_code == 422
+
+
+@pytest.mark.parametrize("content", ["", "   "])
+def test_memory_update_rejects_blank_content(monkeypatch, content):
+    """Extraction drops blank facts; PUT must not store one either."""
+    _stub_required_env(monkeypatch)
+    from fastapi.testclient import TestClient
+    import main
+
+    calls = []
+
+    async def fake_update(memory_id, user_id, updates):
+        calls.append(updates)
+        return {"id": memory_id, "user_id": user_id, "content": updates["content"]}
+
+    monkeypatch.setattr(main.memory_service, "update_memory", fake_update)
+    client = TestClient(main.app)
+
+    resp = client.put(
+        "/memory/00000000-0000-4000-8000-000000000001"
+        "?user_id=00000000-0000-4000-8000-000000000002",
+        json={"content": content},
+    )
+
+    assert resp.status_code == 422
+    assert "content" in resp.text
+    assert calls == []
 
 
 def test_memory_update_requires_and_forwards_user_id(monkeypatch):
@@ -586,3 +614,189 @@ def test_lifespan_rejects_an_invalid_identity_auth_mode(monkeypatch):
     with pytest.raises(ValueError, match="BACKEND_IDENTITY_AUTH"):
         with TestClient(main.app):
             pass
+
+
+def _anonymous_upload_scope(path: str) -> dict:
+    return {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": "POST",
+        "scheme": "http",
+        "path": path,
+        "raw_path": path.encode("ascii"),
+        "root_path": "",
+        "query_string": b"",
+        "headers": [
+            (b"host", b"backend"),
+            (b"content-type", b"multipart/form-data; boundary=atlas"),
+            (b"content-length", b"5242880"),
+        ],
+        "client": ("127.0.0.1", 50000),
+        "server": ("backend", 8000),
+    }
+
+
+@pytest.mark.parametrize("path", ["/storage/upload", "/documents/extract"])
+def test_multipart_routes_refuse_anonymous_callers_before_reading_the_body(
+    monkeypatch, path
+):
+    """FastAPI spools a multipart body before route dependencies run, so the
+    request-limit middleware authenticates these routes first (2026-10-30)."""
+    _stub_required_env(monkeypatch)
+    monkeypatch.setenv("BACKEND_IDENTITY_AUTH", "required")
+    import asyncio
+    import main
+
+    sent = []
+
+    async def receive():  # pragma: no cover - must never be called
+        raise AssertionError("body must not be read before authentication")
+
+    async def send(message):
+        sent.append(message)
+
+    asyncio.run(main.app(_anonymous_upload_scope(path), receive, send))
+
+    assert next(m["status"] for m in sent if m["type"] == "http.response.start") == 401
+
+
+def _scope_with_bearer(token: str) -> dict:
+    scope = _anonymous_upload_scope("/storage/upload")
+    scope["headers"] = [(b"authorization", f"Bearer {token}".encode("ascii"))]
+    return scope
+
+
+def test_upload_scope_checks_match_their_route_dependencies(monkeypatch):
+    import asyncio
+    import time
+
+    import jwt
+    from fastapi import HTTPException
+
+    from backend_identity import (
+        BackendPrincipal,
+        authenticate_n8n_operator_scope,
+        authenticate_stateless_scope,
+    )
+
+    monkeypatch.setenv("BACKEND_IDENTITY_AUTH", "required")
+    monkeypatch.setenv("BACKEND_N8N_API_TOKEN", "n8n-secret")
+    monkeypatch.setenv("BACKEND_NOTEBOOK_API_TOKEN", "notebook-secret")
+    monkeypatch.setenv("SUPABASE_JWT_SECRET", "atlas-test-supabase-jwt-secret-32-bytes")
+    user_token = jwt.encode(
+        {
+            "sub": "00000000-0000-4000-8000-000000000002",
+            "role": "authenticated",
+            "aud": "authenticated",
+            "exp": int(time.time()) + 60,
+        },
+        "atlas-test-supabase-jwt-secret-32-bytes",
+        algorithm="HS256",
+    )
+
+    def check(authenticate, token):
+        return asyncio.run(authenticate(_scope_with_bearer(token)))
+
+    # /storage/upload: the n8n operator scope (n8n token, internal token).
+    assert check(authenticate_n8n_operator_scope, "n8n-secret") == BackendPrincipal(
+        kind="n8n", subject="n8n"
+    )
+    for token in ("notebook-secret", user_token):
+        with pytest.raises(HTTPException) as exc:
+            check(authenticate_n8n_operator_scope, token)
+        assert exc.value.status_code == 403
+
+    # /documents/extract: the stateless scope (users, notebook token).
+    assert check(authenticate_stateless_scope, "notebook-secret") == BackendPrincipal(
+        kind="notebook", subject="jupyterhub"
+    )
+    assert check(authenticate_stateless_scope, user_token).kind == "user"
+    with pytest.raises(HTTPException) as exc:
+        check(authenticate_stateless_scope, "n8n-secret")
+    assert exc.value.status_code == 403
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    (
+        ("COMFYUI_MAX_IMAGE_BYTES", "20MB"),
+        ("COMFYUI_MAX_IMAGE_BYTES", "0"),
+        ("COMFYUI_MAX_IMAGE_BYTES", "-1"),
+        ("COMFYUI_INIT_IMAGE_TRUSTED_ORIGINS", "http://images.example.com"),
+    ),
+)
+def test_comfyui_media_config_validator_rejects_malformed_settings(monkeypatch, name, value):
+    """A malformed setting fails startup, not every request with a 400 that
+    blames the caller."""
+    monkeypatch.delenv("COMFYUI_MAX_IMAGE_BYTES", raising=False)
+    monkeypatch.delenv("COMFYUI_INIT_IMAGE_TRUSTED_ORIGINS", raising=False)
+    monkeypatch.setenv(name, value)
+    from comfyui_media_client import validate_comfyui_media_config
+
+    with pytest.raises(ValueError, match=name) as exc:
+        validate_comfyui_media_config()
+    assert "invalid literal" not in str(exc.value)
+
+
+def test_comfyui_media_config_validator_accepts_defaults_and_valid_values(monkeypatch):
+    from comfyui_media_client import validate_comfyui_media_config
+
+    monkeypatch.delenv("COMFYUI_MAX_IMAGE_BYTES", raising=False)
+    monkeypatch.delenv("COMFYUI_INIT_IMAGE_TRUSTED_ORIGINS", raising=False)
+    validate_comfyui_media_config()
+
+    monkeypatch.setenv("COMFYUI_MAX_IMAGE_BYTES", " 1048576 ")
+    monkeypatch.setenv("COMFYUI_INIT_IMAGE_TRUSTED_ORIGINS", "https://images.example.com")
+    validate_comfyui_media_config()
+
+
+def test_both_comfyui_clients_share_the_image_byte_parser(monkeypatch):
+    from comfyui_client import ComfyUIClient
+    from comfyui_media_client import ComfyUIMediaClient
+
+    monkeypatch.delenv("COMFYUI_INIT_IMAGE_TRUSTED_ORIGINS", raising=False)
+    monkeypatch.setenv("COMFYUI_MAX_IMAGE_BYTES", "1048576")
+    assert ComfyUIMediaClient(base_url="http://comfyui.test").max_image_bytes == 1048576
+    assert ComfyUIClient(base_url="http://comfyui.test").max_image_bytes == 1048576
+
+    monkeypatch.setenv("COMFYUI_MAX_IMAGE_BYTES", "20MB")
+    with pytest.raises(ValueError, match="COMFYUI_MAX_IMAGE_BYTES must be a positive integer"):
+        ComfyUIClient(base_url="http://comfyui.test")
+
+
+def test_main_validates_comfyui_media_config_at_startup():
+    """Pin the startup call next to the other provider validators."""
+    from pathlib import Path
+
+    source = (Path(__file__).resolve().parents[1] / "main.py").read_text(encoding="utf-8")
+    assert "\nvalidate_comfyui_media_config()\n" in source
+
+
+def test_package_without_a_router_is_skipped_not_reported_loaded(tmp_path, monkeypatch):
+    """A package that imports but exposes no module-level router mounts
+    nothing, so GET /plugins must not call it loaded, and its streaming
+    prefix must not reach the request-limit middleware."""
+    pkg = tmp_path / "no_router_plugin"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("IMPORTED = True\n")
+    (pkg / "plugin.yml").write_text(
+        "plugin_manifest_version: 1\nname: no-router\nroute_prefix: /no-router\n"
+        "request_buffering: false\n",
+        encoding="utf-8",
+    )
+    from fastapi import FastAPI
+    app = FastAPI()
+    before = len(app.router.routes)
+    monkeypatch.setenv("BACKEND_PLUGINS_DIR", str(tmp_path))
+    import plugin_seam
+    try:
+        inventory = plugin_seam.load_plugins(app)
+    finally:
+        sys.modules.pop("no_router_plugin", None)
+
+    entry = next(e for e in inventory if e["name"] == "no-router")
+    assert entry["status"] == "skipped"
+    assert entry["error"] == "package exposes no module-level router"
+    assert len(app.router.routes) == before
+    assert "/no-router" not in plugin_seam.streaming_prefixes(inventory)

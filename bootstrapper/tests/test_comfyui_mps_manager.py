@@ -9,7 +9,9 @@ file) proves the real /system_stats-reports-MPS contract; it never runs in CI.
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+import hashlib
 import json
+import os
 import platform
 import subprocess
 import threading
@@ -1188,7 +1190,12 @@ def test_live_managed_host_reports_mps():
     if a managed process is already up, asserts the compute device is MPS. If it
     isn't running, skips with an operator hint — bring it up first with
     ``./start.sh comfyui-mps install && ./start.sh comfyui-mps start``.
+
+    Opt in with ``ATLAS_COMFYUI_MPS_LIVE=1``: it reads the real
+    ``~/.atlas/comfyui-mps`` state, like the vLLM Metal smoke.
     """
+    if os.environ.get("ATLAS_COMFYUI_MPS_LIVE") != "1":
+        pytest.skip("set ATLAS_COMFYUI_MPS_LIVE=1 for the live ComfyUI MPS smoke")
     mgr = manager_from_env({
         "COMFYUI_MPS_STATE_DIR": "~/.atlas/comfyui-mps",
         "COMFYUI_MPS_LOCALHOST_PORT": "8188",
@@ -1687,6 +1694,7 @@ def test_start_clears_a_recycled_pid_record_instead_of_refusing(tmp_path):
 # Generic-framework cases live here, beside the ComfyUI case that motivated
 # them, so the framework test module stays under the module-size signal.
 import os  # noqa: E402
+import signal  # noqa: E402
 import sys  # noqa: E402
 
 from services.managed_host import ManagedHostError  # noqa: E402
@@ -1732,6 +1740,8 @@ def test_start_replaces_a_recycled_pid_record_without_signalling_its_holder(
     manager = running_service
     manager.state_dir.mkdir(parents=True, exist_ok=True)
     stranger = _stranger()
+    # The spy swallows every signal to the stranger, its own cleanup included.
+    real_kill = os.kill
     signalled = _spy_signals_to(monkeypatch, stranger.pid)
     try:
         manager.pid_file.write_text(
@@ -1749,7 +1759,7 @@ def test_start_replaces_a_recycled_pid_record_without_signalling_its_holder(
         assert stranger.poll() is None, "start() touched the process holding the recycled pid"
         assert signalled == []
     finally:
-        stranger.kill()
+        real_kill(stranger.pid, signal.SIGKILL)
         stranger.wait()
 
 
@@ -2182,3 +2192,49 @@ def test_provisioning_rejects_empty_bodies_checks_room_and_leaves_no_validator(t
     module._validator_path(part).write_text('"v"')
     module._drop_part(part)
     assert not part.exists() and not module._validator_path(part).exists()
+
+@pytest.mark.parametrize("payload", ["[]", "null", "17", '"unexpected"'])
+def test_non_object_install_status_requires_fresh_reconciliation(tmp_path, payload):
+    manager = _mgr(tmp_path)
+    manager.state_dir.mkdir(parents=True)
+    manager.status_file.write_text(payload)
+
+    assert manager._installed_environment_matches("fixture-digest") is False
+    assert manager._recorded_install() == {"installed_ref": None, "requirements_sha256": None}
+    assert manager.status_file.read_text() == payload
+
+@pytest.mark.parametrize("cache", [
+    [], None, 17,
+    {"vae/t.safetensors": ["unexpected"]},
+    {"vae/t.safetensors": "unexpected"},
+])
+@pytest.mark.parametrize("corrupt", [False, True], ids=["valid", "corrupt"])
+def test_wrong_shape_verification_cache_rechecks_actual_model(tmp_path, cache, corrupt):
+    payload = b"synthetic model fixture"
+    sha = hashlib.sha256(payload).hexdigest()
+    manager = _mgr(tmp_path)
+    dest = manager.models_path / "vae" / "t.safetensors"
+    dest.parent.mkdir(parents=True)
+    dest.write_bytes(b"corrupt model bytes" if corrupt else payload)
+    manager._fetch_to_part = lambda _url, part: part.write_bytes(payload)
+    row = {"target_dir": "vae", "filename": "t.safetensors",
+           "download_url": "https://invalid.example/unused", "sha256": sha}
+    manager._provision_state_path().write_text(json.dumps(cache))
+    hashed = []
+    original = manager._sha256_file
+
+    def record_hash(path, **kwargs):
+        hashed.append(path)
+        return original(path, **kwargs)
+
+    manager._sha256_file = record_hash
+    result = manager.provision_models([row])
+
+    assert result.ok, result.failed
+    assert dest in hashed  # malformed metadata never substitutes for verification
+    assert dest.read_bytes() == payload
+    assert result.skipped == (["vae/t.safetensors"] if not corrupt else [])
+    assert result.provisioned == ([] if not corrupt else ["vae/t.safetensors"])
+    recorded = json.loads(manager._provision_state_path().read_text())
+    assert recorded["vae/t.safetensors"]["sha256"] == sha
+    assert manager.provision_models([row]).skipped == ["vae/t.safetensors"]

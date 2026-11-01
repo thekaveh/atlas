@@ -76,7 +76,8 @@ services:
         atlas '$$request_method $$uri $$server_protocol $$status
         $$body_bytes_sent "$$http_user_agent" $$kong_request_id'
       KONG_PROXY_ACCESS_LOG: /dev/stdout atlas
-      # SSE-compatible settings
+      # Inert in Kong 3.x: location / sets proxy_buffering on. Streaming routes
+      # set response_buffering: false (kong_config_generator).
       KONG_NGINX_PROXY_PROXY_BUFFERING: "off"
       KONG_NGINX_PROXY_PROXY_CACHE: "off"
       KONG_NGINX_PROXY_CHUNKED_TRANSFER_ENCODING: "on"

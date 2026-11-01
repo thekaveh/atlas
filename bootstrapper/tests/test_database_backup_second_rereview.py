@@ -276,7 +276,7 @@ def test_partial_rollback_preparation_never_overwrites_untouched_live(role: str)
     module = _module()
     coordinator, contents, running = _cutover_coordinator(module, role)
     with pytest.raises(module.ContractError, match="partial rollback"):
-        coordinator.cutover({})
+        coordinator.cutover()
     assert contents["neo-live"] == "neo-old"
     assert contents["weaviate-live"] == "weaviate-old"
     assert coordinator.rollback == {}
@@ -409,13 +409,38 @@ def test_weaviate_live_validator_has_a_private_backup_backend():
     assert requests == ["/v1/schema", "/v1/objects?limit=1"]
 
 
+def test_weaviate_restore_stage_mounts_its_backup_path_writable(tmp_path: Path):
+    # Weaviate writes restore_config.json into BACKUP_FILESYSTEM_PATH before it
+    # restores, so a read-only artifact mount failed every staged restore.
+    # Neo4j's offline load only reads the artifacts and keeps them read-only.
+    module, launched = _module(), {}
+    coordinator = module.DatabaseCoordinator(tmp_path, token="a" * 32, timeout=5)
+    coordinator.runner.create_volume = lambda _role: "stage-volume"
+
+    def record(role, argv, **_kwargs):
+        launched[role] = argv
+        raise module.ContractError("stage launch recorded")
+
+    coordinator._start_owned = coordinator._owned_run = record
+    for validate, extra in ((coordinator.validate_neo4j_stage, ()),
+                            (coordinator.validate_weaviate_stage, ("snapshot",))):
+        with pytest.raises(module.ContractError, match="stage launch recorded"):
+            validate("artifacts", "stage", *extra)
+    assert {"artifacts:/restore", "BACKUP_FILESYSTEM_PATH=/restore/stage/weaviate"} <= set(
+        launched["weaviate-validate"]
+    )
+    assert [
+        "artifacts:/restore:ro" in launched[role] for role in ("neo-load", "weaviate-validate")
+    ] == [True, False]
+
+
 def test_successful_cutover_is_not_rolled_back_for_retention_failure():
     module = _module()
     coordinator, contents, running = _cutover_coordinator(module, "never")
     coordinator.runner.prune_retained_rollbacks = lambda *_args, **_kwargs: (_ for _ in ()).throw(
         module.ContractError("injected retention failure")
     )
-    coordinator.cutover({})
+    coordinator.cutover()
     assert contents["neo-live"] == "neo-new"
     assert contents["weaviate-live"] == "weaviate-new"
     assert running == {"neo4j-graph-db": True, "weaviate": True}

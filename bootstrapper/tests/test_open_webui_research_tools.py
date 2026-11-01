@@ -37,6 +37,10 @@ def test_streaming_research_tool_is_gated_and_timed_like_research_tool() -> None
     assert "if not self.valves.show_progress:" not in text
     assert "default=900" in text
     assert ":param query:" in text
+    # The tool makes one blocking /runs/wait call: no unread polling valve and
+    # no claim of progress tracking it does not do.
+    assert "poll_interval" not in text
+    assert "progress tracking" not in text
 
 
 
@@ -67,3 +71,15 @@ def test_tools_classes_expose_only_intended_model_tools() -> None:
             and n.name.startswith("_") and not n.name.startswith("__")
         ]
         assert leaked == [], f"{path.name}: {leaked}"
+
+
+def test_research_tool_errors_name_the_service_and_real_timeout() -> None:
+    # The tool calls Local Deep Researcher, never the Backend, and its
+    # messages printed "(15 minutes)" whatever the timeout valve said.
+    text = (TOOLS_DIR / "research_tool.py").read_text(encoding="utf-8")
+
+    assert "check if the backend is running" not in text
+    assert "(15 minutes)" not in text
+    assert "increase timeout in settings" not in text
+    assert "Cannot connect to Local Deep Researcher" in text
+    assert "timeout=_THREAD_TIMEOUT_S" in text

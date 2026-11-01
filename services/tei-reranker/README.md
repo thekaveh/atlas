@@ -61,7 +61,7 @@ if not value.strip():
     raise SystemExit("Set TEI_RERANKER_PORT in the active configuration file")
 print(value, end="")
 PYCONFIG
-) || exit 1
+) &&
 curl -s "http://localhost:${TEI_RERANKER_PORT}/rerank" \
   -H 'Content-Type: application/json' \
   -d '{
@@ -91,7 +91,7 @@ if not value.strip():
     raise SystemExit("Set LITELLM_PORT in the active configuration file")
 print(value, end="")
 PYCONFIG
-) || exit 1
+) &&
 LITELLM_MASTER_KEY=$(PYTHONPATH=bootstrapper uv run --project bootstrapper python - <<'PYCONFIG'
 from core.config_parser import ConfigParser
 
@@ -103,7 +103,7 @@ if not value.strip():
     raise SystemExit("Set LITELLM_MASTER_KEY in the active configuration file")
 print(value, end="")
 PYCONFIG
-) || exit 1
+) &&
 curl -s "http://localhost:${LITELLM_PORT}/v1/rerank" \
   -H "Authorization: Bearer ${LITELLM_MASTER_KEY}" \
   -H 'Content-Type: application/json' \
@@ -147,7 +147,7 @@ if not value.strip():
     raise SystemExit("Set TEI_RERANKER_PORT in the active configuration file")
 print(value, end="")
 PYCONFIG
-) || exit 1
+) &&
 curl -fs "http://localhost:${TEI_RERANKER_PORT}/health"   # 200 OK when up
 ```
 

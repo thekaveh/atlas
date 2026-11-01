@@ -89,7 +89,7 @@ def test_the_init_container_receives_the_cache_vars() -> None:
 
 
 def _redis_command() -> str:
-    return " ".join(str(_services(REDIS_COMPOSE)["redis"]["command"]).split())
+    return " ".join(_services(REDIS_COMPOSE)["redis"]["command"])
 
 
 def test_redis_evicts_only_expiring_keys() -> None:
@@ -114,10 +114,11 @@ def test_redis_memory_cap_is_configurable_and_defaults_to_unlimited() -> None:
 
 
 def test_redis_keeps_persistence_and_auth() -> None:
-    """Guard the whole command line — it is one string, easy to clobber."""
+    """Guard persistence and auth flags in the command list. A blank
+    password must stop Compose: `requirepass ""` turns authentication off."""
     cmd = _redis_command()
     assert "--appendonly yes" in cmd
-    assert "--requirepass ${REDIS_PASSWORD}" in cmd
+    assert "--requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD is required}" in cmd
 
 
 # ─── 3. Ollama KV cache is quantized, and actually active ────────────

@@ -12,7 +12,9 @@ runs only when the backend's own dependencies are installed.
 
 from __future__ import annotations
 
+import contextlib
 import os
+import sys
 import textwrap
 import tempfile
 from pathlib import Path
@@ -190,3 +192,101 @@ def test_get_models_corrupt_manifest_returns_empty_list(monkeypatch, tmp_path):
     body = resp.json()
     assert body["success"] is True
     assert body["models"] == []
+
+
+@contextlib.contextmanager
+def _bootstrapper_imports(monkeypatch):
+    """Import from bootstrapper/ without leaking its top-level packages.
+
+    Bootstrapper's ``utils``, ``services`` and ``wizard`` packages would
+    otherwise stay in sys.modules for the rest of the Backend session and
+    shadow any later import of the same names.
+    """
+    root = Path(__file__).resolve().parents[5] / "bootstrapper"
+    loaded = set(sys.modules)
+    monkeypatch.syspath_prepend(str(root))
+    try:
+        yield
+    finally:
+        for name in set(sys.modules) - loaded:
+            origin = getattr(sys.modules[name], "__file__", None)
+            if origin and Path(origin).is_relative_to(root):
+                del sys.modules[name]
+
+
+def _publish_custom_numeric_manifest(tmp_path, monkeypatch, change):
+    with _bootstrapper_imports(monkeypatch):
+        _write_custom_numeric_manifest(tmp_path, monkeypatch, change)
+
+
+def _write_custom_numeric_manifest(tmp_path, monkeypatch, change):
+    import yaml
+
+    # Exercise the host publisher that owns this Backend input without loading
+    # a catalog or making any provider/download calls.
+    from utils import comfyui_library
+    from utils.comfyui_manifest_generator import ComfyUIManifestGenerator
+
+    field, value, bundle = change
+    candidate = {"name": "candidate", "category": "lora",
+                 "url": "https://example.test/candidate.safetensors"}
+    if bundle:
+        candidate["files"] = [{"role": "weights", "category": "lora",
+                               "url": candidate.pop("url"), field: value}]
+    else:
+        candidate[field] = value
+    healthy = {"name": "healthy", "category": "lora",
+               "url": "https://example.test/healthy.safetensors"}
+    sidecar = tmp_path / "custom.yaml"
+    sidecar.write_text(yaml.safe_dump({"models": [candidate, healthy]}), encoding="utf-8")
+    monkeypatch.setattr(comfyui_library, "assemble_wizard_catalog", lambda: [])
+    output = tmp_path / "published"
+    env = {"COMFYUI_SOURCE": "container", "COMFYUI_CUSTOM_MODELS_FILE": str(sidecar)}
+    assert ComfyUIManifestGenerator(env).write(output) is True
+    monkeypatch.setenv("COMFYUI_MANIFEST_PATH", str(output / "selected-models.yaml"))
+
+
+@pytest.mark.parametrize("change", [
+    (field, value, False)
+    for field in ("size_gb", "min_vram_gb", "min_ram_gb")
+    for value in (float("nan"), float("inf"), float("-inf"))
+] + [("size_gb", value, True) for value in (float("nan"), float("inf"), float("-inf"))])
+def test_published_inventory_retains_healthy_models_after_invalid_numeric_row(
+    tmp_path, monkeypatch, change
+):
+    _stub_required_env(monkeypatch)
+    _publish_custom_numeric_manifest(tmp_path, monkeypatch, change)
+    root = Path(__file__).resolve().parents[5] / "bootstrapper"
+    assert not [name for name, module in list(sys.modules.items())
+                if Path(getattr(module, "__file__", None) or "/").is_relative_to(root)]
+    from fastapi.testclient import TestClient
+    import main
+
+    response = TestClient(main.app, raise_server_exceptions=False).get("/comfyui/db/models")
+    assert response.status_code == 200
+    assert response.json()["success"] is True
+    assert [row["name"] for row in response.json()["models"]] == ["healthy"]
+    assert response.json()["models"][0]["file_size_gb"] == 0.0
+
+
+@pytest.mark.parametrize("change", [
+    ("size_gb", "2.5", True), ("size_gb", -1.5, False),
+    ("min_vram_gb", None, False), ("min_vram_gb", True, False),
+    ("min_ram_gb", "8", False), ("min_ram_gb", False, False),
+])
+def test_published_inventory_preserves_existing_numeric_metadata(
+    tmp_path, monkeypatch, change
+):
+    _stub_required_env(monkeypatch)
+    _publish_custom_numeric_manifest(tmp_path, monkeypatch, change)
+    from fastapi.testclient import TestClient
+    import main
+
+    response = TestClient(main.app).get("/comfyui/db/models")
+    assert response.status_code == 200
+    rows = response.json()["models"]
+    assert [row["name"] for row in rows] == ["candidate", "healthy"]
+    field, value, _bundle = change
+    output_key = {"size_gb": "file_size_gb", "min_vram_gb": "min_vram_gb",
+                  "min_ram_gb": "min_ram_gb"}[field]
+    assert rows[0][output_key] == (None if value is None else float(value))

@@ -45,9 +45,9 @@ class ArtifactStorage:
         client = self._client()
         response = client.get_object(Bucket=bucket, Key=key)
         body = response["Body"]
-        max_mb = float(os.getenv("ASSET_WORKER_MAX_UPLOAD_MB", "200"))
-        max_bytes = max(1, int(max_mb * 1024 * 1024))
         try:
+            max_mb = float(os.getenv("ASSET_WORKER_MAX_UPLOAD_MB", "200"))
+            max_bytes = max(1, int(max_mb * 1024 * 1024))
             content_length = response.get("ContentLength")
             if content_length is not None and int(content_length) > max_bytes:
                 raise ArtifactTooLargeError(

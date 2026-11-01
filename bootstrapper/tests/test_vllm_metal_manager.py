@@ -16,7 +16,9 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import os
 import platform
+import shutil
 import subprocess
 import tarfile
 import threading
@@ -386,6 +388,24 @@ def test_safe_archive_extraction_rejects_traversal(tmp_path):
     with tarfile.open(archive) as bundle:
         with pytest.raises(VllmMetalError, match="unsafe path"):
             VllmMetalManager._extract_archive_safely(bundle, tmp_path / "extract")
+
+
+@pytest.mark.parametrize("kind", [tarfile.SYMTYPE, tarfile.LNKTYPE, tarfile.CHRTYPE])
+def test_safe_archive_extraction_rejects_links_and_devices(tmp_path, kind):
+    """The member-type guard is the only link defence on 3.11 patches that
+    lack tarfile.data_filter, so each rejected type is pinned here."""
+    archive = tmp_path / "links.tar"
+    with tarfile.open(archive, "w") as bundle:
+        info = tarfile.TarInfo("vllm/link")
+        info.type = kind
+        info.linkname = "vllm/setup.py"
+        bundle.addfile(info)
+
+    destination = tmp_path / "extract"
+    with tarfile.open(archive) as bundle:
+        with pytest.raises(VllmMetalError, match="unsupported link or device"):
+            VllmMetalManager._extract_archive_safely(bundle, destination)
+    assert not destination.exists()
 
 
 # ─────────────────────────── install ───────────────────────────
@@ -777,11 +797,16 @@ def test_stop_refuses_stranger_pid(tmp_path, monkeypatch):
     mgr.pid_file.write_text("999")
     monkeypatch.setattr(mgr, "_pid_alive", lambda pid: True)
     monkeypatch.setattr(mgr, "_pid_is_stranger", lambda pid: True)
-    killed = []
-    monkeypatch.setattr(mod.os, "kill", lambda pid, sig: killed.append((pid, sig)))
+    # Never signal the stranger. Termination goes through _terminate_pid and
+    # os.killpg, so either one being reached fails the test without a real
+    # signal reaching host process group 999.
+    monkeypatch.setattr(
+        mgr, "_terminate_pid", lambda pid: pytest.fail(f"signalled stranger {pid}")
+    )
+    monkeypatch.setattr(
+        mod.os, "killpg", lambda pid, sig: pytest.fail(f"killpg({pid}, {sig}) on a stranger")
+    )
     assert mgr.stop() is False
-    # never signalled the stranger
-    assert all(sig == 0 for _, sig in killed) or killed == []
     assert mgr.pid_file.exists()
 
 
@@ -1197,12 +1222,16 @@ def test_manager_from_env_defaults():
 def test_live_managed_host_serves_model():
     """OPTIONAL Darwin-arm64 smoke: prove /v1/models answers with the model.
 
-    Never installs weights itself. Runs preflight (os/arch must pass on this
-    host); if a managed process is already up, asserts /v1/models lists the
+    Opt in with ``ATLAS_VLLM_METAL_LIVE=1``; it reads the real
+    ``~/.atlas/vllm-metal`` state. Never installs weights itself. Runs
+    preflight (os/arch must pass on this host); if a managed process is
+    already up, asserts /v1/models on its recorded port lists the
     configured model. If it isn't running, skips with an operator hint —
     bring it up first with ``./start.sh vllm-metal install && ./start.sh
     vllm-metal start``.
     """
+    if os.environ.get("ATLAS_VLLM_METAL_LIVE") != "1":
+        pytest.skip("set ATLAS_VLLM_METAL_LIVE=1 for the live vLLM Metal smoke")
     mgr = manager_from_env({
         "VLLM_METAL_STATE_DIR": "~/.atlas/vllm-metal",
         "VLLM_METAL_LOCALHOST_PORT": "8000",
@@ -1210,8 +1239,11 @@ def test_live_managed_host_serves_model():
     pre = mgr.preflight()
     assert next(c for c in pre.checks if c["name"] == "os")["status"] == "ok"
     assert next(c for c in pre.checks if c["name"] == "arch")["status"] == "ok"
-    if not mgr.status().running:
+    status = mgr.status()
+    if not status.running:
         pytest.skip("managed vLLM Metal host not running; run `vllm-metal install && start` first")
+    # status() reports the recorded launch port; health() probes self.port.
+    mgr.port = status.port
     health = mgr.health()
     assert health["reachable"], health
     assert health["models"], "expected at least one served model id"
@@ -1300,9 +1332,15 @@ def test_blank_state_dir_falls_back_and_removal_never_reaches_cwd_home_or_repo(t
     (work / "keep").mkdir(parents=True)
     monkeypatch.chdir(work)
     repo = Path(mod.__file__).resolve().parents[2]
-    for target in (Path("."), work.parent, Path.home(), repo, Path("/")):
-        with pytest.raises(VllmMetalError, match="refusing to remove"):
-            remove_state_directory(target, ("state", VllmMetalError))
+
+    def refuse(path, *_a, **_k):
+        raise AssertionError(f"guard let shutil.rmtree reach {path}")
+
+    with monkeypatch.context() as guarded:
+        guarded.setattr(shutil, "rmtree", refuse)  # a guard regression must not delete
+        for target in (Path("."), work.parent, Path.home(), repo, Path("/")):
+            with pytest.raises(VllmMetalError, match="refusing to remove"):
+                remove_state_directory(target, ("state", VllmMetalError))
     assert (work / "keep").is_dir()
     remove_state_directory(work / "keep", ("state", VllmMetalError))  # a real state dir still goes
     assert not (work / "keep").exists()
@@ -1761,3 +1799,22 @@ def test_partial_install_controls_keep_healthy_environment_idempotent(partial_vl
     assert state["commands"] == commands
     assert len(state["downloads"]) == 1
     assert manager.preflight().status == "ok"
+
+@pytest.mark.parametrize("payload", ["[]", "null", "17", '"unexpected"'])
+def test_non_object_status_is_unknown_and_does_not_authorize_ownership(tmp_path, monkeypatch, payload):
+    manager = _mgr(tmp_path)
+    manager.state_dir.mkdir(parents=True)
+    manager.pid_file.write_text("4242\nstart_utc=unknown\n")
+    manager.status_file.write_text(payload)
+    before = manager.pid_file.read_bytes()
+    monkeypatch.setattr(manager, "_managed_process_alive", lambda _pid: True)
+    monkeypatch.setattr(manager, "_pid_is_stranger", lambda _pid: True)
+    monkeypatch.setattr(manager, "_installed_versions",
+                        lambda: (manager.plugin_version, manager.core_version))
+
+    status = manager.status()
+
+    assert not status.running and status.pid is None
+    assert status.installed_version is None and status.model == manager.model
+    assert manager._installed_versions_match() is False
+    assert manager.pid_file.read_bytes() == before

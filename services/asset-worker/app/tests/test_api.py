@@ -524,6 +524,37 @@ def test_postprocess_invalid_form_param_returns_422() -> None:
     assert response.status_code == 422
 
 
+@pytest.mark.parametrize("field", [
+    "target_height_m", "target_width_m", "simplify_ratio", "collider_decimation",
+])
+@pytest.mark.parametrize("number", ["NaN", "Infinity", "-Infinity", "1e309"])
+@pytest.mark.parametrize("encoding", ["multipart", "json"])
+def test_nonfinite_postprocess_parameters_return_422(monkeypatch, field, number, encoding):
+    from asset_worker import api
+
+    calls = []
+    monkeypatch.setattr(api, "run_gltf_transform", lambda *args: calls.append(args))
+    monkeypatch.setattr(api.ArtifactStorage, "fetch", lambda *args: calls.append(args))
+    app = api.create_app(api_token=_TOKEN)
+    client = TestClient(app, raise_server_exceptions=False,
+                        headers={"Authorization": f"Bearer {_TOKEN}"})
+    if encoding == "multipart":
+        response = client.post(
+            "/gltf/postprocess", files={"file": ("scene.glb", RAW_GLB)},
+            data={field: number},
+        )
+    else:
+        response = client.post(
+            "/gltf/postprocess/ref", headers={"Content-Type": "application/json"},
+            content='{"input":{"bucket":"raw-assets","key":"scene.glb"},"params":{"'
+                    + field + '":' + number + '}}',
+        )
+    assert response.status_code == 422
+    errors = response.json()["detail"]
+    assert any(error["loc"][-1] == field for error in errors)
+    assert calls == []
+
+
 def test_non_ascii_bearer_token_is_401_not_500() -> None:
     from asset_worker import api
 
@@ -607,3 +638,69 @@ def test_non_list_buffers_are_rejected_not_a_500(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("ASSET_WORKER_ARTIFACT_DIR", str(tmp_path))
     response = _client(api).post("/gltf/postprocess", files={"file": ("x.glb", glb, "model/gltf-binary")})
     assert response.status_code == 400
+
+
+@pytest.mark.parametrize("malformation", [
+    "duplicate-json", "version", "declared-length",
+    "trailing-header", "truncated-chunk", "unaligned-chunk",
+])
+def test_invalid_glb_framing_is_rejected_before_conversion(monkeypatch, tmp_path, malformation):
+    import struct
+    from asset_worker import api
+
+    payload = bytearray(RAW_GLB)
+    if malformation == "duplicate-json":
+        # Only synthetic, non-routable data: converters must never run.
+        extra = b'{"images":[{"uri":"https://example.invalid/texture.png"}]}'
+        extra += b" " * (-len(extra) % 4)
+        payload.extend(struct.pack("<II", len(extra), 0x4E4F534A) + extra)
+        struct.pack_into("<I", payload, 8, len(payload))
+    elif malformation == "version":
+        struct.pack_into("<I", payload, 4, 1)
+    elif malformation == "declared-length":
+        struct.pack_into("<I", payload, 8, len(payload) + 4)
+    elif malformation == "trailing-header":
+        payload.extend(b"\x00" * 4)
+        struct.pack_into("<I", payload, 8, len(payload))
+    elif malformation == "truncated-chunk":
+        struct.pack_into("<I", payload, 12, len(payload) - 16)
+    else:
+        del payload[-1]
+        struct.pack_into("<I", payload, 8, len(payload))
+        struct.pack_into("<I", payload, 12, len(payload) - 20)
+
+    calls = []
+    def convert(_input, output, _params):
+        calls.append(True)
+        output.write_bytes(RAW_GLB)
+    monkeypatch.setattr(api, "run_gltf_transform", convert)
+    monkeypatch.setenv("ASSET_WORKER_ARTIFACT_DIR", str(tmp_path))
+    monkeypatch.setenv("ASSET_WORKER_MINIO_ENABLED", "false")
+
+    response = _client(api).post(
+        "/gltf/postprocess", files={"file": ("scene.glb", bytes(payload), "model/gltf-binary")},
+    )
+
+    assert response.status_code == 400
+    assert calls == []
+
+
+@pytest.mark.parametrize("bad_limit", ["invalid", "nan", "inf", "1e309"])
+def test_minio_reference_closes_acquired_stream_on_invalid_limit(monkeypatch, bad_limit):
+    from io import BytesIO
+    from types import SimpleNamespace
+    from botocore.response import StreamingBody
+    from asset_worker.storage import ArtifactStorage
+
+    raw = BytesIO(b"owned object data")
+    body = StreamingBody(raw, 17)
+    client = SimpleNamespace(get_object=lambda **_kwargs: {"Body": body, "ContentLength": 17})
+    storage = ArtifactStorage()
+    monkeypatch.setattr(storage, "_client", lambda: client)
+    monkeypatch.setenv("ASSET_WORKER_MAX_UPLOAD_MB", bad_limit)
+    try:
+        with pytest.raises((ValueError, OverflowError)):
+            storage.fetch("raw-assets", "owned.glb")
+        assert raw.closed
+    finally:
+        body.close()

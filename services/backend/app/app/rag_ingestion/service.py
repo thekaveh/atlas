@@ -1,7 +1,8 @@
 """RAG ingestion service + phase orchestrator (#413).
 
 ``submit`` resolves a declared profile, computes the idempotency key
-(consumer + profile + revision + corpus digest), dedups against the store, and
+(consumer + profile + revision + corpus digest + embedding model + declared
+destination context), dedups against the store, and
 creates a durable record. ``run`` drives the ordered phase state machine
 (discover → parse → chunk → embed → vector_write → lightrag_upload → drain →
 finalize), recording status/counts/timing and actionable per-file errors, honoring
@@ -18,7 +19,6 @@ from contextlib import suppress
 import hashlib
 import json
 import logging
-import os
 import time
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -28,27 +28,29 @@ import httpx
 from redis.exceptions import RedisError
 
 from .clients import (
+    ingestion_runtime_context,
+    is_definitive_rejection,
     CorpusFile,
-    CorpusReader,
-    Embedder,
-    LightRagClient,
+    Deps,
     ParsedDocument,
-    ParserAdapter,
     ParserError,
-    WeaviateClient,
 )
 from .models import (
-    weaviate_class_name,
+    ingestion_idempotency_key, weaviate_class_name, weaviate_objects, http_error_details,
+    PUBLICATION_WAIT_NOTES,
     STATUS_CANCELLED,
     STATUS_COMPLETED,
     STATUS_FAILED,
-    STATUS_PENDING,
     STATUS_RUNNING,
     IngestionError,
     IngestionRecord,
 )
 from .profiles import LoadedProfile, get_profile
-from .store import ExecutionClaim, IngestionStore, default_store, publication_target, publication_targets
+from .store import (
+    ExecutionClaim, PublicationClaim, IngestionStore, default_store,
+    publication_target, publication_targets,
+    _validate_execution_lease_seconds, ingestion_execution_lease_seconds,
+)
 
 
 async def _cancel_pending_task(task: asyncio.Task[Any]) -> None:
@@ -126,27 +128,22 @@ class IngestionCancelled(RuntimeError):
 
 
 class IngestionExecutionBusy(RuntimeError):
-    """Raised when another worker owns the execution lease."""
+    """Raised when execution or collection publication cannot be admitted."""
+
+
+class CollectionPublicationBusy(IngestionExecutionBusy):
+    """A Weaviate class this job writes is guarded by another attempt.
+
+    ``note`` names the guard state when the admission probe observed it.
+    """
+
+    def __init__(self, message: str, guard: Optional[str] = None) -> None:
+        super().__init__(message)
+        self.note = PUBLICATION_WAIT_NOTES.get(guard, PUBLICATION_WAIT_NOTES[None])
 
 
 class IngestionExecutionLeaseLost(RuntimeError):
     """Raised when a worker can no longer persist under its execution lease."""
-
-
-def _validate_execution_lease_seconds(value: Any) -> int:
-    name = "RAG_INGESTION_EXECUTION_LEASE_SECONDS"
-    if isinstance(value, bool) or not isinstance(value, int) or not 10 <= value <= 300:
-        raise ValueError(f"{name} must be an integer from 10 through 300")
-    return value
-
-
-def ingestion_execution_lease_seconds() -> int:
-    name = "RAG_INGESTION_EXECUTION_LEASE_SECONDS"
-    try:
-        value = int(os.getenv(name, "30"))
-    except (TypeError, ValueError) as exc:
-        raise ValueError(f"{name} must be an integer from 10 through 300") from exc
-    return _validate_execution_lease_seconds(value)
 
 
 TRANSIENT_EXCEPTIONS = (
@@ -179,15 +176,6 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _http_error_details(exc: Exception) -> tuple[Optional[int], Optional[str]]:
-    response = getattr(exc, "response", None)
-    if response is None:
-        return None, None
-    status = getattr(response, "status_code", None)
-    body = (getattr(response, "text", "") or "")[:500] or None
-    return status, body
-
-
 def _describe_exc(exc: BaseException) -> str:
     """Render an exception with at least its class name.
 
@@ -201,33 +189,6 @@ def _describe_exc(exc: BaseException) -> str:
     return f"{name}: {message}" if message else name
 
 
-class Deps:
-    """Injectable upstream clients. Defaults read env; tests pass fakes."""
-
-    def __init__(
-        self,
-        corpus: Optional[CorpusReader] = None,
-        parser: Optional[ParserAdapter] = None,
-        embedder: Optional[Embedder] = None,
-        weaviate: Optional[WeaviateClient] = None,
-        lightrag: Optional[LightRagClient] = None,
-        poll_interval: float = 2.0,
-        drain_backoff_base: float = 1.0,
-        drain_backoff_max: float = 15.0,
-    ) -> None:
-        self.corpus = corpus or CorpusReader()
-        self.parser = parser or ParserAdapter()
-        self.embedder = embedder or Embedder()
-        self.weaviate = weaviate or WeaviateClient()
-        self.lightrag = lightrag or LightRagClient()
-        self.poll_interval = poll_interval
-        # Bounded exponential backoff (seconds) applied between consecutive
-        # transient `pipeline_status` failures during drain (#673). Steady-state
-        # polling of a *reachable* busy pipeline still uses ``poll_interval``.
-        self.drain_backoff_base = drain_backoff_base
-        self.drain_backoff_max = drain_backoff_max
-
-
 class RagIngestionService:
     def __init__(self, store: Optional[IngestionStore] = None, deps: Optional[Deps] = None, profiles_path: Optional[str] = None) -> None:
         self.store = store or default_store()
@@ -238,24 +199,12 @@ class RagIngestionService:
     def _resolve_profile(self, name: str) -> LoadedProfile:
         return get_profile(name, self._profiles_path)
 
-    @staticmethod
-    def _idempotency_key(
-        profile: LoadedProfile, corpus: Dict[str, Any], corpus_fingerprint: str,
-        embedding_model: str = "",
-    ) -> str:
-        # The embedding model is part of the job identity: an unchanged corpus
-        # resubmitted after LITELLM_EMBEDDING_MODEL changes must re-embed, not
-        # return the old job (#1364).
-        payload = "|".join(
-            [
-                profile.consumer,
-                profile.name,
-                profile.revision,
-                json.dumps(corpus, sort_keys=True, separators=(",", ":")),
-                corpus_fingerprint,
-            ]
-            + ([f"embedding_model={embedding_model}"] if embedding_model else [])
+    def _job_key(self, profile, corpus, fingerprint):
+        base = ingestion_idempotency_key(
+            profile, corpus, fingerprint, str(getattr(self.deps.embedder, "model", "") or "")
         )
+        context = ingestion_runtime_context(profile, self.deps.weaviate, self.deps.lightrag)
+        payload = json.dumps([base, context], separators=(",", ":"))
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
     def total_graph_wait(self, profile_name: str) -> int:
@@ -282,9 +231,7 @@ class RagIngestionService:
         corpus_fingerprint = self.deps.corpus.fingerprint(
             corpus, corpus.get("path")
         )
-        key = self._idempotency_key(
-            profile, corpus, corpus_fingerprint, str(getattr(self.deps.embedder, "model", "") or "")
-        )
+        key = self._job_key(profile, corpus, corpus_fingerprint)
 
         record = IngestionRecord(
             id=str(uuid.uuid4()),
@@ -486,6 +433,14 @@ class RagIngestionService:
                 lease_lost,
             )
         )
+        state: Dict[str, Any] = {
+            "files": [],
+            "docs": [],
+            "chunks": [],
+            "vectors": [],
+            "execution_owner": owner,
+            "publication_claim": PublicationClaim(owner, str(uuid.uuid4())),
+        }
 
         try:
             record.status = STATUS_RUNNING
@@ -497,13 +452,6 @@ class RagIngestionService:
             record.errors = []
             await self._persist(record, owner)
 
-            state: Dict[str, Any] = {
-                "files": [],
-                "docs": [],
-                "chunks": [],
-                "vectors": [],
-                "execution_owner": owner,
-            }
             for name in (
                 "discover", "parse", "chunk", "embed",
                 "vector_write", "lightrag_upload", "drain", "finalize",
@@ -513,6 +461,8 @@ class RagIngestionService:
                     record.status = STATUS_CANCELLED
                     await self._persist(record, owner)
                     return record
+                if name == "discover":
+                    await self._refuse_guarded_publication(record)
                 await self._run_phase_with_lease(
                     name, record, profile, corpus, state, lease_lost
                 )
@@ -521,9 +471,17 @@ class RagIngestionService:
             record.status = STATUS_CANCELLED
             await self._persist(record, owner)
             return record
+        except CollectionPublicationBusy as busy:
+            # Lease contention raises before this attempt starts, so only
+            # collection admission refuses here. Its note belongs on the
+            # phase that waits. A foreign execution owner must still surface
+            # LeaseLost from this persist, never Busy.
+            record.defer_retry(busy.note, "vector_write")
+            await self._persist(record, owner)
+            raise
         except PhaseFatal as fatal:
             record.add_error(fatal.error)
-            self._mark_failed_phase(record, fatal.error.phase, fatal.error)
+            record.mark_failed_phase(fatal.error.phase, fatal.error)
             record.status = STATUS_FAILED
             await self._persist(record, owner)
             return record
@@ -531,21 +489,7 @@ class RagIngestionService:
             raise
         except TRANSIENT_EXCEPTIONS as exc:
             if retry_transient and not is_permanent_redis_reply(exc):
-                running = next(
-                    (
-                        phase
-                        for phase in record.phases
-                        if phase.status == STATUS_RUNNING
-                    ),
-                    record.phase("finalize"),
-                )
-                running.status = STATUS_PENDING
-                running.started_at = None
-                running.ended_at = None
-                running.duration_ms = None
-                running.error = None
-                running.note = "waiting for Celery retry"
-                record.status = STATUS_PENDING
+                record.defer_retry("waiting for Celery retry")
                 await self._persist(record, owner)
                 raise
             await self._record_unexpected_failure(record, exc, owner)
@@ -571,7 +515,7 @@ class RagIngestionService:
         else:
             record.status = (
                 STATUS_FAILED
-                if record.errors and self._has_fatal_phase(record)
+                if record.errors and record.has_fatal_phase()
                 else STATUS_COMPLETED
             )
             await self._persist(record, owner)
@@ -583,6 +527,8 @@ class RagIngestionService:
                 operation="execution heartbeat",
                 ingestion_id=ingestion_id,
             )
+            # Fallback: the vector phase normally released them already.
+            await self._release_clean_publications(record, state)
             release = asyncio.create_task(
                 asyncio.to_thread(
                     self.store.release_execution, ingestion_id, owner
@@ -621,22 +567,9 @@ class RagIngestionService:
         )
         error = IngestionError(phase=running, message=f"unexpected error: {_describe_exc(exc)}")
         record.add_error(error)
-        self._mark_failed_phase(record, running, error)
+        record.mark_failed_phase(running, error)
         record.status = STATUS_FAILED
         await self._persist(record, owner)
-
-    def _has_fatal_phase(self, record: IngestionRecord) -> bool:
-        return any(p.status == STATUS_FAILED for p in record.phases)
-
-    def _mark_failed_phase(self, record: IngestionRecord, name: str, error: IngestionError) -> None:
-        phase = record.phase(name)
-        phase.status = STATUS_FAILED
-        phase.error = {
-            "message": error.message,
-            "service": error.service,
-            "http_status": error.http_status,
-            "body": error.body,
-        }
 
     async def _run_phase(self, name: str, record: IngestionRecord, profile: LoadedProfile, corpus: Dict[str, Any], state: Dict[str, Any]) -> None:
         phase = record.phase(name)
@@ -672,12 +605,10 @@ class RagIngestionService:
             json.dumps(manifest, separators=(",", ":")).encode("utf-8")
         ).hexdigest()
         record.content_digest = fingerprint[:16]
-        runtime_key = self._idempotency_key(
-            profile, corpus, fingerprint, str(getattr(self.deps.embedder, "model", "") or "")
-        )
+        runtime_key = self._job_key(profile, corpus, fingerprint)
         if runtime_key != record.idempotency_key:
             record.counts["dedup_invalidated"] = 1
-            record.phase("discover").note = "corpus identity changed; resubmits create a new job"
+            record.phase("discover").note = "corpus or destination identity changed; resubmits create a new job"
 
     async def _phase_parse(self, record, profile, corpus, state):
         docs: List[ParsedDocument] = []
@@ -836,7 +767,7 @@ class RagIngestionService:
         """Fail the run instead of wiping the previous generation.
 
         The phase status alone is NOT enough. Terminal status is
-        `FAILED if record.errors and _has_fatal_phase(record)`, so with an
+        `FAILED if record.errors and record.has_fatal_phase()`, so with an
         empty `errors` list the `and` short-circuits to COMPLETED — and the
         whitespace-parse case records no per-document errors at all. The run
         then reported success while having produced nothing, which is exactly
@@ -860,29 +791,6 @@ class RagIngestionService:
     def _embedding_of(self, state) -> tuple[str, int]:
         """(model, dimension) of this run's vectors: the class identity (#1364)."""
         return (str(getattr(self.deps.embedder, "model", "") or ""), len(state["chunks"][0]["vector"]))
-
-    @staticmethod
-    def _weaviate_objects(class_name: str, profile, chunks) -> list:
-        """Weaviate payloads for this run's chunks.
-
-        The id is `uuid5(class|profile|source|index)`, so re-running the same
-        corpus overwrites rather than duplicating, and two profiles never share
-        an id (#1364) — and `source` is carried as a property so the
-        reconcile can preserve per-document.
-        """
-        return [
-            {
-                "id": str(uuid.uuid5(
-                    uuid.NAMESPACE_URL, f"{class_name}|{profile.name}|{c['source']}|{c['index']}"
-                )),
-                "properties": {
-                    "content": c["content"], "source": c["source"],
-                    "profile": profile.name, "chunkIndex": c["index"],
-                },
-                "vector": c["vector"],
-            }
-            for c in chunks
-        ]
 
     async def _reconcile_kept_sources(
         self, record, profile, state, class_name, objects
@@ -923,21 +831,91 @@ class RagIngestionService:
         prior = f"{phase.note}; " if phase.note else ""
         phase.note = f"{prior}{class_name}: {note}"
 
+    async def _claim_publications(self, record, state):
+        if state.get("publication_claimed"):
+            return
+        admission = asyncio.create_task(asyncio.to_thread(
+            self.store.claim_publications, record.id, state["publication_claim"],
+        ))
+        try:
+            claimed = await asyncio.shield(admission)
+        except asyncio.CancelledError:
+            await _join_cleanup_task(
+                admission, operation="publication admission", ingestion_id=record.id,
+            )
+            raise
+        if not claimed:
+            raise CollectionPublicationBusy(f"RAG collection publication blocked for ingestion {record.id}")
+        state["publication_claimed"] = True
+
+    async def _refuse_guarded_publication(self, record) -> None:
+        # Read-only admission before discover/parse/chunk/embed: a guarded class
+        # would refuse this attempt at vector_write after all that work. The
+        # atomic claim in vector_write stays the authority. Without Weaviate or
+        # the embedder, a job with chunks never reaches the claim (vector_write
+        # skips or fails first), so a guard must not hold it back. An empty
+        # corpus still meets the claim.
+        targets = record.publication_targets
+        guard = (
+            targets and self.deps.weaviate.available() and self.deps.embedder.available()
+            and await asyncio.to_thread(self.store.publication_guarded, targets)
+        )
+        if guard:
+            raise CollectionPublicationBusy(
+                f"RAG collection publication blocked for ingestion {record.id}", guard,
+            )
+
+    async def _join_store_write(self, record, operation: str, *call) -> None:
+        # Runs to completion despite cancellation, so no late write follows the
+        # caller's next step; a failure is logged, never raised.
+        write = asyncio.create_task(asyncio.to_thread(*call))
+        await _join_cleanup_task(write, operation=operation, ingestion_id=record.id)
+
+    async def _release_clean_publications(self, record, state) -> None:
+        # Token-scoped and idempotent: deletes only this attempt's clean guards.
+        await self._join_store_write(
+            record, "clean publication guard release", self.store.release_publications,
+            record.id, state["publication_claim"], record.publication_targets or [],
+        )
+        state["publication_claimed"] = False
+
+    async def _settle_rejected_publication(self, record, state, failure: tuple[str, BaseException]) -> None:
+        # Weaviate answered with a 4xx, so no request of this attempt is still in
+        # flight: end the uncertain-write block. The publication proof keeps the
+        # in-progress token, so completed-job reuse stays invalid. A 5xx, timeout,
+        # cancellation or other error leaves the guard dirty.
+        class_name, exc = failure
+        if is_definitive_rejection(exc):
+            await self._join_store_write(
+                record, "rejected publication settle", self.store.settle_publication,
+                record.id, state["publication_claim"], publication_target(class_name),
+            )
+
     async def _mark_publication(self, record, state, publication: tuple[str, bool]) -> None:
         class_name, published = publication
         target = publication_target(class_name)
+        await self._claim_publications(record, state)
         saved = await asyncio.to_thread(
-            self.store.mark_publication, record.id, state["execution_owner"], (target, published)
+            self.store.mark_publication, record.id, state["publication_claim"], (target, published)
         )
         if not saved:
             raise IngestionExecutionLeaseLost(f"Publication fence lost for RAG ingestion {record.id}")
 
     async def _phase_vector_write(self, record, profile, corpus, state):
-        targets = profile.vector_targets
-        if not targets:
+        if not profile.vector_targets:
             record.phase("vector_write").status = "skipped"
             record.phase("vector_write").note = "no vector_targets"
             return
+        try:
+            await self._write_vector_targets(record, profile, state)
+        finally:
+            # Guards cover only this phase. Holding them through LightRAG upload
+            # and drain would block the class for up to an hour, and a worker
+            # crash there would leave it blocked.
+            await self._release_clean_publications(record, state)
+
+    async def _write_vector_targets(self, record, profile, state):
+        targets = profile.vector_targets
         if not state["chunks"]:
             # An EMPTY CORPUS and a TOTALLY FAILED RUN are not the same thing.
             # `reconcile_objects(cls, profile, [])` deletes every object for
@@ -966,10 +944,14 @@ class RagIngestionService:
                     return
                 class_name = weaviate_class_name(target['collection_prefix'], profile.name)
                 await self._mark_publication(record, state, (class_name, False))
-                await self.deps.weaviate.ensure_class(class_name)
-                await self.deps.weaviate.reconcile_objects(
-                    class_name, profile.name, []
-                )
+                try:
+                    await self.deps.weaviate.ensure_class(class_name)
+                    await self.deps.weaviate.reconcile_objects(
+                        class_name, profile.name, []
+                    )
+                except Exception as exc:
+                    await self._settle_rejected_publication(record, state, (class_name, exc))
+                    raise
                 await self._mark_publication(record, state, (class_name, True))
             record.phase("vector_write").note = "no chunks; stale objects removed"
             record.counts["vectors_written"] = 0
@@ -1000,7 +982,7 @@ class RagIngestionService:
                 # object write. Invalidate currentness before that first mutation.
                 await self._mark_publication(record, state, (class_name, False))
                 await self._ensure_target_class(record, state, class_name)
-                objects = self._weaviate_objects(class_name, profile, state["chunks"])
+                objects = weaviate_objects(class_name, profile, state["chunks"])
                 total += await self.deps.weaviate.write_objects(class_name, objects)
                 # Reconcile PER SOURCE. The deletion pass treats "not in this
                 # run's output" as "stale", which conflates it with "this run
@@ -1022,13 +1004,14 @@ class RagIngestionService:
                     record, profile, state, class_name, objects
                 )
                 await self._mark_publication(record, state, (class_name, True))
-            except IngestionExecutionLeaseLost:
+            except (IngestionExecutionBusy, IngestionExecutionLeaseLost):
                 raise
             except PhaseFatal:
                 raise
             except TRANSIENT_EXCEPTIONS:
                 raise
             except Exception as exc:  # noqa: BLE001 - upstream write failure is fatal
+                await self._settle_rejected_publication(record, state, (class_name, exc))
                 raise PhaseFatal(
                     IngestionError(
                         phase="vector_write", service="weaviate", message=str(exc),
@@ -1058,7 +1041,7 @@ class RagIngestionService:
             except TRANSIENT_EXCEPTIONS:
                 raise
             except Exception as exc:  # noqa: BLE001
-                http_status, body = _http_error_details(exc)
+                http_status, body = http_error_details(exc)
                 raise PhaseFatal(
                     IngestionError(
                         phase="lightrag_upload", service="lightrag", message=str(exc),
@@ -1086,8 +1069,6 @@ class RagIngestionService:
             record.phase("drain").status = "skipped"
             record.phase("drain").note = "no drainable graph target"
             return
-        import asyncio
-
         polls = 0
         transient_retries = 0
         for target in targets:
@@ -1104,7 +1085,7 @@ class RagIngestionService:
                     # Deterministic HTTP failure (401/403, validation, other
                     # 4xx): never retried — fail immediately with bounded,
                     # actionable detail (#673).
-                    status, body = _http_error_details(exc)
+                    status, body = http_error_details(exc)
                     raise PhaseFatal(
                         IngestionError(
                             phase="drain", service="lightrag",

@@ -33,6 +33,11 @@ NUMBERED_PREFIX = r"(?:\d+\.\s+)?"
 VERSION_TOKEN = re.compile(rf"(?<![0-9A-Za-z.])v?(?P<version>{SEMVER})(?![0-9A-Za-z.])")
 RECORD_START = "<!-- atlas-release-record:start -->"
 RECORD_END = "<!-- atlas-release-record:end -->"
+GENERATED_NOTES_END = "<!-- END GENERATED RELEASE NOTES -->"
+#: A curated [Unreleased] entry heading: `1.N. <Type> — YYYY-MM-DD — <title>`.
+CURATED_ENTRY = re.compile(
+    rf"(?:\d+(?:\.\d+)*\.\s+)?[A-Z][A-Za-z]* — (?P<date>{DATE}) — \S.*"
+)
 RECORD_HEADER = ("Tag", "Tagged", "Tag object", "Target commit", "Target changelog")
 RECORD_HEADER_MARKDOWN = "| " + " | ".join(RECORD_HEADER) + " |"
 RECORD_DIVIDER = "| --- | --- | --- | --- | --- |"
@@ -1146,3 +1151,86 @@ def test_unrecorded_heading_is_rejected_when_any_unrecorded_tag_exists(
     )
     errors = _history_errors(changelog, {}, {checked_out_tag})
     assert any("lacks an immutable release record" in error for error in errors)
+
+
+def _curated_unreleased_headings(changelog: str) -> list[str]:
+    """Top-level H3 headings between the generated block and the next H2."""
+    classified = _classify_markdown_tokens(changelog)
+    markers = [
+        index
+        for index, item in enumerate(classified)
+        if item.token.type == "html_block" and GENERATED_NOTES_END in item.token.content
+    ]
+    assert len(markers) == 1, "expected one generated release-notes end marker"
+    headings: list[str] = []
+    for index in range(markers[0] + 1, len(classified)):
+        item = classified[index]
+        if item.token.type != "heading_open" or not item.is_top_level:
+            continue
+        if item.token.tag == "h2":
+            break
+        if item.token.tag == "h3":
+            headings.append(classified[index + 1].token.content)
+    return headings
+
+
+def _curated_unreleased_errors(changelog: str) -> list[str]:
+    errors: list[str] = []
+    dated: list[tuple[str, str]] = []
+    for heading in _curated_unreleased_headings(changelog):
+        match = CURATED_ENTRY.fullmatch(heading)
+        if match is None:
+            errors.append(f"curated entry heading lacks its type and date: {heading}")
+        else:
+            dated.append((match.group("date"), heading))
+    errors.extend(
+        f"curated entries must be newest first: {newer!r} sits below {older!r}"
+        for (older_date, older), (newer_date, newer) in zip(dated, dated[1:])
+        if newer_date > older_date
+    )
+    return errors
+
+
+def test_curated_unreleased_entries_are_dated_and_newest_first() -> None:
+    """releasing.md §6 puts new curated entries directly after the generated
+    block's end marker. Entries appended at the bottom instead broke the order
+    twice: before the 2026-08-20 fix, then with the 2026-10-21/22 entries."""
+    changelog = CHANGELOG.read_text(encoding="utf-8")
+    assert _curated_unreleased_headings(changelog), "no curated [Unreleased] entries found"
+    errors = _curated_unreleased_errors(changelog)
+    assert not errors, "\n".join(errors)
+
+
+def test_curated_entry_check_rejects_appended_and_undated_entries() -> None:
+    changelog = "\n".join(
+        [
+            "## 1. [Unreleased]",
+            "",
+            "<!-- BEGIN GENERATED RELEASE NOTES -->",
+            "### 1.1. Generated summary — `v0.1.0` through `abc`",
+            "",
+            GENERATED_NOTES_END,
+            "",
+            "### 1.2. Fixed — 2026-10-22 — Newest entry",
+            "",
+            "```markdown",
+            "### 1.9. Fixed — 2027-01-01 — Fenced example, not an entry",
+            "```",
+            "",
+            "### 1.3. Added — 2026-06-27 — Older entry",
+            "",
+            "### 1.4. Fixed — 2026-10-21 — Appended at the bottom",
+            "",
+            "### 1.5. Notes",
+            "",
+            "## 2. [0.1.0](https://github.com/thekaveh/atlas/tree/v0.1.0) - 2026-06-21",
+            "",
+            "### 2.1. Added — 2027-01-01 — Released entries are out of scope",
+        ]
+    )
+    assert _curated_unreleased_errors(changelog) == [
+        "curated entry heading lacks its type and date: 1.5. Notes",
+        "curated entries must be newest first: "
+        "'1.4. Fixed — 2026-10-21 — Appended at the bottom' "
+        "sits below '1.3. Added — 2026-06-27 — Older entry'",
+    ]

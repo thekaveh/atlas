@@ -3,22 +3,41 @@
 # Precondition: .env has LIGHTRAG_SOURCE=container and role model variables set.
 # Precondition: the configured models are available through LiteLLM.
 # LIGHTRAG_SMOKE_WAIT_SECONDS (default 30) is the wait for extraction calls.
+# Run it from the repo root: settings come from ./.env, and a value exported
+# in the shell wins over the file.
 set -euo pipefail
 
-project="${PROJECT_NAME:-atlas}"
-lightrag_url="${LIGHTRAG_URL:-http://localhost:${LIGHTRAG_API_PORT:-63074}}"
-api_key="${LIGHTRAG_API_KEY:-}"
-extract_model="${LIGHTRAG_EXTRACT_LLM_MODEL:-}"
-query_model="${LIGHTRAG_QUERY_LLM_MODEL:-}"
+env_value() {
+  # Read one key without sourcing .env: it holds unquoted values with spaces
+  # (BRAND_TAGLINE=...) and `==` (COMFYUI_MPS_TORCH_PIN=...), so `. ./.env`
+  # runs words as commands in bash and aborts in zsh.
+  sed -n "s/^$1=//p" .env | tail -n1 | sed -e 's/\r$//' -e 's/[[:space:]]\{1,\}#.*$//' \
+    -e 's/[[:space:]]*$//' -e "s/^\"\(.*\)\"$/\1/" -e "s/^'\(.*\)'$/\1/"
+}
+
+# setting KEY DEFAULT: the exported KEY, else KEY from ./.env, else DEFAULT.
+setting() {
+  local value="${!1:-}"
+  if [ -z "$value" ] && [ -f .env ]; then
+    value="$(env_value "$1")"
+  fi
+  printf '%s' "${value:-$2}"
+}
+
+project="$(setting PROJECT_NAME atlas)"
+lightrag_url="${LIGHTRAG_URL:-http://localhost:$(setting LIGHTRAG_API_PORT 63074)}"
+api_key="$(setting LIGHTRAG_API_KEY "")"
+extract_model="$(setting LIGHTRAG_EXTRACT_LLM_MODEL "")"
+query_model="$(setting LIGHTRAG_QUERY_LLM_MODEL "")"
 
 if [ -z "$api_key" ]; then
-  echo "LIGHTRAG_API_KEY must be exported from .env before running this smoke." >&2
-  echo "Example: set -a; . ./.env; set +a; scripts/smoke-lightrag-role-models.sh" >&2
+  echo "LIGHTRAG_API_KEY is empty in both the shell and ./.env." >&2
+  echo "Set LIGHTRAG_API_KEY in .env or export it before running this smoke." >&2
   exit 2
 fi
 
 if [ -z "$extract_model" ] || [ -z "$query_model" ]; then
-  echo "Set LIGHTRAG_EXTRACT_LLM_MODEL and LIGHTRAG_QUERY_LLM_MODEL before running this smoke." >&2
+  echo "Set LIGHTRAG_EXTRACT_LLM_MODEL and LIGHTRAG_QUERY_LLM_MODEL in .env or the shell before running this smoke." >&2
   exit 2
 fi
 
@@ -61,9 +80,9 @@ DOC
 
 # LightRAG authenticates the key as X-API-Key; a Bearer header is parsed as
 # a JWT and rejected with 401 (services/lightrag/README.md). The header goes
-# on curl's stdin (-K-) so `ps` never shows the key.
+# on curl's stdin (--header @-) so `ps` never shows the key.
 lightrag_curl() {
-  printf 'header = "X-API-Key: %s"\n' "$api_key" | curl -fsS -K- "$@"
+  printf 'X-API-Key: %s\n' "$api_key" | curl -fsS --header @- "$@"
 }
 
 echo "[smoke] uploading one small document"

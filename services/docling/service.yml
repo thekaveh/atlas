@@ -96,7 +96,7 @@ env:
     description: "Finite conversion and lazy-load deadline in seconds (1-3600). A timeout returns 504 and then exits the provider process for restart."
   - name: DOCLING_LOCALHOST_BIND_HOST
     default: 127.0.0.1
-    description: "Native Docling listen address. Set another interface explicitly only when remote access is intended."
+    description: "Native Docling listen address. Keep 127.0.0.1 on Docker Desktop. On Linux engines, containers reach the host through the Docker bridge, not loopback. There, bind the bridge IP, or 0.0.0.0 with DOCLING_AUTH_MODE=required."
   - name: DOCLING_ADAPTER_MAX_JOBS
     default: 2
     description: "Maximum outstanding LightRAG adapter jobs, reserved before multipart parsing."
@@ -114,7 +114,7 @@ env:
     description: "Positive maximum seconds for one result transmission; expiry starts verified artifact cleanup, and the adapter slot is released only after deletion succeeds."
   - name: DOCLING_ADAPTER_TMPFS_SIZE
     default: 512m
-    description: "Size of the adapter's bounded temporary-storage mount. It must cover MAX_JOBS times the larger of upload + 1 MiB multipart overhead or upload + result limit, plus at least 64 MiB staging headroom. Startup fails if capacity is smaller."
+    description: "Size of the adapter's bounded temporary-storage mount. It must cover MAX_JOBS × max(2 × upload + 1 MiB, upload + result limit), plus at least 64 MiB staging headroom. Startup fails if capacity is smaller."
   - name: DOCLING_ADAPTER_SCALE
     auto_managed: true
     description: "Derived adapter replica count; one only when both LightRAG and Docling are enabled."

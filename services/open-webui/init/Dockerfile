@@ -32,7 +32,7 @@ ENV PYTHONUNBUFFERED=1
 # service directory, so the repository gate verifies these inline pins against
 # that central lock instead of copying a file from outside the context.
 RUN pip install --no-cache-dir \
-    certifi==2026.7.22 \
+    certifi==2026.10.19 \
     charset-normalizer==3.5.1 \
     idna==3.19 \
     psycopg2-binary==2.9.9 \

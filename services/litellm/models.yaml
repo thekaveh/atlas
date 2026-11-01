@@ -74,9 +74,9 @@ openai:
       recommended_roles: [extract, keyword, query, judge]
   embeddings:
     # `dim:` is the native output dimension. OpenAI's v3 embedders also accept a
-    # `dimensions` request param (Matryoshka truncation), but the catalog records
-    # the native size; neither matches the backend memory_facts vector(768)
-    # column, so picking either triggers a dimension warning by default.
+    # `dimensions` request param (Matryoshka truncation); the catalog records the
+    # native size. Selecting one sets LANGMEM_EMBEDDING_DIM (3072 or 1536) and the
+    # memory migration re-embeds memory_facts to it; above 2000 the HNSW index uses halfvec.
     - name: text-embedding-3-large
       dim: 3072
       default: true

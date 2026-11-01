@@ -170,6 +170,12 @@ def test_supavisor_compose_contract() -> None:
     assert service["environment"]["PROXY_PORT_TRANSACTION"] == 6543
     assert service["environment"]["POOLER_POOL_MODE"] == "transaction"
     assert service["environment"]["POOLER_TENANT_ID"] == "${SUPAVISOR_TENANT_ID:-atlas}"
+    # epmd and Erlang distribution stay on loopback: the image ships one fixed
+    # release cookie, so a reachable dist port is code execution as root.
+    assert service["environment"]["ERL_AFLAGS"] == (
+        "-proto_dist inet_tcp -kernel inet_dist_use_interface {127,0,0,1}"
+    )
+    assert service["environment"]["ERL_EPMD_ADDRESS"] == "127.0.0.1"
     assert service["environment"]["DATABASE_URL"].startswith(
         "ecto://${SUPAVISOR_DB_ADMIN_USER_URI:?SUPAVISOR_DB_ADMIN_USER_URI is required}:${SUPAVISOR_DB_ADMIN_PASSWORD_URI:?SUPAVISOR_DB_ADMIN_PASSWORD_URI is required}@supabase-db:5432/"
     )

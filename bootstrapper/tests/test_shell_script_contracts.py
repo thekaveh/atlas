@@ -79,6 +79,31 @@ def test_n8n_default_community_packages_are_exactly_locked() -> None:
         assert metadata.get("integrity"), path
 
 
+def test_n8n_locked_node_specs_match_every_default_site() -> None:
+    """Dependabot bumps only package.json and the lock. A default that drifts
+    from LOCKED_SPECS takes the bare `npm install` path, without the lock and
+    its axios/sharp overrides."""
+    import re
+
+    n8n = REPO_ROOT / "services" / "n8n"
+    script = (n8n / "init" / "scripts" / "install-nodes.sh").read_text(encoding="utf-8")
+    locked = re.search(r'^LOCKED_SPECS="([^"]+)"$', script, re.MULTILINE).group(1)
+    manifest = yaml.safe_load((n8n / "service.yml").read_text(encoding="utf-8"))
+    default = next(e["default"] for e in manifest["env"] if e["name"] == "N8N_INIT_NODES")
+    compose = yaml.safe_load((n8n / "compose.yml").read_text(encoding="utf-8"))["services"]
+    package = json.loads((n8n / "init" / "config" / "package.json").read_text(encoding="utf-8"))
+    hint = (
+        "A bump must update LOCKED_SPECS, the service.yml and compose defaults and "
+        "package.json together, then regenerate .env.example, env-vars.md and the "
+        "rendered-config golden. Keep the outgoing LOCKED_SPECS on install-nodes.sh's "
+        "locked-path list too: persisted .env files keep the old default."
+    )
+    assert default == locked, hint
+    assert compose["n8n-init"]["environment"]["N8N_INIT_NODES"] == f"${{N8N_INIT_NODES:-{locked}}}", hint
+    for name, version in (spec.rsplit("@", 1) for spec in locked.split(",")):
+        assert package["dependencies"].get(name) == version, hint
+
+
 def test_local_deep_researcher_litellm_poll_has_per_attempt_timeout() -> None:
     script = (
         REPO_ROOT
@@ -246,6 +271,38 @@ def test_openclaw_init_leaves_a_json5_config_unpatched(tmp_path) -> None:
     assert subprocess.run(["sh", "-c", script], capture_output=True).returncode == 0
     patched = config.read_text(encoding="utf-8")
     assert "dangerouslyAllowHostHeaderOriginFallback" in patched and "litellm:4000" in patched
+
+
+def test_openclaw_init_keeps_an_operator_origin_hardening(tmp_path) -> None:
+    """Init deep-merged the Host-header origin fallback as true on every
+    start, re-enabling it over an operator's explicit false or their
+    allowedOrigins list. It now sets true only when neither is present."""
+    import shutil
+    import subprocess
+
+    if not shutil.which("jq"):
+        pytest.skip("jq not installed")
+    compose = yaml.safe_load((REPO_ROOT / "services/openclaw/compose.yml").read_text(encoding="utf-8"))
+    script = compose["services"]["openclaw-init"]["entrypoint"][-1].replace("$$", "$")
+    config = tmp_path / "openclaw.json"
+    script = script.replace("/home/node/.openclaw/openclaw.json", str(config)).replace(
+        "chown -R 1000:1000 /home/node/.openclaw", "true")
+
+    def run(initial: str | None) -> dict:
+        if initial is None:
+            config.unlink(missing_ok=True)
+        else:
+            config.write_text(initial, encoding="utf-8")
+        assert subprocess.run(["sh", "-c", script], capture_output=True).returncode == 0
+        return json.loads(config.read_text(encoding="utf-8"))["gateway"]["controlUi"]
+
+    explicit_false = '{"gateway":{"controlUi":{"dangerouslyAllowHostHeaderOriginFallback":false}}}'
+    assert run(explicit_false)["dangerouslyAllowHostHeaderOriginFallback"] is False
+    origins = run('{"gateway":{"controlUi":{"allowedOrigins":["http://a"]}}}')
+    assert origins == {"allowedOrigins": ["http://a"]}
+    assert run("{}")["dangerouslyAllowHostHeaderOriginFallback"] is True
+    assert run(None)["dangerouslyAllowHostHeaderOriginFallback"] is True
+    assert run('{"gateway":{"controlUi":{"allowedOrigins":[]}}}')["dangerouslyAllowHostHeaderOriginFallback"] is True
 
 
 

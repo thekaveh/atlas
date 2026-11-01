@@ -45,7 +45,7 @@ Error: `password authentication failed for user "supabase_admin"`.
 
 Cause: Postgres sets the `supabase_admin` password once, when the `supabase-db-data` volume is created, and never re-syncs it. `SUPABASE_DB_PASSWORD` ships as the placeholder `password`, and the first `./start.sh` replaces it with a random value. If `.env` later gets a new password while the volume stays, clients send the new value and the role still holds the old one. This happens, for example, when `.env` is regenerated from `.env.example` after a `./stop.sh` without `--cold`.
 
-`./start.sh` does not rotate the password when the `<project>_supabase-db-data` volume exists. It warns instead.
+`./start.sh` does not rotate the password when the `<project>-supabase-db-data` volume exists. It warns instead.
 
 To recover, do one of these:
 
@@ -59,6 +59,8 @@ To recover, do one of these:
 - Executes the `.sql` files from `./services/supabase/db/scripts/` in alphabetical order
 - Then runs `05-scoped-roles.sh`, which creates the scoped per-service logins and grants
 - Then executes optional downstream-owned `.sql` files from `./services/supabase/db/_user/` in alphabetical order
+
+A failed Atlas or user SQL inventory stops initialization before scripts from that incomplete listing run. Earlier completed phases are not rolled back.
 
 Role and database names must fit PostgreSQL's [63-byte identifier limit](https://www.postgresql.org/docs/17/sql-syntax-lexical.html).
 The role provisioner rejects longer names before it changes logins, ownership or grants.
@@ -77,11 +79,11 @@ The Atlas-owned scripts do this work:
 - Granting appropriate permissions to standard roles (`06-permissions.sql`)
 - Creating shared functions like `public.health` and `update_updated_at_column()` (`07-functions.sql`)
 - **`10-users.sql`** — `public.users` table (shared user identity, referenced by downstream slices)
-- **`12-comfyui.sql`** — `public.comfyui_workflows` and `public.comfyui_generations` tables (runtime app state), their indexes, and the default workflow seed rows. The guarded drop of the retired `public.comfyui_models` table is in `16-decommission-comfyui-models.sql`.
+- **`12-comfyui.sql`** — `public.comfyui_workflows` and `public.comfyui_generations` tables, their indexes, service-role-only row-level security, and the default workflow seed rows. No Atlas service reads or writes these tables. The guarded drop of the retired `public.comfyui_models` table is in `16-decommission-comfyui-models.sql`.
 - **`13-backend-research.sql`** — `research` schema and research tables (`public.research_sessions`, `public.research_results`, `public.research_sources`, `public.research_logs`) (owned by backend / local-deep-researcher)
-- **`14-backend-memory.sql`** — LangMem memory tables (`public.memory_facts`, `public.memory_sessions`, `public.memory_consolidation_log`) and the embedding-schema state (owned by Backend / LangMem). When `LANGMEM_EMBEDDING_DIM` changes, Backend re-embeds every mismatched row before the dimension constraint is validated. The dimension limit is 4,000. The legacy `user_id` VARCHAR→UUID migration is guarded per table. A table with a non-UUID `user_id` keeps its legacy shape and logs a `WARNING`; DB init continues.
+- **`14-backend-memory.sql`** — LangMem memory tables (`public.memory_facts`, `public.memory_sessions`, `public.memory_consolidation_log`) and the embedding-schema state (owned by Backend / LangMem). When `LANGMEM_EMBEDDING_DIM` changes, Backend re-embeds mismatched rows before the dimension constraint is validated. [Backend §3.2](../backend/README.md#32-langmem-memory) covers facts the new model rejects. The dimension limit is 4,000. The legacy `user_id` VARCHAR→UUID migration is guarded per table. A table with a non-UUID `user_id` keeps its legacy shape and logs a `WARNING`; DB init continues.
 - **`15-decommission-llms.sql`** — drops the retired `public.llms` catalog table on existing volumes (idempotent `DROP TABLE IF EXISTS`). Fresh installs never create it. The LLM model catalogs are `services/ollama/models.yaml` and `services/litellm/models.yaml`, resolved by `bootstrapper/utils/model_resolver.py`.
-- **`16-decommission-comfyui-models.sql`** — drops the retired `public.comfyui_models` catalog table on existing volumes (idempotent `DROP TABLE IF EXISTS`). The ComfyUI model catalog is `services/comfyui/models.yaml` plus the `custom-models.yaml` sidecar, resolved by `bootstrapper/utils/comfyui_resolver.py` at start. `public.comfyui_workflows` and `public.comfyui_generations` are runtime app state and are not affected.
+- **`16-decommission-comfyui-models.sql`** — drops the retired `public.comfyui_models` catalog table on existing volumes (idempotent `DROP TABLE IF EXISTS`). The ComfyUI model catalog is `services/comfyui/models.yaml` plus the `custom-models.yaml` sidecar, resolved by `bootstrapper/utils/comfyui_resolver.py` at start. `public.comfyui_workflows` and `public.comfyui_generations` are not affected.
 - **`17-backend-media-ledger.sql`** — `public.media_spend_ledger` (Backend media spend and recovery ledger, with row-level security)
 
 Two helper scripts in the same directory are not part of the SQL pass:
@@ -218,7 +220,7 @@ execute privilege is revoked from public API roles despite its required
   - Support for various file types
   - Through Kong, `/storage/v1/` needs the `apikey` header. `/storage/v1/object/public/`, `/storage/v1/object/sign/` and `/storage/v1/object/upload/sign/` do not, so `<img>` tags and outside services can fetch public and signed URLs and PUT to signed upload URLs.
   - Resumable (TUS) uploads work through Kong: `REQUEST_ALLOW_X_FORWARDED_PATH=true` keeps the `/storage/v1` prefix in the upload `Location` header, which Studio's file browser follows
-  - The `default` bucket is private. The `url` that the backend's `/storage/upload` returns (a public-object URL on the internal Kong host) is not fetchable as-is. Fetch through the backend or Studio, or create a signed URL.
+  - The backend's `/storage/upload` returns a public-object `url` on the internal Kong host. That URL cannot fetch objects from the private `default` bucket. Use Studio, or create a signed URL with the service-role key.
 
 ### 4.4. API Service (PostgREST)
 
@@ -283,7 +285,7 @@ SUPABASE_SERVICE_KEY=generated_service_key
 SUPABASE_AUTH_PORT=63016          # reserved, not bound (use Kong /auth/v1)
 SUPABASE_API_PORT=63017
 SUPABASE_STORAGE_PORT=63015
-SUPABASE_STUDIO_PORT=63019
+SUPABASE_STUDIO_PORT=63019        # reserved, not bound (use Kong supabase-studio.localhost)
 SUPABASE_REALTIME_PORT=63018
 
 # Dashboard Credentials (password auto-rotated on first launch)
@@ -313,6 +315,16 @@ Every `SECURITY DEFINER` function in the database pins a `search_path` without
 and qualify `public` objects. `01-extensions.sql` pins PostGIS's
 `ST_EstimatedExtent` the same way, so call its schema-qualified three-argument
 form: the two-argument form does not find a table by search path.
+
+Backend and Celery SQL schema-qualifies `public` tables and pgvector
+(`public.vector`, `OPERATOR(public.<=>)`). Calls to `public` routines pass
+exact argument types, so a planted text overload cannot win.
+
+Open WebUI, LightRAG, pg-meta and Realtime can still create objects in `public`. A planted
+overload of a built-in operator could therefore still run as the Backend. The
+fix is a saved `search_path = pg_catalog, pg_temp` for the Backend role. It is
+not applied yet, because it also changes SQL in consumer Backend plugins and
+needs a live check.
 
 Init runs as a superuser, so `db-init-runner` protects it in three ways:
 
@@ -356,6 +368,8 @@ superuser too: qualify calls the same way.
 §11 lists the services that call Supabase, generated from the manifests.
 
 ## 7. Common Operations
+
+Set `PROJECT_NAME` (default `atlas`), `SUPABASE_DB_PORT` and `SUPABASE_API_PORT` in your shell to their values in `.env` before you run these commands.
 
 ### 7.1. Connect to Database
 ```bash
@@ -473,8 +487,8 @@ _No upstream calls._
 <a id="94-future-missing-pair-integrations"></a>
 <a id="94-future--missing-pair-integrations"></a>
 
-- **supabase ↔ hermes** — *Why:* Hermes persists agent state only to a `hermes-data` volume; its manifest declares no Postgres or Redis dependency. Postgres-backed sessions, skills and tool-call history would survive restarts, allow several replicas, and be queryable across the stack. *Mechanism:* a scoped `HERMES_DB_USER` role created by `05-scoped-roles.sh`, owning a `hermes` schema; `hermes-init` creates tables with `IF NOT EXISTS`. *Effort:* medium. *Confidence:* medium.
-- **supabase ↔ doc-processor** — *Why:* docling extracts structured chunks that today flow only into Weaviate as vectors. Raw chunk text and source metadata in Postgres would give RLS-scoped tenant isolation, exact-match search, and a source row to rebuild Weaviate from. *Mechanism:* docling writes via PostgREST at `http://supabase-api:3000/rest/v1/doc_chunks` using `SUPABASE_SERVICE_KEY`; embeddings still go to Weaviate. *Effort:* medium. *Confidence:* medium.
+- **supabase ↔ hermes** — *Why:* Hermes persists agent state in `hermes-data`; its manifest declares no Postgres or Redis dependency. Postgres-backed sessions, skills and tool-call history could support several replicas and queries across the stack. *Mechanism:* a scoped `HERMES_DB_USER` role created by `05-scoped-roles.sh`, owning a `hermes` schema; `hermes-init` creates tables with `IF NOT EXISTS`. *Effort:* medium. *Confidence:* medium.
+- **supabase ↔ doc-processor** — *Why:* Backend ingestion sends Docling output to Weaviate and, for graph targets, to LightRAG, which re-chunks it. No `public` table keeps the Backend's chunks and source metadata. Raw chunk text and source metadata in Postgres would give RLS-scoped tenant isolation, exact-match search, and a source row to rebuild Weaviate from. *Mechanism:* Backend ingestion writes rows to PostgREST at `http://supabase-api:3000/doc_chunks` with `SUPABASE_SERVICE_KEY`; embeddings still go to Weaviate. *Effort:* medium. *Confidence:* medium.
 - **supabase ↔ openclaw** — *Why:* OpenClaw is the messaging-platform gateway and depends only on litellm. Conversation history, user-to-channel mappings and rate-limit counters live in memory. *Mechanism:* a scoped `OPENCLAW_DB_USER` role created by `05-scoped-roles.sh`, owning an `openclaw` schema; a small `openclaw-init` SQL script seeds the tables. *Effort:* small. *Confidence:* medium.
 - **supabase ↔ tts-provider** — *Why:* generated audio is ephemeral. Storing TTS output in `supabase-storage` keyed by `(user_id, text_hash, voice)` gives a cache that skips re-synthesis of identical input, and a per-user history. *Mechanism:* `PUT http://supabase-storage:5000/object/tts/<user>/<hash>.wav` with `SUPABASE_SERVICE_KEY`; metadata row via PostgREST. *Effort:* small. *Confidence:* high.
 - **supabase ↔ stt-provider** — *Why:* parakeet/speaches transcripts vanish after the response. A `transcripts` table keyed by the caller's JWT `sub` enables history search, RAG over meetings, and per-user RLS isolation. *Mechanism:* stt-provider POSTs to PostgREST `/rest/v1/transcripts` with the forwarded `Authorization: Bearer <jwt>` header so RLS picks up the user. *Effort:* small. *Confidence:* medium.
@@ -494,7 +508,7 @@ _No upstream calls._
 
 - **`pg_cron` + `pg_net` extensions** — *Why pursue:* enables scheduled jobs and outbound HTTP from inside Postgres (database webhooks to Hermes/n8n/Edge Functions); `01-extensions.sql` enables only `vector`/`postgis`/`pgcrypto`. *Effort:* small.
 - **Database Webhooks** — *Why pursue:* lets row-level changes trigger LiteLLM calls or n8n flows without a polling worker; depends on `pg_net`. *Effort:* small.
-- **Row-Level Security policy coverage** — *Why pursue:* the `public.users`, backend research, memory and media-spend-ledger tables define RLS policies. The ComfyUI workflow and generation tables have no table-specific RLS, because they hold shared app state. Finish the per-table policy model before exposing those tables through PostgREST broadly. *Effort:* medium.
+- **Row-Level Security policy coverage** — *Why pursue:* only `public.users` and the backend research tables have owner-scoped policies. The memory, media-spend-ledger and ComfyUI tables admit only the service role, plus the Backend's direct role for memory and the ledger. They need owner-scoped policies before end users reach them through PostgREST. *Effort:* medium.
 - **GoTrue OAuth providers (Google, GitHub)** — *Why pursue:* the stack ships with email-only login; SSO needs only `GOTRUE_EXTERNAL_*` settings. *Effort:* small.
 - **`pg_graphql` endpoint** — *Why pursue:* Kong already routes `/graphql/v1` to PostgREST `rpc/graphql`, but it returns 404 until `01-extensions.sql` installs `pg_graphql` and `graphql_public` is exposed. Wiring n8n or the backend to it would give a typed GraphQL surface. *Effort:* small.
 - **Realtime broadcast + presence channels** — *Why pursue:* `supabase-realtime` runs but nothing subscribes; broadcast channels would let backend push job-status updates to open-webui without polling. *Effort:* medium.

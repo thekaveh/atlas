@@ -15,8 +15,6 @@ def _options(**overrides):
         "project_name": "atlas",
         "source_args": {"grafana_source": "disabled"},
         "profile": "default",
-        "explicit_prometheus": None,
-        "explicit_grafana": "disabled",
         "cloud_api_keys": {},
         "user_model_selections": {},
         "no_port_migrate": False,

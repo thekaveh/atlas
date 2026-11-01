@@ -298,6 +298,11 @@ _OUTDATED = (
     "expected b7e2c1a4d9f3). Take a backup of your database, then run "
     "'mlflow db upgrade <database_uri>'"
 )
+# The same `mlflow db upgrade` CLI command, with the URI read from the env.
+_UPGRADE_CHILD = (
+    "import os; from mlflow.cli import cli; "
+    "cli.main(args=['db', 'upgrade', os.environ['ATLAS_MLFLOW_UPGRADE_URI']], prog_name='mlflow')"
+)
 
 
 def _serve_against_stores(
@@ -327,8 +332,9 @@ def _serve_against_stores(
         if pending:
             raise mlflow_exception(pending.pop(0))
 
-    def run(argv: list[str], *, check: bool) -> None:
+    def run(argv: list[str], *, check: bool, env: dict[str, str] | None = None) -> None:
         events.append(("upgrade", (argv, check)))
+        events.append(("upgrade-env", (env or {}).get("ATLAS_MLFLOW_UPGRADE_URI")))
         if upgrade_fails:
             raise subprocess.CalledProcessError(1, argv)
 
@@ -354,19 +360,29 @@ def _serve_against_stores(
 def test_mlflow_serve_upgrades_a_schema_an_earlier_pin_created(
     monkeypatch: pytest.MonkeyPatch, registry: str, upgraded: list[str]
 ) -> None:
-    """A 3.15.1 database is migrated once per distinct store, then served (#1287)."""
+    """A 3.15.1 database is migrated once per distinct store, then served (#1287).
+
+    The store URI carries the database password, so it reaches the upgrade
+    child through its environment, never its world-readable argv.
+    """
     events = _serve_against_stores(monkeypatch, [_OUTDATED], registry=registry)
 
     stores = ("postgresql://db/mlflow", registry, "mlflow-artifacts:/")
+    child = [sys.executable, "-c", _UPGRADE_CHILD]
     assert events == [
         ("stores", stores),
         *[
-            ("upgrade", ([sys.executable, "-m", "mlflow", "db", "upgrade", uri], True))
+            event
             for uri in upgraded
+            for event in (("upgrade", (child, True)), ("upgrade-env", uri))
         ],
         ("stores", stores),
         ("exec", None),
     ]
+    for kind, payload in events:
+        if kind == "upgrade":
+            argv, _check = payload
+            assert not any("postgresql://" in arg for arg in argv)
 
 
 def test_mlflow_serve_never_upgrades_for_other_store_errors(

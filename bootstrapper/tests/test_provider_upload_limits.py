@@ -186,16 +186,20 @@ def test_provider_request_body_limit_has_total_read_deadline(relative_path):
         body_timeout_seconds=0.01,
         paths={"/upload"},
     )
+    # The receive below never answers; only the read deadline may end this.
     asyncio.run(
-        middleware(
-            {
-                "type": "http",
-                "method": "POST",
-                "path": "/upload",
-                "headers": [],
-            },
-            receive,
-            send,
+        asyncio.wait_for(
+            middleware(
+                {
+                    "type": "http",
+                    "method": "POST",
+                    "path": "/upload",
+                    "headers": [],
+                },
+                receive,
+                send,
+            ),
+            timeout=5,
         )
     )
 
@@ -255,27 +259,30 @@ def test_body_timeout_closes_starlette_multipart_tempfiles(monkeypatch):
         sent.append(message)
 
     asyncio.run(
-        app(
-            {
-                "type": "http",
-                "asgi": {"version": "3.0"},
-                "http_version": "1.1",
-                "method": "POST",
-                "scheme": "http",
-                "path": "/upload",
-                "raw_path": b"/upload",
-                "query_string": b"",
-                "headers": [
-                    (
-                        b"content-type",
-                        b"multipart/form-data; boundary=" + boundary,
-                    )
-                ],
-                "client": ("127.0.0.1", 1),
-                "server": ("provider", 80),
-            },
-            receive,
-            send,
+        asyncio.wait_for(
+            app(
+                {
+                    "type": "http",
+                    "asgi": {"version": "3.0"},
+                    "http_version": "1.1",
+                    "method": "POST",
+                    "scheme": "http",
+                    "path": "/upload",
+                    "raw_path": b"/upload",
+                    "query_string": b"",
+                    "headers": [
+                        (
+                            b"content-type",
+                            b"multipart/form-data; boundary=" + boundary,
+                        )
+                    ],
+                    "client": ("127.0.0.1", 1),
+                    "server": ("provider", 80),
+                },
+                receive,
+                send,
+            ),
+            timeout=5,
         )
     )
 
@@ -321,7 +328,7 @@ def test_docling_converter_failure_is_not_returned_as_successful_markdown(
     source.write_bytes(b"%PDF-broken")
 
     with pytest.raises(RuntimeError, match="Docling processing failed"):
-        asyncio.run(processor.process_document(str(source)))
+        processor.convert_document_once(str(source), use_ocr="auto", table_mode="accurate")
 
 
 def test_provider_upload_spool_ignores_unusable_client_extensions(tmp_path):

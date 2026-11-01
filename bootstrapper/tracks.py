@@ -16,7 +16,6 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
 
 import yaml
 from jsonschema import Draft202012Validator
@@ -29,12 +28,19 @@ __all__ = [
     "TracksLoadError",
     "UnknownTrackServiceError",
     "load_tracks",
-    "compute_always_on",
+    "ALWAYS_ON_SERVICE_KEYS",
     "is_in_track",
     "synthesize_track_source_args",
     "normalize_service_key",
     "format_track_list",
 ]
+
+
+# The wizard-step ``service_key``s a track-skip predicate must NEVER filter:
+# the three services that survive ``ServiceDiscovery.discover()`` and are
+# asked in every track. Locked manifests and cloud-provider keys are filtered
+# out upstream and never see the predicate.
+ALWAYS_ON_SERVICE_KEYS = frozenset({"llm-provider", "prometheus", "grafana"})
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -246,40 +252,14 @@ def load_tracks(path: Path | None = None) -> TrackRegistry:
     tracks_tuple = tuple(tracks_list)
     by_key = {t.key: t for t in tracks_tuple}
 
-    # Always-on set: the three services that ServiceDiscovery surfaces
-    # but the track-skip predicate must NEVER filter. The compute_*
-    # helper below derives the same set from the live ConfigParser when
-    # called from the wizard; here we hard-code the canonical names so
-    # the registry is self-contained without requiring a ConfigParser.
-    always_on = frozenset({"llm-provider", "prometheus", "grafana"})
-
     registry = TrackRegistry(
         tracks=tracks_tuple,
         by_key=by_key,
-        always_on=always_on,
+        always_on=ALWAYS_ON_SERVICE_KEYS,
     )
     if path is None:
         _REGISTRY_CACHE = registry
     return registry
-
-
-# ────────────────────────────────────────────────────────────────────
-# Always-on tier
-# ────────────────────────────────────────────────────────────────────
-
-def compute_always_on(config_parser: Any) -> frozenset[str]:  # noqa: ARG001
-    """Returns the set of wizard-step ``service_key``s that must NEVER be
-    skipped by a track-skip predicate.
-
-    Today: ``{llm-provider, prometheus, grafana}`` — the three services
-    that survive ``ServiceDiscovery.discover()`` filtering and must be
-    exempt from track-based skipping. Locked manifests and cloud-provider
-    keys are filtered out upstream and never see the predicate.
-
-    Parameterized by ``config_parser`` so a future extension can derive
-    the set from manifests instead of hard-coding it.
-    """
-    return frozenset({"llm-provider", "prometheus", "grafana"})
 
 
 # ────────────────────────────────────────────────────────────────────

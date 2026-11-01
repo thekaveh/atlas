@@ -320,7 +320,7 @@ def test_consolidation_applies_user_fact_limit_across_single_fact_namespaces(
             return 3
 
         async def fetch(self, query, *_params):
-            if "ORDER BY updated_at ASC" in query:
+            if "ORDER BY created_at ASC" in query:
                 return [{"id": UUID(int=1), "updated_at": now}]
             return []
 
@@ -477,6 +477,52 @@ async def test_durable_extraction_failure_retries_terminal_update(monkeypatch):
         UUID(int=1), asyncio.CancelledError()
     )
     assert attempts == 2
+
+
+@pytest.mark.asyncio
+async def test_extraction_stops_storing_facts_at_the_user_limit(monkeypatch):
+    """LANGMEM_MAX_FACTS_PER_USER: one active fact and a cap of two leave
+    room for exactly one of the three extracted facts."""
+    import memory_service
+
+    class Conn(_RecordingConn):
+        async def fetchval(self, query, *params):
+            await super().fetchval(query, *params)
+            return 1
+
+    conn = Conn()
+    monkeypatch.setattr(memory_service, "acquire_conn",
+                        lambda *_a, **_k: _acquire_connection(lambda: conn))
+    service = _extraction_service()
+    service.max_facts = 2
+    service._litellm_complete = AsyncMock(return_value=json.dumps(
+        [{"content": f"fact {number}"} for number in (1, 2, 3)]
+    ))
+    result = await service.extract_facts(
+        str(UUID(int=1)), [{"role": "user", "content": "three facts"}]
+    )
+
+    inserts = [query for query, _ in conn.calls if "INSERT INTO public.memory_facts" in query]
+    assert (result["status"], result["facts_extracted"], len(inserts)) == ("completed", 1, 1)
+
+
+@pytest.mark.asyncio
+async def test_a_late_failure_write_cannot_overwrite_a_completed_session(monkeypatch):
+    """Cancellation can arrive after the fact transaction committed; the
+    terminal failure write must move only a session that is still running."""
+    import memory_service
+
+    conn = _RecordingConn()
+    monkeypatch.setattr(memory_service, "acquire_conn",
+                        lambda *_a, **_k: _acquire_connection(lambda: conn))
+    session = UUID(int=7)
+    assert await _extraction_service()._mark_extraction_failed(
+        session, asyncio.CancelledError()
+    )
+
+    [(query, params)] = [call for call in conn.calls if "SET status = 'failed'" in call[0]]
+    assert "WHERE id = $2 AND status = 'running'" in " ".join(query.split())
+    assert params == ("Memory extraction failed", session)
 
 
 def test_recall_refetch_rejects_cross_tenant_vector_hits(monkeypatch):

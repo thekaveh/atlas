@@ -126,7 +126,7 @@ services:
       # AuthManager.is_authorized_dag during DAG parsing. Without these,
       # it falls back to SimpleAuthManager and may emit auth warnings
       # into the scheduler log (no current functional break but a
-      # dual-write boundary violation per project_runtime_sc_vs_compose_env).
+      # dual-write boundary violation: runtime_sc and this block must match).
       AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
       AIRFLOW__FAB__AUTH_BACKENDS: airflow.providers.fab.auth_manager.api.auth.backend.basic_auth
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
@@ -181,9 +181,8 @@ services:
   # /opt/airflow/dags are never parsed, the UI shows zero DAGs, and no
   # DAG runs schedule. Confirmed against the Airflow 3 upgrade guide
   # ("The Dag processor must now be started independently, even for
-  # local or development setups") and upstream's reference compose at
-  # and the 3.3.2 reference deployment, which ships an
-  # `airflow-dag-processor` service.
+  # local or development setups") and the 3.3.2 reference deployment,
+  # which ships an `airflow-dag-processor` service.
   airflow-dag-processor:
     build:
       context: ./build
@@ -263,8 +262,8 @@ services:
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${AIRFLOW_DB_USER_URI:?AIRFLOW_DB_USER_URI is required}:${AIRFLOW_DB_PASSWORD_URI:?AIRFLOW_DB_PASSWORD_URI is required}@supabase-db:5432/airflow
       # The central Supabase init owns role/database provisioning; this
       # container owns only Airflow's application migrations and seed data.
-      # CRITICAL: init-airflow.sh runs `airflow users create --password
-      # "${AIRFLOW_ADMIN_PASSWORD}"` (line 63). Under `set -euo pipefail`
+      # CRITICAL: init-airflow.sh runs `airflow users create
+      # --password="${AIRFLOW_ADMIN_PASSWORD}"`. Under `set -euo pipefail`
       # an unset var aborts the script — and webserver/scheduler/
       # dag-processor all depends_on airflow-init: service_completed_successfully,
       # so the entire family fails to start. Pass 10 dropped the
@@ -277,8 +276,8 @@ services:
       # `db migrate` doesn't accidentally seed examples into our metadata DB.
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
       AIRFLOW_UID: "50000"
-      # Sibling-source vars for conditional connection seeding (dual-write per
-      # project_runtime_sc_vs_compose_env). init-airflow.sh reads SPARK_SOURCE,
+      # Sibling-source vars for conditional connection seeding (dual-write:
+      # runtime_sc mirrors this block). init-airflow.sh reads SPARK_SOURCE,
       # MINIO_SOURCE, WEAVIATE_SOURCE and NEO4J_GRAPH_DB_SOURCE;
       # ICEBERG_REST_SOURCE is injected for parity but has no seeding branch yet,
       # so it is inert until one is added -- do not cite it as a live consumer.
@@ -312,11 +311,10 @@ services:
       # fails with NOAUTH/WRONGPASS on every DAG that uses RedisHook.
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       # Same Airflow 3.x section renames as webserver/scheduler — needed
-      # so `airflow users create` (a FAB-provider CLI) actually finds
-      # FabAuthManager and successfully writes the admin row. The init
-      # script's `|| echo "skipping"` swallow would otherwise hide
-      # failure, leaving the webserver auth-backend without an admin to
-      # validate against (same 401 class as Pass 9's basic_auth bug).
+      # so `airflow users create` (a FAB-provider CLI) finds
+      # FabAuthManager and writes the admin row. init-airflow.sh exits
+      # non-zero if creation or the password re-sync fails, which blocks
+      # the dependent Airflow services.
       AIRFLOW__API__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
       AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_JWT_SECRET}
       AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager

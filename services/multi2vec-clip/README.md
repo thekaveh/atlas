@@ -97,13 +97,15 @@ The default model is `sentence-transformers-clip-ViT-B-32` (English-only ViT-B/3
 
 **Weaviate ingest fails with `connection refused to multi2vec-clip:8080`.** `MULTI2VEC_CLIP_SOURCE` is `disabled`, or the container is down. CLIP has no host port, so query `/meta` from a sibling container (commands below). The Weaviate image has `wget` but no `curl`.
 
-**Embeddings look random / clustering broken.** Confirm that `/meta` returns the configuration of the expected model. A stale image cache after a model change can pin you to the old checkpoint. `docker compose pull multi2vec-clip && docker compose up -d --force-recreate multi2vec-clip`.
+**Embeddings look random / clustering broken.** Confirm that `/meta` returns the configuration of the expected model. A stale image cache after a model change can pin you to the old checkpoint. Run `atlas_compose pull multi2vec-clip && atlas_compose up -d --force-recreate multi2vec-clip`, using the `atlas_compose` helper from [Troubleshooting](../../docs/quick-start/troubleshooting.md).
 
 **Module not available in Weaviate.** `WEAVIATE_ENABLE_MODULES` must list `multi2vec-clip`. Check `docker exec <project>-weaviate env | grep ENABLE_MODULES`.
 
+Replace `<project>` with `PROJECT_NAME` from `.env` (default `atlas`).
+
 ```bash
-docker compose ps multi2vec-clip
-docker compose logs -f multi2vec-clip
+docker ps --all --filter "name=^<project>-multi2vec-clip$"
+docker logs -f <project>-multi2vec-clip
 docker exec <project>-weaviate wget -qO- http://multi2vec-clip:8080/meta | jq .
 ```
 
@@ -129,7 +131,7 @@ docker exec <project>-backend curl -s -X POST http://multi2vec-clip:8080/vectori
 
 Output vectors are 512-d for ViT-B/32. Cosine similarity between a text vector and an image vector gives the canonical CLIP score.
 
-**Restart without rebuilding.** Stateless — `docker compose restart multi2vec-clip` is safe. The model file is in the image, so restart reuses the same packaged weights without a rebuild.
+**Restart without rebuilding.** Stateless — `docker restart <project>-multi2vec-clip` is safe. The model file is in the image, so restart reuses the same packaged weights without a rebuild.
 
 ## 8. Dependencies & Integrations
 
@@ -168,7 +170,7 @@ _No upstream calls._
 - **multi2vec-clip ↔ backend** — *Why:* backend has no direct path to multimodal embeddings; today it can only reach CLIP indirectly by writing through Weaviate. Direct `/vectorize` calls unlock zero-shot image tagging, image-vs-text similarity scoring, and ad-hoc embedding without round-tripping through a collection. *Mechanism:* `POST http://multi2vec-clip:8080/vectorize` with `{texts, images}`. *Effort:* small. *Confidence:* high.
 - **multi2vec-clip ↔ minio** — *Why:* MinIO hosts artifact buckets (comfyui, backend, n8n, jupyter, docling) but none of those image artifacts are indexed for semantic retrieval. A small ingest worker streams new objects through CLIP into Weaviate. *Mechanism:* MinIO bucket-notification webhook → fetch object → base64 → `POST /vectorize` → upsert into a `MediaAssets` Weaviate collection. *Effort:* medium. *Confidence:* medium.
 - **multi2vec-clip ↔ comfyui** — *Why:* ComfyUI images stay unindexed in volumes. Embedding each one into Weaviate enables prompt-similarity search, dedup and "find prior renders that look like X". *Mechanism:* ComfyUI custom SaveImage post-hook → call backend ingest endpoint → backend forwards bytes to `multi2vec-clip:8080/vectorize` and upserts. *Effort:* medium. *Confidence:* medium.
-- **multi2vec-clip ↔ jupyterhub** — *Why:* notebook users today spin up their own CLIP model to experiment with multimodal embeddings; the stack already runs one. *Mechanism:* JupyterHub user pods reach `http://multi2vec-clip:8080/vectorize` over `backend-network`; document a one-cell helper in the notebook starter image. *Effort:* small. *Confidence:* high.
+- **multi2vec-clip ↔ jupyterhub** — *Why:* notebook users today spin up their own CLIP model to experiment with multimodal embeddings; the stack already runs one. *Mechanism:* the JupyterHub container already reaches `http://multi2vec-clip:8080/vectorize` over `backend-network`; add a one-cell helper to the bundled notebooks. *Effort:* small. *Confidence:* high.
 - **multi2vec-clip ↔ n8n** — *Why:* n8n workflows handling inbound email/Slack attachments or webhook-uploaded images can vectorize on-the-fly for routing, classification, or RAG. *Mechanism:* n8n HTTP Request node → `POST http://multi2vec-clip:8080/vectorize` → branch on cosine-similarity to label-vectors. *Effort:* small. *Confidence:* high.
 - **multi2vec-clip ↔ doc-processor** — *Why:* docling extracts figures/diagrams from PDFs but discards the visual signal. CLIP-embedding extracted figures alongside text chunks enables true multimodal RAG over document corpora. *Mechanism:* docling post-extraction step → for each figure, base64 → `POST /vectorize` → store with parent-chunk metadata. *Effort:* medium. *Confidence:* medium.
 
@@ -185,7 +187,7 @@ _No high-confidence opportunities identified._
 <a id="56-future--unused-features-in-this-service"></a>
 
 - **GPU mode (`MULTI2VEC_CLIP_SOURCE=container-gpu`)** — *Why pursue:* the variant sets `ENABLE_CUDA=1` but gets no GPU; wire the NVIDIA device request ([#1373](https://github.com/thekaveh/atlas/issues/1373)). *Effort:* small.
-- **Model variant selection beyond ViT-B-32** — *Why pursue:* upstream ships SigLIP 2, multilingual XLM-R+ViT, LAION ViT-B-16; we hard-pin `sentence-transformers-clip-ViT-B-32`. Exposing `MULTI2VEC_CLIP_IMAGE` choices in the wizard unlocks multilingual + higher-recall regimes. *Effort:* small.
+- **Model choice in the wizard** — *Why pursue:* Atlas defaults to ViT-B-32, and §3 documents a manual SigLIP 2 opt-in. Upstream also ships multilingual XLM-R+ViT and LAION ViT-B-16 images. A wizard choice for `MULTI2VEC_CLIP_IMAGE`, with the vector-dimension warning, would expose them. *Effort:* small.
 - **Multi-field weighted vectors** — *Why pursue:* the CLIP module supports per-field weights (`image_fields` weight 0.9, `text_fields` weight 0.1); no collection in `weaviate-init` exercises this. *Effort:* small.
 - **`/meta` health surfacing** — *Why pursue:* container exposes `/meta` with model config; not scraped or shown in the wizard's service-table health column. *Effort:* small.
 - **`trust_remote_code` for custom CLIP variants** — *Why pursue:* enables loading community models (Qwen3-VL, ColPali) already supported by the upstream loader. *Effort:* medium (security review needed).

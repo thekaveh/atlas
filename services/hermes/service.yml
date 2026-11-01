@@ -125,7 +125,7 @@ env:
     description: "Host port of the Hermes dashboard for HERMES_SOURCE=localhost; the hermes.localhost Kong route targets it. Default: the native dashboard port. The wizard edits only HERMES_LOCALHOST_PORT, so set this one in .env."
   - name: HERMES_INIT_SOURCE
     default: container
-    description: "Auto-managed by hermes. Container/disabled."
+    description: "Init-container selector listed in the SOURCE matrix (container or disabled). No code reads it: HERMES_INIT_SCALE follows HERMES_SOURCE."
   - name: HERMES_INIT_SCALE
     description: "Set by ./start.sh from HERMES_SOURCE; do not edit. 1 runs hermes-init only for the container source, else 0."
     auto_managed: true
@@ -232,10 +232,10 @@ runtime_adaptive:
       COMFYUI_INTERNAL_URL: ${COMFYUI_ENDPOINT}
       SEARXNG_INTERNAL_URL: http://searxng:8080
       LIGHTRAG_INTERNAL_URL: ${LIGHTRAG_ENDPOINT}
-      # Bearer key the rendered hermes config.yaml passes on every
-      # LightRAG call; init-hermes.sh + config.yaml.tmpl both read it.
-      # Missing from this list = the runtime_adaptive contract under-
-      # specifies what compose actually injects.
+      # Compose injects the LightRAG key for a future MCP or skill integration
+      # (README §7). config.yaml.tmpl renders no LightRAG block, and
+      # init-hermes.sh only exports it. Listed so this contract matches
+      # what compose actually injects.
       LIGHTRAG_API_KEY: ${LIGHTRAG_API_KEY}
     extra_hosts_adaptation: none
     failure_mode: "Capability block omitted from config.yaml; Hermes runs without it."
@@ -265,8 +265,8 @@ data_flow:
     - searxng
     # Hermes → Airflow: DOCUMENTED integration pattern, not a pre-wired
     # runtime call. The third-party nousresearch/hermes-agent image has no
-    # built-in Airflow client; services/hermes/README.md §9 and
-    # services/airflow/README.md §6 show the curl pattern users wire from
+    # built-in Airflow client; services/hermes/README.md §8 shows the
+    # pattern (services/airflow/README.md §6 points to it) users wire from
     # inside Hermes Skills / dashboard widgets. Declared planned (#1273) so
     # the generated diagrams show the supported pattern without claiming a
     # live call; remove the entry if a future PR retracts the docs.

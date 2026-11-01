@@ -16,6 +16,7 @@ Loopback does not stop web pages in your browser. Until open issue #1455 is fixe
 - `ICEBERG_REST_SOURCE=container` runs the REST catalog and its Postgres init companion.
 - `ICEBERG_REST_PORT` is assigned by the topology port allocator.
 - `ICEBERG_DB_USER` and `ICEBERG_DB_PASSWORD` define the dedicated Supabase Postgres role.
+- `ICEBERG_REST_POSTGRES_JDBC_VERSION` and `ICEBERG_REST_POSTGRES_JDBC_SHA512` pin the PostgreSQL JDBC driver; change them together.
 - `MINIO_BUCKET_ICEBERG_LAKEHOUSE`, `MINIO_BUCKET_ICEBERG_JARS`, `MINIO_BUCKET_ICEBERG_CHECKPOINTS`, and `MINIO_BUCKET_ICEBERG_LANDING` define the lakehouse buckets created by `minio-init`.
 
 ## 4. Architecture & Wiring
@@ -26,7 +27,7 @@ The catalog warehouse is `s3://${MINIO_BUCKET_ICEBERG_LAKEHOUSE}/` (default `s3:
 
 To exercise MERGE, time travel, branching, schema evolution, streaming and maintenance procedures against a running catalog, run the opt-in `scripts/smoke-iceberg-advanced-sql.sh`. Its `--help` lists the services it needs.
 
-Atlas builds a small local image from `ICEBERG_REST_IMAGE`. The upstream fixture image has the Iceberg JDBC catalog but not the PostgreSQL JDBC driver that Supabase persistence needs. `ICEBERG_REST_POSTGRES_JDBC_VERSION` pins that driver.
+Atlas builds a small local image from `ICEBERG_REST_IMAGE`. The upstream fixture image has the Iceberg JDBC catalog but not the PostgreSQL JDBC driver that Supabase persistence needs. `ICEBERG_REST_POSTGRES_JDBC_VERSION` pins that driver. The build verifies the jar against `ICEBERG_REST_POSTGRES_JDBC_SHA512`, so change both values together.
 
 ## 5. Capabilities & limitations
 

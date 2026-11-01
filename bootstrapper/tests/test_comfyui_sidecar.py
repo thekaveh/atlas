@@ -270,6 +270,20 @@ def test_rows_the_downloader_would_refuse_are_skipped_alone(tmp_path, capsys):
     assert capsys.readouterr().err.count("construction failed") == 3
 
 
+@pytest.mark.parametrize("length,loads", [(255, True), (256, False)])
+def test_sidecar_filename_length_limit_is_255(tmp_path, capsys, length, loads):
+    """The downloader caps a filename at 255 characters; 255 is legal."""
+    fname = "a" * (length - len(".safetensors")) + ".safetensors"
+    sidecar = tmp_path / "custom-models.yaml"
+    sidecar.write_text(
+        "models:\n"
+        f"  - {{name: m, category: lora, url: 'https://h/a/x.safetensors', filename: '{fname}'}}\n",
+        encoding="utf-8",
+    )
+    assert bool(load_custom_models(str(sidecar))) is loads
+    assert ("filename is longer than 255 characters" in capsys.readouterr().err) is not loads
+
+
 def test_two_models_never_share_a_download_path(tmp_path, capsys):
     """Diffusers repos all ship diffusion_pytorch_model.safetensors: two
     scraped or fallback ControlNets landed on one path and the plan writer
@@ -324,3 +338,86 @@ def test_pulled_badge_and_clash_skip_follow_the_download_identity(tmp_path, caps
     if curated.size_gb:  # the sidecar row omits size: a plan-writer conflict
         assert names == [curated.name]
         assert "dup-of-curated" in capsys.readouterr().err
+
+
+def _numeric_metadata_sidecar(tmp_path, change):
+    import yaml
+
+    field, value, bundle = change
+    candidate = {
+        "name": "candidate", "category": "lora",
+        "url": "https://example.test/candidate.safetensors",
+    }
+    if bundle:
+        candidate["files"] = [{
+            "role": "weights", "category": "lora",
+            "url": candidate.pop("url"), field: value,
+        }]
+    else:
+        candidate[field] = value
+    healthy = {
+        "name": "healthy", "category": "lora",
+        "url": "https://example.test/healthy.safetensors",
+    }
+    path = tmp_path / "numeric-models.yaml"
+    path.write_text(yaml.safe_dump({"models": [candidate, healthy]}), encoding="utf-8")
+    return path
+
+
+def _publish_numeric_metadata(tmp_path, monkeypatch, sidecar):
+    import yaml
+    from utils import comfyui_library
+    from utils.comfyui_manifest_generator import ComfyUIManifestGenerator
+
+    monkeypatch.setattr(comfyui_library, "assemble_wizard_catalog", lambda: [])
+    output = tmp_path / "manifest"
+    env = {"COMFYUI_SOURCE": "container", "COMFYUI_CUSTOM_MODELS_FILE": str(sidecar)}
+    assert ComfyUIManifestGenerator(env).write(output) is True
+    assert (output / "active-models.tsv").stat().st_mode & 0o777 == 0o644
+    path = output / "selected-models.yaml"
+    assert path.stat().st_mode & 0o777 == 0o644
+    return yaml.safe_load(path.read_text(encoding="utf-8"))
+
+
+@pytest.mark.parametrize("change", [
+    (field, value, False)
+    for field in ("size_gb", "min_vram_gb", "min_ram_gb")
+    for value in (float("nan"), float("inf"), float("-inf"))
+] + [("size_gb", value, True) for value in (float("nan"), float("inf"), float("-inf"))])
+def test_nonfinite_numeric_metadata_skips_only_invalid_custom_entry(
+    tmp_path, monkeypatch, capsys, change
+):
+    import json
+
+    sidecar = _numeric_metadata_sidecar(tmp_path, change)
+    entries = load_custom_models(str(sidecar))
+    assert [entry.name for entry in entries] == ["healthy"]
+    assert "must be finite" in capsys.readouterr().err
+    manifest = _publish_numeric_metadata(tmp_path, monkeypatch, sidecar)
+    assert [row["name"] for row in manifest["models"]] == ["healthy"]
+    assert json.loads(json.dumps(manifest, allow_nan=False)) == manifest
+
+
+@pytest.mark.parametrize("change", [
+    ("size_gb", 0.0, False), ("size_gb", 1.25, False),
+    ("size_gb", "2.5", False), ("size_gb", -1.5, False),
+    ("size_gb", True, False), ("min_vram_gb", None, False),
+    ("min_vram_gb", 0.0, False), ("min_vram_gb", "8", False),
+    ("min_vram_gb", -2, False), ("min_vram_gb", False, False),
+    ("min_ram_gb", None, False), ("min_ram_gb", 16.0, False),
+    ("min_ram_gb", -3, False), ("min_ram_gb", True, False),
+    ("size_gb", None, True), ("size_gb", "2.5", True),
+    ("size_gb", -1.5, True), ("size_gb", False, True),
+])
+def test_existing_finite_null_and_coercible_metadata_is_preserved(
+    tmp_path, monkeypatch, change
+):
+    sidecar = _numeric_metadata_sidecar(tmp_path, change)
+    manifest = _publish_numeric_metadata(tmp_path, monkeypatch, sidecar)
+    assert [row["name"] for row in manifest["models"]] == ["candidate", "healthy"]
+    row = manifest["models"][0]
+    field, value, _bundle = change
+    output_key = {"size_gb": "file_size_gb", "min_vram_gb": "min_vram_gb",
+                  "min_ram_gb": "min_ram_gb"}[field]
+    expected = 0.0 if field == "size_gb" and value is None else value
+    assert row[output_key] == (None if expected is None else float(expected))

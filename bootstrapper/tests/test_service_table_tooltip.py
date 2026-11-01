@@ -9,6 +9,8 @@ The visual hover behavior itself is validated live in the TUI, not here.
 
 from __future__ import annotations
 
+import pytest
+
 from ui.textual.widgets.service_table import ServiceRow, ServiceTable
 
 
@@ -63,6 +65,53 @@ def test_launch_flow_row_rebuild_preserves_hover_metadata():
             f"run_launch_flow no longer preserves {field} on its ServiceRow "
             f"rebuild — CLI-flag launch mode would drop hover-card metadata."
         )
+
+
+@pytest.mark.parametrize("provider_key", ["openai", "anthropic", "openrouter"])
+@pytest.mark.parametrize("case", [
+    (False, "", "enabled", "replacement", (True, True)),
+    (True, "saved", "disabled", None, (False, True)),
+    (True, "saved", "enabled", "", (True, False)),
+    (True, "saved", None, None, (True, True)),
+])
+def test_cli_launch_cloud_overview_uses_effective_flags(
+    tmp_path, monkeypatch, provider_key, case,
+):
+    from types import SimpleNamespace
+    from core.config_parser import ConfigParser
+    from core.port_manager import PortManager
+    from ui.textual import integration
+    from ui.textual.screens import wizard_screen
+    from ui.textual.widgets.info_box import CloudApiSummary
+    from utils.cloud_providers import CLOUD_PROVIDERS
+
+    old_enabled, old_key, source_override, key_override, expected = case
+    provider = next(p for p in CLOUD_PROVIDERS if p.key == provider_key)
+    env = {provider.source_var: "enabled" if old_enabled else "disabled", provider.api_key_var: old_key}
+    parser = ConfigParser(str(tmp_path))
+    monkeypatch.setattr(parser, "parse_env_file", lambda: dict(env))
+    summaries = [CloudApiSummary(name=provider.name, enabled=old_enabled, key_set=bool(old_key))]
+    monkeypatch.setattr(integration, "_build_steps_and_rows", lambda *a, **kw: (
+        [], [], [], 63000, SimpleNamespace(consumers=[]), summaries,
+    ))
+    monkeypatch.setattr(PortManager, "port_offsets", lambda self: {})
+    monkeypatch.setattr(wizard_screen, "WizardScreen", lambda **kwargs: kwargs)
+    captured = []
+
+    def mount(app):
+        app.push_screen = captured.append
+        app.on_mount()
+
+    monkeypatch.setattr(integration, "_run_app_with_process_cleanup", mount)
+    sources = {} if source_override is None else {provider.source_var.lower(): source_override}
+    keys = {} if key_override is None else {provider.api_key_var: key_override}
+    starter = SimpleNamespace(run_port_migration=lambda *a: None)
+    integration.run_launch_flow(parser, starter=starter, source_args=sources,
+                                stack_options={"cloud_api_keys": keys})
+
+    actual = captured[0]["cloud_apis"][0]
+    assert (actual.enabled, actual.key_set) == expected
+    assert "replacement" not in repr(actual)
 
 
 def test_tooltip_pairs_appends_extra():
@@ -133,25 +182,76 @@ def test_tooltip_pairs_includes_source_options_and_depends():
     assert labels.index("Source options") < labels.index("Source") + 3
 
 
+class _EnvParser:
+    def __init__(self, env=None):
+        self._env = dict(env or {})
+
+    def parse_env_file(self):
+        return dict(self._env)
+
+
 def test_recompute_ports_preserves_card_metadata():
     """A base-port change must not strip a row's hover-card metadata
     (the bug where MinIO lost its S3 endpoints after the base-port step)."""
     from ui.textual.integration import recompute_ports_for_base
 
-    class _CP:
-        def parse_env_file(self):
-            return {}
-
     row = ServiceRow(
-        name="MinIO Console", source="container", alias="minio.localhost",
-        tooltip_extra=[("S3 API", "http://localhost:63020")],
+        name="n8n", source="container", alias="n8n.localhost",
+        tooltip_extra=[("Webhook", "http://localhost:63064/webhook")],
         source_options=["container", "disabled"],
         depends_on=["supabase"],
     )
-    out = recompute_ports_for_base(64000, [row], _CP(), {})
-    assert out[0].tooltip_extra == [("S3 API", "http://localhost:63020")]
+    out = recompute_ports_for_base(64000, [row], _EnvParser(), {})
+    assert out[0].tooltip_extra == [("Webhook", "http://localhost:63064/webhook")]
     assert out[0].source_options == ["container", "disabled"]
     assert out[0].depends_on == ["supabase"]
+
+
+def test_recompute_ports_rederives_minio_s3_endpoints():
+    """MinIO's S3 endpoints must follow the new base port, like URL/Local,
+    instead of keeping the .env block (one card showed two port blocks)."""
+    from ui.textual.integration import recompute_ports_for_base
+
+    row = ServiceRow(
+        name="MinIO Console", source="container", alias="minio.localhost",
+        tooltip_extra=[("S3 API", "http://localhost:63020"),
+                       ("S3 (Kong)", "http://s3.minio.localhost:63000")],
+        source_options=["container", "disabled"],
+        depends_on=["supabase"],
+    )
+    env = _EnvParser({"MINIO_PORT": "63020", "KONG_HTTP_PORT": "63000"})
+    offsets = {"MINIO_PORT": 20, "KONG_HTTP_PORT": 0}
+    out = recompute_ports_for_base(64000, [row], env, offsets)
+    assert out[0].tooltip_extra == [
+        ("S3 API", "http://localhost:64020"),
+        ("S3 (Kong)", "http://s3.minio.localhost:64000"),
+    ]
+    assert out[0].source_options == ["container", "disabled"]
+    assert out[0].depends_on == ["supabase"]
+
+
+def test_minio_s3_endpoints_omit_blank_ports():
+    from ui.textual.widgets.service_table import minio_s3_endpoints
+
+    assert minio_s3_endpoints({"MINIO_PORT": " 63020 "}, "63000") == [
+        ("S3 API", "http://localhost:63020"),
+        ("S3 (Kong)", "http://s3.minio.localhost:63000"),
+    ]
+    assert minio_s3_endpoints({"MINIO_PORT": ""}, "") == []
+
+
+def test_tooltip_pairs_hide_extra_endpoints_for_disabled_source():
+    """A disabled MinIO runs nothing, so its card must not advertise S3 URLs
+    (the alias URL is already hidden for the same source)."""
+    row = _row("MinIO Console", source="disabled", alias="minio.localhost",
+               alias_port="63000",
+               tooltip_extra=[("S3 API", "http://localhost:63020"),
+                              ("S3 (Kong)", "http://s3.minio.localhost:63000")])
+    pairs = ServiceTable._tooltip_pairs(row)
+    labels = [k for k, _ in pairs]
+    assert "S3 API" not in labels and "S3 (Kong)" not in labels
+    assert "URL" not in labels
+    assert pairs[0] == ("Source", "disabled")
 
 
 def test_source_options_highlights_active_source():
@@ -167,3 +267,34 @@ def test_source_options_highlights_active_source():
         if seg == "none":   # an inactive option must NOT be accented
             assert "#7dcfff" not in style
     assert active_accented, "active source option should be accent + bold"
+
+
+def test_off_track_card_shows_the_effective_source_like_the_table_row():
+    """The table row reads 'disabled (off-track)', but the hover card and the
+    ctrl+o review (#1179) showed the stored source as active, so the two
+    surfaces disagreed about a service the track will force-disable."""
+    from ui.textual.widgets.service_table import service_card
+
+    row = _row("n8n", source="container", port=":63018", alias="n8n.localhost",
+               alias_port="63002", off_track=True,
+               source_options=("container", "localhost", "disabled"))
+    pairs = ServiceTable._tooltip_pairs(row)
+    assert pairs[0] == ("Source", "disabled (off-track)")
+    assert ("Stored source", "container") in pairs
+    assert ("Source", "container") not in pairs
+
+    card = service_card(row)
+    options_at = card.plain.index("container, localhost")
+    for span in card.spans:
+        if span.start <= options_at < span.end:
+            assert "bold" not in str(span.style), (
+                "an off-track row has no active source to accent"
+            )
+
+
+def test_on_track_card_is_unchanged():
+    row = _row("n8n", source="container", source_options=("container", "localhost"))
+    assert ServiceTable._tooltip_pairs(row)[:2] == [
+        ("Source", "container"),
+        ("Source options", "container, localhost"),
+    ]

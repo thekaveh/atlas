@@ -16,6 +16,10 @@ import requests
 from pydantic import BaseModel, Field
 
 
+# Fixed /threads creation timeout; the `timeout` valve governs only /runs/wait.
+_THREAD_TIMEOUT_S = 30
+
+
 class Tools:
     class Valves(BaseModel):
         researcher_url: str = Field(
@@ -84,7 +88,7 @@ class _ResearchRun:
                         "source": "open_webui_research_tool",
                     }
                 },
-                timeout=30,
+                timeout=_THREAD_TIMEOUT_S,
             )
 
             if thread_resp.status_code != 200:
@@ -117,7 +121,7 @@ class _ResearchRun:
                 )
             except requests.exceptions.Timeout:
                 return str(
-                    f"❌ Research timed out after {self.valves.timeout}s (15 minutes). Atlas requested LangGraph cancellation on disconnect; check the research service logs before retrying."
+                    f"❌ Research timed out after {self.valves.timeout}s. Atlas requested LangGraph cancellation on disconnect; check the research service logs before retrying."
                 )
 
             if resp.status_code != 200:
@@ -169,11 +173,11 @@ class _ResearchRun:
 
         except requests.exceptions.ConnectionError:
             return str(
-                "❌ Cannot connect to research service. Please check if the backend is running."
+                "❌ Cannot connect to Local Deep Researcher. Check that the local-deep-researcher service is running."
             )
         except requests.exceptions.Timeout:
             return str(
-                f"❌ Research service timed out after {self.valves.timeout}s (15 minutes). Service may be overloaded - try again later or increase timeout in settings."
+                f"❌ Local Deep Researcher did not create a research thread within {_THREAD_TIMEOUT_S}s. The service may be overloaded; try again later."
             )
         except Exception:
             return "❌ Research failed unexpectedly. Please try again later."

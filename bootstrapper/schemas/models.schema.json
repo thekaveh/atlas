@@ -146,7 +146,7 @@
         "default": {"type": "boolean"},
         "description": {"type": "string"},
         "badges": {"type": "array", "items": {"type": "string"}},
-        "dim": {"type": "integer", "minimum": 1, "description": "Embedding output vector dimension; matched against the consumer's required dimension (backend memory_facts vector(768))."},
+        "dim": {"type": "integer", "minimum": 1, "description": "Embedding output vector dimension. Selecting this model sets LANGMEM_EMBEDDING_DIM; the wizard lists 768-dim models first. See embedding_dimension_contract in bootstrapper/utils/model_resolver.py."},
         "metadata_version": {"const": 1},
         "kind": {"enum": ["chat", "embedding"]},
         "adapter": {"enum": ["ollama", "ollama_chat", "openai", "anthropic", "openrouter"]},

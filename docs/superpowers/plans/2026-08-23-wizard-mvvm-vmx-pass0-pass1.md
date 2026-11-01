@@ -1749,7 +1749,13 @@ Refs #535"
 
 **Placeholder scan:** The three `...  # body of X, verbatim` markers in Task 5 Step 4 are deliberate and safe — Step 1 has the engineer print the exact source lines first, and the instruction is explicitly "copy verbatim, do not improve". Writing 75 lines of existing code into the plan would go stale against the file. Everywhere else, code is complete and runnable.
 
-**Type consistency:** `ServiceInfo` is produced by Task 4 and consumed by Task 6 as `Sequence[object]` reading only `.key` — deliberate, so the Task 6 tests can use a 1-field stand-in rather than constructing a real `ServiceInfo`. `CloudResolution` fields (`source`, `api_key`, `models`) are identical in the Task 7 interface block, tests, and truth table. `parse_csv` is named identically in Task 5's interface, module, tests, and the Task 8 consumer. `layer_violations(root, banned) -> list[tuple[str, str]]` matches across Task 2's interface block, implementation, and all four mutation tests.
+**Type consistency:** `ServiceInfo` is produced by Task 4 and consumed by Task 6 as `Sequence[object]` reading only `.key` — deliberate, so the Task 6 tests can use a 1-field stand-in rather than constructing a real `ServiceInfo`.
+
+`CloudResolution` fields (`source`, `api_key`, `models`) are identical in the Task 7 interface block, tests, and truth table.
+
+`parse_csv` is named identically in Task 5's interface, module, tests, and the Task 8 consumer.
+
+`layer_violations(root, banned) -> list[tuple[str, str]]` matches across Task 2's interface block, implementation, and all four mutation tests.
 
 ---
 

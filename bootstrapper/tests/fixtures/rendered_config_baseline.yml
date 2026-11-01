@@ -581,7 +581,6 @@ services:
       TIKA_MAX_FILE_SIZE: '52428800'
       TIKA_TIMEOUT_SECONDS: '30'
       TTS_ENDPOINT: ''
-      WEAVIATE_ENABLED: 'true'
       WEAVIATE_URL: ''
     extra_hosts:
     - host.docker.internal=
@@ -801,7 +800,6 @@ services:
       TIKA_ENDPOINT: ''
       TIKA_MAX_FILE_SIZE: '52428800'
       TIKA_TIMEOUT_SECONDS: '30'
-      WEAVIATE_ENABLED: 'true'
       WEAVIATE_URL: ''
     extra_hosts:
     - host.docker.internal=
@@ -990,6 +988,7 @@ services:
     entrypoint:
     - /scripts/download_models.sh
     environment:
+      COMFYUI_DOWNLOAD_TOTAL_TIMEOUT_SECONDS: '7200'
       COMFYUI_MANIFEST_TSV: /comfyui-manifest/active-models.tsv
       COMFYUI_MODELS_PATH: /models
     extra_hosts:
@@ -1107,7 +1106,6 @@ services:
   flower:
     command:
     - celery
-    - --broker=
     - flower
     - --address=0.0.0.0
     - --port=5555
@@ -1250,8 +1248,8 @@ services:
     healthcheck:
       test:
       - CMD-SHELL
-      - 'printf ''header = "Authorization: Bearer %s"\n'' "$$API_SERVER_KEY" | curl --fail
-        --silent --show-error -K- http://127.0.0.1:8642/v1/models >/dev/null'
+      - 'printf ''Authorization: Bearer %s\n'' "$$API_SERVER_KEY" | curl --fail
+        --silent --show-error --header @- http://127.0.0.1:8642/v1/models >/dev/null'
       timeout: 10s
       interval: 30s
       retries: 5
@@ -1570,6 +1568,7 @@ services:
       interval: 30s
       retries: 3
       start_period: 30s
+    init: true
     labels:
       com.atlas.category: application
       com.atlas.service: jupyterhub
@@ -2220,6 +2219,7 @@ services:
       LANGFUSE_HOST: ''
       LANGFUSE_PUBLIC_KEY: ''
       LANGFUSE_SECRET_KEY: ''
+      LIGHTRAG_API_KEY: ''
       LITELLM_MASTER_KEY: ''
       OPENAI_API_KEY: ''
       OPENROUTER_API_KEY: ''
@@ -2515,7 +2515,7 @@ services:
       LITELLM_BASE_URL: http://litellm:4000
       LITELLM_DEFAULT_MODEL: ollama/qwen3.8:latest
       LOCAL_DEEP_RESEARCHER_FULL_PAGE_MODE: disabled
-      LOCAL_DEEP_RESEARCHER_LANGGRAPH_CLI_VERSION: 0.4.31
+      LOCAL_DEEP_RESEARCHER_LANGGRAPH_CLI_VERSION: 0.4.32
       LOCAL_DEEP_RESEARCHER_REF: 38f769f84380f2065de76021ac7c5215f88aa39e
       LOCAL_DEEP_RESEARCHER_UPSTREAM_LOCK_SHA256: 26fc35ac377836de6628e5f7b180944c4d4bd50a5e9f0200bd6e663f20e35c1a
       LOCAL_DEEP_RESEARCHER_WORKERS: '3'
@@ -2928,7 +2928,6 @@ services:
       STT_ENDPOINT: ''
       TIKA_ENDPOINT: ''
       TTS_ENDPOINT: ''
-      VUE_APP_URL_BASE_API: http://n8n.localhost:63000/
       WEAVIATE_URL: ''
       WEBHOOK_URL: http://n8n.localhost:63000/
     extra_hosts:
@@ -3437,7 +3436,7 @@ services:
     entrypoint:
     - sh
     - -c
-    - "set -e\nCONFIG=/home/node/.openclaw/openclaw.json\nPATCH='{\"gateway\":{\"controlUi\":{\"dangerouslyAllowHostHeaderOriginFallback\":true}}}'\n# Write via tmp + mv on BOTH branches: `> \"$$CONFIG\"` truncates\n# the target before jq runs, so a missing/failed jq used to\n# leave a 0-byte config the gateway chokes on (and re-runs\n# could not self-heal \u2014 jq errors on the empty file).\ncommand -v jq >/dev/null 2>&1 || { echo \"openclaw-init: jq is required\" >&2; exit 1; }\n# OpenClaw reads its config as JSON5 (comments, trailing commas); jq\n# cannot. Failing on such a file kept the gateway from starting\n# although OpenClaw would run on it, so leave it unpatched instead.\nif [ -s \"$$CONFIG\" ] && ! jq empty \"$$CONFIG\" >/dev/null 2>&1; then\n  echo \"openclaw-init: $$CONFIG is not strict JSON (JSON5?); leaving it unpatched\"\n  chown -R 1000:1000 /home/node/.openclaw\n  exit 0\nfi\nif [ -s \"$$CONFIG\" ]; then\n  jq --argjson patch \"$$PATCH\" '. * $$patch' \"$$CONFIG\" > \"$$CONFIG.tmp\" || exit 1\n  mv \"$$CONFIG.tmp\" \"$$CONFIG\"\nelse\n  echo \"$$PATCH\" | jq . > \"$$CONFIG.tmp\" || exit 1\n  mv \"$$CONFIG.tmp\" \"$$CONFIG\"\nfi\n# The bundled litellm provider reads LITELLM_API_KEY but defaults its\n# base URL to http://localhost:4000 (ECONNREFUSED in this container).\n# Point it at the gateway only when unset, keeping operator values.\n# `|| exit 1`, not `&& mv`: set -e ignores a failure on the left of\n# &&, so invalid JSON exited 0 and the gateway started on it.\njq '.models.providers.litellm.baseUrl //= \"http://litellm:4000\" | .models.providers.litellm.models //= []' \"$$CONFIG\" > \"$$CONFIG.tmp\" || exit 1\nmv \"$$CONFIG.tmp\" \"$$CONFIG\"\nchown -R 1000:1000 /home/node/.openclaw\n"
+    - "set -e\nCONFIG=/home/node/.openclaw/openclaw.json\n# Write via tmp + mv on EVERY write: `> \"$$CONFIG\"` truncates\n# the target before jq runs, so a missing/failed jq used to\n# leave a 0-byte config the gateway chokes on (and re-runs\n# could not self-heal \u2014 jq errors on the empty file).\ncommand -v jq >/dev/null 2>&1 || { echo \"openclaw-init: jq is required\" >&2; exit 1; }\n# OpenClaw reads its config as JSON5 (comments, trailing commas); jq\n# cannot. Failing on such a file kept the gateway from starting\n# although OpenClaw would run on it, so leave it unpatched instead.\nif [ -s \"$$CONFIG\" ] && ! jq empty \"$$CONFIG\" >/dev/null 2>&1; then\n  echo \"openclaw-init: $$CONFIG is not strict JSON (JSON5?); leaving it unpatched\"\n  chown -R 1000:1000 /home/node/.openclaw\n  exit 0\nfi\nif [ ! -s \"$$CONFIG\" ]; then\n  echo '{}' > \"$$CONFIG.tmp\" || exit 1\n  mv \"$$CONFIG.tmp\" \"$$CONFIG\"\nfi\n# Allow the Host-header origin fallback for the non-loopback bind\n# only when the operator set neither an explicit value nor a\n# gateway.controlUi.allowedOrigins list, so a hardening survives.\n# Not `//=`: jq's alternative operator treats an explicit false as unset.\njq 'if (((.gateway.controlUi.allowedOrigins // []) | length) > 0) or ((.gateway.controlUi // {}) | has(\"dangerouslyAllowHostHeaderOriginFallback\")) then . else .gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback = true end' \"$$CONFIG\" > \"$$CONFIG.tmp\" || exit 1\nmv \"$$CONFIG.tmp\" \"$$CONFIG\"\n# The bundled litellm provider reads LITELLM_API_KEY but defaults its\n# base URL to http://localhost:4000 (ECONNREFUSED in this container).\n# Point it at the gateway only when unset, keeping operator values.\n# `|| exit 1`, not `&& mv`: set -e ignores a failure on the left of\n# &&, so invalid JSON exited 0 and the gateway started on it.\njq '.models.providers.litellm.baseUrl //= \"http://litellm:4000\" | .models.providers.litellm.models //= []' \"$$CONFIG\" > \"$$CONFIG.tmp\" || exit 1\nmv \"$$CONFIG.tmp\" \"$$CONFIG\"\nchown -R 1000:1000 /home/node/.openclaw\n"
     image: atlas-openclaw-init:local
     networks:
       backend-network: null
@@ -3996,7 +3995,7 @@ services:
     command:
     - 'set -e
 
-      mc alias set minio http://minio:9000 "minioadmin" ""
+      printf ''%s\n%s\n'' "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}" | mc alias set minio http://minio:9000 >/dev/null
 
       mc mb --ignore-existing minio/spark-history
 
@@ -4013,6 +4012,9 @@ services:
     entrypoint:
     - sh
     - -c
+    environment:
+      MINIO_ROOT_PASSWORD: ''
+      MINIO_ROOT_USER: minioadmin
     image: pgsty/mc:RELEASE.2026-09-16T00-00-00Z@sha256:cfc83108c3abb371f8fb84d99c1fdc88f8c237e022409b0081fb7c0a3be634dd
     networks:
       backend-network: null
@@ -4076,17 +4078,19 @@ services:
       args:
         BASE_IMAGE: apache/spark:4.1.2
     command:
-    - "set -euo pipefail\nexport HADOOP_CONF_DIR=/tmp/atlas-spark-hadoop-conf\nmkdir\
-      \ -p \"$${HADOOP_CONF_DIR}\"\ncat > \"$${HADOOP_CONF_DIR}/core-site.xml\" <<EOF\n\
-      <configuration>\n  <property><name>fs.s3a.endpoint</name><value>http://minio:9000</value></property>\n\
-      \  <property><name>fs.s3a.endpoint.region</name><value>us-east-1</value></property>\n\
-      \  <property><name>fs.s3a.path.style.access</name><value>true</value></property>\n\
-      \  <property><name>fs.s3a.connection.ssl.enabled</name><value>false</value></property>\n\
-      \  <property><name>fs.s3a.aws.credentials.provider</name><value>org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider</value></property>\n\
-      \  <property><name>fs.s3a.access.key</name><value></value></property>\n\
-      \  <property><name>fs.s3a.secret.key</name><value></value></property>\n</configuration>\n\
-      EOF\nexec /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077\
-      \ --webui-port 8081\n"
+    - "set -euo pipefail\nexport HADOOP_CONF_DIR=/tmp/atlas-spark-hadoop-conf\nmkdir -p\
+      \ \"$${HADOOP_CONF_DIR}\"\n# Serialize literal daemon credentials as XML text, preserving\
+      \ & and <.\npython3 - <<'PY'\nimport os\nimport xml.etree.ElementTree as ET\n\n\
+      configuration = ET.Element(\"configuration\")\nfor name, value in (\n    (\"fs.s3a.endpoint\"\
+      , \"http://minio:9000\"),\n    (\"fs.s3a.endpoint.region\", os.environ[\"AWS_REGION\"\
+      ]),\n    (\"fs.s3a.path.style.access\", \"true\"),\n    (\"fs.s3a.connection.ssl.enabled\"\
+      , \"false\"),\n    (\"fs.s3a.aws.credentials.provider\", \"org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider\"\
+      ),\n    (\"fs.s3a.access.key\", os.environ[\"AWS_ACCESS_KEY_ID\"]),\n    (\"fs.s3a.secret.key\"\
+      , os.environ[\"AWS_SECRET_ACCESS_KEY\"]),\n):\n    entry = ET.SubElement(configuration,\
+      \ \"property\")\n    ET.SubElement(entry, \"name\").text = name\n    ET.SubElement(entry,\
+      \ \"value\").text = value\nET.ElementTree(configuration).write(\n    os.path.join(os.environ[\"\
+      HADOOP_CONF_DIR\"], \"core-site.xml\"),\n    encoding=\"utf-8\",\n)\nPY\nexec /opt/spark/bin/spark-class\
+      \ org.apache.spark.deploy.worker.Worker spark://spark-master:7077 --webui-port 8081\n"
     depends_on:
       spark-master:
         condition: service_healthy
@@ -4214,7 +4218,7 @@ services:
     healthcheck:
       test:
       - CMD-SHELL
-      - pg_isready -h localhost -U supabase_admin -d postgres
+      - pg_isready -h localhost -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"
       timeout: 5s
       interval: 10s
       retries: 5
@@ -4243,10 +4247,6 @@ services:
       source: supabase-db-config
       target: /etc/postgresql-custom
       volume: {}
-    - type: bind
-      source: '{REPO_ROOT}/services/supabase/db/snapshot'
-      target: /snapshot
-      bind: {}
     - type: bind
       source: '{REPO_ROOT}/services/supabase/db/scripts/enforce-scram-host-auth.sh'
       target: /usr/local/bin/enforce-scram-host-auth.sh
@@ -4326,6 +4326,7 @@ services:
     - type: bind
       source: '{REPO_ROOT}/services/supabase/db/scripts'
       target: /scripts
+      read_only: true
       bind: {}
     - type: bind
       source: '{REPO_ROOT}/services/supabase/db/_user'
@@ -4529,7 +4530,8 @@ services:
       CLUSTER_POSTGRES: 'true'
       DATABASE_URL: ecto://atlas_supavisor:atlas-db-password@supabase-db:5432/supavisor
       DB_POOL_SIZE: '5'
-      ERL_AFLAGS: -proto_dist inet_tcp
+      ERL_AFLAGS: -proto_dist inet_tcp -kernel inet_dist_use_interface {127,0,0,1}
+      ERL_EPMD_ADDRESS: 127.0.0.1
       METRICS_JWT_SECRET: ''
       POOLER_DEFAULT_POOL_SIZE: '20'
       POOLER_MAX_CLIENT_CONN: '100'
@@ -4587,7 +4589,7 @@ services:
           cpus: 2
           memory: '4294967296'
     environment:
-      HF_HOME: /data
+      HUGGINGFACE_HUB_CACHE: /data
       TEI_RERANKER_ENDPOINT: ''
     extra_hosts:
     - host.docker.internal=
@@ -5008,8 +5010,6 @@ services:
     entrypoint:
     - /scripts/init-weaviate.sh
     environment:
-      LITELLM_API_KEY: ''
-      LITELLM_BASE_URL: http://litellm:4000
       LITELLM_EMBEDDING_MODEL: ollama/nomic-embed-text
     extra_hosts:
     - host.docker.internal=

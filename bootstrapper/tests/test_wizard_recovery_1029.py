@@ -172,8 +172,7 @@ def _cold_step(monkeypatch):
     from ui.textual.integration import _build_steps_and_rows
 
     monkeypatch.setattr(ConfigParser, "parse_env_file", lambda self: {})
-    hosts = SimpleNamespace()
-    steps, *_ = _build_steps_and_rows(ConfigParser(), hosts)
+    steps, *_ = _build_steps_and_rows(ConfigParser())
     return next(step for step in steps if step.title == "Cold start  ·  rebuild")
 
 

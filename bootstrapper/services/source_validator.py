@@ -3,8 +3,6 @@ SOURCE configuration validation against per-service manifests.
 
 Each services/<name>/service.yml declares its `sources.options[]` set; this
 module asserts that every *_SOURCE value in .env matches one of those options.
-
-Python implementation of the validate_source_values() function from start.sh.
 """
 
 from utils.atomic_write import env_lines
@@ -271,7 +269,6 @@ class SourceValidator:
     def validate_all_sources(self) -> bool:
         """
         Validate all SOURCE configurations from .env file.
-        Replicates the validate_source_values() function from start.sh.
 
         Returns:
             bool: True if all sources are valid
@@ -515,10 +512,13 @@ class SourceValidator:
         vLLM Metal — must be configured, otherwise the LiteLLM gateway has no
         models to route to.
         """
+        # The provider list comes from the registry, so a provider added
+        # there counts as an upstream here without a second edit.
+        from utils.cloud_providers import CLOUD_PROVIDERS
         llm_source = service_sources.get('LLM_PROVIDER_SOURCE', 'ollama-container-cpu')
         cloud_enabled = any(
-            service_sources.get(var, 'disabled') == 'enabled'
-            for var in ('CLOUD_OPENAI_SOURCE', 'CLOUD_ANTHROPIC_SOURCE', 'CLOUD_OPENROUTER_SOURCE')
+            service_sources.get(p.source_var, 'disabled') == 'enabled'
+            for p in CLOUD_PROVIDERS
         )
         # vLLM Metal is a genuine LiteLLM upstream: litellm-init registers a
         # model_list entry (init.py::vllm_metal_model_entry) when
@@ -529,10 +529,10 @@ class SourceValidator:
         )
 
         if llm_source == 'none' and not cloud_enabled and not vllm_metal_enabled:
+            cloud_vars = ' / '.join(p.source_var for p in CLOUD_PROVIDERS)
             self.validation_errors.append(
                 "❌ LiteLLM has no upstream configured. Set LLM_PROVIDER_SOURCE to an "
-                "ollama-* value, enable at least one of CLOUD_OPENAI_SOURCE / "
-                "CLOUD_ANTHROPIC_SOURCE / CLOUD_OPENROUTER_SOURCE, or set "
+                f"ollama-* value, enable at least one of {cloud_vars}, or set "
                 "VLLM_METAL_SOURCE=managed-localhost."
             )
             return False
@@ -790,42 +790,6 @@ class SourceValidator:
             print("   at services/<service>/service.yml under `sources.options`.")
         else:
             print("✅ All SOURCE values are valid")
-    
-    def get_service_source_options(self, service_var: str) -> List[str]:
-        """
-        Get valid SOURCE options for a specific service variable.
-        
-        Args:
-            service_var: SOURCE variable name
-            
-        Returns:
-            list: List of valid SOURCE values
-        """
-        if not self.yaml_config:
-            self.load_yaml_config()
-            
-        # Get mappings dynamically from YAML
-        service_mapping = self.get_service_mapping_from_yaml()
-        adaptive_services = self.get_adaptive_services_from_yaml()
-        
-        if service_var in adaptive_services:
-            # Check for explicit source options first
-            adaptive_sources = self._get_adaptive_service_sources(service_var)
-            if not adaptive_sources:
-                # Also check source_configurable
-                sk = service_mapping.get(service_var)
-                if sk:
-                    adaptive_sources = self.get_valid_sources_for_service(sk)
-            if adaptive_sources:
-                return sorted(list(adaptive_sources))
-            return ['container']
-
-        service_key = service_mapping.get(service_var)
-        if not service_key:
-            return []
-
-        valid_sources = self.get_valid_sources_for_service(service_key)
-        return sorted(list(valid_sources))
 
 
 def _missing_option_requires(sources, service_sources: Dict[str, str], env_vars: Dict[str, str]) -> List[str]:

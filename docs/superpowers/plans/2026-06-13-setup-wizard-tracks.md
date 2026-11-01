@@ -1,6 +1,6 @@
 # Setup-Wizard Tracks Implementation Plan
 
-> **Status: archived plan** — dated 2026-06-13; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+> **Status: archived plan** — dated 2026-06-13; a point-in-time record kept for archaeology, not current guidance. It landed in `716cb43d` (#86), which has no CHANGELOG entry.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -2131,7 +2131,7 @@ loader + predicates). The wizard step builder in
 
 Find the existing "Quickstart" or "Getting Started" section in `README.md`. Add a "Quickstart by track" subsection:
 
-```markdown
+````markdown
 ### Quickstart by track
 
 For RAG-focused work:
@@ -2147,7 +2147,7 @@ For agentic-app engineering:
 Other tracks: `gen-ai-creative`, `ml-eng`, `data-eng`. Run `./start.sh
 --list-tracks` to see service membership for each. Use `--track all` for
 the full wizard (every configurable service).
-```
+````
 
 - [ ] **Step 3: Verify the docs-drift gate is still green**
 

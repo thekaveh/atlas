@@ -12,7 +12,9 @@ Set `CELERY_SOURCE=container` (wizard or `--celery-source container`) to run one
 
 `POST /memory/consolidate?async_job=true` returns a Celery job id at once. The FastAPI request does not stay open while the LangMem loop reads the database and calls the LLM. When this tier is enabled, RAG ingestion submissions dispatch the phase engine.
 
-Use `GET /jobs/{job_id}` to read the state: pending, running, success, retry, failure or revoked. `pending` is ambiguous. Celery reports it for an unknown id and for a result past its expiry (`result_expires`, default one day). A mistyped id, or a job polled more than a day after it finished, reads `pending` indefinitely.
+Poll `GET /jobs/{job_id}` with `Authorization: Bearer ${BACKEND_INTERNAL_API_TOKEN}` to read the state: pending, running, success, retry, failure or revoked. `pending` is ambiguous. Celery reports it for an unknown id and for a result past its expiry (`result_expires`, default one day). A mistyped id, or a job polled more than a day after it finished, reads `pending` indefinitely.
+
+User JWTs and the n8n and Open WebUI tokens get `403` on this route, so a consolidation they queue is fire-and-forget.
 
 The synchronous `POST /memory/consolidate` path remains. Research start is deferred: it is not a Celery task, because it has its own database-backed session lifecycle.
 
@@ -58,16 +60,19 @@ controls:
 - The ingestion-state TTL accepts 60 through 31,536,000 seconds.
 - An invalid timeout or TTL uses the 30-second or seven-day default.
 
-The bootstrapper computes these when enabled:
+The bootstrapper computes these when enabled. The URLs contain the percent-encoded Redis password as a concrete value, without a dotenv variable reference.
+Here, `<encoded-password>` represents that generated value:
 
-```bash
-CELERY_BROKER_URL=redis://:${REDIS_PASSWORD}@redis:6379/4
-CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD}@redis:6379/4
+```text
+CELERY_BROKER_URL=redis://:<encoded-password>@redis:6379/4
+CELERY_RESULT_BACKEND=redis://:<encoded-password>@redis:6379/4
 CELERY_WORKER_SCALE=1
 FLOWER_SCALE=1
 ```
 
 Redis database 4 is reserved for Celery broker and result state. It is operational state, not the durable memory store; memory facts stay in Supabase/pgvector.
+
+Edit the raw `REDIS_PASSWORD` and rerun startup to regenerate these URLs. See [Redis configuration](../redis/README.md#3-configuration) for password handling.
 
 ## 4. Architecture & Wiring
 
@@ -100,6 +105,8 @@ The Redis visibility timeout is longer than the hard task time limit. RAG ingest
 - Redis can re-deliver a task if a worker dies before it acknowledges the task. Tasks must be idempotent or tolerate a retry.
 - RAG ingestion takes and renews an owner-fenced execution lease before phase side effects. Every state save checks the owner.
 - A duplicate delivery that finds an active lease waits for it to expire, then retries.
+- A worker process killed during two consecutive runs of one ingestion, for example by the OOM killer, fails that job. It is not run a third time. Resubmit it after you fix the cause, such as worker memory or corpus size.
+- A RAG job whose Weaviate class another job holds stays `pending` before it parses anything. It retries with full-jitter backoff capped at 600 s, outside the transient and Redis retry budgets.
 - A worker that loses its lease cancels the running phase, logs the failure and reschedules without overwriting state.
 - Transient upstream failures get three retries with exponential backoff, counted separately from lease waits. After that, the ingestion fails.
 - LightRAG replays use deterministic document ids. Only a matching duplicate in an admitted or processed state counts as uploaded.

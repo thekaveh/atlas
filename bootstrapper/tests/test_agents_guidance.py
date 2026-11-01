@@ -81,10 +81,30 @@ class _LiveGateEnvCollector(ast.NodeVisitor):
         self.generic_visit(node)
 
 
+def _calls_pytest_skip(function: ast.AST) -> bool:
+    return any(
+        isinstance(node, ast.Call) and _attribute_path(node.func) == ("pytest", "skip")
+        for node in ast.walk(function)
+    )
+
+
+def _in_body_skip_variables(tree: ast.AST) -> set[str]:
+    """ATLAS_* switches read inside a function that calls ``pytest.skip``: the
+    in-body gate (a fixture or helper) that a ``skipif`` scan misses."""
+    variables: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and _calls_pytest_skip(node):
+            collector = _LiveGateEnvCollector({})
+            collector.visit(node)
+            variables.update(key for key in collector.keys if key.startswith("ATLAS_"))
+    return variables
+
+
 def _opt_in_live_endpoint_variables() -> set[str]:
     """Derive environment switches that actually gate self-skipping tests."""
     variables: set[str] = set()
-    for path in (ROOT / "services/backend/app/app/tests").glob("test_*.py"):
+    tests_dir = ROOT / "services/backend/app/app/tests"
+    for path in [*tests_dir.glob("test_*.py"), tests_dir / "conftest.py"]:
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         definitions: dict[str, ast.AST] = {}
         for node in tree.body:
@@ -105,6 +125,7 @@ def _opt_in_live_endpoint_variables() -> set[str]:
             collector = _LiveGateEnvCollector(definitions)
             collector.visit(node.args[0])
             variables.update(collector.keys)
+        variables.update(_in_body_skip_variables(tree))
 
     assert variables, "expected opt-in live Backend tests with endpoint switches"
     return variables
@@ -545,7 +566,7 @@ def test_backend_test_command_is_shell_valid_and_matches_the_ci_dependency_contr
     assert syntax.returncode == 0, syntax.stderr
 
     logical_lines = re.sub(r"\\\n\s*", " ", block)
-    cd_match = re.search(r"^cd ([^\s]+)$", logical_lines, re.MULTILINE)
+    cd_match = re.search(r"^\s*cd ([^\s]+)$", logical_lines, re.MULTILINE)
     assert cd_match
     assert (ROOT / cd_match.group(1)).resolve() == backend_root.resolve()
 
@@ -614,6 +635,8 @@ def test_live_endpoint_switches_are_derived_from_skip_conditions() -> None:
         "ATLAS_COMFYUI_LIVE_ENDPOINT",
         "ATLAS_TEI_RERANKER_LIVE_ENDPOINT",
         "ATLAS_TEST_REDIS_URL",
+        "ATLAS_TEST_MEMORY_RECONCILE_POSTGRES_URL",
+        "ATLAS_TEST_MEDIA_LEDGER_POSTGRES_URL",
     }
 
 

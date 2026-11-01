@@ -4,7 +4,7 @@
 
 Redpanda is an optional, disabled-by-default Kafka API broker for data-engineering streaming. Atlas runs one local broker, a topic-bootstrap init container and Redpanda Console.
 
-The Atlas Spark image includes the Kafka Structured Streaming jars. Spark Connect jobs (the JupyterHub notebooks) and cluster-mode Airflow submits therefore read and write Kafka without `--packages` downloads. Zeppelin and client-mode Airflow submits run their driver in images without these jars. There, add `--packages org.apache.spark:spark-sql-kafka-0-10_2.13:<spark version>`.
+The Atlas Spark image includes the Kafka Structured Streaming jars. Spark Connect jobs (the JupyterHub notebooks) and cluster-mode Airflow submits therefore read and write Kafka without `--packages` downloads. Client-mode Airflow submits run their driver in the Airflow image, which lacks these jars. There, add `--packages org.apache.spark:spark-sql-kafka-0-10_2.13:<spark version>`. Zeppelin `%spark` paragraphs cannot read Kafka yet; see [Zeppelin §1.1](../zeppelin/README.md#11-spark-backend).
 
 ## 2. Access
 
@@ -94,7 +94,7 @@ Atlas does not include Kafka Connect, Debezium, Redpanda Connect, Schema Registr
 ## 7. Troubleshooting
 
 - `redpanda.localhost` returns 404 or dashboard HTML: confirm `REDPANDA_SOURCE=container` and rerun `./start.sh --setup-hosts`.
-- Spark cannot find the `kafka` format: run `./start.sh` so it rebuilds the local Spark image (`services/spark/build/Dockerfile` installs the Kafka jars under `/opt/spark/jars`). Zeppelin and client-mode Airflow drivers need `--packages` (see §1).
+- Spark cannot find the `kafka` format: run `./start.sh` so it rebuilds the local Spark image (`services/spark/build/Dockerfile` installs the Kafka jars under `/opt/spark/jars`). Client-mode Airflow drivers need `--packages` (see §1). Zeppelin has no Kafka connector yet (#1376).
 - Host Kafka clients cannot connect: use `localhost:${REDPANDA_KAFKA_PORT}`, not the Kong port. Kafka is a binary protocol and is intentionally not routed through Kong.
 
 ## 8. Dependencies & Integrations

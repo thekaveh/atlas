@@ -12,6 +12,7 @@
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
       "id": 1,
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
       "targets": [
         { "expr": "sum(rate(kong_http_requests_total[5m])) by (route)", "refId": "A" }
       ]
@@ -22,6 +23,7 @@
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
       "id": 2,
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
       "targets": [
         { "expr": "sum(rate(kong_http_requests_total[5m])) by (code)", "refId": "A" }
       ]
@@ -32,6 +34,7 @@
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
       "id": 3,
+      "fieldConfig": { "defaults": { "unit": "ms" }, "overrides": [] },
       "targets": [
         { "expr": "histogram_quantile(0.95, sum(rate(kong_request_latency_ms_bucket[5m])) by (le, route))", "refId": "A" }
       ]
@@ -42,6 +45,7 @@
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
       "id": 4,
+      "fieldConfig": { "defaults": { "unit": "Bps" }, "overrides": [] },
       "targets": [
         { "expr": "sum(rate(kong_bandwidth_bytes[5m])) by (route, direction)", "refId": "A" }
       ]

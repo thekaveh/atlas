@@ -1051,7 +1051,7 @@ git commit -m "test(spark): regenerate fragment-equivalence baseline with spark 
 
 Follow the `services/grafana/README.md` template. Sections: Overview, Access, Configuration, Cluster topology, Web UIs (Master + History), Spark Connect, Dependencies & Integrations (auto-gen marker), Troubleshooting. Concrete content:
 
-```markdown
+````markdown
 # Apache Spark (standalone cluster)
 
 Spark runs as a 4-container family in the stack's `data` band: `spark-master`, `spark-worker` (replicas via `SPARK_WORKER_COUNT`), `spark-history`, and `spark-init` (a vanilla-alpine init that creates the MinIO bucket on first start).
@@ -1101,7 +1101,7 @@ SPARK_WORKER_COUNT=2               # 1-8 (wizard prompts via SecondaryNumberInpu
 - **Workers don't appear in the master UI** — Compose's `depends_on: spark-master: condition: service_healthy` should serialize this. If a worker stays "lost", check `docker logs ${PROJECT_NAME}-spark-worker-1`.
 - **OOM in a worker** — Spark workers are unbounded by default. Set `SPARK_WORKER_MEMORY=4G` in the container env block for production use.
 - **Spark Connect refused** — port 15002 is backend-network-only; Zeppelin should hit `sc://spark-master:15002` directly. Don't expose 15002 to the host.
-```
+````
 
 - [ ] **Step 2: Commit**
 

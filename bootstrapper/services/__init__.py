@@ -164,7 +164,7 @@ def launched_with_other_settings(record: dict, pid, settings: dict) -> bool:
     return any(key in record and record[key] != value for key, value in settings.items())
 
 
-def await_owned_process_readiness(manager, status, wait_timeout, error_details):
+def await_owned_process_readiness(manager, wait_timeout, error_details):
     """Wait for a health proof while repeatedly retaining ownership proof."""
     label, bind, port, error_type, clock = error_details
     deadline = clock.monotonic() + wait_timeout
@@ -863,14 +863,7 @@ def _cleanup_message(outcome: LaunchCompensation) -> str:
 
 
 def _warn_control_flow(exc: BaseException, note: str) -> None:
-    if hasattr(exc, "add_note"):
-        exc.add_note(note)
-    else:  # Python 3.10 compatibility
-        notes = getattr(exc, "__notes__", None)
-        if notes is None:
-            notes = []
-            exc.__notes__ = notes
-        notes.append(note)
+    exc.add_note(note)
     print(f"WARNING: {note}", file=sys.stderr, flush=True)
 
 

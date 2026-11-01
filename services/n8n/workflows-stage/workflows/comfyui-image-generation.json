@@ -213,6 +213,30 @@
     },
     {
       "parameters": {
+        "httpMethod": "GET",
+        "authentication": "headerAuth",
+        "path": "comfyui-models",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "a7c1e2d4-5b6f-4a8e-9c0d-1e2f3a4b5c6d",
+      "name": "ComfyUI Models Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        20,
+        500
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "atlas-webhook-header-auth",
+          "name": "Atlas Webhook Header Auth"
+        }
+      },
+      "webhookId": "comfyui-models"
+    },
+    {
+      "parameters": {
         "url": "http://backend:8000/comfyui/db/models?active_only=true&essential_only=false",
         "sendHeaders": true,
         "headerParameters": {
@@ -264,6 +288,17 @@
     }
   ],
   "connections": {
+    "ComfyUI Models Webhook": {
+      "main": [
+        [
+          {
+            "node": "Get Available Models",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "ComfyUI Webhook": {
       "main": [
         [

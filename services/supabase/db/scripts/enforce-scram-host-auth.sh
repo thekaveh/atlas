@@ -63,7 +63,10 @@ if [ -s "$pgdata/PG_VERSION" ] && [ -f "$hba" ]; then
   rendered="$candidate.rendered"
   backup="$pgdata/pg_hba.conf.atlas.bak"
   backup_candidate="$backup.$$"
-  trap 'rm -f "$candidate" "$rendered" "$backup_candidate"' EXIT HUP INT TERM
+  trap 'rm -f "$candidate" "$rendered" "$backup_candidate"' EXIT
+  trap 'exit 129' HUP
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
 
   if awk 'BEGIN { found=0 } $1 ~ /^include(_if_exists|_dir)?$/ { found=1 } END { exit found ? 0 : 1 }' "$hba"; then
     refuse_hba_upgrade "include directives require explicit operator review" "$@"
