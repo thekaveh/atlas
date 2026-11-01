@@ -298,21 +298,31 @@ uv run --project bootstrapper pytest bootstrapper/tests/test_manifests.py -v    
 uv run --project bootstrapper pytest bootstrapper/tests -k weaviate                 # filter by name
 ```
 
+Some bootstrapper tests need an opt-in variable:
+
+- `ATLAS_TEST_NATIVE_POSTGRES_BIN=<PostgreSQL bin directory>` runs the native role-ownership SQL drills. CI sets it in the lint and python-floor jobs.
+- `ATLAS_LIVE_STACK=1` runs `test_live_catalog_sync.py` against the running stack.
+- `ATLAS_VLLM_METAL_LIVE=1` runs the live vLLM Metal smoke in `test_vllm_metal_manager.py -m live` on Apple Silicon.
+
 The Backend's runtime and test dependencies are separate. Run its default,
 non-live suite under Python 3.12 with both requirement sets and the tested lock
-constraint:
+constraint. The subshell keeps the `cd` and the cleanup local, and `set -e`
+stops at the first failing step:
 
 ```bash
-cd services/backend/app/app
-BACKEND_TEST_ROOT="$(mktemp -d)"
-trap 'rm -rf "$BACKEND_TEST_ROOT"' EXIT
-BACKEND_TEST_VENV="$BACKEND_TEST_ROOT/venv"
-uv venv --python 3.12 "$BACKEND_TEST_VENV"
-VIRTUAL_ENV="$BACKEND_TEST_VENV" uv pip install \
-  -r requirements.txt -r requirements-dev.txt -c requirements-test-locked.txt
-env -u ATLAS_TEST_REDIS_URL -u ATLAS_COMFYUI_LIVE_ENDPOINT \
-  -u ATLAS_TEI_RERANKER_LIVE_ENDPOINT \
-  "$BACKEND_TEST_VENV/bin/python" -m pytest tests/ -q -W error
+(
+  set -e
+  cd services/backend/app/app
+  BACKEND_TEST_ROOT="$(mktemp -d)"
+  trap 'rm -rf "$BACKEND_TEST_ROOT"' EXIT
+  BACKEND_TEST_VENV="$BACKEND_TEST_ROOT/venv"
+  uv venv --python 3.12 "$BACKEND_TEST_VENV"
+  VIRTUAL_ENV="$BACKEND_TEST_VENV" uv pip install \
+    -r requirements.txt -r requirements-dev.txt -c requirements-test-locked.txt
+  env -u ATLAS_TEST_REDIS_URL -u ATLAS_COMFYUI_LIVE_ENDPOINT \
+    -u ATLAS_TEI_RERANKER_LIVE_ENDPOINT \
+    "$BACKEND_TEST_VENV/bin/python" -m pytest tests/ -q -W error
+)
 ```
 
 This suite is not collected by the bootstrapper tests. Opt-in live smokes remain

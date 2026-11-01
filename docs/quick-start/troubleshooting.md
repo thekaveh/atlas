@@ -70,7 +70,7 @@ PYTHON
 
 Inspect the reported path after a failed launch. It includes diagnostics that the pane hides, such as cloud model-fetch warnings and the reason a launch step failed. The newest available file can belong to an earlier attempt if file logging was unavailable.
 
-Each session keeps up to 3 segments of 32 MiB, including headers. The first segment is always kept. Later output rotates into `.log.N` files with truncation markers. The `Y` shortcut copies the first segment. POSIX files are owner-only (`0600`); native Windows uses the private store's access controls. New segments never open through an existing file or symlink.
+Each session keeps up to 3 segments of 32 MiB, including headers. The first segment is always kept. Later output rotates into `.log.N` files with truncation markers. The `Y` shortcut copies at most the last 2 MiB of the first segment. POSIX files are owner-only (`0600`); native Windows uses the private store's access controls. New segments never open through an existing file or symlink.
 
 Failed-launch [support bundles](../operations/index.md#41-support-bundle) select recent retained output, with explicit cutoff and omission metadata. The pinned first segment remains available separately.
 

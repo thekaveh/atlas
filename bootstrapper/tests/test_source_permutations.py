@@ -2,12 +2,15 @@
 Source-permutation matrix.
 
 For every SOURCE-configurable service, iterate every valid SOURCE value, write
-it into a throwaway .env, and assert `docker compose config -q` succeeds. This
-proves that:
+it into a throwaway .env, run the bootstrapper's source synthesis and .env
+writer over it, and assert `docker compose config -q` succeeds. This proves
+that:
 
-  - Every declared source variant produces a parseable compose shape.
-  - The `${VAR:-default}` patterns and `replicas: ${X_SCALE:-N}` fallbacks
-    behave correctly when AUTO-MANAGED env vars are at their defaults.
+  - Every declared source variant produces a parseable compose shape from
+    the .env the bootstrapper actually writes for it (scales, profiles,
+    endpoints and the other AUTO-MANAGED vars).
+  - Most fragments read only the synthesized vars, never the SOURCE itself,
+    so rendering the raw SOURCE flip alone would prove nothing for them.
   - No fragment hard-codes a source-specific value that breaks parse-time.
 
 Skipped if `docker` is not on PATH or `.env.example` is missing.
@@ -15,6 +18,9 @@ Skipped if `docker` is not on PATH or `.env.example` is missing.
 
 from __future__ import annotations
 
+import functools
+import json
+import re
 import shutil
 import subprocess
 import tempfile
@@ -96,18 +102,94 @@ def _compose_config_ok(env_file: Path) -> tuple[bool, str]:
     return result.returncode == 0, result.stderr
 
 
+@functools.lru_cache(maxsize=None)
+def _source_graph() -> tuple[dict, dict]:
+    """(family -> SOURCE var, SOURCE var -> (first enabled option, required families))."""
+    from services.manifests import load_manifests
+
+    sourced = [m for m in load_manifests(REPO_ROOT / "services") if m.sources is not None]
+    var_of = {m.name: m.sources.var for m in sourced}
+    nodes = {
+        m.sources.var: (
+            next((o.id for o in m.sources.options if o.id != "disabled"), None),
+            tuple(m.depends_on.required),
+        )
+        for m in sourced
+    }
+    return var_of, nodes
+
+
+def _required_source_overrides(var: str, value: str) -> dict[str, str]:
+    """Enable the required families that .env.example leaves disabled.
+
+    Source synthesis refuses a family whose required family is off (Zeppelin
+    without Spark, for example). An enabled case therefore also enables its
+    `depends_on.required` closure, each at its first non-disabled option.
+    """
+    if value == "disabled":
+        return {}
+    var_of, nodes = _source_graph()
+    example = ENV_EXAMPLE.read_text(encoding="utf-8")
+    overrides: dict[str, str] = {}
+    pending = list(nodes.get(var, (None, ()))[1])
+    while pending:
+        dep_var = var_of.get(pending.pop())
+        if dep_var in (None, var) or dep_var in overrides:
+            continue
+        if re.search(rf"^{dep_var}=disabled$", example, re.MULTILINE):
+            option, required = nodes[dep_var]
+            overrides[dep_var] = option
+            pending.extend(required)
+    return overrides
+
+
+def _synthesize_env(env_file: Path, monkeypatch, overrides: dict[str, str]) -> None:
+    """Apply ``overrides``, then run the production synthesis and .env writer."""
+    from core.config_parser import ConfigParser
+    from services.service_config import ServiceConfig
+
+    monkeypatch.setattr("services.service_config.resolve_host_gateway_ip", lambda: "host-gateway")
+    parser = ConfigParser(str(REPO_ROOT))
+    parser.env_file_path = env_file
+    config = ServiceConfig(config_parser=parser)
+    assert config.update_env_file(overrides, create_backup=False)
+    assert config.generate_and_update_env(create_backup=False), "source synthesis failed"
+
+
 @pytest.mark.parametrize(
     "var,value",
     [(v, val) for v, vals in _PERMUTATIONS for val in vals],
     ids=[f"{v}={val}" for v, vals in _PERMUTATIONS for val in vals],
 )
-def test_source_value_produces_valid_compose(var: str, value: str, tmp_path: Path):
-    """Every source value, when written to .env, must produce a parseable
-    compose shape via `docker compose -f docker-compose.yml config -q`."""
+def test_source_value_produces_valid_compose(var: str, value: str, tmp_path: Path, monkeypatch):
+    """Every source value, written to .env and synthesized by the bootstrapper,
+    must produce a parseable compose shape via
+    `docker compose -f docker-compose.yml config -q`."""
     env_file = tmp_path / ".env"
     _write_env_with_override(env_file, var, value)
+    _synthesize_env(env_file, monkeypatch, _required_source_overrides(var, value))
     ok, stderr = _compose_config_ok(env_file)
     assert ok, f"{var}={value} produced invalid compose:\n{stderr}"
+
+
+def _rendered_replicas(env_file: Path, service: str) -> int:
+    result = subprocess.run(
+        ["docker", "compose", "--env-file", str(env_file), "-f", str(COMPOSE),
+         "config", "--format", "json"],
+        capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    return json.loads(result.stdout)["services"][service]["deploy"]["replicas"]
+
+
+@pytest.mark.parametrize("value,replicas", [("disabled", 0), ("container", 1)])
+def test_matrix_renders_the_synthesized_scale(value: str, replicas: int, tmp_path: Path, monkeypatch):
+    """n8n's fragment reads only N8N_SCALE (default 1), never N8N_SOURCE.
+    Only the synthesized .env makes `disabled` render zero replicas."""
+    env_file = tmp_path / ".env"
+    _write_env_with_override(env_file, "N8N_SOURCE", value)
+    _synthesize_env(env_file, monkeypatch, {})
+    assert _rendered_replicas(env_file, "n8n") == replicas
 
 
 def test_source_permutation_matrix_matches_every_manifest_option():
@@ -142,11 +224,10 @@ def test_explicit_remote_host_bind_remains_a_valid_compose_override(tmp_path: Pa
 
 # ─── Scaled-family rendering tests ──────────────────────────────────────
 # These exercise multi-replica scales that ``test_source_value_produces_valid_compose``
-# can't catch — that test only flips SOURCE vars; the auto-managed *_SCALE
-# vars stay empty (= 0 at render time). When a user actually enables a
-# scaled service (``--spark-source container --spark-workers 2``), the
-# bootstrapper sets the *_SCALE values in .env, and Compose then evaluates
-# rules like "no container_name when replicas > 1".
+# can't catch — that test renders each SOURCE value at its synthesized default
+# scale. When a user asks for more workers (``--spark-source container
+# --spark-workers 2``), the bootstrapper writes larger *_SCALE values to .env,
+# and Compose then evaluates rules like "no container_name when replicas > 1".
 
 @pytest.mark.parametrize("worker_count", ["1", "2", "8"])
 def test_spark_renders_at_every_supported_worker_count(worker_count: str, tmp_path: Path):

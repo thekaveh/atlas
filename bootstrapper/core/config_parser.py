@@ -232,15 +232,6 @@ class ConfigParser:
         # Default: .env in repository root
         return self.root_dir / ".env"
 
-    def get_env_file_location(self) -> str:
-        """
-        Get human-readable env file location for display.
-
-        Returns:
-            str: Path to the env file being used
-        """
-        return str(self.env_file_path)
-
     def is_using_custom_env_file(self) -> bool:
         """
         Check if using a custom env file path via ATLAS_ENV_FILE
@@ -391,20 +382,6 @@ class ConfigParser:
                         
         self.service_sources = source_mapping
         return source_mapping
-    
-    def get_service_source(self, service_var: str) -> str:
-        """
-        Get the SOURCE value for a specific service.
-        
-        Args:
-            service_var: The SOURCE variable name (e.g. 'LLM_PROVIDER_SOURCE')
-            
-        Returns:
-            str: The SOURCE value for the service
-        """
-        if not self.service_sources:
-            self.parse_service_sources()
-        return self.service_sources.get(service_var, '')
     
     def get_project_name(self) -> str:
         """

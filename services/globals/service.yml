@@ -77,14 +77,13 @@ env:
 
   # GPU + production-tuning vars — system-wide knobs not owned by any one
   # service. NVIDIA_VISIBLE_DEVICES is read by every GPU-aware container
-  # (parakeet, speaches, chatterbox, docling). Most PROD_ENV_* are reserved
-  # deploy.resources cap defaults NOT yet consumed by any compose fragment
-  # (the generic CPUS/MEM_LIMIT pair and the BACKEND/N8N pairs — backend / n8n
-  # run unbounded; wiring them is a deferred prod-profile follow-up). The
-  # EXCEPTION is PROD_ENV_COMFYUI_CPUS / PROD_ENV_COMFYUI_MEM_LIMIT, which ARE
-  # live — comfyui's container-gpu runtime_sc slice caps deploy.resources with
-  # them (services/comfyui/service.yml). comfyui's CPU variant caps separately
-  # via COMFYUI_CPU_LIMIT / COMFYUI_MEMORY_LIMIT in services/comfyui/compose.yml.
+  # (parakeet, speaches, chatterbox, docling). Every PROD_ENV_* is a reserved
+  # deploy.resources cap default NOT yet consumed by any compose fragment
+  # (backend / n8n run unbounded; wiring them is a deferred prod-profile
+  # follow-up). PROD_ENV_COMFYUI_* appear only in comfyui's container-gpu
+  # runtime_sc slice, which reaches no compose file. Every comfyui container
+  # source is capped by COMFYUI_CPU_LIMIT / COMFYUI_MEMORY_LIMIT in
+  # services/comfyui/compose.yml.
   - name: NVIDIA_VISIBLE_DEVICES
     default: all
     description: "Host-side GPU visibility. Forwarded into every NVIDIA-runtime container."
@@ -107,10 +106,10 @@ env:
     description: "Reserved n8n memory cap. No compose fragment reads it yet; n8n runs unbounded."
     default: 2g
   - name: PROD_ENV_COMFYUI_CPUS
-    description: "CPU limit (cores) for ComfyUI with COMFYUI_SOURCE=container-gpu. The CPU variant uses COMFYUI_CPU_LIMIT instead."
+    description: "Reserved ComfyUI CPU cap (cores). No compose fragment reads it; ComfyUI container sources use COMFYUI_CPU_LIMIT."
     default: 2
   - name: PROD_ENV_COMFYUI_MEM_LIMIT
-    description: "Memory limit for ComfyUI with COMFYUI_SOURCE=container-gpu. The CPU variant uses COMFYUI_MEMORY_LIMIT instead."
+    description: "Reserved ComfyUI memory cap. No compose fragment reads it; ComfyUI container sources use COMFYUI_MEMORY_LIMIT."
     default: 4g
 
   - name: LOG_MAX_SIZE

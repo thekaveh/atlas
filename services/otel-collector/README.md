@@ -67,6 +67,8 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 
 ## 6. Troubleshooting
 
+Set `PROJECT_NAME` in your shell to the value in `.env` (default `atlas`) before you run these commands.
+
 - If backend, Celery or LiteLLM do not emit traces, confirm `OTEL_COLLECTOR_SOURCE=container` and `TEMPO_SOURCE=container`.
 - If logs do not appear, confirm `LOKI_SOURCE=container`, query the normalized `service_name` label, and inspect Collector retry errors. A Collector restart discards records that Loki had not accepted.
 - If the collector is unhealthy, run `docker exec ${PROJECT_NAME}-otel-collector /otelcol-contrib validate --config=/etc/otelcol/config.yaml`. The output names the failing receiver, processor or exporter.

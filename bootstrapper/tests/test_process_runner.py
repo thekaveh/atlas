@@ -1608,6 +1608,37 @@ def test_streamed_timeout_notice_sink_failure_reaps_process_group(
         _kill_recorded_process(pid_file)
 
 
+@pytest.mark.parametrize("length", [70_000, 200_000])
+def test_streamed_command_survives_a_line_over_the_reader_limit(
+    tmp_path: Path, length: int
+) -> None:
+    """A Compose line past asyncio's 64 KiB reader limit used to raise
+    ValueError out of the runner, so ``logs -f`` turned a started stack into
+    a crashed launch. The cut is now reported and streaming continues."""
+    from ui.textual.screens.wizard_screen import (
+        _OVERLONG_LINE_NOTICE,
+        _run_streamed_command,
+    )
+
+    lines: list[str] = []
+    child = f"import sys; sys.stdout.write('x' * {length} + '\\nafter\\n')"
+
+    async def exercise() -> int:
+        return await _run_streamed_command(
+            [sys.executable, "-c", child],
+            cwd=tmp_path,
+            env=os.environ.copy(),
+            on_line=lines.append,
+            timeout_seconds=30,
+            termination_grace_seconds=0.05,
+        )
+
+    assert asyncio.run(exercise()) == 0
+    assert lines[0] == _OVERLONG_LINE_NOTICE
+    assert lines[-1] == "after"
+    assert all(len(line) < length for line in lines)
+
+
 #: Raises SIGHUP between `Popen` and the registry insert, so the guard is
 #: exercised at the exact window where a missed signal orphans the child.
 _SIGHUP_RACE_SCRIPT = """

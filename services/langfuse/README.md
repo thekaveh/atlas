@@ -88,7 +88,7 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
     To probe end to end, make one chat completion through LiteLLM. Then run `curl -u "$LANGFUSE_PUBLIC_KEY:$LANGFUSE_SECRET_KEY" http://localhost:${LANGFUSE_PORT}/api/public/traces` and check that `meta.totalItems` went up. Use the direct port: through Kong, the dashboard basic auth takes the `Authorization` header.
 
 - **`langfuse-web` is `(unhealthy)` but the UI works.** Next.js binds `$HOSTNAME`, which Docker sets to the container ID, so loopback probes fail. Atlas sets `HOSTNAME=0.0.0.0`. If the problem returns, check `docker exec <project>-langfuse-web printenv HOSTNAME`.
-- **Langfuse is auto-disabled at start:** Langfuse needs MinIO for S3-compatible event storage. With `MINIO_SOURCE=disabled`, `./start.sh` reports a dependency violation and scales Langfuse to 0. Set `MINIO_SOURCE=container`.
+- **`./start.sh` stops with a Langfuse error:** Langfuse needs MinIO for S3-compatible event storage. With `MINIO_SOURCE=disabled`, `./start.sh` stops with an error before Compose starts. Set `MINIO_SOURCE=container`.
 - **Rollback to direct LiteLLM behavior:** for a rollback, set `LANGFUSE_SOURCE=disabled` and rerun `./start.sh`. The Langfuse containers scale to zero, Kong stops routing `langfuse.localhost`, and LiteLLM no longer emits the Langfuse `success_callback` / `failure_callback`.
 - **ClickHouse timezone or empty queries:** keep ClickHouse and Postgres on UTC. The compose fragment sets ClickHouse `TZ=UTC`.
 

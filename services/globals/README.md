@@ -16,22 +16,21 @@
 
 ## 4. Access
 
-`globals` has no Kong alias and no port of its own. `BASE_PORT` is the base from which every service `*_PORT` derives.
+`globals` has no Kong alias and no port of its own. Allocated service ports are `BASE_PORT` plus a fixed offset. Host-service port settings with `_LOCALHOST_` in their names (for example `OLLAMA_LOCALHOST_PORT`) keep their own values.
 
 ## 5. Configuration
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `PROJECT_NAME` | `atlas` | Compose project name and the prefix for containers, volumes and networks. `./stop.sh` uses it to stop what `./start.sh` started. Set a unique name when Atlas runs as a submodule. |
-| `BASE_PORT` | `63000` | Base port. Every service `*_PORT` is this value plus a fixed offset. |
+| `BASE_PORT` | `63000` | Base port. Allocated service ports are this value plus a fixed offset. `_LOCALHOST_` host-service ports keep their own values. |
 | `HOST_BIND_IP` | `127.0.0.1:` | Host interface prefix for all published ports. Keep the trailing colon. Set `0.0.0.0:` only for deliberate remote access. |
 | `HOST_GATEWAY_IP` | `host-gateway` | Target of `host.docker.internal`. `./start.sh` computes it: `host-gateway` on Docker, the gateway IP on Podman. |
 | `BRAND_NAME`, `BRAND_TAGLINE`, `BRAND_VERSION`, `BRAND_AUTHOR`, `BRAND_AUTHOR_EMAIL`, `BRAND_LICENSE`, `BRAND_REPO_URL` | Atlas values | Brand metadata in the wizard and the `--no-tui` banner. |
 | `BRAND_LOGO_FILE` | empty | Path to a custom block-art logo. Empty uses the built-in ATLAS lockup. |
 | `COMPOSE_PROFILES` | empty | Compose profile list. `./start.sh` rebuilds it on every run from the STT, TTS and doc-processor sources. Do not edit it. |
 | `NVIDIA_VISIBLE_DEVICES` | `all` | Host GPU visibility for NVIDIA-runtime containers. |
-| `PROD_ENV_CPUS`, `PROD_ENV_MEM_LIMIT`, `PROD_ENV_BACKEND_*`, `PROD_ENV_N8N_*` | `2`, `8g`, `1`/`2g`, `1`/`2g` | Reserved resource caps. No compose fragment reads them yet. |
-| `PROD_ENV_COMFYUI_CPUS`, `PROD_ENV_COMFYUI_MEM_LIMIT` | `2`, `4g` | CPU and memory caps for the ComfyUI `container-gpu` source. |
+| `PROD_ENV_CPUS`, `PROD_ENV_MEM_LIMIT`, `PROD_ENV_BACKEND_*`, `PROD_ENV_N8N_*`, `PROD_ENV_COMFYUI_*` | `2`, `8g`, `1`/`2g`, `1`/`2g`, `2`/`4g` | Reserved resource caps. No compose fragment reads them yet. Every ComfyUI container source, including `container-gpu`, uses `COMFYUI_CPU_LIMIT` and `COMFYUI_MEMORY_LIMIT`. |
 | `LOG_MAX_SIZE`, `LOG_MAX_FILE` | `10m`, `3` | Docker `json-file` log size and file count per container. |
 | `BOOTSTRAPPER_PORT_LAYOUT_VERSION` | `5` | Migration sentinel. A missing or lower value runs the chained `.env` migrations. |
 

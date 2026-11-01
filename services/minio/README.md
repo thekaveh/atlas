@@ -17,7 +17,7 @@ The container runs [Silo](https://github.com/pgsty/silo) (`pgsty/silo` and `pgst
 | Admin console (direct port) | `http://localhost:${MINIO_CONSOLE_PORT}` (default `63021`) | Equivalent; no hosts setup required. |
 | S3 API (host port) | `http://localhost:${MINIO_PORT}` (default `63020`) | **Recommended for s3 clients** (no proxy hop). Stable per `BASE_PORT`. See §2.1. |
 | S3 API (Kong alias) | `http://s3.minio.localhost:${KONG_HTTP_PORT}` | `BASE_PORT`-independent host. Requires `./start.sh --setup-hosts`. Proxies to `minio:9000` with `preserve_host` so S3 SigV4 validates. Metrics paths answer 403 (§2.2). |
-| S3 API (internal) | `http://minio:9000` | What sibling containers (backend, n8n, ComfyUI, JupyterHub, docling consumers) call via the per-bucket service-account credentials. |
+| S3 API (internal) | `http://minio:9000` | What sibling containers call; §12.2 lists them. Application callers use per-bucket service-account credentials (§5). |
 | Admin console (internal) | `http://minio:9001` | What Kong proxies for the console alias. |
 
 Both Kong routes are generated in `bootstrapper/utils/kong_config_generator.py` when `MINIO_SOURCE != disabled`. They use `preserve_host`, so the client keeps its real Host header. The console SPA then builds correct redirect URLs, and the S3 client's SigV4 signature validates.
@@ -130,7 +130,7 @@ MinIO data lives in the `${PROJECT_NAME}-minio-data` named Docker volume mounted
 - **Add a bucket manually:** `mc mb local/<bucket>` from a host with `mc` and the root alias configured.
 - **Add a parent-owned consumer bucket:** set `MINIO_EXTRA_CONSUMERS` and its bucket, access and secret variables in a `_user` compose overlay and env overlay. Then run `./start.sh` again. A bare `docker compose` command does not load the `_user` overlay.
 - **Rotate a service-account key:** edit `MINIO_<NAME>_ACCESS_KEY` and `MINIO_<NAME>_SECRET_KEY` in `.env`. Run `./start.sh` again to reprovision `minio-init` and recreate the affected consumer containers with the new credentials. Reload the credentials in any clients outside Atlas. Recreating only `minio-init` leaves running consumers with stale credentials; changing an access key also leaves the old account (§3).
-- **Logs:** `docker logs ${PROJECT_NAME}-minio` and `docker logs ${PROJECT_NAME}-minio-init`.
+- **Logs:** set `PROJECT_NAME` in your shell to the value in `.env` (default `atlas`). Then run `docker logs ${PROJECT_NAME}-minio` and `docker logs ${PROJECT_NAME}-minio-init`.
 
 ## 10. Capabilities & limitations
 

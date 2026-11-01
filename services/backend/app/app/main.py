@@ -35,7 +35,7 @@ from comfyui_client import (
     ComfyUIUnavailableError,
     ComfyUIWorkflowRejectedError,
 )
-from comfyui_media_client import ComfyUIMediaClient
+from comfyui_media_client import ComfyUIMediaClient, validate_comfyui_media_config
 from fal_media_client import (
     FalClient,
     FalSubmissionAmbiguousError,
@@ -145,7 +145,9 @@ from backend_identity import (
     BackendPrincipal,
     _ct_equals,
     authenticate_backend_scope,
+    authenticate_n8n_operator_scope,
     authenticate_plugin_key_scope,
+    authenticate_stateless_scope,
     authorize_media_scope,
     authorize_user_id,
     principal_scope_key,
@@ -531,6 +533,7 @@ async def _pg_pool_saturated(_request: Request, exc: PoolSaturatedError):
 
 validate_media_input_config()
 validate_fal_config()
+validate_comfyui_media_config()
 validate_rerank_adapter_config()
 ingestion_execution_lease_seconds()
 
@@ -762,7 +765,10 @@ document_extractor = DocumentExtractor()
 # multipart routes are capped at their own documented limits plus parser
 # overhead (their UploadFile reads stay the fine-grained bound); everything
 # else falls under the default JSON envelope. Caps here must track the
-# route-level limits they mirror.
+# route-level limits they mirror. The multipart rules also run their route's
+# own credential check first: FastAPI spools the whole multipart body before
+# route dependencies, so an anonymous caller could force that spool. Each
+# authenticator must match the route's dependency.
 # The plugin's own auth mode, applied to its streaming routes before the body
 # is read (2026-10-08 run, cycle 46); `open` plugins stay unauthenticated.
 _STREAMING_AUTHENTICATORS = {
@@ -780,11 +786,15 @@ def _request_limit_policy(inventory: List[Dict[str, Any]]) -> LimitPolicy:
             method="POST",
             path="/storage/upload",
             max_bytes=MAX_UPLOAD_BYTES + MULTIPART_OVERHEAD_BYTES,
+            authenticate=True,
+            authenticator=authenticate_n8n_operator_scope,
         ),
         BodyLimitRule(
             method="POST",
             path="/documents/extract",
             max_bytes=_document_max_file_size() + MULTIPART_OVERHEAD_BYTES,
+            authenticate=True,
+            authenticator=authenticate_stateless_scope,
         ),
     ], streaming_prefixes=plugin_streaming_prefixes(inventory), streaming_auth={
         prefix: _STREAMING_AUTHENTICATORS[mode]

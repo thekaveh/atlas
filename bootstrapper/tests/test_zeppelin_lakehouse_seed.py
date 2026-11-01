@@ -170,7 +170,20 @@ def test_zeppelin_seed_properties_are_standalone_spark_not_connect() -> None:
     assert "spark.remote" not in props
 
 
-def test_zeppelin_seed_merge_preserves_non_atlas_properties_and_restarts() -> None:
+def _run_spark_seed(seed, monkeypatch, properties: dict) -> tuple[bool, list[tuple]]:
+    """Run seed_interpreter against a fake Zeppelin holding ``properties``."""
+    setting = {"id": "spark-id", "name": "spark", "group": "spark", "properties": properties}
+    calls: list[tuple] = []
+
+    def fake_request(method, url, payload=None):
+        calls.append((method, url, payload))
+        return {"status": "OK", "body": [setting]}
+
+    monkeypatch.setattr(seed, "request_json", fake_request)
+    return seed.seed_interpreter("http://zeppelin:8080", {}), calls
+
+
+def test_zeppelin_seed_merge_preserves_non_atlas_properties_and_is_idempotent() -> None:
     seed = _load_seed_module()
     existing = {
         "spark.executor.memory": {"name": "spark.executor.memory", "value": "2g", "type": "string"},
@@ -179,13 +192,11 @@ def test_zeppelin_seed_merge_preserves_non_atlas_properties_and_restarts() -> No
         "SPARK_REMOTE": {"name": "SPARK_REMOTE", "value": "sc://spark-connect:15002", "type": "string"},
     }
 
-    merged, changed = seed.merge_properties(
-        existing,
-        {
-            "spark.master": "spark://spark-master:7077",
-            "spark.sql.catalog.lakehouse.uri": "http://iceberg-rest:8181",
-        },
-    )
+    desired = {
+        "spark.master": "spark://spark-master:7077",
+        "spark.sql.catalog.lakehouse.uri": "http://iceberg-rest:8181",
+    }
+    merged, changed = seed.merge_properties(existing, desired)
 
     assert changed is True
     assert merged["spark.executor.memory"]["value"] == "2g"
@@ -197,8 +208,28 @@ def test_zeppelin_seed_merge_preserves_non_atlas_properties_and_restarts() -> No
         "value": "http://iceberg-rest:8181",
         "type": "string",
     }
-    assert seed.needs_restart(existing, merged) is True
-    assert seed.needs_restart(merged, merged) is False
+    assert seed.merge_properties(merged, desired)[1] is False
+
+
+def test_zeppelin_seed_restarts_only_when_the_merged_config_changes(monkeypatch) -> None:
+    """A changed config is PUT and the interpreter restarted; re-seeding the
+    stored result changes nothing and restarts nothing."""
+    seed = _load_seed_module()
+    existing = {
+        "spark.master": {"name": "spark.master", "value": "local[*]", "type": "string"},
+        "spark.remote": {"name": "spark.remote", "value": "sc://spark-connect:15002", "type": "string"},
+    }
+    settings_url = "http://zeppelin:8080/api/interpreter/setting"
+    restarted, calls = _run_spark_seed(seed, monkeypatch, existing)
+    assert restarted is True
+    assert [call[:2] for call in calls] == [
+        ("GET", settings_url),
+        ("PUT", f"{settings_url}/spark-id"),
+        ("PUT", f"{settings_url}/restart/spark-id"),
+    ]
+    rerun, calls = _run_spark_seed(seed, monkeypatch, calls[1][2]["properties"])
+    assert rerun is False
+    assert [call[0] for call in calls] == ["GET"]
 
 
 def test_zeppelin_trino_jdbc_seed_contract_is_version_pinned() -> None:

@@ -6,7 +6,7 @@ Workflow automation engine, run in **queue mode** by default: an `n8n` web/API c
 
 Image: `n8nio/n8n:2.28.2`. The web/API container serves HTTP and the UI; the worker runs executions. Both share state through Supabase Postgres (workflow definitions, execution history, credentials) and Redis (queue and execution coordination).
 
-The one-shot `n8n-init` runs first, installs the pinned ComfyUI community nodes and exits. The web/API and worker containers start only after it succeeds, and the launcher fails if it exits nonzero. It does not import workflow templates (`services/n8n/init/config/`) or PostgreSQL credentials; import them manually (§4).
+The one-shot `n8n-init` runs first, installs the pinned ComfyUI community nodes and exits. The web/API and worker containers start only after it succeeds, and the launcher fails if it exits nonzero. It does not import workflow templates (`services/n8n/init/config/`); import them manually (§4).
 
 Track placement: n8n is in `all`, `gen-ai-rag` and `gen-ai-eng`. In the RAG track it orchestrates document ingestion, search-to-extraction flows, vector-store operations and human-reviewed automation. Weaviate is optional for n8n, so n8n also runs on `gen-ai-eng`, which does not include Weaviate.
 
@@ -231,5 +231,5 @@ For general startup and routing issues, see [Troubleshooting](../../docs/quick-s
 <a id="66-future--unused-features-in-this-service"></a>
 
 - **MCP Server Trigger node** — *Why pursue:* the pinned n8n runtime ships first-party MCP client, tool, registry and trigger nodes. No bundled workflow exposes an Atlas workflow as an MCP tool for Hermes or LiteLLM clients. *Effort:* small.
-- **Native Weaviate Vector Store cluster node** — *Why pursue:* upstream ships a native Weaviate vector-store node; workflows currently talk to Weaviate via raw HTTP. Switching unlocks embeddings + retrievers without custom code. *Effort:* small.
+- **Native Weaviate Vector Store cluster node** — *Why pursue:* upstream ships a native Weaviate vector-store node; no bundled workflow uses Weaviate yet. Using it unlocks embeddings + retrievers without custom code. *Effort:* small.
 - **Signed webhook verification** — *Why pursue:* staged Backend-calling examples use n8n Header Auth. Provider-native signature verification would also cover third-party event sources that sign request bodies. *Effort:* small.

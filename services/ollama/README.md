@@ -148,16 +148,18 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 | Declared model provisioning | partial | tested | Selected and custom models are pulled for container and localhost sources, but per-model failures are non-fatal and can leave a registered model unavailable until retried. |
 | Parallelism and residency tuning | partial | tested | Atlas applies parallel slots, loaded-model limits, KV-cache quantization, flash attention, and keep-alive to containers; host daemons remain operator-owned with macOS-only advisory probes. |
 | Authenticated raw Ollama administration | not-supported | documented | The raw ollama.localhost Kong alias is CORS-only and exposes native model-management APIs without Atlas authentication; restrict network access or use an authentication proxy. |
-| Deploy-resource environment override | stubbed | documented | OLLAMA_DEPLOY_RESOURCES is projected by service configuration, but the Compose fragment does not consume it; CPU and GPU reservations come from typed source runtime data. |
+| Deploy-resource environment override | stubbed | documented | OLLAMA_DEPLOY_RESOURCES is projected by service configuration, but the Compose fragment does not consume it. The fragment has no GPU device reservation, so ollama-container-gpu reaches a GPU only when the Docker default runtime is nvidia. |
 
 ## 7. Troubleshooting
 
+Set `PROJECT_NAME` in your shell to the value in `.env` (default `atlas`) before you run these commands.
+
 ```bash
 # Check Ollama container status
-docker compose ps ollama
+docker ps --all --filter "name=^${PROJECT_NAME}-ollama$"
 
 # Check Ollama logs
-docker compose logs -f ollama
+docker logs -f "${PROJECT_NAME}-ollama"
 
 # Verify LiteLLM can reach Ollama (from inside the network). The LiteLLM image has
 # no curl. For ollama-localhost, use the LITELLM_OLLAMA_UPSTREAM URL from .env.

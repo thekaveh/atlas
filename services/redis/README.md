@@ -132,14 +132,16 @@ if not image.strip():
     raise SystemExit("Set REDIS_IMAGE in the active env file before recovery.")
 print(image, end="")
 PY
-) || exit 1
+) && {
 ./stop.sh
 VOLUME=<project>-redis-data
 docker run --rm -v "$VOLUME":/data -v "$PWD":/backup "$REDIS_IMAGE" \
-  tar czf /backup/redis-aof-backup.tgz -C /data appendonlydir || exit 1
+  tar czf /backup/redis-aof-backup.tgz -C /data appendonlydir && {
 docker run --rm -it -v "$VOLUME":/data -w /data/appendonlydir "$REDIS_IMAGE" \
   redis-check-aof --fix appendonly.aof.manifest   # answer y to truncate
 ./start.sh
+}
+}
 ```
 
 If the doctor reports that the base snapshot is not sane, `--fix` cannot repair it. Restore an earlier backup, or remove the volume (`docker volume rm "$VOLUME"`) to start Redis empty and lose its queue, sessions and cache. To restore a backup, extract it through the same container, because the archive is root-owned on Linux:

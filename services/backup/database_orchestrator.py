@@ -994,9 +994,34 @@ class CommandRunner:
                     raise ContractError(f"retained rollback volume did not disappear: {name}")
 
 
+_ENV_ALIAS_WARNED = False
+
+
+def _custom_env_file(repo: Path) -> Path | None:
+    """The file ATLAS_ENV_FILE (or the deprecated GENAI_ENV_FILE) names,
+    resolved like core.config_parser: user-expanded, a relative path anchored
+    at this checkout. None selects the default <repo>/.env."""
+    global _ENV_ALIAS_WARNED
+    raw = os.environ.get("ATLAS_ENV_FILE", "").strip()
+    if not raw:
+        raw = os.environ.get("GENAI_ENV_FILE", "").strip()
+        if raw and not _ENV_ALIAS_WARNED:
+            print("WARNING: GENAI_ENV_FILE is deprecated; use ATLAS_ENV_FILE instead.", file=sys.stderr)
+            _ENV_ALIAS_WARNED = True
+    if not raw:
+        return None
+    path = Path(raw).expanduser()
+    if not path.is_absolute():
+        path = repo / path
+    path = path.resolve()
+    if not path.is_file():
+        raise ContractError(f"ATLAS_ENV_FILE names a missing env file: {path}")
+    return path
+
+
 def _env_file_values(repo: Path) -> dict[str, str]:
     values: dict[str, str] = {}
-    path = repo / ".env"
+    path = _custom_env_file(repo) or repo / ".env"
     if not path.is_file():
         return values
     for raw in path.read_text(encoding="utf-8").splitlines():
@@ -1104,6 +1129,8 @@ class DatabaseConfiguration:
 
     def __init__(self, repo: Path, values: dict[str, str], token: str):
         self.repo = repo
+        # Compose reads <repo>/.env by itself; a custom file must be named.
+        self.env_file = _custom_env_file(repo)
         self.values = {key: value for key, value in {**values, **{key: value for key, value in os.environ.items() if value}}.items() if value}
         self.project = _validate_docker_name(_setting(values, "PROJECT_NAME", "atlas"), "PROJECT_NAME")
         self.volumes = MappingProxyType(resolved_database_volumes(self.project, token))
@@ -1130,6 +1157,7 @@ class DatabaseCoordinator:
         values = config.values
         self.env_values = values
         self.project = config.project
+        self.compose_env_file = config.env_file
         self.runner = config.command_runner(token, timeout)
         self.neo_source = values.get("NEO4J_GRAPH_DB_SOURCE", "container")
         self.weaviate_source = values.get("WEAVIATE_SOURCE", "container")
@@ -1179,8 +1207,14 @@ class DatabaseCoordinator:
             raise ContractError(f"{name} must be a canonical integer from 1 to {maximum}")
         return int(value)
 
+    def compose_argv(self, *args: str) -> list[str]:
+        """`docker compose` with the custom env file, when one is configured."""
+        env_file = getattr(self, "compose_env_file", None)
+        env_args = ["--env-file", str(env_file)] if env_file else []
+        return ["docker", "compose", *env_args, *args]
+
     def compose(self, *args: str, check: bool = True, timeout: int | None = None):
-        return self.runner.run(["docker", "compose", *args], check=check, timeout=timeout)
+        return self.runner.run(self.compose_argv(*args), check=check, timeout=timeout)
 
     def _service_running(self, service: str) -> bool:
         state = self._service_state(service)
@@ -1699,6 +1733,19 @@ class DatabaseCoordinator:
         ):
             raise ContractError("staged Weaviate object store is unreadable")
 
+    def _weaviate_stage_module_env(self) -> list[str]:
+        """Stage containers enable the configured modules so a restored class
+        keeps its vectorizer. multi2vec-clip exits at startup without an
+        inference endpoint, and stages cannot reach the CLIP service. Point it
+        at a closed loopback port and skip its startup wait; /v1/meta then
+        lists a per-module error and still succeeds."""
+        if "multi2vec-clip" not in self.weaviate_modules.split(","):
+            return []
+        return [
+            "-e", "CLIP_INFERENCE_API=http://127.0.0.1:9",
+            "-e", "CLIP_WAIT_FOR_STARTUP=false",
+        ]
+
     def _validate_weaviate_data_volume(self, volume: str, role: str) -> None:
         container = self._start_owned(
             role,
@@ -1707,6 +1754,7 @@ class DatabaseCoordinator:
                 "-e", "PERSISTENCE_DATA_PATH=/var/lib/weaviate",
                 "-e", "CLUSTER_HOSTNAME=weaviate",
                 "-e", f"ENABLE_MODULES={self.weaviate_modules}",
+                *self._weaviate_stage_module_env(),
                 "-e", "BACKUP_FILESYSTEM_PATH=/backups",
                 "-e", "DEFAULT_VECTORIZER_MODULE=none",
                 "--tmpfs", "/backups:rw,noexec,nosuid,size=64m",
@@ -1735,6 +1783,7 @@ class DatabaseCoordinator:
                 "-e", "PERSISTENCE_DATA_PATH=/var/lib/weaviate",
                 "-e", "CLUSTER_HOSTNAME=weaviate",
                 "-e", f"ENABLE_MODULES={self.weaviate_modules}",
+                *self._weaviate_stage_module_env(),
                 "-e", "DEFAULT_VECTORIZER_MODULE=none",
                 "-v", f"{stage_volume}:/var/lib/weaviate",
                 "-v", f"{artifact_volume}:/restore:ro",
@@ -1786,7 +1835,7 @@ class DatabaseCoordinator:
         self.runner.register_container(name, timeout=prepare_timeout)
         result = self.runner.run(
             [
-                "docker", "compose", "run", "--pull", "never", "--rm", "--no-deps",
+                *self.compose_argv("run"), "--pull", "never", "--rm", "--no-deps",
                 "--name", name, "--label", f"{OWNER_LABEL}={self.token}",
                 "--label", f"{SCOPE_LABEL}={self.runner.scope}",
                 "--label", f"{ROLE_LABEL}=prepare",
@@ -1932,7 +1981,7 @@ class DatabaseCoordinator:
             self.runner.register_container(name)
             self.runner.run(
                 [
-                    "docker", "compose", "run", "--pull", "never", "--rm", "--no-deps",
+                    *self.compose_argv("run"), "--pull", "never", "--rm", "--no-deps",
                     "--name", name, "--label", f"{OWNER_LABEL}={self.token}",
                     "--label", f"{SCOPE_LABEL}={self.runner.scope}",
                     "--label", f"{ROLE_LABEL}=snapshot-prune",
@@ -2107,7 +2156,7 @@ class DatabaseCoordinator:
             try:
                 self.runner.run(
                     [
-                        "docker", "compose", "run", "--pull", "never", "--rm", "--no-deps",
+                        *self.compose_argv("run"), "--pull", "never", "--rm", "--no-deps",
                         "--name", name,
                         "--label", f"{OWNER_LABEL}={self.token}",
                         "--label", f"{SCOPE_LABEL}={self.runner.scope}",
@@ -2342,7 +2391,7 @@ def main(argv: list[str] | None = None) -> int:
         # grow with the run deadline.
         coordinator.runner.register_container(name, timeout=max(timeout, 900))
         coordinator.runner.run([
-            "docker", "compose", "run", "--pull", "never", "--rm", "--no-deps",
+            *coordinator.compose_argv("run"), "--pull", "never", "--rm", "--no-deps",
             "--name", name, "--label", f"{OWNER_LABEL}={token}",
             "--label", f"{SCOPE_LABEL}={coordinator.runner.scope}",
             "--label", f"{ROLE_LABEL}=backup",

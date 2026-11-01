@@ -144,7 +144,8 @@ def test_github_actions_are_commit_pinned() -> None:
     workflows = sorted(
         [*workflow_dir.glob("*.yml"), *workflow_dir.glob("*.yaml")]
     )
-    action_ref = re.compile(r"^\s*uses:\s*[^#\s]+@([^#\s]+)", re.MULTILINE)
+    # `(?:-\s+)?` also matches list-item steps (`- uses: actions/checkout@...`).
+    action_ref = re.compile(r"^\s*(?:-\s+)?uses:\s*[^#\s]+@([^#\s]+)", re.MULTILINE)
 
     for workflow in workflows:
         for ref in action_ref.findall(workflow.read_text(encoding="utf-8")):
@@ -926,6 +927,32 @@ def test_ray_runtime_and_clients_move_in_lockstep() -> None:
     assert "rayproject/ray:2.56.0-gpu" in manifest
     assert "rayproject/ray:2.56.0" in compose
     assert "rayproject/ray:2.56.0" in service_config
+
+
+def _pins(relative: str, package: str) -> set[str]:
+    pattern = rf"^{re.escape(package)}==(\S+)"
+    return set(re.findall(pattern, _text(relative), re.MULTILINE))
+
+
+def test_spark_connect_clients_move_in_lockstep_with_the_spark_image() -> None:
+    images = yaml.safe_load(_text("services/spark/service.yml"))["images"]
+    spark_image = {row["var"]: row["default"] for row in images}["SPARK_IMAGE"]
+    match = re.match(r"apache/spark:(\d+(?:\.\d+)+)", spark_image)
+    assert match, spark_image
+    version = {match.group(1)}
+
+    assert _pins("services/jupyterhub/build/requirements.txt", "pyspark-client") == version
+    assert _pins("services/jupyterhub/build/requirements-locked.txt", "pyspark-client") == version
+    assert _pins("services/airflow/build/requirements.txt", "pyspark[connect]") == version
+    assert _pins("services/airflow/build/requirements-locked.txt", "pyspark") == version
+
+    dependabot = yaml.safe_load(_text(".github/dependabot.yml"))
+    ignored = {
+        entry["dependency-name"]
+        for update in dependabot["updates"]
+        for entry in update.get("ignore", [])
+    }
+    assert {"pyspark", "pyspark-client"} <= ignored
 
 
 def test_ragas_advisory_surface_remains_unreachable() -> None:

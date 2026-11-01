@@ -2021,6 +2021,57 @@ async def test_schema_backfill_failure_preserves_old_vector_and_does_not_contrac
 
 
 @pytest.mark.asyncio
+async def test_schema_backfill_leaves_pending_null_vectors_to_the_reconciler(
+    monkeypatch,
+):
+    """A fact the provider rejected at write time stays a NULL vector with
+    pending sync intent. Selecting it for backfill re-sent it on every start,
+    and its rejection failed backend initialization on every restart."""
+    import memory_store
+
+    queries = []
+
+    class Conn:
+        async def fetchrow(self, *_args):
+            return {
+                "active_dimension": 768,
+                "target_dimension": 1536,
+                "phase": "backfill",
+                "pgvector_active_model": "ollama/nomic-embed-text",
+                "pgvector_target_model": "ollama/nomic-embed-text",
+                "pgvector_active_generation": 1,
+                "pgvector_target_generation": 2,
+            }
+
+        async def fetch(self, query, *_args):
+            queries.append(query)
+            return []
+
+        async def execute(self, query, *_args):
+            queries.append(query)
+            return "SELECT 1"
+
+    @asynccontextmanager
+    async def acquire(_url):
+        yield Conn()
+
+    store = memory_store.MemoryStore(
+        "postgresql://atlas", embedding_dimension=1536, manage_schema=True
+    )
+    generate = AsyncMock()
+    monkeypatch.setattr(store, "_generate_embedding", generate)
+    monkeypatch.setattr(memory_store, "acquire_conn", acquire)
+
+    await store._ensure_pgvector_schema_contract()
+
+    selector = " ".join(queries[0].split())
+    assert "WHERE (embedding IS NULL AND NOT vector_sync_pending)" in selector
+    assert "OR (embedding IS NOT NULL AND (vector_dims(embedding) <> 1536" in selector
+    generate.assert_not_awaited()
+    assert "contract_memory_embedding_contract" in queries[-1]
+
+
+@pytest.mark.asyncio
 async def test_schema_backfill_tolerates_replica_winning_optimistic_update(
     monkeypatch,
 ):
@@ -3200,7 +3251,12 @@ async def test_reconcile_serializes_pages_and_acquires_owned_connection_inside_l
 
 @asynccontextmanager
 async def _postgres_reconcile_facts(rows):
-    """Opt-in scan/clear SQL fixture; no vector/trigger/auth/RLS qualification."""
+    """Opt-in scan/clear SQL fixture; no vector/trigger/auth/RLS qualification.
+
+    ATLAS_TEST_MEMORY_RECONCILE_POSTGRES_URL must name a disposable database.
+    The fixture creates the scanned memory_facts columns when the table is
+    absent, mirroring services/supabase/db/scripts/14-backend-memory.sql.
+    """
     import os
     import asyncpg
     url = os.environ.get("ATLAS_TEST_MEMORY_RECONCILE_POSTGRES_URL")
@@ -3212,6 +3268,24 @@ async def _postgres_reconcile_facts(rows):
     for row in rows:
         row["id"], row["user_id"] = uuid4(), user
     try:
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS public.memory_facts (
+                id UUID PRIMARY KEY,
+                user_id UUID,
+                namespace VARCHAR(100) NOT NULL DEFAULT 'default',
+                content TEXT NOT NULL,
+                fact_type VARCHAR(50) NOT NULL DEFAULT 'observation'
+                    CHECK (fact_type IN ('observation', 'preference', 'instruction',
+                                         'relationship', 'event')),
+                confidence FLOAT DEFAULT 1.0 CHECK (confidence >= 0.0 AND confidence <= 1.0),
+                weaviate_id VARCHAR(255),
+                vector_sync_pending BOOLEAN NOT NULL DEFAULT false,
+                is_active BOOLEAN DEFAULT true,
+                updated_at TIMESTAMPTZ DEFAULT now()
+            )
+            """
+        )
         await conn.copy_records_to_table("memory_facts", schema_name="public",
             columns=columns, records=[tuple(row[c] for c in columns) for row in rows])
         yield conn
@@ -3456,3 +3530,51 @@ async def test_reconcile_mixed_failure_streak_halts_and_preserves_unhandled_tail
     assert await _bounded_reconcile(service, conn) == len(rows) - len(outcomes)
     assert service.store.attempts[len(outcomes)] == UUID(int=len(outcomes)+1)
     assert service._vector_reconcile_upper is None
+
+
+@pytest.mark.asyncio
+async def test_extract_facts_post_commit_pool_saturation_still_reports_completed(
+    monkeypatch, caplog
+):
+    """The facts and session are committed before the vector bookkeeping. A
+    pool-saturation error there used to surface as a Retry-After 503, so a
+    client retry stored every extracted fact a second time."""
+    import logging
+
+    import memory_service
+    from db_connection import PoolSaturatedError
+
+    from tests.test_memory_failure_contracts import (
+        _FakeExtractionConnection, _extraction_service, _weaviate_id_updates,
+    )
+
+    executed: list = []
+    service = _extraction_service(
+        monkeypatch, executed, store_embedding=AsyncMock(return_value="weaviate-1")
+    )
+    acquired = []
+
+    @asynccontextmanager
+    async def acquire(_url="", **_kw):
+        acquired.append(_url)
+        # Session insert, then the fact transaction; then the bookkeeping.
+        if len(acquired) > 2:
+            raise PoolSaturatedError(deadline=5.0, size=10, free=0)
+        yield _FakeExtractionConnection(executed)
+
+    monkeypatch.setattr(memory_service, "acquire_conn", acquire)
+
+    with caplog.at_level(logging.WARNING):
+        result = await service.extract_facts(
+            user_id="00000000-0000-4000-8000-000000000002",
+            messages=[{"role": "user", "content": "I like tea"}],
+            conversation_id="00000000-0000-4000-8000-000000000003",
+        )
+
+    assert result["status"] == "completed"
+    assert result["facts_extracted"] == 1
+    assert [fact["content"] for fact in result["facts"]] == ["user likes tea"]
+    assert len(acquired) == 3
+    assert not _weaviate_id_updates(executed)
+    assert "Post-commit vector state update deferred" in caplog.text
+    assert "error_type=PoolSaturatedError" in caplog.text

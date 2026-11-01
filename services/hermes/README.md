@@ -21,9 +21,20 @@ Key facts:
 - **64K context floor** — Hermes checks the model's context window at
   preflight. `HERMES_DEFAULT_MODEL` must have a context window of at least
   64K. Stock Ollama default contexts depend on VRAM (4K/32K/256K) and are
-  often lower. Set `OLLAMA_CONTEXT_LENGTH=65536` on the Ollama server, run
-  `/set parameter num_ctx 65536` + `/save <model>` inside `ollama run`, or use
-  a cloud model.
+  often lower. `HERMES_CONTEXT_LENGTH` only tells Hermes the window size; it
+  does not change Ollama's window. To raise Ollama's window:
+    - `ollama-localhost`: set `OLLAMA_CONTEXT_LENGTH=65536` in the host
+      Ollama daemon's environment, then restart the daemon.
+    - `ollama-container-*`: Atlas does not pass `OLLAMA_CONTEXT_LENGTH` to
+      the container. Save a tagged copy instead. Run
+      `docker exec -it <PROJECT_NAME>-ollama ollama run <model>`, then
+      `/set parameter num_ctx 65536` and `/save <model>-64k`. Add
+      `<model>-64k` to `OLLAMA_CUSTOM_MODELS` so LiteLLM registers
+      `ollama/<model>-64k`, and set `HERMES_DEFAULT_MODEL` to that name.
+      `ollama-pull` logs a non-fatal error for this local-only tag.
+      Do not save under the original name, because `ollama-pull` re-pulls
+      declared models on every start and replaces the saved copy.
+    - Any source: use a cloud model instead.
 - **Disk** — the image is multi-arch (`linux/amd64`, `linux/arm64`) and
   large: about 3.7 GB unpacked on arm64.
 - **Bundled skills** — the image ships its skills under `/opt/hermes/skills`.

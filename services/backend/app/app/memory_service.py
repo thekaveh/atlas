@@ -575,44 +575,55 @@ Extract the facts as JSON:"""
                     fact["id"],
                     type(exc).__name__,
                 )
-            async with self._acquire() as conn:
-                if embedding_stored:
-                    # The embedding belongs to this exact canonical vector state.
-                    # A concurrent update/delete/consolidation advances updated_at
-                    # and keeps its newer pending intent for the reconciler.
-                    await conn.execute(
-                        """
-                        WITH embedding_owner AS MATERIALIZED (
-                            SELECT updated_at
-                            FROM public.memory_facts
-                            WHERE id = $2 AND vector_sync_pending = true
-                              AND content = $3 AND fact_type = $4
-                              AND confidence = $5 AND is_active = true
+            # The facts and the completed session are already committed, and
+            # each INSERT set vector_sync_pending. A failure here only defers
+            # the vector to the reconciler; surfacing it (a pool-saturation 503
+            # with Retry-After) made a client retry store every fact twice.
+            try:
+                async with self._acquire() as conn:
+                    if embedding_stored:
+                        # The embedding belongs to this exact canonical vector state.
+                        # A concurrent update/delete/consolidation advances updated_at
+                        # and keeps its newer pending intent for the reconciler.
+                        await conn.execute(
+                            """
+                            WITH embedding_owner AS MATERIALIZED (
+                                SELECT updated_at
+                                FROM public.memory_facts
+                                WHERE id = $2 AND vector_sync_pending = true
+                                  AND content = $3 AND fact_type = $4
+                                  AND confidence = $5 AND is_active = true
+                            )
+                            UPDATE public.memory_facts AS fact
+                            SET weaviate_id = $1, vector_sync_pending = false
+                            FROM embedding_owner
+                            WHERE fact.id = $2 AND fact.vector_sync_pending = true
+                              AND fact.updated_at = embedding_owner.updated_at
+                            """,
+                            weaviate_id,
+                            fact_uuid,
+                            fact["content"],
+                            fact["fact_type"],
+                            fact["confidence"],
                         )
-                        UPDATE public.memory_facts AS fact
-                        SET weaviate_id = $1, vector_sync_pending = false
-                        FROM embedding_owner
-                        WHERE fact.id = $2 AND fact.vector_sync_pending = true
-                          AND fact.updated_at = embedding_owner.updated_at
-                        """,
-                        weaviate_id,
-                        fact_uuid,
-                        fact["content"],
-                        fact["fact_type"],
-                        fact["confidence"],
-                    )
-                else:
-                    # Embedding was not durably stored (store_embedding raised).
-                    # A None id is a successful pgvector-authoritative write, not
-                    # a failure. Flag only exceptions so _reconcile_pending_vectors
-                    # — which only selects vector_sync_pending = true — retries it
-                    # on a later recall/consolidate. Without this the fact would
-                    # keep weaviate_id=NULL with vector_sync_pending=false and stay
-                    # invisible to semantic recall permanently.
-                    await conn.execute(
-                        "UPDATE public.memory_facts SET vector_sync_pending = true WHERE id = $1",
-                        fact_uuid,
-                    )
+                    else:
+                        # Embedding was not durably stored (store_embedding raised).
+                        # A None id is a successful pgvector-authoritative write, not
+                        # a failure. Flag only exceptions so _reconcile_pending_vectors
+                        # — which only selects vector_sync_pending = true — retries it
+                        # on a later recall/consolidate. Without this the fact would
+                        # keep weaviate_id=NULL with vector_sync_pending=false and stay
+                        # invisible to semantic recall permanently.
+                        await conn.execute(
+                            "UPDATE public.memory_facts SET vector_sync_pending = true WHERE id = $1",
+                            fact_uuid,
+                        )
+            except Exception as exc:
+                logger.warning(
+                    "Post-commit vector state update deferred for fact %s (error_type=%s)",
+                    fact["id"],
+                    type(exc).__name__,
+                )
 
         return {
             "session_id": session_id,

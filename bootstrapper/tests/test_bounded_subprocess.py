@@ -1100,6 +1100,29 @@ def test_compose_deps_lint_ignores_a_local_env_file(tmp_path, monkeypatch) -> No
     assert calls[0][2:4] == ["--env-file", str(ROOT / ".env.example")]
 
 
+def test_compose_deps_lint_forwards_errors_only_for_the_example_env(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    """A failed render of the non-secret .env.example shows compose's error;
+    a caller-supplied --env-file keeps it redacted."""
+    lint = _compose_deps_lint()
+    error = 'service "backend" refers to undefined volume secret-token'
+    monkeypatch.setattr(
+        lint,
+        "run_bounded",
+        lambda args, **_kwargs: subprocess.CompletedProcess(args, 1, stdout="", stderr=error + "\n"),
+    )
+    for env_file, shown in ((lint.ENV_FILE, True), (tmp_path / "local.env", False)):
+        with pytest.raises(SystemExit) as raised:
+            lint.load_compose(env_file)
+        err = capsys.readouterr().err
+        assert raised.value.code == 2
+        assert "FAIL load_compose: `docker compose config` exited 1" in err
+        assert (error in err) is shown, err
+        assert ("output follows:" in err) is shown, err
+        assert ("subprocess output redacted" in err) is not shown, err
+
+
 def test_compose_deps_lint_flags_unreviewed_edges_into_replaceable_services() -> None:
     lint = _compose_deps_lint()
     replaceable = lint.replaceable_families()

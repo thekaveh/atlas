@@ -578,3 +578,78 @@ def _assert_openrouter_description_render(option, expected):
     assert len(option.hint) <= 120
     if expected:
         assert "".join(expected.split()) in "".join(rendered.split())
+
+
+# ─── OpenRouter: a capped list and a keyless listing ────────────────
+
+
+def _openrouter_step():
+    steps = build_cloud_steps({_OPENROUTER.source_var: "enabled"}, lambda _m: None)
+    return next(s for s in steps if s.title == cloud_models_title(_OPENROUTER.name))
+
+
+def _capped_openrouter_listing(count: int) -> str:
+    """More rows than the default cap of 50, all sorting before the curated
+    labels, so the alphabetical cut keeps none of them except ``auto``."""
+    rows = [f'{{"id": "aaa/m{i:03d}", "name": "Aaa M{i:03d}"}}' for i in range(count)]
+    rows.append('{"id": "auto", "name": "Aa Auto"}')
+    return f'{{"data": [{",".join(rows)}]}}'
+
+
+def _badges_by_value(options):
+    """Every row's badges, grouped by model id, so a duplicate shows up."""
+    grouped: dict = {}
+    for option in options:
+        grouped.setdefault(option.value, []).append(option.badges)
+    return grouped
+
+
+def test_a_capped_openrouter_list_keeps_every_curated_model_selectable(monkeypatch):
+    """The 50-row cap is alphabetical, so it used to hide curated models
+    such as ``openrouter/openai/gpt-5`` and say nothing about the cut."""
+    monkeypatch.setattr(urllib.request, "urlopen", _serves(_capped_openrouter_listing(60)))
+    step = _openrouter_step()
+    options = step.options_provider({})
+    grouped = _badges_by_value(options)
+    cut = {r.value: [r.badges] for r in _curated_rows(_OPENROUTER.key)
+           if r.value != "openrouter/auto"}
+    assert sum(BADGE_LIVE in o.badges for o in options) == 50
+    assert grouped["openrouter/auto"] == [[BADGE_LIVE]]
+    assert "openrouter/openai/gpt-5" in cut
+    assert {value: grouped.get(value) for value in cut} == cut
+    assert all(BADGE_CATALOG in b[0] and BADGE_LIVE not in b[0] for b in cut.values())
+    caption = step.subtitle_provider(options)
+    assert "Live from the provider" in caption
+    assert "first 50 of 61" in caption
+
+
+def test_an_uncapped_openrouter_list_adds_no_curated_rows(monkeypatch):
+    monkeypatch.setattr(urllib.request, "urlopen", _serves(_capped_openrouter_listing(3)))
+    step = _openrouter_step()
+    options = step.options_provider({})
+    assert all(o.badges == [BADGE_LIVE] for o in options)
+    assert "first" not in step.subtitle_provider(options)
+
+
+def test_a_stale_fallback_reason_never_reaches_a_live_caption(monkeypatch):
+    monkeypatch.setattr(urllib.request, "urlopen", _serves(_capped_openrouter_listing(60)))
+    step = _openrouter_step()
+    live = step.options_provider({})
+    monkeypatch.setattr(urllib.request, "urlopen", _raises(_http_error(429)))
+    step.options_provider({})
+    caption = step.subtitle_provider(live)
+    assert "Live from the provider" in caption
+    assert "HTTP 429" not in caption
+    assert "first" not in caption
+
+
+def test_openrouter_live_caption_does_not_vouch_for_the_key(monkeypatch):
+    """OpenRouter lists models without the key, so a live list proves
+    nothing about it; a mistyped key must not read as accepted."""
+    monkeypatch.setattr(urllib.request, "urlopen", _serves('{"data": [{"id": "vendor/m1"}]}'))
+    step = _openrouter_step()
+    caption = step.subtitle_provider(step.options_provider({}))
+    assert "Live from the provider" in caption
+    assert "key not checked" in caption
+    assert "key accepted" not in caption
+    assert "key accepted" in _subtitle(cm.LIVE)

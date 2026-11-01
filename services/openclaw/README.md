@@ -76,7 +76,7 @@ if not parser.env_file_path.is_file():
 env = parser.parse_env_file()
 print(env.get("PROJECT_NAME") or DEFAULT_PROJECT_NAME, end="")
 PYPROJECT
-) || exit 1
+) &&
 docker exec -it "${PROJECT_NAME}-openclaw-gateway" openclaw onboard
 ```
 
@@ -191,6 +191,7 @@ The dashboard provides:
 Run OpenClaw CLI commands inside the container.
 From the repository root, define the helper and read the values before the remaining commands.
 It uses the bootstrapper dependencies through `uv` and reads the active Atlas env file.
+If a read fails, the helper prints the reason, and the commands that need the values refuse to run.
 The default file is `.env`; use `ATLAS_ENV_FILE` for a custom file:
 
 ```bash
@@ -210,22 +211,23 @@ if not value:
 print(value)
 PYENV
 }
-PROJECT_NAME=$(env_get PROJECT_NAME atlas) || exit 1
-OPENCLAW_GATEWAY_PORT=$(env_get OPENCLAW_GATEWAY_PORT 63076) || exit 1
-OPENCLAW_GATEWAY_TOKEN=$(env_get OPENCLAW_GATEWAY_TOKEN) || exit 1
+PROJECT_NAME=$(env_get PROJECT_NAME atlas) &&
+OPENCLAW_GATEWAY_PORT=$(env_get OPENCLAW_GATEWAY_PORT 63076) &&
+OPENCLAW_GATEWAY_TOKEN=$(env_get OPENCLAW_GATEWAY_TOKEN) ||
+unset PROJECT_NAME OPENCLAW_GATEWAY_PORT
 
 # Run onboarding
-docker exec -it "${PROJECT_NAME}-openclaw-gateway" openclaw onboard
+docker exec -it "${PROJECT_NAME:?}-openclaw-gateway" openclaw onboard
 
 # Point OpenClaw's OpenAI provider at LiteLLM (base URL and gateway key)
-docker exec -it "${PROJECT_NAME}-openclaw-gateway" openclaw config set models.providers.openai.baseUrl "http://litellm:4000/v1"
-docker exec -it "${PROJECT_NAME}-openclaw-gateway" sh -c 'openclaw config set models.providers.openai.apiKey "$LITELLM_API_KEY"'
+docker exec -it "${PROJECT_NAME:?}-openclaw-gateway" openclaw config set models.providers.openai.baseUrl "http://litellm:4000/v1"
+docker exec -it "${PROJECT_NAME:?}-openclaw-gateway" sh -c 'openclaw config set models.providers.openai.apiKey "$LITELLM_API_KEY"'
 
 # Check health
-docker exec -it "${PROJECT_NAME}-openclaw-gateway" openclaw doctor
+docker exec -it "${PROJECT_NAME:?}-openclaw-gateway" openclaw doctor
 
 # View gateway status
-docker exec -it "${PROJECT_NAME}-openclaw-gateway" openclaw gateway probe
+docker exec -it "${PROJECT_NAME:?}-openclaw-gateway" openclaw gateway probe
 
 # Read the gateway token
 env_get OPENCLAW_GATEWAY_TOKEN
@@ -237,10 +239,10 @@ Use the `env_get` helper and `PROJECT_NAME` from §7.
 
 ```bash
 # Direct health check
-curl http://localhost:${OPENCLAW_GATEWAY_PORT}/healthz
+curl http://localhost:${OPENCLAW_GATEWAY_PORT:?}/healthz
 
 # Deep health check (the container's environment supplies the token)
-docker exec ${PROJECT_NAME}-openclaw-gateway sh -c 'node openclaw.mjs health --token "$OPENCLAW_GATEWAY_TOKEN"'
+docker exec ${PROJECT_NAME:?}-openclaw-gateway sh -c 'node openclaw.mjs health --token "$OPENCLAW_GATEWAY_TOKEN"'
 ```
 
 ## 9. Source Modes

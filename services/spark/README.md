@@ -71,7 +71,7 @@ The `spark-connect` sidecar publishes no host port, so `sc://spark-connect:15002
 
 Spark Connect is a long-lived application. `SPARK_CONNECT_CORES_MAX=1` (`spark.cores.max`) leaves worker cores for standalone workloads such as Airflow cluster-mode drivers. Zeppelin is capped the same way by `ZEPPELIN_SPARK_CORES_MAX`; each start re-seeds it, so change it in `.env`. Raise either value (for example, for more Spark Connect parallelism) only when `SPARK_WORKER_COUNT` and the worker CPU limits leave free cores. Otherwise other applications stay `PENDING`.
 
-Spark Connect reports Docker health once its backend-only listener accepts TCP connections on `15002`. Wait-for-healthy tooling can check it with:
+Spark Connect reports Docker health once its backend-only listener accepts TCP connections on `15002`. Set `PROJECT_NAME` in your shell to the value in `.env` (default `atlas`). Wait-for-healthy tooling can then check it with:
 
 ```bash
 docker inspect --format '{{.State.Health.Status}}' ${PROJECT_NAME}-spark-connect
@@ -134,6 +134,8 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 | Authenticated Spark web access | not-supported | tested | The direct SPARK_MASTER_UI_PORT and SPARK_HISTORY_PORT publishes are unauthenticated. The CORS-only Kong Spark routes are unauthenticated. The default HOST_BIND_IP=127.0.0.1: keeps direct ports loopback-bound. Set another value only for deliberate remote access. Before exposure beyond a trusted host, firewall or remove the direct ports, and use an authentication proxy or remove both Spark Kong routes. |
 
 ## 6. Troubleshooting
+
+Set `PROJECT_NAME` in your shell to the value in `.env` (default `atlas`) before you run these commands.
 
 - **History UI shows no jobs** — first check producer config: a driver must set `spark.eventLog.enabled=true` + `spark.eventLog.dir=s3a://spark-history/`. The `spark-connect` sidecar and Zeppelin's `SPARK_SUBMIT_OPTIONS` already set these globally, so any sc://spark-connect:15002 client + Zeppelin `%spark` cell emits events automatically. User-driven `spark-submit` jobs need to pass the same `--conf` pair. Then confirm that `spark-init` created the bucket: `docker logs ${PROJECT_NAME}-spark-init` ends with `spark-init: spark-history bucket ready`.
 - **Airflow cluster-mode task fails after submission** — use the Atlas operator from [Airflow §5.1](../airflow/README.md#51-lakehouse-sparksubmit-smoke). The stock provider polls RPC `:7077`; Atlas confirms driver status through REST `:6066`. Check master readiness with `docker exec ${PROJECT_NAME}-airflow-scheduler curl -fsS http://spark-master:6066/v1/submissions/readyz`. For a task's driver status, query `http://spark-master:6066/v1/submissions/status/DRIVER_ID`, replacing `DRIVER_ID` with the ID from its task log. Keep port `6066` on the backend network; do not publish it.

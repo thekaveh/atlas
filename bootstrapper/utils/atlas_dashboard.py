@@ -452,13 +452,6 @@ __SECTIONS__
 """
 
 
-def _link(url: str | None) -> str:
-    if not url:
-        return '<span class="muted">-</span>'
-    safe = escape(url, quote=True)
-    return f'<a href="{safe}">{escape(url)}</a>'
-
-
 def _direct_url(row, source: str, env: dict[str, str]) -> str | None:
     if not source_has_endpoint(source):
         return None

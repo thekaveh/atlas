@@ -145,7 +145,10 @@ def test_key_generation_preserves_raw_database_names_and_derives_path_components
 
     for name in database_vars:
         assert values[name] == raw_database
+    # Label Studio takes discrete DB parameters, so it has no DSN twin.
+    for name in database_vars[:-1]:
         assert values[f"{name}_URI"] == quote(raw_database, safe="")
+    assert "LABEL_STUDIO_DB_NAME_URI" not in values
 
 
 def test_scoped_uri_userinfo_never_interpolates_raw_credentials() -> None:
@@ -388,11 +391,14 @@ def native_ownership_postgres():
 
     Set ATLAS_TEST_NATIVE_POSTGRES_BIN to a local PostgreSQL bin directory.
     These catalog/ownership tests do not qualify the pinned Supabase image.
+    CI sets the switch, so an unset value there fails instead of skipping.
     """
     import tempfile
 
     configured = os.environ.get("ATLAS_TEST_NATIVE_POSTGRES_BIN")
     if not configured:
+        if os.environ.get("CI") == "true":
+            pytest.fail("CI must set ATLAS_TEST_NATIVE_POSTGRES_BIN for isolated ownership SQL")
         pytest.skip("set ATLAS_TEST_NATIVE_POSTGRES_BIN for isolated ownership SQL")
     binaries = Path(configured)
     for name in ("initdb", "pg_ctl", "psql"):

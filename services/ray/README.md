@@ -92,6 +92,7 @@ Use the running stack's Docker context and active env file; keep its `ATLAS_ENV_
 
 The preflight finds the Ray head container by Compose labels, including when its name retains mixed-case spelling.
 It stops for an absent or invalid file, a failed Docker query, or a lookup without exactly one container.
+On failure, `RAY_HEAD_CONTAINER` stays empty, so the commands below refuse to run.
 
 ```bash
 RAY_HEAD_CONTAINER=$(
@@ -118,12 +119,11 @@ if len(containers) != 1:
     sys.exit(f"Expected one Ray head container; found {len(containers)}.")
 print(containers[0], end="")
 PYPROJECT
-) || exit 1
-export RAY_HEAD_CONTAINER
+) && export RAY_HEAD_CONTAINER
 ```
 
-- **Head container exits immediately with "Bus error" or "/dev/shm too small"** — Check the head logs for the reported cause. Inspect the effective shared-memory size with `docker inspect "${RAY_HEAD_CONTAINER}" | grep ShmSize`. Compare the object-store size with shared memory and the container memory limit. Small shared memory can cause temporary-directory backing; large stores can fail the check described in §4.
-- **Workers stuck "starting"** — they `depends_on: ray-head: service_healthy`. The head's `start_period: 60s` allows up to 60s before health checks count. If still stuck after 2 minutes, check the head's healthcheck output: `docker exec "${RAY_HEAD_CONTAINER}" wget -qO- http://localhost:8265/api/version` (the image ships wget, not curl).
+- **Head container exits immediately with "Bus error" or "/dev/shm too small"** — Check the head logs for the reported cause. Inspect the effective shared-memory size with `docker inspect "${RAY_HEAD_CONTAINER:?}" | grep ShmSize`. Compare the object-store size with shared memory and the container memory limit. Small shared memory can cause temporary-directory backing; large stores can fail the check described in §4.
+- **Workers stuck "starting"** — they `depends_on: ray-head: service_healthy`. The head's `start_period: 60s` allows up to 60s before health checks count. If still stuck after 2 minutes, check the head's healthcheck output: `docker exec "${RAY_HEAD_CONTAINER:?}" wget -qO- http://localhost:8265/api/version` (the image ships wget, not curl).
 - **`ray.init("ray://…")` fails with a version mismatch** — Ray Client needs the same `ray` version and the same Python minor version on both sides. `rayproject/ray:2.56.0` runs Python 3.10. From the host, use Python 3.10 with `ray>=2.56.0,<2.57`. The JupyterHub kernel runs Python 3.13, so `07_ray_cluster.ipynb` fails at `ray.init()` (open issue #1374). From a notebook, use the Ray Jobs REST API instead:
 
     ```python

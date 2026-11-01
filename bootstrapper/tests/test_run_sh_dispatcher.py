@@ -117,6 +117,43 @@ def test_stdout_is_clean_json_through_system_python(tmp_path: Path) -> None:
     assert "📦" in result.stderr
 
 
+def test_uv_branch_installs_only_the_runtime_dependency_set(tmp_path: Path) -> None:
+    """The uv branch must not sync the dev group (pytest, mkdocs, radon, ...)
+    into the operator launcher venv; the pip branch installs only the locked
+    runtime set, and the two branches must agree."""
+    sh = shutil.which("sh")
+    dirname = shutil.which("dirname")
+    if not (sh and dirname):
+        pytest.skip("requires sh and dirname on PATH")
+
+    run_sh = tmp_path / "_run.sh"
+    shutil.copy(_RUN_SH, run_sh)
+    recorded = tmp_path / "uv-argv"
+    tool_bin = tmp_path / "uv-bin"
+    tool_bin.mkdir()
+    fake_uv = tool_bin / "uv"
+    fake_uv.write_text(
+        f"#!/bin/sh\nfor arg in \"$@\"; do printf '%s\\n' \"$arg\"; done > {shlex.quote(str(recorded))}\n",
+        encoding="utf-8",
+    )
+    fake_uv.chmod(0o755)
+    env = {
+        **os.environ,
+        "PATH": os.pathsep.join((str(tool_bin), os.path.dirname(sh), os.path.dirname(dirname))),
+    }
+    result = subprocess.run(
+        [sh, str(run_sh), "probe.py", "--flag"],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    argv = recorded.read_text(encoding="utf-8").splitlines()
+    assert argv[:2] == ["run", "--no-dev"], argv
+    assert argv[-2:] == ["probe.py", "--flag"], argv
+
+
 def test_system_python_fallback_runs_real_start_help(tmp_path: Path) -> None:
     sh = shutil.which("sh")
     dirname = shutil.which("dirname")

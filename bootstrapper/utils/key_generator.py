@@ -96,7 +96,6 @@ class KeyGenerator:
         "LANGFUSE_DB_NAME",
         "TRUEFORGE_DB_NAME",
         "MLFLOW_DB_NAME",
-        "LABEL_STUDIO_DB_NAME",
     )
 
     SCOPED_DATABASE_CREDENTIAL_VARS = (

@@ -121,11 +121,6 @@ class BannerDisplay:
 
         return rich_text
 
-    # Built-in ATLAS width threshold, kept for back-compat / parity checks.
-    # The active threshold is resolved per call (a BRAND_LOGO_FILE override may
-    # be a different width) — see get_ascii_art_full().
-    _FULL_WIDTH_THRESHOLD = brand_logo.width_threshold(brand_logo.ATLAS_FULL)
-
     def get_ascii_art_full(self) -> List[str]:
         """
         Get the full ASCII-art banner (built-in ATLAS, or a BRAND_LOGO_FILE

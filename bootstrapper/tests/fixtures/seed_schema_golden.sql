@@ -478,12 +478,15 @@ BEGIN
         RAISE EXCEPTION 'memory embedding target identity is % generation %, not % generation %',
             target_model, target_generation, expected_model, expected_generation;
     END IF;
+    -- A NULL vector with pending sync intent belongs to the reconciler, so a
+    -- fact the embedder rejects cannot block every other fact.
     SELECT count(*) INTO mismatches
       FROM public.memory_facts
-     WHERE embedding IS NULL
-        OR public.vector_dims(embedding) <> expected_dimension
-        OR embedding_model IS DISTINCT FROM expected_model
-        OR embedding_generation <> expected_generation;
+     WHERE (embedding IS NULL AND NOT vector_sync_pending)
+        OR (embedding IS NOT NULL
+            AND (public.vector_dims(embedding) <> expected_dimension
+                 OR embedding_model IS DISTINCT FROM expected_model
+                 OR embedding_generation <> expected_generation));
     IF mismatches <> 0 THEN
         RAISE EXCEPTION 'memory embedding backfill incomplete: % mismatched row(s)', mismatches;
     END IF;

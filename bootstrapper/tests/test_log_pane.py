@@ -139,3 +139,29 @@ def test_source_chips_keep_an_already_classified_source_as_given(monkeypatch):
     for source in ("atlas-worker", "worker-2", "atlas-worker", "", "pipeline", "api"):
         chips.add_source(source)
     assert chips._known_sources == ["atlas-worker", "worker-2", "api"]
+
+
+_PIPED_RUN = '"/bin/sh -c set -eux; echo abc | sha512sum -c -;"'
+
+
+@pytest.mark.parametrize(
+    ("line", "expected"),
+    [
+        (f"#9 ERROR: process {_PIPED_RUN} did not complete successfully: exit code: 1",
+         ("", "error")),
+        ("#7 [spark 4/8] RUN echo abc | sha512sum -c -;", ("", "info")),
+        (f"failed to solve: process {_PIPED_RUN} did not complete successfully",
+         ("", "info")),
+        ("atlas-backend-1  | ERROR: database unavailable", ("backend", "error")),
+        ("\x1b[36matlas-backend-1  | \x1b[0mWARN: slow start", ("backend", "warn")),
+    ],
+)
+def test_only_a_container_name_before_the_pipe_is_a_logs_prefix(monkeypatch, line, expected):
+    """A piped RUN command in BuildKit output is not a ``compose logs``
+    prefix: it used to yield junk sources (``#9``) and hide an ERROR line
+    from the Errors filter by sniffing only the text after the pipe."""
+    from ui.textual.screens import wizard_screen
+    from ui.textual.screens.wizard_screen import _classify_compose_line
+
+    monkeypatch.setattr(wizard_screen, "_PROJECT_PREFIX", "atlas-")
+    assert _classify_compose_line(line) == expected

@@ -168,10 +168,11 @@ BEGIN
         next_generation := 1;
         SELECT NOT EXISTS (
             SELECT 1 FROM public.memory_facts
-             WHERE embedding IS NULL
-                OR vector_dims(embedding) <> desired
-                OR embedding_model IS DISTINCT FROM desired_model
-                OR embedding_generation <> next_generation
+             WHERE (embedding IS NULL AND NOT vector_sync_pending)
+                OR (embedding IS NOT NULL
+                    AND (vector_dims(embedding) <> desired
+                         OR embedding_model IS DISTINCT FROM desired_model
+                         OR embedding_generation <> next_generation))
         ) INTO complete;
         INSERT INTO public.memory_embedding_schema_state (
             singleton, active_dimension, target_dimension,
@@ -192,10 +193,11 @@ BEGIN
                            + CASE WHEN changed THEN 1 ELSE 0 END;
         SELECT NOT EXISTS (
             SELECT 1 FROM public.memory_facts
-             WHERE embedding IS NULL
-                OR vector_dims(embedding) <> desired
-                OR embedding_model IS DISTINCT FROM desired_model
-                OR embedding_generation <> next_generation
+             WHERE (embedding IS NULL AND NOT vector_sync_pending)
+                OR (embedding IS NOT NULL
+                    AND (vector_dims(embedding) <> desired
+                         OR embedding_model IS DISTINCT FROM desired_model
+                         OR embedding_generation <> next_generation))
         ) INTO complete;
         UPDATE public.memory_embedding_schema_state
            SET target_dimension = desired,
@@ -453,12 +455,15 @@ BEGIN
         RAISE EXCEPTION 'memory embedding target identity is % generation %, not % generation %',
             target_model, target_generation, expected_model, expected_generation;
     END IF;
+    -- A NULL vector with pending sync intent belongs to the reconciler, so a
+    -- fact the embedder rejects cannot block every other fact.
     SELECT count(*) INTO mismatches
       FROM public.memory_facts
-     WHERE embedding IS NULL
-        OR public.vector_dims(embedding) <> expected_dimension
-        OR embedding_model IS DISTINCT FROM expected_model
-        OR embedding_generation <> expected_generation;
+     WHERE (embedding IS NULL AND NOT vector_sync_pending)
+        OR (embedding IS NOT NULL
+            AND (public.vector_dims(embedding) <> expected_dimension
+                 OR embedding_model IS DISTINCT FROM expected_model
+                 OR embedding_generation <> expected_generation));
     IF mismatches <> 0 THEN
         RAISE EXCEPTION 'memory embedding backfill incomplete: % mismatched row(s)', mismatches;
     END IF;
@@ -649,10 +654,11 @@ BEGIN
      WHERE singleton = true;
     IF NOT EXISTS (
         SELECT 1 FROM public.memory_facts
-         WHERE embedding IS NULL
-            OR vector_dims(embedding) <> desired
-            OR embedding_model IS DISTINCT FROM desired_model
-            OR embedding_generation <> desired_generation
+         WHERE (embedding IS NULL AND NOT vector_sync_pending)
+            OR (embedding IS NOT NULL
+                AND (vector_dims(embedding) <> desired
+                     OR embedding_model IS DISTINCT FROM desired_model
+                     OR embedding_generation <> desired_generation))
     ) THEN
         PERFORM public.contract_memory_embedding_contract(
             desired_model, desired, desired_generation

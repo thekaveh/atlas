@@ -545,7 +545,7 @@ def test_backend_test_command_is_shell_valid_and_matches_the_ci_dependency_contr
     assert syntax.returncode == 0, syntax.stderr
 
     logical_lines = re.sub(r"\\\n\s*", " ", block)
-    cd_match = re.search(r"^cd ([^\s]+)$", logical_lines, re.MULTILINE)
+    cd_match = re.search(r"^\s*cd ([^\s]+)$", logical_lines, re.MULTILINE)
     assert cd_match
     assert (ROOT / cd_match.group(1)).resolve() == backend_root.resolve()
 

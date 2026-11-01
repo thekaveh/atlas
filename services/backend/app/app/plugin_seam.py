@@ -335,6 +335,10 @@ def _router_path_error(router, manifest: PluginManifest | None, seen_prefixes: d
     return None
 
 
+#: Inventory error for a package that imports but exposes no ``router``.
+_NO_ROUTER = "package exposes no module-level router"
+
+
 def _load_plugins_from_dir(
     app,
     plugins_dir: Path,
@@ -405,28 +409,25 @@ def _load_plugins_from_dir(
         try:
             module = importlib.import_module(entry.name)
             router = getattr(module, "router", None)
-            if router is not None:
-                path_error = _router_path_error(router, manifest, seen_prefixes)
-                if path_error is not None:
-                    _log.error("plugin seam: %s; skipping plugin %r", path_error, entry.name)
-                    name = manifest.name if manifest else entry.name
-                    PLUGIN_INVENTORY.append(
-                        _inventory_entry(
-                            name, "skipped", manifest=manifest, error=path_error
-                        )
-                    )
-                    continue
-                auth_mode = manifest.auth if manifest is not None else "inherit"
-                dependencies = []
-                if auth_mode == "inherit":
-                    dependencies = [Depends(require_backend_principal)]
-                elif auth_mode == "key-auth":
-                    dependencies = [Depends(require_plugin_gateway_key)]
-                app.include_router(router, dependencies=dependencies)
-                if manifest is None:
-                    _claim_manifestless_paths(router, seen_prefixes, entry.name)
-                _log.info("plugin seam: loaded plugin %r", entry.name)
             name = manifest.name if manifest else entry.name
+            # Nothing mounted is not "loaded": GET /plugins and the streaming
+            # prefixes both trust that status.
+            path_error = _NO_ROUTER if router is None else _router_path_error(router, manifest, seen_prefixes)
+            if path_error is not None:
+                log = _log.warning if router is None else _log.error
+                log("plugin seam: %s; skipping plugin %r", path_error, entry.name)
+                PLUGIN_INVENTORY.append(_inventory_entry(name, "skipped", manifest=manifest, error=path_error))
+                continue
+            auth_mode = manifest.auth if manifest is not None else "inherit"
+            dependencies = []
+            if auth_mode == "inherit":
+                dependencies = [Depends(require_backend_principal)]
+            elif auth_mode == "key-auth":
+                dependencies = [Depends(require_plugin_gateway_key)]
+            app.include_router(router, dependencies=dependencies)
+            if manifest is None:
+                _claim_manifestless_paths(router, seen_prefixes, entry.name)
+            _log.info("plugin seam: loaded plugin %r", entry.name)
             PLUGIN_INVENTORY.append(_inventory_entry(name, "loaded", manifest=manifest))
         except Exception:  # one bad plugin must not crash the backend
             _log.exception("plugin seam: failed to load plugin %r", entry.name)

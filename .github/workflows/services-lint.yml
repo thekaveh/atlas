@@ -67,7 +67,11 @@ jobs:
           # Pin uv so CI is deterministic. With no version, setup-uv installs
           # the latest uv at run time, whose resolver/lock semantics can shift
           # under us and silently flip a `uv lock --locked` check. Bump
-          # deliberately; keep in sync with the Dockerfile `uv==` pins.
+          # deliberately. This uv renders the committed lock exports that the
+          # lock checks compare, and matches the backend builder's `uv==` pin
+          # in services/backend/app/Dockerfile. The Local Deep Researcher
+          # image pins uv 0.11.33 on purpose (GHSA-4w2j-m93h-cj5j, #1002);
+          # do not sync that pin with this one.
           version: "0.11.19"
 
       - name: Sync dependencies
@@ -139,6 +143,14 @@ jobs:
           test -x "$plugin"
           echo "ATLAS_DOCS_COMPOSE_PLUGIN=$plugin" >> "$GITHUB_ENV"
 
+      - name: Locate native PostgreSQL binaries
+        # The role-ownership SQL drills run a throwaway native cluster, not
+        # Docker. The runner image ships PostgreSQL under /usr/lib/postgresql.
+        run: |
+          bin="$(ls -d /usr/lib/postgresql/*/bin | sort -V | tail -1)"
+          test -x "$bin/initdb"
+          echo "ATLAS_TEST_NATIVE_POSTGRES_BIN=$bin" >> "$GITHUB_ENV"
+
       - name: Run unit tests (loader, validator, assembler, hooks, CLI)
         working-directory: bootstrapper
         env:
@@ -161,8 +173,9 @@ jobs:
         run: |
           BACKEND_TEST_VENV="${RUNNER_TEMP:-$PWD}/backend-ci-venv"
           REDIS_CONTAINER="atlas-backend-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          PG_CONTAINER="atlas-backend-ci-pg-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           cleanup_backend_redis() {
-            docker rm -f "$REDIS_CONTAINER" >/dev/null 2>&1 || true
+            docker rm -f "$REDIS_CONTAINER" "$PG_CONTAINER" >/dev/null 2>&1 || true
           }
           trap cleanup_backend_redis EXIT
           docker run -d --pull=never --name "$REDIS_CONTAINER" \
@@ -181,6 +194,22 @@ jobs:
           REDIS_ENDPOINT=$(docker port "$REDIS_CONTAINER" 6379/tcp)
           REDIS_PORT=${REDIS_ENDPOINT##*:}
           export ATLAS_TEST_REDIS_URL="redis://127.0.0.1:${REDIS_PORT}/15"
+          # The memory reconcile scan/clear SQL runs against a real,
+          # disposable PostgreSQL; the fixture creates its own table.
+          docker run -d --pull=never --name "$PG_CONTAINER" \
+            -e POSTGRES_PASSWORD=ci -p 127.0.0.1::5432 postgres:17.11-alpine
+          for attempt in $(seq 1 120); do
+            if docker exec "$PG_CONTAINER" pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1; then
+              break
+            fi
+            if [ "$attempt" -eq 120 ]; then
+              echo "Backend test PostgreSQL did not become ready" >&2
+              exit 1
+            fi
+            sleep 0.5
+          done
+          PG_ENDPOINT=$(docker port "$PG_CONTAINER" 5432/tcp)
+          export ATLAS_TEST_MEMORY_RECONCILE_POSTGRES_URL="postgresql://postgres:ci@127.0.0.1:${PG_ENDPOINT##*:}/postgres"
           uv venv --python 3.12 "$BACKEND_TEST_VENV"
           # Runtime and test requirements jointly own the tested import
           # closure. Both are repository-managed; no inline CI subset may
@@ -303,6 +332,14 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Locate native PostgreSQL binaries
+        # The role-ownership SQL drills run a throwaway native cluster, not
+        # Docker. The runner image ships PostgreSQL under /usr/lib/postgresql.
+        run: |
+          bin="$(ls -d /usr/lib/postgresql/*/bin | sort -V | tail -1)"
+          test -x "$bin/initdb"
+          echo "ATLAS_TEST_NATIVE_POSTGRES_BIN=$bin" >> "$GITHUB_ENV"
+
       - name: Run bootstrapper tests on Python 3.11
         working-directory: bootstrapper
         run: >-
@@ -397,7 +434,11 @@ jobs:
           # Pin uv so CI is deterministic. With no version, setup-uv installs
           # the latest uv at run time, whose resolver/lock semantics can shift
           # under us and silently flip a `uv lock --locked` check. Bump
-          # deliberately; keep in sync with the Dockerfile `uv==` pins.
+          # deliberately. This uv renders the committed lock exports that the
+          # lock checks compare, and matches the backend builder's `uv==` pin
+          # in services/backend/app/Dockerfile. The Local Deep Researcher
+          # image pins uv 0.11.33 on purpose (GHSA-4w2j-m93h-cj5j, #1002);
+          # do not sync that pin with this one.
           version: "0.11.19"
 
       - name: Sync dependencies
@@ -441,7 +482,11 @@ jobs:
           # Pin uv so CI is deterministic. With no version, setup-uv installs
           # the latest uv at run time, whose resolver/lock semantics can shift
           # under us and silently flip a `uv lock --locked` check. Bump
-          # deliberately; keep in sync with the Dockerfile `uv==` pins.
+          # deliberately. This uv renders the committed lock exports that the
+          # lock checks compare, and matches the backend builder's `uv==` pin
+          # in services/backend/app/Dockerfile. The Local Deep Researcher
+          # image pins uv 0.11.33 on purpose (GHSA-4w2j-m93h-cj5j, #1002);
+          # do not sync that pin with this one.
           version: "0.11.19"
 
       - name: Sync dependencies

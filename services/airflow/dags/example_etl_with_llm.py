@@ -54,7 +54,7 @@ default_args = {
 
 
 def spark_smoke(**_ctx):
-    """Confirm spark://spark-master:7077 + sc://spark-connect:15002 are reachable.
+    """Confirm the Spark Connect sidecar at sc://spark-connect:15002 answers.
 
     Uses Spark Connect (modern gRPC client) — no JAR submission, no
     cluster-mode dependencies. Prints the Spark Connect server version.

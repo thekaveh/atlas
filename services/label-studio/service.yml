@@ -68,9 +68,6 @@ env:
   - name: LABEL_STUDIO_DB_NAME
     description: "Postgres database for Label Studio. Supabase db-init (05-scoped-roles.sh) creates it."
     default: label_studio
-  - name: LABEL_STUDIO_DB_NAME_URI
-    default: label_studio
-    description: "Bootstrapper-synchronized percent-encoded LABEL_STUDIO_DB_NAME for DSN path components."
   - name: LABEL_STUDIO_DB_USER
     description: "Scoped Postgres login that owns LABEL_STUDIO_DB_NAME. Supabase db-init (05-scoped-roles.sh) creates it."
     default: label_studio

@@ -30,8 +30,7 @@ def kong_config(tmp_path_factory) -> dict:
     that depends on the author's local secrets is not a test.
     """
     env_path = tmp_path_factory.mktemp("kong") / ".env"
-    source = (REPO_ROOT / ".env").read_text(encoding="utf-8") if (REPO_ROOT / ".env").exists() \
-        else (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+    source = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
     lines = [
         line for line in source.splitlines()
         if not line.startswith(("SUPABASE_ANON_KEY=", "SUPABASE_SERVICE_KEY="))

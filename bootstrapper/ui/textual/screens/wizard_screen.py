@@ -325,6 +325,33 @@ def _report_cancel_cleanup_failure(
     )
 
 
+_OVERLONG_LINE_NOTICE = "[atlas] output line longer than 64 KiB was truncated"
+
+
+async def _stream_lines(
+    stream: asyncio.StreamReader, on_line: Callable[[str], None]
+) -> None:
+    """Deliver each line of ``stream`` to ``on_line`` until EOF.
+
+    A line longer than the reader's 64 KiB limit makes ``readline`` raise
+    ValueError after it has discarded the buffered part of that line.
+    Streamed output is diagnostic, so note the cut and keep reading: an
+    oversized log line must not end the command or turn a successful
+    launch into a crash. The stream is read as an async iterator, as
+    ``async for`` would, so the next item resumes after the cut.
+    """
+    lines = aiter(stream)
+    while True:
+        try:
+            raw = await anext(lines)
+        except StopAsyncIteration:
+            return
+        except ValueError:
+            on_line(_OVERLONG_LINE_NOTICE)
+            continue
+        on_line(raw.decode(errors="replace").rstrip("\r\n"))
+
+
 async def _run_streamed_command(
     command: list[str],
     *,
@@ -348,8 +375,7 @@ async def _run_streamed_command(
     )
     async def consume() -> int:
         assert proc.stdout is not None
-        async for raw in proc.stdout:
-            on_line(raw.decode(errors="replace").rstrip("\r\n"))
+        await _stream_lines(proc.stdout, on_line)
         return await proc.wait()
     stream_task = asyncio.create_task(consume())
     try:
@@ -3158,10 +3184,12 @@ class WizardScreen(Screen):
             # Bounded + rotating tee (#1178): 3 × 32 MiB per session with the
             # first segment (session start + earliest diagnostics) pinned,
             # active sessions protected, and disk exhaustion degrading logging
-            # loudly instead of failing the launch.
+            # loudly instead of failing the launch. The notice fires in the
+            # thread whose write failed, often a pipeline worker, so it goes
+            # through _safe_log to reach the pane on the event-loop thread.
             tee = SessionLogTee(
                 prefix=f"atlas-launch-{ts}-",
-                on_degraded=lambda msg: self._log_pane.write_log(
+                on_degraded=lambda msg: self._safe_log(
                     f"⚠ {msg}", level="warn", source="pipeline",
                 ),
             )
@@ -3512,10 +3540,11 @@ class WizardScreen(Screen):
         if path is None:
             self.notify("No session log yet.", severity="warning", timeout=3)
             return
-        # The session-log tee is segment-capped (#1178: 32 MiB max here —
-        # this copies segment 0, the pinned first-failure context), but a
-        # full segment is still large — read it off the UI thread in a
-        # worker so ``Y`` can't freeze the TUI for the duration of the read. A dedicated group
+        # The session-log tee is segment-capped (#1178: 32 MiB max here).
+        # This copies at most the last 2 MiB of segment 0, so once segment 0
+        # outgrows that it is not the pinned head. Even the capped read is
+        # large — read it off the UI thread in a worker so ``Y`` can't
+        # freeze the TUI for the duration of the read. A dedicated group
         # keeps this from colliding with (and cancelling) unrelated
         # exclusive=True workers — e.g. the pipeline/transition workers —
         # that run in the default group.
@@ -4244,6 +4273,20 @@ def _strip_project(name: str) -> str:
     return n
 
 
+def _compose_logs_prefix(line: str) -> tuple[str, str] | None:
+    """Split a ``compose logs`` ``<container>  | body`` line, else None.
+
+    Only one whitespace-free token before the first ``|`` is a container
+    name. A BuildKit line quoting a piped RUN command (``#9 ERROR: ...
+    | sha512sum``) is not, so it keeps its whole text for level sniffing.
+    """
+    head, sep, rest = line.partition("|")
+    name = _strip_ansi(head).strip()
+    if not sep or not name or len(name.split()) != 1:
+        return None
+    return name, rest.strip()
+
+
 def _classify_compose_line(line: str) -> tuple[str, str]:
     """Best-effort (source, level) classification for a docker compose line.
 
@@ -4256,11 +4299,10 @@ def _classify_compose_line(line: str) -> tuple[str, str]:
     """
     src = ""
     rest = line
-    if "|" in line:
-        head, _, rest = line.partition("|")
-        head_word = head.strip().split()[0] if head.strip() else ""
+    prefix = _compose_logs_prefix(line)
+    if prefix is not None:
+        head_word, rest = prefix
         src = _strip_project(head_word)
-        rest = rest.strip()
     else:
         words = line.strip().split()
         if len(words) >= 2 and words[0] in ("Container", "Network", "Volume"):

@@ -130,9 +130,10 @@ services:
       # the shared dashboard credential sat in the process argv for life.
       # :- matches Kong's fallback for an empty username (kong_admin).
       FLOWER_BASIC_AUTH: ${DASHBOARD_USERNAME:-kong_admin}:${DASHBOARD_PASSWORD}
+    # No --broker flag: Celery reads CELERY_BROKER_URL (set above) itself, and
+    # the URL carries the Redis password, which argv would expose to ps.
     command:
       - celery
-      - --broker=${CELERY_BROKER_URL:-}
       - flower
       - --address=0.0.0.0
       - --port=5555

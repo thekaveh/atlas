@@ -1,6 +1,6 @@
 # Cross-service integration research
 
-This directory holds integration research: one opportunity file per service,
+This directory holds integration research: one opportunity file per researched service,
 one-pagers for candidate new services and the generated integration matrix.
 The first set was produced in the "Phase B" research run (§6). Its plans and
 specs live under [`docs/superpowers/`](../superpowers/).
@@ -9,8 +9,8 @@ specs live under [`docs/superpowers/`](../superpowers/).
 
 | Path | Purpose |
 |---|---|
-| `rows/<service>.md` | One per service doc folder under `services/`. Captures the service's missing-pair integrations, candidate new services, and feature gaps. **One file = one author = one subagent run.** |
-| `candidates/<slug>.md` | One per candidate new service (e.g. `obsidian-mcp.md`, `langfuse.md`). Multiple rows may reference the same candidate. |
+| `rows/<service>.md` | One per service researched in the Phase B run (§6): 21 services. Services added later have no row. Captures the service's missing-pair integrations, candidate new services, and feature gaps. **One file = one author = one subagent run.** |
+| `candidates/<slug>.md` | One per candidate new service (e.g. `crawl4ai.md`, `langfuse.md`). Multiple rows may reference the same candidate. |
 | `integration-matrix.md` | Generated index that aggregates all rows by service, by category, plus a global candidates table. **Do not edit by hand.** Re-generate with `PYTHONPATH=bootstrapper uv run --project bootstrapper python -m bootstrapper.docs.merge_research`. |
 
 ## 2. Row file schema
@@ -66,15 +66,16 @@ referenced-by: [<service>, ...]      # maintained by merge script, not by author
 ```
 
 `lifecycle` records where the proposal stands. `proposed` is the only
-undecided value. `planned` and `deferred` keep the record a live candidate,
-listed in `integration-matrix.md` and eligible for a service README's
-`Future — Candidate new services` block. `shipped` and `rejected` close it:
-`python -m bootstrapper.docs.regen --all` drops it from both of those derived
-indexes in the same pass, and the file stays here as history. A closed record
-may keep its original wiring sketch, effort and risks under a
-`## Historical proposal (<lifecycle> YYYY-MM-DD)` heading, as `###`
-subsections, instead of presenting them as a live plan (see
-`candidates/open-webui-pipelines.md`).
+undecided value. `planned` and `deferred` keep the record a live candidate.
+A live candidate is listed in `integration-matrix.md`. It is also eligible for
+a service README's `Future — Candidate new services` block.
+
+`shipped` and `rejected` close the record. The next
+`python -m bootstrapper.docs.regen --all` pass drops it from the matrix and
+from that README block. The file stays here as history. A closed record may
+keep its original wiring sketch, effort and risks as `###` subsections. They go
+under a `## Historical proposal (<lifecycle> YYYY-MM-DD)` heading, so they do
+not read as a live plan. For an example, see `candidates/open-webui-pipelines.md`.
 
 Six required sections:
 
@@ -106,13 +107,17 @@ Exit 0 = valid, 1 = errors (printed with file:line refs).
 
 `PYTHONPATH=bootstrapper uv run --project bootstrapper python -m bootstrapper.docs.merge_research` reads all rows + candidates,
 emits `integration-matrix.md`, and reconciles `referenced-by:` on each
-candidate. Deterministic and idempotent. `--check` reports the files it would
-rewrite and exits 2 without writing. `python -m bootstrapper.docs.regen --all`
-runs the same merge, so the service READMEs and the matrix change together.
-The docs drift gate (`regen --all --check`) covers the matrix and each
-candidate's normalized front matter too. After adding or editing a record, run
-`PYTHONPATH=bootstrapper uv run --project bootstrapper python -m bootstrapper.docs.regen --all`
-and commit what it rewrites.
+candidate. The merge is deterministic and idempotent. `--check` reports the
+files it would rewrite and exits 2 without writing.
+`python -m bootstrapper.docs.regen --all` runs the same merge, so the service
+READMEs and the matrix change together. The docs drift gate
+(`regen --all --check`) covers the matrix and each candidate's normalized front
+matter too.
+
+After you add or edit a record:
+
+1. Run `PYTHONPATH=bootstrapper uv run --project bootstrapper python -m bootstrapper.docs.regen --all`.
+2. Commit the files that it rewrites.
 
 ## 6. Dispatch pattern (how Phase B was produced)
 

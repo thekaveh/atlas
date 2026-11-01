@@ -16,6 +16,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import os
 import platform
 import subprocess
 import tarfile
@@ -1197,12 +1198,16 @@ def test_manager_from_env_defaults():
 def test_live_managed_host_serves_model():
     """OPTIONAL Darwin-arm64 smoke: prove /v1/models answers with the model.
 
-    Never installs weights itself. Runs preflight (os/arch must pass on this
-    host); if a managed process is already up, asserts /v1/models lists the
+    Opt in with ``ATLAS_VLLM_METAL_LIVE=1``; it reads the real
+    ``~/.atlas/vllm-metal`` state. Never installs weights itself. Runs
+    preflight (os/arch must pass on this host); if a managed process is
+    already up, asserts /v1/models on its recorded port lists the
     configured model. If it isn't running, skips with an operator hint —
     bring it up first with ``./start.sh vllm-metal install && ./start.sh
     vllm-metal start``.
     """
+    if os.environ.get("ATLAS_VLLM_METAL_LIVE") != "1":
+        pytest.skip("set ATLAS_VLLM_METAL_LIVE=1 for the live vLLM Metal smoke")
     mgr = manager_from_env({
         "VLLM_METAL_STATE_DIR": "~/.atlas/vllm-metal",
         "VLLM_METAL_LOCALHOST_PORT": "8000",
@@ -1210,8 +1215,11 @@ def test_live_managed_host_serves_model():
     pre = mgr.preflight()
     assert next(c for c in pre.checks if c["name"] == "os")["status"] == "ok"
     assert next(c for c in pre.checks if c["name"] == "arch")["status"] == "ok"
-    if not mgr.status().running:
+    status = mgr.status()
+    if not status.running:
         pytest.skip("managed vLLM Metal host not running; run `vllm-metal install && start` first")
+    # status() reports the recorded launch port; health() probes self.port.
+    mgr.port = status.port
     health = mgr.health()
     assert health["reachable"], health
     assert health["models"], "expected at least one served model id"

@@ -359,6 +359,8 @@ superuser too: qualify calls the same way.
 
 ## 7. Common Operations
 
+Set `PROJECT_NAME` (default `atlas`), `SUPABASE_DB_PORT` and `SUPABASE_API_PORT` in your shell to their values in `.env` before you run these commands.
+
 ### 7.1. Connect to Database
 ```bash
 # Using psql

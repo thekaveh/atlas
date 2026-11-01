@@ -707,8 +707,11 @@ and asset-service suites, and the bootstrapper suite under Python 3.11:
     --cov-report=term --cov-fail-under=69
 )                                                                                  # job 1 bootstrapper tests
 (
+  set -e
   cd services/backend/app/app
-  BACKEND_TEST_VENV="${TMPDIR:-/tmp}/atlas-backend-ci-venv"
+  BACKEND_TEST_ROOT="$(mktemp -d)"
+  trap 'rm -rf "$BACKEND_TEST_ROOT"' EXIT
+  BACKEND_TEST_VENV="$BACKEND_TEST_ROOT/venv"
   uv venv --python 3.12 "$BACKEND_TEST_VENV"
   VIRTUAL_ENV="$BACKEND_TEST_VENV" uv pip install \
     -r requirements.txt -r requirements-dev.txt -c requirements-test-locked.txt

@@ -250,8 +250,9 @@ Validation checklist before committing a parent consumer update:
 
 The manifest covers this layout's project wiring: the force-set
 `PROJECT_NAME`/`BRAND_*` values, the `*_SOURCE` overrides, the
-`services/_user/<name>/compose.yml` overlay, backend plugin mounts and
-`MINIO_EXTRA_CONSUMERS` buckets. Move these declarations into the manifest
+`services/_user/<name>/compose.yml` overlay, backend plugin roots and
+`MINIO_EXTRA_CONSUMERS` buckets. The plugin mount itself stays in a
+`compose_overlays` file. Move these declarations into the manifest
 before removing the symlink and `setup-overlay.sh`.
 
 Keep `.env.user` until you have migrated every needed value. Keep secrets and

@@ -162,7 +162,7 @@ env:
 # compose_overlays:
 #   - ./compose/myproject-overlay.yml    # external overlay; no symlink into infra/
 # backend_plugins:
-#   - ./backend/plugins                  # mounted into the backend plugin seam (step 6)
+#   - ./backend/plugins                  # host roots; mount them with a compose overlay (step 6)
 # Optional blocks: storage, litellm_models, n8n_workflows, rag_ingestion_profiles,
 # lightrag_query_profiles, managed_host_services, model_sidecars, custom_nodes, blender_mcp
 ```
@@ -203,7 +203,9 @@ The shown `--detach` command exits after the health checks. Add `--track <key>` 
 
 Host tools read `ATLAS_<SVC>_HOST_ENDPOINT` (for example `ATLAS_MINIO_HOST_ENDPOINT`). In-network containers use the service name (`http://minio:9000`). Do not hard-code `localhost:<port>`, because it moves with `BASE_PORT`. With `BASE_PORT: auto`, export after the first start. Full field list: [§6.5](#65-exporting-the-endpoint-contract-endpoints-export).
 
-**6. Backend plugin seam.** Atlas mounts each `backend_plugins` directory into the backend at `/app/plugins`. A plugin that serves an OpenAI-compatible route can appear as a LiteLLM model ([`litellm_models`](../reference/consumer-manifest.md#9-litellm_models)). A plugin gets object storage from the exported scoped variables (`ATLAS_STORE_<CONSUMER>_<STORE>_*`). Do not hand-wire `MINIO_PUBLIC_ENDPOINT` or a published MinIO port. Details: [§6.3](#63-adding-backend-api-routes-via-the-plugin-seam) and [Consumer Manifest Reference §7](../reference/consumer-manifest.md#7-storage).
+**6. Backend plugin seam.** Atlas resolves each `backend_plugins` directory to an absolute host path in `BACKEND_PLUGINS_DIR`. It does not mount them, so list an overlay under `compose_overlays` that binds each root into the backend. Details: [§6.3](#63-adding-backend-api-routes-via-the-plugin-seam) and [Consumer Manifest Reference §8](../reference/consumer-manifest.md#8-backend_plugins-and-pluginyml).
+
+A plugin that serves an OpenAI-compatible route can appear as a LiteLLM model ([`litellm_models`](../reference/consumer-manifest.md#9-litellm_models)). A plugin gets object storage from the exported scoped variables (`ATLAS_STORE_<CONSUMER>_<STORE>_*`). Do not hand-wire `MINIO_PUBLIC_ENDPOINT` or a published MinIO port. Storage details: [Consumer Manifest Reference §7](../reference/consumer-manifest.md#7-storage).
 
 **7. Teardown.**
 
@@ -233,7 +235,7 @@ myproject/
 ├── atlas.env.user                    # optional flat overlay (gitignored: secrets)
 ├── compose/
 │   └── myproject-overlay.yml         # external overlay (no symlink into infra/)
-├── backend/plugins/myproject-rag/    # backend plugin (→ /app/plugins)
+├── backend/plugins/myproject-rag/    # backend plugin (bind-mounted by compose/myproject-overlay.yml)
 ├── n8n/myproject-flow.workflow.json  # seeded workflow (n8n_workflows)
 ├── scripts/start.sh                  # thin launcher (the step-4 command)
 ├── src/                              # your application code
@@ -457,7 +459,7 @@ At startup the backend mounts each package in `$BACKEND_PLUGINS_DIR` (default `/
 
 **Apply plugin changes by recreating the backend.** Run `./start.sh --consumer <manifest>` again. A bare `docker compose up -d --force-recreate backend` targets the wrong Compose project and drops the overlay that mounts the plugins. The backend's auto-reloader is off by default, so git churn in a bind-mounted plugin tree does not restart it. Set `BACKEND_DEV_RELOAD=true` only while you edit plugin source.
 
-To mount plugins without a manifest, extend Atlas's `backend` service from your parent Compose:
+Atlas does not bind plugin directories into the backend, with or without a manifest. Extend Atlas's `backend` service from your parent Compose. With a manifest, list that file under `compose_overlays`; [Consumer Manifest Reference §8](../reference/consumer-manifest.md#8-backend_plugins-and-pluginyml) shows a `${BACKEND_PLUGINS_DIR}` form.
 
 ```yaml
 # your parent docker-compose.yml — overlay onto Atlas's backend

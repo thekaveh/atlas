@@ -3102,7 +3102,9 @@ def test_pool_ports_past_65535_fail_preflight(tmp_path) -> None:
     assert "port" not in {c["name"] for c in bm.pool_from_env(env)[0].preflight().checks}
 
 
-def test_doctor_warns_on_a_stray_pool_instance_and_start_reaps_it(tmp_path, monkeypatch) -> None:
+def test_doctor_warns_on_a_stray_pool_instance_and_start_reaps_it(
+    tmp_path, monkeypatch, dead_pid
+) -> None:
     from types import SimpleNamespace
 
     import start as start_module
@@ -3111,7 +3113,7 @@ def test_doctor_warns_on_a_stray_pool_instance_and_start_reaps_it(tmp_path, monk
     env = _blender_pool_env(tmp_path, 1)
     stray = bm.pool_members(bm.manager_from_env({**env, "BLENDER_MCP_INSTANCES": "3"}))[2]
     stray.state_dir.mkdir(parents=True)
-    stray.pid_file.write_text("999999\n", encoding="utf-8")  # a process that is long gone
+    stray.pid_file.write_text(f"{dead_pid}\n", encoding="utf-8")  # a process that is long gone
     monkeypatch.setattr(bm.BlenderMcpManager, "preflight", lambda self: SimpleNamespace(
         status="ok", checks=[{"name": "blender", "detail": "ok"}], to_dict=lambda: {}))
     starter = start_module.AtlasStarter.__new__(start_module.AtlasStarter)

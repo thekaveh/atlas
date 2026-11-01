@@ -14,7 +14,6 @@ PROVIDERS = (
 DIAGNOSTIC_MODULES = PROVIDERS + (
     "services/parakeet/provider/startup.py",
     "services/parakeet/provider/gpu/transcribe.py",
-    "services/parakeet/provider/shared/utils.py",
     "services/backend/app/app/memory_service.py",
     "services/backend/app/app/memory_store.py",
 )

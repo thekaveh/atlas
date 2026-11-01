@@ -38,7 +38,7 @@ Consumers ──► litellm:4000 ──► Ollama / vLLM Metal / Cloud providers
 
 ## 4. Persistence
 
-- **Database**: dedicated `litellm` database on the existing Supabase Postgres server. Created on first start by the `litellm-init` container (`services/litellm/init/scripts/init.py`). Same host (`supabase-db`) with a dedicated role (`LITELLM_DB_USER` / `LITELLM_DB_PASSWORD`) — separate logical database, so LiteLLM's `LiteLLM_*` Prisma-managed tables stay isolated from Supabase's schema. Override the database name via `LITELLM_DB_NAME`.
+- **Database**: dedicated `litellm` database on the existing Supabase Postgres server. `supabase-db-init` creates the database and its owning role (`services/supabase/db/scripts/05-scoped-roles.sh`). `litellm-init` (`services/litellm/init/scripts/init.py`) then checks that it exists, creating it only as a fallback, before it renders the config. Same host (`supabase-db`) with a dedicated role (`LITELLM_DB_USER` / `LITELLM_DB_PASSWORD`) — separate logical database, so LiteLLM's `LiteLLM_*` Prisma-managed tables stay isolated from Supabase's schema. Override the database name via `LITELLM_DB_NAME`.
 - **Redis**: response cache and rate-limit state, on the stack's Redis at `redis:6379` with `REDIS_PASSWORD`.
   - The response cache serves embeddings, reranks and transcriptions for `LITELLM_CACHE_TTL`, because a fixed model returns the same result for the same input.
   - Chat, text-completion and Responses API calls are cached only when `LITELLM_CACHE_CHAT=true`. Then an identical request to `hermes-agent` or `lightrag` returns the cached reply for the TTL. It does not run the agent or see newly ingested documents. Send `"cache": {"no-cache": true}` in the request body for those calls.

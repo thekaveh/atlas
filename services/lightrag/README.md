@@ -248,7 +248,7 @@ When `lightrag-init` starts, it:
 
 1. Runs after LiteLLM's Compose health gate and reads LiteLLM `/v1/models`.
 2. Resolves the base `LIGHTRAG_LLM_MODEL` / `LIGHTRAG_EMBEDDING_MODEL` / `LIGHTRAG_EMBEDDING_DIM` from explicit overrides, LiteLLM defaults, or LiteLLM's model list. Writes LightRAG's native `LLM_MODEL` / `EMBEDDING_MODEL` / `EMBEDDING_DIM` to `/app/data/.env`. If no chat model can be resolved, init exits non-zero instead of starting LightRAG with an empty `LLM_MODEL`. Role-specific `LIGHTRAG_EXTRACT_*`, `LIGHTRAG_KEYWORD_*`, and `LIGHTRAG_QUERY_*` variables are passed directly to the runtime container.
-3. Polls Postgres for up to 120 s until it accepts connections, then runs the idempotent pgvector migration. `supabase-db` is SOURCE-replaceable, so `lightrag-init` has no compose `depends_on` on it.
+3. Polls Postgres for up to 120 s until it accepts connections, then runs the idempotent pgvector migration. `lightrag-init` has no direct compose `depends_on` on `supabase-db`; it waits on LiteLLM, which waits on `supabase-db`.
 4. Runs the Neo4j migration, which is non-fatal. It pre-creates the range index on `(:base).entity_id`; otherwise LightRAG creates it on first write. It posts to the HTTP endpoint of the Bolt URI's host: `neo4j-graph-db:7474`, or `NEO4J_LOCALHOST_HTTP_PORT` for `NEO4J_GRAPH_DB_SOURCE=localhost`.
 
 ## 8. Troubleshooting

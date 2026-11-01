@@ -42,6 +42,30 @@ def _no_real_project_stop(monkeypatch):
     )
 
 
+@pytest.fixture(autouse=True)
+def _private_session_log_store(monkeypatch, tmp_path_factory):
+    """Keep WizardScreen's launch-log tee out of the developer's real store.
+
+    Building a real WizardScreen opens a session-log tee in the default
+    per-user store, and its retention pass deletes the oldest real
+    ``./start.sh`` launch logs. Tests that patch ``tempfile.gettempdir`` or
+    pass an explicit directory still get the store they asked for."""
+    import tempfile
+
+    from ui import session_log_retention as retention
+
+    real_resolve, real_gettempdir = retention.resolve_store, tempfile.gettempdir
+    root = tmp_path_factory.getbasetemp() / "session-log-parent"
+    root.mkdir(exist_ok=True)
+
+    def resolve(parent):
+        if not parent and tempfile.gettempdir is real_gettempdir:
+            parent = root
+        return real_resolve(parent)
+
+    monkeypatch.setattr(retention, "resolve_store", resolve)
+
+
 @pytest.fixture
 def forbid_host_side_effects(monkeypatch):
     """Fail the test if it builds the real starter or config parser, spawns

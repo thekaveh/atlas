@@ -147,7 +147,8 @@ The **fal.ai** key step (FAL Cloud Media, after ComfyUI) uses the same words for
 
 The caption above the list always names the source of the list. A listed model is therefore never mistaken for proof that your key works:
 
-- **`Live from the provider · key accepted · Space toggles, Enter confirms`.** The provider answered and these are its own models. Each row is badged `live`.
+- **`Live from the provider · key accepted · Space toggles, Enter confirms`.** The provider accepted your key and listed these models itself. Each row is badged `live`.
+- **`Live from the provider · key not checked (OpenRouter lists models without a key) · Space toggles, Enter confirms`.** OpenRouter's model list needs no key. A wrong key fails only on the first LiteLLM request.
 - **`Curated catalog · credentials unverified · <reason> · Esc re-enters the key and retries · Space toggles, Enter confirms`**. The provider did not answer usefully, so the list is the bundled catalog from `bootstrapper/utils/llm_catalog.py`. Each row is badged `catalog`. The reason is one of:
     - no API key was supplied
     - the provider rejected the key
@@ -157,6 +158,8 @@ The caption above the list always names the source of the list. A listed model i
     - the provider could not be reached
     - the provider's reply could not be read
     - the provider listed no usable models
+
+OpenRouter lists hundreds of models, so the wizard keeps the first 50 by name. The caption then starts `Live from the provider (first 50 of <total>)`. Curated OpenRouter models beyond that cut stay selectable, badged `catalog`.
 
 A rejected key, a timed-out request and an empty listing get three different captions. To recover, press **Esc** to return to the key step, correct the key, and press Enter. That clears the cached result and fetches again (§4.5). The key is never written to the caption or to the launch log.
 
@@ -175,7 +178,9 @@ After the cloud key/model pairs, the wizard asks for the **default model per rol
 1. **Chat / content** → `LITELLM_DEFAULT_MODEL`. The backend and Open WebUI use it when no model is named. It is pre-selected to your saved default if still offered, else to the highest-priority content-capable model in your selection.
 2. **Embedding** → `LITELLM_EMBEDDING_MODEL` and its dimension `LANGMEM_EMBEDDING_DIM`. For a curated model the wizard reads `dim:` from `services/*/models.yaml`. Backend and the Supabase memory migration use the same value. Every start re-derives the dimension if the catalog value changed (for example, `qwen3-embedding:0.6b` is 1024).
 
-    Existing 768-dimension deployments keep working. A 1024-, 1536- or 3072-dimension model starts a lossless expand, re-embed and validate rollout at the next start. Backend checks the model's real output before it accepts traffic. A custom model needs an explicit `LANGMEM_EMBEDDING_DIM` from 1 to 4,000 (pgvector's halfvec HNSW limit). The dimension step refuses `clear`, non-numbers and out-of-range values before launch. It refuses empty input when no dimension is saved; with a saved value, Enter keeps it.
+    Existing 768-dimension deployments keep working. A 1024-, 1536- or 3072-dimension model starts a lossless expand, re-embed and validate rollout at the next start. Backend checks the model's real output before it accepts traffic. A fact the embedding provider rejected keeps no vector and stays queued for the reconciler; it does not hold the rollout.
+
+    A custom model needs an explicit `LANGMEM_EMBEDDING_DIM` from 1 to 4,000 (pgvector's halfvec HNSW limit). The dimension step refuses `clear`, non-numbers and out-of-range values before launch. It refuses empty input when no dimension is saved; with a saved value, Enter keeps it.
 
 3. **Vision** → `LITELLM_VISION_MODEL`. The first option is **— none / skip —** because vision routing is optional. The step is skipped when no vision-capable model is selected.
 
@@ -327,7 +332,7 @@ After you confirm, the same screen switches from prompts to the launch phase:
 - During the one-shot init wait (a 900-second polling window), `Ctrl+C` stops further checks. An active status command keeps its 10-second timeout; an active log-tail command keeps its 20-second timeout. The wizard's cold-start volume removal (`down --volumes`) also stops on `Ctrl+C`; the notice then says volumes may already be removed.
 - Exit codes: `130` only when `Ctrl+C` interrupts a running launch. After the launch ends, `Ctrl+C` keeps its result (`0` started, `1` failed) and prints no notice.
 - A failed init container's error line includes up to 40 log lines when available. After cancellation, Atlas starts no log request.
-- To follow logs later, set `COMPOSE_PROJECT_NAME` as shown at the top of [Troubleshooting](troubleshooting.md), then run `docker compose logs -f <service>`.
+- To follow logs later, define the `atlas_compose` helper from the top of [Troubleshooting](troubleshooting.md), then run `atlas_compose logs -f <service>`.
 
 ### 9.1. Recovery without deleting data
 
@@ -375,7 +380,7 @@ Of these four exit actions, only cold stop deletes data, and only after the seco
 | `Shift+Tab` | Cycle to the previous tab |
 | `a` `e` `w` `i` | After launch: show all log lines, errors, warnings or info |
 | `s` | Logs tab: open the filter-by-source picker |
-| `y` / `Y` | After launch: copy the visible log lines / the session log's first segment |
+| `y` / `Y` | After launch: copy the visible log lines / up to the last 2 MiB of the session log's first segment |
 | `Ctrl+R` | Review the full warning on a destructive step (§7.1) |
 | `Ctrl+O` | Review the whole command, every service's details and every answered decision (§10.1, §10.2) |
 | `Ctrl+S` / `Ctrl+X` (twice) | After launch: stop / cold stop (§9.2) |
@@ -482,7 +487,7 @@ The wizard discovers every configurable service from its `services/<name>/servic
 
 | Service | Options |
 |---------|---------|
-| LiteLLM Gateway | locked / always-on (no choice; mandatory front door for every LLM consumer) |
+| LiteLLM Gateway | locked / always-on (no choice; default front door for Atlas-managed LLM consumers) |
 | LLM Engine (Ollama upstream) | ollama-container-cpu, ollama-container-gpu, ollama-localhost, none |
 | ComfyUI | container-cpu, container-gpu, localhost, managed-localhost-mps, disabled |
 | Weaviate | container, localhost, disabled |

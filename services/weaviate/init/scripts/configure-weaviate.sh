@@ -23,12 +23,9 @@ fi
 # NOTE: no DEFAULT_OPENAI_BASE_URL export here — Weaviate never read
 # that env var (the per-collection moduleConfig.baseURL set by the
 # backend is the real seam), and the old value carried a wrong /v1
-# suffix on top of being dead.
-if [ -n "$LITELLM_BASE_URL" ]; then
-  echo "weaviate: LiteLLM endpoint (per-collection baseURL is set by the backend): $LITELLM_BASE_URL"
-else
-  echo "weaviate: default LiteLLM endpoint: http://litellm:4000"
-fi
+# suffix on top of being dead. Compose never passes LITELLM_BASE_URL to
+# this container, so only the default endpoint line was ever printed.
+echo "weaviate: default LiteLLM endpoint: http://litellm:4000"
 
 echo "weaviate: init checks done - embedding model: $LITELLM_EMBEDDING_MODEL"
 

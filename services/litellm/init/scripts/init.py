@@ -548,11 +548,11 @@ def lightrag_model_entry() -> dict[str, Any] | None:
         "litellm_params": {
             "model": "ollama_chat/lightrag",
             "api_base": endpoint.rstrip("/"),
-            # Literal embed (not `os.environ/LIGHTRAG_API_KEY`): the key
-            # is auto-generated once by generate_and_update_lightrag_api_key
-            # (idempotent, never force-rotated). Rotation would require a
-            # re-seed anyway, so a runtime env-directive buys nothing.
-            "api_key": os.environ.get("LIGHTRAG_API_KEY", ""),
+            # Env directive (not a literal), like the Hermes and FAL rows:
+            # config.yaml is world-readable on the host bind mount, and this
+            # key authorises LightRAG's document routes (DELETE /documents).
+            # The litellm server resolves it from its own environment.
+            "api_key": "os.environ/LIGHTRAG_API_KEY",
         },
         "model_info": {
             "mode": "chat",

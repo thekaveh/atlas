@@ -24,7 +24,7 @@ capabilities:
   - name: "Deploy-resource environment override"
     status: stubbed
     verification: documented
-    note: "OLLAMA_DEPLOY_RESOURCES is projected by service configuration, but the Compose fragment does not consume it; CPU and GPU reservations come from typed source runtime data."
+    note: "OLLAMA_DEPLOY_RESOURCES is projected by service configuration, but the Compose fragment does not consume it. The fragment has no GPU device reservation, so ollama-container-gpu reaches a GPU only when the Docker default runtime is nvidia."
 
 containers:
   - ollama

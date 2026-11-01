@@ -535,8 +535,9 @@ ARCHITECTURE_INTERPRETATIONS: dict[str, str] = {
             'reports `missing_fragment` for a non-virtual manifest without `compose.yml` '
             'and `unexpected_fragment` for a virtual manifest that ships one. It reports '
             '`fragment_container_drift` when `containers[]` disagrees with the compose '
-            '`services:` keys. `tools/validate_fragments.py` runs this check in CI, and '
-            'also checks `.env.example` drift and the README `TOPOLOGY` block.'
+            '`services:` keys. `tools/validate_fragments.py` runs this check and the '
+            'README `TOPOLOGY` check in CI. `tests/test_env_assembler.py` enforces '
+            '`.env.example` drift; `--check-env-example` runs the same diff locally.'
         )
     ),
 }

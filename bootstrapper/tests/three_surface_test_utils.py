@@ -460,8 +460,6 @@ def _credential_expected_requests(context, values, variant):
 
 
 def _credential_expected_docker(context, values):
-    if context == "searxng-search":
-        return [["compose", "ps", "searxng"], ["compose", "logs", "-f", "searxng"]]
     name = values["PROJECT_NAME"] + "-openclaw-gateway"
     if context == "openclaw-onboard":
         return [["exec", "-it", name, "openclaw", "onboard"]]

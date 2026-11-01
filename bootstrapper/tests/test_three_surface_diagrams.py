@@ -116,7 +116,10 @@ def test_platform_diagram_includes_vllm_metal_as_a_litellm_upstream() -> None:
         master = (ROOT / "docs" / "diagrams" / name).read_text(encoding="utf-8")
         assert "vLLM Metal" in master
         assert "managed Apple-silicon host" in master
-        assert "M 305 574 C 390 525, 490 525, 575 574" in master
+        assert (
+            'data-target="vLLM Metal" d="M 295 548 L 295 530 L 660 530 L 660 548"'
+            in master
+        )
     html = (ROOT / "docs" / "diagrams" / "architecture.html").read_text(
         encoding="utf-8"
     )
@@ -270,6 +273,40 @@ def test_platform_current_arrows_reach_implemented_targets(name, case):
 
     assert any(_poster_contains(point, target) for point in destinations), case
     assert not any(_poster_contains(point, unsupported) for point in destinations), case
+
+
+def _platform_route_points(svg, source, target):
+    route, = (
+        item for item in svg.findall(".//{*}path[@marker-end]")
+        if (item.get("data-source"), item.get("data-target")) == (source, target)
+    )
+    assert re.fullmatch(r"M \d+ \d+(?: L \d+ \d+)+", route.get("d")), route.get("d")
+    values = [int(value) for value in re.findall(r"\d+", route.get("d"))]
+    return list(zip(values[::2], values[1::2]))
+
+
+def _platform_segments_hidden_by_cards(svg, points, endpoints):
+    boxes = {
+        tuple(float(card.get(key)) for key in ("x", "y", "width", "height"))
+        for card in svg.findall(".//{*}rect[@rx='6'][@fill='#0f172a']")
+    } - set(endpoints)
+    return [
+        (box, segment) for box in sorted(boxes) for segment in zip(points, points[1:])
+        if _perspective_polygons_overlap(list(segment), _perspective_box_polygon(box))
+    ]
+
+
+@pytest.mark.parametrize("name", ["architecture.html", "architecture.svg"])
+@pytest.mark.parametrize("target", ["vLLM Metal", "Cloud Providers"])
+def test_platform_litellm_upstream_routes_clear_every_other_card(name, target):
+    # A route drawn behind an opaque card reads as leaving that card instead.
+    master = ROOT / "docs" / "diagrams" / name
+    svg = ET.fromstring(extract_svg(master.read_text(encoding="utf-8")))
+    points = _platform_route_points(svg, "LiteLLM Gateway", target)
+    assert all(a[0] == b[0] or a[1] == b[1] for a, b in zip(points, points[1:]))
+    source, goal = (_poster_component_box(svg, label) for label in ("LiteLLM Gateway", target))
+    assert _poster_contains(points[0], source) and _poster_contains(points[-1], goal)
+    assert _platform_segments_hidden_by_cards(svg, points, (source, goal)) == [], target
 
 
 

@@ -1,11 +1,12 @@
 # API Framework
-# fastapi 0.137 started pulling starlette 1.x, which introduced a new
-# `_IncludedRouter` class for mounted sub-routers. prometheus-fastapi-
-# instrumentator (both 7.x and 8.0.0) iterates the route list assuming
-# every router has a `.path` attribute and trips an AttributeError on
-# `_IncludedRouter` — see CI failure on PR #88 with fastapi 0.137.0 +
-# starlette 1.3.1. Hold the ceiling below 0.137 until the upstream
-# instrumentator ships a release that tolerates the new internal class.
+# fastapi 0.137 added an internal `_IncludedRouter` route class for
+# included routers (starlette has no such class; the locked set already
+# runs starlette 1.x). prometheus-fastapi-instrumentator (both 7.x and
+# 8.0.0) iterates the route list assuming every route has a `.path`
+# attribute and trips an AttributeError on `_IncludedRouter` — see CI
+# failure on PR #88 with fastapi 0.137.0 + starlette 1.3.1. Hold the
+# ceiling below 0.137 until the upstream instrumentator ships a release
+# that tolerates the new internal class.
 fastapi>=0.110.0,<0.137
 # uvicorn[standard] pulls watchfiles + uvloop + httptools + websockets.
 # watchfiles is required for the Dockerfile's `--reload` CMD; the others

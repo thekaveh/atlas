@@ -462,11 +462,8 @@ def test_cold_stop_uses_project_override_without_host_wide_cleanup(monkeypatch):
     monkeypatch.setattr(
         stopper.docker_manager, "_project_volume_names", fake_project_volume_names,
     )
-    monkeypatch.setattr(
-        stopper.docker_manager,
-        "remove_project_networks",
-        lambda project_name: pytest.fail("cold stop must not remove networks outside compose"),
-    )
+    # Cold stop must not remove networks outside compose: no remover exists.
+    assert not hasattr(stopper.docker_manager, "remove_project_networks")
     assert not hasattr(stopper.docker_manager, "prune_system")
 
     assert stopper.stop_services(cold_stop=True, project_name="myshowcase") is True
@@ -752,3 +749,38 @@ def test_redis_no_explicit_env_file_keeps_probe_fast_path(monkeypatch, shell):
     if "REDIS_PASSWORD" in shell:
         from urllib.parse import quote
         assert child["REDIS_PASSWORD_URI"] == quote(shell["REDIS_PASSWORD"], safe="")
+
+
+def test_storage_commands_address_the_projects_own_spelling(tmp_path, monkeypatch):
+    """Compose names containers and volumes from the raw PROJECT_NAME, and a
+    hand-edited `MyStack` is kept, so storage must look for `MyStack-*`."""
+    import start
+    from click.testing import CliRunner
+    from core.config_parser import ConfigParser
+
+    monkeypatch.delenv("ATLAS_ENV_FILE", raising=False)
+    monkeypatch.delenv("GENAI_ENV_FILE", raising=False)
+    (tmp_path / ".env").write_text(
+        "PROJECT_NAME=MyStack\nLLM_PROVIDER_SOURCE=ollama-container-cpu\nCOMFYUI_SOURCE=disabled\n"
+    )
+    monkeypatch.setattr(
+        start, "AtlasStarter", lambda: SimpleNamespace(config_parser=ConfigParser(str(tmp_path)))
+    )
+    assert start._storage_context()[2] == "MyStack"
+
+    containers = []
+
+    def fake_exec(project, service, *_argv):
+        containers.append(f"{project}-{service}")
+        return SimpleNamespace(returncode=1, stdout="", stderr="")
+
+    monkeypatch.setattr(start, "_exec", fake_exec)
+    monkeypatch.setattr(
+        start, "docker_volume_sizes", lambda: {"MyStack-ollama-data": 1, "mystack-other": 2}
+    )
+    result = CliRunner().invoke(start.main, ["storage", "inventory"])
+
+    assert result.exit_code == 0, result.output
+    assert "MyStack-ollama-data" in result.output
+    assert "mystack-other" not in result.output
+    assert containers == ["MyStack-ollama"]

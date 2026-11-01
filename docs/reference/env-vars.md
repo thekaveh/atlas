@@ -238,7 +238,7 @@
 | COMFYUI_STORAGE_BUCKET | comfyui | comfyui-images | Reserved bucket name for the (currently inert) COMFYUI_UPLOAD_TO_SUPABASE placeholder; unused until an output-upload node is wired. |
 | COMFYUI_MODELS_PATH | comfyui | /opt/ComfyUI/models | Not interpolated by any compose file: comfyui-init sets its own COMFYUI_MODELS_PATH=/models, and the comfyui container mounts models at /opt/ComfyUI/models. |
 | COMFYUI_LOCAL_MODELS_PATH | comfyui | ~/Documents/ComfyUI/models | Host models directory of an existing ComfyUI install. With COMFYUI_SOURCE=localhost, ./start.sh warns when it is missing. The comfyui container mounts it read-only at /host_models, which nothing reads. |
-| COMFYUI_USER_MODELS | comfyui |  | Comma-separated catalog model names picked in the wizard or with --comfyui-models. Read by services/comfyui/init/scripts/download_models.sh, and by the managed-MPS host provisioner, which downloads the same set into COMFYUI_MPS_MODELS_PATH. |
+| COMFYUI_USER_MODELS | comfyui |  | Comma-separated catalog model names picked in the wizard or with --comfyui-models. Empty activates the catalog's essential models. The bootstrapper resolves the set into volumes/comfyui/active-models.tsv, which comfyui-init downloads. The managed-MPS host provisioner downloads the same set into COMFYUI_MPS_MODELS_PATH. |
 | COMFYUI_CUSTOM_MODELS_FILE | comfyui | /custom-models.yaml | Path to the ComfyUI custom-models sidecar YAML (user-authored models not in the curated catalog). Read by comfyui_resolver when generating the download manifest, and by the wizard's model picker. |
 | COMFYUI_CUSTOM_NODES_FILE | comfyui | /custom-nodes.yaml | Path list (os.pathsep-joined) of pinned custom-node allowlist files. The shipped services/comfyui/custom-nodes.yaml is always included; consumer manifests append custom_nodes.comfyui entries, which are always active. The bootstrapper maps selected models' requires_custom_node values through it into active-custom-nodes.tsv. |
 | COMFYUI_INIT_SCALE | comfyui |  | Set by ./start.sh; do not edit. 1 runs the comfyui-init model download for container-* sources, 0 for localhost, managed-localhost-mps and disabled. |
@@ -271,13 +271,13 @@
 | DOCLING_AUTH_MODE | docling | required | Provider authentication mode: required (default) or disabled for an explicit emergency/local rollback. |
 | DOCLING_CORS_ORIGINS | docling |  | Optional comma-separated browser origin allowlist. Empty disables CORS; wildcard is invalid while authentication is required. |
 | DOCLING_INFERENCE_TIMEOUT_SECONDS | docling | 900 | Finite conversion and lazy-load deadline in seconds (1-3600). A timeout returns 504 and then exits the provider process for restart. |
-| DOCLING_LOCALHOST_BIND_HOST | docling | 127.0.0.1 | Native Docling listen address. Set another interface explicitly only when remote access is intended. |
+| DOCLING_LOCALHOST_BIND_HOST | docling | 127.0.0.1 | Native Docling listen address. Keep 127.0.0.1 on Docker Desktop. On Linux engines, containers reach the host through the Docker bridge, not loopback. There, bind the bridge IP, or 0.0.0.0 with DOCLING_AUTH_MODE=required. |
 | DOCLING_ADAPTER_MAX_JOBS | docling | 2 | Maximum outstanding LightRAG adapter jobs, reserved before multipart parsing. |
 | DOCLING_ADAPTER_RESULT_TTL_SECONDS | docling | 900 | Seconds a completed LightRAG adapter result may remain before verified artifact cleanup begins; the job slot stays occupied and cleanup is retried if deletion fails. |
 | DOCLING_ADAPTER_MAX_RESULT_BYTES | docling | 104857600 | Maximum ZIP result bytes streamed from Docling to adapter storage before the job fails safely. |
 | DOCLING_ADAPTER_UPSTREAM_MAX_ATTEMPTS | docling | 3 | Total bounded Docling request attempts when the provider returns HTTP 429. |
 | DOCLING_ADAPTER_DOWNLOAD_TIMEOUT_SECONDS | docling | 300 | Positive maximum seconds for one result transmission; expiry starts verified artifact cleanup, and the adapter slot is released only after deletion succeeds. |
-| DOCLING_ADAPTER_TMPFS_SIZE | docling | 512m | Size of the adapter's bounded temporary-storage mount. It must cover MAX_JOBS times the larger of upload + 1 MiB multipart overhead or upload + result limit, plus at least 64 MiB staging headroom. Startup fails if capacity is smaller. |
+| DOCLING_ADAPTER_TMPFS_SIZE | docling | 512m | Size of the adapter's bounded temporary-storage mount. It must cover MAX_JOBS × max(2 × upload + 1 MiB, upload + result limit), plus at least 64 MiB staging headroom. Startup fails if capacity is smaller. |
 | DOCLING_ADAPTER_SCALE | docling |  | Derived adapter replica count; one only when both LightRAG and Docling are enabled. |
 | DOCLING_ADAPTER_UPSTREAM_ENDPOINT | docling |  | Authenticated internal bundle route selected for the adapter; never exposed to LightRAG. |
 | DOCLING_ENABLE_FORMULAS | docling | true | Enables formula enrichment in the Docling pipeline: true (default) or false; other values fail. |
@@ -317,8 +317,8 @@
 | PROD_ENV_BACKEND_MEM_LIMIT | globals | 2g | Reserved backend memory cap. No compose fragment reads it yet; the backend runs unbounded. |
 | PROD_ENV_N8N_CPUS | globals | 1 | Reserved n8n CPU cap (cores). No compose fragment reads it yet; n8n runs unbounded. |
 | PROD_ENV_N8N_MEM_LIMIT | globals | 2g | Reserved n8n memory cap. No compose fragment reads it yet; n8n runs unbounded. |
-| PROD_ENV_COMFYUI_CPUS | globals | 2 | CPU limit (cores) for ComfyUI with COMFYUI_SOURCE=container-gpu. The CPU variant uses COMFYUI_CPU_LIMIT instead. |
-| PROD_ENV_COMFYUI_MEM_LIMIT | globals | 4g | Memory limit for ComfyUI with COMFYUI_SOURCE=container-gpu. The CPU variant uses COMFYUI_MEMORY_LIMIT instead. |
+| PROD_ENV_COMFYUI_CPUS | globals | 2 | Reserved ComfyUI CPU cap (cores). No compose fragment reads it; ComfyUI container sources use COMFYUI_CPU_LIMIT. |
+| PROD_ENV_COMFYUI_MEM_LIMIT | globals | 4g | Reserved ComfyUI memory cap. No compose fragment reads it; ComfyUI container sources use COMFYUI_MEMORY_LIMIT. |
 | LOG_MAX_SIZE | globals | 10m | Per-container json-file log max size (Docker logging option). |
 | LOG_MAX_FILE | globals | 3 | Per-container json-file log file count (Docker logging option). |
 | BOOTSTRAPPER_PORT_LAYOUT_VERSION | globals | 5 | Env-migration sentinel. A missing value or one below 5 runs the chained migrations up to v5. They cover port layout, URL to PORT, ComfyUI model set, stale Ollama model cleanup and Weaviate backup-filesystem. Fresh .env files are v5. |
@@ -403,7 +403,6 @@
 | LABEL_STUDIO_SCALE | label-studio |  | Set by ./start.sh from LABEL_STUDIO_SOURCE; do not edit. 1 runs label-studio, 0 does not. |
 | LABEL_STUDIO_INIT_SCALE | label-studio |  | Set by ./start.sh from LABEL_STUDIO_SOURCE; do not edit. 1 runs label-studio-init, 0 does not. |
 | LABEL_STUDIO_DB_NAME | label-studio | label_studio | Postgres database for Label Studio. Supabase db-init (05-scoped-roles.sh) creates it. |
-| LABEL_STUDIO_DB_NAME_URI | label-studio | label_studio | Bootstrapper-synchronized percent-encoded LABEL_STUDIO_DB_NAME for DSN path components. |
 | LABEL_STUDIO_DB_USER | label-studio | label_studio | Scoped Postgres login that owns LABEL_STUDIO_DB_NAME. Supabase db-init (05-scoped-roles.sh) creates it. |
 | LABEL_STUDIO_DB_PASSWORD | label-studio | atlas-db-password | Auto-generated Postgres password for the dedicated Label Studio database role. |
 | LABEL_STUDIO_USERNAME | label-studio | admin@atlas.local | Initial Label Studio admin email passed to upstream USERNAME. |
@@ -792,7 +791,7 @@
 | RAY_WORKER_SCALE | ray |  | Resolved by the bootstrapper from RAY_WORKER_COUNT when source is ray-container-{cpu,gpu}; 0 otherwise. |
 | RAY_ADDRESS | ray |  | Resolved per source: `ray://ray-head:10001` for container sources, empty for disabled. Injected into the backend + jupyterhub containers via their compose environment blocks. |
 | RAY_DASHBOARD_URL | ray |  | Optional override for the Ray dashboard URL the backend's job client uses. Empty = derive from RAY_ADDRESS (http://ray-head:8265). |
-| RAY_HEAD_MEMORY_LIMIT | ray | 4g | Memory limit for ray-head (deploy.resources.limits.memory). The head runs the GCS, dashboard and object directory; 4g is safe on a 32 GB host. The shm_size=8gb /dev/shm allocation is separate from this cap. |
+| RAY_HEAD_MEMORY_LIMIT | ray | 4g | Memory limit for ray-head (deploy.resources.limits.memory). The head runs the GCS, dashboard and object directory; 4g is safe on a 32 GB host. The /dev/shm object store (shm_size=8gb) counts against this cap. |
 | RAY_HEAD_CPU_LIMIT | ray | 2.0 | Container CPU limit for ray-head (deploy.resources.limits.cpus). GCS + dashboard coordination rarely needs more than 1 core; 2.0 leaves room for brief spikes. |
 | RAY_WORKER_MEMORY_LIMIT | ray | 4g | Container memory limit per ray-worker (deploy.resources.limits.memory). Workers run tasks and actors; 4 g per replica is a modest OOM fence on a 32 GB host with the default 2 workers. Raise for large in-memory datasets. |
 | RAY_WORKER_CPU_LIMIT | ray | 2.0 | Container CPU limit per ray-worker (deploy.resources.limits.cpus). 2.0 cores per worker. Raise if workers need more parallelism; lower if the host is saturated. |

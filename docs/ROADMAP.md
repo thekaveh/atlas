@@ -69,7 +69,7 @@ The stack orchestrates repository-defined containerized and virtual service fami
 - S3-compatible artifact-tier storage server (Go, AGPL-v3). Runs Silo, the Pigsty-maintained fork of the archived MinIO community server, pinned to `pgsty/silo:RELEASE.2026-09-16T00-00-00Z` and `pgsty/mc:RELEASE.2026-09-16T00-00-00Z` by tag and index digest. MinIO stopped publishing community images, deleted `minio/minio` from Docker Hub, and `quay.io/minio` has refused anonymous pulls since 2026-09-24. Silo keeps the `MINIO_*` environment, the `/minio/*` routes and the `mc admin` API, and a scoped service account can no longer mint an unrestricted one (the CVE-2025-62506 escalation). Choosing a long-term S3 server (SeaweedFS or RustFS) is tracked in #1277; the live bring-up in #1278.
 - Sixteen pre-provisioned buckets across thirteen consumers — `comfyui`, `backend`, `n8n`, `jupyter`, `spark`, `docling`, `langfuse`, `mlflow`, `label-studio`, `iceberg` (4 buckets), `asset-ingest`, `asset-worker`, `asset-baker` — each with a scoped service-account credential surfaced as `MINIO_<NAME>_ACCESS_KEY` / `MINIO_<NAME>_SECRET_KEY` in `.env`.
 - Admin console at `http://localhost:63021`; S3 API at `http://localhost:63020` (host) / `http://minio:9000` (internal).
-- Complements Supabase Storage rather than replacing it. Per-consumer wiring (ComfyUI, Backend, n8n, JupyterHub, Doc Processor) ships in dedicated follow-up PRs — credentials and bucket names are in `.env` from day one for opt-in by env-only change.
+- Complements Supabase Storage rather than replacing it. JupyterHub reads its scoped credential. Backend reads the credentials that a consumer manifest's `storage` block declares. The built-in `comfyui`, `backend`, `n8n` and `docling` buckets and their scoped credentials are provisioned in `.env`, but no service uses them yet.
 
 **Ray distributed-compute cluster**
 
@@ -127,8 +127,6 @@ The stack orchestrates repository-defined containerized and virtual service fami
 - Cross-platform compatibility
 - Dependency management with UV
 - Improved error handling and logging
-
-_Delivered — see "Completed" section above for the LiteLLM gateway entry._
 
 **Per-service configuration modularization** — delivered (Phases A–E, May 2026; fragment/container counts below are as of that milestone)
 
@@ -1544,9 +1542,7 @@ The following candidates were evaluated and explicitly *not* recommended at this
 
 ### 4.2. Release schedule
 
-- **Monthly releases**: bug fixes and minor enhancements
-- **Quarterly releases**: feature additions
-- **Annual releases**: architecture improvements and breaking changes
+Atlas has no fixed release cadence. Release tags are cut on `main` at the maintainer's decision; see [Releasing & version tags](operations/releasing.md).
 
 ### 4.3. Feature development process
 

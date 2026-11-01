@@ -7,7 +7,6 @@ import json
 import pathlib
 import sys
 
-import pytest
 import yaml
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
@@ -43,8 +42,7 @@ def test_yaml_files_validate_against_schema():
 def test_loader_reproduces_catalog_snapshot():
     """Loader output must match the characterization snapshot captured before the rewrite."""
     snapshot_path = BOOTSTRAPPER / "tests" / "fixtures" / "llm_catalog_snapshot.json"
-    if not snapshot_path.exists():
-        pytest.skip("snapshot fixture missing")
+    assert snapshot_path.is_file(), f"tracked snapshot fixture missing: {snapshot_path}"
 
     snap = json.loads(snapshot_path.read_text())
 

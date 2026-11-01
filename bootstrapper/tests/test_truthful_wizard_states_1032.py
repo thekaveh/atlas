@@ -112,7 +112,6 @@ def test_the_track_subtitle_says_the_optional_two_default_to_off():
 def test_prometheus_and_grafana_really_do_default_to_disabled():
     """The premise. If either ever ships enabled, the copy above is wrong
     again and this test is where that surfaces."""
-    env = ConfigParser().parse_env_file()
     for var in ("PROMETHEUS_SOURCE", "GRAFANA_SOURCE"):
         example = (REPO_ROOT / ".env.example").read_text()
         match = re.search(rf"^{var}=(.*)$", example, re.M)

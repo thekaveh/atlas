@@ -11,7 +11,8 @@ Related operator pages:
 - [Access and Credentials](access-and-credentials.md): login details and secrets.
 - [Expected Startup Warnings](expected-startup-warnings.md): expected log lines and conditions that need operator action.
 - [Reusing Atlas](reusing-atlas.md) and [Submodule Usage](submodule-usage.md): Atlas inside a parent project.
-- [Troubleshooting](../TROUBLESHOOTING.md): recovery steps for failed starts.
+- [Quick Start Troubleshooting](../quick-start/troubleshooting.md): recovery steps for failed starts.
+- [Sudo Recovery](../TROUBLESHOOTING.md): fixes for a launch or stop that ran under `sudo`.
 
 ## 1. Runtime Commands
 

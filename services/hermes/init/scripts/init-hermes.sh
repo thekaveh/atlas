@@ -2,7 +2,7 @@
 # shellcheck shell=bash
 # init-hermes.sh — render /opt/data/config.yaml (and supporting files)
 # from environment, then exit. Runs before the hermes service starts
-# (see docker-compose.yml depends_on).
+# (see services/hermes/compose.yml depends_on).
 #
 # Idempotent: re-running overwrites the GENERATED files but leaves
 # user-edited files (sessions/, memories/MEMORY.md, etc.) intact.
@@ -14,9 +14,9 @@
 #      via envsubst, surgically dropping provider blocks whose
 #      *_INTERNAL_URL is empty (i.e. the underlying stack service is
 #      disabled).
-#   3. Drop a comfyui-host override file under /opt/data/skills/ so
-#      Hermes's bundled creative-comfyui skill targets our internal
-#      comfyui:18188 instead of its hardcoded 127.0.0.1:8188.
+#   3. Install a companion skill at skills/creative/atlas-comfyui-host/SKILL.md
+#      naming COMFYUI_INTERNAL_URL, because the bundled comfyui skill
+#      defaults to 127.0.0.1:8188.
 #
 # Exits non-zero on any unexpected condition so docker compose surfaces
 # the failure instead of letting hermes start with a broken config.
@@ -84,8 +84,7 @@ export LITELLM_MASTER_KEY="${LITELLM_MASTER_KEY:-}"
 # at least one match because the wizard refuses to start if every
 # provider is disabled.
 #
-# This block runs after the apk-add bootstrap, so curl + jq are
-# already on the PATH.
+# curl and jq are baked into the init image (init/Dockerfile).
 #
 # We always query /v1/models once here — the result is used for BOTH
 # the HERMES_DEFAULT_MODEL auto-pick (when blank) AND the filtered

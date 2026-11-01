@@ -36,7 +36,7 @@ Speaches (default — already enabled in `.env.example`):
 curl -X POST http://localhost:63060/v1/models/speaches-ai/Kokoro-82M-v1.0-ONNX
 curl http://localhost:63060/v1/audio/speech \
   -X POST -H "Content-Type: application/json" \
-  -d '{"model":"speaches-ai/Kokoro-82M-v1.0-ONNX","input":"hello","voice":"af_heart"}' \
+  -d '{"model":"speaches-ai/Kokoro-82M-v1.0-ONNX","input":"hello","voice":"af_heart","response_format":"wav"}' \
   --output speech.wav
 ```
 

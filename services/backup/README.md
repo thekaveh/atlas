@@ -233,6 +233,7 @@ This section covers the Neo4j and Weaviate restore. The PostgreSQL restore is in
 
 - It loads both Neo4j dumps into a fresh exact-5.26.31 volume and starts a disposable node to query-validate both databases.
 - It restores Weaviate only into a fresh exact-1.38.17 volume. It requires native `SUCCESS`, exact version metadata, readiness, and readable schema and object APIs.
+- Weaviate stages enable the configured `WEAVIATE_ENABLE_MODULES`, so restored classes keep their vectorizers. CLIP inference is stubbed there, because stages cannot reach `multi2vec-clip`.
 - It does not compare a mutable live pre-backup object count with the online snapshot.
 
 **Cutover.** Only after every enabled stage passes, the coordinator stops the initially running database services. It prepares and content-verifies every live rollback volume, replaces live contents from the validated stages, and validates again. Compose cannot atomically switch its fixed named-volume pointers. This is therefore a bounded offline copy cutover with compensating rollback, not a pointer swap.
@@ -338,6 +339,8 @@ Arbitrary authenticated archives generally require superuser-equivalent restore 
 - In local mode the artifacts live in this project's MinIO volume, which `./stop.sh --cold` deletes. Copy them off the host, or use external mode, before a reset.
 
 **Compose scope.** The host entry points (`run-consistent-backup.sh`, `run-database-restore.sh`) scope every `docker compose` call to `PROJECT_NAME` and this checkout's `docker-compose.yml`. They set `COMPOSE_PROJECT_NAME` / `COMPOSE_FILE` unless you set them. They therefore work from cron, a worktree or a consumer submodule. A bare `docker compose` there would name the project after the working directory and mistake running databases for stopped ones.
+
+**Env file.** The host entry points honor `ATLAS_ENV_FILE` like `./start.sh`, and pass that file to every `docker compose` call. A missing file is refused.
 
 **PostgreSQL versions.** Restore reads PostgreSQL 17 target catalogs, including libc, ICU and builtin locale-provider metadata. Backups from older supported server majors can restore into PostgreSQL 17. A backup from a newer major is rejected.
 

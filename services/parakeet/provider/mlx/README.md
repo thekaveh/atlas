@@ -10,7 +10,7 @@ This server wraps the pinned `parakeet-mlx==0.5.2` [aligned-result API](https://
 
 - `parakeet-mlx` is a batch transcription tool (processes files, outputs results)
 - The Atlas stack needs a persistent web server with REST API endpoints
-- Our services (n8n, open-web-ui, backend, etc.) expect OpenAI-compatible `/v1/audio/transcriptions` endpoint
+- Atlas consumers (Open WebUI, n8n, JupyterHub, Hermes) expect OpenAI-compatible `/v1/audio/transcriptions` endpoint
 
 ## 2. Quick Start
 
@@ -44,6 +44,10 @@ if it is missing or blank. Restart the native provider after changing its token.
 Keep the MLX virtual environment active when you return to the repository root.
 
 ```bash
+# The module entry point respects
+# PARAKEET_LOCALHOST_BIND_HOST and PARAKEET_LOCALHOST_PORT. Atlas containers
+# reach this host service through host.docker.internal, so the integration
+# quickstart uses a non-loopback bind and requires the bearer token read below.
 PARAKEET_API_TOKEN=$(
   PYTHONPATH=bootstrapper python - <<'PYTOKEN'
 import sys
@@ -54,16 +58,11 @@ if not token:
     sys.exit("Set a nonempty PARAKEET_API_TOKEN in the active Atlas env file.")
 print(token, end="")
 PYTOKEN
-) || exit 1
-export PARAKEET_API_TOKEN
-export PARAKEET_LOCALHOST_BIND_HOST=0.0.0.0
-export PARAKEET_LOCALHOST_PORT=63042
-
-# The module entry point respects
-# PARAKEET_LOCALHOST_BIND_HOST and PARAKEET_LOCALHOST_PORT. Atlas containers
-# reach this host service through host.docker.internal, so the integration
-# quickstart uses a non-loopback bind and requires the bearer token above.
-cd services/parakeet/provider
+) &&
+export PARAKEET_API_TOKEN &&
+export PARAKEET_LOCALHOST_BIND_HOST=0.0.0.0 &&
+export PARAKEET_LOCALHOST_PORT=63042 &&
+cd services/parakeet/provider &&
 python -m mlx.api_server
 ```
 

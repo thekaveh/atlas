@@ -161,8 +161,8 @@ def test_service_config_update_preserves_file_mode(tmp_path, monkeypatch):
 
 
 def test_service_config_update_is_atomic_no_tmp_left(tmp_path, monkeypatch):
-    """The tmp + os.replace write must not leave a secrets-bearing
-    `.env.tmp` behind on success."""
+    """The tmp + os.replace write must not leave any secrets-bearing
+    temporary file beside `.env` on success."""
     env = tmp_path / ".env"
     env.write_text("SOME_SECRET=old\n", encoding="utf-8")
     monkeypatch.setenv("ATLAS_ENV_FILE", str(env))
@@ -170,7 +170,7 @@ def test_service_config_update_is_atomic_no_tmp_left(tmp_path, monkeypatch):
 
     sc = ServiceConfig()
     assert sc.update_env_file({"SOME_SECRET": "new"}, create_backup=False) is True
-    assert not (tmp_path / ".env.tmp").exists()
+    assert sorted(p.name for p in tmp_path.iterdir()) == [".env"]
 
 
 def test_parse_env_file_quote_and_hash_semantics(tmp_path, monkeypatch):
@@ -275,3 +275,67 @@ def test_a_byte_order_mark_does_not_rename_the_first_key(tmp_path, monkeypatch):
     env = ConfigParser(str(tmp_path)).parse_env_file()
 
     assert list(env) == ["PROJECT_NAME", "BASE_PORT"]
+
+
+def _database_orchestrator():
+    import importlib.util
+    import sys
+
+    path = Path(__file__).resolve().parents[2] / "services/backup/database_orchestrator.py"
+    spec = importlib.util.spec_from_file_location("atlas_env_seam_database_orchestrator", path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_database_orchestrator_reads_the_custom_env_file(tmp_path, monkeypatch):
+    """The host backup/restore entry points read only <repo>/.env, so a
+    consumer whose config lives outside the checkout was refused or, with a
+    stale checkout .env, silently aimed at the wrong project."""
+    module = _database_orchestrator()
+    (tmp_path / ".env").write_text("PROJECT_NAME=stale\n", encoding="utf-8")
+    (tmp_path / "config").mkdir()
+    custom = tmp_path / "config/prod.env"
+    custom.write_text("PROJECT_NAME=prod\nBACKUP_SOURCE=container\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path / "config")
+    monkeypatch.setenv("ATLAS_ENV_FILE", "config/prod.env")  # anchored at the checkout
+
+    assert module._env_file_values(tmp_path) == {"PROJECT_NAME": "prod", "BACKUP_SOURCE": "container"}
+    configuration = module.DatabaseConfiguration(tmp_path, {}, "a" * 32)
+    assert configuration.env_file == custom.resolve()
+    coordinator = object.__new__(module.DatabaseCoordinator)
+    coordinator.compose_env_file = configuration.env_file
+    assert coordinator.compose_argv("ps", "-q") == [
+        "docker", "compose", "--env-file", str(custom.resolve()), "ps", "-q",
+    ]
+
+
+def test_database_orchestrator_default_env_file_adds_no_compose_flag(tmp_path, monkeypatch):
+    module = _database_orchestrator()
+    monkeypatch.delenv("ATLAS_ENV_FILE", raising=False)
+    monkeypatch.delenv("GENAI_ENV_FILE", raising=False)
+    (tmp_path / ".env").write_text("PROJECT_NAME=local\n", encoding="utf-8")
+
+    assert module._env_file_values(tmp_path) == {"PROJECT_NAME": "local"}
+    configuration = module.DatabaseConfiguration(tmp_path, {}, "a" * 32)
+    assert configuration.env_file is None
+    coordinator = object.__new__(module.DatabaseCoordinator)
+    coordinator.compose_env_file = configuration.env_file
+    assert coordinator.compose_argv("ps") == ["docker", "compose", "ps"]
+
+
+def test_database_orchestrator_honors_the_genai_alias_and_refuses_a_missing_file(
+    tmp_path, monkeypatch, capsys
+):
+    module = _database_orchestrator()
+    monkeypatch.delenv("ATLAS_ENV_FILE", raising=False)
+    custom = tmp_path / "legacy.env"
+    custom.write_text("PROJECT_NAME=legacy\n", encoding="utf-8")
+    monkeypatch.setenv("GENAI_ENV_FILE", str(custom))
+    assert module._env_file_values(tmp_path) == {"PROJECT_NAME": "legacy"}
+    assert "GENAI_ENV_FILE is deprecated" in capsys.readouterr().err
+
+    monkeypatch.setenv("ATLAS_ENV_FILE", str(tmp_path / "missing.env"))
+    with pytest.raises(module.ContractError, match="missing env file"):
+        module._env_file_values(tmp_path)

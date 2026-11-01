@@ -178,6 +178,8 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 
 ## 7. Troubleshooting
 
+Set `PROJECT_NAME` in your shell to the value in `.env` (default `atlas`) before you run these commands.
+
 - **Spark interpreter says "no master URL"** — the container and the `spark` interpreter must both use `spark://spark-master:7077`. Check the container with `docker exec ${PROJECT_NAME}-zeppelin env | grep SPARK_MASTER`, and check `spark.master` in the interpreter settings. Rerun `./start.sh` to restore both, because `zeppelin-init` re-seeds the interpreter.
 - **First `%spark` cell after stack-up errors with "connection refused"** — Zeppelin waits for `spark-master` to be healthy and `spark-init` to complete. A cold Spark worker or a freshly restarted interpreter can still need a few seconds before it accepts driver and executor traffic. Confirm `spark.master=spark://spark-master:7077` in the `spark` interpreter settings, then re-run the cell once the Spark master UI shows a live worker.
 - **S3A: "Access Denied" on s3a://...** — the scoped `MINIO_SPARK_*` credentials or policy can be missing.

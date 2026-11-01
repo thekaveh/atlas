@@ -45,6 +45,19 @@ OWNER_LABEL, SCOPE_LABEL, ROLE_LABEL = (
     "com.atlas.database-restore-role",
 )
 ORCHESTRATOR = REPO / "services/backup/database_orchestrator.py"
+
+
+def _shipped_weaviate_modules() -> str:
+    # The manifest's WEAVIATE_ENABLE_MODULES default, multi2vec-clip included.
+    import yaml
+
+    return next(
+        entry["default"]
+        for entry in yaml.safe_load((REPO / "services/weaviate/service.yml").read_text(encoding="utf-8"))["env"]
+        if entry["name"] == "WEAVIATE_ENABLE_MODULES"
+    )
+
+
 AMBIGUOUS_CREATE_FAILURES = (
     pytest.param(
         subprocess.TimeoutExpired(("docker", "network", "create"), 20),
@@ -482,6 +495,30 @@ def _orchestrator_module():
     return module
 
 
+@pytest.mark.parametrize("shipped", [True, False], ids=["shipped-modules", "backup-only"])
+def test_weaviate_restore_stages_stub_clip_inference(tmp_path, monkeypatch, shipped):
+    # multi2vec-clip exits at startup without CLIP_INFERENCE_API, so every
+    # restore under the shipped module list failed before cutover.
+    module, launched = _orchestrator_module(), []
+    monkeypatch.setenv("WEAVIATE_ENABLE_MODULES", _shipped_weaviate_modules() if shipped else "backup-filesystem")
+    coordinator = module.DatabaseCoordinator(tmp_path, token="a" * 32, timeout=5)
+    monkeypatch.setattr(coordinator.runner, "create_volume", lambda _role: "stage-volume")
+
+    def start_owned(_role, argv):
+        launched.append(" ".join(argv))
+        raise module.ContractError("stage launch recorded")
+
+    monkeypatch.setattr(coordinator, "_start_owned", start_owned)
+    for validate in (lambda: coordinator._validate_weaviate_data_volume("live", "live-check"),
+                     lambda: coordinator.validate_weaviate_stage("artifacts", "stage", "snapshot")):
+        with pytest.raises(module.ContractError, match="stage launch recorded"):
+            validate()
+    assert [
+        "-e CLIP_INFERENCE_API=http://127.0.0.1:9 -e CLIP_WAIT_FOR_STARTUP=false" in argv
+        for argv in launched
+    ] == [shipped, shipped]
+
+
 def test_exact_weaviate_concurrent_backup_restores_into_empty_volume(
     exact_docker: None,
 ) -> None:
@@ -792,7 +829,8 @@ volumes:
         "ATLAS_WEAVIATE_LIVE_VOLUME": weav_live,
         "NEO4J_GRAPH_DB_SOURCE": "container",
         "WEAVIATE_SOURCE": "container",
-        "WEAVIATE_ENABLE_MODULES": "backup-filesystem",
+        # The coordinator's stages must start under the shipped module set.
+        "WEAVIATE_ENABLE_MODULES": _shipped_weaviate_modules(),
         "GRAPH_DB_AUTH": auth,
         "COMPOSE_FILE": str(compose),
         "COMPOSE_PROJECT_NAME": f"atlas_it_{token}",

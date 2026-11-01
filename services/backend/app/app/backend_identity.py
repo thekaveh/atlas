@@ -250,6 +250,16 @@ async def require_n8n_operator_principal(
     )
 
 
+async def authenticate_n8n_operator_scope(scope: dict[str, Any]) -> BackendPrincipal:
+    """require_n8n_operator_principal for an ASGI scope, without reading its body."""
+    return await require_n8n_operator_principal(await _BEARER(HTTPConnection(scope)))  # type: ignore[arg-type]
+
+
+async def authenticate_stateless_scope(scope: dict[str, Any]) -> BackendPrincipal:
+    """require_stateless_principal for an ASGI scope, without reading its body."""
+    return await require_stateless_principal(await _BEARER(HTTPConnection(scope)))  # type: ignore[arg-type]
+
+
 def authorize_user_id(
     principal: BackendPrincipal,
     claimed_user_id: str | None,

@@ -195,7 +195,28 @@ def test_combined_project_accepts_uv_rendered_security_floors(tmp_path):
     module["_validate_combined_project"](project, EXPECTED_CLI)
 
 
+def _no_python_downloads() -> dict[str, str]:
+    return {**os.environ, "UV_PYTHON_DOWNLOADS": "never"}
+
+
+def _require_local_python_311() -> None:
+    """Skip unless uv already has a Python 3.11.
+
+    The helper builds a 3.11 venv; uv would otherwise download a Python
+    into ~/.local/share/uv on a host without one (offline: a false failure).
+    """
+    import shutil
+
+    found = shutil.which("uv") and subprocess.run(
+        ["uv", "python", "find", "3.11"], capture_output=True, check=False,
+        env=_no_python_downloads(),
+    ).returncode == 0
+    if not found:
+        pytest.skip("no local Python 3.11 for uv; the test must not download one")
+
+
 def test_runtime_helper_reuses_a_healthy_virtual_environment(tmp_path):
+    _require_local_python_311()
     venv = tmp_path / "venv"
     marker = venv / "preserved-on-reuse"
 
@@ -211,20 +232,12 @@ def test_runtime_helper_reuses_a_healthy_virtual_environment(tmp_path):
             str(marker),
         ],
         check=True,
+        env=_no_python_downloads(),
     )
 
 
 def test_runtime_helper_recreates_a_corrupt_virtual_environment(tmp_path):
-    import shutil
-
-    # The helper builds a 3.11 venv; uv would otherwise download a Python
-    # into ~/.local/share/uv on a host without one (offline: a false failure).
-    found = shutil.which("uv") and subprocess.run(
-        ["uv", "python", "find", "3.11"], capture_output=True, check=False,
-        env={**os.environ, "UV_PYTHON_DOWNLOADS": "never"},
-    ).returncode == 0
-    if not found:
-        pytest.skip("no local Python 3.11 for uv; the test must not download one")
+    _require_local_python_311()
     venv = tmp_path / "venv"
     python = venv / "bin/python"
     python.parent.mkdir(parents=True)
@@ -246,6 +259,7 @@ def test_runtime_helper_recreates_a_corrupt_virtual_environment(tmp_path):
             str(stale),
         ],
         check=True,
+        env=_no_python_downloads(),
     )
 
 

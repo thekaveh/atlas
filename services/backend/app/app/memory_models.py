@@ -100,11 +100,19 @@ VALID_FACT_TYPES = ("observation", "preference", "instruction", "relationship", 
 
 class MemoryUpdateRequest(BaseModel):
     """Request to update a specific memory fact."""
-    content: Optional[str] = Field(default=None, max_length=20000)
+    content: Optional[str] = Field(default=None, min_length=1, max_length=20000)
     fact_type: Optional[str] = None
     confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
     is_active: Optional[bool] = None
     metadata: Optional[Dict[str, Any]] = None
+
+    @field_validator("content")
+    @classmethod
+    def validate_content_not_blank(cls, v: Optional[str]) -> Optional[str]:
+        # Extraction never stores a blank fact; an update must not either.
+        if v is not None and not v.strip():
+            raise ValueError("content must not be blank")
+        return v
 
     @field_validator("fact_type")
     @classmethod

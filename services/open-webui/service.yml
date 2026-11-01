@@ -206,7 +206,7 @@ data_flow:
   # app DB (DATABASE_URL), redis backs the websocket manager, and the
   # bundled extras tools/functions call the backend's memory/research/
   # comfyui endpoints. searxng + weaviate are NOT wired today — they
-  # live in README §5.4 Future pairs (ENABLE_RAG_WEB_SEARCH / vector
+  # live in README §5.4 Future pairs (ENABLE_WEB_SEARCH / vector
   # store) until someone adds the mechanism.
   calls:
     - litellm

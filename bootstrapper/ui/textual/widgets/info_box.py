@@ -15,7 +15,7 @@ Mockup 003 layout:
     └─────────────────────────────────────────────────────────────────┘
 
 Module name `info_box.py` retained for back-compat with import paths;
-class is renamed `InfoPanel`. `InfoBox` alias kept too.
+class is renamed `InfoPanel`.
 """
 
 from __future__ import annotations
@@ -373,7 +373,3 @@ class InfoPanel(Container):
     @property
     def body(self) -> Container:
         return self._body
-
-
-# Back-compat alias
-InfoBox = InfoPanel

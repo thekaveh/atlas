@@ -211,7 +211,21 @@ Sign presigned GET URLs against the public endpoint (`…_PUBLIC_ENDPOINT`). Nev
 
 ## 8. `backend_plugins` and `plugin.yml`
 
-`backend_plugins` lists plugin roots. Atlas mounts each into the backend at `/app/plugins` and sets `BACKEND_PLUGINS_DIR`. Setup and an example plugin: [Reusing Atlas §6.3](../operations/reusing-atlas.md#63-adding-backend-api-routes-via-the-plugin-seam).
+`backend_plugins` lists plugin roots. Atlas resolves each to an absolute host path and writes them to `.env` as `BACKEND_PLUGINS_DIR`. `doctor` and the Kong plugin-auth derivation read that value. Atlas does not mount the roots into the backend.
+
+A `compose_overlays` file must bind each root into the `backend` service. With one root, mount it at the default container path, `/app/plugins`:
+
+```yaml
+# compose/myproject-overlay.yml — listed under compose_overlays
+services:
+  backend:
+    volumes:
+      - ${BACKEND_PLUGINS_DIR}:/app/plugins:ro
+```
+
+With several roots, the value joins the host paths with `os.pathsep`, so it cannot fill one volume entry. Give each root its own volume line, such as `/app/plugins-a` and `/app/plugins-b`. Then set the container's `BACKEND_PLUGINS_DIR` to those container paths, joined with `:`. Never pass the host-path value into the container environment.
+
+Setup and an example plugin: [Reusing Atlas §6.3](../operations/reusing-atlas.md#63-adding-backend-api-routes-via-the-plugin-seam).
 
 ### 8.1. Loading rules
 
@@ -219,6 +233,7 @@ At startup the backend calls `load_plugins(app)`. It scans each root in `$BACKEN
 
 - It first installs an optional shared `requirements.txt` in the root. If that fails, Atlas skips every plugin in that root for this start.
 - A plugin is each subdirectory that is an importable Python package with a module-level `router` (a FastAPI `APIRouter`). Atlas installs its optional `requirements.txt`, imports it and adds the router to the app.
+- A package without a module-level `router` is imported but not mounted. The inventory reports it `skipped`.
 - A plugin whose requirements fail is logged with the requirements path and pip output, then skipped. A plugin that fails to import is logged and skipped. One bad plugin never crashes the backend.
 - Requirements install into a writable plugin site (`pip --target $BACKEND_PLUGINS_SITE_DIR`, default `/tmp/atlas-plugins-site`). The seam creates it and puts it first on `sys.path`. The image runs as `appuser` without `$HOME`, so you need no tmpfs or `PYTHONUSERBASE` workaround.
 - The seam empties that site at each start, so a version change does not leave two `*.dist-info` copies. It empties a custom `BACKEND_PLUGINS_SITE_DIR` only when it holds the `.atlas-plugin-site` marker. The seam writes the marker into an empty directory; a custom site that already holds packages gets a warning instead.
@@ -412,6 +427,7 @@ services:
 - **Chunk limit.** Chunking holds about 20–25 bytes of memory per character, so Atlas chunks a document only up to 20,000,000 characters. A longer document is a per-file chunk error and is excluded from stale-object deletion. Class replacement can still remove its earlier vectors.
 - **Parsing.** Parsers run in `parser_order`. The `plain_text` entry that Atlas appends last accepts only text (UTF-8, Windows-1252, or BOM-marked UTF-16/32). A binary file that Docling and Tika failed on is a per-file error. It is never indexed as raw bytes. Cleanup excludes it, but class replacement can remove its earlier vectors.
 - **Targets.** A profile may declare at most one `graph_target` (Atlas has one LightRAG endpoint). Each target declares `on_unavailable: fail | skip`, so a disabled backend fails or skips visibly. A `wait_for_extraction: true` graph target polls LightRAG until idle or `timeout_seconds`, then finalizes.
+- **Graph targets.** LightRAG uploads only add documents. A changed or deleted file keeps its earlier LightRAG document until you delete it through the LightRAG document API.
 - **Phases.** Each job records its phases (`discover → parse → chunk → embed → vector_write → lightrag_upload → drain → finalize`). Errors are isolated per file, so one bad file does not fail the batch.
 - **Idempotency.** The job key combines consumer, profile, revision, corpus fingerprint, embedding model and declared ingestion destinations. Mount and MinIO fingerprints hash bounded file bytes. Pending and running duplicates with the same key reuse the existing job. Completed reuse also requires current Weaviate publications for its configured targets. Changed content or `LITELLM_EMBEDDING_MODEL` creates a new job.
 - **Destination changes.** Changing a declared Weaviate or LightRAG endpoint, or enabling a skipped destination, creates a new job. URL credentials, query strings and fragments do not affect destination identity. Discovery clears dedup eligibility if content or destination settings changed after submission. Data loss behind an unchanged endpoint still requires recovery.

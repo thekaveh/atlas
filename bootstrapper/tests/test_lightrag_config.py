@@ -53,10 +53,11 @@ def test_localhost_uses_LIGHTRAG_LOCALHOST_PORT():
 
 
 def test_init_waits_for_postgres_before_pgvector_migration():
-    """supabase-db is SOURCE-replaceable, so lightrag-init must NOT hard
-    depend_on it in compose — it polls the Postgres endpoint for readiness in
-    the script instead. Guard that the readiness poll precedes the migration so
-    the pgvector step can't race supabase-db readiness (regression guard)."""
+    """lightrag-init has no direct depends_on on supabase-db (forbidden by
+    scripts/check-compose-source-deps.py), so the script polls the Postgres
+    endpoint for readiness before migrating. Guard that the readiness poll
+    precedes the migration so the pgvector step can't race supabase-db
+    readiness (regression guard)."""
     from pathlib import Path
 
     repo = Path(__file__).resolve().parents[2]

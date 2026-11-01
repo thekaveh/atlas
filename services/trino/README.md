@@ -25,7 +25,7 @@ TRINO_PORT=                          # topology-assigned
 TRINO_SCALE=                         # set by ./start.sh from TRINO_SOURCE
 ```
 
-`TRINO_SOURCE=container` also needs `MINIO_SOURCE=container` and `ICEBERG_REST_SOURCE=container`. If either is disabled, `./start.sh` reports a dependency violation and scales Trino to 0.
+`TRINO_SOURCE=container` also needs `MINIO_SOURCE=container` and `ICEBERG_REST_SOURCE=container`. If either is disabled, `./start.sh` stops with an error before Compose starts. Enable both, or set `TRINO_SOURCE=disabled`.
 
 ## 4. Architecture & Wiring
 

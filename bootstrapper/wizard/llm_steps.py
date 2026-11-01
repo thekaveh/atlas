@@ -633,8 +633,16 @@ _RETRY_HINT = "Esc re-enters the key and retries"
 # The untruncated text is still in the session log.
 _MAX_DETAIL = 60
 
+# Providers whose model listing is fetched without the API key. A live
+# listing from one of them proves nothing about the key, so its caption
+# must not say the key was accepted.
+_KEYLESS_LISTINGS = frozenset({"openrouter"})
 
-def _provenance_subtitle(state: "str | None", detail: str) -> str:
+_KEY_NOT_CHECKED = "key not checked (OpenRouter lists models without a key)"
+
+
+def _provenance_subtitle(state: "str | None", detail: str, *,
+                         key_checked: bool = True) -> str:
     """The caption above a cloud model picker, stating where its rows came from.
 
     ``state`` is ``None`` before discovery has run (the loading splash).
@@ -643,14 +651,19 @@ def _provenance_subtitle(state: "str | None", detail: str) -> str:
     says that, names the cause, and points at the retry. An unrecognised
     state still lands on the fallback wording: claiming a live listing is
     the one thing this caption must never do by default.
+
+    On a live listing, ``detail`` is the cap discovery applied (``first N
+    of M``), and ``key_checked`` is False when the listing was fetched
+    without the key, so the caption cannot vouch for it.
     """
     if state is None:
         return f"Checking the provider's model list · {_PICKER_KEYS}"
     if state == cloud_models.LIVE:
-        head = "Live from the provider · key accepted"
+        head = "Live from the provider"
         if detail:
             head = f"{head} ({detail})"
-        return f"{head} · {_PICKER_KEYS}"
+        key = "key accepted" if key_checked else _KEY_NOT_CHECKED
+        return f"{head} · {key} · {_PICKER_KEYS}"
     cause = _FALLBACK_CAPTIONS.get(state, "discovery failed")
     if detail:
         if len(detail) > _MAX_DETAIL:
@@ -698,8 +711,42 @@ def _live_rows(models) -> List[PromptOption]:
     ]
 
 
+def _shown_live_rows(result: DiscoveryResult,
+                     provider_key: str) -> List[PromptOption]:
+    """Live rows, plus the curated rows that a capped listing cut off.
+
+    A live result carries a ``detail`` only when discovery capped the
+    list (OpenRouter's ``first N of M``, taken in alphabetical order).
+    The cap can drop curated models, so those stay selectable. They keep
+    the ``catalog`` badge, because this run did not see the provider
+    list them. An uncapped listing is the provider's full answer and is
+    shown as it is.
+    """
+    rows = _live_rows(result.models)
+    if not result.detail:
+        return rows
+    known = {r.value for r in rows}
+    return rows + [r for r in _curated_rows(provider_key)
+                   if r.value not in known]
+
+
+def _live_subtitle(outcome: Dict[str, object], provider_key: str) -> str:
+    """Caption for a picker showing live rows.
+
+    The cap detail is used only when the last fetch was itself live: a
+    stale fallback reason (``HTTP 401``) must never reach a live caption.
+    """
+    detail = (str(outcome["detail"])
+              if outcome["state"] == cloud_models.LIVE else "")
+    return _provenance_subtitle(
+        cloud_models.LIVE, detail,
+        key_checked=provider_key not in _KEYLESS_LISTINGS,
+    )
+
+
 def _curated_rows(provider_key: str) -> List[PromptOption]:
-    """Picker rows from the bundled catalog — shown when discovery failed.
+    """Picker rows from the bundled catalog — shown when discovery failed,
+    and after a capped live list for the curated models it cut off.
 
     Badged ``catalog`` so no row on screen can be read as the provider
     confirming it supports that model with this key.
@@ -796,7 +843,7 @@ def _make_cloud_options_provider(provider, env_vars: Dict[str, str],
         )
         outcome["state"] = result.state
         outcome["detail"] = result.detail
-        rows = (_live_rows(result.models) if result.is_live
+        rows = (_shown_live_rows(result, provider_key) if result.is_live
                 else _curated_rows(provider_key))
         return _with_saved_rows(rows, env_vars, provider.user_models_var)
 
@@ -809,7 +856,7 @@ def _make_cloud_options_provider(provider, env_vars: Dict[str, str],
         # fallback; the holder only supplies the reason, and is ignored
         # when it disagrees with what is rendered.
         if any(BADGE_LIVE in o.badges for o in options or []):
-            return _provenance_subtitle(cloud_models.LIVE, "")
+            return _live_subtitle(outcome, provider_key)
         state = outcome["state"]
         if state not in cloud_models.FALLBACK_STATES:
             return _provenance_subtitle("unknown", "")

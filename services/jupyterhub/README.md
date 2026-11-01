@@ -190,7 +190,13 @@ docker exec ${PROJECT_NAME}-jupyterhub python -c \
 
 ### 9.1. GPU-aware workflows
 
-JupyterHub itself is configured through `.env` and the stack startup flow. Prefer enabling GPU-backed upstream services through their SOURCE variables, for example `LLM_PROVIDER_SOURCE=ollama-container-gpu`, `COMFYUI_SOURCE=container-gpu`, or `MULTI2VEC_CLIP_SOURCE=container-gpu`.
+JupyterHub itself is configured through `.env` and the stack startup flow. The notebook container has no GPU source. For GPU work, enable a GPU-backed upstream service through its SOURCE variable. Atlas attaches an NVIDIA device only for these sources:
+
+- `DOC_PROCESSOR_SOURCE=docling-container-gpu`
+- `STT_PROVIDER_SOURCE=parakeet-container-gpu`
+- `TTS_PROVIDER_SOURCE=chatterbox-container-gpu`
+
+Other `container-gpu` sources request no GPU device. `COMFYUI_SOURCE=container-gpu` runs on CPU (see the [ComfyUI README](../comfyui/README.md)). `MULTI2VEC_CLIP_SOURCE=container-gpu` leaves Weaviate not ready (see the [multi2vec-clip README](../multi2vec-clip/README.md)). `LLM_PROVIDER_SOURCE=ollama-container-gpu` uses a GPU only when the host's default Docker runtime is `nvidia`.
 
 Avoid direct `docker-compose.yml` edits for normal operation; local compose edits are unsupported experiments and can be overwritten or invalidated by future stack changes.
 

@@ -223,6 +223,19 @@ def _ruled_paths(rules: ast.expr | None) -> set[str]:
     return paths
 
 
+def _rule_authenticators(rules: ast.expr | None) -> dict[str, str]:
+    """Path -> authenticator name for each ``BodyLimitRule(..., authenticate=True)``."""
+    found: dict[str, str] = {}
+    for element in getattr(rules, "elts", []):
+        keywords = {kw.arg: kw.value for kw in getattr(element, "keywords", [])}
+        path, enabled = keywords.get("path"), keywords.get("authenticate")
+        if not (isinstance(path, ast.Constant) and isinstance(enabled, ast.Constant) and enabled.value is True):
+            continue
+        authenticator = keywords.get("authenticator")
+        found[path.value] = getattr(authenticator, "id", "<middleware default>")
+    return found
+
+
 def _limit_policy_call(tree, registration):
     """The LimitPolicy(...) call a registration installs. main.py builds it in
     _request_limit_policy so it can take the plugin inventory (2026-10-08
@@ -273,6 +286,12 @@ def test_request_limit_middleware_is_wired_to_header_authentication():
     )
     assert isinstance(authenticate, ast.Name)
     assert authenticate.id == "authenticate_backend_scope"
+    # FastAPI spools a multipart body before route dependencies run, so each
+    # upload rule authenticates first, with the check its route dependency uses.
+    assert _rule_authenticators(rules) == {
+        "/storage/upload": "authenticate_n8n_operator_scope",
+        "/documents/extract": "authenticate_stateless_scope",
+    }
 
     prometheus_instrument = [
         node

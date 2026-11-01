@@ -789,11 +789,6 @@ def pool_members(base: BlenderMcpManager, *, include_strays: bool = False) -> li
     return [base] + [_pool_member(base, index) for index in sorted(indices)]
 
 
-def stray_pool_members(env: dict[str, str]) -> list[BlenderMcpManager]:
-    """Instances above the configured pool size that still have a pid file."""
-    return stray_members(manager_from_env(env))
-
-
 def stray_members(base: BlenderMcpManager) -> list[BlenderMcpManager]:
     """``base``'s pool instances above its size that still have a pid file."""
     pool = pool_members(base, include_strays=True)

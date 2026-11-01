@@ -191,6 +191,28 @@ def test_asset_worker_disabled_emits_only_source() -> None:
     assert "ATLAS_ASSET_WORKER_CONTAINER_ENDPOINT" not in d
 
 
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [("container", "http://asset-worker:8095"), ("disabled", None)],
+)
+def test_asset_worker_container_endpoint_comes_from_the_generator(source, expected) -> None:
+    """`_base_env` injects ASSET_WORKER_ENDPOINT by hand, which hid a generator
+    that never wrote it. Here the value comes from the bootstrapper itself."""
+    from core.config_parser import ConfigParser
+    from services.service_config import ServiceConfig
+
+    sc = ServiceConfig(ConfigParser())
+    assert sc.load_config()
+    sc.service_sources = {"ASSET_WORKER_SOURCE": source}
+    generated = sc._generate_other_services_config()
+
+    env = _base_env()
+    env["ASSET_WORKER_SOURCE"] = source
+    env["ASSET_WORKER_ENDPOINT"] = generated["ASSET_WORKER_ENDPOINT"]
+    d = _as_dict(build_export(env))
+    assert d.get("ATLAS_ASSET_WORKER_CONTAINER_ENDPOINT") == expected
+
+
 # ── disabled services ───────────────────────────────────────────────
 
 def test_disabled_service_emits_only_source() -> None:

@@ -61,13 +61,8 @@ def test_cold_start_cleanup_uses_one_project_scoped_compose_down(tmp_path, monke
         lambda args, **_kwargs: calls.append((args, manager.project_name_override)) or 0,
     )
     assert not hasattr(manager, "prune_system")
-    monkeypatch.setattr(
-        manager,
-        "remove_project_networks",
-        lambda _project: (_ for _ in ()).throw(
-            AssertionError("compose down owns project-network cleanup")
-        ),
-    )
+    # compose down owns project-network cleanup; no out-of-band remover exists.
+    assert not hasattr(manager, "remove_project_networks")
 
     volume_queries = []
     monkeypatch.setattr(manager, "_project_volume_names", lambda project: volume_queries.append(project) or [])

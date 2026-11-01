@@ -108,10 +108,12 @@ Support tier: **experimental** — Capability contract declared for upstream v0.
 
 ## 6. Troubleshooting
 
+Set `PROJECT_NAME` in your shell to the value in `.env` (default `atlas`) before you run these commands.
+
 - **`trueforge` exits immediately at boot**: the server validates its full env contract at startup and refuses any invalid value. `docker logs ${PROJECT_NAME}-trueforge` names the variable. Usual causes:
     - an unprovisioned database: check that `supabase-db-init` completed;
     - an empty `TRUEFORGE_API_KEY`: run `./start.sh` once so the bootstrapper generates it. Do not hand-write `.env` from scratch.
-- **No models in the UI**: `trueforge-init` seeds the provider from LiteLLM's live catalog; check `docker logs ${PROJECT_NAME}-trueforge-init`. An empty gateway catalog (e.g. `LLM_PROVIDER_SOURCE=none` with no cloud keys) fails the seed on purpose rather than registering a dead provider.
+- **No models in the UI**: `trueforge-init` seeds the provider from LiteLLM's live catalog; check `docker logs ${PROJECT_NAME}-trueforge-init`. An empty gateway catalog fails the seed on purpose rather than registering a dead provider.
 - **Agent creation rejected with a skills/sandbox error**: expected: Atlas configures neither (§4.3). Remove the skills/sandbox blocks from the agent spec.
 - **Schedules never fire**: the controller is a separate container. Check `docker logs ${PROJECT_NAME}-trueforge-controller`. Check that `TRUEFORGE_API_KEY` is the same for server and controller; it is, unless `.env` was edited by hand.
 - **Slow first boot on Apple Silicon**: the amd64 image runs emulated; allow extra start-up time before the healthcheck settles (the compose healthcheck budgets for this).

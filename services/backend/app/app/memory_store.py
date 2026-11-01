@@ -602,14 +602,18 @@ class MemoryStore:
                     raise MemoryEmbeddingBackfillSuperseded(
                         "Memory embedding backfill target was superseded"
                     )
+                # A NULL vector with pending sync intent belongs to the
+                # reconciler: a fact the provider rejected at write time must
+                # not fail initialization. 14-backend-memory.sql matches this.
                 rows = await conn.fetch(
                     f"""
                     SELECT id, content
                     FROM public.memory_facts
-                    WHERE embedding IS NULL
-                       OR vector_dims(embedding) <> {self.embedding_dimension}
-                       OR embedding_model IS DISTINCT FROM $1
-                       OR embedding_generation <> {target_generation}
+                    WHERE (embedding IS NULL AND NOT vector_sync_pending)
+                       OR (embedding IS NOT NULL
+                           AND (vector_dims(embedding) <> {self.embedding_dimension}
+                                OR embedding_model IS DISTINCT FROM $1
+                                OR embedding_generation <> {target_generation}))
                     ORDER BY id
                     LIMIT 100
                     """,

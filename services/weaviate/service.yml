@@ -211,9 +211,7 @@ runtime_sc:
 runtime_adaptive:
   weaviate-init:
     adapts_to: llm_provider
-    environment_adaptation:
-      LITELLM_BASE_URL: http://litellm:4000
-      LITELLM_API_KEY: ${LITELLM_MASTER_KEY}
+    environment_adaptation: {}
     extra_hosts_adaptation: inherit from llm_provider
 
 data_flow:

@@ -46,6 +46,10 @@ Atlas generates and preserves `DOCLING_API_TOKEN` in `.env`. The provider
 loads that file once at process import, so this step must precede the host
 process on a fresh checkout.
 
+On Linux Docker Engine, containers reach the host through the Docker bridge, not loopback.
+Set `DOCLING_LOCALHOST_BIND_HOST` in `.env` to the bridge IP, or `0.0.0.0` with `DOCLING_AUTH_MODE=required`.
+See [provider configuration](../docling/provider/localhost/README.md#21-environment-variables).
+
 **Step 3: Start doc processor server on host (Terminal 2, repository root)**
 ```bash
 cd services/docling/provider/localhost
@@ -192,9 +196,9 @@ Both providers enforce the same conversion fields: the container-GPU provider in
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `DOCLING_LOCALHOST_PORT` | Local service port for the host-installed source variant. URL is derived as `http://host.docker.internal:${DOCLING_LOCALHOST_PORT}` at compose-render time. | `18159` |
-| `DOCLING_LOCALHOST_BIND_HOST` | Native provider listen address | `127.0.0.1` |
+| `DOCLING_LOCALHOST_BIND_HOST` | Native provider listen address. On Linux Docker Engine, bind the bridge IP or `0.0.0.0` (§2.2). | `127.0.0.1` |
 
-Container mode publishes Docling on loopback by default. Set `HOST_BIND_IP=0.0.0.0:` only when deliberate external access is protected by a firewall or gateway. Native mode is also loopback-only by default; change `DOCLING_LOCALHOST_BIND_HOST` explicitly if remote clients must connect.
+Container mode publishes Docling on loopback by default. Set `HOST_BIND_IP=0.0.0.0:` only when deliberate external access is protected by a firewall or gateway. Native mode is also loopback-only by default; change `DOCLING_LOCALHOST_BIND_HOST` explicitly if remote clients must connect. Linux Docker Engine containers also need a bridge-reachable address (§2.2).
 
 ### 4.5. Provider boundary and LightRAG adapter
 
@@ -301,7 +305,7 @@ Connects to Docling running on host machine.
 
 **Advantages**:
 
-- Works on any platform (Mac, Linux, Windows)
+- Works on any platform (Mac, Linux, Windows); on Linux, bind a bridge-reachable address (§2.2)
 - Can use native GPU drivers
 - Easier debugging
 

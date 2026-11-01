@@ -12,7 +12,7 @@ This service exists so image-to-3D providers, Blender and external pipelines, an
 |---|---|---|
 | Direct API | `http://localhost:${ASSET_WORKER_PORT}` | Host-side FastAPI service when `ASSET_WORKER_SOURCE=container`. |
 | Kong alias | `http://asset-worker.localhost:${KONG_HTTP_PORT}` | Requires `./start.sh --setup-hosts`; generated only when the service is enabled. |
-| Internal API | `http://asset-worker:8095` | Used by sibling containers through `ASSET_WORKER_ENDPOINT`. |
+| Internal API | `http://asset-worker:8095` | `./start.sh` writes it to `ASSET_WORKER_ENDPOINT`; `./start.sh endpoints export` emits it as `ATLAS_ASSET_WORKER_CONTAINER_ENDPOINT`. No sibling container calls it today. |
 | Health | `GET /health` | Returns `200` only when the configured glTF-Transform executable is available; otherwise returns `503`. |
 | Metrics | `GET /metrics` | Prometheus request counters and duration histograms; intentionally unauthenticated for in-network scraping. |
 

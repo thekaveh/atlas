@@ -30,7 +30,10 @@ if command -v uv >/dev/null 2>&1; then
     # Banner to stderr: stdout must stay clean so `<script> --format json`
     # (e.g. `doctor --format json`) is directly parseable without a shim (#650).
     echo "📦 Using uv for dependency management..." >&2
-    exec uv run --directory "$SELF_DIR" "$SCRIPT_REL" "$@"
+    # --no-dev: the launcher needs only the runtime dependencies, the same set
+    # the system-Python branch installs. The dev group (test and docs
+    # toolchain) stays opt-in: `uv sync --group dev`, as CI does.
+    exec uv run --no-dev --directory "$SELF_DIR" "$SCRIPT_REL" "$@"
 elif command -v python3 >/dev/null 2>&1; then
     echo "📦 Using system Python (install uv for better dependency management)..." >&2
     BOOTSTRAPPER_VENV="${ATLAS_BOOTSTRAPPER_VENV:-$SELF_DIR/.venv}"

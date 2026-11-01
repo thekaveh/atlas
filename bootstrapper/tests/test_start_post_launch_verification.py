@@ -121,6 +121,8 @@ def test_one_shot_init_failure_fails_startup(monkeypatch):
         "failed_one_shot_services",
         lambda services, **_kwargs: [("n8n-init", "exit 1")],
     )
+    # The failure path tails the init log; keep it off the real compose project.
+    monkeypatch.setattr(starter.docker_manager, "one_shot_log_tail", lambda service, lines=40: [])
 
     assert starter.verify_one_shot_init_containers() is False
 

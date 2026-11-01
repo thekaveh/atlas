@@ -106,7 +106,7 @@ NEO4J_MEMORY_LIMIT=2g          # Compose memory limit for the container
 NEO4J_CPU_LIMIT=1.5            # Compose CPU limit for the container
 ```
 
-The compose fragment loads APOC core (`NEO4J_PLUGINS=["apoc"]`, from the image's `labs/` jar, no download) and allows `apoc.*`. LLM Graph Builder needs it. The container accepts only the `neo4j` admin user, so `GRAPH_DB_USER` matters only in `localhost` mode.
+The compose fragment loads APOC core (`NEO4J_PLUGINS=["apoc"]`, from the image's `labs/` jar, no download) and allows `apoc.*`. LLM Graph Builder needs it. In container mode keep `GRAPH_DB_USER=neo4j`: the image accepts only that user, and every in-stack Bolt client reads `GRAPH_DB_USER`.
 
 ## 7. Usage Examples
 
@@ -215,6 +215,9 @@ See [Neo4j's memory guidance](https://neo4j.com/docs/operations-manual/5/perform
 ## 11. Monitoring and Maintenance
 
 ### 11.1. Health Checks
+
+Set `PROJECT_NAME` as in §7.1, and `GRAPH_DB_DASHBOARD_PORT` to its value in `.env`, before you run these commands.
+
 ```bash
 # Check container status
 docker logs ${PROJECT_NAME}-neo4j-graph-db -f
@@ -279,6 +282,9 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 - **Out of memory errors:** raise `NEO4J_MEMORY_LIMIT`, or pin heap and page cache with a Compose override (§10.1).
 
 ### 14.2. Debug Commands
+
+Set `PROJECT_NAME` as in §7.1 before you run the commands in §14.2 and §14.3.
+
 ```bash
 # View detailed logs
 docker logs ${PROJECT_NAME}-neo4j-graph-db --tail=100 -f

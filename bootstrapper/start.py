@@ -9267,10 +9267,18 @@ def _remove_live_item(project: str):
 
 
 def _storage_context():
+    """The .env values, repo root and project name for the storage commands.
+
+    get_project_name() only validates. Compose names containers and volumes
+    from the raw ``${PROJECT_NAME}``, and Atlas keeps a mixed-case value, so
+    the names are built from it, as _redis_aof_names does.
+    """
     starter = AtlasStarter()
     env = starter.config_parser.parse_env_file()
     root = Path(starter.config_parser.root_dir)
-    return env, root, starter.config_parser.get_project_name()
+    starter.config_parser.get_project_name()
+    project = (env.get("PROJECT_NAME") or "").strip() or DEFAULT_PROJECT_NAME
+    return env, root, project
 
 
 @main.group("storage")

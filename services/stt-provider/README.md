@@ -129,12 +129,13 @@ if not token:
     sys.exit("Set a nonempty PARAKEET_API_TOKEN in the active Atlas env file.")
 print(token, end="")
 PYTOKEN
-) || exit 1
-export PARAKEET_API_TOKEN
-export PARAKEET_LOCALHOST_BIND_HOST=0.0.0.0
-export PARAKEET_LOCALHOST_PORT=63042
+) &&
+export PARAKEET_API_TOKEN &&
+export PARAKEET_LOCALHOST_BIND_HOST=0.0.0.0 &&
+export PARAKEET_LOCALHOST_PORT=63042 && {
 cd services/parakeet/provider && python -m mlx.api_server &
 ./start.sh --stt-provider-source parakeet-localhost
+}
 ```
 
 See [the whisper-cpp README](../parakeet/provider/whisper-cpp/README.md)

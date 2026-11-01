@@ -138,7 +138,7 @@ Unknown names log a warning at bootstrapper start but don't block startup.
 
 A node with `install_requirements: true` must also declare `requirements_lock` and `requirements_lock_sha256`. Both the container and managed-MPS provisioners verify that digest and install with `--require-hashes --no-deps`. Unknown or unconstrained nodes fail closed. To regenerate the reviewed locks:
 
-1. Run `uv run python scripts/compile_comfyui_custom_node_locks.py --write`.
+1. Run `uv run --project bootstrapper python scripts/compile_comfyui_custom_node_locks.py --write`.
 2. Update the catalog digest that it prints.
 3. Prove byte identity with `--check`.
 

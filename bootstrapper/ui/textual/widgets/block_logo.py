@@ -47,11 +47,6 @@ _LOGO_ROWS_COMPACT: list[str] = brand_logo.ATLAS_COMPACT
 _WIDTH_THRESHOLD = brand_logo.width_threshold(brand_logo.ATLAS_FULL)
 
 
-# Width of one fully-rendered row of the full lockup. Used by tests
-# that compare canvas dimensions.
-_ROW_WIDTH = len(_LOGO_ROWS_FULL[0])
-
-
 # Vertical-gradient color stops (top → bottom). Top is the brightest.
 # Every letter inherits this same fade because each row is painted in
 # one solid color and every letter spans the same 6 rows.

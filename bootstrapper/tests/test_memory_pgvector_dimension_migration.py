@@ -335,6 +335,38 @@ def test_real_pgvector_expand_backfill_contract_preserves_existing_768_data(
     assert "memory_facts_embedding_dimension" in mixed.stderr
 
 
+def test_real_pgvector_pending_null_vector_does_not_hold_backfill(disposable_pgvector):
+    """A fact the provider rejected at write time keeps a NULL vector with
+    pending sync intent. Counting it as a mismatch kept phase 'backfill' on
+    every start, so backend initialization failed on every restart."""
+    container = disposable_pgvector
+    _apply_seed_scripts(container, 768)
+    _psql(
+        container,
+        "INSERT INTO public.memory_facts (content, vector_sync_pending) "
+        "VALUES ('rejected', true);",
+    )
+    _apply_memory_script(container, 768)
+    pending = _psql(container, "SELECT phase FROM public.memory_embedding_schema_state;")
+    assert pending.stdout.strip() == "ready"
+
+    _psql(container, "INSERT INTO public.memory_facts (content) VALUES ('legacy-null');")
+    _apply_memory_script(container, 768)
+    legacy = _psql(container, "SELECT phase FROM public.memory_embedding_schema_state;")
+    assert legacy.stdout.strip() == "backfill"
+    premature = _psql(
+        container,
+        """
+        SELECT public.contract_memory_embedding_contract(
+            pgvector_target_model, target_dimension, pgvector_target_generation
+        ) FROM public.memory_embedding_schema_state;
+        """,
+        check=False,
+    )
+    assert premature.returncode != 0
+    assert "backfill incomplete: 1 mismatched row(s)" in premature.stderr
+
+
 def test_real_pgvector_rerun_preserves_equivalent_index_and_function_privileges(
     disposable_pgvector,
 ):

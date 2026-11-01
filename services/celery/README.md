@@ -12,7 +12,9 @@ Set `CELERY_SOURCE=container` (wizard or `--celery-source container`) to run one
 
 `POST /memory/consolidate?async_job=true` returns a Celery job id at once. The FastAPI request does not stay open while the LangMem loop reads the database and calls the LLM. When this tier is enabled, RAG ingestion submissions dispatch the phase engine.
 
-Use `GET /jobs/{job_id}` to read the state: pending, running, success, retry, failure or revoked. `pending` is ambiguous. Celery reports it for an unknown id and for a result past its expiry (`result_expires`, default one day). A mistyped id, or a job polled more than a day after it finished, reads `pending` indefinitely.
+Poll `GET /jobs/{job_id}` with `Authorization: Bearer ${BACKEND_INTERNAL_API_TOKEN}` to read the state: pending, running, success, retry, failure or revoked. `pending` is ambiguous. Celery reports it for an unknown id and for a result past its expiry (`result_expires`, default one day). A mistyped id, or a job polled more than a day after it finished, reads `pending` indefinitely.
+
+User JWTs and the n8n and Open WebUI tokens get `403` on this route, so a consolidation they queue is fire-and-forget.
 
 The synchronous `POST /memory/consolidate` path remains. Research start is deferred: it is not a Celery task, because it has its own database-backed session lifecycle.
 

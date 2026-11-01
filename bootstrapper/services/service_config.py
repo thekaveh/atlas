@@ -1790,6 +1790,7 @@ class ServiceConfig:
         asset_baker_source = self.service_sources.get('ASSET_BAKER_SOURCE', 'disabled')
         asset_baker_config = self.get_service_config('asset-baker', asset_baker_source)
         env_vars['ASSET_BAKER_SCALE'] = str(asset_baker_config.get('scale', 0))
+        env_vars.update(self._creative_endpoint_vars(asset_worker_config, asset_baker_config))
 
         # Neo4j configuration
         neo4j_source = self.service_sources.get('NEO4J_GRAPH_DB_SOURCE', 'container')
@@ -1882,6 +1883,31 @@ class ServiceConfig:
 
         return env_vars
     
+    def _creative_endpoint_vars(self, asset_worker_config: dict, asset_baker_config: dict) -> Dict[str, str]:
+        """Auto-managed endpoint vars of the asset and Blender MCP families.
+
+        The manifests declare them auto-managed, but nothing wrote them: .env
+        kept the blank default, so `./start.sh endpoints export` never emitted
+        ATLAS_ASSET_WORKER_CONTAINER_ENDPOINT. Each value now comes from the
+        active source's runtime_sc slice, as COMFYUI_ENDPOINT's does.
+        """
+        worker_env = asset_worker_config.get('environment', {})
+        baker_env = asset_baker_config.get('environment', {})
+        # Blender MCP is virtual and host-only; its runtime_sc key is
+        # `blender_mcp`. The tcp:// hint is resolved now, as the other host
+        # endpoints are: a raw `${...}` value would make every .env read print
+        # a preserved-reference warning.
+        blender_source = self.service_sources.get('BLENDER_MCP_SOURCE', 'disabled')
+        blender_env = self.get_service_config('blender_mcp', blender_source).get('environment', {})
+        return {
+            'ASSET_WORKER_ENDPOINT': worker_env.get('ASSET_WORKER_ENDPOINT', ''),
+            'ASSET_WORKER_MINIO_ENDPOINT': worker_env.get('ASSET_WORKER_MINIO_ENDPOINT', ''),
+            'ASSET_BAKER_ENDPOINT': baker_env.get('ASSET_BAKER_ENDPOINT', ''),
+            'ASSET_BAKER_MINIO_ENDPOINT': baker_env.get('ASSET_BAKER_MINIO_ENDPOINT', ''),
+            'BLENDER_MCP_ENDPOINT': self._resolved_host_url(
+                blender_env.get('BLENDER_MCP_ENDPOINT', '')),
+        }
+
     def _neo4j_bolt_uri(self, neo4j_source: str) -> str:
         """The source-aware Bolt URI NEO4J_URI carries, for other consumers."""
         neo4j_uri = self.get_service_config('neo4j-graph-db', neo4j_source).get(

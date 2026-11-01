@@ -58,6 +58,8 @@ COMFYUI_COMPLETION_TIMEOUT_SECONDS=300  # synchronous generation deadline; on ex
 SUPABASE_JWT_SECRET=              # verifies authenticated Supabase user JWTs
 ```
 
+A malformed `COMFYUI_MAX_IMAGE_BYTES` or `COMFYUI_INIT_IMAGE_TRUSTED_ORIGINS` value fails Backend startup, whatever `COMFYUI_SOURCE` is.
+
 Token scopes:
 
 - A Supabase user JWT binds memory, research, hosted-media operations and spend reads to the JWT `sub`. Caller-supplied user or consumer ids cannot impersonate another subject.
@@ -142,7 +144,7 @@ Recall and update confidence must be finite and in `0..1`. Invalid requests retu
 - `GET /memory/user/{user_id}` and recall return `source_conversation_id`, `source_message_ids` and `origin` (`recorded` or `not recorded`).
 - Extraction stores only a `conversation_id` that the caller sends, and no message ids. The bundled Open WebUI tool and filter and the n8n workflows send none, so their facts read `not recorded`.
 - `GET`, `PUT` and `DELETE` take a `user_id`. With a user JWT, another user's id gets `403`.
-- `PUT /memory/{memory_id}` corrects content; the next recall returns the new text. `PUT` with `is_active: true` restores a deleted fact. Restore takes the extraction lock and returns `409` at the fact cap.
+- `PUT /memory/{memory_id}` corrects content; the next recall returns the new text. Blank content returns `422`. `PUT` with `is_active: true` restores a deleted fact. Restore takes the extraction lock and returns `409` at the fact cap.
 - `DELETE /memory/{memory_id}` is a soft delete. The response reports `deletion: "soft"` and the row state (`is_active: false`).
 - It also reports the Weaviate object state: `deactivated` when Weaviate serves recall, `awaiting_rebuild` until the next failback, or `configured: false`.
 - The `retained` list names what stays: the row and its pgvector `embedding`, the Weaviate content, `memory_consolidation_log` reasons, `memory_sessions` records. Atlas never stores the source conversation.
@@ -155,6 +157,7 @@ Recall and update confidence must be finite and in `0..1`. Invalid requests retu
 - That timeout is `max(CELERY_BROKER_VISIBILITY_TIMEOUT_SECONDS, max(RAG hard limit, global hard limit + 60 s) + 300 s)`.
 - A duplicate delivery waits for the lease or returns the stored result.
 - Each consolidation action takes the per-user extraction lock. Two concurrent runs cannot each supersede the other's keeper.
+- Only the internal token can poll `GET /jobs/{job_id}`. Other callers get `403`, so their queued consolidation is fire-and-forget.
 
 ### 3.3. Graphiti experiment
 
@@ -176,14 +179,14 @@ Injected automatically from the active SOURCE values:
 ```bash
 LITELLM_BASE_URL=http://litellm:4000
 LITELLM_API_KEY=${LITELLM_MASTER_KEY}
-WEAVIATE_URL=http://weaviate:8080
+WEAVIATE_URL=...                  # resolved per WEAVIATE_SOURCE; empty when disabled
 STT_ENDPOINT=...                  # resolved per STT_PROVIDER_SOURCE
 TTS_ENDPOINT=...                  # resolved per TTS_PROVIDER_SOURCE
 DOCLING_ENDPOINT=...              # resolved per DOC_PROCESSOR_SOURCE
 DOCLING_API_TOKEN=                # generated Docling bearer; server-side only
-HERMES_ENDPOINT=http://hermes:8642
+HERMES_ENDPOINT=...               # resolved per HERMES_SOURCE; empty when disabled
 HERMES_API_KEY=${HERMES_API_KEY}
-NEO4J_URI=bolt://neo4j-graph-db:7687
+NEO4J_URI=...                     # resolved per NEO4J_GRAPH_DB_SOURCE; empty when disabled
 NEO4J_USER=${GRAPH_DB_USER}
 NEO4J_PASSWORD=${GRAPH_DB_PASSWORD}
 KONG_URL=http://kong-api-gateway:8000
@@ -197,7 +200,7 @@ RAG_INGESTION_EXECUTION_LEASE_SECONDS=30
 BACKEND_STATE_STORE_MODE=redis       # memory is explicit single-process/ephemeral mode
 ```
 
-The list comes from `runtime_adaptive.backend.adapts_to` in `services/backend/service.yml`.
+`services/backend/compose.yml` sets these variables. `./start.sh` resolves the source-dependent endpoints from the active SOURCE values. They include the STT, TTS and Docling endpoints, `WEAVIATE_URL`, `NEO4J_URI` and `HERMES_ENDPOINT`. An endpoint is empty when its service is disabled.
 
 ### 3.5. Document extraction
 
@@ -234,7 +237,7 @@ MEDIA_LEDGER_RECOVERY_MAX_CYCLES=4
 - `POST /media/operations/{operation_id}/cancel` requests cancellation. The budget reservation is held until a terminal state is confirmed.
 - `artifact_url` is an absolute CDN URL for FAL. For ComfyUI it is a gateway-relative Backend path, so resolve it against your own base URL before you fetch it.
 - `GET /media/operations/{operation_id}/artifacts/{index}` serves a ComfyUI file. It takes the poll's credentials and resolves the file from the stored operation, never from the request.
-- Only the operation's owner gets the file. Anyone else, or an out-of-range index, gets `404`. All service tokens share one owner scope: they read service-created operations, never a user's.
+- Only the operation's owner gets the file. Anyone else, or an out-of-range index, gets `404`. The internal-service token reads only service-created operations, never a user's. The n8n, notebook and Open WebUI tokens get `403` on every `/media/*` route.
 - An artifact URL lives as long as its operation record: `MEDIA_OPERATION_TTL_SECONDS` with the Redis store, or until a restart with the in-memory store.
 - A budget-tracked record does not expire while the operation is in flight, in either store. This includes a record whose ledger attach failed at submit and was recovered later.
 - For a budget-tracked operation, `MEDIA_OPERATION_TTL_SECONDS` starts once it is terminal and its ledger row is settled. It also applies to operations that are not budget-tracked.
@@ -360,7 +363,9 @@ A disabled optional service degrades only its feature:
 
 - Ray control-plane calls: 5 s connect and 30 s read. A timed-out submit, status or stop returns `504` with the `submission_id` to reconcile. Do not resubmit blindly.
 - Postgres pool: if all `BACKEND_PG_POOL_MAX` connections stay busy for 5 s, the request gets `503` with `Retry-After: 1`. Readiness stays green. Metrics: `backend_pg_pool_saturated_total`, `backend_pg_pool_acquire_wait_seconds`.
+- A new Postgres connection that takes over 5 s to open fails as a database error, not as saturation.
 - Request bodies are capped before parsing. `/media/generate` authenticates, then buffers up to `MEDIA_REQUEST_MAX_BYTES` (40 MiB).
+- `/storage/upload` and `/documents/extract` also authenticate before reading any body byte, with the same credentials as their route checks.
 - `/storage/upload` is capped at `MAX_UPLOAD_BYTES` (100 MiB) + 1 MiB, and `/documents/extract` at the extractor limit (`TIKA_MAX_FILE_SIZE`) + 1 MiB.
 - Supabase Storage rejects files over `STORAGE_FILE_SIZE_LIMIT` (50 MiB by default). Raise both limits together.
 - All other bodies are capped at 16 MiB. An oversize body or a false `Content-Length` returns `413`, which never echoes request bytes.
@@ -408,6 +413,7 @@ A disabled optional service degrades only its feature:
 - **Reuse:** pending and running duplicates with the same job key share the existing job. Completed jobs are reused only while their Weaviate target publications remain current. Restoring earlier corpus bytes or an embedding model after another generation changes an overlapping class starts ingestion again. Empty-corpus publications follow the same rule. Missing or expired publication evidence can also cause another ingestion.
 - **Destinations:** job identity includes each declared Weaviate or LightRAG endpoint and its configured availability. Changing endpoints or enabling a skipped destination creates a new job. URL credentials, query strings and fragments do not affect this identity. Data loss behind an unchanged endpoint still requires recovery.
 - **Progress:** each phase reports status, counts and actionable errors. Each run removes prior-generation Weaviate objects that are no longer in the source corpus. Failed sources are excluded from stale-object deletion; their earlier vectors can still be lost during class replacement.
+- **Graph targets:** LightRAG uploads only add documents. A changed or deleted file keeps its earlier LightRAG document until you delete it through the LightRAG document API.
 - **Rebuild reporting:** saved rebuild history survives later write failures and retries. Creation acknowledgement failure or lease loss before the checkpoint can leave vector availability unverified. Exclusion from cleanup does not prove that vectors exist. Restore missing vectors through a successful new ingestion after any blocked collection is recovered below. Follow the [consumer recovery requirements](../../docs/reference/consumer-manifest.md#11-rag_ingestion_profiles) for deduplication and profile regeneration.
 - **Bounds:** `RAG_INGESTION_MAX_FILE_BYTES`, `RAG_INGESTION_MAX_CORPUS_BYTES` and `RAG_INGESTION_MAX_FILES`.
 - **Listing:** `GET /api/rag/ingestions` returns at most 100 jobs by default (maximum 200). Pass `cursor` from `X-Atlas-Next-Cursor` and read `X-Atlas-Page-Limit` to page.
