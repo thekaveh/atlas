@@ -143,6 +143,15 @@ def _guarded_app() -> OriginGuard:
 
 _OUTDATED_SCHEMA = "Detected out-of-date database schema"
 
+# `mlflow db upgrade <url>` takes the store URI, password included, only as a
+# positional argument, and argv is world-readable in /proc. The child runs the
+# same CLI command with the URI read from its environment instead.
+_UPGRADE_URI_ENV = "ATLAS_MLFLOW_UPGRADE_URI"
+_UPGRADE_CHILD = (
+    "import os; from mlflow.cli import cli; "
+    f"cli.main(args=['db', 'upgrade', os.environ['{_UPGRADE_URI_ENV}']], prog_name='mlflow')"
+)
+
 
 def _initialize_stores(backend_store: str, registry_store: str, artifact_root: str) -> None:
     """Initialize the stores, migrating a schema an earlier pinned MLflow created.
@@ -167,7 +176,9 @@ def _initialize_stores(backend_store: str, registry_store: str, artifact_root: s
         )
         for store in dict.fromkeys((backend_store, registry_store)):
             subprocess.run(
-                [sys.executable, "-m", "mlflow", "db", "upgrade", store], check=True
+                [sys.executable, "-c", _UPGRADE_CHILD],
+                env={**os.environ, _UPGRADE_URI_ENV: store},
+                check=True,
             )
         initialize_backend_stores(backend_store, registry_store, artifact_root)
 

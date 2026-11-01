@@ -6,7 +6,7 @@ The stack uses a **per-service folder layout** under `services/<name>/`. Each se
 - `compose.yml` — Docker Compose fragment for that family's containers
 - optional subdirectories holding Dockerfiles, init scripts, source code, configuration files, snapshots, etc. — see the **Subdirectory naming convention** below
 
-The thin top-level `docker-compose.yml` merges fragments via Compose's native `include:` directive (requires Compose ≥ v2.20.3; v2.26+ recommended).
+The thin top-level `docker-compose.yml` merges fragments via Compose's native `include:` directive (requires Compose ≥ v2.23.1; v2.26+ recommended). Fragments may use inline top-level `configs.content`, which needs v2.23.1.
 
 <a id="1-tldr--the-60-second-checklist"></a>
 
@@ -851,6 +851,8 @@ Short walk-throughs for the modifications you'll do most often:
 ## 17. Cross-referencing sections in service READMEs
 
 Service READMEs follow a numbered convention (`## 1. Overview`, `## 2. Access`, …). The "Dependencies & Integrations" block sits at whatever section number N the README's structure places it — typically 5, but 7/9/12/14 in READMEs with extra pre-Deps content. The `bootstrapper/docs/regen.py` tool detects N and emits matching subsection numbering (`### N.1` through `### N.6`) inside the block.
+
+When a README has no such section, regen appends one after the last numbered `##` section. A README with no numbered sections gets section 5.
 
 **Never link to a sub-section by number across services.** "See section 5.4 in the backend README" breaks when a new pre-Deps section makes it 6.4. Always reference by heading text instead: "See *Future — Missing pair integrations* in the backend README."
 

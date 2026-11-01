@@ -1129,7 +1129,7 @@ def test_parakeet_mlx_quickstarts_use_locked_python_and_host_gateway_auth(
         "requirements-locked.txt",
         "python3.12 -m venv",
         "PARAKEET_API_TOKEN",
-        "PARAKEET_LOCALHOST_BIND_HOST=0.0.0.0",
+        "PARAKEET_LOCALHOST_BIND_HOST=127.0.0.1",
         "PARAKEET_LOCALHOST_PORT=63042",
         "python -m mlx.api_server",
     )

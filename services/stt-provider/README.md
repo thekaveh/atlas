@@ -94,19 +94,19 @@ macOS native acceleration:
 
 ```bash
 # Option A: whisper.cpp (Metal). Build whisper-server and download a model
-# first: see the whisper-cpp README. Run this in the whisper.cpp checkout.
+# first: see the whisper-cpp README.
+# Terminal 1: in the whisper.cpp checkout
 ./build/bin/whisper-server --host 0.0.0.0 --port 63042 \
   --model models/ggml-large-v3.bin \
   --inference-path /v1/audio/transcriptions \
-  --convert &
+  --convert
 
-# From the Atlas repository root:
+# Terminal 2: from the Atlas repository root
 ./start.sh --stt-provider-source whisper-cpp-localhost
-
 ```
 
-Before launch, prepare the active Atlas env file (`.env` by default; copy
-`.env.example` only if the target does not exist). Set a nonempty
+Before you launch Option B, prepare the active Atlas env file (`.env` by
+default; copy `.env.example` only if the target does not exist). Set a nonempty
 `PARAKEET_API_TOKEN` there; preserve an existing token. To generate a new value,
 run `python3.12 -c 'import secrets; print(secrets.token_urlsafe(32))'`.
 
@@ -115,7 +115,8 @@ setting in both terminals. The preflight reads the configured value and stops
 if it is missing or blank. Restart the native provider after changing its token.
 
 ```bash
-# Option B: Parakeet-MLX (MLX-native), from the repository root
+# Option B: Parakeet-MLX (MLX-native)
+# Terminal 1: from the Atlas repository root
 python3.12 -m venv .venv-parakeet-mlx
 . .venv-parakeet-mlx/bin/activate
 python -m pip install -r services/parakeet/provider/mlx/requirements-locked.txt
@@ -131,11 +132,12 @@ print(token, end="")
 PYTOKEN
 ) &&
 export PARAKEET_API_TOKEN &&
-export PARAKEET_LOCALHOST_BIND_HOST=0.0.0.0 &&
-export PARAKEET_LOCALHOST_PORT=63042 && {
-cd services/parakeet/provider && python -m mlx.api_server &
+export PARAKEET_LOCALHOST_BIND_HOST=127.0.0.1 &&
+export PARAKEET_LOCALHOST_PORT=63042 &&
+cd services/parakeet/provider && python -m mlx.api_server
+
+# Terminal 2: from the Atlas repository root
 ./start.sh --stt-provider-source parakeet-localhost
-}
 ```
 
 See [the whisper-cpp README](../parakeet/provider/whisper-cpp/README.md)
@@ -200,11 +202,13 @@ Atlas-managed Parakeet also applies these rules:
 - Model load and inference share one deadline (`PARAKEET_INFERENCE_TIMEOUT_SECONDS`). On timeout the provider returns `504` and exits with status 70.
 - Docker restarts the container. Run native Parakeet under a service manager with restart-on-failure.
 - The container publishes on loopback. Set `HOST_BIND_IP=0.0.0.0:` only for separately protected external access.
-- Native mode needs a non-loopback `PARAKEET_LOCALHOST_BIND_HOST` for remote clients.
+- Native mode needs a non-loopback `PARAKEET_LOCALHOST_BIND_HOST` only for remote clients. Docker Desktop containers reach a loopback bind through `host.docker.internal`.
 
 These guarantees do not apply to Speaches or whisper.cpp.
 
-For independent segment and word timing on GPU Parakeet, see
+GPU Parakeet `verbose_json` returns only `text` and `language`. MLX Parakeet
+also returns `task`, `duration` and `segments`. For independent segment and
+word timing on GPU Parakeet, see
 [GPU advanced timing](../parakeet/provider/README.md#31-gpu-advanced-timing).
 
 ## 6. Open WebUI integration

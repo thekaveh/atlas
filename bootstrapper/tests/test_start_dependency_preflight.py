@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 
-def test_compose_minimum_matches_include_contract():
+def test_compose_minimum_matches_compose_feature_contract():
     from core.docker_manager import DockerManager
 
-    assert DockerManager.MIN_COMPOSE_VERSION == (2, 20, 3)
+    # 2.20.3: top-level `include:`; 2.23.1: inline top-level `configs.content`.
+    assert DockerManager.MIN_COMPOSE_VERSION == (2, 23, 1)
 
 
 def test_ensure_dependencies_fails_below_minimum_compose(monkeypatch, tmp_path):

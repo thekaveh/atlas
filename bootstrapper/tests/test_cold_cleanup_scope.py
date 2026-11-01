@@ -423,8 +423,6 @@ def test_ctrl_c_during_cold_teardown_propagates(tmp_path, monkeypatch, capsys):
 
 # ─── storage inventory and model cleanup (#1194) ─────────────────────────
 
-REPO = Path(__file__).resolve().parents[2]
-
 
 def test_volume_ownership_comes_from_the_declared_names():
     import start

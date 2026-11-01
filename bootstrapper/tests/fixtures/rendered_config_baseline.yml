@@ -988,6 +988,7 @@ services:
     entrypoint:
     - /scripts/download_models.sh
     environment:
+      COMFYUI_DOWNLOAD_TOTAL_TIMEOUT_SECONDS: '7200'
       COMFYUI_MANIFEST_TSV: /comfyui-manifest/active-models.tsv
       COMFYUI_MODELS_PATH: /models
     extra_hosts:
@@ -4247,10 +4248,6 @@ services:
       target: /etc/postgresql-custom
       volume: {}
     - type: bind
-      source: '{REPO_ROOT}/services/supabase/db/snapshot'
-      target: /snapshot
-      bind: {}
-    - type: bind
       source: '{REPO_ROOT}/services/supabase/db/scripts/enforce-scram-host-auth.sh'
       target: /usr/local/bin/enforce-scram-host-auth.sh
       read_only: true
@@ -4329,6 +4326,7 @@ services:
     - type: bind
       source: '{REPO_ROOT}/services/supabase/db/scripts'
       target: /scripts
+      read_only: true
       bind: {}
     - type: bind
       source: '{REPO_ROOT}/services/supabase/db/_user'

@@ -18,7 +18,7 @@ fi
 # Weaviate's text2vec-openai module reads its base URL from per-collection
 # moduleConfig (set by consumers when creating collections). The API key
 # is delivered via Weaviate's OPENAI_APIKEY env, populated from
-# LITELLM_MASTER_KEY in docker-compose.yml.
+# LITELLM_MASTER_KEY in services/weaviate/compose.yml.
 
 # NOTE: no DEFAULT_OPENAI_BASE_URL export here — Weaviate never read
 # that env var (the per-collection moduleConfig.baseURL set by the

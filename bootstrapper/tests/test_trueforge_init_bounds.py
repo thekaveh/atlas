@@ -56,6 +56,9 @@ class _HangingServer:
         self._sock.listen(8)
         self.port = self._sock.getsockname()[1]
         self._open: list[socket.socket] = []
+        # Set on the first accepted connection: init.mjs installs its signal
+        # handlers at module top level, before any fetch can connect.
+        self.accepted = threading.Event()
         self._closing = False
         self._thread = threading.Thread(target=self._serve, daemon=True)
         self._thread.start()
@@ -67,6 +70,7 @@ class _HangingServer:
             except OSError:
                 return
             self._open.append(conn)
+            self.accepted.set()
             # Drain whatever arrives so the client finishes sending, then
             # go silent forever — the connection stays open, unanswered.
             conn.settimeout(0.2)
@@ -205,7 +209,7 @@ def test_sigterm_aborts_outstanding_http_work_immediately() -> None:
         },
     )
     try:
-        time.sleep(1.0)  # let it get into the hung healthz fetch
+        assert hang.accepted.wait(timeout=30), "init never reached the healthz fetch"
         started = time.monotonic()
         proc.send_signal(signal.SIGTERM)
         stdout, stderr = proc.communicate(timeout=10)

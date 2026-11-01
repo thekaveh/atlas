@@ -12,7 +12,7 @@ The scrape config is static (`services/prometheus/config/prometheus.yml`) and li
 
 cAdvisor receives no Docker socket, Docker API proxy, host-root mount, or Docker data-directory mount. It reads only the host cgroup hierarchy through `/sys`, runs with a read-only root filesystem, all Linux capabilities dropped, and `no-new-privileges`. Docker discovery is explicitly pointed at a nonexistent socket and container-label storage is disabled.
 
-This deliberately trades friendly Docker names and labels for isolation: container series are keyed by cgroup ID. Use Compose/Grafana context to correlate IDs when needed. Host CPU, memory, disk, and network names remain available from `node-exporter`.
+This deliberately trades friendly Docker names and labels for isolation: container series are keyed by cgroup ID. Use Compose/Grafana context to correlate IDs when needed. Host CPU, memory and disk metrics remain available from `node-exporter`. It does not join the host network namespace, so its network traffic counters describe its own container, not the host.
 
 ## 2. Access
 

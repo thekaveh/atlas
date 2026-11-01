@@ -7616,7 +7616,7 @@ def _prompt_for_track(registry, *, max_attempts: int = 5) -> str:
                    'Persists as OLLAMA_CUSTOM_MODELS; ollama-pull fetches them at startup.')
 @click.option('--comfyui-models',
               help='Comma-separated catalog model names to pull for ComfyUI '
-                   '(e.g. "sd_xl_base_1.0,sdxl-vae,flux1-dev-Q4_K_S"). '
+                   '(e.g. "sd_xl_base_1.0,sdxl-vae,ip-adapter-plus_sdxl_vit-h"). '
                    'Overrides wizard selection and existing COMFYUI_USER_MODELS '
                    'in .env. Pass "" to clear. Unknown names skip with warning '
                    '(comfyui-init logs unknown names at start).')

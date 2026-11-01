@@ -272,26 +272,44 @@ class KongConfigGenerator:
             }
         ]
 
-        consumers.extend(self._supabase_key_auth_consumers())
+        supabase_consumers = self._supabase_key_auth_consumers()
+        consumers.extend(supabase_consumers)
 
         if self._backend_uses_key_auth():
-            backend_api_key = self.get_env_value('BACKEND_KONG_API_KEY', '')
-            if not backend_api_key:
-                raise ValueError(
-                    "BACKEND_KONG_AUTH=key-auth requires BACKEND_KONG_API_KEY"
-                )
-            consumers.append(
-                {
-                    'username': 'backend_api_user',
-                    'keyauth_credentials': [
-                        {'key': backend_api_key},
-                    ],
-                    'acls': [
-                        {'group': 'backend_api'},
-                    ],
-                }
-            )
+            consumers.append(self._backend_key_auth_consumer(supabase_consumers))
         return consumers
+
+    def _backend_key_auth_consumer(
+        self, supabase_consumers: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """The ``backend_api_user`` consumer holding ``BACKEND_KONG_API_KEY``.
+
+        The key must differ from both Supabase keys. A duplicate key-auth
+        credential makes Kong reject the whole declarative file, taking the
+        entire gateway down. Skipping the backend consumer is no fix either:
+        the Supabase consumer holding that key lacks the ``backend_api``
+        group, so the backend gate would answer 403.
+        """
+        backend_api_key = self.get_env_value('BACKEND_KONG_API_KEY', '')
+        if not backend_api_key:
+            raise ValueError(
+                "BACKEND_KONG_AUTH=key-auth requires BACKEND_KONG_API_KEY"
+            )
+        supabase_keys = {c['keyauth_credentials'][0]['key'] for c in supabase_consumers}
+        if backend_api_key.strip() in supabase_keys:
+            raise ValueError(
+                "BACKEND_KONG_API_KEY must differ from SUPABASE_ANON_KEY "
+                "and SUPABASE_SERVICE_KEY"
+            )
+        return {
+            'username': 'backend_api_user',
+            'keyauth_credentials': [
+                {'key': backend_api_key},
+            ],
+            'acls': [
+                {'group': 'backend_api'},
+            ],
+        }
 
     #: Supabase consumers, mirroring upstream Supabase's own `kong.yml`.
     _SUPABASE_KEY_CONSUMERS = (

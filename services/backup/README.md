@@ -166,6 +166,7 @@ The client imports credentials through a private per-run `0600` configuration fi
 - The host orchestrator bounds a whole backup run at `max(3 × BACKUP_COMMAND_TIMEOUT_SECONDS, 900)` seconds, because the run chains dumps, the snapshot wait and uploads.
 - The Weaviate snapshot wait inside the runner uses `BACKUP_COMMAND_TIMEOUT_SECONDS`, not the 120 s quiesce timeout. A larger command deadline gives a large snapshot more time in total.
 - A staged Weaviate restore waits up to `max(BACKUP_DATABASE_QUIESCE_TIMEOUT_SECONDS, 900)` seconds.
+- A Neo4j dump job gets four data windows, and a staged Neo4j load gets eight, plus a short grace. A data window is `max(BACKUP_DATABASE_QUIESCE_TIMEOUT_SECONDS, 900)` seconds.
 - When a host orchestrator step times out it exits 124. Configuration and contract errors exit 64; an interruption exits 130.
 
 **Known gap: Weaviate cancellation.** Atlas cancels a timed-out Weaviate operation with `wget --method=DELETE`. The BusyBox `wget` in the runner and in the Weaviate image rejects that option ([#1376](https://github.com/thekaveh/atlas/issues/1376)).
@@ -189,6 +190,8 @@ The client imports credentials through a private per-run `0600` configuration fi
 - The key is exactly 64 lowercase hexadecimal characters. OpenSSL's `hexkey` option decodes it to 32 raw key bytes; the 64-character text is not used verbatim.
 - Do not reuse a JWT, database password, S3 secret or other application credential.
 - If you lose either value, authenticated restore is not possible. If either is disclosed, an attacker can forge backup publications.
+- A Neo4j restore also restores the users and passwords in its `system` database. Keep the backup-time `GRAPH_DB_PASSWORD` and `GRAPH_DB_AUTH` with these secrets.
+- If `.env` was rebuilt, for example on a new host or by `./start.sh --cold`, set both values before the restore. Staged validation and the live health check log in with them.
 - To rotate the key, keep the old key wherever old backups must stay restorable.
 
 **Secret exposure.** The default Compose wiring passes the HMAC key and S3 credentials as container environment variables. The OpenSSL CLI receives the HMAC `hexkey` option in its short-lived process arguments. Administrators with Docker inspection or host process-inspection access can therefore see them.

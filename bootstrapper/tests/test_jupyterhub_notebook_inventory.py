@@ -285,6 +285,30 @@ def test_the_rag_notebook_reports_a_disabled_weaviate_instead_of_failing(monkeyp
     assert namespace["wv_client"] is connected
 
 
+def test_the_supabase_notebook_lists_buckets_without_the_refused_storage_api(capsys):
+    """Storage refuses the anon key JupyterHub receives, so the old
+    ``supabase.storage.list_buckets()`` cell raised and Run All stopped there."""
+    import contextlib
+    import types
+
+    cells = json.loads((NOTEBOOK_DIR / "04_supabase_data.ipynb").read_text(encoding="utf-8"))["cells"]
+    code = ["".join(cell["source"]) for cell in cells if cell["cell_type"] == "code"]
+    assert not [source for source in code if "supabase.storage" in source or "create_client" in source]
+    queries = []
+    row = types.SimpleNamespace(id="atlas", name="atlas", created_at="2026-01-01")
+
+    class Connection:
+        def execute(self, statement):
+            queries.append(statement)
+            return types.SimpleNamespace(fetchall=lambda: [row])
+
+    engine = types.SimpleNamespace(connect=lambda: contextlib.nullcontext(Connection()))
+    storage_cell = "".join(cells[5]["source"])
+    exec(compile(storage_cell, "04_supabase_data", "exec"), {"engine": engine, "text": str})  # noqa: S102
+    assert queries == ["SELECT id, name, created_at FROM storage.buckets ORDER BY id"]
+    assert "• atlas (created: 2026-01-01)" in capsys.readouterr().out
+
+
 def test_rag_notebook_stores_documents_idempotently():
     """Every run inserted the same five documents again with server ids, so
     a re-run duplicated them and the RAG context repeated one sentence."""

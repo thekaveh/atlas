@@ -64,4 +64,4 @@ def test_chonkie_notebook_and_docs_register_backend_runtime_contract() -> None:
     assert "/api/chunk" in notebook_text
     assert "13_chonkie_chunking.ipynb" in docs_text
     assert "POST /api/chunk" in docs_text
-    assert "n8n workflows" in docs_text
+    assert "the scoped notebook token" in docs_text

@@ -614,12 +614,18 @@ def test_required_ci_runs_a_real_spark_minio_s3a_round_trip() -> None:
     )
 
 
+_S3A_HANG_BOUND_SECONDS = 20
+
+
 @pytest.mark.parametrize("hang_mode", ["pull", "readiness", "spark"])
 def test_s3a_smoke_bounds_docker_hangs_and_cleans_owned_resources(
     tmp_path: Path, hang_mode: str
 ) -> None:
     env, log = _fake_docker_environment(tmp_path, hang_mode)
 
+    # The smoke's own 3 s deadline plus 1 s per cleanup command took up to
+    # 7.8 s on a loaded host, so an 8 s bound flaked. 20 s still sits below
+    # the fake's 30 s hang, so a run that ignores the deadline still fails.
     started = time.monotonic()
     try:
         result = subprocess.run(
@@ -628,7 +634,7 @@ def test_s3a_smoke_bounds_docker_hangs_and_cleans_owned_resources(
             env=env,
             capture_output=True,
             text=True,
-            timeout=8,
+            timeout=_S3A_HANG_BOUND_SECONDS,
             check=False,
         )
     except subprocess.TimeoutExpired:
@@ -637,7 +643,7 @@ def test_s3a_smoke_bounds_docker_hangs_and_cleans_owned_resources(
     elapsed = time.monotonic() - started
     calls = log.read_text(encoding="utf-8")
     assert result.returncode != 0
-    assert elapsed < 8
+    assert elapsed < _S3A_HANG_BOUND_SECONDS
     if hang_mode == "pull":
         assert "network create" not in calls
     else:
@@ -664,7 +670,7 @@ def test_s3a_smoke_never_removes_foreign_network_collision(tmp_path: Path) -> No
         env=env,
         capture_output=True,
         text=True,
-        timeout=8,
+        timeout=_S3A_HANG_BOUND_SECONDS,
         check=False,
     )
 

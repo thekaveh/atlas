@@ -43,7 +43,7 @@ uv run --project bootstrapper python scripts/check-kong-routes.py
 
 Any other Host gets 404, so a public hostname does not reach Supabase by accident. A Host header with a port still matches. Matching is case-sensitive, so list hosts in lowercase. IPv6 literals cannot be listed.
 
-**Consumers.** The key-auth services also carry an `acl` that admits only the `anon` (`SUPABASE_ANON_KEY`) and `admin` (`SUPABASE_SERVICE_KEY`) groups, as upstream Supabase does. Another Kong key, such as `BACKEND_KONG_API_KEY`, gets 403 there.
+**Consumers.** The key-auth services also carry an `acl` that admits only the `anon` (`SUPABASE_ANON_KEY`) and `admin` (`SUPABASE_SERVICE_KEY`) groups, as upstream Supabase does. Another Kong key, such as `BACKEND_KONG_API_KEY`, gets 403 there. `BACKEND_KONG_API_KEY` must differ from both Supabase keys. Kong rejects a duplicate key-auth credential, so a match stops the start with `Failed to generate Kong configuration`.
 
 ### 3.2. Dynamic Routes (Based on SOURCE)
 
@@ -209,15 +209,9 @@ curl -H "Host: spark-history.localhost" http://localhost:${KONG_HTTP_PORT}/
 curl -u "${DASHBOARD_USERNAME}:${DASHBOARD_PASSWORD}" -H "Host: trino.localhost" http://localhost:${KONG_HTTP_PORT}/
 curl -u "${DASHBOARD_USERNAME}:${DASHBOARD_PASSWORD}" -H "Host: redpanda.localhost" http://localhost:${KONG_HTTP_PORT}/
 curl -H "Host: airflow.localhost" http://localhost:${KONG_HTTP_PORT}/
-# Airflow REST API (same alias). 3.x is JWT-only — exchange password
-# for a token via /auth/token, then call /api/v2/ with Bearer auth:
-TOKEN=$(curl -fsS -X POST -H "Host: airflow.localhost" \
-  -H 'Content-Type: application/json' \
-  -d "{\"username\":\"admin\",\"password\":\"${AIRFLOW_ADMIN_PASSWORD}\"}" \
-  http://localhost:${KONG_HTTP_PORT}/auth/token | jq -r .access_token)
-curl -H "Host: airflow.localhost" -H "Authorization: Bearer $TOKEN" \
-  http://localhost:${KONG_HTTP_PORT}/api/v2/dags
 ```
+
+The Airflow REST API uses the same alias. Airflow 3.x accepts only JWT bearer tokens on `/api/v2/`. To get a token and call the API, use the Python block in the [Hermes README](../hermes/README.md) §8. It reads the password from the active env file and keeps it off the `curl` argv. That block ends by triggering a DAG run. To only check the route, replace its last request with a `GET` of `/api/v2/dags`.
 
 ## 11. Advanced Configuration
 
@@ -374,7 +368,7 @@ docker exec ${PROJECT_NAME}-kong-api-gateway kong health
 - **Per-consumer metrics** — *Why pursue:* the global `prometheus` plugin runs with `per_consumer: false`, so metrics cannot be split by API consumer. *Effort:* small.
 - **`opentelemetry` plugin** — *Why pursue:* emit OTLP spans for every gateway hop so requests through Kong → LiteLLM → Ollama can be stitched into a single trace. *Effort:* small.
 - **`jwt` plugin (replacing per-route basic-auth)** — *Why pursue:* validate JWTs against the Supabase GoTrue keys in `.env`. This would secure jupyter, n8n, openclaw and hermes without a new identity service. *Effort:* medium.
-- **`request-size-limiting` plugin** — *Why pursue:* ComfyUI and Docling routes accept arbitrarily large multipart uploads; a 100 MB cap at the gateway prevents accidental host OOM. *Effort:* small.
+- **`request-size-limiting` plugin** — *Why pursue:* Kong sets no request-body limit; each upstream enforces its own. Docling returns 413 above `DOCLING_MAX_FILE_SIZE` plus 1 MiB, and ComfyUI applies its `--max-upload-size` default. A gateway cap would give every route one edge limit, including routes without a limit of their own. *Effort:* small.
 - **`correlation-id` plugin** — *Why pursue:* inject `X-Request-ID` on ingress so backend/litellm/hermes logs become joinable across the request path. *Effort:* small.
 - **`ai-proxy` plugin** — *Why pursue:* Kong's AI Gateway normalizes OpenAI/Anthropic/Ollama request shapes at the edge, worth evaluating as a comparison (not replacement) for LiteLLM's role. *Effort:* large.
 - **`ai-prompt-guard` plugin** — *Why pursue:* regex allow/deny on prompt content at the gateway gives a defense-in-depth layer before LiteLLM. *Effort:* medium.

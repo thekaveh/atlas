@@ -146,22 +146,12 @@ New DAGs start paused, so unpause `lakehouse_spark_submit_smoke` first. Trigger 
 
 Hermes has no built-in Airflow client. A Hermes skill, or any other client, triggers a DAG over the REST API. Airflow 3's `/api/v2/` uses JWT bearer tokens, not HTTP basic auth, so this takes two steps:
 
-```bash
-# 1. Exchange admin password for a short-lived JWT.
-TOKEN=$(curl -fsS -X POST \
-  -H 'Content-Type: application/json' \
-  -d "{\"username\":\"admin\",\"password\":\"${AIRFLOW_ADMIN_PASSWORD}\"}" \
-  http://airflow.localhost:${KONG_HTTP_PORT}/auth/token | jq -r .access_token)
+1. POST the admin username and password to `/auth/token` for a short-lived JWT.
+2. POST the run to `/api/v2/dags/<dag_id>/dagRuns` with `Authorization: Bearer <token>`.
 
-# 2. Trigger the DAG. `logical_date` is REQUIRED-but-nullable in
-# Airflow 3.x's TriggerDAGRunPostBody schema — omit it and the API
-# returns 422. Set to null to let the scheduler assign one.
-curl -fsS -X POST \
-  -H "Authorization: Bearer $TOKEN" \
-  -H 'Content-Type: application/json' \
-  -d '{"logical_date": null, "conf": {}}' \
-  http://airflow.localhost:${KONG_HTTP_PORT}/api/v2/dags/example_etl_with_llm/dagRuns
-```
+Run both steps with the Python block in the [Hermes README](../hermes/README.md) §8. It reads `AIRFLOW_ADMIN_PASSWORD` and `KONG_HTTP_PORT` from the active env file. It stops before any request if the password is blank, and it keeps the password off the `curl` argv.
+
+The trigger body must include `logical_date`. Airflow 3.x's `TriggerDAGRunPostBody` schema requires the field but accepts null. If you omit it, the API returns 422. Send `{"logical_date": null, "conf": {}}` to let the scheduler assign one.
 
 New DAGs start paused. Unpause the DAG in the UI before you trigger it.
 

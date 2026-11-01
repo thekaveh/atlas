@@ -12,10 +12,10 @@ Atlas does not run a FAL container. The backend reads `FAL_SOURCE`, `FAL_API_KEY
 |---|---|---|
 | Atlas SOURCE | `FAL_SOURCE=disabled` | Default. No FAL calls are made and no API key is required. |
 | FAL provider | `FAL_SOURCE=enabled` | Enables FAL-backed hosted media generation through the backend. |
-| Media gateway (image) | `POST /media/generate` with `{"provider":"fal","modality":"image"}` | Submits a FAL image operation (text→image with `fal-ai/flux/dev`, or image-to-image with an init image) and returns an operation id. Custom endpoints take `input.provider_arguments`. `provider=comfyui` uses the same route for any enabled ComfyUI source. Schema: backend `/docs` (OpenAPI). |
+| Media gateway (image) | `POST /media/generate` with `{"provider":"fal","modality":"image"}` | Submits a FAL image operation (text→image with `fal-ai/flux/dev`, or image-to-image with an init image) and returns an operation id. Custom endpoints take `input.provider_arguments`. `provider=comfyui` uses the same route for any enabled ComfyUI source. Accepted `input` keys: [Backend §3.6](../backend/README.md#36-hosted-media-gateway). |
 | Media gateway (image→3D) | `POST /media/generate` with `{"modality":"image_to_3d"}` | Submits a hosted image→3D operation through a verified Hunyuan3D, TRELLIS, Tripo, or Rodin endpoint and returns an operation id. |
 | Operation polling | `GET /media/operations/{operation_id}` | Polls provider status and returns normalized artifacts (the GLB is the primary `artifact_url`), cost, license, and provenance. |
-| Operation cancel | `POST /media/operations/{operation_id}/cancel` | Requests cancellation from FAL. Budget stays reserved until polling confirms a terminal provider outcome. Idempotent. Status codes: backend `/docs`. |
+| Operation cancel | `POST /media/operations/{operation_id}/cancel` | Requests cancellation from FAL. Budget stays reserved until polling confirms a terminal provider outcome. Idempotent: a repeat or a terminal operation returns `409` and changes nothing. An unknown or foreign id returns `404`. |
 | Ambiguous submission reconciliation | `POST /media/operations/{operation_id}/reconcile` | An operator with `BACKEND_INTERNAL_API_TOKEN` records `outcome=commit` or `outcome=release` after checking FAL billing. A missing provider id counts as ambiguous. Intents and recovery rows do not expire before settlement; same-outcome retries are safe. `recovery_ledger_ids` names cleanup candidates if operation persistence fails. The default Postgres store survives restarts; `memory` is ephemeral. |
 | Spend read | `GET /media/spend?consumer=<c>` | Scoped spend read (committed/reserved totals + rows for one consumer). Empty unless `MEDIA_BUDGET_ENABLED=true`. |
 | Compatibility route | `POST /comfyui/generate` | Uses FAL for simple image generation when `FAL_SOURCE=enabled`; otherwise preserves the existing ComfyUI path. |
@@ -77,7 +77,7 @@ The backend handles provider differences, so consumers do not need to:
 - It composites transparent inputs onto a neutral background before submission, to avoid a known fal Hunyuan3D v2 crop bug.
 - For providers that reject data URIs, it uploads inputs to `BACKEND_MEDIA_INPUT_BUCKET`. An uploaded data URI must be PNG, JPEG or WebP and match its declared type, else HTTP 400. `image/jpg` is accepted as JPEG.
 
-The per-provider field names, seed ranges and response-key mappings are in the backend `/docs` OpenAPI.
+Callers send only `image` and an optional `seed`; any other key returns HTTP 400. Rodin seeds range from 0 to 65,535 and other families from 0 to 2,147,483,647. The per-family request field names are in the Backend's `fal_media_client.py`, and the response-key mappings are in `media_registry.py`.
 
 Limits:
 
@@ -110,7 +110,7 @@ Hosted media generation has no LiteLLM-style spend accounting, so the media gate
 - `GET /media/spend?consumer=<c>[&project=<p>]` returns that consumer's totals and rows only.
 - An accepted cancellation is not a settlement: spend stays reserved until a provider poll proves a terminal outcome.
 
-The full status-code, concurrency-safety and unknown-cost contract is in the backend `/docs` OpenAPI.
+The status codes, ambiguous-submission recovery and reconciliation rules are in [Backend §3.6](../backend/README.md#36-hosted-media-gateway).
 
 Attribution comes from the authenticated Backend principal plus optional request `consumer`/`project` fields or `X-Atlas-Consumer`/`X-Atlas-Project` headers (default `default`). A `consumer`, `project` or `model` value is rejected with `400` if it is longer than 255 characters or contains a control character (such as NUL). Operation polling and cancellation are owner-scoped. Spend reads require the same Backend application-auth boundary. `MEDIA_BUDGET_*` and `MEDIA_DISABLED_PROVIDERS` are declared on the backend service.
 

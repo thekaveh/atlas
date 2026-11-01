@@ -604,3 +604,116 @@ def _assert_offline_backup_publication(case, result):
         f"neo4j backup: dumping offline neo4j database with neo4j:{PINNED}",
         f"neo4j backup: complete -> {published}",
     ]
+
+
+# --- capture refuses an unrestorable Neo4j snapshot set ----------------------
+# database-snapshots.sh signs and publishes what it captures. Each negative
+# changes one property of an otherwise valid offline snapshot directory.
+_CAPTURE_TIMESTAMP = "20260830_010203"
+
+
+def _neo4j_snapshot(root: Path, overrides: dict[str, str]) -> Path:
+    import hashlib
+
+    snapshot = root / _CAPTURE_TIMESTAMP
+    snapshot.mkdir(parents=True)
+    fields = {
+        "snapshot_format": "1", "snapshot_state": "complete",
+        "backup_timestamp": _CAPTURE_TIMESTAMP, "neo4j_image": NEO4J_IMAGE,
+        "neo4j_version": PINNED, "started_at": "2026-08-30T01:02:01Z",
+        "completed_at": "2026-08-30T01:02:02Z",
+    }
+    for database in ("neo4j", "system"):
+        payload = f"{database}-consistent".encode()
+        (snapshot / f"{database}.dump").write_bytes(payload)
+        fields[f"{database}_sha256"] = hashlib.sha256(payload).hexdigest()
+        fields[f"{database}_bytes"] = str(len(payload))
+    fields.update(overrides)
+    (snapshot / "snapshot.metadata").write_text(
+        "".join(f"{key}={value}\n" for key, value in fields.items()), encoding="utf-8"
+    )
+    return snapshot
+
+
+def _capture_neo4j(tmp_path: Path, archive_limit: str = "1048576") -> tuple[subprocess.CompletedProcess[str], Path]:
+    work = tmp_path / "work"
+    work.mkdir()
+    script = (
+        f'set -eu\n. "{SNAPSHOTS}"\nrun_bounded() {{ "$@"; }}\n'
+        f"capture_database_snapshots '{work}' {_CAPTURE_TIMESTAMP} {'a' * 32}\n"
+    )
+    result = subprocess.run(
+        ["sh", "-c", script],
+        env={
+            **os.environ, "DATABASE_NEO4J_SNAPSHOT_ROOT": str(tmp_path / "neo4j"),
+            "BACKUP_MANIFEST_HMAC_KEY": "5" * 64, "BACKUP_DEPLOYMENT_ID": "atlas-test",
+            "BACKUP_NEO4J_SOURCE": "container", "BACKUP_WEAVIATE_SOURCE": "disabled",
+            "BACKUP_DATABASE_QUIESCE_TIMEOUT_SECONDS": "5",
+            "BACKUP_MAX_DATABASE_ARCHIVE_BYTES": archive_limit,
+        },
+        text=True, capture_output=True, check=False, timeout=30,
+    )
+    return result, work
+
+
+def _tamper_neo4j_snapshot(snapshot: Path, tamper: str) -> None:
+    if tamper in ("duplicate-key", "duplicate-started"):
+        line = "snapshot_state=complete" if tamper == "duplicate-key" else "started_at=2026-08-30T01:02:09Z"
+        with (snapshot / "snapshot.metadata").open("a", encoding="utf-8") as metadata:
+            metadata.write(line + "\n")
+    elif tamper == "extra-file":
+        (snapshot / "notes.txt").write_text("operator notes\n", encoding="utf-8")
+    elif tamper == "rewritten-dump":
+        (snapshot / "neo4j.dump").write_bytes(b"neo4j-rewritten!")
+
+
+def test_neo4j_capture_publishes_a_complete_pinned_snapshot(tmp_path: Path) -> None:
+    _neo4j_snapshot(tmp_path / "neo4j", {})
+    result, work = _capture_neo4j(tmp_path)
+    assert result.returncode == 0, result.stderr
+    manifest = (work / "databases.manifest").read_text(encoding="utf-8")
+    assert "neo4j_state=complete\n" in manifest and "weaviate_state=disabled\n" in manifest
+
+
+_INCOMPATIBLE = "Neo4j snapshot metadata is incomplete or incompatible"
+
+
+@pytest.mark.parametrize("case", [
+    ({"snapshot_state": "partial"}, None, 65, _INCOMPATIBLE),
+    ({"backup_timestamp": "20260830_010204"}, None, 65, _INCOMPATIBLE),
+    # Restorable, but a new capture must record the exact pin.
+    ({"neo4j_image": f"neo4j:{PREVIOUS}"}, None, 65, _INCOMPATIBLE),
+    ({"neo4j_version": PREVIOUS}, None, 65, _INCOMPATIBLE),
+    ({}, "duplicate-key", 65, _INCOMPATIBLE),
+    # A second value would otherwise reach the signed manifest as an extra line.
+    ({}, "duplicate-started", 1, ""),
+    ({}, "extra-file", 65, "unexpected inner names"),
+    ({}, "rewritten-dump", 65, "inner artifact changed before publication"),
+    ({"system_bytes": "999"}, None, 65, "inner artifact changed before publication"),
+    ({}, "archive-limit", 1, "Neo4j snapshot archive exceeds the configured limit"),
+], ids=["partial", "other-timestamp", "previous-image", "previous-version", "duplicate-key",
+        "duplicate-started", "extra-file", "rewritten-dump", "wrong-size", "archive-limit"])
+def test_neo4j_capture_refuses_to_publish_an_unrestorable_snapshot(tmp_path: Path, case) -> None:
+    overrides, tamper, status, message = case
+    snapshot = _neo4j_snapshot(tmp_path / "neo4j", overrides)
+    _tamper_neo4j_snapshot(snapshot, tamper)
+    result, work = _capture_neo4j(tmp_path, "16" if tamper == "archive-limit" else "1048576")
+    assert result.returncode == status, result.stderr
+    assert message in result.stderr
+    assert not (work / "databases.manifest").exists()
+    assert not (work / "databases.complete").exists()
+
+
+@pytest.mark.parametrize("pair", [
+    (f"neo4j:{PREVIOUS}", PREVIOUS, 0), (NEO4J_IMAGE, PINNED, 0),
+    (f"neo4j:{PREVIOUS}", PINNED, 1), (NEO4J_IMAGE, PREVIOUS, 1),
+    ("neo4j:5.26.29", PINNED, 1), ("neo4j:5.26.29", "5.26.29", 1),
+])
+def test_signed_snapshot_gate_needs_an_agreeing_restorable_image_and_version(pair) -> None:
+    """restore-databases.sh admits a signed set through this predicate (#1312)."""
+    image, version, status = pair
+    result = subprocess.run(
+        ["sh", "-c", '. "$1"; neo4j_snapshot_is_restorable "$2" "$3"', "sh", str(SNAPSHOTS), image, version],
+        text=True, capture_output=True, check=False, timeout=10,
+    )
+    assert result.returncode == status, result.stderr

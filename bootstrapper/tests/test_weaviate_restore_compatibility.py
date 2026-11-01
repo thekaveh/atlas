@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from pathlib import Path
 import os
+import secrets
+import shutil
 import subprocess
 import re
 import uuid
@@ -31,6 +33,7 @@ from tests.test_database_backup_live_integration import (
 
 REPO = Path(__file__).resolve().parents[2]
 SNAPSHOTS = REPO / "services/backup/init/scripts/database-snapshots.sh"
+RESTORE_DATABASES = REPO / "services/backup/init/scripts/restore-databases.sh"
 ORCHESTRATOR = REPO / "services/backup/database_orchestrator.py"
 PINNED = WEAVIATE_IMAGE.rpartition(":")[2]
 PREVIOUS = PREVIOUS_WEAVIATE_IMAGE.rpartition(":")[2]
@@ -156,7 +159,7 @@ esac
 """
 
 
-def _weaviate_status_capture(tmp_path: Path, mode: str):
+def _weaviate_status_capture(tmp_path: Path, mode: str, version: str | None = None):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     wget = bin_dir / "wget"
@@ -166,7 +169,7 @@ def _weaviate_status_capture(tmp_path: Path, mode: str):
     work.mkdir()
     log = tmp_path / "wget.log"
     snapshot_id = f"atlas-20260101_000000-{'b' * 32}"
-    version = re.search(r'^EXPECTED_WEAVIATE_VERSION="([^"]+)"', SNAPSHOTS.read_text(), re.M)[1]
+    version = version or re.search(r'^EXPECTED_WEAVIATE_VERSION="([^"]+)"', SNAPSHOTS.read_text(), re.M)[1]
     script = (
         f"set -eu\n. '{SNAPSHOTS}'\nrun_bounded() {{ \"$@\"; }}\n"
         f"capture_database_snapshots '{work}' 20260101_000000 {'b' * 32}\n"
@@ -235,3 +238,98 @@ def test_weaviate_request_preserves_transport_error_in_condition(tmp_path: Path,
     result = subprocess.run(["sh", "-c", harness], text=True, capture_output=True, check=False, timeout=5)
     assert result.returncode == 4, result.stderr
     assert response.read_text() == '{"status":"SUCCESS"}'
+
+
+def test_weaviate_capture_refuses_an_unpinned_server_before_any_backup(tmp_path: Path):
+    """The previous release stays restorable, but a new capture needs the exact pin."""
+    result, work, calls, _snapshot_id = _weaviate_status_capture(tmp_path, "success", PREVIOUS)
+    assert result.returncode == 78, result.stderr
+    assert f"got Weaviate {PREVIOUS}" in result.stderr
+    _assert_no_database_publication(work)
+    assert calls == ["GET http://weaviate:8080/v1/meta"]
+
+
+@pytest.mark.parametrize("pair", [
+    (WEAVIATE_IMAGE, PINNED, 0), (PREVIOUS_WEAVIATE_IMAGE, PREVIOUS, 0),
+    (PREVIOUS_WEAVIATE_IMAGE, PINNED, 1), (WEAVIATE_IMAGE, PREVIOUS, 1),
+    ("cr.weaviate.io/semitechnologies/weaviate:1.38.12", PINNED, 1),
+])
+def test_signed_snapshot_gate_needs_an_agreeing_restorable_weaviate_pair(pair):
+    """restore-databases.sh admits a signed set through this predicate (#1286)."""
+    image, version, status = pair
+    result = subprocess.run(
+        ["sh", "-c", '. "$1"; weaviate_snapshot_is_restorable "$2" "$3"', "sh", str(SNAPSHOTS), image, version],
+        text=True, capture_output=True, check=False, timeout=10,
+    )
+    assert result.returncode == status, result.stderr
+
+
+# --- restore-databases.sh refuses unsafe requests before any S3 access -------
+def _restore_prepare(tmp_path: Path, overrides: dict[str, str], mode: str = "prepare"):
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    mc = bin_dir / "mc"
+    mc.write_text(f'#!/bin/sh\nprintf "%s\\n" "$*" >>"{tmp_path / "mc.log"}"\nexit 22\n', encoding="utf-8")
+    mc.chmod(0o755)
+    env = {
+        "PATH": f"{bin_dir}:/usr/bin:/bin", "BACKUP_TIMESTAMP": "20260830_010203",
+        "BACKUP_MANIFEST_HMAC_KEY": "6" * 64, "BACKUP_DEPLOYMENT_ID": "atlas-test",
+        "BACKUP_S3_MODE": "external", "BACKUP_S3_ENDPOINT": "https://s3.example.test",
+        "BACKUP_S3_ACCESS_KEY": "access", "BACKUP_S3_SECRET_KEY": "secret", **overrides,
+    }
+    return subprocess.run(
+        ["sh", str(RESTORE_DATABASES), mode], env=env,
+        text=True, capture_output=True, check=False, timeout=30,
+    )
+
+
+@pytest.mark.parametrize("case", [
+    ({"BACKUP_RESTORE_TOKEN": "../x"}, "prepare", "invalid ownership token"),
+    ({"BACKUP_RESTORE_TOKEN": "e" * 31}, "prepare", "invalid ownership token"),
+    ({"BACKUP_RESTORE_TOKEN": "e" * 33}, "prepare", "invalid ownership token"),
+    ({"BACKUP_RESTORE_TOKEN": "E" * 32}, "prepare", "invalid ownership token"),
+    ({}, "apply", "only prepare mode is supported"),
+    ({"BACKUP_NEO4J_SOURCE": "localhost"}, "prepare", "localhost source is unsupported"),
+    ({"BACKUP_NEO4J_SOURCE": "external"}, "prepare", "invalid Neo4j source"),
+    ({"BACKUP_WEAVIATE_SOURCE": "CONTAINER"}, "prepare", "invalid Weaviate source"),
+], ids=["path-token", "short-token", "long-token", "uppercase-token", "apply-mode",
+        "localhost-source", "neo4j-source", "weaviate-source"])
+def test_restore_prepare_rejects_unsafe_requests_before_s3(tmp_path: Path, case):
+    overrides, mode, message = case
+    result = _restore_prepare(tmp_path, {"BACKUP_RESTORE_TOKEN": "e" * 32, **overrides}, mode)
+    assert result.returncode == 64, result.stderr
+    assert message in result.stderr
+    assert not (tmp_path / "mc.log").exists()
+
+
+def test_restore_prepare_refuses_a_symlinked_restore_root(tmp_path: Path):
+    token = secrets.token_hex(16)
+    root = Path(f"/tmp/atlas-database-restore-test-{token}")
+    target = tmp_path / "target"
+    target.mkdir()
+    root.symlink_to(target)
+    try:
+        result = _restore_prepare(tmp_path, {"BACKUP_RESTORE_TOKEN": token, "DATABASE_RESTORE_ROOT": str(root)})
+        assert result.returncode == 64, result.stderr
+        assert "restore root must not be a symlink" in result.stderr
+        assert not list(target.iterdir())
+        assert not (tmp_path / "mc.log").exists()
+    finally:
+        root.unlink()
+
+
+def test_restore_prepare_refuses_an_existing_private_stage(tmp_path: Path):
+    token = secrets.token_hex(16)
+    root = Path(f"/tmp/atlas-database-restore-test-{token}")
+    stage = root / f"restore-{token}"
+    stage.mkdir(parents=True)
+    (stage / "keep").write_text("earlier stage\n", encoding="utf-8")
+    try:
+        result = _restore_prepare(tmp_path, {"BACKUP_RESTORE_TOKEN": token, "DATABASE_RESTORE_ROOT": str(root)})
+        assert result.returncode == 73, result.stderr
+        assert "private restore stage already exists" in result.stderr
+        assert (stage / "keep").read_text(encoding="utf-8") == "earlier stage\n"
+        assert not Path(f"/tmp/atlas-database-restore-{token}").exists()
+        assert not (tmp_path / "mc.log").exists()
+    finally:
+        shutil.rmtree(root)

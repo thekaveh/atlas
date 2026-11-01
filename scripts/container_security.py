@@ -946,10 +946,6 @@ def load_exceptions(path: Path, *, today: date | None = None) -> tuple[Vulnerabi
     return tuple(exceptions)
 
 
-def render_images_json(images: Sequence[str]) -> str:
-    return json.dumps(list(images), separators=(",", ":"))
-
-
 def render_scan_matrix_json(scans: Sequence[ImageScan]) -> str:
     return json.dumps(
         [{"image": scan.image, "platform": scan.platform} for scan in scans],

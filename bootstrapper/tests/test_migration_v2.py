@@ -19,9 +19,6 @@ from services.migrations.migration_v2 import (
 )
 
 
-LEGACY_URL_VARS = list(URL_VAR_TO_PORT_VAR.keys())
-
-
 def _write_env(tmp_path: Path, content: str) -> Path:
     p = tmp_path / ".env"
     p.write_text(content, encoding="utf-8")

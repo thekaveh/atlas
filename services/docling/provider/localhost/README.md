@@ -63,7 +63,7 @@ An unset or empty native port uses `18159`.
 
 ```bash
 # Terminal 3, opened at the repository root while Atlas and the provider run
-if ! docling_values="$(uv run --project services/docling/provider/localhost python - <<'PYTHON'
+if docling_values="$(uv run --project services/docling/provider/localhost python - <<'PYTHON'
 import os
 import shlex
 from pathlib import Path
@@ -80,14 +80,15 @@ print(f"export DOCLING_LOCALHOST_PORT={shlex.quote(str(port))}")
 print(f"export DOCLING_URL={shlex.quote(f'http://localhost:{port}')}")
 PYTHON
 )"; then
-  exit 1
+  eval "$docling_values"
+  curl -X POST "${DOCLING_URL}/v1/document/convert" \
+    -H "Authorization: Bearer ${DOCLING_API_TOKEN}" \
+    -F "file=@document.pdf" \
+    -F "output_format=markdown" \
+    -F "table_mode=accurate"
+else
+  false  # Report the refusal without closing this shell.
 fi
-eval "$docling_values"
-curl -X POST "${DOCLING_URL}/v1/document/convert" \
-  -H "Authorization: Bearer ${DOCLING_API_TOKEN}" \
-  -F "file=@document.pdf" \
-  -F "output_format=markdown" \
-  -F "table_mode=accurate"
 ```
 
 ## 2. Configuration
@@ -99,9 +100,9 @@ The server loads that file once at startup; exported shell values take precedenc
 It ignores `ATLAS_ENV_FILE`.
 With required authentication, an absent or empty token leaves protected routes unavailable.
 
-Run this configuration block from `services/docling/provider/localhost` before starting the server.
+The server reads these variables at startup.
+Export only the values you change, in the server shell before `uv run server.py`. An export overrides `.env`.
 Keep the generated token in repository `.env`, or export a token for the server shell.
-These exports configure the server:
 
 ```bash
 export DOCLING_LOCALHOST_PORT=18159      # Server port (default: 18159)
@@ -116,7 +117,7 @@ export DOCLING_USE_OCR=auto              # OCR: auto, always, never
 export DOCLING_TABLE_MODE=accurate       # Table mode: accurate, fast
 export DOCLING_ENABLE_FORMULAS=true      # Formula enrichment: true, false
 export DOCLING_ENABLE_CODE_BLOCKS=true   # Code enrichment: true, false
-export HF_TOKEN=your_token_here          # Hugging Face token (if needed)
+# export HF_TOKEN=<token>                # Only when Hugging Face requires a token
 ```
 
 On Linux, containers reach the host through the Docker bridge, not loopback.
@@ -291,7 +292,7 @@ uv run python -c "import torch; print(torch.cuda.is_available(), torch.backends.
 
 ```bash
 # Set a Hugging Face token if the download needs one
-export HF_TOKEN=your_token_here
+export HF_TOKEN=<token>
 uv run server.py
 
 # Check free disk space for the Hugging Face cache

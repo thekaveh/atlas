@@ -67,6 +67,28 @@ def test_a_huge_stream_stays_within_the_session_budget(tmp_path):
     assert "session log — started" in tee.base_path.read_text().splitlines()[0]
 
 
+def test_rotation_closes_each_retired_writer_descriptor(tmp_path):
+    """A descriptor leaked per rotation reaches the open-file limit in a long
+    TUI session, so rotation must close the outgoing segment's writer."""
+    from ui import session_log_retention
+
+    baseline = set(session_log_retention._FORK_DESCRIPTORS)
+    tee = SessionLogTee(
+        prefix="atlas-launch-owned-",
+        config=SessionLogConfig(
+            directory=str(tmp_path), segment_max_bytes=1024, max_segments=3,
+        ),
+    )
+    try:
+        tee.write("numbered-line\n" * 2000)
+        assert tee._segment_index >= 10 and not tee.degraded
+        # Only the active segment and the lifetime lease stay open.
+        assert len(set(session_log_retention._FORK_DESCRIPTORS) - baseline) <= 2
+    finally:
+        tee.close()
+    assert not set(session_log_retention._FORK_DESCRIPTORS) - baseline
+
+
 def _rotation_marker(path: Path, base: Path) -> tuple[int, str]:
     """Parse and structurally assert one rolling segment's marker header."""
     head = path.read_text().splitlines()[:2]

@@ -20,10 +20,6 @@ from tracks import (
 )
 
 
-REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-TRACKS_YML = REPO_ROOT / "bootstrapper" / "tracks.yml"
-
-
 # ─── load_tracks ─────────────────────────────────────────────────────
 
 def test_load_tracks_default_path():

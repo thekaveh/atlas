@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.test_database_backup_repair_contracts import BACKUP_ENTRYPOINT, _module
+from tests.test_database_backup_repair_contracts import BACKUP_ENTRYPOINT, SNAPSHOTS, _module
 
 
 @pytest.fixture
@@ -557,3 +557,70 @@ def test_prepared_plan_parser_accepts_a_complete_weaviate_snapshot():
         "weaviate_state": "complete", "artifact_stage": f"restore-{_PLAN_TOKEN}",
         "weaviate_snapshot_id": _PLAN_SNAPSHOT,
     }
+
+
+# --- local snapshot retention prune ------------------------------------------
+# The orchestrator runs `database-snapshots.sh prune` after a successful backup.
+# It `rm -rf`s every completed set beyond the newest N, so its ordering, pattern
+# scope and refusals are pinned by running the real script on a relocated root.
+_SNAPSHOT_SETS = tuple(f"2026010{day}_000000" for day in range(1, 6))
+
+
+def _prune_fixture(tmp_path):
+    root = tmp_path / "database-snapshots"
+    # The script dispatches on its own file name, so the copy keeps it.
+    script = tmp_path / "bin" / "database-snapshots.sh"
+    script.parent.mkdir()
+    script.write_text(
+        SNAPSHOTS.read_text(encoding="utf-8").replace("/database-snapshots/", f"{root}/"),
+        encoding="utf-8",
+    )
+    for name in _SNAPSHOT_SETS:
+        (root / "neo4j" / name).mkdir(parents=True)
+        (root / "weaviate" / f"atlas-{name}-{'b' * 32}").mkdir(parents=True)
+    (root / "neo4j" / "other").mkdir()
+    (root / "neo4j" / "20260107_000000").write_text("a file, not a set\n", encoding="utf-8")
+    (root / "weaviate" / "operator-notes").mkdir()
+    return script, root
+
+
+def _run_prune(script, env):
+    return subprocess.run(
+        ["sh", str(script), "prune"], env={"PATH": "/usr/bin:/bin", **env},
+        text=True, capture_output=True, check=False, timeout=30,
+    )
+
+
+def _tree(root):
+    return sorted(str(path.relative_to(root)) for path in root.rglob("*"))
+
+
+def test_local_snapshot_prune_keeps_only_the_newest_completed_sets(tmp_path):
+    script, root = _prune_fixture(tmp_path)
+    result = _run_prune(script, {
+        "BACKUP_DATABASE_SERVICES_QUIESCED": "true", "BACKUP_LOCAL_SNAPSHOT_RETENTION_COUNT": "3",
+    })
+    assert result.returncode == 0, result.stderr
+    assert sorted(path.name for path in (root / "neo4j").iterdir()) == [
+        *_SNAPSHOT_SETS[2:], "20260107_000000", "other",
+    ]
+    assert sorted(path.name for path in (root / "weaviate").iterdir()) == [
+        *(f"atlas-{name}-{'b' * 32}" for name in _SNAPSHOT_SETS[2:]), "operator-notes",
+    ]
+
+
+@pytest.mark.parametrize("case", [
+    ({"BACKUP_LOCAL_SNAPSHOT_RETENTION_COUNT": "3"}, "must be quiesced"),
+    ({"BACKUP_DATABASE_SERVICES_QUIESCED": "true", "BACKUP_LOCAL_SNAPSHOT_RETENTION_COUNT": "0"}, "invalid count"),
+    ({"BACKUP_DATABASE_SERVICES_QUIESCED": "true", "BACKUP_LOCAL_SNAPSHOT_RETENTION_COUNT": "101"}, "at most 100"),
+    ({"BACKUP_DATABASE_SERVICES_QUIESCED": "true", "BACKUP_LOCAL_SNAPSHOT_RETENTION_COUNT": "1",
+      "DATABASE_NEO4J_SNAPSHOT_ROOT": "/tmp/not-a-snapshot-root"}, "unsafe root"),
+], ids=["not-quiesced", "zero", "over-100", "foreign-root"])
+def test_local_snapshot_prune_refusals_remove_nothing(tmp_path, case):
+    env, message = case
+    script, root = _prune_fixture(tmp_path)
+    before = _tree(root)
+    result = _run_prune(script, env)
+    assert result.returncode == 64, result.stderr
+    assert message in result.stderr
+    assert _tree(root) == before

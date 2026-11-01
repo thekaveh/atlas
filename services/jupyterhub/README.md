@@ -90,7 +90,7 @@ The notebooks read MinIO bucket names from the `MINIO_BUCKET_*` variables (`MINI
 | `01_litellm_basics.ipynb` | Chat, streaming and embeddings through the LiteLLM gateway, using `LITELLM_DEFAULT_MODEL` / `LITELLM_EMBEDDING_MODEL`. |
 | `02_langchain_rag.ipynb` | RAG pipeline with Weaviate. With Weaviate disabled it says so and skips the Weaviate cells. |
 | `03_neo4j_graphs.ipynb` | Knowledge graph queries |
-| `04_supabase_data.ipynb` | Database and storage operations |
+| `04_supabase_data.ipynb` | PostgreSQL queries and a read-only Storage bucket listing. Both use the read-only database login, because JupyterHub has no Storage service-role key. |
 | `05_comfyui_images.ipynb` | AI image generation |
 | `06_n8n_workflows.ipynb` | Workflow automation |
 | `07_ray_cluster.ipynb` | Distributed compute on the Ray cluster. Currently fails at `ray.init()`: the kernel runs Python 3.13 and the Ray image 3.10 (see the Ray README, §6). |

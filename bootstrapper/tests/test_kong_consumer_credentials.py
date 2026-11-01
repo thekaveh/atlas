@@ -194,6 +194,19 @@ def test_supabase_key_consumers_carry_the_upstream_acl_groups(tmp_path):
     assert groups["backend_api_user"] == ["backend_api"]
 
 
+@pytest.mark.parametrize("supabase_var", ["SUPABASE_ANON_KEY", "SUPABASE_SERVICE_KEY"])
+def test_backend_key_equal_to_a_supabase_key_is_refused(tmp_path, supabase_var):
+    """A duplicate key-auth credential makes Kong reject the whole file.
+
+    Skipping the backend consumer would not help either: the Supabase consumer
+    holding that key lacks the ``backend_api`` group, so the backend gate 403s.
+    """
+    gen = _generator(tmp_path, f"{supabase_var}=backend-key\n")
+
+    with pytest.raises(ValueError, match="BACKEND_KONG_API_KEY must differ"):
+        gen.get_consumers()
+
+
 def test_every_key_auth_supabase_service_admits_only_anon_and_admin(tmp_path):
     services = _generator(tmp_path).get_supabase_services()
     keyed = [s for s in services if any(p["name"] == "key-auth" for p in s["plugins"])]

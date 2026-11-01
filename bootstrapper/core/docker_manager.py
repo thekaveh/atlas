@@ -138,11 +138,14 @@ class DockerManager:
         except RuntimeError:
             return False
 
-    # Minimum Compose version for the per-service modular layout. v2.20.3+ is
-    # the floor (top-level `include:` directive + cross-include depends_on
-    # merging). v2.26+ is documented as recommended because earlier 2.2x
-    # releases had several `include:` + `profiles:` interaction bugs.
-    MIN_COMPOSE_VERSION = (2, 20, 3)
+    # Minimum Compose version for the per-service modular layout. v2.23.1+ is
+    # the floor: v2.20.3 added the top-level `include:` directive and
+    # cross-include depends_on merging, and v2.23.1 added inline top-level
+    # `configs.content` (used by services/langfuse/compose.yml, which
+    # docker-compose.yml always includes). v2.26+ is documented as
+    # recommended because earlier 2.2x releases had several `include:` +
+    # `profiles:` interaction bugs.
+    MIN_COMPOSE_VERSION = (2, 23, 1)
     RECOMMENDED_COMPOSE_VERSION = (2, 26, 0)
 
     def check_compose_version(self) -> tuple[bool, str]:

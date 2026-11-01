@@ -37,7 +37,6 @@ from wizard.llm_steps import cloud_secret_title
 _KEY = "sk-test-DO-NOT-LEAK-0123456789"
 
 _OPENAI = CLOUD_PROVIDERS[0]
-_ANTHROPIC = CLOUD_PROVIDERS[1]
 _OPENROUTER = CLOUD_PROVIDERS[2]
 
 

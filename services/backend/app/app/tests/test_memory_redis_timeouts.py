@@ -159,6 +159,7 @@ def test_only_the_lease_owner_completes_or_releases_it(live_lease):
     assert client.get(key) == "running:a"
 
     assert celery_app.complete_memory_execution(task_id, "a", result) is True
+    assert 0 < client.ttl(key) <= celery_app._visibility_timeout
     assert celery_app.claim_memory_execution(task_id, "b") == ("done", result)
     assert celery_app.release_memory_execution(task_id, "a") is False
     assert client.get(key).startswith("done:")

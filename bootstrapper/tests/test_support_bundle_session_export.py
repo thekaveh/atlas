@@ -198,6 +198,24 @@ def test_bundle_ok_agrees_with_doctor_for_an_unavailable_check():
         assert sb.build_bundle(sb.BundleRequest(env={}, checks=[check])).body["ok"] is True
 
 
+def test_secret_named_config_is_redacted_by_key_whatever_its_value_shape(monkeypatch):
+    """Short and word-like secrets bypass value matching, so the key name must redact them."""
+    import io
+    from core import support_bundle as sb
+
+    monkeypatch.setattr(sb.os, "environ", {})
+    env = {"SUPABASE_DB_PASSWORD": "hunter", "REDIS_PASSWORD": "x9Q", "LLM_PROVIDER_SOURCE": "none"}
+    bundle = sb.build_bundle(sb.BundleRequest(env=env, include_unlisted=True))
+    values = {entry["key"]: entry["value"] for entry in bundle.body["config"]}
+    assert values == {"LLM_PROVIDER_SOURCE": "none", "REDIS_PASSWORD": sb.REDACTED,
+                      "SUPABASE_DB_PASSWORD": sb.REDACTED}
+    with tarfile.open(fileobj=io.BytesIO(sb.archive_bytes(bundle))) as archive:
+        payload = b"".join(archive.extractfile(member).read() for member in archive.getmembers())
+    shown = "\n".join(sb.preview_lines(bundle))
+    for secret in ("hunter", "x9Q"):
+        assert secret.encode() not in payload and secret not in shown
+
+
 def _assert_bundle_base_port_origin(body, expected):
     entry = next(entry for entry in body["config"] if entry["key"] == "BASE_PORT")
     assert entry["origin"] == expected and expected in entry["action"]

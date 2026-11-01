@@ -1188,6 +1188,11 @@ class DatabaseCoordinator:
         timeout (stop/start/status, default 120 s) is far too short for them."""
         return max(self.timeout, 900)
 
+    def _neo4j_job_timeout(self, steps: int) -> int:
+        """offline-backup.sh / offline-restore.sh chain ``steps`` data-sized
+        commands, each bounded by data_timeout plus `timeout -k 10`."""
+        return steps * (self.data_timeout + 10) + 60
+
     def _bounded_count(self, name: str, default: str, maximum: int) -> int:
         # README §3 documents these as .env settings; the host scripts never
         # source .env, so read it like every other setting here.
@@ -1658,7 +1663,8 @@ class DatabaseCoordinator:
                 "--entrypoint", "bash", NEO4J_IMAGE,
                 "/scripts/offline-restore.sh", f"/restore/{artifact_stage}/neo4j",
             ],
-            timeout=self.data_timeout,
+            # Two sha256, two `load --info`, two loads and two checks.
+            timeout=self._neo4j_job_timeout(8),
         )
         self._validate_neo4j_data_volume(stage_volume, "neo-validate")
         return stage_volume
@@ -2158,7 +2164,8 @@ class DatabaseCoordinator:
                         "-e", f"BACKUP_DATABASE_QUIESCE_TIMEOUT_SECONDS={self.data_timeout}",
                         "--entrypoint", "bash", service, "/scripts/offline-backup.sh",
                     ],
-                    timeout=self.data_timeout,
+                    # Two dumps and two sha256 checks, each one data window.
+                    timeout=self._neo4j_job_timeout(4),
                 )
             except BaseException:
                 self._finish_compose_job(name, preserve_primary=True)

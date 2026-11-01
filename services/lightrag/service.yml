@@ -229,6 +229,7 @@ env:
   - name: LIGHTRAG_NEO4J_PASSWORD
     description: "Set by ./start.sh from GRAPH_DB_PASSWORD; do not edit. Empty when Neo4j is disabled."
     auto_managed: true
+    secret: true
   - name: LIGHTRAG_REDIS_URI
     description: "Set by ./start.sh; do not edit. Redis URI (db 2) for LightRAG KV and document-status storage; empty when Redis is disabled."
     auto_managed: true

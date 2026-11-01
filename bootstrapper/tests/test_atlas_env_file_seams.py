@@ -283,6 +283,49 @@ def test_each_writer_leaves_env_owner_only(tmp_path, write):
     assert "OPENAI_API_KEY=sk-x" in env.read_text(encoding="utf-8").splitlines()
 
 
+def _start_writers():
+    def merge_overrides(starter):
+        starter._merge_env_file_overrides({"X": "1"})
+
+    def remove_by_prefix(starter):
+        starter._remove_env_keys_by_prefix("ATLAS_STORE_")
+
+    def migration_marker(starter):
+        import start
+
+        start._prepare_migration_marker(starter.config_parser.env_file_path)
+
+    return [merge_overrides, remove_by_prefix, migration_marker]
+
+
+@pytest.mark.parametrize("write", _start_writers(), ids=lambda w: w.__name__)
+def test_each_start_writer_leaves_env_owner_only(tmp_path, monkeypatch, write):
+    """`doctor`, `compose validate` and `env backfill` reach these writers
+    without the start-time chmod, so each must force 0o600 itself."""
+    import stat
+
+    import start
+
+    monkeypatch.delenv("ATLAS_ENV_FILE", raising=False)
+    monkeypatch.delenv("GENAI_ENV_FILE", raising=False)
+    env = tmp_path / ".env"
+    env.write_text(
+        "SUPABASE_JWT_SECRET=old-value\nATLAS_STORE_A=1\n"
+        "BOOTSTRAPPER_PORT_LAYOUT_VERSION=1\nBOOTSTRAPPER_PORT_LAYOUT_VERSION=2\n",
+        encoding="utf-8",
+    )
+    env.chmod(0o644)
+    before = env.read_text(encoding="utf-8")
+    starter = start.AtlasStarter.__new__(start.AtlasStarter)
+    starter.config_parser = ConfigParser(str(tmp_path))
+
+    write(starter)
+
+    assert env.read_text(encoding="utf-8") != before  # the writer ran
+    assert stat.S_IMODE(env.stat().st_mode) == 0o600
+    assert "SUPABASE_JWT_SECRET=old-value" in env.read_text(encoding="utf-8").splitlines()
+
+
 def test_set_env_assignment_appends_only_when_the_key_is_absent():
     from utils.atomic_write import set_env_assignment
 

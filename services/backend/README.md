@@ -41,7 +41,7 @@ Backend Kong route authentication:
 
 ```bash
 BACKEND_KONG_AUTH=disabled        # disabled (default) or key-auth
-BACKEND_KONG_API_KEY=             # auto-generated; send as apikey when key-auth is enabled
+BACKEND_KONG_API_KEY=             # auto-generated; send as apikey when key-auth is enabled; must differ from both Supabase keys
 ```
 
 Application identity (required by default on every non-public route):
@@ -52,13 +52,8 @@ BACKEND_INTERNAL_API_TOKEN=       # auto-generated; full operator scope
 BACKEND_N8N_API_TOKEN=            # auto-generated; n8n workflow scope
 BACKEND_NOTEBOOK_API_TOKEN=       # auto-generated; stateless notebook routes only
 BACKEND_OPEN_WEBUI_API_TOKEN=     # auto-generated; memory/legacy ComfyUI scope
-COMFYUI_MAX_IMAGE_BYTES=20971520  # bounded ComfyUI image input/output
-COMFYUI_INIT_IMAGE_TRUSTED_ORIGINS=  # exact HTTPS origins; blank rejects remote URLs
-COMFYUI_COMPLETION_TIMEOUT_SECONDS=300  # synchronous generation deadline; on expiry the legacy routes cancel the prompt and return 504 with its prompt_id
 SUPABASE_JWT_SECRET=              # verifies authenticated Supabase user JWTs
 ```
-
-A malformed `COMFYUI_MAX_IMAGE_BYTES` or `COMFYUI_INIT_IMAGE_TRUSTED_ORIGINS` value fails Backend startup, whatever `COMFYUI_SOURCE` is.
 
 Token scopes:
 
@@ -231,10 +226,14 @@ FAL_ENABLE_SAFETY_CHECKER=true
 MEDIA_REQUEST_MAX_BYTES=41943040
 MEDIA_INPUT_MAX_BYTES=26214400
 MEDIA_INPUT_MAX_PIXELS=40000000
+COMFYUI_MAX_IMAGE_BYTES=20971520  # bounded ComfyUI image input/output
+COMFYUI_INIT_IMAGE_TRUSTED_ORIGINS=  # exact HTTPS origins; blank rejects remote URLs
 MEDIA_OPERATION_TTL_SECONDS=604800
 MEDIA_LEDGER_RECOVERY_BATCH_SIZE=100
 MEDIA_LEDGER_RECOVERY_MAX_CYCLES=4
 ```
+
+A malformed `COMFYUI_MAX_IMAGE_BYTES` or `COMFYUI_INIT_IMAGE_TRUSTED_ORIGINS` value fails Backend startup, whatever `COMFYUI_SOURCE` is.
 
 **Operations and artifacts.**
 
@@ -286,6 +285,7 @@ MEDIA_LEDGER_RECOVERY_MAX_CYCLES=4
 - `POST /comfyui/generate` uses FAL when `FAL_SOURCE=enabled`, and ComfyUI otherwise. With FAL it returns `409` while media budgets are enabled, because it reserves no budget. It returns `504` on a FAL timeout and `502` when FAL's reply cannot be parsed.
 - If ComfyUI may have queued a prompt without confirming it, `/comfyui/generate` and `/comfyui/workflow` return `504`. Check `/comfyui/queue` before you retry, because a retry can render twice.
 - Only a connection failure returns a retryable `503`. After a prompt is queued, a timeout or a lost history poll returns `504` with its `prompt_id`. An invalid history reply after queueing returns `502` with its `prompt_id`.
+- `COMFYUI_COMPLETION_TIMEOUT_SECONDS` (default `300`, at most 3,600) is the default `timeout_seconds` of `/comfyui/generate` and `/comfyui/workflow`. On expiry they cancel the prompt and return `504` with its `prompt_id`.
 - `GET /comfyui/health` returns ComfyUI's `system_stats` only to n8n, Open WebUI and service callers. A user token gets the status alone.
 
 **Spend ledger and budgets (`MEDIA_BUDGET_ENABLED`, disabled by default).**
@@ -305,7 +305,17 @@ MEDIA_LEDGER_RECOVERY_MAX_CYCLES=4
 - A provider in `MEDIA_DISABLED_PROVIDERS` gets `403` on `/media/generate`, `/comfyui/generate` and `/comfyui/workflow`, with or without budgets. The read-only `/comfyui/*` routes are not refused.
 - With or without enforcement, an ambiguous FAL submission creates a recovery row in `MEDIA_BUDGET_STORE`. Keep the default `postgres` store so recovery survives restarts; `memory` is ephemeral.
 
-The Backend's `/docs` (Swagger) endpoint serves the full media request and response contract. It also serves the validation rules, byte and pixel limits, ledger schema, concurrency guarantees and reconciliation behavior.
+The Backend's `/docs` (OpenAPI) page lists the media routes and their request and response envelopes. It types `input` as a free-form object. The accepted keys are:
+
+- FAL `image`: `prompt` (required, at most 4,000 characters), `seed`, `steps`, `cfg` or `guidance_scale`, and `num_images` (1–4).
+    - Text-to-image also takes `width` and `height` or `image_size` (64–4,096).
+    - An init image (`image_url`, `image` or `init_image`) with optional `strength` switches the default model to `fal-ai/flux/dev/image-to-image`.
+    - The default FLUX models reject `negative_prompt`. Other FAL endpoints need `provider_arguments` with a matching `prompt`.
+- FAL `image_to_3d`: `image` (a URL or data URI) and optional `seed`. Other keys return `400`.
+- ComfyUI `image`: `prompt`, `negative_prompt`, `width` and `height` or `image_size`, `steps` or `num_inference_steps`, `cfg` or `guidance_scale`, `sampler_name`, `scheduler` and `seed`.
+    - It also takes one init image (`image_url`, `image` or `init_image`) with optional `strength`.
+
+An invalid value returns `400`. The status codes and reconciliation rules are in the sections above.
 
 ### 3.7. Chunking and evaluation
 
@@ -349,6 +359,8 @@ BACKEND_HEAVY_WORK_TIMEOUT_SECONDS=600   # wait per call, then 504; the slot fre
 | `GET /workflows` | `503` / `502` | n8n is unreachable / n8n returned an HTTP error or an invalid workflow inventory. |
 | `POST /research/{session_id}/cancel` | `404` / `409` | Unknown or foreign session / session not running. |
 
+`/workflows` calls the n8n public API with `N8N_API_KEY`. n8n issues that key only in its UI (Settings → n8n API). Until you set it in `.env` and recreate the Backend, `GET /workflows` returns `502`.
+
 ## 4. Architecture & wiring
 
 **Request flow.** Open WebUI sends chat completions straight to LiteLLM (`http://litellm:4000/v1`); the Backend is not in that path. Open WebUI's bundled memory tool and filter call Backend memory routes, such as `POST /memory/recall`. Other callers, such as n8n, JupyterHub and downstream consumers, reach the Backend directly or through Kong at `api.localhost`.
@@ -370,7 +382,7 @@ A disabled optional service degrades only its feature:
 
 **Limits and deadlines.**
 
-- Ray control-plane calls: 5 s connect and 30 s read. A timed-out submit, status or stop returns `504` with the `submission_id` to reconcile. Do not resubmit blindly.
+- Ray control-plane calls: 5 s connect and 30 s read. A timed-out submit, status or stop returns `504` with the `submission_id` to reconcile. Do not resubmit blindly. A refused or dropped dashboard connection on status, logs or stop returns `503`.
 - Postgres pool: if all `BACKEND_PG_POOL_MAX` connections stay busy for 5 s, the request gets `503` with `Retry-After: 1`. Readiness stays green. Metrics: `backend_pg_pool_saturated_total`, `backend_pg_pool_acquire_wait_seconds`.
 - A new Postgres connection that takes over 5 s to open fails as a database error, not as saturation.
 - Request bodies are capped before parsing. `/media/generate` authenticates, then buffers up to `MEDIA_REQUEST_MAX_BYTES` (40 MiB).
@@ -414,7 +426,7 @@ A disabled optional service degrades only its feature:
 
 **Graphiti experiment status:** `GET /memory/graphiti/status` returns the disabled-by-default experiment configuration and namespace pattern. It does not import `graphiti-core` or write to Neo4j. Treat it as a readiness and contract endpoint for future backend-only Graphiti work, not as an active memory writer.
 
-**RAG chunking gateway:** `POST /api/chunk` centralizes Chonkie text splitting in the Backend. n8n workflows, notebooks, and future ingestion routes call it. Chunking defaults, offsets, overlap and semantic model choice then stay consistent. JupyterHub also installs Chonkie for exploratory notebook work, but the Backend endpoint is the canonical runtime API.
+**RAG chunking gateway:** `POST /api/chunk` centralizes Chonkie text splitting in the Backend. Notebooks call it with the notebook token. RAG ingestion runs the same `chunk_text` code in process. Chunking defaults, offsets, overlap and semantic model choice then stay consistent. JupyterHub also installs Chonkie for exploratory notebook work, but the Backend endpoint is the canonical runtime API.
 
 **RAG ingestion job engine (`rag_ingestion/`).** `POST /api/rag/ingestions` runs an idempotent lifecycle over a consumer-declared `rag_ingestion_profile`. The phases are discover, parse, chunk, embed, vector-store write, LightRAG upload, drain and finalize. It runs through the Celery tier when enabled, and synchronously otherwise. Profile contract: [Consumer Manifest Reference §11](../../docs/reference/consumer-manifest.md#11-rag_ingestion_profiles).
 
@@ -480,7 +492,7 @@ With a consumer manifest, run `./start.sh --consumer <manifest>` again instead. 
 For Redis password references or shell overrides, rerun `./start.sh` with the deployment's usual options.
 See [Redis configuration](../redis/README.md#3-configuration) for transient credential handling.
 
-Recreate the Backend also after a runtime dependency change. Set `BACKEND_DEV_RELOAD=true` to run `uvicorn[standard] --reload` and hot-reload host-side edits. It is off by default, because git churn in the bind-mounted plugin directory can restart or crash-loop the Backend.
+A runtime dependency change needs a new image, because the Dockerfile installs `requirements.txt` at build time. Run `docker compose -p <PROJECT_NAME> build backend`, then recreate the Backend as above. Set `BACKEND_DEV_RELOAD=true` to run `uvicorn[standard] --reload` and hot-reload host-side edits. It is off by default, because git churn in the bind-mounted plugin directory can restart or crash-loop the Backend.
 
 ## 5. LightRAG integration
 
@@ -629,8 +641,8 @@ _Rows marked planned are documented or intended, not wired yet._
   - *Mechanism:* add `hermes_client.py` next to `n8n_client.py`. Call `${HERMES_ENDPOINT}/v1/sessions` and `/skills` with `Authorization: Bearer ${HERMES_API_KEY}`. Expose `POST /agents/hermes/run` + `GET /agents/hermes/sessions/{id}`.
   - *Effort:* small. *Confidence:* medium.
 - **backend ↔ jupyterhub**
-  - *Why:* notebook users reach the research, memory and ComfyUI APIs only through Kong + tokens, and the Backend has no view of JupyterHub state. A thin bridge enables programmatic notebook launches for batch evaluations.
-  - *Mechanism:* call JupyterHub REST at `http://jupyterhub:8000/hub/api` with `Authorization: token ${JUPYTERHUB_TOKEN}`. Expose a `POST /notebooks/users/{name}/server` proxy. Share `MINIO_BUCKET_JUPYTER` for artifact handoff.
+  - *Why:* notebooks call the Backend directly at `BACKEND_API_URL` with a scoped notebook token. That token reaches only `/documents/extract`, `/api/chunk` and `/api/rag/evaluate`. Other routes need a Supabase user JWT or a service token. The Backend has no view of notebook-server state. A thin bridge enables programmatic notebook runs for batch evaluations.
+  - *Mechanism:* pass `JUPYTERHUB_TOKEN` to the Backend. Call the single-user Jupyter Server REST API at `http://jupyterhub:8888/api` (kernels, sessions, contents) with `Authorization: token ${JUPYTERHUB_TOKEN}`. Expose a `POST /notebooks/sessions` proxy. Per-user server launch needs the multi-user Hub listed in [JupyterHub](../jupyterhub/README.md) §17.6. Share `MINIO_BUCKET_JUPYTER` for artifact handoff.
   - *Effort:* medium. *Confidence:* medium.
 - **backend ↔ neo4j (knowledge-graph endpoints)**
   - *Why:* `neo4j`, `langchain-neo4j` and `NEO4J_URI`/`USER`/`PASSWORD` are installed and injected, but no graph endpoints exist. LangMem facts and research sources fit a graph well.

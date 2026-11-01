@@ -78,10 +78,10 @@ services:
       WEAVIATE_URL: ${WEAVIATE_URL}
       # Prometheus metrics endpoint — n8n exposes /metrics on its main
       # port (5678) when N8N_METRICS=true. Scraped by the observability
-      # bundle's Prometheus when PROMETHEUS_SOURCE=container. The
-      # runtime_sc.environment block in services/n8n/service.yml is the
-      # source of truth for these defaults; mirror them here so they
-      # actually reach the container at startup.
+      # bundle's Prometheus when PROMETHEUS_SOURCE=container. The env block
+      # in services/n8n/service.yml declares these variables and their
+      # defaults (.env.example); the fallbacks here mirror them. Its
+      # runtime_sc.environment block is not forwarded to the container.
       N8N_METRICS: ${N8N_METRICS:-true}
       N8N_METRICS_PREFIX: ${N8N_METRICS_PREFIX:-n8n_}
       N8N_METRICS_INCLUDE_DEFAULT_METRICS: ${N8N_METRICS_INCLUDE_DEFAULT_METRICS:-true}

@@ -113,7 +113,7 @@ Check the `examples/` directory for sample notebooks demonstrating:
 - `01_litellm_basics.ipynb` - LLM access via the LiteLLM gateway
 - `02_langchain_rag.ipynb` - RAG pipeline with Weaviate
 - `03_neo4j_graphs.ipynb` - Knowledge graphs with Neo4j
-- `04_supabase_data.ipynb` - Database and storage operations
+- `04_supabase_data.ipynb` - PostgreSQL queries and a read-only Storage bucket listing
 - `05_comfyui_images.ipynb` - Image generation with ComfyUI
 - `06_n8n_workflows.ipynb` - Workflow automation with n8n
 - `07_ray_cluster.ipynb` - Ray Client example (needs a Python 3.10 kernel; see the notebook)

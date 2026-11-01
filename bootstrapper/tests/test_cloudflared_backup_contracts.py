@@ -1885,6 +1885,11 @@ def _presession_stopped_producer_fixture(tmp_path: Path) -> tuple[Path, Path]:
         "set -eu\n"
         "if [ \"${4:-}\" = atlas-s3-producer ]; then\n"
         "  printf '%s' \"$$\" >\"$PRODUCER_PID\"\n"
+        # Bounded reaper: an interrupted pytest run must not leave this
+        # stopped fake alive. SIGCONT lets it reach `exit 70` on its own;
+        # the reaper quits as soon as the supervisor has killed it.
+        "  (i=0; while [ \"$i\" -lt 120 ] && kill -0 \"$$\"; do sleep 1; i=$((i + 1)); done;"
+        " kill -CONT \"$$\") >/dev/null 2>&1 &\n"
         "  kill -STOP \"$$\"\n"
         "fi\n"
         "exit 70\n",
@@ -3771,7 +3776,8 @@ case "$1" in
     trap 'exit 129' HUP
     trap 'exit 130' INT
     trap 'exit 143' TERM
-    while :; do sleep 1; done
+    # Bounded so an interrupted pytest run cannot leave this fake looping.
+    i=0; while [ "$i" -lt 120 ]; do sleep 1; i=$((i + 1)); done; exit 124
     ;;
 esac
 exit 0
@@ -5521,7 +5527,8 @@ def test_bulk_volume_steps_use_the_data_timeout():
 def test_neo4j_dump_and_load_are_bounded_by_the_data_timeout():
     """offline-backup/restore bound every dump, load and check with the value
     passed in, which was the 120 s quiesce timeout: any real-sized graph's
-    backup exited 124 and its restore could never complete."""
+    backup exited 124 and its restore could never complete. The job deadline
+    covers every chained step: 8 restore steps and 4 backup steps of 910 s."""
     from types import SimpleNamespace
 
     from tests.test_database_backup_third_rereview import _coordinator, _module
@@ -5529,10 +5536,16 @@ def test_neo4j_dump_and_load_are_bounded_by_the_data_timeout():
     module = _module(); coordinator = _coordinator(module)
     coordinator.timeout = 120
     commands: list = []
-    coordinator._owned_run = lambda role, command, **kw: commands.append(command)
+    timeouts: list = []
+    coordinator._owned_run = lambda role, command, **kw: (
+        commands.append(command), timeouts.append((role, kw.get("timeout")))
+    )
     coordinator.runner = SimpleNamespace(
         create_volume=lambda _n: "vol", unique_name=lambda n: n, register_container=lambda _n: None,
-        run=lambda command, **kw: commands.append(command), scope="s",
+        run=lambda command, **kw: (
+            commands.append(command), timeouts.append(("compose-run", kw.get("timeout")))
+        ),
+        scope="s",
     )
     coordinator._validate_neo4j_data_volume = lambda *_a: None
     coordinator.repo = Path("/repo"); coordinator.token = "t"
@@ -5541,6 +5554,7 @@ def test_neo4j_dump_and_load_are_bounded_by_the_data_timeout():
     coordinator.validate_neo4j_stage("artifacts", "stage")
     coordinator.backup_neo4j("20261007T000000Z")
     assert all("BACKUP_DATABASE_QUIESCE_TIMEOUT_SECONDS=900" in c for c in commands), commands
+    assert timeouts == [("neo-load", 8 * 910 + 60), ("compose-run", 4 * 910 + 60)], timeouts
 
 
 from tests.test_database_role_boundaries import (  # noqa: E402
@@ -5836,8 +5850,7 @@ def test_init_containers_mount_repo_sources_read_only_and_label_studio_blocks_ss
     repo = Path(__file__).resolve().parents[2]
     writable = list(_writable_repo_init_mounts(repo))
     # Not yet reviewed for read-only mounts; listed so a new one is noticed.
-    pending_review = {"airflow/airflow-init: ./dags:/opt/airflow/dags",
-                      "supabase/supabase-db-init: ./db/scripts:/scripts"}
+    pending_review = {"airflow/airflow-init: ./dags:/opt/airflow/dags"}
     assert sorted(set(writable) - pending_review) == [], writable
     label_studio = yaml.safe_load((repo / "services/label-studio/compose.yml").read_text())
     assert label_studio["services"]["label-studio"]["environment"]["SSRF_PROTECTION_ENABLED"] == "true"

@@ -30,10 +30,10 @@
     {
       "name": "flux1-dev-Q4_K_S",
       "family": "Flux",
-      "category": "checkpoint",
-      "size_gb": 8.10,
+      "category": "diffusion_models",
+      "size_gb": 6.34,
       "url": "https://huggingface.co/city96/FLUX.1-dev-gguf/resolve/main/flux1-dev-Q4_K_S.gguf",
-      "target_dir": "checkpoints",
+      "target_dir": "diffusion_models",
       "min_vram_gb": 10.0,
       "cpu_supported": false,
       "requires_custom_node": ["ComfyUI-GGUF"],
@@ -43,8 +43,8 @@
       "name": "dreamshaper-8",
       "family": "DreamShaper",
       "category": "checkpoint",
-      "size_gb": 4.27,
-      "url": "https://huggingface.co/Lykon/dreamshaper-8/resolve/main/DreamShaper_8_pruned.safetensors",
+      "size_gb": 1.99,
+      "url": "https://huggingface.co/Lykon/DreamShaper/resolve/main/DreamShaper_8_pruned.safetensors",
       "target_dir": "checkpoints",
       "min_vram_gb": 4.0,
       "cpu_supported": true,
@@ -122,18 +122,6 @@
       "cpu_supported": true,
       "requires_custom_node": [],
       "popularity": 85
-    },
-    {
-      "name": "bad-hands-5",
-      "family": "BadHands",
-      "category": "embedding",
-      "size_gb": 0.001,
-      "url": "https://huggingface.co/embed/bad-hands-5/resolve/main/bad-hands-5.pt",
-      "target_dir": "embeddings",
-      "min_vram_gb": null,
-      "cpu_supported": true,
-      "requires_custom_node": [],
-      "popularity": 80
     },
     {
       "name": "clip-vit-large-patch14",
@@ -222,18 +210,6 @@
       "popularity": 65
     },
     {
-      "name": "cogvideox-5b-Q4_K_S",
-      "family": "CogVideoX",
-      "category": "video_model",
-      "size_gb": 3.7,
-      "url": "https://huggingface.co/city96/CogVideoX-5b-gguf/resolve/main/CogVideoX-5b-Q4_K_S.gguf",
-      "target_dir": "checkpoints",
-      "min_vram_gb": 16.0,
-      "cpu_supported": false,
-      "requires_custom_node": ["ComfyUI-GGUF"],
-      "popularity": 70
-    },
-    {
       "name": "xtts-v2",
       "family": "XTTS",
       "category": "voice_model",
@@ -261,8 +237,8 @@
       "name": "instantmesh-large",
       "family": "InstantMesh",
       "category": "mesh_model",
-      "size_gb": 3.70,
-      "url": "https://huggingface.co/TencentARC/InstantMesh/resolve/main/diffusion_pytorch_model.safetensors",
+      "size_gb": 1.41,
+      "url": "https://huggingface.co/TencentARC/InstantMesh/resolve/main/instant_mesh_large.ckpt",
       "target_dir": "mesh_models",
       "min_vram_gb": 10.0,
       "cpu_supported": false,

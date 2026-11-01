@@ -17,7 +17,6 @@ services:
       # Vault secrets became undecryptable. A new named volume is seeded
       # from the image's directory, so its shipped .conf files are kept.
       - supabase-db-config:/etc/postgresql-custom
-      - ./db/snapshot:/snapshot
       - ./db/scripts/enforce-scram-host-auth.sh:/usr/local/bin/enforce-scram-host-auth.sh:ro
     # The script execs the image entrypoint with these arguments. They must
     # keep the image's own `-D /etc/postgresql`: without it Postgres reads the
@@ -105,7 +104,7 @@ services:
       ZEPPELIN_DB_USER: ${ZEPPELIN_DB_USER}
       ZEPPELIN_DB_PASSWORD: ${ZEPPELIN_DB_PASSWORD:?ZEPPELIN_DB_PASSWORD is required}
     volumes:
-      - ./db/scripts:/scripts
+      - ./db/scripts:/scripts:ro
       - ./db/_user:/user-scripts:ro
     entrypoint: ["/scripts/db-init-runner.sh"]
     depends_on:

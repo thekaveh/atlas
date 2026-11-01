@@ -265,8 +265,8 @@ data_flow:
     - searxng
     # Hermes → Airflow: DOCUMENTED integration pattern, not a pre-wired
     # runtime call. The third-party nousresearch/hermes-agent image has no
-    # built-in Airflow client; services/hermes/README.md §9 and
-    # services/airflow/README.md §6 show the curl pattern users wire from
+    # built-in Airflow client; services/hermes/README.md §8 shows the
+    # pattern (services/airflow/README.md §6 points to it) users wire from
     # inside Hermes Skills / dashboard widgets. Declared planned (#1273) so
     # the generated diagrams show the supported pattern without claiming a
     # live call; remove the entry if a future PR retracts the docs.

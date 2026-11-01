@@ -192,7 +192,13 @@ def _runtime_surface_values(manifest: Manifest, source_var: str) -> list[str]:
         variants = manifest.runtime_sc.get(key)
         if isinstance(variants, dict):
             return [str(option) for option in variants.keys()]
-    return []
+    # No runtime_sc slice (e.g. the single-option BACKEND_SOURCE): fall back
+    # to the declared default so the matrix lists it instead of "-".
+    return [
+        str(env.default)
+        for env in manifest.env
+        if env.name == source_var and env.default is not None
+    ][:1]
 
 
 def _source_metadata(
@@ -214,7 +220,7 @@ def _source_metadata(
         # lists EVERY *_SOURCE var, not just the primary (#836). The primary
         # (manifest.sources.var) is already surfaced above; skip it. Values
         # resolve via the same runtime_sc lookup the no-sources-block branch
-        # uses (empty → "-"), never the primary's option list.
+        # uses (declared default, else "-"), never the primary's option list.
         for env in manifest.env:
             if env.name.endswith("_SOURCE") and env.name != manifest.sources.var:
                 source_surfaces.append(

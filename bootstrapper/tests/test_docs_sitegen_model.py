@@ -34,6 +34,8 @@ def test_docs_model_service_access_and_dependencies_are_normalized() -> None:
 
     assert litellm.source_var == "LITELLM_SOURCE"
     assert litellm.source_values
+    # A single-valued always-on service lists its env default, not "-".
+    assert model.services_by_name["backend"].source_values == ["container"]
     assert isinstance(litellm.required_dependencies, list)
     assert isinstance(litellm.optional_dependencies, list)
     assert isinstance(litellm.runtime_calls, list)

@@ -152,6 +152,23 @@ def test_key_generation_preserves_raw_database_names_and_derives_path_components
     assert "LABEL_STUDIO_DB_NAME_URI" not in values
 
 
+def _declared_env_keys(path: Path) -> set[str]:
+    lines = path.read_text(encoding="utf-8").splitlines()
+    return {line.split("=", 1)[0] for line in lines if line[:1].isalpha() and "=" in line}
+
+
+def test_key_generation_adds_only_declared_keys(tmp_path, monkeypatch) -> None:
+    """URI twins exist only for DSN consumers; nothing undeclared lands in .env."""
+    example = REPO / ".env.example"
+    shutil.copyfile(example, tmp_path / ".env")
+    monkeypatch.setattr(KeyGenerator, "_project_volume_exists", lambda *_a, **_k: False)
+
+    KeyGenerator(str(tmp_path)).generate_missing_keys()
+
+    undeclared = _declared_env_keys(tmp_path / ".env") - _declared_env_keys(example)
+    assert undeclared == set()
+
+
 def test_scoped_uri_userinfo_never_interpolates_raw_credentials() -> None:
     offenders: list[str] = []
     paths = [

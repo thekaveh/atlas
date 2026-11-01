@@ -34,21 +34,31 @@ def _isolate_native_host_state(monkeypatch):
 
 def _stopper_with_stop_result(monkeypatch, rc: int):
     stopper = stop_module.AtlasStopper()
+    calls: list[dict] = []
     monkeypatch.setattr(
         stopper.docker_manager, "stop_services",
-        lambda remove_volumes, remove_orphans: rc,
+        lambda **kwargs: calls.append(kwargs) or rc,
     )
-    return stopper
+    return stopper, calls
 
 
 def test_stop_services_returns_false_on_compose_failure(monkeypatch):
-    stopper = _stopper_with_stop_result(monkeypatch, rc=1)
+    stopper, _calls = _stopper_with_stop_result(monkeypatch, rc=1)
     assert stopper.stop_services(cold_stop=False, project_name="atlas") is False
 
 
 def test_stop_services_returns_true_on_success(monkeypatch):
-    stopper = _stopper_with_stop_result(monkeypatch, rc=0)
+    stopper, calls = _stopper_with_stop_result(monkeypatch, rc=0)
     assert stopper.stop_services(cold_stop=False, project_name="atlas") is True
+    # A plain stop must never reach `down --volumes`: that deletes project data.
+    assert calls == [{"remove_volumes": False, "remove_orphans": True}]
+
+
+def test_cold_stop_returns_false_when_volume_cleanup_fails(monkeypatch):
+    stopper, calls = _stopper_with_stop_result(monkeypatch, rc=0)
+    monkeypatch.setattr(stopper.docker_manager, "perform_cold_stop_cleanup", lambda: False)
+    assert stopper.stop_services(cold_stop=True, project_name="atlas") is False
+    assert calls == []
 
 
 def test_main_exits_nonzero_when_stop_fails(monkeypatch):
@@ -59,13 +69,14 @@ def test_main_exits_nonzero_when_stop_fails(monkeypatch):
     calls = []
     monkeypatch.setattr(
         stop_module.AtlasStopper, "stop_services",
-        lambda self, cold, project_name: calls.append(project_name) or False,
+        lambda self, cold, project_name: calls.append((cold, project_name)) or False,
     )
     monkeypatch.setattr(
         stop_module.AtlasStopper, "ensure_dependencies_available", lambda self: True,
     )
     result = click.testing.CliRunner().invoke(stop_module.main, [])
-    assert calls == ["atlas"], "stop_services never ran"
+    # A bare ./stop.sh is a plain stop that keeps volumes.
+    assert calls == [(False, "atlas")], "stop_services never ran"
     assert result.exit_code == 1
     # The generic crash handler also exits 1; the failure must be the
     # reported stop result, not a crash before stop ran.
@@ -324,6 +335,125 @@ def test_privileged_hosts_cleanup_uses_bytecode_free_python_child(monkeypatch):
     assert "stop.sh" not in args
     assert kwargs["env"]["PYTHONDONTWRITEBYTECODE"] == "1"
     assert "bootstrapper" in kwargs["env"]["PYTHONPATH"]
+
+
+def test_privileged_hosts_cleanup_reports_a_failed_sudo_child(monkeypatch):
+    import importlib
+
+    system_utils = importlib.import_module("utils.system")
+    monkeypatch.setattr(system_utils, "is_elevated", lambda: False)
+    monkeypatch.setattr(
+        stop_module.subprocess, "run", lambda *_args, **_kwargs: SimpleNamespace(returncode=1),
+    )
+
+    assert stop_module._run_privileged_hosts_cleanup() is False
+
+
+@pytest.mark.parametrize("cleaned", [True, False])
+def test_elevated_hosts_cleanup_reports_the_hosts_file_result(monkeypatch, cleaned):
+    import importlib
+
+    system_utils = importlib.import_module("utils.system")
+    monkeypatch.setattr(system_utils, "is_elevated", lambda: True)
+    monkeypatch.setattr(
+        stop_module, "HostsManager",
+        lambda: SimpleNamespace(cleanup_hosts_entries=lambda: cleaned),
+    )
+    monkeypatch.setattr(
+        stop_module.subprocess, "run",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("no sudo when elevated")),
+    )
+
+    assert stop_module._run_privileged_hosts_cleanup() is cleaned
+
+
+class _UnprovenStopManager:
+    """A managed host whose stop() fails with its pid file left, or raises."""
+
+    pool_index = 0
+
+    def __init__(self, pid_file, raises):
+        self.pid_file, self._raises = pid_file, raises
+
+    def status(self):
+        return SimpleNamespace(running=False)
+
+    def stop(self):
+        if self._raises:
+            raise RuntimeError("signal denied")
+        return False
+
+
+@pytest.mark.parametrize("raises", [False, True], ids=["pid-file-remains", "stop-raises"])
+@pytest.mark.parametrize("host", sorted(_MANAGED_HOST_STOPS))
+def test_managed_host_stop_fails_when_teardown_is_unproven(tmp_path, monkeypatch, host, raises):
+    from services import blender_mcp_manager, comfyui_mps_manager, vllm_metal_manager
+
+    pid_file = tmp_path / "host.pid"
+    pid_file.write_text("4242\n", encoding="utf-8")
+    manager = _UnprovenStopManager(pid_file, raises)
+    stopper = stop_module.AtlasStopper()
+    monkeypatch.setattr(stopper.config_parser, "env_file_exists", lambda: False)
+    if host == "blender":
+        monkeypatch.setattr(blender_mcp_manager, "pool_from_env", lambda _env, **_kw: [manager])
+    else:
+        module = {"comfyui": comfyui_mps_manager, "vllm": vllm_metal_manager}[host]
+        monkeypatch.setattr(module, "manager_from_env", lambda _env: manager)
+
+    assert getattr(stopper, _MANAGED_HOST_STOPS[host])() is False
+
+
+def test_blender_pool_stop_tries_every_instance_and_reports_any_failure(monkeypatch):
+    from services import blender_mcp_manager
+
+    stopped: list[int] = []
+    strays: list[bool] = []
+
+    def member(index, survives):
+        return SimpleNamespace(
+            pool_index=index, pid_file=None,
+            status=lambda: SimpleNamespace(running=survives),
+            stop=lambda: stopped.append(index) or not survives,
+        )
+
+    pool = [member(0, True), member(1, False)]
+    monkeypatch.setattr(
+        blender_mcp_manager, "pool_from_env",
+        lambda _env, *, include_strays=False: strays.append(include_strays) or pool,
+    )
+    stopper = stop_module.AtlasStopper()
+    monkeypatch.setattr(stopper.config_parser, "env_file_exists", lambda: False)
+
+    assert stopper.stop_managed_blender_mcp() is False
+    assert stopped == [0, 1]
+    # Instances above a shrunken pool size still hold pid files and must stop.
+    assert strays == [True]
+
+
+def test_default_stop_advises_for_every_blender_pool_instance(monkeypatch):
+    from services import blender_mcp_manager
+
+    strays: list[bool] = []
+    messages: list[tuple[str, str]] = []
+    pool = [SimpleNamespace(status=lambda: SimpleNamespace(running=True)) for _ in range(2)]
+    monkeypatch.setattr(
+        blender_mcp_manager, "pool_from_env",
+        lambda _env, *, include_strays=False: strays.append(include_strays) or pool,
+    )
+    stopper = stop_module.AtlasStopper()
+    monkeypatch.setattr(stopper.config_parser, "env_file_exists", lambda: False)
+    monkeypatch.setattr(
+        stopper.banner, "show_status_message",
+        lambda message, level: messages.append((message, level)),
+    )
+
+    stopper.report_managed_hosts_left_running()
+
+    assert strays == [True]
+    assert sum(
+        "Blender MCP bridge left running" in message and level == "info"
+        for message, level in messages
+    ) == 2
 
 
 def test_main_exits_nonzero_when_compose_version_preflight_fails(monkeypatch):

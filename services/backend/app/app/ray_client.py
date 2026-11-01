@@ -127,6 +127,17 @@ def _transport_timeouts() -> tuple:
             requests.exceptions.Timeout)
 
 
+def _connection_failures() -> tuple:
+    """A refused or dropped dashboard connection on a cached SDK client.
+
+    Catch it AFTER ``_transport_timeouts()``: ConnectTimeout subclasses both
+    ConnectionError and Timeout and stays a 504.
+    """
+    from requests import exceptions
+
+    return (exceptions.ConnectionError,)
+
+
 def _submission_transport_failures() -> tuple:
     """Failures that can lose an accepted POST's response, excluding bad URLs."""
     from requests import exceptions
@@ -278,12 +289,16 @@ class RayClient:
             }
         except _transport_timeouts() as exc:
             raise RayControlPlaneTimeoutError("job status fetch", job_id) from exc
+        except _connection_failures() as exc:
+            raise RayUnavailableError(f"Ray dashboard at {self._addr} did not answer") from exc
 
     def get_job_logs(self, job_id: str) -> str:
         try:
             return self._ensure_client().get_job_logs(job_id)
         except _transport_timeouts() as exc:
             raise RayControlPlaneTimeoutError("job log fetch", job_id) from exc
+        except _connection_failures() as exc:
+            raise RayUnavailableError(f"Ray dashboard at {self._addr} did not answer") from exc
 
     def stop_job(self, job_id: str) -> bool:
         try:
@@ -293,6 +308,8 @@ class RayClient:
             # repeat with the same id and can neither duplicate nor lose the
             # accepted job.
             raise RayControlPlaneTimeoutError("job stop", job_id) from exc
+        except _connection_failures() as exc:
+            raise RayUnavailableError(f"Ray dashboard at {self._addr} did not answer") from exc
 
     def cluster_status(self) -> dict:
         # Hits the Ray dashboard's /api/cluster_status directly over the internal

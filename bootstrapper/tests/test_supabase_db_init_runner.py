@@ -185,7 +185,7 @@ def test_supabase_db_init_mounts_optional_user_sql_slot() -> None:
     compose = yaml.safe_load(COMPOSE.read_text(encoding="utf-8"))
     init_service = compose["services"]["supabase-db-init"]
 
-    assert "./db/scripts:/scripts" in init_service["volumes"]
+    assert "./db/scripts:/scripts:ro" in init_service["volumes"]
     assert "./db/_user:/user-scripts:ro" in init_service["volumes"]
 
 

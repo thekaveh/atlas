@@ -135,7 +135,7 @@ atlas/
 │   ├── supabase/              # supabase-db, db-init, meta, storage, auth, api, realtime, studio
 │   │   ├── service.yml        # Manifest: env vars, source variants, deps, runtime_sc slice
 │   │   ├── compose.yml        # Compose fragment for the family
-│   │   └── db/                # SQL init scripts + snapshots (bind-mounted into supabase-db-init)
+│   │   └── db/                # SQL init scripts (bind-mounted read-only into supabase-db-init)
 │   ├── litellm/               # LiteLLM gateway + init
 │   │   ├── service.yml
 │   │   ├── compose.yml

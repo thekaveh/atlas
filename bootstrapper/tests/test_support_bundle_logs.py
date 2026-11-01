@@ -1,6 +1,7 @@
 """Boundary redaction and exact member-budget contracts for #1759."""
 from base64 import b64encode
 from dataclasses import replace
+import datetime
 import io
 import tarfile
 
@@ -194,6 +195,16 @@ def test_aggregate_cap_matches_exact_previewed_and_archived_members():
     assert "aggregate" in preview
     for log in bundle.body["logs"]:
         assert log["kept_bytes"] == len(bundle.logs[log["name"]].encode())
+    assert any(log.get("aggregate_truncated") and log["truncated"] for log in bundle.body["logs"])
+
+
+def test_aggregate_cap_leaves_a_bundle_that_fits_exactly_untouched():
+    now = datetime.datetime(2026, 11, 1, 12, 0, tzinfo=datetime.timezone.utc)
+    request = sb.BundleRequest(env={}, logs=[sb.LogSource("x", text="failure canary\n" * 50)])
+    request.limits = replace(request.limits, max_bundle_bytes=member_payload_size(sb.build_bundle(request, now=now)))
+    bundle = sb.build_bundle(request, now=now)
+    assert bundle.logs["x"] == "failure canary\n" * 50
+    assert bundle.body["truncation"] == [] and not bundle.body["logs"][0]["truncated"]
 
 
 def test_metadata_overflow_is_visible_before_any_archive_write(tmp_path):
@@ -269,3 +280,81 @@ def test_six_character_secret_value_is_scrubbed_from_free_text():
     scrubbed = sb.Redactor({"API_KEY": "a1#b2!"}).text("upstream echoed a1#b2! back")
     assert "a1#b2!" not in scrubbed
     assert sb.REDACTED in scrubbed
+
+
+def test_bundle_fields_are_clipped_to_the_limit_with_a_truncation_note():
+    checks = [{"id": "c", "status": "fail", "message": "m" * 40},
+              {"id": "d", "status": "ok", "message": "n" * 16}]
+    body = sb.build_bundle(sb.BundleRequest(
+        env={}, checks=checks, limits=sb.BundleLimits(max_field_chars=16))).body
+    assert body["checks"][0]["message"] == "m" * 16 + " … [truncated]"
+    assert body["checks"][1]["message"] == "n" * 16
+    assert "bundle.checks[0].message: cut to 16 of 40 characters" in body["truncation"]
+    assert not any(note.startswith("bundle.checks[1]") for note in body["truncation"])
+
+
+def test_archive_is_deterministic_owner_only_and_sanitizes_member_names():
+    now = datetime.datetime(2026, 11, 1, 12, 0, tzinfo=datetime.timezone.utc)
+    request = sb.BundleRequest(env={}, logs=[
+        sb.LogSource("zeta", text="z\n"), sb.LogSource("../x", text="escape\n"),
+        sb.LogSource("", text="unnamed\n")])
+    archive = sb.archive_bytes(sb.build_bundle(request, now=now))
+    assert archive == sb.archive_bytes(sb.build_bundle(request, now=now))
+    stamp = int(now.timestamp())
+    assert int.from_bytes(archive[4:8], "little") == stamp  # gzip header MTIME
+    with tarfile.open(fileobj=io.BytesIO(archive)) as opened:
+        members = opened.getmembers()
+    assert [member.name for member in members] == [
+        f"{sb.ARCHIVE_ROOT}/{name}" for name in ("bundle.json", "logs/.._x", "logs/log", "logs/zeta")]
+    assert {(member.mode, member.mtime, member.uid, member.gid, member.uname, member.gname)
+            for member in members} == {(0o600, stamp, 0, 0, "atlas", "atlas")}
+
+
+def test_failed_archive_write_leaves_no_temporary_file(tmp_path, monkeypatch):
+    bundle = sb.build_bundle(sb.BundleRequest(env={}))
+
+    def refuse(*_args):
+        raise OSError("synthetic replace failure")
+
+    monkeypatch.setattr(sb.os, "replace", refuse)
+    with pytest.raises(OSError, match="synthetic replace failure"):
+        sb.write_bundle(bundle, tmp_path / "bundle.tar.gz")
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_preview_shows_bundle_json_in_full_and_elides_only_long_logs():
+    bundle = sb.build_bundle(sb.BundleRequest(env={}, logs=[
+        sb.LogSource("even", text="".join(f"even {index}\n" for index in range(4))),
+        sb.LogSource("long", text="".join(f"long {index}\n" for index in range(5)))]))
+    full = sb.preview_lines(bundle)
+    start = full.index("long 0")
+    expected = [*full[:start], "long 0", "long 1",
+                "… 1 more redacted lines, as shown in the log pane …", "long 3", "long 4",
+                *full[start + 5:]]
+    assert sb.preview_lines(bundle, log_lines=2) == expected
+
+
+@pytest.mark.parametrize("case", [
+    ("BASE_PORT", "atlas.consumer.yml", "Change `env.values.BASE_PORT` in {origin}. Every start writes "
+     "the manifest's values into .env, so an edit to .env alone does not stick."),
+    ("PROJECT_NAME", "atlas.consumer.yaml", "Change `project_name` in {origin}. Every start writes "
+     "the manifest's values into .env, so an edit to .env alone does not stick."),
+    ("BASE_PORT", "override.env", "Change BASE_PORT in {origin}, the env file that sets it; "
+     "it is applied over .env on every start."),
+    ("BASE_PORT", None, "Change BASE_PORT in {origin} (or pass the matching ./start.sh flag), then restart."),
+], ids=["manifest", "manifest-project-name", "overlay", "active-env"])
+def test_config_entry_action_names_the_file_that_sets_the_value(tmp_path, case):
+    name, origin_name, action = case
+    env_file = tmp_path / "active.env"
+    env_file.write_text(f"{name}=1\n", encoding="utf-8")
+    origins = {name: str(tmp_path / origin_name)} if origin_name else {}
+    request = sb.BundleRequest(env={name: "1"}, env_origins=origins, env_file=env_file)
+    entries, _omitted = sb.config_entries(request, sb.Redactor())
+    origin = origins.get(name, str(env_file))
+    assert entries == [{"key": name, "value": "1", "origin": origin, "action": action.format(origin=origin)}]
+
+
+def test_file_key_discovery_ignores_a_line_without_an_assignment(tmp_path):
+    env_file = tmp_path / "active.env"
+    env_file.write_text("BASE_PORT\nPROJECT_NAME=atlas\n", encoding="utf-8")
+    assert sb._file_keys(env_file) == {"PROJECT_NAME"}

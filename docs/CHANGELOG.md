@@ -127,6 +127,12 @@ Also in this range: 160 fixes, 75 documentation, 4 build and ci, 42 maintenance,
     - At 100 columns and wider, a wizard option row that cannot fit the aligned layout keeps its badge inline. Before, the badge wrapped onto its own line.
     - A blank `KONG_HTTP_PORT` falls back to a numeric `BASE_PORT`, then to 63000. The wizard, `AppState` and the `--no-tui` summary share this rule.
     - The `migration_v2` message for a custom localhost hostname no longer points at a variable that nothing reads.
+    - The minimum Docker Compose version is now 2.23.1, not 2.20.3. The Langfuse fragment uses inline `configs.content`, so older versions already failed with a schema error. `./start.sh` and `./stop.sh` now stop on them with the upgrade message.
+    - Kong config generation refuses a `BACKEND_KONG_API_KEY` equal to a Supabase key. Before, Kong rejected the duplicate credential and the whole gateway went down.
+    - Key generation no longer writes 14 unused `*_DB_USER_URI` and `*_DB_PASSWORD_URI` keys to `.env`. Existing copies stay; nothing reads them.
+    - The bundled offline ComfyUI catalog no longer lists two files that do not exist. Two rows point at corrected files, and the Flux GGUF model downloads to `diffusion_models`.
+    - `COMFYUI_DOWNLOAD_TOTAL_TIMEOUT_SECONDS` (default 7200) now reaches comfyui-init and sets the per-file download bound.
+    - `bootstrapper.docs.regen` numbers a new Dependencies & Integrations section after the README's last numbered section.
 - **Backend.**
     - With `FAL_SOURCE=enabled`, an unknown or unverified `FAL_IMAGE_TO_3D_MODEL` stops startup. Before, every `image_to_3d` request without `model` returned `400`.
     - With `provider=comfyui`, an integer `cfg` or `guidance_scale` too large for a float returns `400`, not `502`. An oversized `strength` is clamped.
@@ -139,6 +145,8 @@ Also in this range: 160 fixes, 75 documentation, 4 build and ci, 42 maintenance,
     - After ComfyUI queues a prompt, a bad `/history` reply returns `502` with `detail.prompt_id`. Callers can poll or cancel that prompt instead of queueing a duplicate.
     - The memory vector reconcile stops after 3 consecutive embedder failures on both vector paths. Before, the pgvector path made up to 100 failing calls per request.
     - In the default Redis mode, `GET /media/operations` keeps empty JSON arrays. Before, they turned into `{}` after the first status change.
+    - With a cached Ray SDK client, a refused or dropped dashboard connection makes job status, logs and stop return `503`, not `500`.
+    - A RAG delivery refused by a publication guard clears the lost-delivery count. Before, two separate worker kills could fail the job.
 - **Services.**
     - The welcome README in a new JupyterHub work volume uses `LITELLM_DEFAULT_MODEL` in its Quick Start.
     - The commented LangChain example in the Airflow sample DAG reads the LiteLLM URL and key from the `litellm_default` connection. Before, the example failed with `KeyError`.
@@ -153,6 +161,13 @@ Also in this range: 160 fixes, 75 documentation, 4 build and ci, 42 maintenance,
     - The JupyterHub image registers the Julia kernel as `julia-1.12` ("Julia 1.12"). Before, it was `julia-1.12-1.12`.
     - docling-gpu no longer sets the unused `DOCLING_MODEL_PATH`. The n8n container no longer sets the build-time `VUE_APP_URL_BASE_API`.
     - More Grafana panels state their units. The LiteLLM spend panel is now `Spend rate (USD/s, by model)`.
+    - Docling applies the configured pipeline options to PNG, JPEG and TIFF uploads, as it does to PDF. Before, images used Docling's defaults.
+    - Neo4j backup and staged-restore jobs get a deadline that covers every step, not one data window for the whole job.
+    - supabase-db-init mounts its scripts read-only. The unused supabase-db `./db/snapshot` mount is removed.
+    - The MLflow schema upgrade no longer puts the database password on the process command line.
+    - Notebook `04_supabase_data` lists Storage buckets through its read-only database login. Before, the anon-key call failed and Run All stopped.
+    - `atlas_finance.paper_portfolio_summary` signs short and mixed positions correctly. A losing short now shows a negative percentage.
+    - The n8n metrics switches are declared in `.env.example` with unchanged defaults. `GRAFANA_ADMIN_PASSWORD` and `LIGHTRAG_NEO4J_PASSWORD` are marked secret.
 - **Tooling and tests.**
     - The Build-validation image scan covers a changed manifest image that a Compose service runs directly, even when a local Dockerfile also uses it as a base.
     - `scripts/check-docs-drift.py` skips the gitignored `.audit/`, `.pytest_cache/` and `node_modules/` directories.
@@ -164,6 +179,8 @@ Also in this range: 160 fixes, 75 documentation, 4 build and ci, 42 maintenance,
     - New tests cover the restore-plan parser branches, `env backfill` write failures, S3 endpoint boundaries, failed Spark drivers and the n8n community-node pin sites.
     - Unused code is removed: the `cloud_models` list wrappers, `MediaRequestLimitMiddleware`, two Docling helpers, `ModelInfo`, `ServiceRow.is_changed` and `MemoryStore._weaviate_client`.
     - New tests check that every `.env` writer keeps mode `0600`. Others cover the Kong `validate_config` start gate, the support-bundle offline guard and the Redis Lua fences.
+    - New tests check that a plain `./stop.sh` keeps volumes, and cover snapshot prune and capture, MinIO inline policies and support-bundle redaction. Tests that could hang now have bounds.
+    - The MLflow gateway-guard smoke reports the server's stderr on a readiness failure. The unused `render_images_json` helper is removed.
 - **Docs.**
     - The Weaviate README and the Access and Credentials page disclose that Weaviate allows anonymous access and holds `LITELLM_MASTER_KEY`. That key is also the LiteLLM admin UI password.
     - The cloud-providers README says the `CLOUD_*_SOURCE` switches gate only LiteLLM routes. Hermes and LLM Graph Builder still receive raw provider keys.
@@ -177,6 +194,11 @@ Also in this range: 160 fixes, 75 documentation, 4 build and ci, 42 maintenance,
     - The Kong README says `/graphql/v1` returns `404` and Realtime refuses connections. It also states the scope of the localhost probe.
     - The Jenkins publishing example keeps the MinIO keys out of the build log. The n8n README names the Code nodes that check parameter ranges.
     - The Supabase, MinIO, SearXNG, Ollama and multi2vec-clip READMEs, the ROADMAP TimescaleDB entry and the license inventory are corrected.
+    - The n8n README says to keep `N8N_ENCRYPTION_KEY`, because a changed key makes stored credentials unreadable.
+    - Credential examples in the Docling and Crawl4AI READMEs no longer close the reader's terminal when they refuse to run.
+    - The Expected Startup Warnings page lists the `REDIS_URL` reference warning and explains the JupyterHub sudo warning correctly.
+    - The Backend README lists the accepted `/media/generate` input keys and says `GET /workflows` needs `N8N_API_KEY`. The Parakeet-MLX quickstarts bind to `127.0.0.1`.
+    - The ROADMAP, the generated SOURCE matrix, the Kong, Ray, Airflow and Prometheus READMEs and older CHANGELOG entries are corrected.
 - **Upgrade notes.**
     - Remove `crawl4ai` from every consumer manifest `parser_order`.
     - With FAL enabled, check that `FAL_IMAGE_TO_3D_MODEL` names a verified registry entry.
@@ -184,6 +206,8 @@ Also in this range: 160 fixes, 75 documentation, 4 build and ci, 42 maintenance,
     - With SearXNG disabled, the start now disables Local Deep Researcher. Enable SearXNG to keep it.
     - Split n8n `research-batch` runs into batches of at most 4 queries.
     - Rebuild the JupyterHub image to register the Julia kernel as `julia-1.12`.
+    - Docker Compose 2.23.1 or newer is required.
+    - The next start recreates supabase-db once, because a bind mount is removed. Data is kept.
 
 ### 1.3. Fixed — 2026-10-31 — Overnight maintenance: secrets, startup checks, memory re-embedding, restores, test isolation and docs
 
@@ -1709,7 +1733,7 @@ Backfilling `[Unreleased]` for the 2026-07-05 merges that were missing from this
 
 - Replaced the ~2800-line forked `services/searxng/config/settings.yml` (a full copy of SearXNG's defaults incl. the ~250-engine list) with a ~40-line **thin override** built on `use_default_settings`.
 
-    The fork drifted from the pinned image on every bump — engines lost their modules (`Cannot load engine …: FileNotFoundError`) or changed config APIs (`Engine setup was not successful`), spamming startup errors (this is the durable fix for the searxng follow-up from the #176 cleanup, which had removed 8 dead-module engines but left 7 config-drift ones).
+    The fork drifted from the pinned image on every bump — engines lost their modules (`Cannot load engine …: FileNotFoundError`) or changed config APIs (`Engine setup was not successful`), spamming startup errors (this is the durable fix for the searxng follow-up from the #176 cleanup, which had removed 9 dead-module engines but left 7 config-drift ones).
 
     The override now carries only what the stack needs: `search.formats: [html, json]` (JSON is off in the default; the backend/n8n/LDR/Hermes all use the JSON API) and `use_default_settings.engines.remove: [ahmia, torch]` (Tor-only engines that need a Tor proxy we don't wire).
 
@@ -1731,7 +1755,7 @@ A full audit of a freshly-launched stack surfaced one crash-loop and three sourc
 
 - **redis-exporter false "unhealthy"** — `oliver006/redis_exporter` is a distroless image (no shell / no `wget`/`curl`), so the `wget --spider` container healthcheck could never run (`exec: "wget": not found`) → permanent "unhealthy" (a pre-existing bug, not introduced by the version bump). Removed the unusable healthcheck; Prometheus scrapes `:9121/metrics` directly as the real liveness signal, and nothing `depends_on` its health.
 - **postgres-exporter scrape-error spam** (~every 5s) — on `supabase/postgres` 17.6 a GUC row has a NULL `short_desc`, and the exporter's `pg_settings` collector can't map NULL→string (`error scraping dsn … converting NULL to string is unsupported`) while still serving all other `pg_*` metrics. Set `PG_EXPORTER_DISABLE_SETTINGS_METRICS: "true"` (the low-value settings-as-metrics export) to silence it.
-- **searxng dead-engine load failures** at startup — our forked `settings.yml` listed **8 engines whose modules were dropped from the pinned image** (`svgrepo`, `ask`, `cppreference`, `livespace`, `mullvad_leta`, `podcastindex`, `searchcode_code`, `seekr`, `stract` → `FileNotFoundError: …/engines/<name>.py`, "set engine to inactive"). Removed those 11 dead entries (some modules had multiple entries).
+- **searxng dead-engine load failures** at startup — our forked `settings.yml` listed **9 engines whose modules were dropped from the pinned image** (`svgrepo`, `ask`, `cppreference`, `livespace`, `mullvad_leta`, `podcastindex`, `searchcode_code`, `seekr`, `stract` → `FileNotFoundError: …/engines/<name>.py`, "set engine to inactive"). Removed those 12 dead entries (some modules had multiple entries).
 
     **Known remaining (separate follow-up):** 7 more engines (`wikicommons`×4, `piped.music`, `torch`, `ahmia`) still error at startup because their *config API* changed in the pinned version (e.g. `wikicommons` now needs `wc_search_type`, `piped.music` needs `frontend_url`) — searxng self-disables them and keeps working.
 
@@ -3051,8 +3075,7 @@ audit scripts and the docs-drift gate exit 0.
 view) refreshed to reflect the current 33-service stack. Eight services
 shipped since the diagram was last hand-authored were absent:
 **LightRAG** + **TEI Reranker** (2026-06-05, PR #62), **Apache Airflow**
-
-+ **Apache Spark** + **Apache Zeppelin** (2026-06-05, PR #35), and
+\+ **Apache Spark** + **Apache Zeppelin** (2026-06-05, PR #35), and
 **Ray** + **Prometheus** + **Grafana** (earlier in 2026).
 
 Layout additions: Zeppelin joins APPS (5 cards), LightRAG + Airflow
@@ -3934,7 +3957,7 @@ Highlights of what landed:
 
 ### 2.73. Known follow-ups (deferred from the 2026-05-27 repo-wide audit pass)
 
-The cleanup PR documented at the top of this section deliberately defers three classes of work — each large enough to deserve its own plan rather than a drive-by fix:
+The 2026-05-27 repo-wide audit pass (PR #11) deliberately defers three classes of work — each large enough to deserve its own plan rather than a drive-by fix:
 
 - **Backend test coverage.** `services/backend/app/app/` has ~3,700 LOC of production Python across `main.py` (33 FastAPI endpoints), `memory_service.py`, `research_service.py`, `comfyui_client.py`, `n8n_client.py`, `memory_store.py`, `research_client.py`. Only the `ray_routes` / `ray_client` surfaces have tests. Smoke-level TestClient suites for the memory / research / comfyui / workflow endpoint families are tracked for a follow-up.
 - **Bootstrapper utility test gaps.** `bootstrapper/utils/{localhost_validator,key_generator,llm_catalog,cloud_models,supabase_keys}.py`, `bootstrapper/core/docker_manager.py`, and `bootstrapper/services/source_validator.py` have zero unit tests. The drift gates + integration tests cover them transitively, but no isolated unit coverage exists. Adding targeted tests is tracked separately.

@@ -107,7 +107,7 @@ print(token, end="")
 PYTOKEN
 ) &&
 export PARAKEET_API_TOKEN &&
-export PARAKEET_LOCALHOST_BIND_HOST=0.0.0.0 &&
+export PARAKEET_LOCALHOST_BIND_HOST=127.0.0.1 &&
 export PARAKEET_LOCALHOST_PORT=63042 &&
 cd services/parakeet/provider && python -m mlx.api_server
 

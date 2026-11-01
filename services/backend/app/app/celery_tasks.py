@@ -323,10 +323,13 @@ class _RagDeliveryBudget:
         self.counted = True
         return starts > _RAG_LOST_DELIVERY_LIMIT
 
-    def undo(self) -> None:
-        """This delivery never ran: its execution lease was busy."""
-        from rag_ingestion import undo_rag_delivery
+    def undo(self, exc: Exception) -> None:
+        """Uncount a delivery that never ran: its execution lease was busy.
+        A collection-publication refusal ran; settle() clears the count."""
+        from rag_ingestion import CollectionPublicationBusy, undo_rag_delivery
 
+        if isinstance(exc, CollectionPublicationBusy):
+            return
         self.counted = False
         _best_effort_delivery_update(undo_rag_delivery, self.ingestion_id)
 
@@ -436,7 +439,7 @@ def rag_ingestion_task(
             ),
         )
     except IngestionExecutionBusy as exc:
-        budget.undo()
+        budget.undo(exc)
         _retry_rag_busy(self, exc, state)
     except IngestionExecutionLeaseLost as exc:
         # Counted like a Redis outage: an unbounded lease-lost loop kept the

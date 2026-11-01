@@ -102,26 +102,19 @@ class KeyGenerator:
         ("SUPABASE_AUTH_DB_USER", "SUPABASE_AUTH_DB_PASSWORD"),
         ("SUPABASE_STORAGE_DB_USER", "SUPABASE_STORAGE_DB_PASSWORD"),
         ("SUPABASE_API_DB_USER", "SUPABASE_API_DB_PASSWORD"),
-        ("SUPABASE_REALTIME_DB_USER", "SUPABASE_REALTIME_DB_PASSWORD"),
         ("SUPABASE_META_DB_USER", "SUPABASE_META_DB_PASSWORD"),
         ("SUPABASE_STUDIO_DB_USER", "SUPABASE_META_DB_PASSWORD"),
         ("POSTGRES_EXPORTER_DB_USER", "POSTGRES_EXPORTER_DB_PASSWORD"),
         ("SUPAVISOR_DB_ADMIN_USER", "SUPAVISOR_DB_ADMIN_PASSWORD"),
         ("BACKEND_DB_USER", "BACKEND_DB_PASSWORD"),
-        ("N8N_DB_USER", "N8N_DB_PASSWORD"),
         ("OPEN_WEBUI_DB_USER", "OPEN_WEBUI_DB_PASSWORD"),
         ("LIGHTRAG_DB_USER", "LIGHTRAG_DB_PASSWORD"),
         ("LITELLM_DB_USER", "LITELLM_DB_PASSWORD"),
         ("AIRFLOW_DB_USER", "AIRFLOW_DB_PASSWORD"),
-        ("AIRFLOW_ATLAS_DB_USER", "AIRFLOW_ATLAS_DB_PASSWORD"),
         ("LANGFUSE_DB_USER", "LANGFUSE_DB_PASSWORD"),
         ("TRUEFORGE_DB_USER", "TRUEFORGE_DB_PASSWORD"),
         ("MLFLOW_DB_USER", "MLFLOW_DB_PASSWORD"),
-        ("LABEL_STUDIO_DB_USER", "LABEL_STUDIO_DB_PASSWORD"),
-        ("ICEBERG_DB_USER", "ICEBERG_DB_PASSWORD"),
-        ("MCP_POSTGRES_DB_USER", "MCP_POSTGRES_DB_PASSWORD"),
         ("JUPYTER_DB_USER", "JUPYTER_DB_PASSWORD"),
-        ("ZEPPELIN_DB_USER", "ZEPPELIN_DB_PASSWORD"),
     )
 
     # `.env.example` ships placeholders for credential vars whose canonical
@@ -148,9 +141,10 @@ class KeyGenerator:
     PLACEHOLDER_DEFAULTS.update(
         dict.fromkeys(SCOPED_DATABASE_PASSWORD_VARS, "atlas-db-password")
     )
+    # Only the declared DSN twins exist; see SCOPED_DATABASE_CREDENTIAL_VARS.
     PLACEHOLDER_DEFAULTS.update(
         dict.fromkeys(
-            (f"{password_var}_URI" for password_var in SCOPED_DATABASE_PASSWORD_VARS),
+            (f"{password_var}_URI" for _user_var, password_var in SCOPED_DATABASE_CREDENTIAL_VARS),
             "atlas-db-password",
         )
     )

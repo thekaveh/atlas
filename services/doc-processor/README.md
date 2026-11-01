@@ -84,7 +84,7 @@ Inherited shell values do not replace these file values.
 
 ```bash
 # Repository root; Bootstrapper dependencies must be installed.
-if ! docling_values="$(PYTHONPATH=bootstrapper uv run --project bootstrapper python - <<'PYTHON'
+if docling_values="$(PYTHONPATH=bootstrapper uv run --project bootstrapper python - <<'PYTHON'
 import shlex
 from core.config_parser import ConfigParser
 
@@ -99,15 +99,16 @@ for name in ("DOCLING_API_TOKEN", "DOC_PROCESSOR_PORT"):
     print(f"export {name}={shlex.quote(value)}")
 PYTHON
 )"; then
-  exit 1
+  eval "$docling_values"
+  curl -X POST "http://localhost:${DOC_PROCESSOR_PORT}/v1/document/convert" \
+    -H "Authorization: Bearer ${DOCLING_API_TOKEN}" \
+    -F "file=@document.pdf" \
+    -F "output_format=markdown" \
+    -F "use_ocr=auto" \
+    -F "table_mode=accurate"
+else
+  false  # Report the refusal without closing this shell.
 fi
-eval "$docling_values"
-curl -X POST "http://localhost:${DOC_PROCESSOR_PORT}/v1/document/convert" \
-  -H "Authorization: Bearer ${DOCLING_API_TOKEN}" \
-  -F "file=@document.pdf" \
-  -F "output_format=markdown" \
-  -F "use_ocr=auto" \
-  -F "table_mode=accurate"
 ```
 
 ### 3.2. Native localhost source
@@ -122,7 +123,7 @@ It preserves every byte of a usable token.
 
 ```bash
 # Repository root; Atlas and the native provider must already be running.
-if ! docling_values="$(uv run --project services/docling/provider/localhost python - <<'PYTHON'
+if docling_values="$(uv run --project services/docling/provider/localhost python - <<'PYTHON'
 import os
 import shlex
 from pathlib import Path
@@ -139,13 +140,14 @@ print(f"export DOCLING_LOCALHOST_PORT={shlex.quote(str(port))}")
 print(f"export DOCLING_URL={shlex.quote(f'http://localhost:{port}')}")
 PYTHON
 )"; then
-  exit 1
+  eval "$docling_values"
+  curl -X POST "${DOCLING_URL}/v1/document/convert" \
+    -H "Authorization: Bearer ${DOCLING_API_TOKEN}" \
+    -F "file=@document.pdf" \
+    -F "output_format=markdown"
+else
+  false  # Report the refusal without closing this shell.
 fi
-eval "$docling_values"
-curl -X POST "${DOCLING_URL}/v1/document/convert" \
-  -H "Authorization: Bearer ${DOCLING_API_TOKEN}" \
-  -F "file=@document.pdf" \
-  -F "output_format=markdown"
 ```
 
 ## 4. Configuration
@@ -437,7 +439,7 @@ _No upstream calls._
 
 - **doc-processor ↔ weaviate** — *Why:* closes the RAG loop. Atlas emits character-based chunks; direct vector-store persistence would remove per-consumer write logic. *Mechanism:* a proposed post-convert callback writes to `http://weaviate:8080/v1/objects`. Upstream's `rag_weaviate.ipynb` illustrates this pattern. *Effort:* medium. *Confidence:* high.
 - **doc-processor ↔ minio** — *Why:* conversion is slow and the same source is frequently re-requested. Caching `(sha256 → DocTags JSON)` in MinIO removes re-processing cost and gives stable S3 URIs that n8n/backend can reference. *Mechanism:* sidecar writes `s3://docling-cache/<sha>.json` via boto3 on convert; subsequent requests short-circuit. *Effort:* medium. *Confidence:* medium.
-- **doc-processor ↔ n8n** — *Why:* README invites this pattern but no shipped workflow exists. A first-party "PDF → markdown → Weaviate" workflow makes RAG ingest a two-click setup. *Mechanism:* `services/n8n/init/workflows/docling-rag.json` doing HTTP Request → `POST http://docling-gpu:8000/v1/document/convert` → Weaviate node. *Effort:* small. *Confidence:* high.
+- **doc-processor ↔ n8n** — *Why:* README invites this pattern but no shipped workflow exists. A first-party "PDF → markdown → Weaviate" workflow makes RAG ingest a two-click setup. *Mechanism:* `services/n8n/workflows-stage/workflows/docling-rag.json` doing HTTP Request → `POST {{$env.DOCLING_ENDPOINT}}/v1/document/convert` with `Authorization: Bearer {{$env.DOCLING_API_TOKEN}}` (§8.2) → Weaviate node. *Effort:* small. *Confidence:* high.
 - **doc-processor ↔ hermes** — *Why:* Hermes agents lack a "read this document" tool. Docling-MCP exposes convert/extract directly to MCP-capable runtimes. *Mechanism:* run `docling-mcp` as a streamable-HTTP MCP endpoint registered as a Hermes custom provider. *Effort:* medium. *Confidence:* medium.
 - **doc-processor ↔ redis** — *Why:* response-cache the slow conversions in the stack's already-deployed cache. *Mechanism:* keyed on `sha256(file)+options`, TTL 24h, stored in an unused Redis database (`redis://:${REDIS_PASSWORD_URI}@redis:6379/<db>`; the index table is in the [Redis README](../redis/README.md)) with compressed JSON. *Effort:* small. *Confidence:* medium.
 

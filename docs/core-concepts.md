@@ -39,7 +39,7 @@ Cancellation keeps reserved spend until provider polling proves a terminal outco
 
 ## 7. RAG Chunking Gateway
 
-The backend exposes `POST /api/chunk` as the shared Chonkie-powered text-splitting surface for RAG ingestion clients. The endpoint supports token, recursive and semantic strategies. It returns stable character offsets and strategy metadata, so n8n workflows, notebooks and future ingestion services share one chunking contract.
+The backend exposes `POST /api/chunk` as the shared Chonkie-powered text-splitting surface for RAG ingestion clients. The endpoint supports token, recursive and semantic strategies. It returns stable character offsets and strategy metadata, so notebooks and other authorized callers share one chunking contract.
 
 JupyterHub also installs Chonkie for exploratory notebook work, including `13_chonkie_chunking.ipynb`. Production workflows should still call the Backend endpoint instead of each service adding its own Chonkie dependency.
 

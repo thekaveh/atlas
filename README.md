@@ -20,7 +20,7 @@ The services are integrated, not only co-located. Kong routes every `*.localhost
 
 Before you start, install:
 
-- Docker with Docker Compose v2.20.3 or newer (v2.26+ recommended).
+- Docker with Docker Compose v2.23.1 or newer (v2.26+ recommended).
 - `uv`, or Python 3.11 or newer.
 - Git.
 

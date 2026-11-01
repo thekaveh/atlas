@@ -19,7 +19,7 @@ If you see a warning *not* on this list, that's a real signal — start there.
 | `atlas-kong-api-gateway` | `[warn] rate-limiting: config.redis_port / redis_ssl / redis_ssl_verify / redis_timeout / redis_database is deprecated, please use config.redis.<key> instead (deprecated after 4.0)` × ~20 (once per worker) | Fired by Kong's bundled `rate-limiting` plugin schema. We never set any `redis_*` keys — the only `rate-limiting` plugin instance is on the `searxng-api` route with `policy: local` (no Redis at all). Kong's plugin warns about its own schema defaults. Will need attention when Kong 4.0 ships. |
 | `atlas-supabase-realtime` | `[warning] Replica region not found, defaulting to Realtime.Repo` × 2 | Single-node mode. Realtime is multi-region aware; on a single-node setup it defaults to the primary Repo, which is what we want. |
 | `atlas-open-web-ui` | `WARNING: Running pip as the 'root' user can result in broken permissions ...` × 5 | Emitted by the Open WebUI runtime tool installation. The image runs as root by design. |
-| `atlas-jupyterhub` | `WARNING: Use start-notebook.py instead` / `WARNING: container must be started as root to grant sudo permissions!` | Both come from the jupyter/docker-stacks base. We need root for sudo grants to the spawned user notebooks. |
+| `atlas-jupyterhub` | `WARNING: Use start-notebook.py instead` / `WARNING: container must be started as root to grant sudo permissions!` | Both come from the jupyter/docker-stacks base. Atlas runs `start-notebook.sh`, and the image ends with `USER ${NB_UID}`, so the container does not start as root. `GRANT_SUDO=yes` is therefore inert, and notebook users get no sudo. |
 | `atlas-minio` | `WARNING: Host local has more than 0 drives of set. A host failure will result in data becoming unavailable.` | Single-host dev mode. Production multi-node MinIO would silence this. |
 
 <a id="12-intentional-secure-defaults"></a>
@@ -29,6 +29,7 @@ If you see a warning *not* on this list, that's a real signal — start there.
 | Service | Message | Why |
 |---|---|---|
 | `atlas-hermes` | `WARNING gateway.run: No user allowlists configured. All unauthorized users will be denied. Set GATEWAY_ALLOW_ALL_USERS=true ... or configure platform allowlists ...` | Hermes is secure-by-default — operator must explicitly opt in (per-platform allowlists or `GATEWAY_ALLOW_ALL_USERS=true`). |
+| `./start.sh` (bootstrapper stderr) | `WARNING: <path>/.env:<line>: REDIS_URL: Atlas preserves this reference; Compose expands it. ...` Also printed for `SUPAVISOR_DB_USER` and `SUPAVISOR_DATABASE_URL`. | Atlas ships `REDIS_URL` and generates the Supavisor values as `${...}` references on purpose. Compose expands them, so no action is needed. Single-quote only a value you mean as literal text (#1484). |
 | `atlas-open-web-ui` | `WARNING: CORS_ALLOW_ORIGIN IS SET TO '*' - NOT RECOMMENDED FOR PRODUCTION DEPLOYMENTS.` | Open WebUI's own default; Atlas does not pass `CORS_ALLOW_ORIGIN` from `.env`. For production, set it in a [Compose overlay](../reference/consumer-manifest.md#5-compose_overlays) or a [`services/_user/` overlay](../CONTRIBUTING-services.md#21-services_user-overlay-slot-downstream-submodule-consumers). List every browser origin, separated by semicolons, for example `http://chat.localhost:63000;http://localhost:63096`. |
 
 ### 1.3. Unavoidable startup races

@@ -3468,6 +3468,28 @@ def test_a_run_that_exits_in_python_does_not_count_against_the_budget(monkeypatc
     assert shared._deliveries == {"ingestion-1": 0}
 
 
+def test_a_publication_refusal_ran_so_it_clears_the_lost_delivery_count(monkeypatch):
+    """A collection-publication refusal is raised after the run claimed its
+    lease, so it is a Python exit, not a busy lease. Undoing it kept an
+    earlier kill counted: two non-consecutive kills failed the job."""
+    import celery_tasks
+    import rag_ingestion
+
+    shared = _shared_delivery_store(monkeypatch)
+    shared.note_delivery("ingestion-1", 60)  # an earlier run that died mid-run
+
+    def guarded(*_args, **_kwargs):
+        raise rag_ingestion.CollectionPublicationBusy("guarded")
+
+    monkeypatch.setattr(rag_ingestion, "run_rag_ingestion", guarded)
+    monkeypatch.setattr(celery_tasks.rag_ingestion_task, "retry", lambda **_k: _Rescheduled())
+
+    with pytest.raises(_Rescheduled):
+        celery_tasks.rag_ingestion_task.run("ingestion-1")
+
+    assert shared._deliveries == {}
+
+
 def test_an_abandoned_run_is_marked_failed_so_a_resubmit_starts_fresh(tmp_path, monkeypatch):
     """At the retry limit the task re-raised and the record stayed "running",
     a dedup status, so every resubmit got the dead job back until the TTL

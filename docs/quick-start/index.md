@@ -4,7 +4,7 @@
 
 Install these before the first launch:
 
-- Docker with Docker Compose **v2.20.3 or newer** (v2.26+ recommended). The top-level `docker-compose.yml` merges the per-service fragments with Compose's `include:` directive, which older releases do not support. `./start.sh` checks the version and stops if it is too old.
+- Docker with Docker Compose **v2.23.1 or newer** (v2.26+ recommended). The top-level `docker-compose.yml` merges the per-service fragments with Compose's `include:` directive. Some fragments use inline `configs` content, which older releases do not support. `./start.sh` checks the version and stops if it is too old.
 - `uv`, or Python 3.11 or newer. `./start.sh` prefers `uv run` and falls back to the system `python3`.
 - Git.
 

@@ -179,3 +179,9 @@ services/_user/
 
 # scripts.upstream_drift_watch writes its report to the repo root by default
 upstream-drift-report.md
+
+# Database dump directories. Legacy Neo4j dumps (before the neo4j-backups
+# volume) sit under the re-included services/*/build/ tree; both must never
+# be staged by `git add -A`.
+services/supabase/db/snapshot/
+services/neo4j/build/snapshot/

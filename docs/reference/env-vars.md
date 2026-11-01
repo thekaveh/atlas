@@ -241,6 +241,7 @@
 | COMFYUI_USER_MODELS | comfyui |  | Comma-separated catalog model names picked in the wizard or with --comfyui-models. Empty activates the catalog's essential models. The bootstrapper resolves the set into volumes/comfyui/active-models.tsv, which comfyui-init downloads. The managed-MPS host provisioner downloads the same set into COMFYUI_MPS_MODELS_PATH. |
 | COMFYUI_CUSTOM_MODELS_FILE | comfyui | /custom-models.yaml | Path to the ComfyUI custom-models sidecar YAML (user-authored models not in the curated catalog). Read by comfyui_resolver when generating the download manifest, and by the wizard's model picker. |
 | COMFYUI_CUSTOM_NODES_FILE | comfyui | /custom-nodes.yaml | Path list (os.pathsep-joined) of pinned custom-node allowlist files. The shipped services/comfyui/custom-nodes.yaml is always included; consumer manifests append custom_nodes.comfyui entries, which are always active. The bootstrapper maps selected models' requires_custom_node values through it into active-custom-nodes.tsv. |
+| COMFYUI_DOWNLOAD_TOTAL_TIMEOUT_SECONDS | comfyui | 7200 | Per-file comfyui-init download bound in seconds (1-604800). A timed-out file restarts from zero on the next start. The 26 GB Krea 2 file needs about 29 Mbit/s at the default. |
 | COMFYUI_INIT_SCALE | comfyui |  | Set by ./start.sh; do not edit. 1 runs the comfyui-init model download for container-* sources, 0 for localhost, managed-localhost-mps and disabled. |
 | COMFYUI_SCALE | comfyui |  | Set by ./start.sh from COMFYUI_SOURCE; do not edit. 1 runs the comfyui container for container-cpu and container-gpu, 0 otherwise. |
 | COMFYUI_ENDPOINT | comfyui |  | Resolved per COMFYUI_SOURCE. Read by backend, celery, open-webui, jupyterhub and downstream overlays; hermes receives it as COMFYUI_INTERNAL_URL. Consumer pattern: MY_URL: ${MY_URL:-${COMFYUI_ENDPOINT:-http://comfyui:18188}} |
@@ -667,6 +668,11 @@
 | N8N_SEED_HTTP_TIMEOUT_MS | n8n | 10000 | Absolute deadline in milliseconds for each consumer workflow seeder HTTP operation; must be positive. |
 | N8N_SEED_COMMAND_TIMEOUT_MS | n8n | 120000 | Deadline in milliseconds for each consumer workflow n8n CLI operation; must be positive. |
 | N8N_SEED_MAX_RESPONSE_BYTES | n8n | 1048576 | Maximum bytes accepted from one consumer workflow seeder HTTP response; must be positive. |
+| N8N_METRICS | n8n | true | Serves Prometheus /metrics on n8n and n8n-worker. The endpoint is unauthenticated on N8N_PORT and the n8n.localhost route. Prometheus scrapes it when enabled. |
+| N8N_METRICS_PREFIX | n8n | n8n_ | Prefix of every n8n metric name. The shipped Grafana n8n dashboard queries the n8n_ prefix. |
+| N8N_METRICS_INCLUDE_DEFAULT_METRICS | n8n | true | Adds the Node.js process and runtime metrics to n8n's /metrics output. |
+| N8N_METRICS_INCLUDE_WORKFLOW_ID_LABEL | n8n | true | Labels n8n workflow metrics with the workflow ID. |
+| N8N_METRICS_INCLUDE_EXECUTION_DATA_METRICS | n8n | true | Exports execution-data write metrics. Upstream n8n defaults it off; without it the Grafana execution-data panel shows no data. |
 | N8N_SCALE | n8n |  | Set by ./start.sh from N8N_SOURCE; do not edit. 1 runs the n8n container, 0 does not. |
 | N8N_WORKER_SCALE | n8n |  | Set by ./start.sh from N8N_SOURCE; do not edit. 1 runs the n8n-worker container, 0 does not. |
 | N8N_INIT_SCALE | n8n |  | Set by ./start.sh from N8N_SOURCE; do not edit. 1 runs the n8n-init container, 0 does not. |

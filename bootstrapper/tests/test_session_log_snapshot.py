@@ -51,6 +51,30 @@ def test_snapshot_selects_recent_contiguous_run_and_reports_gap(tmp_path):
         tee.close()
 
 
+def test_first_retired_segment_is_reported_as_a_history_gap(tmp_path):
+    """Retiring segment 1 alone already breaks contiguity with segment 0."""
+    tee = SessionLogTee(prefix="atlas-launch-boundary-", config=SessionLogConfig(
+        directory=str(tmp_path), segment_max_bytes=1024, max_segments=3))
+
+    def rotate_to(index):
+        for _ in range(400):
+            if tee._segment_index == index:
+                break
+            tee.write("numbered-line\n")
+        assert tee._segment_index == index and not tee.degraded
+        return tee.snapshot()
+
+    try:
+        contiguous = rotate_to(2)
+        assert not contiguous.history_omitted
+        assert contiguous.segment_indexes == (0, 1, 2)
+        gapped = rotate_to(3)
+        assert gapped.history_omitted
+        assert gapped.segment_indexes == (2, 3)
+    finally:
+        tee.close()
+
+
 def test_snapshot_read_budget_is_total_and_explicit(tee, monkeypatch):
     tee.write("café🙂 line\n" * 600)
     original = session_log.os.read

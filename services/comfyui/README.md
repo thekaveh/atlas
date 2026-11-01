@@ -81,7 +81,7 @@ COMFYUI_SCALE / COMFYUI_INIT_SCALE
 
 **Request flow.** The backend POSTs a workflow JSON to `${COMFYUI_ENDPOINT}/prompt` and receives a `prompt_id`. n8n workflows call the backend's `/comfyui/*` routes, not ComfyUI. To track progress, the caller polls `GET /history/{prompt_id}`, or opens a `/ws` websocket and filters by `prompt_id`. Outputs go to `output/` in the container; the `/view` endpoint serves them by filename.
 
-**Init flow.** At start, the bootstrapper resolves the selected models and custom nodes from `COMFYUI_USER_MODELS` and the catalogs, and writes a manifest to `volumes/comfyui/`. `comfyui-init` downloads the models into `comfyui-models`. Downloads are SHA-256 verified; an interrupted download restarts from the beginning, and verified files are kept. The ComfyUI AI-Dock provisioning hook clones the allowlisted nodes into `comfyui-custom-nodes`.
+**Init flow.** At start, the bootstrapper resolves the selected models and custom nodes from `COMFYUI_USER_MODELS` and the catalogs, and writes a manifest to `volumes/comfyui/`. `comfyui-init` downloads the models into `comfyui-models`. Downloads are SHA-256 verified; an interrupted download restarts from the beginning, and verified files are kept. Each file must finish within `COMFYUI_DOWNLOAD_TOTAL_TIMEOUT_SECONDS` (default 7200); raise it on slow links. The ComfyUI AI-Dock provisioning hook clones the allowlisted nodes into `comfyui-custom-nodes`.
 
 Selected models and nodes are required for readiness, whether or not they have a checksum; `provisioning_required: false` opts an advisory asset out.
 
@@ -130,7 +130,7 @@ The files under `volumes/comfyui/` are **gitignored runtime artifacts**. Each no
 
 CLI alternative (works for all non-disabled sources):
 ```bash
-./start.sh --comfyui-models=sd_xl_base_1.0,sdxl-vae,flux1-dev-Q4_K_S
+./start.sh --comfyui-models=sd_xl_base_1.0,sdxl-vae,ip-adapter-plus_sdxl_vit-h
 ```
 Unknown names log a warning at bootstrapper start but don't block startup.
 

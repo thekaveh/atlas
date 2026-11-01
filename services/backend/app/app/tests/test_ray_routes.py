@@ -351,3 +351,28 @@ def test_actual_sdk_preflight_route_is_503_without_submission(offline_ray_routes
     assert response.status_code == 503, response.text
     assert dashboard.accepted == []
     assert all(method != "POST" for method, _, _ in dashboard.calls)
+
+
+@pytest.mark.parametrize("failure, status", [
+    ("ConnectionError", 503), ("ConnectTimeout", 504),
+])
+def test_actual_sdk_status_and_stop_map_a_lost_dashboard(offline_ray_routes, monkeypatch, failure, status):
+    """The cached SDK client met a refused dashboard (ray-head restarted after
+    the first /api/ray call): status and stop answer 503, not 500. A
+    ConnectTimeout is also a ConnectionError, and it must stay a 504."""
+    import requests
+
+    client, dashboard = offline_ray_routes
+
+    def lost_dashboard(method, url, **kwargs):
+        if url.endswith("/api/version"):
+            return dashboard.request(method, url, **kwargs)
+        raise getattr(requests.exceptions, failure)("synthetic refused connection")
+
+    monkeypatch.setattr(requests, "request", lost_dashboard)
+    for method in ("GET", "DELETE"):
+        response = client.request(method, "/api/ray/jobs/raysubmit_x", headers=RAY_HEADERS)
+        assert response.status_code == status, (method, response.text)
+        detail = response.json()["detail"]
+        assert "did not answer" in detail
+        assert status == 503 or "raysubmit_x" in detail

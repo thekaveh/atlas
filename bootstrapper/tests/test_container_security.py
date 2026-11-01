@@ -42,7 +42,15 @@ def test_container_security_inventory_covers_every_manifest_default() -> None:
     expected = load_manifest_image_refs(ROOT / "services")
 
     assert container_security.load_image_inventory(ROOT / "services") == expected
-    assert json.loads(container_security.render_images_json(expected)) == list(expected)
+    # ``--images-json`` feeds the container-security workflow's matrix
+    # ``include:``, which reads matrix.image and matrix.platform.
+    rows = json.loads(
+        container_security.render_scan_matrix_json(
+            container_security.load_image_scans(ROOT / "services")
+        )
+    )
+    assert rows and all(set(row) == {"image", "platform"} for row in rows)
+    assert set(expected) <= {row["image"] for row in rows}
 
 
 def test_container_security_summary_labels_platform_expansion(

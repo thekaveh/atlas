@@ -513,7 +513,7 @@ Atlas recovery is **project-scoped**. Everything Atlas creates (containers, the 
 
 - If you started the stack with `--consumer <manifest>`, stop it with the same `--consumer`. Otherwise the volumes of its compose overlays are unknown to the stop. The cold stop then names them and exits non-zero, and does not report a full wipe. `./start.sh --cold` checks the same way and stops before it rotates any secret.
 - Take a backup first (§10.3). With the default `BACKUP_S3_MODE=local`, the backup is in this project's MinIO volume and the Neo4j and Weaviate snapshot volumes, so `--cold` deletes it too. Use `BACKUP_S3_MODE=external`, or copy the bucket off the host before the reset.
-- Keep your own copy of `BACKUP_MANIFEST_HMAC_KEY` and `BACKUP_DEPLOYMENT_ID`. A backup cannot be restored without them.
+- Keep your own copy of `BACKUP_MANIFEST_HMAC_KEY`, `BACKUP_DEPLOYMENT_ID`, `GRAPH_DB_PASSWORD` and `GRAPH_DB_AUTH`. A backup cannot be restored without them.
 
 ```bash
 # Full project reset: removes THIS project's containers, network and

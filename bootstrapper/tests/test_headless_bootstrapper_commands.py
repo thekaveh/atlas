@@ -75,6 +75,46 @@ def test_env_backfill_cli_is_headless_idempotent_and_reports_keys(tmp_path, monk
 
 
 @pytest.mark.parametrize(
+    ("env_text", "written"),
+    [
+        # Each case triggers exactly one backfill write, since the second
+        # write would re-force 0o600 and mask a regression in the first.
+        pytest.param(
+            "PROJECT_NAME=atlas\nEXISTING=user-value\n"
+            "NEW_FROM_EXAMPLE=user-value\nBLANK_SECRET=\n",
+            "BLANK_SECRET=password",
+            id="blank-fill",
+        ),
+        pytest.param(
+            "PROJECT_NAME=atlas\nEXISTING=user-value\nBLANK_SECRET=password\n",
+            "NEW_FROM_EXAMPLE=default-value",
+            id="append",
+        ),
+    ],
+)
+def test_env_backfill_cli_leaves_env_owner_only(
+    tmp_path, monkeypatch, env_text, written,
+) -> None:
+    """A .env copied from .env.example at 0o644 holds secrets, and
+    `env backfill` runs without the start-time chmod."""
+    import stat
+
+    import start as start_module
+
+    _write_env_pair(tmp_path)
+    env = tmp_path / ".env"
+    env.write_text(env_text, encoding="utf-8")
+    env.chmod(0o644)
+    _patch_starter_paths(monkeypatch, tmp_path)
+
+    result = CliRunner().invoke(start_module.main, ["env", "backfill"])
+
+    assert result.exit_code == 0, result.output
+    assert written in env.read_text(encoding="utf-8").splitlines()
+    assert stat.S_IMODE(env.stat().st_mode) == 0o600
+
+
+@pytest.mark.parametrize(
     ("env_text", "message"),
     [
         pytest.param(None, "Failed to fill blank values", id="blank-fill"),
