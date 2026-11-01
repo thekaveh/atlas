@@ -21,9 +21,20 @@ Key facts:
 - **64K context floor** — Hermes checks the model's context window at
   preflight. `HERMES_DEFAULT_MODEL` must have a context window of at least
   64K. Stock Ollama default contexts depend on VRAM (4K/32K/256K) and are
-  often lower. Set `OLLAMA_CONTEXT_LENGTH=65536` on the Ollama server, run
-  `/set parameter num_ctx 65536` + `/save <model>` inside `ollama run`, or use
-  a cloud model.
+  often lower. `HERMES_CONTEXT_LENGTH` only tells Hermes the window size; it
+  does not change Ollama's window. To raise Ollama's window:
+    - `ollama-localhost`: set `OLLAMA_CONTEXT_LENGTH=65536` in the host
+      Ollama daemon's environment, then restart the daemon.
+    - `ollama-container-*`: Atlas does not pass `OLLAMA_CONTEXT_LENGTH` to
+      the container. Save a tagged copy instead. Run
+      `docker exec -it <PROJECT_NAME>-ollama ollama run <model>`, then
+      `/set parameter num_ctx 65536` and `/save <model>-64k`. Add
+      `<model>-64k` to `OLLAMA_CUSTOM_MODELS` so LiteLLM registers
+      `ollama/<model>-64k`, and set `HERMES_DEFAULT_MODEL` to that name.
+      `ollama-pull` logs a non-fatal error for this local-only tag.
+      Do not save under the original name, because `ollama-pull` re-pulls
+      declared models on every start and replaces the saved copy.
+    - Any source: use a cloud model instead.
 - **Disk** — the image is multi-arch (`linux/amd64`, `linux/arm64`) and
   large: about 3.7 GB unpacked on arm64.
 - **Bundled skills** — the image ships its skills under `/opt/hermes/skills`.
@@ -291,17 +302,18 @@ if not value:
 print(value)
 PYENV
 }
+PROJECT_NAME=$(env_get PROJECT_NAME atlas) || exit 1
 HERMES_API_PORT=$(env_get HERMES_API_PORT 63072) || exit 1
 LITELLM_PORT=$(env_get LITELLM_PORT 63040) || exit 1
 HERMES_API_KEY=$(env_get HERMES_API_KEY) || exit 1
 LITELLM_MASTER_KEY=$(env_get LITELLM_MASTER_KEY) || exit 1
 
 # Service status
-docker compose ps hermes hermes-init
+docker ps --all --filter "name=^${PROJECT_NAME}-hermes"
 
 # Logs
-docker compose logs -f hermes
-docker compose logs hermes-init   # one-shot config rendering
+docker logs -f "${PROJECT_NAME}-hermes"
+docker logs "${PROJECT_NAME}-hermes-init"   # one-shot config rendering
 
 # Verify the OpenAI-compatible API is up
 curl -fsS http://localhost:${HERMES_API_PORT}/v1/models \
@@ -312,7 +324,7 @@ curl -fsS http://localhost:${LITELLM_PORT}/v1/models \
   -H "Authorization: Bearer ${LITELLM_MASTER_KEY}" | jq '.data[].id' | grep hermes
 
 # Inspect the rendered config Hermes is using
-docker compose exec hermes cat /opt/data/config.yaml
+docker exec "${PROJECT_NAME}-hermes" cat /opt/data/config.yaml
 ```
 
 For general startup and routing issues, see [Troubleshooting](../../docs/quick-start/troubleshooting.md).
@@ -368,7 +380,7 @@ _Rows marked planned are documented or intended, not wired yet._
 - **hermes ↔ weaviate** — *Why:* Semantic recall across sessions and ingested docs, reusing the in-stack `multi2vec-clip` vectorizer. *Mechanism:* Skill calling `http://weaviate:8080/v1/objects` against a `HermesMemory` class. *Effort:* medium. *Confidence:* medium.
 - **hermes ↔ minio** — *Why:* Skill outputs (ComfyUI images, STT transcripts) get shareable URLs other services can fetch instead of being trapped in a bind mount. *Mechanism:* New `hermes-artifacts` bucket via the existing `minio-init` IAM pattern; S3 SigV4 against `http://minio:9000`. *Effort:* small. *Confidence:* high.
 - **hermes ↔ n8n** — *Why:* Reverses the one-way edge so Hermes can call n8n workflows as tools. The 400+ n8n connectors then become Hermes capabilities without per-platform skills. *Mechanism:* Generic "call-n8n" skill POSTing to `http://n8n:5678/webhook/<id>` with `N8N_WEBHOOK_TOKEN`. *Effort:* small. *Confidence:* high.
-- **hermes ↔ doc-processor** — *Why:* Lets Hermes answer questions about uploaded PDFs by routing them through the in-stack Docling parser before context or vector ingest. *Mechanism:* Skill POSTing multipart to `http://docling-gpu:8000/v1/document/convert`. *Effort:* small. *Confidence:* high.
+- **hermes ↔ doc-processor** — *Why:* Lets Hermes answer questions about uploaded PDFs by routing them through the in-stack Docling parser before context or vector ingest. *Mechanism:* Skill POSTing multipart to `${DOCLING_ENDPOINT}/v1/document/convert` with the Docling bearer token. Hermes does not receive `DOCLING_ENDPOINT` or `DOCLING_API_TOKEN` yet. The agent can read its environment (§4), so it would see that token. *Effort:* small. *Confidence:* medium.
 - **hermes ↔ supabase** — *Why:* A JWT-scoped shared session store lets one Hermes session follow a user across Open WebUI, JupyterHub and OpenClaw. Sessions are then not pinned to single-tenant `/opt/data`. *Mechanism:* Skill writing to `hermes_sessions` via PostgREST at `http://supabase-api:3000`, keyed by Supabase JWT `sub`. *Effort:* medium. *Confidence:* medium.
 
 ### 12.5. Future — Candidate new services

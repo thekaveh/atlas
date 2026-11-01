@@ -14,7 +14,7 @@ upstream: https://prometheus.io/docs/introduction/overview/
 
 # Prometheus
 
-> **Status: SHIPPED 2026-05-31** — the observability bundle integrated this candidate as `services/prometheus/` together with `services/grafana/` and the postgres-exporter/redis-exporter sidecars. See `docs/CHANGELOG.md` → [Unreleased] → "Added — observability bundle" for the as-shipped surface. The text below is the original pre-implementation research artifact, retained for historical context.
+> **Status: SHIPPED 2026-05-31** — the observability bundle integrated this candidate as `services/prometheus/` together with `services/grafana/` and the postgres-exporter/redis-exporter sidecars. See `docs/CHANGELOG.md` §2.66 ("Added — observability bundle (Prometheus + Grafana)", in the [0.1.0] section) for the as-shipped surface. The text below is the original pre-implementation research artifact, retained for historical context.
 
 ## 1. Headline
 Time-series database and scrape engine that turns Kong's bundled `prometheus` plugin (and per-service exporters across the stack) into a single observability spine.

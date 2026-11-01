@@ -43,11 +43,14 @@ Jenkins receives MinIO endpoint and scoped Iceberg/lakehouse credentials from th
 s3a://jars/<app>/<version>/app.jar
 ```
 
-A downstream pipeline can publish with `mc`:
+A downstream pipeline can publish with `mc`. The `set +x` line stops Jenkins from writing the keys to the build log, because Jenkins runs `sh` steps with `-x`. `mc` reads the keys from standard input, so they are not in the process arguments.
 
 ```groovy
 sh 'mvn -q package'
-sh 'mc alias set atlas "$MINIO_ENDPOINT" "$MINIO_ICEBERG_ACCESS_KEY" "$MINIO_ICEBERG_SECRET_KEY"'
+sh '''
+set +x
+printf '%s\n%s\n' "$MINIO_ICEBERG_ACCESS_KEY" "$MINIO_ICEBERG_SECRET_KEY" | mc alias set atlas "$MINIO_ENDPOINT" >/dev/null
+'''
 sh 'mc cp target/*.jar "atlas/${MINIO_BUCKET_ICEBERG_JARS}/<app>/<version>/app.jar"'
 ```
 

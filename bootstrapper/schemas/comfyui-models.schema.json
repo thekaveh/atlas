@@ -33,7 +33,7 @@
         "name": {
           "type": "string",
           "minLength": 1,
-          "description": "Stable unique identifier used as the catalog key and DB name column."
+          "description": "Stable unique identifier used as the catalog key."
         },
         "category": {
           "type": "string",
@@ -109,7 +109,7 @@
         "requires_custom_node": {
           "type": "array",
           "items": {"type": "string"},
-          "description": "ComfyUI custom-node repo names required to use this model (warn-only badges)."
+          "description": "ComfyUI custom-node repo names required to use this model. Names allowlisted in custom-nodes.yaml are installed for active models and gate ComfyUI readiness; unlisted names only warn."
         },
         "popularity": {
           "type": "integer",

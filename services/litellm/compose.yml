@@ -162,6 +162,9 @@ services:
       # services/litellm/init/scripts/init.py when HERMES_SOURCE != disabled) references
       # ``os.environ/HERMES_API_KEY`` for its bearer token.
       HERMES_API_KEY: ${HERMES_API_KEY:-}
+      # LightRAG — the `lightrag` row references ``os.environ/LIGHTRAG_API_KEY``
+      # so config.yaml on the host bind mount carries no plaintext key.
+      LIGHTRAG_API_KEY: ${LIGHTRAG_API_KEY:-}
       # fal.ai key for the native `fal_ai` image provider (#515) — the
       # `fal-image` model_list row references ``os.environ/FAL_AI_API_KEY``,
       # which the proxy resolves at request time. Sourced from the operator's

@@ -203,7 +203,7 @@ runtime_sc:
         AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: "postgresql+psycopg2://${AIRFLOW_DB_USER_URI}:${AIRFLOW_DB_PASSWORD_URI}@supabase-db:5432/airflow"
         AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
         # Mirror of compose.yml — required for inter-process signed payloads.
-        # Dual-write per project_runtime_sc_vs_compose_env_dual_write.md.
+        # Dual-write: compose.yml's environment block is the injection point.
         # Airflow 3.x: was AIRFLOW__WEBSERVER__SECRET_KEY (section retired).
         AIRFLOW__API__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
         AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW_JWT_SECRET}
@@ -280,7 +280,7 @@ runtime_sc:
       environment:
         AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
         AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: "postgresql+psycopg2://${AIRFLOW_DB_USER_URI}:${AIRFLOW_DB_PASSWORD_URI}@supabase-db:5432/airflow"
-        # _AIRFLOW_DB_MIGRATE intentionally NOT set — see compose.yml.
+        # _AIRFLOW_DB_MIGRATE stays unset: init-airflow.sh runs `airflow db migrate` itself.
         # Mirror of compose.yml — required by init-airflow.sh's
         # `airflow users create --password "${AIRFLOW_ADMIN_PASSWORD}"`.
         # Without it, `set -euo pipefail` aborts and the whole family
@@ -290,7 +290,7 @@ runtime_sc:
         AIRFLOW__CORE__LOAD_EXAMPLES: "false"
         AIRFLOW_UID: "50000"
         # Sibling-source vars consumed by init-airflow.sh for conditional
-        # Connection seeding. Per project_runtime_sc_vs_compose_env_dual_write.md
+        # Connection seeding. Per the runtime_sc/compose dual-write rule
         # these must mirror what compose.yml's environment block declares —
         # compose is the actual injection point; runtime_sc documents
         # what the container receives for the rendering pipeline.

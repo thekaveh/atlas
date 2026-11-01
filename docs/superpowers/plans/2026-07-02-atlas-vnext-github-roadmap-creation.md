@@ -1,6 +1,6 @@
 # Atlas vNext GitHub Roadmap Creation Implementation Plan
 
-> **Status: archived plan** — dated 2026-07-02; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+> **Status: archived plan** — dated 2026-07-02; a point-in-time record kept for archaeology, not current guidance. Its outcome is the GitHub labels, Project and issues it created; it has no CHANGELOG entry.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -455,7 +455,7 @@ For every issue labeled `wave:build-now`:
 
 Expected:
 
-- All 12 Build Now items have useful Project fields.
+- All 15 Build Now items have useful Project fields.
 
 - [ ] **Step 4: Set fields for non-active items**
 

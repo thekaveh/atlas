@@ -532,6 +532,9 @@ def test_sighup_cleanup_installs_dispatches_and_restores(monkeypatch) -> None:
         lambda errors: reported.extend(errors),
     )
     previous = signal.getsignal(signal.SIGHUP)
+    # Exit-on-SIGHUP is the SIG_DFL contract; under nohup the inherited
+    # disposition is ignored (or conftest's no-op stand-in), which must return.
+    signal.signal(signal.SIGHUP, signal.SIG_DFL)
     try:
         with process_runner.cleanup_active_processes_on_sigterm():
             handler = signal.getsignal(signal.SIGHUP)
@@ -541,7 +544,7 @@ def test_sighup_cleanup_installs_dispatches_and_restores(monkeypatch) -> None:
             assert raised.value.code == 128 + signal.SIGHUP
         assert reported == [cleanup_error]
         # Restored to the prior disposition on context exit.
-        assert signal.getsignal(signal.SIGHUP) is previous
+        assert signal.getsignal(signal.SIGHUP) == signal.SIG_DFL
     finally:
         signal.signal(signal.SIGHUP, previous)
 
@@ -1277,10 +1280,8 @@ def test_streamed_cancellation_preserves_cancellation_when_cleanup_fails(
         task.cancel()
         with pytest.raises(asyncio.CancelledError) as raised:
             await task
-        # Python 3.10's Task boundary replaces CancelledError and drops its
-        # explicit cause; 3.11+ preserves the cleanup diagnostic.
-        if sys.version_info >= (3, 11):
-            assert isinstance(raised.value.__cause__, OSError)
+        # The cleanup diagnostic survives as the CancelledError's cause.
+        assert isinstance(raised.value.__cause__, OSError)
         assert len(diagnostics) == 1
         assert isinstance(diagnostics[0]["exception"], OSError)
         assert diagnostics[0]["task"] is not None
@@ -1608,6 +1609,37 @@ def test_streamed_timeout_notice_sink_failure_reaps_process_group(
         _assert_recorded_process_stopped(pid_file)
     finally:
         _kill_recorded_process(pid_file)
+
+
+@pytest.mark.parametrize("length", [70_000, 200_000])
+def test_streamed_command_survives_a_line_over_the_reader_limit(
+    tmp_path: Path, length: int
+) -> None:
+    """A Compose line past asyncio's 64 KiB reader limit used to raise
+    ValueError out of the runner, so ``logs -f`` turned a started stack into
+    a crashed launch. The cut is now reported and streaming continues."""
+    from ui.textual.screens.wizard_screen import (
+        _OVERLONG_LINE_NOTICE,
+        _run_streamed_command,
+    )
+
+    lines: list[str] = []
+    child = f"import sys; sys.stdout.write('x' * {length} + '\\nafter\\n')"
+
+    async def exercise() -> int:
+        return await _run_streamed_command(
+            [sys.executable, "-c", child],
+            cwd=tmp_path,
+            env=os.environ.copy(),
+            on_line=lines.append,
+            timeout_seconds=30,
+            termination_grace_seconds=0.05,
+        )
+
+    assert asyncio.run(exercise()) == 0
+    assert lines[0] == _OVERLONG_LINE_NOTICE
+    assert lines[-1] == "after"
+    assert all(len(line) < length for line in lines)
 
 
 #: Raises SIGHUP between `Popen` and the registry insert, so the guard is

@@ -54,7 +54,7 @@ sources_consulted:
   - Why valuable: Hermes is the agent runtime but currently has no path to invoke multi-step web research; today it would have to re-derive the search loop. Exposing LDR as a Hermes tool turns "deep research" into a single tool call.
   - Mechanism sketch: Hermes custom tool POSTs to `http://local-deep-researcher:2024/threads`/`runs/stream` and returns the final summary; configured in `services/hermes/init/templates/config.yaml.tmpl`.
   - Effort: medium
-  - Risks / open questions: Hermes tool definitions are stable per `reference_hermes_provider_config.md`; streaming LangGraph SSE through Hermes needs verification.
+  - Risks / open questions: Hermes tool definitions are stable per the [Hermes README](../../../services/hermes/README.md); streaming LangGraph SSE through Hermes needs verification.
   - Confidence: medium
 
 - **local-deep-researcher ↔ jupyterhub**

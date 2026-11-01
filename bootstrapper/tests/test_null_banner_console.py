@@ -2,9 +2,8 @@
 ``_NullBanner`` to suppress stdout while inside the app. The previous
 ``__getattr__`` returned a bare ``lambda`` for undefined attributes, so
 ``starter.banner.console.print(...)`` raised
-``'function' object has no attribute 'print'`` and crashed the
-"Apply user model selections" step whenever a model pick triggered the
-embedding dimension warning (start.py:311).
+``'function' object has no attribute 'print'`` and crashed any pipeline
+step that printed through ``starter.banner.console``.
 
 The fix returns a chain-swallowing ``_NullSink`` from ``__getattr__``.
 """
@@ -19,7 +18,7 @@ def test_nullbanner_console_chain_is_noop():
     b = _NullBanner()
     # The exact crash path: attribute access (.console) then a method call.
     assert b.console.print("[yellow]warn[/yellow]") is None
-    # Defined no-op methods still work.
+    # Defined methods and undefined ones (log resolves to the sink) are no-ops.
     assert b.show_status_message("x", "info") is None
     assert b.log("y") is None
     # Arbitrary depth + call is safe.

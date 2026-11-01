@@ -112,16 +112,20 @@ env:
     description: "Set by bootstrapper: true unless COMFYUI_SOURCE=disabled, so Open WebUI hides its ComfyUI image toggle when there is no ComfyUI. Open WebUI keeps the value saved in its database once an admin edits the Images settings."
   - name: OPEN_WEB_UI_TTS_ENGINE
     default: ""
-    description: "Set by bootstrapper when speaches/chatterbox are enabled."
+    description: "Set by ./start.sh: openai when TTS_PROVIDER_SOURCE is not disabled, else empty. Passed as AUDIO_TTS_ENGINE."
+    auto_managed: true
   - name: OPEN_WEB_UI_STT_ENGINE
     description: "Set by ./start.sh: openai when STT_PROVIDER_SOURCE is not disabled, else empty. Passed as AUDIO_STT_ENGINE."
     default: ""
+    auto_managed: true
   - name: OPEN_WEB_UI_TTS_MODEL
     default: ""
-    description: "Model name Open WebUI sends to /v1/audio/speech. Empty = engine default."
+    description: "Set by ./start.sh from TTS_PROVIDER_SOURCE; do not edit. SPEACHES_TTS_MODEL (Kokoro if blank) for Speaches, chatterbox-tts-1 for Chatterbox, else empty. Passed to Open WebUI as AUDIO_TTS_MODEL and to hermes-init. Open WebUI admin, Audio overrides it for Open WebUI only."
+    auto_managed: true
   - name: OPEN_WEB_UI_TTS_VOICE
     default: ""
-    description: "Voice id. Empty = engine default."
+    description: "Set by ./start.sh from TTS_PROVIDER_SOURCE; do not edit. af_heart for Speaches, alloy for Chatterbox, else empty. Passed to Open WebUI as AUDIO_TTS_VOICE and to hermes-init. Open WebUI admin, Audio overrides it for Open WebUI only."
+    auto_managed: true
   - name: OPEN_WEB_UI_TTS_API_URL
     description: "Set by ./start.sh from TTS_ENDPOINT plus /v1, or empty. Passed as AUDIO_TTS_OPENAI_API_BASE_URL."
     auto_managed: true
@@ -178,7 +182,7 @@ runtime_sc:
         # service_config.py reads them from THOSE runtime_sc dicts, not
         # this one. Open-WebUI itself plumbs them into AUDIO_*_OPENAI_API_*
         # variables in the compose env block (which is the actual injection
-        # point — see project_runtime_sc_vs_compose_env_dual_write.md).
+        # point under the runtime_sc/compose dual-write rule).
         # Listing them here is dead data on both axes.
       deploy: {}
       extra_hosts: []
@@ -206,8 +210,8 @@ data_flow:
   # app DB (DATABASE_URL), redis backs the websocket manager, and the
   # bundled extras tools/functions call the backend's memory/research/
   # comfyui endpoints. searxng + weaviate are NOT wired today — they
-  # live in README §5.4 Future pairs (ENABLE_RAG_WEB_SEARCH / vector
-  # store) until someone adds the mechanism.
+  # live in README §7.4 Future — Missing pair integrations
+  # (ENABLE_WEB_SEARCH / vector store) until someone adds the mechanism.
   calls:
     - litellm
     - supabase

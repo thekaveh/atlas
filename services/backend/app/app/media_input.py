@@ -89,10 +89,6 @@ def looks_like_url(value: str) -> bool:
     return v.startswith("http://") or v.startswith("https://")
 
 
-def looks_like_data_uri(value: str) -> bool:
-    return isinstance(value, str) and value.strip().lower().startswith("data:")
-
-
 def _positive_env_int(name: str, default: int) -> int:
     raw = (os.getenv(name) or str(default)).strip()
     try:

@@ -29,7 +29,7 @@
 #   conditional     the terms restrict this mode; the license note says how
 #   unresolved      not adjudicated; an open item concerning the mode names
 #                   the question
-reviewed: '2026-09-29'
+reviewed: '2026-10-31'
 licenses:
   Apache-2.0:
     name: Apache License 2.0
@@ -87,6 +87,14 @@ licenses:
     hosted: conditional
     integration: conditional
     redistribution: unresolved
+  Apache-2.0-Crawl4AI:
+    name: Apache License 2.0 with the Crawl4AI attribution requirement
+    notice: 'Apache 2.0 notices, plus this credit on every distribution, publication or public use: "This product includes software developed by UncleCode (https://x.com/unclecode) as part of
+      the Crawl4AI project (https://github.com/unclecode/crawl4ai)." Place it in a NOTICE or README file for distributions, an About or Credits section for websites and web applications, and the help
+      output for command-line tools.'
+    hosted: conditional
+    integration: conditional
+    redistribution: conditional
   Open-WebUI:
     name: Open WebUI License (BSD 3-Clause with a branding clause)
     notice: Keep the BSD-3 notices and every "Open WebUI" branding element, unless the deployment has at most 50 end users in any rolling 30 days, a merged contributor has written permission, or an enterprise
@@ -127,9 +135,14 @@ open_items:
     - redistribution
   R-BUILD:
     question: Which licenses apply to binaries a local Dockerfile downloads or copies on top of its base image? Known cases are the headless Blender that asset-baker adds, which has no image row of its
-      own, and the MinIO mc client that the backup and Jenkins images copy from the digest-pinned pgsty/mc image (its minio MINIO_INIT_IMAGE row records AGPL-3.0); what that license asks of those images
-      when redistributed is not settled.
-    applies: asset-baker, backup, jenkins.
+      own, and the MinIO mc client that the backup and Jenkins images copy from the digest-pinned pgsty/mc image (its minio MINIO_INIT_IMAGE row records AGPL-3.0). asset-worker copies the npm tree from
+      its node stage, where @gltf-transform/cli 4.5.1 pulls sharp 0.35.5 and its LGPL-3.0-or-later libvips binaries (@img/sharp-libvips-linux-x64 and -linux-arm64 1.3.4). The spark, zeppelin and
+      airflow builds add the hadoop-aws, AWS SDK v2 bundle, Iceberg Spark runtime and Iceberg AWS bundle jars from Maven Central. spark also adds the Kafka connector jars, kafka-clients and
+      commons-pool2. zeppelin also copies the whole Spark distribution from the apache/spark image (its spark SPARK_IMAGE row records Apache-2.0). iceberg-rest adds the PostgreSQL JDBC driver
+      (BSD-2-Clause), and jupyterhub adds the Coursier launcher and the Almond Scala kernels with their resolved jars. Version swaps of components a base image already ships keep that component's
+      license and are not open. Examples are Jackson (airflow, neo4j, spark, zeppelin), Bouncy Castle (zeppelin), and Julia, its package environment and Underscore (jupyterhub). What these
+      licenses ask of those images when redistributed, including any LGPL source offer for libvips, is not settled.
+    applies: airflow, asset-baker, asset-worker, backup, iceberg-rest, jenkins, jupyterhub, spark, zeppelin.
     modes:
     - redistribution
   R-CUDA:
@@ -221,6 +234,9 @@ images:
   license: Apache-2.0
   url: https://github.com/apache/airflow/blob/aa19d2dbb9ed187ec01957a92848d9b005e9ba9d/LICENSE
   notice: https://github.com/apache/airflow/blob/aa19d2dbb9ed187ec01957a92848d9b005e9ba9d/NOTICE
+  open:
+  - R-BUILD
+  redistribution: unresolved
 - service: asset-baker
   var: ASSET_BAKER_IMAGE
   image: python:3.12.9-slim
@@ -236,6 +252,9 @@ images:
   upstream: Python 3.12.9 (build base)
   license: PSF-2.0
   url: https://github.com/python/cpython/blob/fdb81425a9ad683f8c24bf5cbedc9b96baf00cd2/LICENSE
+  open:
+  - R-BUILD
+  redistribution: unresolved
 - service: backend
   var: BACKEND_IMAGE
   image: python:3.12.14-bookworm@sha256:581429e3df12d76e6af4be5ab7d0e7fc2013eb57dc23d2de691411c8efdbb970
@@ -291,7 +310,7 @@ images:
   var: CRAWL4AI_IMAGE
   image: unclecode/crawl4ai:0.9.0
   upstream: Crawl4AI 0.9.0
-  license: Apache-2.0
+  license: Apache-2.0-Crawl4AI
   url: https://github.com/unclecode/crawl4ai/blob/c66f3276fd355031c8632500911fe7041ad6fc14/LICENSE
 - service: docling
   var: DOCLING_GPU_IMAGE
@@ -337,6 +356,9 @@ images:
   license: Apache-2.0
   url: https://github.com/apache/iceberg/blob/ccb8bc435062171e64bc8b7e5f56e6aed9c5b934/LICENSE
   notice: https://github.com/apache/iceberg/blob/ccb8bc435062171e64bc8b7e5f56e6aed9c5b934/NOTICE
+  open:
+  - R-BUILD
+  redistribution: unresolved
 - service: iceberg-rest
   var: ICEBERG_REST_INIT_IMAGE
   image: postgres:15.19-alpine
@@ -361,6 +383,8 @@ images:
   url: https://github.com/jupyter/docker-stacks/blob/ac62373f9f60a6b4aa68735e76d0feb2eadf7bd1/LICENSE.md
   open:
   - R-FLOAT
+  - R-BUILD
+  redistribution: unresolved
 - service: kong
   var: KONG_API_GATEWAY_IMAGE
   image: kong:3.9.3
@@ -629,6 +653,9 @@ images:
   license: Apache-2.0
   url: https://github.com/apache/spark/blob/f0bb2e6a47d0ebda424ffd633fcea8644a597954/LICENSE
   notice: https://github.com/apache/spark/blob/f0bb2e6a47d0ebda424ffd633fcea8644a597954/NOTICE
+  open:
+  - R-BUILD
+  redistribution: unresolved
 - service: speaches
   var: SPEACHES_IMAGE
   image: ghcr.io/speaches-ai/speaches:0.9.0-rc.3-cpu
@@ -783,6 +810,9 @@ images:
   license: Apache-2.0
   url: https://github.com/apache/zeppelin/blob/ae9cb72ffaa6b3c007f57b152e2a3eb2208b910a/LICENSE
   notice: https://github.com/apache/zeppelin/blob/ae9cb72ffaa6b3c007f57b152e2a3eb2208b910a/NOTICE
+  open:
+  - R-BUILD
+  redistribution: unresolved
 - service: zeppelin
   var: ZEPPELIN_INIT_IMAGE
   image: python:3.12.13-alpine

@@ -660,8 +660,10 @@ def test_cli_track_overrides_survive_the_wizard():
     starter = type("Starter", (), {"active_track_overrides": frozenset({"weaviate"})})()
     screen = WizardScreen(steps=_steps(), services=[], brand=BrandInfo(name="Atlas", tagline="t"),
                           no_splash=True, starter=starter,
-                          stack_options_resolver=lambda selections: ({}, {}))
+                          stack_options_resolver=lambda selections: ({}, {"base_port": 63000}))
     _OPEN.append(screen)
+    screen._resolve_wizard_ports = lambda: None
+    screen._show_launch_base_port = lambda _port: None
     screen._selections[PICKER_STEP_TITLE] = "gen-ai-rag"
     screen._launch_phase_started = True
     screen._source_args = screen._stack_options = None
@@ -675,6 +677,7 @@ def test_cli_track_overrides_survive_the_wizard():
             except Exception:  # noqa: BLE001 - only the overrides matter here
                 pass
     asyncio.run(scenario())
+    assert starter.active_track == "gen-ai-rag"  # the override branch ran
     assert starter.active_track_overrides == frozenset({"weaviate"})
 
 

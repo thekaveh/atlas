@@ -154,10 +154,14 @@ esac
 
 
 def _environment(tmp_path: Path, manifest: Path, models: Path, fakebin: Path, counter: Path, ready: Path):
+    # The script's mktemp files survive a SIGKILL; keep them under tmp_path.
+    private_tmp = tmp_path / "tmp"
+    private_tmp.mkdir(exist_ok=True)
     env = os.environ.copy()
     env.update(
         {
-            "PATH": f"{fakebin}:/opt/homebrew/bin:/usr/bin:/bin",
+            "TMPDIR": str(private_tmp),
+            "PATH": f"{fakebin}{os.pathsep}{os.environ.get('PATH', os.defpath)}",
             "COMFYUI_MANIFEST_TSV": str(manifest),
             "COMFYUI_MODELS_PATH": str(models),
             "COMFYUI_DOWNLOAD_CONNECT_TIMEOUT_SECONDS": "1",

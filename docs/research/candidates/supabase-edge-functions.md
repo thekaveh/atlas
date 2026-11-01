@@ -89,8 +89,9 @@ Reconsider Supabase Edge Functions only when all of these are true:
   duplicating the established async-job pattern.
 
 ## 8. Future service contract if adopted
-- **Tracks:** `async-jobs` and `all`; add `gen-ai-eng` or `gen-ai-rag` only if a
-  concrete app/RAG webhook workflow needs it.
+- **Tracks:** roadmap label `async-jobs`, with runtime `all` proposed if adopted.
+  `async-jobs` is not a runtime track key. Add `gen-ai-eng` or `gen-ai-rag` only if a concrete app/RAG webhook workflow needs it.
+  Use the [runtime track registry](../../../bootstrapper/tracks.yml) for executable membership.
 - **Category:** choose deliberately between `agents` and `apps`. It is an
   execution/runtime surface, not core Supabase infra.
 - **Sources:** `SUPABASE_EDGE_FUNCTIONS_SOURCE=disabled|container`; disabled by default.

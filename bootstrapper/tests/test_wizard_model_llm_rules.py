@@ -48,7 +48,7 @@ driver_calls = {
     ("llm_rules", "selected_llm_source"): lambda f: f({}, {}),
     ("cloud_rules", "resolve_cloud_provider"): lambda f: f(
         provider_key="openai", secret_value=None, selected_models=None,
-        existing_key_set=False, existing_source="disabled",
+        existing_key_set=False,
     ),
     ("cloud_rules", "resolve_secret_verdict"): lambda f: f(
         "<DISABLE>", existing_key_set=True,
@@ -61,6 +61,7 @@ driver_calls = {
     ("state_builder", "all_services"): lambda f: f(),
     ("state_builder", "all_cloud_apis"): lambda f: f(),
     ("state_builder", "cloud_api_status_text"): lambda f: f(True, True),
+    ("state_builder", "kong_listener_port"): lambda f: f({}),
     ("state_builder", "build_app_state"): lambda f: f(
         __import__("core.config_parser", fromlist=["ConfigParser"]).ConfigParser()
     ),
@@ -152,16 +153,6 @@ def test_selected_llm_source_prefers_selections_over_env():
 
     result = selected_llm_source(env, {LLM_ENGINE_TITLE: "ollama-localhost"})
     assert result == "ollama-localhost"
-
-
-def test_llm_engine_title_reexported_from_llm_steps_is_the_same_object():
-    """wizard/llm_steps.py imports LLM_ENGINE_TITLE from here (#535
-    followups review, finding R5) rather than defining its own copy — a
-    regression back to two separate string literals would silently
-    reintroduce a drift risk identical to what R2 fixed for parse_csv."""
-    from wizard.llm_steps import LLM_ENGINE_TITLE as reexported
-
-    assert reexported is LLM_ENGINE_TITLE
 
 
 def test_selected_llm_source_falls_back_to_env():

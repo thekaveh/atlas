@@ -32,7 +32,7 @@ In container mode, the Browser pre-fills the in-network address `neo4j://neo4j-g
 
 These commands and paths apply only to `NEO4J_GRAPH_DB_SOURCE=container`. In `localhost` mode, use the backup and restore procedures of the host-managed Neo4j installation. Neo4j Community has no online dump, and the server is the container's main process. Every dump or load therefore runs against the stopped database volume. At startup, an empty `neo4j` database is restored automatically from the newest legacy snapshot. Atlas never schedules backups.
 
-Run the `docker compose` commands from the repository root. If the checkout directory name is not `PROJECT_NAME` (default `atlas`), add `-p "$PROJECT_NAME"` to each command.
+Run these commands from the repository root. `atlas_compose` is the Compose helper from [Troubleshooting](../../docs/quick-start/troubleshooting.md); define it first. It applies the project name, overlays and `ATLAS_ENV_FILE`.
 
 ### 4.1. Manual Backup
 
@@ -40,9 +40,9 @@ To manually create a graph database backup:
 
 ```bash
 # Legacy single-database dump into /snapshot (database offline for the duration)
-docker compose stop neo4j-graph-db
-docker compose run --rm --no-deps --entrypoint /usr/local/bin/backup.sh neo4j-graph-db
-docker compose start neo4j-graph-db
+atlas_compose stop neo4j-graph-db
+atlas_compose run --rm --no-deps --entrypoint /usr/local/bin/backup.sh neo4j-graph-db
+atlas_compose start neo4j-graph-db
 ```
 
 `backup.sh` refuses to run (exit 75) inside the running container: stopping the server there stops the container before the dump starts.
@@ -57,9 +57,9 @@ To restore from a previous backup:
 
 ```bash
 # Load the newest /snapshot/backup_*.dump (database offline for the duration)
-docker compose stop neo4j-graph-db
-docker compose run --rm --no-deps --entrypoint /usr/local/bin/restore.sh neo4j-graph-db
-docker compose start neo4j-graph-db
+atlas_compose stop neo4j-graph-db
+atlas_compose run --rm --no-deps --entrypoint /usr/local/bin/restore.sh neo4j-graph-db
+atlas_compose start neo4j-graph-db
 ```
 
 For coordinated restores of the signed `system` + `neo4j` artifacts, use `services/backup/run-database-restore.sh` (see the backup service README).
@@ -69,12 +69,13 @@ For coordinated restores of the signed `system` + `neo4j` artifacts, use `servic
 - **Automatic restoration at startup** is enabled by default
 - When the container starts with an empty `neo4j` database (a fresh data volume), it restores the latest `/snapshot/backup_*.dump` if one exists. `./stop.sh --cold` also removes the snapshot volume, so nothing is left to restore after it; copy dumps you want to keep out first
 - A failed load (automatic or `restore.sh`) leaves `/data/.atlas-restore-incomplete`. The next start then retries the load with `--overwrite-destination`. If no `backup_*.dump` is left, the container does not start: add a dump or delete the marker
+- Marker errors also fail closed. If the marker cannot be created, the load is refused. If it cannot be removed after a successful load, the script exits with an error, and at startup the container does not start. Fix the `/data` permissions, then retry. A marker left behind makes the next start reload the latest dump
 - A populated database is never overwritten at startup; to roll a live database back to a snapshot, use the offline `restore.sh` (§4.2)
 - To turn off automatic restore, delete the `auto_restore.sh` `COPY` and its `RUN chmod` from `build/Dockerfile`, then rebuild. The entrypoint then logs that automatic restore is disabled and starts normally
 
 ### 4.4. Important Backup Notes
 
-- Backups are full offline dumps (`neo4j-admin database dump`). Restart the service yourself with `docker compose start`.
+- Backups are full offline dumps (`neo4j-admin database dump`). Restart the service yourself with `atlas_compose start neo4j-graph-db`.
 - Coordinated backups write `/snapshot/<timestamp>/neo4j.dump`. Automatic restore ignores them.
 
 ## 5. Container-mode data persistence
@@ -105,7 +106,7 @@ NEO4J_MEMORY_LIMIT=2g          # Compose memory limit for the container
 NEO4J_CPU_LIMIT=1.5            # Compose CPU limit for the container
 ```
 
-The compose fragment loads APOC core (`NEO4J_PLUGINS=["apoc"]`, from the image's `labs/` jar, no download) and allows `apoc.*`. LLM Graph Builder needs it. The container accepts only the `neo4j` admin user, so `GRAPH_DB_USER` matters only in `localhost` mode.
+The compose fragment loads APOC core (`NEO4J_PLUGINS=["apoc"]`, from the image's `labs/` jar, no download) and allows `apoc.*`. LLM Graph Builder needs it. In container mode keep `GRAPH_DB_USER=neo4j`: the image accepts only that user, and every in-stack Bolt client reads `GRAPH_DB_USER`.
 
 ## 7. Usage Examples
 
@@ -214,6 +215,9 @@ See [Neo4j's memory guidance](https://neo4j.com/docs/operations-manual/5/perform
 ## 11. Monitoring and Maintenance
 
 ### 11.1. Health Checks
+
+Set `PROJECT_NAME` as in §7.1, and `GRAPH_DB_DASHBOARD_PORT` to its value in `.env`, before you run these commands.
+
 ```bash
 # Check container status
 docker logs ${PROJECT_NAME}-neo4j-graph-db -f
@@ -278,6 +282,9 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 - **Out of memory errors:** raise `NEO4J_MEMORY_LIMIT`, or pin heap and page cache with a Compose override (§10.1).
 
 ### 14.2. Debug Commands
+
+Set `PROJECT_NAME` as in §7.1 before you run the commands in §14.2 and §14.3.
+
 ```bash
 # View detailed logs
 docker logs ${PROJECT_NAME}-neo4j-graph-db --tail=100 -f
@@ -293,19 +300,19 @@ docker exec ${PROJECT_NAME}-neo4j-graph-db cat /var/lib/neo4j/conf/neo4j.conf
 
 If the database is corrupted, restore the newest legacy snapshot offline with the §4.2 commands. Coordinated signed backups restore with `services/backup/run-database-restore.sh`.
 
-If the newest backup is corrupted, reinitialize the database. This deletes all graph data. Automatic restore loads the newest `/snapshot/backup_*.dump` into any empty database, so rename the corrupted dump first. If an older `backup_*.dump` remains, the new database loads that one; rename every dump to start empty.
+If the newest backup is corrupted, reinitialize the database. These commands use the `atlas_compose` helper (§4) and `${PROJECT_NAME}`; set `PROJECT_NAME` in your shell to its value in `.env` (default `atlas`). This deletes all graph data. Automatic restore loads the newest `/snapshot/backup_*.dump` into any empty database, so rename the corrupted dump first. If an older `backup_*.dump` remains, the new database loads that one; rename every dump to start empty.
 
 ```bash
 # 1. List the dumps.
-docker compose run --rm --no-deps --entrypoint ls neo4j-graph-db -l /snapshot
+atlas_compose run --rm --no-deps --entrypoint ls neo4j-graph-db -l /snapshot
 # 2. Rename the corrupted dump so automatic restore skips it.
-docker compose run --rm --no-deps --entrypoint mv neo4j-graph-db \
+atlas_compose run --rm --no-deps --entrypoint mv neo4j-graph-db \
   /snapshot/backup_<timestamp>.dump /snapshot/corrupt_<timestamp>.dump
 # 3. Remove the container, then the data volume (Docker refuses while a container uses it).
-docker compose rm -sf neo4j-graph-db
+atlas_compose rm -sf neo4j-graph-db
 docker volume rm ${PROJECT_NAME}-graph-db-data
 # 4. Start Neo4j on a new, empty volume.
-docker compose up -d neo4j-graph-db
+atlas_compose up -d neo4j-graph-db
 ```
 
 For more troubleshooting help, see the [troubleshooting guide](../../docs/quick-start/troubleshooting.md).

@@ -152,6 +152,8 @@ Field rules and switch behaviour: [SOURCE Configuration Guide §9](../operations
 
 A list of external Compose files. Atlas validates the paths before Compose runs and appends the files to the Compose command, with no symlinks into the submodule. Pass the same manifest to `./stop.sh`; otherwise `--cold` does not remove volumes declared only in these overlays.
 
+Compose resolves relative paths inside an overlay from the Atlas checkout, not from the overlay's directory. Use absolute paths or `${VAR}` references for bind mounts and build contexts. [§8](#8-backend_plugins-and-pluginyml) shows the `${BACKEND_PLUGINS_DIR}` form.
+
 ---
 
 ## 6. `model_sidecars`, `custom_nodes`
@@ -211,7 +213,21 @@ Sign presigned GET URLs against the public endpoint (`…_PUBLIC_ENDPOINT`). Nev
 
 ## 8. `backend_plugins` and `plugin.yml`
 
-`backend_plugins` lists plugin roots. Atlas mounts each into the backend at `/app/plugins` and sets `BACKEND_PLUGINS_DIR`. Setup and an example plugin: [Reusing Atlas §6.3](../operations/reusing-atlas.md#63-adding-backend-api-routes-via-the-plugin-seam).
+`backend_plugins` lists plugin roots. Atlas resolves each to an absolute host path and writes them to `.env` as `BACKEND_PLUGINS_DIR`. `doctor` and the Kong plugin-auth derivation read that value. Atlas does not mount the roots into the backend.
+
+A `compose_overlays` file must bind each root into the `backend` service. With one root, mount it at the default container path, `/app/plugins`:
+
+```yaml
+# compose/myproject-overlay.yml — listed under compose_overlays
+services:
+  backend:
+    volumes:
+      - ${BACKEND_PLUGINS_DIR}:/app/plugins:ro
+```
+
+With several roots, the value joins the host paths with `os.pathsep`, so it cannot fill one volume entry. Give each root its own volume line, such as `/app/plugins-a` and `/app/plugins-b`. Then set the container's `BACKEND_PLUGINS_DIR` to those container paths, joined with `:`. Never pass the host-path value into the container environment.
+
+Setup and an example plugin: [Reusing Atlas §6.3](../operations/reusing-atlas.md#63-adding-backend-api-routes-via-the-plugin-seam).
 
 ### 8.1. Loading rules
 
@@ -219,6 +235,7 @@ At startup the backend calls `load_plugins(app)`. It scans each root in `$BACKEN
 
 - It first installs an optional shared `requirements.txt` in the root. If that fails, Atlas skips every plugin in that root for this start.
 - A plugin is each subdirectory that is an importable Python package with a module-level `router` (a FastAPI `APIRouter`). Atlas installs its optional `requirements.txt`, imports it and adds the router to the app.
+- A package without a module-level `router` is imported but not mounted. The inventory reports it `skipped`.
 - A plugin whose requirements fail is logged with the requirements path and pip output, then skipped. A plugin that fails to import is logged and skipped. One bad plugin never crashes the backend.
 - Requirements install into a writable plugin site (`pip --target $BACKEND_PLUGINS_SITE_DIR`, default `/tmp/atlas-plugins-site`). The seam creates it and puts it first on `sys.path`. The image runs as `appuser` without `$HOME`, so you need no tmpfs or `PYTHONUSERBASE` workaround.
 - The seam empties that site at each start, so a version change does not leave two `*.dist-info` copies. It empties a custom `BACKEND_PLUGINS_SITE_DIR` only when it holds the `.atlas-plugin-site` marker. The seam writes the marker into an empty directory; a custom site that already holds packages gets a warning instead.
@@ -348,6 +365,7 @@ On `./start.sh`, the bootstrapper normalizes each workflow JSON. It sets the act
 - **Validation.** Malformed JSON, an invalid `active` or `version`, a checksum mismatch and duplicate webhook routes are rejected at load.
 - **Probes.** After import, the seed calls only the webhooks that set `probe: true`. It logs a warning when the status is not `expect_status` (default `200`). Other webhooks are used only to detect duplicate routes. Set `probe: true` on a `POST` webhook only when a call is safe, because it can trigger side effects.
 - **API key warning.** `./start.sh doctor` warns when an active workflow declares webhooks and `N8N_API_KEY` is not set.
+- **Disabled n8n.** With `N8N_SOURCE=disabled`, the start skips the seed with a warning, and `./start.sh doctor` warns too. A pending empty-plan reconcile resumes once n8n is enabled.
 - **Seed bounds.** Each seed HTTP request times out after `N8N_SEED_HTTP_TIMEOUT_MS` (default `10000`). Each n8n CLI command times out after `N8N_SEED_COMMAND_TIMEOUT_MS` (default `120000`). The seed drops an HTTP response larger than `N8N_SEED_MAX_RESPONSE_BYTES` (default `1048576`).
 - **No API key.** n8n Community Edition cannot activate a workflow over its API without a key. Atlas then restarts the n8n container once after seeding, to register the webhook. A failed import or activation is logged per workflow, and the seed container always exits 0.
 
@@ -376,7 +394,7 @@ rag_ingestion_profiles:
         - { backend: lightrag, mode: upload_documents, wait_for_extraction: true, timeout_seconds: 3600, on_unavailable: skip }
 ```
 
-Accepted values: `parser_order` entries `docling`, `tika`, `crawl4ai`, `plain_text`; `chunker.strategy` `token`, `recursive`, `semantic`; vector backend `weaviate`; graph backend `lightrag` with mode `upload_documents`.
+Accepted values: `parser_order` entries `docling`, `tika`, `plain_text`; `chunker.strategy` `token`, `recursive`, `semantic`; vector backend `weaviate`; graph backend `lightrag` with mode `upload_documents`.
 
 On `./start.sh`, the bootstrapper validates and normalizes each profile and hashes it into a stable `revision`. It writes the gitignored `volumes/backend/rag-ingestion-profiles.json` and mounts it into Backend and Celery at a reserved internal path. Both services get the same `RAG_INGESTION_PROFILES_FILE`, Redis state URL, upstream endpoints and resource limits. A MinIO corpus bucket must also be in the same consumer's `storage.buckets`. Atlas then injects only that store's credential variable names into both services.
 
@@ -395,16 +413,17 @@ curl "$BACKEND_URL/api/rag/ingestions/<ingestion_id>" \
      -H "Authorization: Bearer ${BACKEND_INTERNAL_API_TOKEN}"
 ```
 
-You own mounted corpora. Mount the same read-only host directory at `RAG_INGESTION_CORPUS_ROOT` in both services, so the corpus does not change when Celery is on:
+You own mounted corpora. Mount the same read-only host directory at `RAG_INGESTION_CORPUS_ROOT` in both services, so the corpus does not change when Celery is on. Set `MYPROJECT_CORPUS_DIR` to the corpus's absolute host path in `env.values`, `env.file` or `.env.user` ([§5](#5-compose_overlays)):
 
 ```yaml
+# compose/myproject-overlay.yml — listed under compose_overlays
 services:
   backend:
     volumes:
-      - ./corpus:/app/corpus:ro
+      - ${MYPROJECT_CORPUS_DIR}:/app/corpus:ro
   celery-worker:
     volumes:
-      - ./corpus:/app/corpus:ro
+      - ${MYPROJECT_CORPUS_DIR}:/app/corpus:ro
 ```
 
 - **Corpus paths.** A `mount` corpus must be a relative path under `RAG_INGESTION_CORPUS_ROOT` (default `/app/corpus`). An absolute path, `~` or a `..` segment is rejected. A MinIO corpus must name a store the same consumer declared. A missing path is never an empty corpus: submission returns HTTP 400, and a worker without the backend's mount fails the job.
@@ -412,20 +431,24 @@ services:
 - **Chunk limit.** Chunking holds about 20–25 bytes of memory per character, so Atlas chunks a document only up to 20,000,000 characters. A longer document is a per-file chunk error and is excluded from stale-object deletion. Class replacement can still remove its earlier vectors.
 - **Parsing.** Parsers run in `parser_order`. The `plain_text` entry that Atlas appends last accepts only text (UTF-8, Windows-1252, or BOM-marked UTF-16/32). A binary file that Docling and Tika failed on is a per-file error. It is never indexed as raw bytes. Cleanup excludes it, but class replacement can remove its earlier vectors.
 - **Targets.** A profile may declare at most one `graph_target` (Atlas has one LightRAG endpoint). Each target declares `on_unavailable: fail | skip`, so a disabled backend fails or skips visibly. A `wait_for_extraction: true` graph target polls LightRAG until idle or `timeout_seconds`, then finalizes.
+- **Graph targets.** LightRAG uploads only add documents. A changed or deleted file keeps its earlier LightRAG document until you delete it through the LightRAG document API.
 - **Phases.** Each job records its phases (`discover → parse → chunk → embed → vector_write → lightrag_upload → drain → finalize`). Errors are isolated per file, so one bad file does not fail the batch.
-- **Idempotency.** The job key is consumer + profile + revision + corpus fingerprint + embedding model. Mount and MinIO fingerprints hash bounded file bytes. Pending and running duplicates reuse the existing job. Completed reuse also requires current Weaviate publications for its configured targets. Changed content or `LITELLM_EMBEDDING_MODEL` creates a new job. If discovery finds changed content, that job loses dedup eligibility before writes.
+- **Idempotency.** The job key combines consumer, profile, revision, corpus fingerprint, embedding model and declared ingestion destinations. Mount and MinIO fingerprints hash bounded file bytes. Pending and running duplicates with the same key reuse the existing job. Completed reuse also requires current Weaviate publications for its configured targets. Changed content or `LITELLM_EMBEDDING_MODEL` creates a new job.
+- **Destination changes.** Changing a declared Weaviate or LightRAG endpoint, or enabling a skipped destination, creates a new job. URL credentials, query strings and fragments do not affect destination identity. Discovery clears dedup eligibility if content or destination settings changed after submission. Data loss behind an unchanged endpoint still requires recovery.
 - **Restoration.** Restoring earlier corpus bytes or an embedding model starts a new job after another generation changes an overlapping Weaviate class. Empty-corpus publications follow this rule. Retained completed records alone do not prove current vectors. Missing, expired or legacy publication evidence can cause a new ingestion.
 - **Publication failures.** If a class replacement, write or cleanup may have changed vectors, historical success is no longer reused. Later phase failure or cancellation does not restore its eligibility. A run that discovers files but produces no chunks refuses destructive cleanup and leaves the previous publication unchanged.
-- **Leases.** Each execution holds an owner-fenced Redis lease (`RAG_INGESTION_EXECUTION_LEASE_SECONDS`, default 30) for state writes. Fencing protects ingestion records; it does not make external writes exactly-once. The lease is per ingestion, not per profile. Two jobs of one profile can run at once, so let one finish before you submit the next.
+- **Leases.** Each execution holds an owner-fenced Redis lease (`RAG_INGESTION_EXECUTION_LEASE_SECONDS`, default 30) for state writes. Execution leases protect ingestion records; they do not make external writes exactly-once. The lease is per ingestion, not per profile. Two jobs of one profile can run at once, but collection guards (below) serialize their Weaviate writes. LightRAG uploads have no guard, so let a job with graph targets finish before the next.
+- **Collection writers.** Separate guards serialize mutations of overlapping Weaviate classes, including aliases. A guard lasts only for the vector-store write phase. Uncertain interrupted writes keep those classes blocked until [operator recovery](../../services/backend/README.md#rag-collection-recovery). Retries, cancellation, lease expiry and job retention do not release an uncertain guard. A 4xx rejection from Weaviate is not uncertain.
+- **Collection waits.** A job whose classes are already held waits as `pending` before parsing or embedding. If another job takes them while it runs, `vector_write` turns it away, and its retry repeats parsing and embedding.
 - **Embedding identity.** Each Weaviate class records its embedding model and vector dimension. A class without that record is adopted when its vectors have the current size. Otherwise, the first ingestion after a model or size change drops the class and writes the whole corpus again, so two models never mix.
 - **Rebuild window.** During a rebuild, queries see only the objects written so far. Failed sources are excluded from stale-object deletion, but class replacement can remove earlier vectors. Writes from a previous attempt can survive.
 - **Rebuild reporting.** Saved rebuild history survives a retry after a successful class check and later write failure. Creation acknowledgement failure or lease loss before the checkpoint can leave vector availability unverified. A failed-source exclusion does not prove that vectors exist.
 - **Recovery.** Correct the failed input or upstream. A completed job with file errors can still deduplicate unchanged input while its target publications remain current. If that result is still current, change the corpus or profile definition to create a new job. Run `./start.sh --consumer <manifest>` to regenerate an edited profile's revision. Each affected file must parse, chunk, embed and write successfully.
 - **Class names.** Profile names that map to one class (`a-b` and `a.b` both become `{prefix}_a_b`) are rejected at load. Object ids include the profile name.
 
-MinIO fingerprints hash bytes instead of object metadata; all fingerprints use consistent filename ordering. Upgrading fingerprint formats may cause one new ingestion for unchanged content.
+MinIO fingerprints hash bytes instead of object metadata; all fingerprints use consistent filename ordering. Upgrading fingerprint or job-key formats may cause one new ingestion for unchanged content.
 
-**Time limits.** With the Celery tier on, one task runs the whole job, with its own soft and hard limits. When the soft limit expires, the job is recorded `failed`, so a resubmit starts a new job.
+**Time limits.** With the Celery tier on, one task runs the whole job, with its own soft and hard limits. When the soft limit expires, the job is recorded `failed`, so a resubmit creates a new job. Collection guards can still block its writes until operator recovery.
 
 Atlas refuses a submission (HTTP 400, naming both values) when the graph targets' `timeout_seconds` add up to the soft limit or more. Parsing, embedding and writing use the same time, so raise both limits for large corpora. Defaults and rules: [Celery §3](../../services/celery/README.md#3-configuration).
 
@@ -437,7 +460,7 @@ The unit suite checks the contract, phases, idempotency and path safety with fak
 
 ## 12. `lightrag_query_profiles`
 
-Each profile is a named bundle of LightRAG per-query settings. Open WebUI users can then pick "graph-rag local k=30" or "graph-rag hybrid k=10", and the app does not hard-code them.
+Each profile is a named bundle of LightRAG per-query settings, such as "graph-rag local k=30". Atlas validates, compiles and mounts the profiles. A consumer plugin or integration selects one by name; Atlas does not apply profiles to queries itself.
 
 ```yaml
 # atlas.consumer.yml
@@ -494,13 +517,13 @@ managed_host_services:
 |-------|----------|-------|
 | `name` | yes | `[a-z0-9][a-z0-9-]*`. Becomes `~/.atlas/<name>` and `ATLAS_<NAME>_HOST_ENDPOINT`, so two loaded consumers cannot share one. Reserved: `comfyui-mps`, `vllm-metal`, `blender-mcp`, and the export's service names (`backend`, `litellm`, `comfyui`, `asset-worker`, `ollama`, `minio`, `weaviate`, `neo4j`, `n8n`, `redis`, `supabase`). The state directory is per user, so separate consumer repos on one machine also need distinct names. |
 | `command` | yes | String (POSIX-split) or list. Argv, **not** a shell line. |
-| `port` | yes | 1–65535. |
+| `port` | yes | Integer or integer string from 1–65535. Booleans and fractional values are rejected. |
 | `workdir` | no | Defaults to the manifest's directory. Must resolve inside the consumer root. |
 | `bind` | no | Defaults to `127.0.0.1`. |
 | `env` | no | Extra environment for the process. A boolean is written as `true` or `false`; `null` is rejected. |
 | `venv` | no | `python`, `metal`, `requirements`, `packages`. A leading `python`/`python3` in `command` is rewritten to the venv interpreter. |
 | `install` | no | Extra argv steps run after dependency install. |
-| `health` | no | `kind` (`tcp`/`http`), `path`, `expect_json`, `timeout`. Defaults to a TCP port knock. `timeout` (default 5s) also bounds each readiness probe during `start`, capped by the time left in the start wait. |
+| `health` | no | `kind` (`tcp`/`http`), `path`, `expect_json`, `timeout`. Defaults to a TCP port knock. `timeout` must be finite and positive; booleans are rejected. Its default is 5s. During `start`, each probe uses the smaller of this timeout and the remaining wait, with a 50ms minimum. |
 | `allow_remote` | no | Required to bind anything other than loopback. |
 
 > **Three deliberate constraints.** (1) A declared command is argv passed straight to `subprocess`, never a shell. A semicolon in a value is text, not a second command. (2) A non-loopback `bind` is refused without `allow_remote: true`, because these processes have no authentication. (3) `workdir` and `venv.requirements` must resolve inside your consumer root, because Atlas executes what this block declares.

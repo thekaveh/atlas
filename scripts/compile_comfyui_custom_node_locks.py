@@ -19,6 +19,14 @@ CATALOG = ROOT / "services" / "comfyui" / "custom-nodes.yaml"
 BASE_CONSTRAINTS = LOCK_DIR / "ai-dock-v2-cpu-22.04-v0.2.7.txt"
 EXCLUDE_NEWER = "2026-08-30T00:00:00Z"
 COMPILE_COMMAND = "uv run python scripts/compile_comfyui_custom_node_locks.py --write"
+# COMPILE_COMMAND is the --custom-compile-command header committed inside the
+# lock files and their catalog digests; change it only with a --write regen.
+# REGENERATE_COMMAND is the remedy printed to maintainers. It runs in the
+# bootstrapper project, which declares this script's PyYAML dependency.
+REGENERATE_COMMAND = (
+    "uv run --project bootstrapper python "
+    "scripts/compile_comfyui_custom_node_locks.py --write"
+)
 
 
 @dataclass(frozen=True)
@@ -173,7 +181,7 @@ def check_locks() -> int:
             _compile(spec, generated)
             if generated.read_bytes() != spec.output.read_bytes():
                 errors.append(
-                    f"{spec.output.relative_to(ROOT)} is stale; run {COMPILE_COMMAND}"
+                    f"{spec.output.relative_to(ROOT)} is stale; run {REGENERATE_COMMAND}"
                 )
     if errors:
         for error in errors:

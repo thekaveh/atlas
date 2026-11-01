@@ -16,7 +16,7 @@ def test_prompt_includes_target_service_name():
 
 
 def test_prompt_lists_other_services():
-    """The prompt enumerates the other 20 doc folders so the subagent knows
+    """The prompt enumerates the other doc folders so the subagent knows
     what pairs to consider."""
     from docs.research_subagent_prompt import build_research_prompt
     prompt = build_research_prompt("hermes")
@@ -93,3 +93,31 @@ def test_candidate_template_starts_open_and_skips_closed_records():
     assert "license: <SPDX or \"unknown\">\nlifecycle: proposed\nreferenced-by:" in template
     assert "Do NOT re-propose a candidate whose existing one-pager has `lifecycle: shipped`" in template
     assert "then the same command on each candidate file you wrote" in prompt
+
+
+def test_existing_one_pager_rule_is_consistent_and_permitted():
+    """Every mention of an existing one-pager names the same action, and the
+    scope rule allows the one line it appends."""
+    from docs.research_subagent_prompt import build_research_prompt
+    prompt = build_research_prompt("hermes")
+    assert "append a `## Cross-references` line to your row" not in prompt
+    assert prompt.count("append one `## Cross-references` line") == 3
+    assert "except the one `## Cross-references` line you append to each existing one-pager" in prompt
+    assert "other-20-services" not in prompt
+
+
+def test_generated_date_is_the_dispatch_date(monkeypatch):
+    """The schema templates carry the dispatch date, not a hard-coded one."""
+    import datetime
+
+    import docs.research_subagent_prompt as mod
+
+    class _Date:
+        @staticmethod
+        def today():
+            return datetime.date(2031, 2, 3)
+
+    monkeypatch.setattr(mod, "date", _Date)
+    prompt = mod.build_research_prompt("hermes")
+    assert prompt.count("generated: 2031-02-03\n") == 2
+    assert "2026-05-18" not in prompt

@@ -11,6 +11,8 @@ import importlib.metadata as md
 
 from packaging.version import Version
 
+import pytest
+
 
 def test_textual_is_at_least_8_2_8():
     """Selection auto-scroll, cross-container selection and the
@@ -44,8 +46,32 @@ def test_textual_image_seam_still_imports():
 
 def test_textual_image_stays_below_0_13():
     """textual-image 0.13+ requires Python >=3.12 and would raise the
-    bootstrapper's 3.10 floor."""
+    bootstrapper's 3.11 floor."""
     installed = Version(md.version("textual-image"))
     assert installed < Version("0.13"), (
-        f"textual-image {installed} would break the Python 3.10 floor"
+        f"textual-image {installed} would break the Python 3.11 floor"
     )
+
+
+def test_textual_image_consumes_real_pixels_and_preserves_image_operations():
+    from PIL import Image
+    from textual_image._pixeldata import PixelData
+
+    # Pillow 13 is supported; textual-image 0.12 still calls getdata().
+    # Assert that diagnostic locally so unrelated warnings remain errors.
+    getdata_warning = (
+        r"^Image\.Image\.getdata is deprecated and will be removed in "
+        r"Pillow 14 \(2027-10-15\)\. Use get_flattened_data instead\.$"
+    )
+    with Image.new("RGB", (2, 2), (12, 34, 56)) as source:
+        pixels = PixelData(source)
+        with pytest.warns(DeprecationWarning, match=getdata_warning):
+            assert [list(row) for row in pixels] == [[(12, 34, 56)] * 2] * 2
+        grayscale = PixelData(source, mode="grayscale")
+        with pytest.warns(DeprecationWarning, match=getdata_warning):
+            assert [list(row) for row in grayscale] == [[30, 30], [30, 30]]
+        scaled = pixels.scaled(4, 6)
+        assert (scaled.width, scaled.height) == (4, 6)
+        cropped = scaled.cropped(1, 2, 3, 5)
+        assert (cropped.width, cropped.height) == (2, 3)
+        assert cropped.to_base64().startswith("iVBOR")

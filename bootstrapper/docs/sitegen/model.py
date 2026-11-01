@@ -9,9 +9,8 @@ import yaml
 from docs.deps_resolver import _AGGREGATE_DOC_FOLDERS, doc_folder_to_manifests
 from services.manifests import Manifest, call_edges, load_manifests
 from services.topology import get_topology
+from tracks import ALWAYS_ON_SERVICE_KEYS
 
-
-PUBLIC_URL = "https://thekaveh.github.io/atlas/"
 
 
 @dataclass(frozen=True)
@@ -61,19 +60,12 @@ class ServicePage:
     kong_aliases: list[str]
     env_vars: list[EnvVarSurface]
     port_vars: list[str]
-    diagram_svg: Path | None
-    diagram_html: Path | None
     support_tier: str = "n/a"
 
 
 @dataclass(frozen=True)
 class DocsModel:
     root: Path
-    public_url: str
-    hero_image: Path
-    poster_image: Path
-    wizard_screenshot: Path
-    top_level_diagram: Path
     services: list[ServicePage]
     tracks: list[TrackPage]
 
@@ -123,9 +115,9 @@ def _track_membership(
     all_track_keys = {track.key for track in tracks}
     curated_track_keys = {track.key for track in tracks if not track.all_services and track.services}
 
-    # tracks.py's always-on tier ({llm-provider, prometheus, grafana}) is in
-    # every track; llm-provider is the role Ollama fills.
-    always_on = {"ollama", "llm-provider", "prometheus", "grafana"}
+    # tracks.py's always-on tier is in every track; llm-provider is the role
+    # Ollama fills.
+    always_on = {"ollama", *ALWAYS_ON_SERVICE_KEYS}
     aggregate_members = {m for members in _AGGREGATE_DOC_FOLDERS.values() for m in members}
 
     for track in tracks:
@@ -200,7 +192,13 @@ def _runtime_surface_values(manifest: Manifest, source_var: str) -> list[str]:
         variants = manifest.runtime_sc.get(key)
         if isinstance(variants, dict):
             return [str(option) for option in variants.keys()]
-    return []
+    # No runtime_sc slice (e.g. the single-option BACKEND_SOURCE): fall back
+    # to the declared default so the matrix lists it instead of "-".
+    return [
+        str(env.default)
+        for env in manifest.env
+        if env.name == source_var and env.default is not None
+    ][:1]
 
 
 def _source_metadata(
@@ -222,7 +220,7 @@ def _source_metadata(
         # lists EVERY *_SOURCE var, not just the primary (#836). The primary
         # (manifest.sources.var) is already surfaced above; skip it. Values
         # resolve via the same runtime_sc lookup the no-sources-block branch
-        # uses (empty → "-"), never the primary's option list.
+        # uses (declared default, else "-"), never the primary's option list.
         for env in manifest.env:
             if env.name.endswith("_SOURCE") and env.name != manifest.sources.var:
                 source_surfaces.append(
@@ -337,8 +335,6 @@ def _manifest_docs(root: Path, tracks: list[TrackPage]) -> list[ServicePage]:
         )
         env_vars = _env_surfaces(manifest, template) if manifest else []
         port_vars = [env.name for env in manifest.env if env.name.endswith("_PORT")] if manifest else []
-        diagram_svg = services_dir / name / "architecture.svg"
-        diagram_html = services_dir / name / "architecture.html"
 
         docs.append(
             ServicePage(
@@ -358,8 +354,6 @@ def _manifest_docs(root: Path, tracks: list[TrackPage]) -> list[ServicePage]:
                 kong_aliases=aliases,
                 env_vars=env_vars,
                 port_vars=port_vars,
-                diagram_svg=diagram_svg if diagram_svg.exists() else None,
-                diagram_html=diagram_html if diagram_html.exists() else None,
                 support_tier=manifest.support.tier if manifest else "n/a",
             )
         )
@@ -370,11 +364,6 @@ def load_docs_model(root: Path) -> DocsModel:
     tracks = _load_tracks(root)
     return DocsModel(
         root=root,
-        public_url=PUBLIC_URL,
-        hero_image=Path("assets/images/atlas-source.png"),
-        poster_image=Path("assets/atlas-poster-blue.png"),
-        wizard_screenshot=Path("screenshots/wizard-running.png"),
-        top_level_diagram=Path("diagrams/architecture.svg"),
         services=_manifest_docs(root, tracks),
         tracks=tracks,
     )

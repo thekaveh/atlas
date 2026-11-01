@@ -220,15 +220,19 @@ def test_repeated_pending_departure_removes_payload_without_executor_tombstones(
             for _ in range(20):
                 payload = request()
                 ref = weakref.ref(payload)
-                budget = adapter.RerankBudget(0.001 if departure == "timeout" else 30)
+                # A frozen clock keeps admission live; only the 1 ms caller wait expires.
+                budget = (adapter.RerankBudget(0.001, clock=lambda: 0.0)
+                          if departure == "timeout" else adapter.RerankBudget(30))
                 task = asyncio.create_task(gate.run(payload, budget))
                 del payload
                 await checkpoint()
                 job = gate._pending[0]
                 if departure == "cancel":
                     task.cancel()
-                await asyncio.gather(task, return_exceptions=True)
-                del task
+                outcome, = await asyncio.gather(task, return_exceptions=True)
+                assert isinstance(outcome, asyncio.CancelledError if departure == "cancel"
+                                  else adapter.RerankAdapterTimeoutError)
+                del task, outcome
                 gc.collect()
                 assert job.request is None and ref() is None
                 assert not gate._pending

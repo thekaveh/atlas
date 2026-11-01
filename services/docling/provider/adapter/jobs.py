@@ -18,6 +18,20 @@ JobStatus = Literal["pending", "started", "success", "failure"]
 logger = logging.getLogger(__name__)
 
 
+class _ResultCleanupPending(Exception):
+    def __init__(self, result_path: Path, error: OSError | asyncio.CancelledError) -> None:
+        super().__init__("Result cleanup is pending")
+        self.result_path = result_path
+        self.error = error
+
+
+def _delete_failed_result(path: Path) -> None:
+    try:
+        path.unlink(missing_ok=True)
+    except OSError as exc:
+        raise _ResultCleanupPending(path, exc) from None
+
+
 @dataclass
 class Reservation:
     claimed: bool = False
@@ -124,7 +138,11 @@ class JobRegistry:
         job.status = "started"
         result_path: Path | None = None
         try:
-            result = await worker(job.upload_path, job.upload_name)
+            try:
+                result = await worker(job.upload_path, job.upload_name)
+            except _ResultCleanupPending as exc:
+                result_path = exc.result_path
+                raise exc.error
             if isinstance(result, Path):
                 result_path = result
             else:
@@ -142,7 +160,12 @@ class JobRegistry:
                             break
                         except asyncio.CancelledError:
                             cancelled = True
-                except Exception:
+                except Exception as exc:
+                    if isinstance(exc, _ResultCleanupPending):
+                        result_path = exc.result_path
+                        if cancelled:
+                            raise asyncio.CancelledError
+                        raise exc.error
                     if cancelled:
                         raise asyncio.CancelledError
                     raise
@@ -189,7 +212,7 @@ class JobRegistry:
                 stream.write(payload)
             return path
         except BaseException:
-            path.unlink(missing_ok=True)
+            _delete_failed_result(path)
             raise
 
     async def status(self, task_id: str) -> JobStatus | None:

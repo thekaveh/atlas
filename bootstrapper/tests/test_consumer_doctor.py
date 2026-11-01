@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from click.testing import CliRunner
@@ -14,11 +16,161 @@ sys.path.insert(0, str(REPO_ROOT / "bootstrapper"))
 REUSING_ATLAS = REPO_ROOT / "docs" / "operations" / "reusing-atlas.md"
 
 
+@pytest.fixture
+def rerank_consumer(tmp_path, monkeypatch):
+    manifest = tmp_path / "atlas.consumer.yml"
+    manifest.write_text(
+        "name: c\nlightrag_query_profiles:\n  version: 1\n  profiles:\n"
+        "    - {name: p, mode: hybrid, enable_rerank: true}\n", encoding="utf-8",
+    )
+    monkeypatch.setenv("ATLAS_CONSUMER_MANIFEST", str(manifest))
+    return manifest
+
+
+@pytest.mark.parametrize("case", [
+    (kind, existing, custom) for kind in ("sibling", "external")
+    for existing in (False, True) for custom in (False, True)
+])
+def test_early_rerank_validation_reads_user_overlays_without_writing(
+    tmp_path, monkeypatch, rerank_consumer, case,
+) -> None:
+    from core.config_parser import ConfigParser
+    from start import _validate_consumer_manifests_early
+
+    overlay_kind, existing_env, custom_env = case
+    env_path = tmp_path / ("state/active.env" if custom_env else ".env")
+    env_path.parent.mkdir(parents=True, exist_ok=True)
+    if custom_env:
+        monkeypatch.setenv("ATLAS_ENV_FILE", "state/active.env")
+    if existing_env:
+        env_path.write_text("LIGHTRAG_RERANK_ADAPTER_ENABLED=false\n", encoding="utf-8")
+    invoker = tmp_path / "invoker"
+    invoker.mkdir()
+    monkeypatch.setenv("ATLAS_INVOKER_CWD", str(invoker))
+    overlay = env_path.parent / ".env.user"
+    if overlay_kind == "external":
+        overlay = invoker / "adapter.env"
+        monkeypatch.setenv("ATLAS_ENV_USER_FILE", "adapter.env")
+    overlay.write_text("\ufeffexport LIGHTRAG_RERANK_ADAPTER_ENABLED=true\n", encoding="utf-8")
+    before = env_path.read_bytes() if env_path.exists() else None
+    starter = SimpleNamespace(config_parser=ConfigParser(str(tmp_path)))
+
+    _validate_consumer_manifests_early(starter, True)
+
+    assert (env_path.read_bytes() if env_path.exists() else None) == before
+    assert overlay.read_text(encoding="utf-8").endswith("ENABLED=true\n")
+
+
+@pytest.mark.parametrize("case", [
+    ("true", "false", None, None), ("false", "true", "false", None),
+    ("false", "false", "true", "false"),
+])
+def test_early_rerank_validation_uses_effective_overlay_precedence(
+    tmp_path, monkeypatch, rerank_consumer, case,
+) -> None:
+    import click
+    from core.config_parser import ConfigParser
+    from start import _validate_consumer_manifests_early
+
+    base, sibling, external, manifest_flag = case
+    (tmp_path / ".env").write_text(f"LIGHTRAG_RERANK_ADAPTER_ENABLED={base}\n", encoding="utf-8")
+    (tmp_path / ".env.user").write_text(f"LIGHTRAG_RERANK_ADAPTER_ENABLED={sibling}\n", encoding="utf-8")
+    if external is not None:
+        overlay = tmp_path / "external.env"
+        overlay.write_text(f"LIGHTRAG_RERANK_ADAPTER_ENABLED={external}\n", encoding="utf-8")
+        monkeypatch.setenv("ATLAS_ENV_USER_FILE", str(overlay))
+    if manifest_flag is not None:
+        with rerank_consumer.open("a", encoding="utf-8") as handle:
+            handle.write(f'env:\n  values:\n    LIGHTRAG_RERANK_ADAPTER_ENABLED: "{manifest_flag}"\n')
+
+    with pytest.raises(click.UsageError, match="requires the LightRAG rerank adapter"):
+        _validate_consumer_manifests_early(SimpleNamespace(config_parser=ConfigParser(str(tmp_path))), True)
+
+
+@pytest.mark.parametrize("bad_tail", ["BROKEN: value\n", "OTHER=x\x0cBAD=y\n"])
+def test_early_rerank_validation_skips_entire_invalid_user_overlay(
+    tmp_path, rerank_consumer, capsys, bad_tail,
+) -> None:
+    import click
+    from core.config_parser import ConfigParser
+    from start import _validate_consumer_manifests_early
+
+    (tmp_path / ".env").write_text("LIGHTRAG_RERANK_ADAPTER_ENABLED=false\n", encoding="utf-8")
+    overlay = tmp_path / ".env.user"
+    overlay.write_text("LIGHTRAG_RERANK_ADAPTER_ENABLED=true\n" + bad_tail, encoding="utf-8")
+
+    with pytest.raises(click.UsageError, match="requires the LightRAG rerank adapter"):
+        _validate_consumer_manifests_early(SimpleNamespace(config_parser=ConfigParser(str(tmp_path))), True)
+    captured = capsys.readouterr()
+    assert str(overlay) in captured.out + captured.err
+    assert "skipping" in captured.out + captured.err
+
+
+def test_consumer_config_reports_each_overlay_problem_once_per_file_version(
+    tmp_path, monkeypatch, capsys,
+) -> None:
+    """load_consumer_config runs for every compose command; re-reading the
+    overlays repeated the same skip and `${...}` warnings on every call."""
+    from core.config_parser import ConfigParser
+
+    monkeypatch.delenv("ATLAS_CONSUMER_MANIFEST", raising=False)
+    monkeypatch.delenv("ATLAS_ENV_FILE", raising=False)
+    monkeypatch.setenv("ATLAS_ENV_USER_FILE", str(tmp_path / "missing.env"))
+    (tmp_path / ".env").write_text("LIGHTRAG_RERANK_ADAPTER_ENABLED=false\n", encoding="utf-8")
+    overlay = tmp_path / ".env.user"
+    overlay.write_text("FOO=${BAR}\n", encoding="utf-8")
+    parser = ConfigParser(str(tmp_path))
+
+    for _ in range(3):
+        parser.load_consumer_config()
+    err = capsys.readouterr().err
+    assert err.count("does not exist; skipping") == 1, err
+    assert err.count("Atlas preserves this reference") == 1, err
+
+    # A changed overlay is a new file version: it is read (and reported) again.
+    overlay.write_text("FOO=${BAR}\nLIGHTRAG_RERANK_ADAPTER_ENABLED=true\n", encoding="utf-8")
+    assert parser._effective_overlay_env()["LIGHTRAG_RERANK_ADAPTER_ENABLED"] == "true"
+    err = capsys.readouterr().err
+    assert err.count("Atlas preserves this reference") == 1, err
+    assert "does not exist; skipping" not in err
+
+
+@pytest.mark.parametrize("banner_first", [True, False])
+def test_start_banner_and_consumer_config_report_a_bad_overlay_once(
+    tmp_path, monkeypatch, capsys, banner_first,
+) -> None:
+    """A start reads each overlay for its banner and again for
+    load_consumer_config. The banner reports a bad overlay exactly once, and
+    stderr carries it only when an early consumer load read it first."""
+    import start
+    from core.config_parser import ConfigParser
+
+    for name in ("ATLAS_CONSUMER_MANIFEST", "ATLAS_ENV_FILE", "ATLAS_ENV_USER_FILE"):
+        monkeypatch.delenv(name, raising=False)
+    (tmp_path / ".env").write_text("PROJECT_NAME=atlas\n", encoding="utf-8")
+    overlay = tmp_path / ".env.user"
+    overlay.write_text('BAD="unterminated\n', encoding="utf-8")
+    banner: list = []
+    starter = start.AtlasStarter.__new__(start.AtlasStarter)
+    starter.config_parser = ConfigParser(str(tmp_path))
+    starter.banner = SimpleNamespace(show_status_message=lambda message, level: banner.append(message))
+
+    if not banner_first:
+        starter.config_parser.load_consumer_config()
+    assert starter._apply_single_env_user_overlay(overlay, label=".env.user", warn_if_missing=False) == {}
+    starter.config_parser.load_consumer_config()
+
+    err = capsys.readouterr().err.splitlines()
+    assert sum("could not be read" in line for line in banner) == 1, banner
+    assert sum("could not be read" in line for line in err) == (0 if banner_first else 1), err
+    assert (tmp_path / ".env").read_text(encoding="utf-8") == "PROJECT_NAME=atlas\n"
+
+
 def _write_base_env(tmp_path: Path, extra: str = "") -> None:
     (tmp_path / ".env.example").write_text(
         "PROJECT_NAME=atlas\n"
         "COMFYUI_ENDPOINT=http://comfyui:18188\n"
-        "LITELLM_URL=http://litellm:4000\n"
+        "LITELLM_BASE_URL=http://litellm:4000\n"
         "MINIO_ENDPOINT=http://minio:9000\n"
         f"{extra}",
         encoding="utf-8",
@@ -26,7 +178,7 @@ def _write_base_env(tmp_path: Path, extra: str = "") -> None:
     (tmp_path / ".env").write_text(
         "PROJECT_NAME=atlas\n"
         "COMFYUI_ENDPOINT=http://host.docker.internal:8188\n"
-        "LITELLM_URL=http://litellm:4000\n"
+        "LITELLM_BASE_URL=http://litellm:4000\n"
         "MINIO_ENDPOINT=http://minio:9000\n"
         f"{extra}",
         encoding="utf-8",
@@ -118,6 +270,7 @@ def test_doctor_text_reports_endpoint_resolution(tmp_path, monkeypatch) -> None:
     assert result.exit_code == 0, result.output
     assert "Consumer Doctor" in result.output
     assert "COMFYUI_ENDPOINT=http://host.docker.internal:8188" in result.output
+    assert "LITELLM_BASE_URL=http://litellm:4000" in result.output
     assert "compose" in result.output
     assert "overlay-env" in result.output
 
@@ -630,6 +783,38 @@ def test_doctor_n8n_workflows_pass_when_valid(tmp_path, monkeypatch) -> None:
     checks = {entry["id"]: entry for entry in json.loads(result.output)["checks"]}
     assert checks["n8n-workflows"]["status"] == "pass"
     assert "adaptive-rag" in checks["n8n-workflows"]["details"]["workflows"]
+
+
+def test_doctor_n8n_workflows_warns_when_n8n_is_disabled(tmp_path, monkeypatch) -> None:
+    """Start skips the seed with N8N_SOURCE=disabled; doctor says so up front."""
+    import start as start_module
+
+    manifest = _write_n8n_consumer(
+        tmp_path, "rag-showcase",
+        """
+        n8n_workflows:
+          version: 1
+          workflows:
+            - id: adaptive-rag
+              path: ./wf.json
+              active: "false"
+        """,
+        "wf.json",
+    )
+    _write_base_env(tmp_path, extra="N8N_API_KEY=k\nN8N_SOURCE=disabled\n")
+    monkeypatch.setenv("ATLAS_CONSUMER_MANIFEST", str(manifest))
+    _patch_starter_paths(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        start_module.DockerManager,
+        "validate_compose_config",
+        lambda self: (0, "", "", ["docker", "compose", "config", "-q"]),
+    )
+
+    result = CliRunner().invoke(start_module.main, ["doctor", "--format", "json"])
+    assert result.exit_code == 0, result.output
+    checks = {entry["id"]: entry for entry in json.loads(result.output)["checks"]}
+    assert checks["n8n-workflows"]["status"] == "warn"
+    assert "N8N_SOURCE is disabled" in checks["n8n-workflows"]["message"]
 
 
 def test_doctor_n8n_workflows_warns_without_api_key(tmp_path, monkeypatch) -> None:
@@ -1742,7 +1927,7 @@ def test_doctor_bundle_names_the_manifest_that_set_a_wrong_key(tmp_path, monkeyp
     assert f"Change `env.values.BASE_PORT` in {manifest}" in port["action"]
     model = config["LITELLM_DEFAULT_MODEL"]
     assert (model["value"], model["origin"]) == ("wrong-model", str(manifest))
-    assert "LITELLM_URL" not in config  # not allowlisted
+    assert "LITELLM_BASE_URL" not in config  # not allowlisted
 
 
 def test_doctor_bundle_opt_in_only_adds_unlisted_fields(tmp_path, monkeypatch) -> None:
@@ -1760,7 +1945,7 @@ def test_doctor_bundle_opt_in_only_adds_unlisted_fields(tmp_path, monkeypatch) -
     base_keys = {e["key"] for e in base["config"]}
     full_keys = {e["key"] for e in full["config"]}
     assert base_keys < full_keys
-    assert "LITELLM_URL" in full_keys - base_keys
+    assert "LITELLM_BASE_URL" in full_keys - base_keys
     assert all("details" not in check for check in base["checks"])
     assert all("details" in check for check in full["checks"])
     assert [c["id"] for c in base["checks"]] == [c["id"] for c in full["checks"]]
@@ -1783,7 +1968,8 @@ def test_doctor_include_unlisted_requires_bundle(tmp_path, monkeypatch) -> None:
 
 def test_doctor_bundle_records_checks_that_could_not_run(tmp_path, monkeypatch) -> None:
     """#1057 AC4: a disabled service's check is kept as skipped/unavailable,
-    and a check that raises is recorded rather than dropped."""
+    and a check that raises is recorded rather than dropped. It still fails
+    the run, as it does without --bundle."""
     import start as start_module
 
     _write_base_env(tmp_path, extra="COMFYUI_SOURCE=disabled\n")
@@ -1808,7 +1994,8 @@ def test_doctor_bundle_records_checks_that_could_not_run(tmp_path, monkeypatch) 
             checks["comfyui-mps"]["message"]) == (
         "skipped", False, "COMFYUI_SOURCE is not managed-localhost-mps.")
     assert (checks["compose"]["status"], checks["compose"]["available"]) == ("skipped", False)
-    assert checks["broken-probe"]["status"] == "unavailable"
+    assert (checks["broken-probe"]["status"], result.exit_code,
+            json.loads(result.stdout)["ok"]) == ("unavailable", 1, False)
     assert "RuntimeError: probe exploded" in checks["broken-probe"]["message"]
     # The JSON on stdout stays machine-clean; the preview went to stderr.
     assert json.loads(result.stdout)["checks"][-1]["id"] == "broken-probe"
@@ -2325,6 +2512,21 @@ def test_custom_models_flag_resolves_against_the_invoking_directory(tmp_path, mo
     assert resolved.split(os.pathsep) == [str((tmp_path / "a.yaml").resolve()), "/abs/b.yaml"]
 
 
+def test_custom_models_file_option_rejects_a_directory(tmp_path, monkeypatch) -> None:
+    """dir_okay=False judged the bootstrapper's cwd; the callback judges the
+    invoking directory instead and still keeps a directory out."""
+    import click
+
+    import start as start_module
+
+    (tmp_path / "models").mkdir()
+    monkeypatch.setenv("ATLAS_INVOKER_CWD", str(tmp_path))
+    with pytest.raises(click.BadParameter):
+        start_module._invoker_input_file_option(None, None, "./models")
+    assert start_module._invoker_input_file_option(None, None, "./m.yaml") == "./m.yaml"
+    assert start_module._invoker_input_file_option(None, None, None) is None
+
+
 def test_preflight_base_port_override_recomputes_service_ports(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -2411,7 +2613,7 @@ def test_doctor_base_port_matches_what_start_does(raw, status):
 
     starter = SimpleNamespace(
         config_parser=SimpleNamespace(
-            parse_env_file=lambda: {"BASE_PORT": raw}, get_project_name=lambda: "atlas",
+            parse_env_file=lambda: {"BASE_PORT": raw}, get_project_name=lambda: "rag-showcase",
         ),
         port_manager=PortManager(),
     )
@@ -2950,7 +3152,9 @@ def test_pool_ports_past_65535_fail_preflight(tmp_path) -> None:
     assert "port" not in {c["name"] for c in bm.pool_from_env(env)[0].preflight().checks}
 
 
-def test_doctor_warns_on_a_stray_pool_instance_and_start_reaps_it(tmp_path, monkeypatch) -> None:
+def test_doctor_warns_on_a_stray_pool_instance_and_start_reaps_it(
+    tmp_path, monkeypatch, dead_pid
+) -> None:
     from types import SimpleNamespace
 
     import start as start_module
@@ -2959,7 +3163,7 @@ def test_doctor_warns_on_a_stray_pool_instance_and_start_reaps_it(tmp_path, monk
     env = _blender_pool_env(tmp_path, 1)
     stray = bm.pool_members(bm.manager_from_env({**env, "BLENDER_MCP_INSTANCES": "3"}))[2]
     stray.state_dir.mkdir(parents=True)
-    stray.pid_file.write_text("999999\n", encoding="utf-8")  # a process that is long gone
+    stray.pid_file.write_text(f"{dead_pid}\n", encoding="utf-8")  # a process that is long gone
     monkeypatch.setattr(bm.BlenderMcpManager, "preflight", lambda self: SimpleNamespace(
         status="ok", checks=[{"name": "blender", "detail": "ok"}], to_dict=lambda: {}))
     starter = start_module.AtlasStarter.__new__(start_module.AtlasStarter)
@@ -3144,3 +3348,331 @@ def test_only_a_typed_host_port_replaces_the_overview_port() -> None:
     host_port = SimpleNamespace(secondary_number=SimpleNamespace(env_var="WEAVIATE_LOCALHOST_PORT"))
     assert screen._typed_host_port(retention) == ""
     assert screen._typed_host_port(host_port) == "9999"
+
+
+@pytest.mark.parametrize("directory", ["ordinary", "Research, Inc", "Research: Lab", "Research, Inc: Lab"])
+def test_cli_consumer_paths_reach_real_doctor_without_list_reparsing(tmp_path, monkeypatch, directory):
+    import start
+    from core.config_parser import ConfigParser
+
+    root = tmp_path / "atlas"
+    root.mkdir()
+    invoker = tmp_path / "invoker"
+    manifest_dir = invoker / directory
+    manifest_dir.mkdir(parents=True)
+    manifest = manifest_dir / "atlas.consumer.yml"
+    manifest.write_text("name: selected\n", encoding="utf-8")
+    monkeypatch.setenv("ATLAS_INVOKER_CWD", str(invoker))
+    monkeypatch.setenv("ATLAS_CONSUMER_MANIFEST", "previous.yml")
+    monkeypatch.setenv("_ATLAS_CONSUMER_MANIFEST_CLI", "previous private value")
+    starter = SimpleNamespace(
+        config_parser=ConfigParser(str(root)),
+        materialize_consumer_env_for_preflight=lambda: {},
+    )
+    monkeypatch.setattr(start, "AtlasStarter", lambda: starter)
+    monkeypatch.setattr(start, "DOCTOR_CHECKS", (start._doctor_check_consumer_manifests,))
+
+    result = CliRunner().invoke(start.main, ["--consumer", str(manifest.relative_to(invoker)), "doctor", "--format", "json"])
+
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is True
+    assert payload["checks"][0]["details"]["consumers"] == ["selected"]
+    assert os.environ["ATLAS_CONSUMER_MANIFEST"] == "previous.yml"
+    assert os.environ["_ATLAS_CONSUMER_MANIFEST_CLI"] == "previous private value"
+    assert not (root / ".env").exists()
+
+
+
+@pytest.mark.parametrize("names", [("second", "first"), ("second, lab", "first: lab")])
+def test_cli_consumer_selection_preserves_order_and_deduplicates(tmp_path, monkeypatch, names):
+    import start
+    from core.config_parser import ConfigParser
+
+    manifests = []
+    for index, folder_name in enumerate(names):
+        folder = tmp_path / folder_name
+        folder.mkdir()
+        manifest = folder / "atlas.consumer.yml"
+        manifest.write_text(f"name: selected-{index}\n", encoding="utf-8")
+        manifests.append(str(manifest))
+    starter = SimpleNamespace(
+        config_parser=ConfigParser(str(tmp_path)),
+        materialize_consumer_env_for_preflight=lambda: {},
+    )
+    monkeypatch.setattr(start, "AtlasStarter", lambda: starter)
+    monkeypatch.setattr(start, "DOCTOR_CHECKS", (start._doctor_check_consumer_manifests,))
+    monkeypatch.delenv("ATLAS_CONSUMER_MANIFEST", raising=False)
+    monkeypatch.delenv("_ATLAS_CONSUMER_MANIFEST_CLI", raising=False)
+    args = [arg for path in [*manifests, manifests[0]] for arg in ("--consumer", path)]
+
+    result = CliRunner().invoke(start.main, [*args, "doctor", "--format", "json"])
+
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.stdout)["checks"][0]["details"]["consumers"] == ["selected-0", "selected-1"]
+    assert "ATLAS_CONSUMER_MANIFEST" not in os.environ
+    assert "_ATLAS_CONSUMER_MANIFEST_CLI" not in os.environ
+
+
+
+@pytest.mark.parametrize(("raw", "expected"), [
+    ("one.yml,two.yml", ["one.yml", "two.yml"]),
+    (" one.yml , , two.yml ", ["one.yml", "two.yml"]),
+    (os.pathsep.join(["one.yml", "two.yml"]), ["one.yml", "two.yml"]),
+    ('["one.yml"]', ['["one.yml"]']),
+    ('["one.yml","two.yml"]', ['["one.yml"', '"two.yml"]']),
+    ('json' + os.pathsep + '["one.yml"]', ["json", '["one.yml"]']),
+])
+def test_legacy_consumer_environment_keeps_its_existing_list_grammar(tmp_path, monkeypatch, raw, expected):
+    from core.consumer_manifest import discover_consumer_manifest_paths
+
+    monkeypatch.setenv("ATLAS_CONSUMER_MANIFEST", raw)
+    monkeypatch.delenv("_ATLAS_CONSUMER_MANIFEST_CLI", raising=False)
+    monkeypatch.delenv("ATLAS_INVOKER_CWD", raising=False)
+    assert discover_consumer_manifest_paths(tmp_path) == [(tmp_path / item).resolve() for item in expected]
+
+
+@pytest.mark.parametrize("filename", ['["manifest.yml"]', "@atlas-consumer-paths"])
+def test_legacy_encoded_looking_manifest_filename_is_loaded_literally(tmp_path, monkeypatch, filename):
+    from core.consumer_manifest import load_consumer_config
+
+    (tmp_path / filename).write_text("name: literal\n", encoding="utf-8")
+    monkeypatch.setenv("ATLAS_CONSUMER_MANIFEST", filename)
+    monkeypatch.delenv("_ATLAS_CONSUMER_MANIFEST_CLI", raising=False)
+    monkeypatch.delenv("ATLAS_INVOKER_CWD", raising=False)
+
+    assert [consumer.name for consumer in load_consumer_config(tmp_path).consumers] == ["literal"]
+
+
+
+@pytest.mark.parametrize("companion", [
+    "not JSON", "[]", "null", "[" * 2000,
+    '{"selector":"different","paths":["wrong.yml"]}',
+    '{"selector":"one.yml,two.yml","paths":"wrong.yml"}',
+    '{"selector":"one.yml,two.yml","paths":[true]}',
+    '{"selector":"one.yml,two.yml","paths":["wrong.yml"],"extra":true}',
+    '{"selector":"one.yml,two.yml","paths":["invalid\\u0000.yml"]}',
+])
+def test_stale_or_malformed_cli_companion_keeps_legacy_selection(tmp_path, monkeypatch, companion):
+    from core.consumer_manifest import discover_consumer_manifest_paths
+
+    monkeypatch.setenv("ATLAS_CONSUMER_MANIFEST", "one.yml,two.yml")
+    monkeypatch.setenv("_ATLAS_CONSUMER_MANIFEST_CLI", companion)
+    monkeypatch.delenv("ATLAS_INVOKER_CWD", raising=False)
+
+    assert discover_consumer_manifest_paths(tmp_path) == [(tmp_path / "one.yml").resolve(), (tmp_path / "two.yml").resolve()]
+
+
+
+def test_bound_cli_companion_does_not_override_direct_explicit_paths(tmp_path, monkeypatch):
+    from core.consumer_manifest import discover_consumer_manifest_paths
+
+    selector = "literal, manifest.yml"
+    monkeypatch.setenv("ATLAS_CONSUMER_MANIFEST", selector)
+    monkeypatch.setenv("_ATLAS_CONSUMER_MANIFEST_CLI", json.dumps({"selector": selector, "paths": [selector]}))
+    monkeypatch.delenv("ATLAS_INVOKER_CWD", raising=False)
+
+    assert discover_consumer_manifest_paths(tmp_path) == [(tmp_path / selector).resolve()]
+    assert discover_consumer_manifest_paths(tmp_path, explicit_paths=["explicit.yml"]) == [(tmp_path / "explicit.yml").resolve()]
+
+
+
+@pytest.mark.parametrize("raise_inside", [False, True])
+def test_cli_consumer_path_context_restores_nested_environment(tmp_path, monkeypatch, raise_inside):
+    from core.consumer_manifest import consumer_manifest_cli_paths, discover_consumer_manifest_paths
+
+    monkeypatch.setenv("ATLAS_CONSUMER_MANIFEST", "legacy.yml")
+    monkeypatch.setenv("_ATLAS_CONSUMER_MANIFEST_CLI", "previous private value")
+    monkeypatch.delenv("ATLAS_INVOKER_CWD", raising=False)
+    outer = "outer, selected.yml"
+    with consumer_manifest_cli_paths([outer]):
+        try:
+            with consumer_manifest_cli_paths(["inner: selected.yml"]):
+                assert discover_consumer_manifest_paths(tmp_path) == [(tmp_path / "inner: selected.yml").resolve()]
+                if raise_inside:
+                    raise RuntimeError("synthetic failure")
+        except RuntimeError:
+            assert raise_inside
+        assert discover_consumer_manifest_paths(tmp_path) == [(tmp_path / outer).resolve()]
+    assert os.environ["ATLAS_CONSUMER_MANIFEST"] == "legacy.yml"
+    assert os.environ["_ATLAS_CONSUMER_MANIFEST_CLI"] == "previous private value"
+
+
+
+def test_cli_consumer_paths_survive_child_environment_inheritance(tmp_path, monkeypatch):
+    import subprocess
+    import sys
+    import threading
+    from core.consumer_manifest import discover_consumer_manifest_paths
+    from core.consumer_manifest import consumer_manifest_cli_paths
+
+    monkeypatch.delenv("ATLAS_INVOKER_CWD", raising=False)
+    selected = ["second: selected.yml", "first, selected.yml"]
+    program = (
+        "import json,sys; from core.consumer_manifest import discover_consumer_manifest_paths; "
+        "print(json.dumps([str(p) for p in discover_consumer_manifest_paths(sys.argv[1])]))"
+    )
+    with consumer_manifest_cli_paths(selected):
+        thread_paths = []
+        worker = threading.Thread(target=lambda: thread_paths.extend(discover_consumer_manifest_paths(tmp_path)))
+        worker.start()
+        worker.join(timeout=10)
+        assert not worker.is_alive()
+        assert thread_paths == [(tmp_path / path).resolve() for path in selected]
+        result = subprocess.run(
+            [sys.executable, "-c", program, str(tmp_path)],
+            capture_output=True, text=True, check=True, timeout=10,
+        )
+    assert json.loads(result.stdout) == [str((tmp_path / path).resolve()) for path in selected]
+    assert result.stderr == ""
+
+
+
+def test_cli_consumer_empty_paths_keep_legacy_omission(tmp_path, monkeypatch):
+    from core.consumer_manifest import consumer_manifest_cli_paths, discover_consumer_manifest_paths
+
+    monkeypatch.delenv("ATLAS_INVOKER_CWD", raising=False)
+    with consumer_manifest_cli_paths(["", "selected.yml", ""]):
+        assert os.environ["ATLAS_CONSUMER_MANIFEST"] == os.pathsep.join(["", "selected.yml", ""])
+        assert discover_consumer_manifest_paths(tmp_path) == [(tmp_path / "selected.yml").resolve()]
+    with consumer_manifest_cli_paths([""]):
+        assert discover_consumer_manifest_paths(tmp_path) == []
+
+
+@pytest.mark.parametrize("previous", [None, "previous selection"])
+def test_cli_consumer_path_transport_restores_after_root_option_rejection(tmp_path, monkeypatch, previous):
+    import start
+
+    def unexpected_startup_work(*args, **kwargs):
+        pytest.fail("early rejection must not construct a starter or run doctor checks")
+
+    monkeypatch.setattr(start, "AtlasStarter", unexpected_startup_work)
+    monkeypatch.setattr(start, "DOCTOR_CHECKS", (unexpected_startup_work,))
+    for key in ("ATLAS_CONSUMER_MANIFEST", "_ATLAS_CONSUMER_MANIFEST_CLI"):
+        if previous is None:
+            monkeypatch.delenv(key, raising=False)
+        else:
+            monkeypatch.setenv(key, previous)
+    result = CliRunner().invoke(start.main, [
+        "--consumer", str(tmp_path / "literal, name.yml"),
+        "--project", "invalid/project", "--no-tui",
+    ])
+
+    assert result.exit_code == 2, result.output
+    assert "invalid project name" in result.output
+    assert os.environ.get("ATLAS_CONSUMER_MANIFEST") == previous
+    assert os.environ.get("_ATLAS_CONSUMER_MANIFEST_CLI") == previous
+
+
+
+_CONFLICT_VALUES = ("owned" + "CredentialAlpha91", "owned" + "CredentialBeta72")
+
+
+def _consumer_conflict_manifests(tmp_path, mode, *, equal=False):
+    manifests = []
+    for index, value in enumerate(_CONFLICT_VALUES):
+        if equal:
+            value = _CONFLICT_VALUES[0]
+        directory = tmp_path / str(index)
+        directory.mkdir()
+        manifest = directory / "atlas.consumer.yml"
+        text = f"name: owned{index}\n"
+        if mode == "file":
+            (directory / "overlay.env").write_text(f"MINIO_ROOT_PASSWORD={value}\n", encoding="utf-8")
+            text += "env:\n  file: overlay.env\n"
+        elif mode == "reason":
+            text += f"env:\n  values:\n    MINIO_ROOT_PASSWORD: {{value: {value}, reason: Owned fixture}}\n"
+        else:
+            text += f"env:\n  values:\n    MINIO_ROOT_PASSWORD: {value}\n"
+        manifest.write_text(text, encoding="utf-8")
+        manifests.append(manifest)
+    return manifests
+
+
+def _invoke_consumer_conflict(tmp_path, monkeypatch, manifests, route):
+    import start
+    from core.config_parser import ConfigParser
+
+    starter = SimpleNamespace(
+        config_parser=ConfigParser(str(tmp_path)),
+        materialize_consumer_env_for_preflight=lambda: {},
+    )
+    monkeypatch.setattr(start, "AtlasStarter", lambda: starter)
+    monkeypatch.setattr(start, "DOCTOR_CHECKS", (start._doctor_check_consumer_manifests,))
+    arguments = [part for path in manifests for part in ("--consumer", str(path))]
+    arguments += ["--no-tui"] if route == "startup" else ["doctor", "--format", route]
+    return CliRunner().invoke(start.main, arguments)
+
+
+def _assert_consumer_conflict_message(message, manifests):
+    assert "MINIO_ROOT_PASSWORD" in message
+    assert "conflicting consumer manifest values" in message
+    assert all(str(path.parent) in message for path in manifests)
+    assert not any(value in message for value in _CONFLICT_VALUES)
+
+
+def _consumer_conflict_files(tmp_path):
+    return {path: path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()}
+
+
+@pytest.mark.parametrize("mode", ["values", "file", "reason"])
+@pytest.mark.parametrize("route", ["startup", "text", "json"])
+def test_consumer_conflict_diagnostics_omit_credentials(tmp_path, monkeypatch, mode, route):
+    manifests = _consumer_conflict_manifests(tmp_path, mode)
+    before = _consumer_conflict_files(tmp_path)
+    result = _invoke_consumer_conflict(tmp_path, monkeypatch, manifests, route)
+    assert result.exit_code == (2 if route == "startup" else 1)
+    assert before == _consumer_conflict_files(tmp_path)
+    _assert_consumer_conflict_message(result.output, manifests)
+    if route == "json":
+        payload = json.loads(result.output)
+        assert payload["ok"] is False
+        assert payload["checks"][0]["status"] == "fail"
+
+
+@pytest.mark.parametrize("mode", ["values", "file", "reason"])
+def test_consumer_conflict_equal_credentials_still_merge(tmp_path, mode):
+    from core.consumer_manifest import load_consumer_config
+
+    manifests = _consumer_conflict_manifests(tmp_path, mode, equal=True)
+    loaded = load_consumer_config(tmp_path, explicit_paths=map(str, manifests))
+    assert loaded.env_overrides["MINIO_ROOT_PASSWORD"] == _CONFLICT_VALUES[0]
+    assert len(loaded.consumers) == 2
+
+
+def _profile_conflict_manifests(tmp_path, field, *, equal=False):
+    manifests = []
+    values = _CONFLICT_VALUES if field == "env" else ("127.0.0.1", "0.0.0.0")
+    for index, value in enumerate(values):
+        if equal:
+            value = values[0]
+        manifest = tmp_path / f"profile{index}.yml"
+        body = f"    env:\n      MINIO_ROOT_PASSWORD: {value}\n" if field == "env" else f"    host_bind_ip: {value}\n"
+        manifest.write_text(f"name: owned{index}\nprofile_overrides:\n  default:\n" + body, encoding="utf-8")
+        manifests.append(manifest)
+    return manifests, values
+
+
+@pytest.mark.parametrize("field", ["env", "host_bind_ip"])
+def test_consumer_conflict_profile_diagnostics_are_value_free(tmp_path, field):
+    from core.consumer_manifest import ConsumerManifestError, load_consumer_config
+
+    manifests, values = _profile_conflict_manifests(tmp_path, field)
+    with pytest.raises(ConsumerManifestError) as captured:
+        load_consumer_config(tmp_path, explicit_paths=map(str, manifests))
+    message = str(captured.value)
+    assert f"profile_overrides.default.{field}" in message
+    assert "conflicting consumer manifest values" in message
+    assert str(manifests[-1]) in message
+    assert not any(value in message for value in values)
+
+
+@pytest.mark.parametrize("field", ["env", "host_bind_ip"])
+def test_consumer_conflict_equal_profile_values_still_merge(tmp_path, field):
+    from core.consumer_manifest import load_consumer_config
+
+    manifests, values = _profile_conflict_manifests(tmp_path, field, equal=True)
+    loaded = load_consumer_config(tmp_path, explicit_paths=map(str, manifests))
+    expected = {"MINIO_ROOT_PASSWORD": values[0]} if field == "env" else values[0]
+    assert loaded.profile_overrides["default"][field] == expected
+    assert len(loaded.consumers) == 2

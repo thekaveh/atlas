@@ -24,7 +24,18 @@ def _write_status(root: Path, name: str, plan: Path, state: str, required: int, 
     )
 
 
-def _run_health(tmp_path: Path, *, model_state: str = "ready", node_state: str = "ready"):
+def _health_env(tmp_path: Path, manifest: Path, models: Path, nodes: Path) -> dict[str, str]:
+    return {
+        **os.environ,
+        "PATH": f"{tmp_path / 'bin'}{os.pathsep}{os.environ.get('PATH', os.defpath)}",
+        "COMFYUI_MANIFEST_ROOT": str(manifest),
+        "COMFYUI_MODELS_PATH": str(models),
+        "COMFYUI_CUSTOM_NODES_PATH": str(nodes),
+        "COMFYUI_HEALTH_URL": "http://localhost:18188/system_stats",
+    }
+
+
+def _run_health(tmp_path: Path, *, model_state: str = "ready", node_state: str = "ready", curl_exit: int = 0):
     manifest = tmp_path / "manifest"
     manifest.mkdir(parents=True)
     models_plan = manifest / "active-models.tsv"
@@ -38,19 +49,11 @@ def _run_health(tmp_path: Path, *, model_state: str = "ready", node_state: str =
     fakebin = tmp_path / "bin"
     fakebin.mkdir()
     curl = fakebin / "curl"
-    curl.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    curl.write_text(f"#!/bin/sh\nexit {curl_exit}\n", encoding="utf-8")
     curl.chmod(0o755)
-    env = {
-        **os.environ,
-        "PATH": f"{fakebin}:/opt/homebrew/bin:/usr/bin:/bin",
-        "COMFYUI_MANIFEST_ROOT": str(manifest),
-        "COMFYUI_MODELS_PATH": str(models),
-        "COMFYUI_CUSTOM_NODES_PATH": str(nodes),
-        "COMFYUI_HEALTH_URL": "http://localhost:18188/system_stats",
-    }
     return subprocess.run(
         ["sh", str(HEALTH_SCRIPT)],
-        env=env,
+        env=_health_env(tmp_path, manifest, models, nodes),
         text=True,
         capture_output=True,
         timeout=5,
@@ -61,6 +64,12 @@ def _run_health(tmp_path: Path, *, model_state: str = "ready", node_state: str =
 def test_exact_ready_manifests_and_reachable_api_are_healthy(tmp_path: Path) -> None:
     result, _manifest, _models, _nodes = _run_health(tmp_path)
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_ready_plans_with_an_unreachable_api_are_unhealthy(tmp_path: Path) -> None:
+    """The header promises readiness only once the HTTP API answers."""
+    result, *_ = _run_health(tmp_path, curl_exit=7)
+    assert result.returncode != 0
 
 
 def test_required_model_or_node_failure_is_never_healthy(tmp_path: Path) -> None:
@@ -77,14 +86,7 @@ def test_ready_status_with_required_failures_is_rejected_as_corrupt(tmp_path: Pa
 
     corrupt = subprocess.run(
         result.args,
-        env={
-            **os.environ,
-            "PATH": f"{tmp_path / 'bin'}:/opt/homebrew/bin:/usr/bin:/bin",
-            "COMFYUI_MANIFEST_ROOT": str(manifest),
-            "COMFYUI_MODELS_PATH": str(models),
-            "COMFYUI_CUSTOM_NODES_PATH": str(nodes),
-            "COMFYUI_HEALTH_URL": "http://localhost:18188/system_stats",
-        },
+        env=_health_env(tmp_path, manifest, models, nodes),
         text=True,
         capture_output=True,
         timeout=5,
@@ -94,37 +96,19 @@ def test_ready_status_with_required_failures_is_rejected_as_corrupt(tmp_path: Pa
 
 
 def test_stale_success_for_a_different_plan_is_never_healthy(tmp_path: Path) -> None:
-    result, manifest, _models, _nodes = _run_health(tmp_path)
+    result, manifest, models, nodes = _run_health(tmp_path)
     assert result.returncode == 0
     (manifest / "active-models.tsv").write_text("new selected plan\n", encoding="utf-8")
 
     stale = subprocess.run(
         result.args,
-        env={
-            **os.environ,
-            "PATH": f"{tmp_path / 'bin'}:/opt/homebrew/bin:/usr/bin:/bin",
-            "COMFYUI_MANIFEST_ROOT": str(manifest),
-            "COMFYUI_MODELS_PATH": str(tmp_path / "models"),
-            "COMFYUI_CUSTOM_NODES_PATH": str(tmp_path / "nodes"),
-            "COMFYUI_HEALTH_URL": "http://localhost:18188/system_stats",
-        },
+        env=_health_env(tmp_path, manifest, models, nodes),
         text=True,
         capture_output=True,
         timeout=5,
         check=False,
     )
     assert stale.returncode != 0
-
-
-def _health_env(tmp_path: Path, manifest: Path, models: Path, nodes: Path) -> dict[str, str]:
-    return {
-        **os.environ,
-        "PATH": f"{tmp_path / 'bin'}:/opt/homebrew/bin:/usr/bin:/bin",
-        "COMFYUI_MANIFEST_ROOT": str(manifest),
-        "COMFYUI_MODELS_PATH": str(models),
-        "COMFYUI_CUSTOM_NODES_PATH": str(nodes),
-        "COMFYUI_HEALTH_URL": "http://localhost:18188/system_stats",
-    }
 
 
 def test_health_rejects_symlinked_roots_plans_and_statuses(tmp_path: Path) -> None:

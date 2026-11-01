@@ -2,12 +2,15 @@
 
 Enforces: each app table's CREATE lives in exactly one owned slice; every
 slice carries an OWNER banner; every slice object is idempotently guarded;
-the full set of app tables is present across the slices.
+the full set of app tables is present across the slices; the Docker seed
+harness and drills pin the images the manifests deploy.
 """
 from __future__ import annotations
 
 import re
 from pathlib import Path
+
+import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS_DIR = REPO_ROOT / "services" / "supabase" / "db" / "scripts"
@@ -22,6 +25,7 @@ EXPECTED_OWNER = {
     "research_sources": "13-backend-research.sql",
     "research_logs": "13-backend-research.sql",
     "memory_facts": "14-backend-memory.sql",
+    "memory_embedding_schema_state": "14-backend-memory.sql",
     "memory_sessions": "14-backend-memory.sql",
     "memory_consolidation_log": "14-backend-memory.sql",
     "media_spend_ledger": "17-backend-media-ledger.sql",
@@ -50,6 +54,9 @@ def test_each_app_table_created_in_exactly_one_slice():
             f"public.{table} should be created only in {owner}, "
             f"found in {location.get(table)}"
         )
+    # schema_migrations is GoTrue's table, synced by 03b-gotrue-migration-sync.sql.
+    unregistered = set(location) - {"schema_migrations"} - set(EXPECTED_OWNER)
+    assert not unregistered, f"register an owning slice in EXPECTED_OWNER: {sorted(unregistered)}"
 
 
 def test_every_slice_has_owner_banner():
@@ -118,3 +125,24 @@ def test_old_mixed_files_are_gone():
                   "10-langmem-tables.sql", "10a-langmem-migrations.sql",
                   "12-extend-comfyui-models.sql"):
         assert not (SCRIPTS_DIR / stale).exists(), f"{stale} should be removed"
+
+
+def _image_defaults(manifest: str) -> dict[str, str]:
+    doc = yaml.safe_load((REPO_ROOT / manifest).read_text(encoding="utf-8"))
+    return {row["var"]: row["default"] for row in doc["images"]}
+
+
+def test_seed_harness_and_drills_mirror_the_deployed_images():
+    """A manifest image bump must fail here until the seed harness, the role
+    and restore drills, and their goldens are re-run on the new image."""
+    from tests import seed_harness
+    from tests import test_database_role_boundaries as role_boundaries
+    from tests import test_postgres_restore_safety as restore_safety
+
+    supabase = _image_defaults("services/supabase/service.yml")
+    assert supabase["SUPABASE_DB_IMAGE"] == seed_harness.DB_IMAGE
+    assert supabase["SUPABASE_DB_IMAGE"] == role_boundaries.POSTGRES_IMAGE
+    assert supabase["SUPABASE_DB_INIT_IMAGE"] == role_boundaries.INIT_IMAGE
+    # The restore drill runs the backup service's own scripts on its image tag.
+    backup_image = _image_defaults("services/backup/service.yml")["BACKUP_IMAGE"]
+    assert backup_image.startswith(restore_safety.POSTGRES_IMAGE + "@sha256:"), backup_image

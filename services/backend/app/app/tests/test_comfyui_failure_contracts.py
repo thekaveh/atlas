@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import importlib.util
 import logging
+import math
 from pathlib import Path
 
 import httpx
@@ -850,8 +851,17 @@ def test_legacy_polling_malformed_history_returns_truthful_502(
 
     response = fastapi_client.post(route, json=payload)
 
+    # The prompt was queued, so the 502 names it: a caller polls or cancels it
+    # instead of re-queueing a duplicate render.
     assert response.status_code == 502
-    assert response.json() == {"detail": "ComfyUI returned an invalid response"}
+    assert response.json() == {
+        "detail": {
+            "message": "ComfyUI returned an invalid response while polling; "
+                       "the prompt may still be running, so poll or cancel "
+                       "it before retrying",
+            "prompt_id": "prompt-malformed",
+        }
+    }
     assert "SENTINEL_COMFY_MALFORMED_HISTORY" not in response.text
 
 
@@ -1555,6 +1565,9 @@ def test_strength_and_size_inputs_are_validated_not_defaulted():
     assert cmc._strength("0.4") == 0.4
     assert cmc._strength(None) == 0.75
     assert cmc._strength(1.5) == 1.5  # clamped to 1.0 when building the graph
+    # An int too large for a float is clamped like JSON 1e400 (inf), not a 502.
+    assert cmc._strength(10**400) == math.inf
+    assert cmc._strength(-10**400) == -math.inf
     for bad in ("nope", "nan"):
         with pytest.raises(ValueError, match="strength"):
             cmc._strength(bad)
@@ -1636,6 +1649,9 @@ def test_non_json_upstream_and_infinite_sizes_are_not_reported_as_parser_text():
         _provider_run(html, lambda c: c._get_queue())
     with pytest.raises(ValueError, match="width must be an integer"):
         module._bounded_int(float("inf"), field="width", minimum=64, maximum=2048)
+    # A 401-digit JSON integer stays a Python int; float() overflowed (→ 502).
+    with pytest.raises(ValueError, match="cfg must be a number"):
+        module._bounded_float(10**400, field="cfg", minimum=0.0, maximum=100.0)
 
 
 from tests.test_async_jobs import _reload_main as _reload_async_main  # noqa: E402

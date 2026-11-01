@@ -8,7 +8,9 @@ Atlas builds the upstream Neo4j Labs React/FastAPI pair from a pinned git ref, b
 ## 2. Access
 - Direct frontend URL: `http://localhost:${LLM_GRAPH_BUILDER_PORT}`. The page loads, but its API calls go to the Kong origin below; use the Kong URL for a working UI.
 - Kong frontend URL: `http://graphbuilder.localhost:${KONG_HTTP_PORT}`
-- Browser API path: `http://graphbuilder.localhost:${KONG_HTTP_PORT}/atlas-api`. Kong strips `/atlas-api` and forwards to the backend. The frontend is built with this same-origin URL, because the browser resends the Kong Basic credential only to the origin that challenged it. Upstream axios sends no credentials cross-origin. After an upgrade, rebuild the frontend image (`docker compose build llm-graph-builder-frontend`) to bake in the URL.
+- Browser API path: `http://graphbuilder.localhost:${KONG_HTTP_PORT}/atlas-api`. Kong strips `/atlas-api` and forwards to the backend. The frontend is built with this same-origin URL, because the browser resends the Kong Basic credential only to the origin that challenged it. Upstream axios sends no credentials cross-origin. After an upgrade, rebuild the frontend image (`atlas_compose build llm-graph-builder-frontend`) to bake in the URL.
+
+    `atlas_compose` is the Compose helper from [Troubleshooting](../../docs/quick-start/troubleshooting.md). A bare `docker compose build` from a differently named checkout builds an image the stack does not run.
 - Kong backend API URL for scripts: `http://graphbuilder-api.localhost:${KONG_HTTP_PORT}`
 - Internal frontend URL: `http://llm-graph-builder-frontend:8080`
 - Internal backend URL: `http://llm-graph-builder-backend:8000`
@@ -81,7 +83,7 @@ The frontend and backend containers scale to zero. Kong removes `graphbuilder.lo
 
 ## 9. Troubleshooting
 - Kong route missing: confirm `LLM_GRAPH_BUILDER_SOURCE=container`, rerun `./start.sh`, and ensure `--setup-hosts` has added the aliases.
-- API calls fail in the browser (401 or CORS): open the UI at `http://graphbuilder.localhost:${KONG_HTTP_PORT}`. The frontend calls the same-origin `/atlas-api` path. An older image that targets `graphbuilder-api.localhost` needs a rebuild: `docker compose build llm-graph-builder-frontend`.
+- API calls fail in the browser (401 or CORS): open the UI at `http://graphbuilder.localhost:${KONG_HTTP_PORT}`. The frontend calls the same-origin `/atlas-api` path. An older image that targets `graphbuilder-api.localhost` needs a rebuild: `atlas_compose build llm-graph-builder-frontend`.
 - Model selector errors: confirm `LLM_GRAPH_BUILDER_LITELLM_MODEL_CONFIG` is generated and that the selected LiteLLM model exists.
 - Neo4j connection fails: use in-stack `NEO4J_GRAPH_DB_SOURCE=container`.
 - Poor graph quality: choose a stronger structured-extraction model via `LLM_GRAPH_BUILDER_LLM_MODEL`.

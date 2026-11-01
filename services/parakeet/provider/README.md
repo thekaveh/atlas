@@ -1,7 +1,7 @@
 # 5.3.2. Parakeet Provider Overview
 
 Pluggable speech-to-text layer. All backends expose an OpenAI-compatible
-`/v1/audio/transcriptions` endpoint so Open WebUI, n8n, and the backend API
+`/v1/audio/transcriptions` endpoint so Open WebUI, n8n, JupyterHub and Hermes
 can use them interchangeably.
 
 ## 1. Available backends
@@ -30,20 +30,24 @@ a hardware-independent speed or quality ranking.
 
 ```
 services/parakeet/provider/
-├── mlx/                Apple Silicon MLX server for Parakeet (parakeet-localhost)
+├── bounded_upload.py     Upload size and time bounds (both servers)
+├── provider_boundary.py  Auth, admission, deadlines and CORS (both servers)
+├── startup.py            Background model load (both servers)
+├── mlx/                  Apple Silicon MLX server for Parakeet (parakeet-localhost)
+│   ├── alignment.py
 │   ├── api_server.py
 │   ├── README.md
 │   ├── requirements.txt
 │   └── requirements-locked.txt
-├── gpu/                NVIDIA CUDA container build for Parakeet (parakeet-container-gpu)
+├── gpu/                  NVIDIA CUDA container build for Parakeet (parakeet-container-gpu)
 │   ├── Dockerfile
 │   ├── requirements.txt
+│   ├── requirements-locked.txt
 │   └── transcribe.py
-├── whisper-cpp/        whisper.cpp host install notes (whisper-cpp-localhost)
+├── whisper-cpp/          whisper.cpp host install notes (whisper-cpp-localhost)
 │   └── README.md
-└── shared/             Common server scaffolding
-    ├── api_server.py
-    └── utils.py
+└── shared/               API server copied into the GPU image
+    └── api_server.py
 ```
 
 The Speaches path doesn't have a directory here because it's an
@@ -101,10 +105,10 @@ if not token:
     sys.exit("Set a nonempty PARAKEET_API_TOKEN in the active Atlas env file.")
 print(token, end="")
 PYTOKEN
-) || exit 1
-export PARAKEET_API_TOKEN
-export PARAKEET_LOCALHOST_BIND_HOST=0.0.0.0
-export PARAKEET_LOCALHOST_PORT=63042
+) &&
+export PARAKEET_API_TOKEN &&
+export PARAKEET_LOCALHOST_BIND_HOST=127.0.0.1 &&
+export PARAKEET_LOCALHOST_PORT=63042 &&
 cd services/parakeet/provider && python -m mlx.api_server
 
 # Terminal 2

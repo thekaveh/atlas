@@ -4,6 +4,8 @@
 
 Loki is Atlas' Grafana-native log store, disabled by default. The OpenTelemetry Collector sends redacted OTLP logs to Loki's native endpoint. Grafana provisions a Loki datasource linked to Tempo. Atlas does not automatically scrape container stdout; an application must send OTLP logs to the Collector.
 
+The stock Backend, Celery and LiteLLM wiring exports traces, not logs. Loki stays empty until an application sends OTLP logs to the Collector.
+
 Loki is internal-only, has no Kong route, and should be queried through Grafana. The default retention is short for local development.
 
 ## 2. Access
@@ -40,7 +42,7 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 ## 6. Troubleshooting
 
 - If Grafana cannot query logs, confirm `LOKI_SOURCE=container` and `LOKI_ENDPOINT=http://loki:3100`.
-- Query a service with `{service_name="backend"}` and add `| trace_id = "<32-hex-trace-id>"` to filter on OTLP structured metadata.
+- Query a service with `{service_name="<service>"}` and add `| trace_id = "<32-hex-trace-id>"` to filter on OTLP structured metadata. `<service>` is the `service.name` of an application that sends OTLP logs.
 - If the Collector is enabled, Loki must be in container mode too. Otherwise `./start.sh` stops before it starts any container.
 - If storage grows unexpectedly, check `LOKI_RETENTION_PERIOD` and compactor logs.
 - Roll back by setting `LOKI_SOURCE=disabled`.

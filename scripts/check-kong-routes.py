@@ -99,12 +99,14 @@ EXPECTED_HOST_ROUTES = {
     # Regression coverage at default-env lives here (absence is correct);
     # opt-in route shape is locked by bootstrapper/tests/test_kong_alias_routes.py.
     # If a default ever flips, add the matching entries:
-    #   "spark.localhost": "http://spark-master:8080",
-    #   "spark-history.localhost": "http://spark-history:18080",
-    #   "airflow.localhost": "http://airflow-webserver:8080",
-    # (no trailing slash — matches the generator's emitted URLs for
-    # these three; copy-pasting a trailing-slash form would fail the
-    # equality check.)
+    #   "spark.localhost": "http://spark-master:8080/",
+    #   "spark-history.localhost": "http://spark-history:18080/",
+    #   "airflow.localhost": "http://airflow-webserver:8080/",
+    # (trailing slash, as the generator's _SIMPLE_CONTAINER_ROUTES emits them.)
+    #
+    # Whenever any opt-in default in this map flips (openclaw, ray, spark,
+    # airflow, rerank, lightrag), also add the route's full signature to
+    # EXPECTED_ROUTES below (#1389); a host entry alone fails the audit.
     #
     # rerank.localhost is NOT listed here. .env.example defaults
     # TEI_RERANKER_SOURCE=disabled; the generator only emits the reranker
@@ -349,14 +351,16 @@ def generate_default_kong_config(out_dir: Path) -> Path:
     from core.config_parser import ConfigParser
     from utils.kong_config_generator import KongConfigGenerator
 
-    # ATLAS_ENV_FILE would point ConfigParser at a developer's own env file
-    # instead of the published defaults copied above.
-    saved = os.environ.pop("ATLAS_ENV_FILE", None)
+    # ATLAS_ENV_FILE, or its deprecated alias GENAI_ENV_FILE, would point
+    # ConfigParser at a developer's own env file instead of the published
+    # defaults copied above.
+    saved = {name: os.environ.pop(name, None) for name in ("ATLAS_ENV_FILE", "GENAI_ENV_FILE")}
     try:
         config = KongConfigGenerator(ConfigParser(str(out_dir))).generate_kong_config()
     finally:
-        if saved is not None:
-            os.environ["ATLAS_ENV_FILE"] = saved
+        for name, value in saved.items():
+            if value is not None:
+                os.environ[name] = value
 
     out_path = out_dir / "volumes" / "api" / "kong-dynamic.yml"
     with out_path.open("w", encoding="utf-8") as fh:

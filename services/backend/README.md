@@ -6,7 +6,7 @@ Always-on FastAPI service that orchestrates the stack. It serves memory, researc
 
 ## 1. Overview
 
-Source: `services/backend/app/`. The app boots in `app/main.py` and reads its adaptive env vars at startup. It mounts `/memory`, `/research`, `/storage`, `/health`, `/ready`, `/workflows`, `/media/*`, `/comfyui/*`, `/api/ray/*`, `/api/chunk`, `/api/rag/evaluate` and `/api/rag/ingestions`.
+Source: `services/backend/app/`. The app boots in `app/main.py` and reads its adaptive env vars at startup. It mounts `/memory`, `/research`, `/storage`, `/documents`, `/jobs`, `/workflows`, `/media/*`, `/comfyui/*` and `/lightrag/rerank`. It also mounts `/api/ray/*`, `/api/chunk`, `/api/rag/evaluate`, `/api/rag/ingestions`, `/plugins`, `/health`, `/ready` and `/metrics`.
 
 LangMem (long-term memory) is on by default (`LANGMEM_ENABLED=true`). Its models come from `LITELLM_DEFAULT_MODEL` and `LITELLM_EMBEDDING_MODEL`, which `./start.sh` resolves from the YAML model catalogs. If `LITELLM_EMBEDDING_MODEL` is empty, the entrypoint uses `/shared/weaviate-config.env` (written by `weaviate-init`), then `ollama/nomic-embed-text`. Compose always sets it.
 
@@ -41,7 +41,7 @@ Backend Kong route authentication:
 
 ```bash
 BACKEND_KONG_AUTH=disabled        # disabled (default) or key-auth
-BACKEND_KONG_API_KEY=             # auto-generated; send as apikey when key-auth is enabled
+BACKEND_KONG_API_KEY=             # auto-generated; send as apikey when key-auth is enabled; must differ from both Supabase keys
 ```
 
 Application identity (required by default on every non-public route):
@@ -52,9 +52,6 @@ BACKEND_INTERNAL_API_TOKEN=       # auto-generated; full operator scope
 BACKEND_N8N_API_TOKEN=            # auto-generated; n8n workflow scope
 BACKEND_NOTEBOOK_API_TOKEN=       # auto-generated; stateless notebook routes only
 BACKEND_OPEN_WEBUI_API_TOKEN=     # auto-generated; memory/legacy ComfyUI scope
-COMFYUI_MAX_IMAGE_BYTES=20971520  # bounded ComfyUI image input/output
-COMFYUI_INIT_IMAGE_TRUSTED_ORIGINS=  # exact HTTPS origins; blank rejects remote URLs
-COMFYUI_COMPLETION_TIMEOUT_SECONDS=300  # synchronous generation deadline; on expiry the legacy routes cancel the prompt and return 504 with its prompt_id
 SUPABASE_JWT_SECRET=              # verifies authenticated Supabase user JWTs
 ```
 
@@ -104,7 +101,9 @@ LANGMEM_EMBEDDING_DIM=768
 
 `LANGMEM_AUTO_CONSOLIDATE` and `LANGMEM_CONSOLIDATION_INTERVAL` are reserved. No scheduler reads them yet (§8.6).
 
-**Extraction.** The LLM call runs outside the database transaction. Accepted facts and the completed session then commit atomically. A per-user lock enforces `LANGMEM_MAX_FACTS_PER_USER`. A failed extraction records a terminal failed session, not partial facts. The LangMem extraction module's docstring documents the full transaction and lock sequence.
+**Extraction.** The LLM call runs outside the database transaction. Accepted facts and the completed session then commit atomically. A per-user lock enforces `LANGMEM_MAX_FACTS_PER_USER`. A failed extraction records a terminal failed session, not partial facts. `extract_facts` in `memory_service.py` takes a per-user Postgres advisory transaction lock, then counts active facts and inserts new ones.
+
+**Retention.** Consolidation deactivates a user's oldest excess facts, ordered by creation time. It ignores `updated_at`, which vector sync, embedding backfill and failback also rewrite.
 
 LLM confidence scores are clamped to `0..1`. Null, nonnumeric, NaN and unconvertible integer scores use `0.8` without discarding other facts.
 
@@ -114,34 +113,40 @@ Recall and update confidence must be finite and in `0..1`. Invalid requests retu
 
 - Every memory write (edit, soft delete, consolidation, retention) marks a durable `vector_sync_pending` intent with the Postgres change.
 - While Weaviate serves recall, each write also updates a pgvector shadow. The intent clears only after both writes are durable.
+- Successful reconciliation clears the pending intent after the required vector writes. An edit to the fact's content or vector properties keeps the new version pending.
 - When Weaviate is unavailable, a pgvector write advances the dirty generation atomically with the vector update.
 - A Weaviate outage latches recall to pgvector, without readiness probes on each request.
 - Recall and writes check the generation before and after external I/O. On a change, the result is discarded or pgvector stays authoritative. No stale result or lost write crosses a switch.
 
 **Failback to Weaviate.**
 
-- Failback happens only through `POST /memory/vector-store/probe`. The probe checks the model, dimension and collection module.
+- Failback happens through `POST /memory/vector-store/probe` and at Backend startup. Startup runs the same probe and rebuild before the Backend accepts traffic. The probe checks the model, dimension and collection module.
 - It then rebuilds active objects and retirements from Postgres before searches switch.
-- It clears the generation by a compare-and-set on model and dimension, after every pending retirement drains.
+- For a pending active fact, the rebuild also re-embeds its pgvector shadow before it clears the intent.
+- It clears the generation by a compare-and-set on model and dimension, only when no `vector_sync_pending` row remains.
+- A restart after an outage therefore delays startup by the rebuild time.
 - Sustained write churn keeps pgvector latched and reports the reason.
 - The probe and `GET /memory/health` (whose fact count spans every user) accept only service callers: n8n, Open WebUI and the internal token. A user JWT is refused.
 
 **Embedding and recall limits.**
 
 - A failed embedding inside Weaviate (its LiteLLM vectorizer call) is not an outage. It shows as a 5xx on writes or GraphQL `errors` on recall.
-- In that case the write lands in pgvector and stays `vector_sync_pending`. Recall uses pgvector for that request, and nothing latches. Weaviate allows 30 s for the embedding call.
+- In that case the write lands in pgvector and stays `vector_sync_pending`. Recall uses pgvector for that request, and nothing latches.
+- The Backend waits 30 s for each Weaviate write or recall, including its embedding call. A slower answer counts as an outage and latches pgvector until the next probe or restart.
 - Reconciliation keeps a bounded, process-local cache of row versions rejected by the target. It skips remembered unchanged versions; restarting clears the cache.
 - Bounded passes advance through other pending work even when the cache is full. Changed, synchronized, no-longer-pending or deleted versions release cache capacity.
 - `min_confidence` is applied inside the vector query, so low-confidence hits cannot take `limit` slots.
 - `WEAVIATE_SOURCE=localhost` is unsupported for memory. The collection vectorizes through `http://litellm:4000`, which a host Weaviate cannot resolve, and the Backend sends no Weaviate API key. Every write fails vectorization, and recall uses pgvector.
 - `LANGMEM_EMBEDDING_DIM` is checked against a real LiteLLM embedding before startup. The migration keeps existing vectors and re-embeds them in short transactions. It narrows the column only when every row matches.
+- A fact the new embedding model rejects on its own content is left without a vector and marked `vector_sync_pending`. Startup continues, and reconciliation retries the fact.
+- In Weaviate mode, such a fact also blocks failback. Recall stays on pgvector until you edit or delete the fact.
 
 **Reviewing and deleting memories.**
 
 - `GET /memory/user/{user_id}` and recall return `source_conversation_id`, `source_message_ids` and `origin` (`recorded` or `not recorded`).
 - Extraction stores only a `conversation_id` that the caller sends, and no message ids. The bundled Open WebUI tool and filter and the n8n workflows send none, so their facts read `not recorded`.
 - `GET`, `PUT` and `DELETE` take a `user_id`. With a user JWT, another user's id gets `403`.
-- `PUT /memory/{memory_id}` corrects content; the next recall returns the new text. `PUT` with `is_active: true` restores a deleted fact. Restore takes the extraction lock and returns `409` at the fact cap.
+- `PUT /memory/{memory_id}` corrects content; the next recall returns the new text. Blank content returns `422`. `PUT` with `is_active: true` restores a deleted fact. Restore takes the extraction lock and returns `409` at the fact cap.
 - `DELETE /memory/{memory_id}` is a soft delete. The response reports `deletion: "soft"` and the row state (`is_active: false`).
 - It also reports the Weaviate object state: `deactivated` when Weaviate serves recall, `awaiting_rebuild` until the next failback, or `configured: false`.
 - The `retained` list names what stays: the row and its pgvector `embedding`, the Weaviate content, `memory_consolidation_log` reasons, `memory_sessions` records. Atlas never stores the source conversation.
@@ -154,6 +159,7 @@ Recall and update confidence must be finite and in `0..1`. Invalid requests retu
 - That timeout is `max(CELERY_BROKER_VISIBILITY_TIMEOUT_SECONDS, max(RAG hard limit, global hard limit + 60 s) + 300 s)`.
 - A duplicate delivery waits for the lease or returns the stored result.
 - Each consolidation action takes the per-user extraction lock. Two concurrent runs cannot each supersede the other's keeper.
+- Only the internal token can poll `GET /jobs/{job_id}`. Other callers get `403`, so their queued consolidation is fire-and-forget.
 
 ### 3.3. Graphiti experiment
 
@@ -175,19 +181,19 @@ Injected automatically from the active SOURCE values:
 ```bash
 LITELLM_BASE_URL=http://litellm:4000
 LITELLM_API_KEY=${LITELLM_MASTER_KEY}
-WEAVIATE_URL=http://weaviate:8080
+WEAVIATE_URL=...                  # resolved per WEAVIATE_SOURCE; empty when disabled
 STT_ENDPOINT=...                  # resolved per STT_PROVIDER_SOURCE
 TTS_ENDPOINT=...                  # resolved per TTS_PROVIDER_SOURCE
 DOCLING_ENDPOINT=...              # resolved per DOC_PROCESSOR_SOURCE
 DOCLING_API_TOKEN=                # generated Docling bearer; server-side only
-HERMES_ENDPOINT=http://hermes:8642
+HERMES_ENDPOINT=...               # resolved per HERMES_SOURCE; empty when disabled
 HERMES_API_KEY=${HERMES_API_KEY}
-NEO4J_URI=bolt://neo4j-graph-db:7687
+NEO4J_URI=...                     # resolved per NEO4J_GRAPH_DB_SOURCE; empty when disabled
 NEO4J_USER=${GRAPH_DB_USER}
 NEO4J_PASSWORD=${GRAPH_DB_PASSWORD}
 KONG_URL=http://kong-api-gateway:8000
 SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
-REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
+REDIS_URL=redis://:${REDIS_PASSWORD_URI}@redis:6379/0
 RAY_JOB_API_TOKEN=${RAY_JOB_API_TOKEN}
 CELERY_SOURCE=disabled
 CELERY_BROKER_URL=                 # auto-managed when CELERY_SOURCE=container
@@ -196,7 +202,7 @@ RAG_INGESTION_EXECUTION_LEASE_SECONDS=30
 BACKEND_STATE_STORE_MODE=redis       # memory is explicit single-process/ephemeral mode
 ```
 
-The list comes from `runtime_adaptive.backend.adapts_to` in `services/backend/service.yml`.
+`services/backend/compose.yml` sets these variables. `./start.sh` resolves the source-dependent endpoints from the active SOURCE values. They include the STT, TTS and Docling endpoints, `WEAVIATE_URL`, `NEO4J_URI` and `HERMES_ENDPOINT`. An endpoint is empty when its service is disabled.
 
 ### 3.5. Document extraction
 
@@ -206,6 +212,7 @@ The list comes from `runtime_adaptive.backend.adapts_to` in `services/backend/se
 - On `/documents/extract` it retries for up to 30 s, then returns `503`. During corpus ingestion it retries for up to 120 s, then tries the next parser in the profile's `parser_order`, such as Tika.
 - Ingestion asks Docling for markdown only (`enable_chunking=false`), because it re-chunks the text itself. This also keeps long books under Docling's 10,000-chunk limit.
 - `POST /documents/extract` treats Docling and Tika as untrusted. A malformed success payload fails validation instead of being indexed as an empty document. The route returns a stable generic error, so no provider detail or document content leaks. The extraction route's code documents the required response shape.
+- Tika must return a successful HTTP status. Redirects are rejected without following them, so redirect pages cannot become extracted text.
 
 ### 3.6. Hosted media gateway
 
@@ -220,19 +227,23 @@ FAL_ENABLE_SAFETY_CHECKER=true
 MEDIA_REQUEST_MAX_BYTES=41943040
 MEDIA_INPUT_MAX_BYTES=26214400
 MEDIA_INPUT_MAX_PIXELS=40000000
+COMFYUI_MAX_IMAGE_BYTES=20971520  # bounded ComfyUI image input/output
+COMFYUI_INIT_IMAGE_TRUSTED_ORIGINS=  # exact HTTPS origins; blank rejects remote URLs
 MEDIA_OPERATION_TTL_SECONDS=604800
 MEDIA_LEDGER_RECOVERY_BATCH_SIZE=100
 MEDIA_LEDGER_RECOVERY_MAX_CYCLES=4
 ```
 
+A malformed `COMFYUI_MAX_IMAGE_BYTES` or `COMFYUI_INIT_IMAGE_TRUSTED_ORIGINS` value fails Backend startup, whatever `COMFYUI_SOURCE` is.
+
 **Operations and artifacts.**
 
-- `POST /media/generate` takes `provider`, `modality`, `model` and `input`. It sends image and image-to-3D work to FAL, and image work to the managed or localhost ComfyUI host. It returns `202` with an operation id.
+- `POST /media/generate` takes `provider`, `modality`, `model` and `input`. It sends image and image-to-3D work to FAL, and image work to the enabled ComfyUI source. It returns `202` with an operation id.
 - `GET /media/operations/{operation_id}` returns normalized status and artifacts.
 - `POST /media/operations/{operation_id}/cancel` requests cancellation. The budget reservation is held until a terminal state is confirmed.
 - `artifact_url` is an absolute CDN URL for FAL. For ComfyUI it is a gateway-relative Backend path, so resolve it against your own base URL before you fetch it.
 - `GET /media/operations/{operation_id}/artifacts/{index}` serves a ComfyUI file. It takes the poll's credentials and resolves the file from the stored operation, never from the request.
-- Only the operation's owner gets the file. Anyone else, or an out-of-range index, gets `404`. All service tokens share one owner scope: they read service-created operations, never a user's.
+- Only the operation's owner gets the file. Anyone else, or an out-of-range index, gets `404`. The internal-service token reads only service-created operations, never a user's. The n8n, notebook and Open WebUI tokens get `403` on every `/media/*` route.
 - An artifact URL lives as long as its operation record: `MEDIA_OPERATION_TTL_SECONDS` with the Redis store, or until a restart with the in-memory store.
 - A budget-tracked record does not expire while the operation is in flight, in either store. This includes a record whose ledger attach failed at submit and was recovered later.
 - For a budget-tracked operation, `MEDIA_OPERATION_TTL_SECONDS` starts once it is terminal and its ledger row is settled. It also applies to operations that are not budget-tracked.
@@ -256,6 +267,7 @@ MEDIA_LEDGER_RECOVERY_MAX_CYCLES=4
 - The intent and unsettled ledger row are exempt from normal retention until settlement. Same-outcome retries are safe while terminal ledger history remains retained.
 - If the operation-state write fails (`local_record_persisted=false`), the spend ledger is the recovery source.
 - If reservation attachment or cleanup fails after provider acceptance, Atlas keeps the candidate ledger ids as a non-expiring recovery intent. It retries every 30 s and on each poll. The response exposes `recovery_ledger_ids`.
+- `/reconcile` first completes a pending ledger attachment or cleanup. It returns `503` while the ledger is unavailable.
 - A ComfyUI `/media/generate` that may have queued without confirmation returns `504` with a `local_submission_id` and keeps a `submission_unknown` operation.
 - This includes malformed replies and invalid prompt ids. Check ComfyUI's queue before you retry.
 
@@ -263,20 +275,25 @@ MEDIA_LEDGER_RECOVERY_MAX_CYCLES=4
 
 - Cancellation uses the pinned core's atomic `POST /api/jobs/{job_id}/cancel` and accepts only an exact boolean `cancelled`. Interrupted history becomes terminal `cancelled`.
 - An ambiguous ComfyUI cancellation delivery can be retried safely. A localhost ComfyUI without that endpoint fails closed; Atlas never falls back to the global `/interrupt`.
+- A stale poll cannot clear confirmed cancellation while the operation remains `cancellation_requested`. Repeated cancellation then returns the confirmed state.
+- If an accepted ComfyUI job cannot be recorded, Atlas requests cancellation of that exact job before returning `503`. Ledger recovery remains necessary.
 - A failed job's poll reports only `ComfyUI execution failed (<exception class>)`. The message, traceback and node inputs are logged, never returned.
 - A ComfyUI rejection on `/media/generate` returns a fixed message: `400` for a bad graph, `502` for any other upstream status. The upstream body is logged, never returned.
 
 **Legacy ComfyUI routes.**
 
 - `GET /comfyui/image/{filename}` serves the n8n and Open WebUI automation callers.
-- `POST /comfyui/generate` uses FAL when `FAL_SOURCE=enabled`, and ComfyUI otherwise. With FAL it returns `409` while media budgets are enabled, because it reserves no budget, and `504` on a FAL timeout.
+- `POST /comfyui/generate` uses FAL when `FAL_SOURCE=enabled`, and ComfyUI otherwise. With FAL it returns `409` while media budgets are enabled, because it reserves no budget. It returns `504` on a FAL timeout and `502` when FAL's reply cannot be parsed.
 - If ComfyUI may have queued a prompt without confirming it, `/comfyui/generate` and `/comfyui/workflow` return `504`. Check `/comfyui/queue` before you retry, because a retry can render twice.
-- Only a connection failure returns a retryable `503`. After a prompt is queued, a timeout or a lost history poll returns `504` with its `prompt_id`.
+- Only a connection failure returns a retryable `503`. After a prompt is queued, a timeout or a lost history poll returns `504` with its `prompt_id`. An invalid history reply after queueing returns `502` with its `prompt_id`.
+- `COMFYUI_COMPLETION_TIMEOUT_SECONDS` (default `300`, at most 3,600) is the default `timeout_seconds` of `/comfyui/generate` and `/comfyui/workflow`. On expiry they cancel the prompt and return `504` with its `prompt_id`.
 - `GET /comfyui/health` returns ComfyUI's `system_stats` only to n8n, Open WebUI and service callers. A user token gets the status alone.
 
 **Spend ledger and budgets (`MEDIA_BUDGET_ENABLED`, disabled by default).**
 
-- When enabled, each generation reserves its estimated cost before the provider call. It records an immutable row in `public.media_spend_ledger` (Postgres) and stops over-budget requests before any provider call.
+- When enabled, each generation reserves its estimated cost before the provider call. It records one row per operation in `public.media_spend_ledger` (default `postgres` store) and stops over-budget requests before any provider call.
+- Attribution and the estimate never change. Attachment and settlement update the operation id, status, final cost, artifact references and reason.
+- A refused request also adds a `denied` row. `MEDIA_BUDGET_RETENTION_DAYS` prunes denied rows with the other terminal history.
 - A request estimated at $0 (local ComfyUI) is never refused by the cap, even when settled spend already exceeds it.
 - `MEDIA_BUDGET_RETENTION_DAYS` is blank by default, which keeps ledger history indefinitely. When set, an hourly sweep removes terminal history after that window.
 - The window starts at terminal disposition (`updated_at`), preserving a retry window after settlement. Original reservation attribution (`created_at`) stays unchanged.
@@ -289,7 +306,17 @@ MEDIA_LEDGER_RECOVERY_MAX_CYCLES=4
 - A provider in `MEDIA_DISABLED_PROVIDERS` gets `403` on `/media/generate`, `/comfyui/generate` and `/comfyui/workflow`, with or without budgets. The read-only `/comfyui/*` routes are not refused.
 - With or without enforcement, an ambiguous FAL submission creates a recovery row in `MEDIA_BUDGET_STORE`. Keep the default `postgres` store so recovery survives restarts; `memory` is ephemeral.
 
-The Backend's `/docs` (Swagger) endpoint serves the full media request and response contract. It also serves the validation rules, byte and pixel limits, ledger schema, concurrency guarantees and reconciliation behavior.
+The Backend's `/docs` (OpenAPI) page lists the media routes and their request and response envelopes. It types `input` as a free-form object. The accepted keys are:
+
+- FAL `image`: `prompt` (required, at most 4,000 characters), `seed`, `steps`, `cfg` or `guidance_scale`, and `num_images` (1–4).
+    - Text-to-image also takes `width` and `height` or `image_size` (64–4,096).
+    - An init image (`image_url`, `image` or `init_image`) with optional `strength` switches the default model to `fal-ai/flux/dev/image-to-image`.
+    - The default FLUX models reject `negative_prompt`. Other FAL endpoints need `provider_arguments` with a matching `prompt`.
+- FAL `image_to_3d`: `image` (a URL or data URI) and optional `seed`. Other keys return `400`.
+- ComfyUI `image`: `prompt`, `negative_prompt`, `width` and `height` or `image_size`, `steps` or `num_inference_steps`, `cfg` or `guidance_scale`, `sampler_name`, `scheduler` and `seed`.
+    - It also takes one init image (`image_url`, `image` or `init_image`) with optional `strength`.
+
+An invalid value returns `400`. The status codes and reconciliation rules are in the sections above.
 
 ### 3.7. Chunking and evaluation
 
@@ -333,6 +360,8 @@ BACKEND_HEAVY_WORK_TIMEOUT_SECONDS=600   # wait per call, then 504; the slot fre
 | `GET /workflows` | `503` / `502` | n8n is unreachable / n8n returned an HTTP error or an invalid workflow inventory. |
 | `POST /research/{session_id}/cancel` | `404` / `409` | Unknown or foreign session / session not running. |
 
+`/workflows` calls the n8n public API with `N8N_API_KEY`. n8n issues that key only in its UI (Settings → n8n API). Until you set it in `.env` and recreate the Backend, `GET /workflows` returns `502`.
+
 ## 4. Architecture & wiring
 
 **Request flow.** Open WebUI sends chat completions straight to LiteLLM (`http://litellm:4000/v1`); the Backend is not in that path. Open WebUI's bundled memory tool and filter call Backend memory routes, such as `POST /memory/recall`. Other callers, such as n8n, JupyterHub and downstream consumers, reach the Backend directly or through Kong at `api.localhost`.
@@ -354,9 +383,11 @@ A disabled optional service degrades only its feature:
 
 **Limits and deadlines.**
 
-- Ray control-plane calls: 5 s connect and 30 s read. A timed-out submit, status or stop returns `504` with the `submission_id` to reconcile. Do not resubmit blindly.
+- Ray control-plane calls: 5 s connect and 30 s read. A timed-out submit, status or stop returns `504` with the `submission_id` to reconcile. Do not resubmit blindly. A refused or dropped dashboard connection on status or stop returns `503`.
 - Postgres pool: if all `BACKEND_PG_POOL_MAX` connections stay busy for 5 s, the request gets `503` with `Retry-After: 1`. Readiness stays green. Metrics: `backend_pg_pool_saturated_total`, `backend_pg_pool_acquire_wait_seconds`.
+- A new Postgres connection that takes over 5 s to open fails as a database error, not as saturation.
 - Request bodies are capped before parsing. `/media/generate` authenticates, then buffers up to `MEDIA_REQUEST_MAX_BYTES` (40 MiB).
+- `/storage/upload` and `/documents/extract` also authenticate before reading any body byte, with the same credentials as their route checks.
 - `/storage/upload` is capped at `MAX_UPLOAD_BYTES` (100 MiB) + 1 MiB, and `/documents/extract` at the extractor limit (`TIKA_MAX_FILE_SIZE`) + 1 MiB.
 - Supabase Storage rejects files over `STORAGE_FILE_SIZE_LIMIT` (50 MiB by default). Raise both limits together.
 - All other bodies are capped at 16 MiB. An oversize body or a false `Content-Length` returns `413`, which never echoes request bytes.
@@ -396,22 +427,44 @@ A disabled optional service degrades only its feature:
 
 **Graphiti experiment status:** `GET /memory/graphiti/status` returns the disabled-by-default experiment configuration and namespace pattern. It does not import `graphiti-core` or write to Neo4j. Treat it as a readiness and contract endpoint for future backend-only Graphiti work, not as an active memory writer.
 
-**RAG chunking gateway:** `POST /api/chunk` centralizes Chonkie text splitting in the Backend. n8n workflows, notebooks, and future ingestion routes call it. Chunking defaults, offsets, overlap and semantic model choice then stay consistent. JupyterHub also installs Chonkie for exploratory notebook work, but the Backend endpoint is the canonical runtime API.
+**RAG chunking gateway:** `POST /api/chunk` centralizes Chonkie text splitting in the Backend. Notebooks call it with the notebook token. RAG ingestion runs the same `chunk_text` code in process. Chunking defaults, offsets, overlap and semantic model choice then stay consistent. JupyterHub also installs Chonkie for exploratory notebook work, but the Backend endpoint is the canonical runtime API.
 
 **RAG ingestion job engine (`rag_ingestion/`).** `POST /api/rag/ingestions` runs an idempotent lifecycle over a consumer-declared `rag_ingestion_profile`. The phases are discover, parse, chunk, embed, vector-store write, LightRAG upload, drain and finalize. It runs through the Celery tier when enabled, and synchronously otherwise. Profile contract: [Consumer Manifest Reference §11](../../docs/reference/consumer-manifest.md#11-rag_ingestion_profiles).
 
-- **Submission:** the job snapshots the corpus path and profile definitions, so a queued worker runs what was submitted even if the registry changes. Mount and MinIO fingerprints hash bounded file bytes; the worker reads them again. A corpus change between submission and discovery clears that job's dedup eligibility before writes. Upgrading fingerprint formats may cause one new ingestion for unchanged content.
-- **Reuse:** pending and running duplicates share the existing job. Completed jobs are reused only while their Weaviate target publications remain current. Restoring earlier corpus bytes or an embedding model after another generation changes an overlapping class starts ingestion again. Empty-corpus publications follow the same rule. Missing or expired publication evidence can also cause another ingestion.
+- **Submission:** the job snapshots the corpus path and profile definitions, so a queued worker runs what was submitted even if the registry changes. Mount and MinIO fingerprints hash bounded file bytes; the worker reads them again. A corpus or declared destination change between submission and discovery clears that job's dedup eligibility before writes. Upgrading fingerprint or job-key formats may cause one new ingestion for unchanged content.
+- **Reuse:** pending and running duplicates with the same job key share the existing job. Completed jobs are reused only while their Weaviate target publications remain current. Restoring earlier corpus bytes or an embedding model after another generation changes an overlapping class starts ingestion again. Empty-corpus publications follow the same rule. Missing or expired publication evidence can also cause another ingestion.
+- **Destinations:** job identity includes each declared Weaviate or LightRAG endpoint and its configured availability. Changing endpoints or enabling a skipped destination creates a new job. URL credentials, query strings and fragments do not affect this identity. Data loss behind an unchanged endpoint still requires recovery.
 - **Progress:** each phase reports status, counts and actionable errors. Each run removes prior-generation Weaviate objects that are no longer in the source corpus. Failed sources are excluded from stale-object deletion; their earlier vectors can still be lost during class replacement.
-- **Rebuild reporting:** saved rebuild history survives later write failures and retries. Creation acknowledgement failure or lease loss before the checkpoint can leave vector availability unverified. Exclusion from cleanup does not prove that vectors exist. Restore missing vectors through a successful new ingestion. Follow the [consumer recovery requirements](../../docs/reference/consumer-manifest.md#11-rag_ingestion_profiles) for deduplication and profile regeneration.
+- **Graph targets:** LightRAG uploads only add documents. A changed or deleted file keeps its earlier LightRAG document until you delete it through the LightRAG document API.
+- **Rebuild reporting:** saved rebuild history survives later write failures and retries. Creation acknowledgement failure or lease loss before the checkpoint can leave vector availability unverified. Exclusion from cleanup does not prove that vectors exist. Restore missing vectors through a successful new ingestion after any blocked collection is recovered below. Follow the [consumer recovery requirements](../../docs/reference/consumer-manifest.md#11-rag_ingestion_profiles) for deduplication and profile regeneration.
 - **Bounds:** `RAG_INGESTION_MAX_FILE_BYTES`, `RAG_INGESTION_MAX_CORPUS_BYTES` and `RAG_INGESTION_MAX_FILES`.
 - **Listing:** `GET /api/rag/ingestions` returns at most 100 jobs by default (maximum 200). Pass `cursor` from `X-Atlas-Next-Cursor` and read `X-Atlas-Page-Limit` to page.
 - **Leases:** an owner-fenced execution lease (`RAG_INGESTION_EXECUTION_LEASE_SECONDS`) protects each phase. Every Celery delivery uses a fresh owner. After an ambiguous Redis response, only an exact compare-and-set against the prior owner can transfer the claim.
 - **Lease loss:** a renewal that errors is retried until the lease would expire. A failed renewal carries the current owner into recovery. A lost lease counts against the same 20-attempt limit as a Redis outage.
 - **Redis failures:** an error reply that will not change (for example `WRONGTYPE`) fails the task and the job without retry. Other failures, including `READONLY` and `OOM` replies during recovery, retry with full-jitter backoff capped at 600 s.
 - **Retry limit:** at most 20 Redis retries (about an hour on average). They do not use the three-retry budget of the upstream phases. At the limit the job is marked `failed`, unless another live worker holds its lease, so a resubmit starts a fresh job.
+- **Collection writers:** each attempt reserves all declared physical Weaviate classes before its first mutation, including punctuation aliases of one class. The reservation covers only the vector-store write phase. Celery retries a refused job with full-jitter backoff capped at 600 s, outside the upstream and Redis retry budgets.
+- **Collection waits:** a job whose classes are already reserved waits as `pending` before parse and embed. If another job reserves them while this job runs, the vector-store write phase turns it away, and its retry repeats parse and embed. Synchronous callers get a waiting message and can resubmit the same pending job after the active writer finishes.
+- **Wait notes:** when admission finds a guard, the `vector_write` note says whether another job holds the class or an interrupted write requires operator recovery. A refusal during the write phase cannot tell them apart, so its note names both.
+- **Interrupted writes:** after mutation begins, only acknowledged schema, object and reconciliation completion, or a 4xx rejection from Weaviate, permits clean release. A rejection still invalidates completed-job reuse for that class. A 5xx response, cancellation, timeout, execution-lease expiry and job retention do not establish remote completion. There is no automatic takeover of an uncertain class. Its non-expiring guard blocks later attempts, including a retry of the same job.
 - **Exactly-once:** fencing stops two workers from persisting as the same owner. It does not make external services exactly-once. LightRAG retries use deterministic content-and-path identities.
 - **LightRAG conflicts:** only a matching duplicate in an admitted or processed state counts as uploaded. Celery retries scanning or deletion refusals within its transient budget. Synchronous ingestion fails without automatic retry. Failed records and unrecognized conflicts fail the upload phase.
+
+<a id="rag-collection-recovery"></a>
+
+**RAG collection recovery.**
+
+A collection blocked by an interrupted write requires operator recovery. Deleting a job or waiting for its TTL does not release its publication guard.
+
+Each guard value is a JSON array of ingestion id, execution owner and attempt token, followed by `:clean` or `:dirty`. A `:clean` guard records no uncertain mutation; writers release it when their vector-store write phase ends. A worker crash at any point in that phase can leave `:clean` guards on classes it reserved but was not writing. You can delete such a guard once `atlas:rag:execution:<ingestion id>` is missing or holds a different owner.
+
+When admission before parsing finds a `:dirty` guard, the job reports `an interrupted write requires operator recovery` in its `vector_write` note. A `:dirty` guard needs this procedure:
+
+1. Quiesce every writer of the affected classes, including Backend processes, Celery workers and other publishers. Confirm that no previously accepted remote mutation can still finish. If this cannot be confirmed, leave the classes blocked.
+2. After verified quiescence, remove each affected guard and invalidate its publication proof together. The keys are `atlas:rag:publication-guard:<target>` and `atlas:rag:publication:<target>` in the database selected by Backend `REDIS_URL` (default 0). The target is the SHA-256 hex digest of compact JSON `["weaviate","<physical_class_name>"]`.
+3. Reingest the affected corpus with its recorded profile. Check the job status and resulting vectors before resuming other publishers. This reestablishes publication evidence; clearing a guard alone does not restore vectors.
+
+Redis guards have no TTL and outlive ordinary job retention. Atlas enables AOF with Redis's default fsync policy, but lost or restored Redis state can lose fencing evidence. Quiesce and recover affected writers after such state loss; persistence does not guarantee fencing across every crash. Memory mode loses guards on process restart and is unsuitable for durable recovery.
 
 **Shared state store.**
 
@@ -420,13 +473,16 @@ A disabled optional service degrades only its feature:
 - `BACKEND_STATE_STORE_MODE=memory` is a single-process, non-durable mode for unit tests and ephemeral development only. RAG submissions then run synchronously, even with Celery enabled, so no ingestion id reaches a worker-local store.
 - Do not use memory mode if you scale the Backend yourself.
 - Rolling upgrades keep the legacy Redis SET indexes for old replicas and copy membership into versioned sorted indexes without deleting it.
-- Media ledger recovery reads at most `MEDIA_LEDGER_RECOVERY_BATCH_SIZE` intents per page and at most `MEDIA_LEDGER_RECOVERY_MAX_CYCLES` pages per poll. The next cycle resumes the cursor.
+- Media ledger recovery reads at most `MEDIA_LEDGER_RECOVERY_BATCH_SIZE` intents per page and at most `MEDIA_LEDGER_RECOVERY_MAX_CYCLES` pages per 30-second recovery sweep. The next sweep resumes the cursor.
 
 **Source and local development.**
 
 - Runtime dependencies are in `services/backend/app/app/requirements.txt`. Test dependencies are in `requirements-dev.txt` in the same directory; only test environments install them.
 - The Backend test suite is in `services/backend/app/app/tests/`. The `services-lint` job "Bootstrapper and Backend suites (with containers)" runs it.
-- Compose bind-mounts `./app/app` onto `/app`, so you edit the source in place. To apply a change, recreate the Backend. On a stack with no consumer manifest and no overlays, run:
+- Compose bind-mounts `./app/app` onto `/app`, so you edit the source in place. To apply a change, recreate the Backend.
+
+Use this command only without consumer manifests or overlays, and with literal Redis credentials in `.env`.
+Redis shell overrides must be unset.
 
 ```bash
 docker compose -p <PROJECT_NAME> up -d --force-recreate backend
@@ -434,7 +490,10 @@ docker compose -p <PROJECT_NAME> up -d --force-recreate backend
 
 With a consumer manifest, run `./start.sh --consumer <manifest>` again instead. A bare Compose command drops the overlay that mounts the plugins.
 
-Recreate the Backend also after a runtime dependency change. Set `BACKEND_DEV_RELOAD=true` to run `uvicorn[standard] --reload` and hot-reload host-side edits. It is off by default, because git churn in the bind-mounted plugin directory can restart or crash-loop the Backend.
+For Redis password references or shell overrides, rerun `./start.sh` with the deployment's usual options.
+See [Redis configuration](../redis/README.md#3-configuration) for transient credential handling.
+
+A runtime dependency change needs a new image, because the Dockerfile installs `requirements.txt` at build time. Run `docker compose -p <PROJECT_NAME> build backend`, then recreate the Backend as above. Set `BACKEND_DEV_RELOAD=true` to run `uvicorn[standard] --reload` and hot-reload host-side edits. It is off by default, because git churn in the bind-mounted plugin directory can restart or crash-loop the Backend.
 
 ## 5. LightRAG integration
 
@@ -490,7 +549,7 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 | Media generation gateway | partial | tested | The Backend normalizes bounded ComfyUI and FAL operations with durable operation and optional spend state, while provider availability, cloud retrieval, and synchronous deadlines remain source-specific. |
 | Asynchronous backend jobs | partial | tested | Celery can offload memory consolidation and RAG ingestion with owner-fenced leases, but research and other long-running routes retain separate in-process or database lifecycles. |
 | Trusted backend plugin seam | partial | tested | Atlas validates plugin manifests and route auth modes. It then installs and imports operator-supplied Python code at Backend startup without sandboxing. Recreate the container to apply changes. |
-| Adaptive proxy environment placeholders | stubbed | documented | STT, TTS, document-provider, Neo4j, and Hermes variables are injected for planned paths. No general Backend proxy or Hermes/Neo4j consumer uses all of those settings today. |
+| Adaptive proxy environment placeholders | stubbed | documented | STT, TTS, Neo4j, and Hermes variables are injected for planned paths. No general Backend proxy or Hermes/Neo4j consumer uses all of those settings today. |
 | Backend horizontal availability | not-supported | documented | Atlas fixes the adaptive Backend to one container; PostgreSQL and Redis preserve selected state, but process-local concurrency guards and in-memory fallbacks are not replica-coordinated HA. |
 
 ## 7. Troubleshooting
@@ -499,14 +558,16 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 
 **LangMem extraction fails with "No content model available".** `./start.sh` resolves `LITELLM_DEFAULT_MODEL` from the YAML model catalogs and the enabled providers, then writes it to `.env`. If no content-capable model is active, it stays empty and every extraction call fails. Set `LANGMEM_EXTRACTION_MODEL` or `LITELLM_DEFAULT_MODEL` to a model id that LiteLLM serves (e.g. `ollama/qwen3:8b`), then recreate the Backend.
 
-**Cold start hangs on Supabase.** The Backend has `depends_on: supabase-db-init: { condition: service_completed_successfully }`. If `supabase-db-init` is stuck (usually a bad SQL script in `services/supabase/db/scripts/`), the Backend waits forever. Check `docker logs <project>-supabase-db-init`.
+**Backend does not start after Supabase initialization.** The Backend starts only after `supabase-db-init` completes successfully. That container exits with an error when a SQL script fails, or when the database is not ready after 300 probes. Compose then does not start the Backend. A script that blocks, for example on a lock, keeps the Backend waiting. Check `docker logs <project>-supabase-db-init`.
 
 **`HERMES_ENDPOINT` reachable but feature returns 404.** Hermes-native endpoints are not wired (see §8.4). Calls go through LiteLLM's `hermes-agent` model only.
 
+These commands inspect the running Backend container. Replace `<project>` with `PROJECT_NAME` from `.env` (default `atlas`). The `env` filter prints endpoints and model names only, not keys.
+
 ```bash
-docker compose ps backend
-docker compose logs -f backend
-docker exec <project>-backend env | grep -E 'LITELLM|WEAVIATE|HERMES|NEO4J|STT|TTS|DOCLING'
+docker ps --filter name=<project>-backend
+docker logs -f <project>-backend
+docker exec <project>-backend env | grep -E '^(LITELLM_BASE_URL|LITELLM_DEFAULT_MODEL|LITELLM_EMBEDDING_MODEL|WEAVIATE_URL|HERMES_ENDPOINT|NEO4J_URI|STT_ENDPOINT|TTS_ENDPOINT|DOCLING_ENDPOINT|TIKA_ENDPOINT)='
 ```
 
 For general startup and routing issues, see [Troubleshooting](../../docs/quick-start/troubleshooting.md).
@@ -581,8 +642,8 @@ _Rows marked planned are documented or intended, not wired yet._
   - *Mechanism:* add `hermes_client.py` next to `n8n_client.py`. Call `${HERMES_ENDPOINT}/v1/sessions` and `/skills` with `Authorization: Bearer ${HERMES_API_KEY}`. Expose `POST /agents/hermes/run` + `GET /agents/hermes/sessions/{id}`.
   - *Effort:* small. *Confidence:* medium.
 - **backend ↔ jupyterhub**
-  - *Why:* notebook users reach the research, memory and ComfyUI APIs only through Kong + tokens, and the Backend has no view of JupyterHub state. A thin bridge enables programmatic notebook launches for batch evaluations.
-  - *Mechanism:* call JupyterHub REST at `http://jupyterhub:8000/hub/api` with `Authorization: token ${JUPYTERHUB_TOKEN}`. Expose a `POST /notebooks/users/{name}/server` proxy. Share `MINIO_BUCKET_JUPYTER` for artifact handoff.
+  - *Why:* notebooks call the Backend directly at `BACKEND_API_URL` with a scoped notebook token. That token reaches only `/documents/extract`, `/api/chunk` and `/api/rag/evaluate`. Other routes need a Supabase user JWT or a service token. The Backend has no view of notebook-server state. A thin bridge enables programmatic notebook runs for batch evaluations.
+  - *Mechanism:* pass `JUPYTERHUB_TOKEN` to the Backend. Call the single-user Jupyter Server REST API at `http://jupyterhub:8888/api` (kernels, sessions, contents) with `Authorization: token ${JUPYTERHUB_TOKEN}`. Expose a `POST /notebooks/sessions` proxy. Per-user server launch needs the multi-user Hub listed in [JupyterHub](../jupyterhub/README.md) §17.6. Share `MINIO_BUCKET_JUPYTER` for artifact handoff.
   - *Effort:* medium. *Confidence:* medium.
 - **backend ↔ neo4j (knowledge-graph endpoints)**
   - *Why:* `neo4j`, `langchain-neo4j` and `NEO4J_URI`/`USER`/`PASSWORD` are installed and injected, but no graph endpoints exist. LangMem facts and research sources fit a graph well.

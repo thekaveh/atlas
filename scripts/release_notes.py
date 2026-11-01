@@ -1,4 +1,4 @@
-"""Dry-run release notes from Conventional Commits (#968 prototype).
+"""Release notes from Conventional Commits (#968, #1106).
 
 Reads a commit range from Git, classifies every first-parent commit by its
 Conventional Commits subject, expands develop-to-main promotion merges into
@@ -7,14 +7,21 @@ squash promotion into the develop entries it carries when its pull-request
 identity is known (never by subject), and renders concise notes whose headings
 satisfy the documentation numbering contract.
 
-It never writes ``docs/CHANGELOG.md`` and needs no credentials: the input is
-the local repository, the output is stdout or a file the caller names.
+It needs no credentials; the input is the local repository. Stand-alone mode
+(``--range`` or ``--since-tag``) writes only stdout or the ``--output`` file,
+and refuses ``--output docs/CHANGELOG.md``. ``--update-changelog`` rewrites
+only the block between the GENERATED RELEASE NOTES markers in
+``docs/CHANGELOG.md``. ``--check-changelog`` and ``--check-title`` are
+read-only checks that CI runs.
 
 Usage::
 
     python -m scripts.release_notes --range v0.1.0..origin/main
     python -m scripts.release_notes --since-tag --format json
     python -m scripts.release_notes --range A..B --overrides notes-overrides.yaml
+    python -m scripts.release_notes --update-changelog --range v0.1.0..origin/develop
+    python -m scripts.release_notes --check-changelog
+    python -m scripts.release_notes --check-title "fix(scope): summary"
 """
 
 from __future__ import annotations
@@ -477,7 +484,7 @@ def update_changelog(repo_root: Path, rev_range: str, overrides: Path | None, *,
 
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Dry-run release notes from Conventional Commits")
+    parser = argparse.ArgumentParser(description="Release notes from Conventional Commits")
     parser.add_argument("--range", dest="rev_range", help="Git revision range, e.g. v0.1.0..origin/main")
     parser.add_argument("--since-tag", action="store_true", help="Use <latest v* tag>..HEAD")
     parser.add_argument("--format", choices=("markdown", "json"), default="markdown")

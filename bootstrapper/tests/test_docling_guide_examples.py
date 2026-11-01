@@ -6,14 +6,13 @@ import json
 import os
 from pathlib import Path
 import shlex
-import shutil
 import subprocess
 import sys
 
 import pytest
 
 from tests.test_three_surface_build import env_reference_config
-from tests.three_surface_test_utils import ROOT, surface_text, _credential_select_script
+from tests.three_surface_test_utils import ROOT, native_executable, surface_text, _credential_select_script
 
 SOURCES = {
     "container": "services/doc-processor/README.md",
@@ -153,9 +152,7 @@ def _environment(directory, spec):
     tools = directory / "tools"
     tools.mkdir()
     for name in ("uv", "sed"):
-        executable = shutil.which(name)
-        assert executable, f"Required real executable missing: {name}"
-        (tools / name).symlink_to(Path(executable).resolve())
+        (tools / name).symlink_to(native_executable(name))
     recorder = tools / "curl"
     recorder.write_text("#!" + sys.executable + '\nimport json,os,sys\nfrom pathlib import Path\n'
                         'with Path(os.environ["DOCLING_GUIDE_CALLS"]).open("a") as stream:\n'

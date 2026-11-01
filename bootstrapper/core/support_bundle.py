@@ -41,6 +41,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Iterator
 from urllib.parse import quote
 
+from utils.atomic_write import decode_env_assignment, env_lines
 from .support_bundle_logs import ANSI as _ANSI, LogSnapshot, log_entry, replace_at_boundary, tail_text
 
 SCHEMA_VERSION = "atlas-support-bundle/1"
@@ -85,6 +86,7 @@ _SECRET_WORD = (
     rf"|private[_-]?key|[_-]key(?![a-z])|(?:neo4j|graph[_-]db|basic)[_-]auth(?![a-z])"
     rf"|credential|salt){_W}"
 )
+_KEY_WORD = re.compile(_SECRET_WORD, re.IGNORECASE)
 _PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     # A key block, including one cut off at either end of a log window.
     (re.compile(
@@ -160,12 +162,23 @@ class Redactor:
         for env in envs:
             values |= _secret_values(dict(env or {}))
         self._values = sorted(values, key=len, reverse=True)
+        # Known values with no secret key word go before the patterns, so a
+        # delimiter inside one (";", "&", a space) cannot split it. Values
+        # holding a key word ("password") go only after the patterns, so they
+        # cannot hide the key a pattern needs; their tail after a delimiter
+        # can still leak. An early value inside a key-word value would split
+        # that value apart, so it waits for the longest-first final pass.
+        late = [v for v in self._values if _KEY_WORD.search(v)]
+        self._early = [
+            v for v in self._values
+            if not _KEY_WORD.search(v) and not any(v in other for other in late)
+        ]
 
     def text(self, value: str) -> str:
         # Terminal colour codes can sit inside a secret; drop them first.
-        # The patterns run before the known values, so a secret that is
-        # itself a key word ("password") cannot hide the key a pattern needs.
         value = _ANSI.sub("", value)
+        for secret in self._early:
+            value = value.replace(secret, REDACTED)
         for pattern, replacement in _PATTERNS:
             value = pattern.sub(replacement, value)
         for secret in self._values:
@@ -185,7 +198,10 @@ class Redactor:
 
     def window(self, text: str, start: int) -> tuple[str, int]:
         """Redact while preserving the excluded source-head boundary."""
-        for pattern, replacement in ((_ANSI, ""), *_PATTERNS):
+        text, start = replace_at_boundary(_ANSI, "", text, start)
+        for secret in self._early:
+            text, start = replace_at_boundary(re.compile(re.escape(secret)), REDACTED, text, start)
+        for pattern, replacement in _PATTERNS:
             text, start = replace_at_boundary(pattern, replacement, text, start)
         for secret in self._values:
             text, start = replace_at_boundary(re.compile(re.escape(secret)), REDACTED, text, start)
@@ -392,9 +408,21 @@ def _listed(key: str) -> bool:
     return any(pattern.match(key) for pattern in CONFIG_KEY_PATTERNS)
 
 
+#: Manifest fields that set a key outside ``env.values``. A start rewrites
+#: these keys from the field, so the action must name it.
+_MANIFEST_FIELDS = {
+    "PROJECT_NAME": "project_name",
+    "BACKEND_PLUGINS_DIR": "backend_plugins",
+    "COMFYUI_CUSTOM_MODELS_FILE": "model_sidecars.comfyui",
+    "COMFYUI_CUSTOM_NODES_FILE": "custom_nodes.comfyui",
+    "OLLAMA_CUSTOM_MODELS": "model_sidecars.ollama",
+    "BLENDER_MCP_INSTANCES": "blender_mcp.instances",
+}
+
+
 def _action(key: str, origin: str, env_file: Path | None) -> str:
     if origin.endswith((".yml", ".yaml")):
-        field_name = "project_name" if key == "PROJECT_NAME" else f"env.values.{key}"
+        field_name = _MANIFEST_FIELDS.get(key, f"env.values.{key}")
         return (f"Change `{field_name}` in {origin}. Every start writes the manifest's "
                 "values into .env, so an edit to .env alone does not stick.")
     if origin == "default":
@@ -417,10 +445,18 @@ def _file_keys(env_file: Path | None) -> set[str]:
     if env_file is None or not env_file.is_file():
         return set()
     keys = set()
-    for line in env_file.read_text(encoding="utf-8", errors="replace").splitlines():
-        name, sep, _ = line.strip().partition("=")
-        if sep and not name.startswith("#"):
-            keys.add(name.strip())
+    for line in env_lines(env_file.read_text(encoding="utf-8-sig", errors="replace")):
+        prefix, sep, _ = line.partition("=")
+        if not sep:
+            continue
+        try:
+            # Discover keys with the reader's grammar, without re-decoding
+            # secret values or repeating its Compose-reference warnings.
+            assignment = decode_env_assignment(prefix + "=", origin=str(env_file))
+        except ValueError:
+            continue
+        if assignment is not None:
+            keys.add(assignment[0])
     return keys
 
 
@@ -529,7 +565,7 @@ def build_bundle(request: BundleRequest, *, now: datetime.datetime | None = None
         "context": redactor.value(request.context),
         "host": {"system": platform.system(), "machine": platform.machine(),
                  "python": platform.python_version()},
-        "ok": not any(check["status"] == "fail" for check in checks),
+        "ok": not any(check["status"] in ("fail", "unavailable") for check in checks),
         "checks": checks,
         "findings": _findings(redactor.value(request.checks), checks, config),
         "config": config,
@@ -630,8 +666,12 @@ def export(
 
 
 def write_bundle(bundle: SupportBundle, destination: Path) -> Path:
-    """Write the archive owner-only, replacing ``destination`` atomically."""
-    path = Path(destination).expanduser().resolve()
+    """Write the archive owner-only, replacing ``destination`` atomically.
+
+    Only the parent directory is resolved: a symlink at ``destination`` is
+    replaced by the archive, never written through to its target."""
+    requested = Path(destination).expanduser()
+    path = requested.parent.resolve() / requested.name
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
     try:

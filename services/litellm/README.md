@@ -2,7 +2,7 @@
 
 ## 1. Overview
 
-LiteLLM is the always-on OpenAI-compatible front door for every LLM provider in the stack. The default consumers (Backend, Open WebUI, n8n, JupyterHub, Local Deep Researcher, OpenClaw, Weaviate vectorization) use **one URL** and **one API key**: `LITELLM_BASE_URL` and `LITELLM_API_KEY`. LiteLLM routes each request to the upstream for its model name. Services with a documented native-provider override, such as LightRAG role bindings, can bypass this path.
+LiteLLM is the always-on OpenAI-compatible front door for every LLM provider in the stack. The default consumers (Backend, Open WebUI, n8n, JupyterHub, Local Deep Researcher, OpenClaw, Weaviate vectorization) use **one gateway** (`http://litellm:4000`) and **one key** (`LITELLM_MASTER_KEY`). LiteLLM routes each request to the upstream for its model name. Services with a documented native-provider override, such as LightRAG role bindings, can bypass this path.
 
 To open the dashboard or call the API, see §5 Access. To check a running gateway, see §10 Smoke tests.
 
@@ -38,7 +38,7 @@ Consumers ──► litellm:4000 ──► Ollama / vLLM Metal / Cloud providers
 
 ## 4. Persistence
 
-- **Database**: dedicated `litellm` database on the existing Supabase Postgres server. Created on first start by the `litellm-init` container (`services/litellm/init/scripts/init.py`). Same host (`supabase-db`) with a dedicated role (`LITELLM_DB_USER` / `LITELLM_DB_PASSWORD`) — separate logical database, so LiteLLM's `LiteLLM_*` Prisma-managed tables stay isolated from Supabase's schema. Override the database name via `LITELLM_DB_NAME`.
+- **Database**: dedicated `litellm` database on the existing Supabase Postgres server. `supabase-db-init` creates the database and its owning role (`services/supabase/db/scripts/05-scoped-roles.sh`). `litellm-init` (`services/litellm/init/scripts/init.py`) then checks that it exists, creating it only as a fallback, before it renders the config. Same host (`supabase-db`) with a dedicated role (`LITELLM_DB_USER` / `LITELLM_DB_PASSWORD`) — separate logical database, so LiteLLM's `LiteLLM_*` Prisma-managed tables stay isolated from Supabase's schema. Override the database name via `LITELLM_DB_NAME`.
 - **Redis**: response cache and rate-limit state, on the stack's Redis at `redis:6379` with `REDIS_PASSWORD`.
   - The response cache serves embeddings, reranks and transcriptions for `LITELLM_CACHE_TTL`, because a fixed model returns the same result for the same input.
   - Chat, text-completion and Responses API calls are cached only when `LITELLM_CACHE_CHAT=true`. Then an identical request to `hermes-agent` or `lightrag` returns the cached reply for the TTL. It does not run the agent or see newly ingested documents. Send `"cache": {"no-cache": true}` in the request body for those calls.
@@ -239,7 +239,7 @@ These concern the configured LiteLLM database. This is an upstream LiteLLM race.
 Its 4 uvicorn workers each start Prisma and probe dashboard views while the views are being created.
 The errors clear within tens of milliseconds and do not recur.
 
-Before both database checks, set `LITELLM_DB_NAME` to the value in the active env file.
+Before both database checks, set `PROJECT_NAME`, `SUPABASE_DB_PASSWORD` and `LITELLM_DB_NAME` in your shell to their values in the active env file.
 Unset or blank values use `litellm`. Use the raw name, not `LITELLM_DB_NAME_URI`.
 Confirm that all 8 dashboard views exist:
 
@@ -273,7 +273,7 @@ curl -s -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
   -d '{"model":"ollama/nomic-embed-text","input":"hi"}'
 
 # Cache and spend audit
-redis-cli -h localhost -p ${REDIS_PORT} -a "$REDIS_PASSWORD" --scan --pattern "litellm*"
+REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli -h 127.0.0.1 -p "${REDIS_PORT}" --scan --pattern 'litellm*'
 psql -h localhost -p ${SUPABASE_DB_PORT} -U supabase_admin \
   -d "${LITELLM_DB_NAME:-litellm}" \
   -c "SELECT * FROM \"LiteLLM_SpendLogs\"
@@ -283,11 +283,13 @@ psql -h localhost -p ${SUPABASE_DB_PORT} -U supabase_admin \
 ## 11. Bypass paths
 
 - **`ollama-pull`** calls the Ollama upstream directly (`/api/pull`), because model pulls are not OpenAI-compatible. Compose sets its `OLLAMA_HOST_URL` from `LITELLM_OLLAMA_UPSTREAM`. It runs only for the `ollama-container-*` sources; for other sources `OLLAMA_PULL_SCALE=0`. For `ollama-localhost`, the bootstrapper pulls onto the host daemon instead ([Ollama §5](../ollama/README.md)).
-- **Open WebUI's native Ollama UI features** (model pulls in the UI) are disabled — `ENABLE_OLLAMA_API: "false"` is set in compose. To pull a model directly on an `ollama-container-*` source, run `docker exec -it $PROJECT_NAME-ollama ollama pull <model>`. On `ollama-localhost`, run `ollama pull <model>` on the host.
+- **Open WebUI's native Ollama UI features** (model pulls in the UI) are disabled — `ENABLE_OLLAMA_API: "false"` is set in compose. To pull a model directly on an `ollama-container-*` source, set `PROJECT_NAME` to its value in the active env file. Then run `docker exec -it $PROJECT_NAME-ollama ollama pull <model>`. On `ollama-localhost`, run `ollama pull <model>` on the host.
 
 ## 12. Backup option
 
-If LiteLLM stops being a fit (license change, security incident, project drift), [Portkey AI Gateway](https://github.com/Portkey-ai/gateway) (Apache-2.0) is the documented fallback. The default consumers read `LITELLM_BASE_URL` and `LITELLM_API_KEY`, so the swap happens there. Migrate any native-provider overrides separately.
+If LiteLLM stops being a fit (license change, security incident, project drift), [Portkey AI Gateway](https://github.com/Portkey-ai/gateway) (Apache-2.0) is the documented fallback. No single setting switches the gateway. Compose fragments, init scripts and templates address `http://litellm:4000` directly, and startup resets `LITELLM_BASE_URL` in `.env` to that value.
+
+A swap must change each of these places; `git grep -n "litellm:4000"` lists them. Existing Weaviate collections also store the address in `moduleConfig.text2vec-openai.baseURL`. Migrate any native-provider overrides separately.
 
 ## 13. Built-in `lightrag` model
 

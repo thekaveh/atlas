@@ -1,6 +1,6 @@
 # Unsloth as an Atlas service — feasibility study
 
-> **Status: archived spec** — dated 2026-08-11; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+> **Status: archived spec** — dated 2026-08-11; a point-in-time record kept for archaeology, not current guidance. Nothing landed from it; the study took no decision.
 
 **Date:** 2026-08-11 (rev. 2 — Studio-centred, three source flavours)
 **Status:** Feasibility study — no implementation, no decision taken

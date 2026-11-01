@@ -16,6 +16,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from prometheus_fastapi_instrumentator import Instrumentator
 from pydantic import ValidationError
@@ -39,6 +40,17 @@ from .upload_body import UploadBody, UploadRejected
 
 
 logger = logging.getLogger(__name__)
+
+
+def _validation_detail(exc):
+    return jsonable_encoder(
+        exc.errors(),
+        custom_encoder={float: lambda value: value if math.isfinite(value) else str(value)},
+    )
+
+
+async def _request_validation_error(_request, exc):
+    return JSONResponse(status_code=422, content={"detail": _validation_detail(exc)})
 
 
 async def _join_request_task(task: asyncio.Task):
@@ -172,6 +184,7 @@ def create_app(*, api_token: str | None = None) -> FastAPI:
         api_token if api_token is not None else os.getenv("ASSET_BAKER_API_TOKEN", "")
     )
 
+    app.add_exception_handler(RequestValidationError, _request_validation_error)
     app.add_middleware(_RequestAdmission, owner=app, expected_token=expected_token)
 
     # Bounded worker: a single Cycles bake saturates CPU, so concurrent bakes are
@@ -215,7 +228,7 @@ def create_app(*, api_token: str | None = None) -> FastAPI:
                 mode=mode,
             )
         except ValidationError as exc:
-            raise HTTPException(status_code=422, detail=jsonable_encoder(exc.errors())) from exc
+            raise HTTPException(status_code=422, detail=_validation_detail(exc)) from exc
         file.file.seek(0)
         with tempfile.TemporaryDirectory(prefix="asset-baker-upload-") as tmp:
             input_path = Path(tmp) / "input.glb"
@@ -295,17 +308,41 @@ def _resource_entries(doc: dict) -> list | None:
     return [*groups[0], *groups[1]]
 
 
+_GLB_MAGIC = 0x46546C67
+_JSON_CHUNK = 0x4E4F534A
+_BIN_CHUNK = 0x004E4942
+
+
+def _glb_chunks(data: bytes):
+    """Yield zero-copy chunks only while the GLB v2 framing is valid."""
+    if len(data) < 20:
+        raise ValueError("Incomplete GLB header")
+    if struct.unpack_from("<III", data, 0) != (_GLB_MAGIC, 2, len(data)):
+        raise ValueError("Invalid GLB header")
+    offset, view = 12, memoryview(data)
+    while offset < len(data):
+        if offset + 8 > len(data):
+            raise ValueError("Incomplete GLB chunk header")
+        chunk_length, chunk_type = struct.unpack_from("<II", data, offset)
+        start, end = offset + 8, offset + 8 + chunk_length
+        if chunk_length % 4 or end > len(data):
+            raise ValueError("Invalid GLB chunk length")
+        yield chunk_type, view[start:end]
+        offset = end
+
+
 def _glb_json_chunk(data: bytes) -> dict | None:
-    """The JSON chunk of a GLB v2 file, or None when the input is not one we
-    can read (the caller rejects it: the converters would still parse it)."""
-    if len(data) < 20 or struct.unpack_from("<I", data, 0)[0] != 0x46546C67:
-        return None
+    """Read the unique first JSON document after validating GLB v2 framing."""
     try:
-        chunk_length, chunk_type = struct.unpack_from("<II", data, 12)
-        if chunk_type != 0x4E4F534A:
+        chunks = _glb_chunks(data)
+        chunk_type, chunk = next(chunks)
+        if chunk_type != _JSON_CHUNK:
             return None
-        doc = json.loads(data[20: 20 + chunk_length].rstrip(b" \x00").decode("utf-8-sig"))
-    except (ValueError, struct.error, RecursionError):
+        doc = json.loads(bytes(chunk).rstrip(b" \x00").decode("utf-8-sig"))
+        for index, (chunk_type, _) in enumerate(chunks, 1):
+            if chunk_type == _JSON_CHUNK or (chunk_type == _BIN_CHUNK and index != 1):
+                return None
+    except (ValueError, struct.error, RecursionError, StopIteration):
         return None
     return doc if isinstance(doc, dict) else None
 
@@ -435,15 +472,11 @@ def _enforce_content_length(request: Request) -> None:
     """Reject declared bodies above the raw envelope before parsing."""
     raw = request.headers.get("content-length")
     if raw and raw.isdigit():
-        max_mb = float(os.getenv("ASSET_BAKER_MAX_UPLOAD_MB", "200"))
-        limit = (
-            _max_upload_bytes() + _MULTIPART_OVERHEAD_BYTES
-            if math.isfinite(max_mb) and max_mb > 0
-            else (max_mb + 2) * 1024 * 1024
-        )
+        max_bytes = _max_upload_bytes()
+        limit = max_bytes + _MULTIPART_OVERHEAD_BYTES
         digits = raw.lstrip("0") or "0"
-        if len(digits) > len(str(int(limit))) or int(digits) > limit:
-            raise HTTPException(status_code=413, detail=f"Upload exceeds {max_mb:.0f} MiB limit")
+        if len(digits) > len(str(limit)) or int(digits) > limit:
+            raise HTTPException(status_code=413, detail=f"Upload exceeds {max_bytes} byte limit")
 
 
 def _validate_glb_name(filename: str) -> None:

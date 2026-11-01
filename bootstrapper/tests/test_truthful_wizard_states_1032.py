@@ -30,13 +30,8 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 PROFILES = yaml.safe_load((REPO_ROOT / "bootstrapper" / "profiles.yml").read_text())["profiles"]
 
 
-class _HostsManager:
-    def __getattr__(self, _name):
-        return lambda *a, **k: False
-
-
 def _steps():
-    steps, *_ = I._build_steps_and_rows(ConfigParser(), _HostsManager())
+    steps, *_ = I._build_steps_and_rows(ConfigParser())
     return steps
 
 
@@ -112,7 +107,6 @@ def test_the_track_subtitle_says_the_optional_two_default_to_off():
 def test_prometheus_and_grafana_really_do_default_to_disabled():
     """The premise. If either ever ships enabled, the copy above is wrong
     again and this test is where that surfaces."""
-    env = ConfigParser().parse_env_file()
     for var in ("PROMETHEUS_SOURCE", "GRAFANA_SOURCE"):
         example = (REPO_ROOT / ".env.example").read_text()
         match = re.search(rf"^{var}=(.*)$", example, re.M)
@@ -244,7 +238,7 @@ def test_the_blanket_suppress_is_gone_from_the_post_up_checks():
 
 def _rows_and_info():
     _steps_, rows, services_info, *_ = I._build_steps_and_rows(
-        ConfigParser(), _HostsManager()
+        ConfigParser()
     )
     return rows, services_info
 
@@ -538,7 +532,7 @@ def test_a_pinned_source_keeps_its_env_default_under_the_prod_profile() -> None:
     under profile: prod got `container` as the wizard default, so Enter
     started Prometheus; --no-tui kept the declared value."""
     steps, *_ = I._build_steps_and_rows(
-        ConfigParser(), _HostsManager(), pinned_source_vars=frozenset({"PROMETHEUS_SOURCE"}),
+        ConfigParser(), pinned_source_vars=frozenset({"PROMETHEUS_SOURCE"}),
     )
     step = next(s for s in steps if s.title.startswith("Prometheus"))
     assert step.default_value_provider is None
@@ -552,7 +546,7 @@ def test_a_consumer_declared_source_is_neither_skipped_nor_dimmed_by_a_wizard_tr
 
     declared = frozenset({"minio_source"})
     steps, rows, services_info, *_ = I._build_steps_and_rows(
-        ConfigParser(), _HostsManager(), consumer_declared=declared,
+        ConfigParser(), consumer_declared=declared,
     )
     registry = load_tracks()
     if "minio" in registry.by_key["gen-ai-rag"].services:
@@ -571,7 +565,7 @@ def test_the_cli_flag_overview_shows_the_profiles_sources_unless_pinned() -> Non
     (disabled) while apply_profile_overrides then started them."""
     from types import SimpleNamespace
 
-    _steps_, _rows, services_info, *_ = I._build_steps_and_rows(ConfigParser(), _HostsManager())
+    _steps_, _rows, services_info, *_ = I._build_steps_and_rows(ConfigParser())
     names = {s.env_var_name: s.display_name for s in services_info if getattr(s, "env_var_name", "")}
     prometheus = names["PROMETHEUS_SOURCE"]
     from services.profiles import pinned_source_vars, profile_launch_sources
@@ -591,9 +585,26 @@ def test_the_cli_flag_overview_applies_consumer_profile_overrides() -> None:
 
     from services.profiles import profile_launch_sources
 
-    _steps_, _rows, services_info, *_ = I._build_steps_and_rows(ConfigParser(), _HostsManager())
+    _steps_, _rows, services_info, *_ = I._build_steps_and_rows(ConfigParser())
     prometheus = next(s.display_name for s in services_info if getattr(s, "env_var_name", "") == "PROMETHEUS_SOURCE")
     parser = ConfigParser()
     parser.load_consumer_config = lambda: SimpleNamespace(
         profile_overrides={"prod": {"sources": {"prometheus": "disabled"}}}, env_overrides={})
     assert profile_launch_sources(services_info, "prod", parser, set()).get(prometheus) == "disabled"
+
+
+def test_source_step_defaults_apply_consumer_profile_overrides() -> None:
+    """The wizard defaulted source steps from the platform bundles only, so
+    Enter under prod committed Prometheus "container" as an explicit answer
+    and skipped the consumer's profile_overrides "disabled"."""
+    from types import SimpleNamespace
+
+    parser = ConfigParser()
+    parser.load_consumer_config = lambda: SimpleNamespace(
+        profile_overrides={"prod": {"sources": {"prometheus": "disabled"}}},
+        env_overrides={}, consumers=[])
+    steps, *_ = I._build_steps_and_rows(parser)
+    step = next(s for s in steps if s.title.startswith("Prometheus") and s.title.endswith("·  source"))
+    assert PROFILES["prod"]["sources"]["prometheus"] != "disabled"  # the override is what changes it
+    assert step.default_value_provider({I.PROFILE_STEP_TITLE: "prod"}) == "disabled"
+    assert step.default_value_provider({I.PROFILE_STEP_TITLE: "default"}) == step.default_value

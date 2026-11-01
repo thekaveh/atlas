@@ -46,6 +46,10 @@ Atlas generates and preserves `DOCLING_API_TOKEN` in `.env`. The provider
 loads that file once at process import, so this step must precede the host
 process on a fresh checkout.
 
+On Linux Docker Engine, containers reach the host through the Docker bridge, not loopback.
+Set `DOCLING_LOCALHOST_BIND_HOST` in `.env` to the bridge IP, or `0.0.0.0` with `DOCLING_AUTH_MODE=required`.
+See [provider configuration](../docling/provider/localhost/README.md#21-environment-variables).
+
 **Step 3: Start doc processor server on host (Terminal 2, repository root)**
 ```bash
 cd services/docling/provider/localhost
@@ -80,7 +84,7 @@ Inherited shell values do not replace these file values.
 
 ```bash
 # Repository root; Bootstrapper dependencies must be installed.
-if ! docling_values="$(PYTHONPATH=bootstrapper uv run --project bootstrapper python - <<'PYTHON'
+if docling_values="$(PYTHONPATH=bootstrapper uv run --project bootstrapper python - <<'PYTHON'
 import shlex
 from core.config_parser import ConfigParser
 
@@ -95,15 +99,16 @@ for name in ("DOCLING_API_TOKEN", "DOC_PROCESSOR_PORT"):
     print(f"export {name}={shlex.quote(value)}")
 PYTHON
 )"; then
-  exit 1
+  eval "$docling_values"
+  curl -X POST "http://localhost:${DOC_PROCESSOR_PORT}/v1/document/convert" \
+    -H "Authorization: Bearer ${DOCLING_API_TOKEN}" \
+    -F "file=@document.pdf" \
+    -F "output_format=markdown" \
+    -F "use_ocr=auto" \
+    -F "table_mode=accurate"
+else
+  false  # Report the refusal without closing this shell.
 fi
-eval "$docling_values"
-curl -X POST "http://localhost:${DOC_PROCESSOR_PORT}/v1/document/convert" \
-  -H "Authorization: Bearer ${DOCLING_API_TOKEN}" \
-  -F "file=@document.pdf" \
-  -F "output_format=markdown" \
-  -F "use_ocr=auto" \
-  -F "table_mode=accurate"
 ```
 
 ### 3.2. Native localhost source
@@ -118,7 +123,7 @@ It preserves every byte of a usable token.
 
 ```bash
 # Repository root; Atlas and the native provider must already be running.
-if ! docling_values="$(uv run --project services/docling/provider/localhost python - <<'PYTHON'
+if docling_values="$(uv run --project services/docling/provider/localhost python - <<'PYTHON'
 import os
 import shlex
 from pathlib import Path
@@ -135,13 +140,14 @@ print(f"export DOCLING_LOCALHOST_PORT={shlex.quote(str(port))}")
 print(f"export DOCLING_URL={shlex.quote(f'http://localhost:{port}')}")
 PYTHON
 )"; then
-  exit 1
+  eval "$docling_values"
+  curl -X POST "${DOCLING_URL}/v1/document/convert" \
+    -H "Authorization: Bearer ${DOCLING_API_TOKEN}" \
+    -F "file=@document.pdf" \
+    -F "output_format=markdown"
+else
+  false  # Report the refusal without closing this shell.
 fi
-eval "$docling_values"
-curl -X POST "${DOCLING_URL}/v1/document/convert" \
-  -H "Authorization: Bearer ${DOCLING_API_TOKEN}" \
-  -F "file=@document.pdf" \
-  -F "output_format=markdown"
 ```
 
 ## 4. Configuration
@@ -192,9 +198,9 @@ Both providers enforce the same conversion fields: the container-GPU provider in
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `DOCLING_LOCALHOST_PORT` | Local service port for the host-installed source variant. URL is derived as `http://host.docker.internal:${DOCLING_LOCALHOST_PORT}` at compose-render time. | `18159` |
-| `DOCLING_LOCALHOST_BIND_HOST` | Native provider listen address | `127.0.0.1` |
+| `DOCLING_LOCALHOST_BIND_HOST` | Native provider listen address. On Linux Docker Engine, bind the bridge IP or `0.0.0.0` (§2.2). | `127.0.0.1` |
 
-Container mode publishes Docling on loopback by default. Set `HOST_BIND_IP=0.0.0.0:` only when deliberate external access is protected by a firewall or gateway. Native mode is also loopback-only by default; change `DOCLING_LOCALHOST_BIND_HOST` explicitly if remote clients must connect.
+Container mode publishes Docling on loopback by default. Set `HOST_BIND_IP=0.0.0.0:` only when deliberate external access is protected by a firewall or gateway. Native mode is also loopback-only by default; change `DOCLING_LOCALHOST_BIND_HOST` explicitly if remote clients must connect. Linux Docker Engine containers also need a bridge-reachable address (§2.2).
 
 ### 4.5. Provider boundary and LightRAG adapter
 
@@ -301,7 +307,7 @@ Connects to Docling running on host machine.
 
 **Advantages**:
 
-- Works on any platform (Mac, Linux, Windows)
+- Works on any platform (Mac, Linux, Windows); on Linux, bind a bridge-reachable address (§2.2)
 - Can use native GPU drivers
 - Easier debugging
 
@@ -377,7 +383,7 @@ No service requires the Document Processor. For the services that call it, see �
 
 **Solution**:
 
-1. Check logs: `docker logs ${PROJECT_NAME}-docling-gpu`
+1. Check logs: `docker logs ${PROJECT_NAME}-docling-gpu`. Set `PROJECT_NAME` in your shell to its value in the active env file (default `atlas`) first.
 2. Verify SOURCE setting matches your hardware
 3. Ensure Docker has sufficient resources allocated
 4. Check GPU drivers and CUDA version
@@ -433,9 +439,9 @@ _No upstream calls._
 
 - **doc-processor ↔ weaviate** — *Why:* closes the RAG loop. Atlas emits character-based chunks; direct vector-store persistence would remove per-consumer write logic. *Mechanism:* a proposed post-convert callback writes to `http://weaviate:8080/v1/objects`. Upstream's `rag_weaviate.ipynb` illustrates this pattern. *Effort:* medium. *Confidence:* high.
 - **doc-processor ↔ minio** — *Why:* conversion is slow and the same source is frequently re-requested. Caching `(sha256 → DocTags JSON)` in MinIO removes re-processing cost and gives stable S3 URIs that n8n/backend can reference. *Mechanism:* sidecar writes `s3://docling-cache/<sha>.json` via boto3 on convert; subsequent requests short-circuit. *Effort:* medium. *Confidence:* medium.
-- **doc-processor ↔ n8n** — *Why:* README invites this pattern but no shipped workflow exists. A first-party "PDF → markdown → Weaviate" workflow makes RAG ingest a two-click setup. *Mechanism:* `services/n8n/init/workflows/docling-rag.json` doing HTTP Request → `POST http://docling-gpu:8000/v1/document/convert` → Weaviate node. *Effort:* small. *Confidence:* high.
+- **doc-processor ↔ n8n** — *Why:* README invites this pattern but no shipped workflow exists. A first-party "PDF → markdown → Weaviate" workflow makes RAG ingest a two-click setup. *Mechanism:* `services/n8n/workflows-stage/workflows/docling-rag.json` doing HTTP Request → `POST {{$env.DOCLING_ENDPOINT}}/v1/document/convert` with `Authorization: Bearer {{$env.DOCLING_API_TOKEN}}` (§8.2) → Weaviate node. *Effort:* small. *Confidence:* high.
 - **doc-processor ↔ hermes** — *Why:* Hermes agents lack a "read this document" tool. Docling-MCP exposes convert/extract directly to MCP-capable runtimes. *Mechanism:* run `docling-mcp` as a streamable-HTTP MCP endpoint registered as a Hermes custom provider. *Effort:* medium. *Confidence:* medium.
-- **doc-processor ↔ redis** — *Why:* response-cache the slow conversions in the stack's already-deployed cache. *Mechanism:* keyed on `sha256(file)+options`, TTL 24h, stored in an unused Redis database (`redis://:${REDIS_PASSWORD}@redis:6379/<db>`; the index table is in the [Redis README](../redis/README.md)) with compressed JSON. *Effort:* small. *Confidence:* medium.
+- **doc-processor ↔ redis** — *Why:* response-cache the slow conversions in the stack's already-deployed cache. *Mechanism:* keyed on `sha256(file)+options`, TTL 24h, stored in an unused Redis database (`redis://:${REDIS_PASSWORD_URI}@redis:6379/<db>`; the index table is in the [Redis README](../redis/README.md)) with compressed JSON. *Effort:* small. *Confidence:* medium.
 
 ### 15.5. Future — Candidate new services
 

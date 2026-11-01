@@ -26,10 +26,18 @@ services:
     #
     # Worst case is unchanged: if nothing volatile remains, volatile-lru
     # returns the same OOM error noeviction would have.
-    command: >-
-      redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
-      --maxmemory ${REDIS_MAXMEMORY:-0}
-      --maxmemory-policy ${REDIS_MAXMEMORY_POLICY:-volatile-lru}
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      # Required: a blank value reached Redis as `requirepass ""`, which
+      # turns authentication off.
+      - --requirepass
+      - ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+      - --maxmemory
+      - ${REDIS_MAXMEMORY:-0}
+      - --maxmemory-policy
+      - ${REDIS_MAXMEMORY_POLICY:-volatile-lru}
     volumes:
       - redis-data:/data
     ports:

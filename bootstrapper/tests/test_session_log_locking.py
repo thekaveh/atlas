@@ -12,7 +12,9 @@ import types
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+if __name__ == '__main__':
+    # Only the --worker subprocess needs this; pytest's pythonpath covers tests.
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from ui.session_log import SessionLogConfig, SessionLogTee
 from ui import session_log_retention as retention
 
@@ -193,10 +195,6 @@ def test_native_windows_process_and_readable_lease(tmp_path):
             os.close(fd)
 
 
-if __name__ == '__main__' and sys.argv[1:2] == ['--worker']:
-    worker(sys.argv[2], sys.argv[3])
-
-
 @pytest.mark.skipif(not hasattr(os, 'fork'), reason='POSIX fork only')
 def test_fork_closes_inherited_admission_coordinator(tmp_path):
     store = retention.resolve_store(tmp_path)
@@ -261,19 +259,19 @@ def test_coordinator_deadline_is_bounded(monkeypatch):
 @pytest.mark.filterwarnings('ignore:This process.*multi-threaded:DeprecationWarning')
 def test_fork_during_buffered_write_never_flushes_child_copy(tmp_path, monkeypatch):
     import select
-    import signal
     import threading
     tee = SessionLogTee(prefix='atlas-launch-buffered-', config=SessionLogConfig(directory=str(tmp_path)))
     entered, release = threading.Event(), threading.Event()
-    original_flush = tee._fh.flush
+    original_write = tee._fh.write
     parent_pid = os.getpid()
     errors = []
 
-    def held_flush():
+    def held_write(text):
+        written = original_write(text)
         if os.getpid() == parent_pid:
             entered.set()
             assert release.wait(5)
-        original_flush()
+        return written
 
     def write():
         try:
@@ -282,7 +280,7 @@ def test_fork_during_buffered_write_never_flushes_child_copy(tmp_path, monkeypat
             errors.append(exc)
 
     before = tee.base_path.read_bytes()
-    monkeypatch.setattr(tee._fh, 'flush', held_flush)
+    monkeypatch.setattr(tee._fh, 'write', held_write)
     thread = threading.Thread(target=write)
     thread.start()
     reader, writer = os.pipe()
@@ -306,10 +304,7 @@ def test_fork_during_buffered_write_never_flushes_child_copy(tmp_path, monkeypat
         thread.join(5)
         os.close(reader)
         if pid:
-            waited, _ = os.waitpid(pid, os.WNOHANG)
-            if not waited:
-                os.kill(pid, signal.SIGKILL)
-                os.waitpid(pid, 0)
+            _reap_fork(pid)
         tee.close()
     assert not errors
     assert tee.base_path.read_bytes() == before + b'pending without newline'
@@ -501,17 +496,20 @@ def test_failed_writer_close_retains_ownership_until_writer_stops(tmp_path, monk
         tee.close()
 
 
-def _reap_fork(pid):
+def _reap_fork(pid, *, require_success=False):
     import signal
     import time
     deadline = time.monotonic() + 2
     while time.monotonic() < deadline:
-        waited, _ = os.waitpid(pid, os.WNOHANG)
+        waited, status = os.waitpid(pid, os.WNOHANG)
         if waited:
+            assert not require_success or status == 0, 'fork child failed'
             return
         time.sleep(0.01)
     os.kill(pid, signal.SIGKILL)
     os.waitpid(pid, 0)
+    if require_success:
+        pytest.fail('fork child did not exit after release')
 
 
 @pytest.mark.skipif(not hasattr(os, 'fork'), reason='POSIX fork only')
@@ -569,3 +567,7 @@ def test_admission_in_progress_writer_is_abandoned_before_fd_reuse(tmp_path, mon
         for tee in tees:
             tee.close()
     assert not errors
+
+
+if __name__ == '__main__' and sys.argv[1:2] == ['--worker']:
+    worker(sys.argv[2], sys.argv[3])

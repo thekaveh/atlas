@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
+import re
 import signal
 import subprocess
+import sys
 import time
+import xml.etree.ElementTree as ET
 
 import pytest
 import yaml
@@ -62,7 +66,7 @@ _FAKE_DOCKER_SOURCE = (
     "  exit 0\n"
     "fi\n"
     "if [[ \"$FAKE_DOCKER_HANG\" = pull && \"$1\" = pull ]]; then\n"
-    "  signal_smoke \"${FAKE_DOCKER_HANG_SIGNAL:-}\"; sleep 30\n"
+    "  signal_smoke \"${FAKE_DOCKER_HANG_SIGNAL:-}\"; sleep \"${FAKE_DOCKER_HANG_SECONDS:-30}\"\n"
     "fi\n"
     "if [[ \"$1\" = run ]]; then\n"
     "  name=; detached=false; auto_remove=false; args=(\"$@\")\n"
@@ -79,7 +83,7 @@ _FAKE_DOCKER_SOURCE = (
     "  fi\n"
     "  if [[ \"$FAKE_DOCKER_HANG\" = readiness && \"$*\" = *pgsty/mc:* ]] ||\n"
     "    [[ \"$FAKE_DOCKER_HANG\" = *spark* && \"$*\" = *spark-submit* ]]; then\n"
-    "    signal_smoke \"${FAKE_DOCKER_HANG_SIGNAL:-}\"; sleep 30\n"
+    "    signal_smoke \"${FAKE_DOCKER_HANG_SIGNAL:-}\"; sleep \"${FAKE_DOCKER_HANG_SECONDS:-30}\"\n"
     "  fi\n"
     "  if [[ \"$auto_remove\" = true && \"$detached\" = false && -n \"$name\" ]]; then\n"
     "    rm -f \"$(resource_file container \"$name\")\"\n"
@@ -88,7 +92,7 @@ _FAKE_DOCKER_SOURCE = (
     "fi\n"
     "if [[ \"$FAKE_DOCKER_HANG\" = *cleanup* && \"$1\" = rm && ! -e \"$FAKE_DOCKER_CLEANUP_MARKER\" ]]; then\n"
     "  : > \"$FAKE_DOCKER_CLEANUP_MARKER\"\n"
-    "  signal_smoke \"${FAKE_DOCKER_CLEANUP_SIGNAL:-}\"; sleep 30\n"
+    "  signal_smoke \"${FAKE_DOCKER_CLEANUP_SIGNAL:-}\"; sleep \"${FAKE_DOCKER_HANG_SECONDS:-30}\"\n"
     "fi\n"
     "if [[ \"${FAKE_DOCKER_CLEANUP_FAIL:-}\" = 1 && ( \"$1\" = rm || \"$1 $2\" = 'network rm' ) ]]; then exit 42; fi\n"
     "if [[ \"$1\" = rm ]]; then\n"
@@ -305,6 +309,182 @@ def test_spark_master_keeps_backend_only_rest_submission_api_enabled() -> None:
     assert "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider" in worker_command
 
 
+def _compose_interpolate(text: str, supplied: dict) -> str:
+    # Compose substitutes config values without shell/XML escaping; $$
+    # protects the service's own shell expansions from that substitution.
+    text = text.replace("$$", "\0")
+    text = re.sub(
+        r"\$\{([A-Z_]+)(?::-([^}]*))?\}",
+        lambda match: supplied.get(match[1]) or match[2] or "",
+        text,
+    )
+    return text.replace("\0", "$")
+
+
+def _run_spark_worker_fixture(tmp_path, supplied):
+    """Run the source command with an owned Hadoop directory and dummy launch."""
+    worker = _yaml(SPARK_DIR / "compose.yml")["services"]["spark-worker"]
+
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    (fake_bin / "python3").symlink_to(sys.executable)
+    launch = tmp_path / "spark-class"
+    launch.write_text(
+        f"#!{sys.executable}\n"
+        "import json, os, stat, sys\n"
+        "from pathlib import Path\n"
+        "path = Path(os.environ['HADOOP_CONF_DIR']) / 'core-site.xml'\n"
+        "receipt = {'argv': sys.argv[1:], 'env': {key: os.environ[key] for key in "
+        "('AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_REGION')}, "
+        "'mode': stat.S_IMODE(path.stat().st_mode), 'umask': os.umask(0)}\n"
+        "Path(os.environ['LAUNCH_RECEIPT']).write_text(json.dumps(receipt))\n",
+        encoding="utf-8",
+    )
+    launch.chmod(0o755)
+    config_dir = tmp_path / "hadoop-conf"
+    command = _compose_interpolate(worker["command"][0], supplied)
+    command = command.replace("/tmp/atlas-spark-hadoop-conf", str(config_dir))
+    command = command.replace("/opt/spark/bin/spark-class", str(launch))
+    receipt_path = tmp_path / "launched.json"
+    env = {name: _compose_interpolate(setting, supplied) for name, setting in worker["environment"].items()}
+    env.update({"PATH": f"{fake_bin}:{os.defpath}", "LAUNCH_RECEIPT": str(receipt_path)})
+    result = subprocess.run(
+        ["/bin/bash", "-c", "umask 027\n" + command],
+        cwd=tmp_path, env=env, capture_output=True, text=True, timeout=10,
+    )
+    return result, config_dir, receipt_path
+
+
+@pytest.mark.parametrize("value", [
+    "synthetic-value-123",
+    "synthetic&value123",
+    "synthetic<value123>",
+    "synthetic&amp;value123",
+    "synthetic'\"value123",
+    r"synthetic\value123",
+])
+def test_spark_worker_hadoop_xml_preserves_literal_configuration(tmp_path, value) -> None:
+    supplied = {
+        "MINIO_SPARK_ACCESS_KEY": "access-" + value,
+        "MINIO_SPARK_SECRET_KEY": "secret-" + value,
+        "MINIO_REGION": "region-" + value,
+        "SPARK_KAFKA_BOOTSTRAP_SERVERS": "",
+    }
+    result, config_dir, receipt_path = _run_spark_worker_fixture(tmp_path, supplied)
+    assert result.returncode == 0, result.stderr
+    properties = [
+        (entry.findtext("name"), entry.findtext("value"))
+        for entry in ET.parse(config_dir / "core-site.xml").getroot()
+    ]
+    assert properties == [
+        ("fs.s3a.endpoint", "http://minio:9000"),
+        ("fs.s3a.endpoint.region", supplied["MINIO_REGION"]),
+        ("fs.s3a.path.style.access", "true"),
+        ("fs.s3a.connection.ssl.enabled", "false"),
+        ("fs.s3a.aws.credentials.provider", "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider"),
+        ("fs.s3a.access.key", supplied["MINIO_SPARK_ACCESS_KEY"]),
+        ("fs.s3a.secret.key", supplied["MINIO_SPARK_SECRET_KEY"]),
+    ]
+    receipt = json.loads(receipt_path.read_text())
+    assert receipt == {
+        "argv": ["org.apache.spark.deploy.worker.Worker", "spark://spark-master:7077", "--webui-port", "8081"],
+        "env": {
+            "AWS_ACCESS_KEY_ID": supplied["MINIO_SPARK_ACCESS_KEY"],
+            "AWS_SECRET_ACCESS_KEY": supplied["MINIO_SPARK_SECRET_KEY"],
+            "AWS_REGION": supplied["MINIO_REGION"],
+        },
+        "mode": 0o640,
+        "umask": 0o027,
+    }
+
+
+def _run_spark_init_fixture(tmp_path, supplied, alias_status=0):
+    """Run the complete init command, recording each mc argv and alias stdin."""
+    init = _yaml(SPARK_DIR / "compose.yml")["services"]["spark-init"]
+
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    recorder = tmp_path / "mc.jsonl"
+    client = fake_bin / "mc"
+    client.write_text(
+        f"#!{sys.executable}\n"
+        "import json, os, sys\n"
+        "alias = sys.argv[1:3] == ['alias', 'set']\n"
+        "stdin = sys.stdin.read() if alias else None\n"
+        "with open(os.environ['MC_RECEIPT'], 'a') as output:\n"
+        "    output.write(json.dumps([sys.argv[1:], stdin]) + '\\n')\n"
+        "if alias:\n"
+        "    print('Enter Access Key: Enter Secret Key: Added `minio` successfully.')\n"
+        "    sys.exit(int(os.environ['MC_ALIAS_STATUS']))\n",
+        encoding="utf-8",
+    )
+    client.chmod(0o755)
+    env = {key: _compose_interpolate(value, supplied) for key, value in init.get("environment", {}).items()}
+    env.update({
+        "PATH": f"{fake_bin}:{os.defpath}",
+        "MC_RECEIPT": str(recorder),
+        "MC_ALIAS_STATUS": str(alias_status),
+    })
+    result = subprocess.run(
+        init["entrypoint"] + [_compose_interpolate(part, supplied) for part in init["command"]],
+        cwd=tmp_path, env=env, capture_output=True, text=True, timeout=10,
+    )
+    calls = [json.loads(line) for line in recorder.read_text().splitlines()] if recorder.exists() else []
+    return result, calls
+
+
+def test_spark_init_passes_root_credentials_through_environment() -> None:
+    init = _yaml(SPARK_DIR / "compose.yml")["services"]["spark-init"]
+    assert init.get("environment") == {
+        "MINIO_ROOT_USER": "${MINIO_ROOT_USER}",
+        "MINIO_ROOT_PASSWORD": "${MINIO_ROOT_PASSWORD}",
+    }
+
+
+@pytest.mark.parametrize("credential", ["MINIO_ROOT_USER", "MINIO_ROOT_PASSWORD"])
+@pytest.mark.parametrize("value", [
+    "synthetic-value-123", "synthetic space#hash", "synthetic'quote",
+    'synthetic"quote', r"synthetic\\backslash", "synthetic$HOME", "",
+])
+def test_spark_init_preserves_literal_credentials(tmp_path, credential, value) -> None:
+    supplied = {"MINIO_ROOT_USER": "synthetic-user", "MINIO_ROOT_PASSWORD": "synthetic-password"}
+    supplied[credential] = value
+    result, calls = _run_spark_init_fixture(tmp_path, supplied)
+    assert result.returncode == 0, result.stderr
+    # Keys reach mc on stdin only; argv is world-readable in /proc.
+    assert calls == [
+        [["alias", "set", "minio", "http://minio:9000"],
+         f"{supplied['MINIO_ROOT_USER']}\n{supplied['MINIO_ROOT_PASSWORD']}\n"],
+        [["mb", "--ignore-existing", "minio/spark-history"], None],
+    ]
+    assert result.stdout == "spark-init: spark-history bucket ready\n"
+    assert result.stderr == ""
+
+
+@pytest.mark.parametrize("bucket", [None, "", "spark-history", "synthetic-history"])
+def test_spark_init_preserves_bucket_default_and_selection(tmp_path, bucket) -> None:
+    supplied = {"MINIO_ROOT_USER": "synthetic-user", "MINIO_ROOT_PASSWORD": "synthetic-password"}
+    if bucket is not None:
+        supplied["MINIO_BUCKET_SPARK_HISTORY"] = bucket
+    result, calls = _run_spark_init_fixture(tmp_path, supplied)
+    assert result.returncode == 0, result.stderr
+    assert calls == [
+        [["alias", "set", "minio", "http://minio:9000"], "synthetic-user\nsynthetic-password\n"],
+        [["mb", "--ignore-existing", "minio/" + (bucket or "spark-history")], None],
+    ]
+    assert result.stdout == "spark-init: spark-history bucket ready\n"
+    assert result.stderr == ""
+
+
+def test_spark_init_alias_failure_stops_before_bucket_and_success(tmp_path) -> None:
+    supplied = {"MINIO_ROOT_USER": "synthetic-user", "MINIO_ROOT_PASSWORD": "synthetic-password"}
+    result, calls = _run_spark_init_fixture(tmp_path, supplied, alias_status=42)
+    assert result.returncode == 42
+    assert calls == [[["alias", "set", "minio", "http://minio:9000"], "synthetic-user\nsynthetic-password\n"]]
+    assert result.stdout == ""
+    assert result.stderr == ""
+
+
 def test_spark_master_rest_status_endpoint_is_documented() -> None:
     spark_readme = (SPARK_DIR / "README.md").read_text(encoding="utf-8")
     airflow_readme = (AIRFLOW_DIR / "README.md").read_text(encoding="utf-8")
@@ -434,12 +614,22 @@ def test_required_ci_runs_a_real_spark_minio_s3a_round_trip() -> None:
     )
 
 
+_S3A_HANG_BOUND_SECONDS = 40
+
+
 @pytest.mark.parametrize("hang_mode", ["pull", "readiness", "spark"])
 def test_s3a_smoke_bounds_docker_hangs_and_cleans_owned_resources(
     tmp_path: Path, hang_mode: str
 ) -> None:
     env, log = _fake_docker_environment(tmp_path, hang_mode)
+    # A 3 s deadline let a loaded host (load 32-45) expire before the run
+    # reached the hung readiness or Spark step, so the cleanup assertions
+    # below failed. 10 s keeps reaching that step independent of host speed.
+    env.update(ATLAS_S3A_SMOKE_TIMEOUT_SECONDS="10", FAKE_DOCKER_HANG_SECONDS="60")
 
+    # The smoke's own 10 s deadline plus 1 s per cleanup command, with load
+    # headroom. 40 s still sits below the fake's 60 s hang, so a run that
+    # ignores the deadline still fails.
     started = time.monotonic()
     try:
         result = subprocess.run(
@@ -448,7 +638,7 @@ def test_s3a_smoke_bounds_docker_hangs_and_cleans_owned_resources(
             env=env,
             capture_output=True,
             text=True,
-            timeout=8,
+            timeout=_S3A_HANG_BOUND_SECONDS,
             check=False,
         )
     except subprocess.TimeoutExpired:
@@ -457,7 +647,7 @@ def test_s3a_smoke_bounds_docker_hangs_and_cleans_owned_resources(
     elapsed = time.monotonic() - started
     calls = log.read_text(encoding="utf-8")
     assert result.returncode != 0
-    assert elapsed < 8
+    assert elapsed < _S3A_HANG_BOUND_SECONDS
     if hang_mode == "pull":
         assert "network create" not in calls
     else:
@@ -484,7 +674,7 @@ def test_s3a_smoke_never_removes_foreign_network_collision(tmp_path: Path) -> No
         env=env,
         capture_output=True,
         text=True,
-        timeout=8,
+        timeout=_S3A_HANG_BOUND_SECONDS,
         check=False,
     )
 
@@ -498,15 +688,18 @@ def test_s3a_smoke_never_removes_foreign_network_collision(tmp_path: Path) -> No
 
 def test_s3a_probe_reconciles_beyond_short_command_timeout(tmp_path: Path) -> None:
     env, log = _fake_docker_environment(tmp_path, "spark")
+    # The overall deadline must not clip the 3 s probe reconcile window: an
+    # 8 s deadline was spent reaching the Spark step on a loaded host, and the
+    # clipped window left the probe container behind.
     env.update(
-        ATLAS_S3A_SMOKE_TIMEOUT_SECONDS="8",
+        ATLAS_S3A_SMOKE_TIMEOUT_SECONDS="30",
         ATLAS_S3A_COMMAND_TIMEOUT_SECONDS="1",
         ATLAS_S3A_PULL_TIMEOUT_SECONDS="3",
         FAKE_DOCKER_DELAY_PROBE_INSPECTIONS="3",
     )
 
-    # Outer safety bound only: the script's own 8 s budget plus cleanup hit
-    # 12 s under load (2026-10-08 run, cycle 44).
+    # Outer safety bound only: the run ends once the probe is reconciled,
+    # well inside the script's own 30 s budget (2026-10-08 run, cycle 44).
     result = subprocess.run(
         [str(S3A_SMOKE), "atlas-test-spark:latest"],
         cwd=ROOT,
@@ -535,13 +728,12 @@ def test_s3a_probe_reconciliation_is_clipped_to_remaining_overall_deadline(
     env, log = _fake_docker_environment(tmp_path, "spark")
     # Separate the two outcomes by an order of magnitude instead of a tight
     # wall-clock budget (#1237). Clipped, every reconcile window is bounded by
-    # the 3s overall deadline and the run takes a few seconds; unclipped, the
-    # probe reconcile alone would run the full 120s pull timeout. The 60s hang
-    # guard below therefore fails an unclipped run outright while leaving the
-    # clipped one about twenty times its idle duration on a contended runner,
-    # where the old 20s budget could be reached by a correct run.
+    # the 10s overall deadline and the run takes well under 30s; unclipped,
+    # the probe reconcile alone would run the full 120s pull timeout. The 60s
+    # hang guard below therefore fails an unclipped run outright. A 3s
+    # deadline could expire on a loaded host before the probe ever ran.
     env.update(
-        ATLAS_S3A_SMOKE_TIMEOUT_SECONDS="3",
+        ATLAS_S3A_SMOKE_TIMEOUT_SECONDS="10",
         ATLAS_S3A_COMMAND_TIMEOUT_SECONDS="120",
         ATLAS_S3A_PULL_TIMEOUT_SECONDS="120",
         FAKE_DOCKER_DELAY_PROBE_INSPECTIONS="999",
@@ -564,13 +756,13 @@ def test_s3a_probe_reconciliation_is_clipped_to_remaining_overall_deadline(
         if line.startswith("container inspect --format")
         and "atlas-s3a-spark-" in line
     ]
-    # cleanup_resource() polls on `sleep 0.1`, so the probe count is roughly ten
-    # per second of reconcile window. Clipping to the 3s overall deadline admits
-    # about thirty; an unclipped reconcile would poll for the full 120s pull
-    # timeout. Bound the clipped case with headroom rather than at its own
-    # arithmetic edge -- the previous `< 10` sat exactly on the count a loaded
-    # runner produces and failed as `assert 10 < 10`.
-    assert 1 <= len(probe_inspections) < 60
+    # cleanup_resource() polls on `sleep 0.1`, so the probe count is at most
+    # about ten per second of reconcile window. Clipping to the 10s overall
+    # deadline admits about a hundred; an unclipped reconcile would poll for
+    # the full 120s pull timeout. Bound the clipped case with headroom rather
+    # than at its own arithmetic edge -- the earlier `< 10` sat exactly on the
+    # count a loaded runner produces and failed as `assert 10 < 10`.
+    assert 1 <= len(probe_inspections) < 200
 
 
 @pytest.mark.parametrize("failure_mode", ("remove", "malformed-inspect"))
@@ -667,6 +859,8 @@ def test_s3a_smoke_handles_signals_at_child_ownership_transitions(
     signal_phase, hang_mode, signal_label = transition_case
     env, log = _fake_docker_environment(tmp_path, hang_mode)
     event_log = tmp_path / "events.log"
+    # Cancellation can precede fake Docker registration. Its absent-probe
+    # reconciliation must fit inside the unchanged 30s outer process guard.
     env.update(
         ATLAS_S3A_TEST_SIGNAL_PHASE=signal_phase,
         ATLAS_S3A_TEST_SIGNAL_NAME="TERM",
@@ -674,7 +868,7 @@ def test_s3a_smoke_handles_signals_at_child_ownership_transitions(
         ATLAS_S3A_TEST_EVENT_LOG=str(event_log),
         ATLAS_S3A_SMOKE_TIMEOUT_SECONDS="30",
         ATLAS_S3A_COMMAND_TIMEOUT_SECONDS="30",
-        ATLAS_S3A_PULL_TIMEOUT_SECONDS="30",
+        ATLAS_S3A_PULL_TIMEOUT_SECONDS="3",
     )
 
     result = subprocess.run(

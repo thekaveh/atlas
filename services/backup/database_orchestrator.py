@@ -103,6 +103,18 @@ class _RecoverySignalDeferral:
         return False
 
 
+class _CommandLaunchSignalDeferral(_RecoverySignalDeferral):
+    """Keep an existing recovery recorder in charge of its interruption."""
+
+    def _record(self, signum, frame) -> None:
+        previous = self._previous.get(signum)
+        owner = getattr(previous, "__self__", None)
+        if isinstance(owner, _RecoverySignalDeferral) and getattr(previous, "__func__", None) is _RecoverySignalDeferral._record:
+            previous(signum, frame)
+        else:
+            super()._record(signum, frame)
+
+
 def _first_interruption(
     current: BaseException | None, exc: BaseException | None
 ) -> BaseException | None:
@@ -575,57 +587,74 @@ class CommandRunner:
         input_text: str | None = None,
         env: dict[str, str] | None = None,
     ) -> subprocess.CompletedProcess[str]:
-        process = subprocess.Popen(
-            command,
-            text=True,
-            stdin=subprocess.PIPE if input_text is not None else None,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            start_new_session=True,
-            env=self.command_environment(env),
-        )
+        process = None
         primary_error = None
+        launch = _CommandLaunchSignalDeferral()
         try:
-            deadline = time.monotonic() + (timeout or self.timeout)
-            if input_text is not None:
-                # One timed call drains output while transmitting the entire input.
-                stdout, stderr = process.communicate(
-                    input=input_text, timeout=deadline - time.monotonic(),
+            with launch:
+                process = subprocess.Popen(
+                    command,
+                    text=True,
+                    stdin=subprocess.PIPE if input_text is not None else None,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    start_new_session=True,
+                    env=self.command_environment(env),
                 )
-            else:
-                while True:
-                    remaining = deadline - time.monotonic()
-                    if remaining <= 0:
-                        raise subprocess.TimeoutExpired(command, timeout or self.timeout)
-                    try:
-                        stdout, stderr = process.communicate(timeout=min(0.25, remaining))
-                        break
-                    except subprocess.TimeoutExpired:
-                        # Return to the interpreter frequently so HUP/INT/TERM handlers
-                        # cannot remain deferred behind a long blocking communicate().
-                        continue
+            if launch.interruption is not None:
+                raise launch.interruption
+            stdout, stderr = self._communicate_owned(process, timeout=timeout, input_text=input_text)
         except BaseException as failure:
             primary_error = failure
-            try:
-                cleanup_proven = _terminate_owned_process_group(process)
-            except BaseException as exc:
-                cleanup_proven = False
-                print(
-                    "database orchestrator: WARNING - owned process-group cleanup "
-                    f"failed without replacing the primary error: {exc}",
-                    file=sys.stderr,
-                )
-            if not cleanup_proven:
-                self.process_group_cleanup_failed = True
+            if launch.interruption is not None and not launch.body_interruption_precedes_deferred:
+                primary_error = launch.interruption
+            if process is not None:
+                try:
+                    cleanup_proven = _terminate_owned_process_group(process)
+                except BaseException as exc:
+                    cleanup_proven = False
+                    print(
+                        "database orchestrator: WARNING - owned process-group cleanup "
+                        f"failed without replacing the primary error: {exc}",
+                        file=sys.stderr,
+                    )
+                if not cleanup_proven:
+                    self.process_group_cleanup_failed = True
+            if primary_error is not failure:
+                raise primary_error
             raise
         finally:
-            _close_owned_command_pipes(process, primary_error)
+            if process is not None:
+                _close_owned_command_pipes(process, primary_error)
         result = subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
         if check and result.returncode != 0:
             raise ContractError(
                 f"command failed ({result.returncode}): {' '.join(command)}\n{stderr.strip()}"
             )
         return result
+
+    def _communicate_owned(
+        self, process: subprocess.Popen[str], *, timeout: int | None, input_text: str | None,
+    ) -> tuple[str, str]:
+        deadline = time.monotonic() + (timeout or self.timeout)
+        if input_text is not None:
+            # One timed call drains output while transmitting the entire input.
+            stdout, stderr = process.communicate(
+                input=input_text, timeout=deadline - time.monotonic(),
+            )
+        else:
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise subprocess.TimeoutExpired(process.args, timeout or self.timeout)
+                try:
+                    stdout, stderr = process.communicate(timeout=min(0.25, remaining))
+                    break
+                except subprocess.TimeoutExpired:
+                    # Return to the interpreter frequently so HUP/INT/TERM handlers
+                    # cannot remain deferred behind a long blocking communicate().
+                    continue
+        return stdout, stderr
 
     def unique_name(self, role: str) -> str:
         safe = re.sub(r"[^a-z0-9-]", "-", role.lower()).strip("-")[:72]
@@ -716,17 +745,6 @@ class CommandRunner:
         ):
             raise ContractError(f"volume ownership verification failed: {name}")
         return record
-
-    def _owned_container(self, name: str) -> bool:
-        record = self._inspect_json("container", name)
-        labels = record.get("Config", {}).get("Labels") if record else None
-        return bool(
-            record
-            and record.get("Name", "").lstrip("/") == name
-            and isinstance(labels, dict)
-            and labels.get(OWNER_LABEL) == self.token
-            and labels.get(SCOPE_LABEL) == self.scope
-        )
 
     def _resource_tracking(self, kind: str) -> tuple[set[str], dict[str, int]]:
         if kind == "container":
@@ -965,9 +983,34 @@ class CommandRunner:
                     raise ContractError(f"retained rollback volume did not disappear: {name}")
 
 
+_ENV_ALIAS_WARNED = False
+
+
+def _custom_env_file(repo: Path) -> Path | None:
+    """The file ATLAS_ENV_FILE (or the deprecated GENAI_ENV_FILE) names,
+    resolved like core.config_parser: user-expanded, a relative path anchored
+    at this checkout. None selects the default <repo>/.env."""
+    global _ENV_ALIAS_WARNED
+    raw = os.environ.get("ATLAS_ENV_FILE", "").strip()
+    if not raw:
+        raw = os.environ.get("GENAI_ENV_FILE", "").strip()
+        if raw and not _ENV_ALIAS_WARNED:
+            print("WARNING: GENAI_ENV_FILE is deprecated; use ATLAS_ENV_FILE instead.", file=sys.stderr)
+            _ENV_ALIAS_WARNED = True
+    if not raw:
+        return None
+    path = Path(raw).expanduser()
+    if not path.is_absolute():
+        path = repo / path
+    path = path.resolve()
+    if not path.is_file():
+        raise ContractError(f"ATLAS_ENV_FILE names a missing env file: {path}")
+    return path
+
+
 def _env_file_values(repo: Path) -> dict[str, str]:
     values: dict[str, str] = {}
-    path = repo / ".env"
+    path = _custom_env_file(repo) or repo / ".env"
     if not path.is_file():
         return values
     for raw in path.read_text(encoding="utf-8").splitlines():
@@ -1075,6 +1118,8 @@ class DatabaseConfiguration:
 
     def __init__(self, repo: Path, values: dict[str, str], token: str):
         self.repo = repo
+        # Compose reads <repo>/.env by itself; a custom file must be named.
+        self.env_file = _custom_env_file(repo)
         self.values = {key: value for key, value in {**values, **{key: value for key, value in os.environ.items() if value}}.items() if value}
         self.project = _validate_docker_name(_setting(values, "PROJECT_NAME", "atlas"), "PROJECT_NAME")
         self.volumes = MappingProxyType(resolved_database_volumes(self.project, token))
@@ -1101,6 +1146,7 @@ class DatabaseCoordinator:
         values = config.values
         self.env_values = values
         self.project = config.project
+        self.compose_env_file = config.env_file
         self.runner = config.command_runner(token, timeout)
         self.neo_source = values.get("NEO4J_GRAPH_DB_SOURCE", "container")
         self.weaviate_source = values.get("WEAVIATE_SOURCE", "container")
@@ -1142,6 +1188,11 @@ class DatabaseCoordinator:
         timeout (stop/start/status, default 120 s) is far too short for them."""
         return max(self.timeout, 900)
 
+    def _neo4j_job_timeout(self, steps: int) -> int:
+        """offline-backup.sh / offline-restore.sh chain ``steps`` data-sized
+        commands, each bounded by data_timeout plus `timeout -k 10`."""
+        return steps * (self.data_timeout + 10) + 60
+
     def _bounded_count(self, name: str, default: str, maximum: int) -> int:
         # README §3 documents these as .env settings; the host scripts never
         # source .env, so read it like every other setting here.
@@ -1150,8 +1201,14 @@ class DatabaseCoordinator:
             raise ContractError(f"{name} must be a canonical integer from 1 to {maximum}")
         return int(value)
 
+    def compose_argv(self, *args: str) -> list[str]:
+        """`docker compose` with the custom env file, when one is configured."""
+        env_file = getattr(self, "compose_env_file", None)
+        env_args = ["--env-file", str(env_file)] if env_file else []
+        return ["docker", "compose", *env_args, *args]
+
     def compose(self, *args: str, check: bool = True, timeout: int | None = None):
-        return self.runner.run(["docker", "compose", *args], check=check, timeout=timeout)
+        return self.runner.run(self.compose_argv(*args), check=check, timeout=timeout)
 
     def _service_running(self, service: str) -> bool:
         state = self._service_state(service)
@@ -1606,7 +1663,8 @@ class DatabaseCoordinator:
                 "--entrypoint", "bash", NEO4J_IMAGE,
                 "/scripts/offline-restore.sh", f"/restore/{artifact_stage}/neo4j",
             ],
-            timeout=self.data_timeout,
+            # Two sha256, two `load --info`, two loads and two checks.
+            timeout=self._neo4j_job_timeout(8),
         )
         self._validate_neo4j_data_volume(stage_volume, "neo-validate")
         return stage_volume
@@ -1670,6 +1728,19 @@ class DatabaseCoordinator:
         ):
             raise ContractError("staged Weaviate object store is unreadable")
 
+    def _weaviate_stage_module_env(self) -> list[str]:
+        """Stage containers enable the configured modules so a restored class
+        keeps its vectorizer. multi2vec-clip exits at startup without an
+        inference endpoint, and stages cannot reach the CLIP service. Point it
+        at a closed loopback port and skip its startup wait; /v1/meta then
+        lists a per-module error and still succeeds."""
+        if "multi2vec-clip" not in self.weaviate_modules.split(","):
+            return []
+        return [
+            "-e", "CLIP_INFERENCE_API=http://127.0.0.1:9",
+            "-e", "CLIP_WAIT_FOR_STARTUP=false",
+        ]
+
     def _validate_weaviate_data_volume(self, volume: str, role: str) -> None:
         container = self._start_owned(
             role,
@@ -1678,6 +1749,7 @@ class DatabaseCoordinator:
                 "-e", "PERSISTENCE_DATA_PATH=/var/lib/weaviate",
                 "-e", "CLUSTER_HOSTNAME=weaviate",
                 "-e", f"ENABLE_MODULES={self.weaviate_modules}",
+                *self._weaviate_stage_module_env(),
                 "-e", "BACKUP_FILESYSTEM_PATH=/backups",
                 "-e", "DEFAULT_VECTORIZER_MODULE=none",
                 "--tmpfs", "/backups:rw,noexec,nosuid,size=64m",
@@ -1706,9 +1778,13 @@ class DatabaseCoordinator:
                 "-e", "PERSISTENCE_DATA_PATH=/var/lib/weaviate",
                 "-e", "CLUSTER_HOSTNAME=weaviate",
                 "-e", f"ENABLE_MODULES={self.weaviate_modules}",
+                *self._weaviate_stage_module_env(),
                 "-e", "DEFAULT_VECTORIZER_MODULE=none",
                 "-v", f"{stage_volume}:/var/lib/weaviate",
-                "-v", f"{artifact_volume}:/restore:ro",
+                # Writable: Weaviate records restore_config.json beside the
+                # snapshot before it restores. The volume is this run's own
+                # disposable, already-authenticated copy and never feeds cutover.
+                "-v", f"{artifact_volume}:/restore",
                 "-e", f"BACKUP_FILESYSTEM_PATH=/restore/{artifact_stage}/weaviate",
                 WEAVIATE_IMAGE,
             ],
@@ -1757,7 +1833,7 @@ class DatabaseCoordinator:
         self.runner.register_container(name, timeout=prepare_timeout)
         result = self.runner.run(
             [
-                "docker", "compose", "run", "--pull", "never", "--rm", "--no-deps",
+                *self.compose_argv("run"), "--pull", "never", "--rm", "--no-deps",
                 "--name", name, "--label", f"{OWNER_LABEL}={self.token}",
                 "--label", f"{SCOPE_LABEL}={self.runner.scope}",
                 "--label", f"{ROLE_LABEL}=prepare",
@@ -1903,7 +1979,7 @@ class DatabaseCoordinator:
             self.runner.register_container(name)
             self.runner.run(
                 [
-                    "docker", "compose", "run", "--pull", "never", "--rm", "--no-deps",
+                    *self.compose_argv("run"), "--pull", "never", "--rm", "--no-deps",
                     "--name", name, "--label", f"{OWNER_LABEL}={self.token}",
                     "--label", f"{SCOPE_LABEL}={self.runner.scope}",
                     "--label", f"{ROLE_LABEL}=snapshot-prune",
@@ -1921,7 +1997,7 @@ class DatabaseCoordinator:
         else:
             self._restart_snapshot_services(stopped, preserve_primary=False)
 
-    def cutover(self, prepared: dict[str, str]) -> set[str]:
+    def cutover(self) -> set[str]:
         enabled: list[tuple[str, str, str]] = []
         if self.plan.neo4j:
             enabled.append(("neo4j", self.neo_live, self.stage["neo4j"]))
@@ -2028,7 +2104,7 @@ class DatabaseCoordinator:
             )
         elif prepared["weaviate_state"] != "disabled":
             raise ContractError("Weaviate snapshot state does not match disabled source")
-        return self.cutover(prepared)
+        return self.cutover()
 
     def _restore_neo4j_after_backup(
         self, service: str, *, preserve_primary: bool = False
@@ -2078,7 +2154,7 @@ class DatabaseCoordinator:
             try:
                 self.runner.run(
                     [
-                        "docker", "compose", "run", "--pull", "never", "--rm", "--no-deps",
+                        *self.compose_argv("run"), "--pull", "never", "--rm", "--no-deps",
                         "--name", name,
                         "--label", f"{OWNER_LABEL}={self.token}",
                         "--label", f"{SCOPE_LABEL}={self.runner.scope}",
@@ -2088,7 +2164,8 @@ class DatabaseCoordinator:
                         "-e", f"BACKUP_DATABASE_QUIESCE_TIMEOUT_SECONDS={self.data_timeout}",
                         "--entrypoint", "bash", service, "/scripts/offline-backup.sh",
                     ],
-                    timeout=self.data_timeout,
+                    # Two dumps and two sha256 checks, each one data window.
+                    timeout=self._neo4j_job_timeout(4),
                 )
             except BaseException:
                 self._finish_compose_job(name, preserve_primary=True)
@@ -2313,7 +2390,7 @@ def main(argv: list[str] | None = None) -> int:
         # grow with the run deadline.
         coordinator.runner.register_container(name, timeout=max(timeout, 900))
         coordinator.runner.run([
-            "docker", "compose", "run", "--pull", "never", "--rm", "--no-deps",
+            *coordinator.compose_argv("run"), "--pull", "never", "--rm", "--no-deps",
             "--name", name, "--label", f"{OWNER_LABEL}={token}",
             "--label", f"{SCOPE_LABEL}={coordinator.runner.scope}",
             "--label", f"{ROLE_LABEL}=backup",

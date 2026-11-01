@@ -19,6 +19,8 @@ services:
       # (volumes/comfyui/active-models.tsv → bind-mounted at /comfyui-manifest).
       # download_models.sh reads this instead of the former public.comfyui_models DB query.
       COMFYUI_MANIFEST_TSV: /comfyui-manifest/active-models.tsv
+      # Per-file transfer bound; download_models.sh validates 1-604800.
+      COMFYUI_DOWNLOAD_TOTAL_TIMEOUT_SECONDS: ${COMFYUI_DOWNLOAD_TOTAL_TIMEOUT_SECONDS:-7200}
     volumes:
       # Read-only like every sibling init: the script never writes here, and a
       # writable mount let a compromised download step rewrite it in the

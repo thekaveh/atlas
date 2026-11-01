@@ -19,11 +19,12 @@
 # Schema: bootstrapper/schemas/comfyui-models.schema.json
 #
 # Fields:
-#   name           (required) stable unique id — used as the catalog key + DB name
+#   name           (required) stable unique id — used as the catalog key
 #   category       (required) one of: checkpoint | vae | lora | controlnet |
 #                             ipadapter | instantid | upscaler | embedding |
 #                             clip | animatediff | motion_lora | video_model |
-#                             voice_model | audio_model | mesh_model
+#                             voice_model | audio_model | mesh_model |
+#                             diffusion_models | text_encoders
 #   url                       direct download URL (HF resolve or signed civitai);
 #                             required unless `files` is present
 #   files                     optional bundle file list; each file has role,
@@ -37,7 +38,10 @@
 #   min_vram_gb               adds "requires N GB VRAM" badge when host has less
 #   min_ram_gb                recommended host/unified memory shown in the wizard
 #   cpu_supported             false adds "requires GPU" badge; default true
-#   requires_custom_node      list of ComfyUI node-repo names (warn-only badges)
+#   requires_custom_node      list of ComfyUI node-repo names; names allowlisted
+#                             in custom-nodes.yaml are installed for active
+#                             models and gate ComfyUI readiness; unlisted
+#                             names only warn
 #   popularity                0-100 score for wizard sort order
 #   notes                     one-line subtitle shown in wizard option row
 #   filename                  explicit on-disk filename (needed for civitai URLs

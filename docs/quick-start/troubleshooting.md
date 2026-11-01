@@ -34,7 +34,9 @@ For file-inspection commands below, replace literal `.env` paths with your selec
 
 ## 1. New or renamed variables after an upgrade
 
-Every `./start.sh` repairs `.env` before it starts services. To repair it without a start, run `./start.sh env backfill`. Both add each key that `.env.example` has and `.env` lacks, and report what changed. A blank value gets the non-blank `.env.example` default. Model-selection lists such as `OLLAMA_USER_MODELS` are the exception: they can stay blank. Backfill changes no non-blank value and no data.
+Every `./start.sh` repairs `.env` before it starts services. To repair it without a start, run `./start.sh env backfill`. Both add each key that `.env.example` has and `.env` lacks, and report what changed. A blank value gets the non-blank `.env.example` default. Model-selection lists such as `OLLAMA_USER_MODELS` are the exception: they can stay blank. Apart from the build pins below, backfill changes no non-blank value and no data.
+
+A build pin such as `LOCAL_DEEP_RESEARCHER_LANGGRAPH_CLI_VERSION` decides what an image build installs. When a pin still holds a default that an earlier Atlas shipped, both commands replace it with the current `.env.example` value. They back up `.env` first and name each key they change. A pin value you set yourself stays as it is.
 
 A renamed key is not carried over by backfill. It adds the new key with its default and leaves the old key in place, unused. `./start.sh` carries over only the renames its `.env` migrations know, after it writes a backup of `.env`:
 
@@ -70,13 +72,15 @@ PYTHON
 
 Inspect the reported path after a failed launch. It includes diagnostics that the pane hides, such as cloud model-fetch warnings and the reason a launch step failed. The newest available file can belong to an earlier attempt if file logging was unavailable.
 
-Each session keeps up to 3 segments of 32 MiB, including headers. The first segment is always kept. Later output rotates into `.log.N` files with truncation markers. The `Y` shortcut copies the first segment. POSIX files are owner-only (`0600`); native Windows uses the private store's access controls. New segments never open through an existing file or symlink.
+Each session keeps up to 3 segments of 32 MiB, including headers. The first segment is always kept. Later output rotates into `.log.N` files with truncation markers. The `Y` shortcut copies at most the last 2 MiB of the first segment. POSIX files are owner-only (`0600`); native Windows uses the private store's access controls. New segments never open through an existing file or symlink.
 
 Failed-launch [support bundles](../operations/index.md#41-support-bundle) select recent retained output, with explicit cutoff and omission metadata. The pinned first segment remains available separately.
 
 Same-user projects and checkouts share at most five managed groups and 480 MiB of reserved log payload in this store. A group reserves its full segment budget before logging starts. Active groups remain protected, even when quiet. At admission, Atlas removes eligible completed groups, oldest first, including all their rolling files. Groups remain charged until cleanup finishes; closing a logger does not immediately delete its files.
 
 If active groups fill the store, or storage or coordination is unusable, Atlas shows a file-logging warning. The launch and on-screen logs continue. Atlas does not create a fallback store to bypass the limit. Legacy logs outside this store and copies or exported support bundles are outside the bound and remain untouched.
+
+Atlas ignores files that it does not manage in the store, such as a Finder `.DS_Store`. A managed `atlas-launch-*` file that Atlas cannot account for still stops file logging with a warning. Examples are a `.log` file without its `.lease` file, and an invalid or symlinked lease. To recover, move those `atlas-launch-*` files out of the store and launch again.
 
 If a required log path disappears or is replaced, the next write, flush or diagnostic health check stops file logging with one visible degraded notice. Detection does not run continuously while idle. Diagnostic reads contain missing-file errors; surviving files can still provide partial evidence.
 
@@ -511,7 +515,7 @@ Atlas recovery is **project-scoped**. Everything Atlas creates (containers, the 
 
 - If you started the stack with `--consumer <manifest>`, stop it with the same `--consumer`. Otherwise the volumes of its compose overlays are unknown to the stop. The cold stop then names them and exits non-zero, and does not report a full wipe. `./start.sh --cold` checks the same way and stops before it rotates any secret.
 - Take a backup first (§10.3). With the default `BACKUP_S3_MODE=local`, the backup is in this project's MinIO volume and the Neo4j and Weaviate snapshot volumes, so `--cold` deletes it too. Use `BACKUP_S3_MODE=external`, or copy the bucket off the host before the reset.
-- Keep your own copy of `BACKUP_MANIFEST_HMAC_KEY` and `BACKUP_DEPLOYMENT_ID`. A backup cannot be restored without them.
+- Keep your own copy of `BACKUP_MANIFEST_HMAC_KEY`, `BACKUP_DEPLOYMENT_ID`, `GRAPH_DB_PASSWORD` and `GRAPH_DB_AUTH`. A backup cannot be restored without them.
 
 ```bash
 # Full project reset: removes THIS project's containers, network and

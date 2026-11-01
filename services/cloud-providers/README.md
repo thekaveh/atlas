@@ -3,8 +3,8 @@
 ## 1. Overview
 
 A virtual service with no container. It holds the switches, API keys and model
-lists for OpenAI, Anthropic and OpenRouter. All requests to these providers go
-through LiteLLM.
+lists for OpenAI, Anthropic and OpenRouter. LiteLLM routes stack model traffic
+to these providers. Hermes and LLM Graph Builder also receive raw keys (§8).
 
 ## 2. Role In Atlas
 
@@ -40,7 +40,8 @@ the wizard activated. The bootstrapper derives `LITELLM_OPENAI_ENABLED`,
 
 - Required dependency: `litellm`
 - Optional dependencies: none
-- Runtime calls: none (LiteLLM calls the provider APIs)
+- Runtime calls: none. LiteLLM calls the provider APIs; enabled Hermes and LLM
+    Graph Builder also hold raw keys.
 
 ## 7. Source Values
 
@@ -52,8 +53,10 @@ the wizard activated. The bootstrapper derives `LITELLM_OPENAI_ENABLED`,
 
 ## 8. Runtime Integration
 
-LiteLLM is the only consumer. Disabling a provider removes its routes when the
-LiteLLM configuration is next generated.
+The switches gate only LiteLLM routes. Disabling a provider removes its routes
+when the LiteLLM configuration is next generated. Hermes receives all three
+keys and LLM Graph Builder receives `OPENAI_API_KEY`, whatever the switch.
+Leave a key empty to keep it from them.
 
 ## 9. Operations
 

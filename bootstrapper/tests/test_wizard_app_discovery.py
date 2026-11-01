@@ -315,8 +315,8 @@ def test_start_py_source_args_dict_includes_every_cli_source_flag() -> None:
     is silently dropped at runtime (the wizard still works because it
     builds keys dynamically; only the CLI-flag path is broken).
 
-    Memory: ``project_cli_source_flag_three_seams.md`` documents the 4
-    coordinated edits required when adding a new source flag. PR #17 added
+    docs/CONTRIBUTING-services.md §11.4 documents the coordinated edits
+    required when adding a new source flag. PR #17 added
     this guard for ray/prometheus/grafana; PR #35 omitted spark/zeppelin/
     airflow and this regression test would have caught it.
     """

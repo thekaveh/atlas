@@ -409,11 +409,6 @@ def _path_names(tree: ast.Module) -> _PathNames:
     )
 
 
-def _sys_module_names(tree: ast.Module) -> set:
-    """Local names bound to the `sys` module (`import sys [as s]`)."""
-    return set(_imported_module_names(tree, "sys"))
-
-
 # `typing_extensions` is the standard spelling for anything supporting older
 # runtimes, and re-exports the identical flag.
 _TYPING_MODULES = ("typing", "typing_extensions")
@@ -1273,16 +1268,15 @@ _UNSUPPORTED_ENV_LINES = [
 @pytest.mark.parametrize("line", _UNSUPPORTED_ENV_LINES)
 @pytest.mark.parametrize("reader", ["env", "manifest", "user"])
 def test_env_reader_rejects_unsupported_compose_syntax(line, reader, tmp_path):
-    from core.config_parser import ConfigParser
+    from core.config_parser import ConfigParser, parse_env_overlay_file
     from core.consumer_manifest import _read_env_overlay
-    from start import AtlasStarter
 
     path = tmp_path / ".env"
     path.write_text(line + "\n", encoding="utf-8")
     readers = {
         "env": lambda: ConfigParser(str(tmp_path)).parse_env_file(),
         "manifest": lambda: _read_env_overlay(path),
-        "user": lambda: AtlasStarter._parse_env_overlay_file(None, path),
+        "user": lambda: parse_env_overlay_file(path),
     }
     with pytest.raises(ValueError, match=r"\.env:1.*PASSWORD") as failure:
         readers[reader]()

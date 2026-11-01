@@ -1,11 +1,10 @@
 -- 12-comfyui.sql
 -- OWNER: comfyui — comfyui_workflows / comfyui_generations, their indexes,
--- and the default workflow seeds. Only this service's objects belong here.
+-- service-role-only row-level security, and the default workflow seeds. Only
+-- this service's objects belong here.
 -- public.comfyui_models was decommissioned (16-decommission-comfyui-models.sql);
 -- the ComfyUI model catalog SoT is now services/comfyui/models.yaml.
--- Assembled verbatim from the former 05-public-tables.sql (comfyui tables +
--- indexes) and 08-seed-data.sql (default workflow seeds). Tables are created
--- before the seed blocks that depend on them.
+-- Tables are created before the seed blocks that depend on them.
 
 CREATE TABLE IF NOT EXISTS public.comfyui_workflows (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -61,23 +60,25 @@ END $$;
 -- ─────────────────────────────────────────────────────────────────────
 -- Row Level Security.
 --
--- 06-permissions grants `anon` SELECT on every table in `public` (:15) and
--- sets the same as a DEFAULT PRIVILEGE (:25), and the pinned
--- supabase/postgres image ships default privileges granting anon full
--- arwdDxtm. PostgREST publishes `public` (compose.yml PGRST_DB_SCHEMA) with
--- PGRST_DB_ANON_ROLE=anon, and its port binds 0.0.0.0 unless HOST_BIND_IP is
--- set. RLS is therefore the ONLY thing between an unauthenticated network
--- peer and these tables.
+-- 06-permissions grants `anon` SELECT and `authenticated` ALL on every
+-- RLS-enabled table in `public`, and sets an anon SELECT DEFAULT PRIVILEGE.
+-- The pinned supabase/postgres image's default privileges also give anon
+-- full arwdDxtm. PostgREST publishes `public` (compose.yml PGRST_DB_SCHEMA)
+-- with PGRST_DB_ANON_ROLE=anon. Its port binds loopback by default
+-- (HOST_BIND_IP=127.0.0.1:) and every interface when HOST_BIND_IP is empty or
+-- 0.0.0.0:. RLS is therefore the ONLY thing between an unauthenticated peer
+-- that can reach that port and these tables.
 --
 -- Verified against a running stack before this was added: an unauthenticated
 -- GET returned every row of comfyui_workflows, and a DELETE removed them.
 -- comfyui_generations holds user prompts and output paths.
 --
 -- Scoped to the service_role claim exactly like the memory (14), research
--- (13) and media-ledger (17) tables. The backend connects as BACKEND_DB_USER
--- and reaches these tables through the explicit grants and the "Atlas backend
--- direct role access" policy in 05-scoped-roles.sh, so this does not affect it. Re-running the slice is idempotent, so existing deployments
--- are repaired on their next start.
+-- (13) and media-ledger (17) tables. No Backend grant or policy covers these
+-- tables (05-scoped-roles.sh lists only the research, memory and media-ledger
+-- tables); only service_role JWTs and the database owner reach them.
+-- Re-running the slice is idempotent, so existing deployments are repaired
+-- on their next start.
 ALTER TABLE public.comfyui_workflows ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.comfyui_generations ENABLE ROW LEVEL SECURITY;
 

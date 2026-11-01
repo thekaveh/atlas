@@ -39,14 +39,11 @@ python3 /scripts/resolve-models.py > /app/data/.env.tmp
 mv /app/data/.env.tmp /app/data/.env
 
 if [ -n "${LIGHTRAG_PG_URI:-}" ]; then
-  # Postgres (supabase-db) is SOURCE-replaceable — it can be container,
-  # localhost, or external — so lightrag-init deliberately does NOT hard
-  # depend_on it in compose (scripts/check-compose-source-deps.py FORBIDS
-  # the ('lightrag','supabase-db') edge so a local LIGHTRAG_*_STORAGE class can
-  # run without it; there is no automatic fallback). The transitive litellm:
-  # service_healthy gate makes supabase-db *usually* ready by now, but that
-  # isn't guaranteed across source modes — so poll the endpoint here before
-  # migrating: the SOURCE-safe equivalent of a compose readiness gate.
+  # Supabase DB is container-only, and lightrag-init already waits on it
+  # through litellm's service_healthy gate. scripts/check-compose-source-deps.py
+  # forbids a direct ('lightrag','supabase-db') edge so a local
+  # LIGHTRAG_*_STORAGE class can run without it. Poll before migrating as a
+  # cheap readiness guard.
   echo "[lightrag-init] waiting for Postgres (pgvector store) to accept connections..."
   pg_ready=0
   attempt=0

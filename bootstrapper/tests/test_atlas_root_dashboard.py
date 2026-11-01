@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 
 def _config_parser_for_env(tmp_path: Path, body: str):
     from core.config_parser import ConfigParser
@@ -166,6 +168,30 @@ def test_dashboard_service_cards_show_descriptions(tmp_path):
     assert 'class="card-desc"' in html
 
 
+def test_raw_tcp_ports_are_not_probed_over_http(tmp_path):
+    """Postgres, Redis and the Blender MCP socket answer no HTTP: a browser
+    fetch showed them "unreachable" and Redis logged a cross-protocol attack."""
+    from utils.atlas_dashboard import build_dashboard_model, render_dashboard_html
+
+    cp = _config_parser_for_env(
+        tmp_path,
+        "BASE_PORT=63000\nKONG_HTTP_PORT=63000\nREDIS_PORT=63012\n"
+        "SUPABASE_DB_PORT=63001\nBLENDER_MCP_SOURCE=localhost\n"
+        "BLENDER_MCP_LOCALHOST_PORT=9876\n",
+    )
+    model = build_dashboard_model(cp, track_key="all")
+    raw_ports = {"http://localhost:63012", "http://localhost:63001", "http://localhost:9876"}
+    raw_tcp = {row.direct_url: row.health_url for row in model.services if row.direct_url in raw_ports}
+    assert raw_tcp == dict.fromkeys(raw_ports)
+    html = render_dashboard_html(model)
+    assert 'data-health-url="http://localhost:63012"' not in html
+    assert 'data-health-url="http://localhost:63001"' not in html
+    assert 'data-health-url="http://localhost:9876"' not in html
+    assert "not probed" in html
+    # HTTP services keep their probe.
+    assert any(row.health_url for row in model.services)
+
+
 # ── #1189: a card's auth note matches what its Kong route enforces ──────────
 
 _REPO = Path(__file__).resolve().parents[2]
@@ -284,3 +310,144 @@ def test_a_slot_ordering_pin_is_not_reported_as_a_missing_dependency():
     warnings = _dependency_warnings(get_topology().rows, sources, {})
     assert any("spark" in w.lower() and "minio" in w for w in warnings), warnings
     assert any("asset worker" in w.lower() and "minio" in w for w in warnings), warnings
+
+
+@pytest.mark.parametrize("sources", [
+    {"SUPABASE_STUDIO_SOURCE": "disabled"},
+    {"MULTI2VEC_CLIP_SOURCE": "disabled", "VERBA_SOURCE": "container"},
+])
+def test_a_disabled_sub_row_does_not_disable_its_manifest(sources):
+    """Studio is one of seven supabase rows and Multi2Vec CLIP is weaviate's
+    second row. Disabling either reported every dependant of the whole
+    manifest as broken (2026-11-01 run, cycle 7)."""
+    from services.topology import get_topology
+    from utils.atlas_dashboard import _dependency_warnings
+
+    assert _dependency_warnings(get_topology().rows, sources, {}) == []
+
+
+def test_disabling_the_whole_manifest_still_warns():
+    from services.topology import get_topology
+    from utils.atlas_dashboard import _dependency_warnings
+
+    rows = get_topology().rows
+    sources = {"WEAVIATE_SOURCE": "disabled", "VERBA_SOURCE": "container"}
+    warnings = _dependency_warnings(rows, sources, {})
+    assert any("verba" in w.lower() and "weaviate" in w for w in warnings), warnings
+    # supabase has no sources block: it is off only when every row is.
+    sources = {row.source_var: "disabled" for row in rows if row.manifest == "supabase"}
+    warnings = _dependency_warnings(rows, sources, {})
+    assert any(w.startswith("Backend") and "supabase" in w for w in warnings), warnings
+
+
+def test_sub_row_cards_use_their_track_key(tmp_path):
+    """tracks.yml names these rows multi2vec-clip, doc-processor and
+    stt-provider; their manifests are weaviate, docling and parakeet."""
+    from utils.atlas_dashboard import build_dashboard_model
+
+    cp = _config_parser_for_env(tmp_path, "\n".join([
+        "BASE_PORT=63000", "KONG_HTTP_PORT=63000", "WEAVIATE_SOURCE=container",
+        "MULTI2VEC_CLIP_SOURCE=disabled", "DOC_PROCESSOR_SOURCE=disabled",
+        "STT_PROVIDER_SOURCE=disabled",
+    ]))
+    rag = {row.name: row for row in build_dashboard_model(cp, track_key="gen-ai-rag").services}
+    assert rag["Multi2Vec CLIP"].disabled_reason == "disabled-by-track"
+    assert rag["Document Processor"].disabled_reason == "manually-disabled"
+    eng = {row.name: row for row in build_dashboard_model(cp, track_key="gen-ai-eng").services}
+    assert eng["STT Provider"].disabled_reason == "manually-disabled"
+
+
+@pytest.mark.parametrize("field", ["BRAND_NAME", "BRAND_TAGLINE"])
+@pytest.mark.parametrize("literal", [
+    "__TITLE__", "__TAGLINE__", "__TRACK__", "__KONG_PORT__", "__ACTIVE__",
+    "__DISABLED__", "__WARNINGS__", "__SECTIONS__", "__UNKNOWN__",
+    "Research & <Engineering>", "研究 café",
+])
+def test_dashboard_preserves_literal_brand_markers(monkeypatch, field, literal):
+    """Accepted branding is data, including text that resembles template slots."""
+    from html import escape
+    from types import SimpleNamespace
+
+    from core.config_parser import ConfigParser
+    from utils.atomic_write import decode_env_assignment
+    from utils.atlas_dashboard import build_dashboard_model, render_dashboard_html
+    from utils.kong_config_generator import KongConfigGenerator
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("dashboard fixture must not construct or read config")
+
+    monkeypatch.setattr(ConfigParser, "__init__", forbidden)
+    monkeypatch.setattr(ConfigParser, "parse_env_file", forbidden)
+    monkeypatch.setattr(KongConfigGenerator, "_hosts_look_configured", lambda self: True)
+    env = {"BRAND_NAME": "Acme", "BRAND_TAGLINE": "Private fixture", "KONG_HTTP_PORT": "64000"}
+    key, value = decode_env_assignment(f"{field}={literal}", origin="synthetic branding")
+    env[key] = value
+    parser = SimpleNamespace(parse_env_file=lambda: dict(env), parse_service_sources=lambda: {})
+    model = build_dashboard_model(parser, track_key="all", hosts_configured=True)
+    assert model.brand_name == env["BRAND_NAME"]
+    assert model.tagline == env["BRAND_TAGLINE"]
+    html = render_dashboard_html(model)
+    service = KongConfigGenerator(parser).generate_atlas_root_dashboard_service()
+    lua = service["routes"][0]["plugins"][0]["config"]["access"][0]
+    for rendered in (html, lua):
+        assert f'<title>{escape(env["BRAND_NAME"])} service directory</title>' in rendered
+        assert f'<h1>{escape(env["BRAND_NAME"])} service directory</h1>' in rendered
+        assert f'<p>{escape(env["BRAND_TAGLINE"])}</p>' in rendered
+        assert 'id="theme-toggle"' in rendered
+        assert 'data-health-url=' in rendered
+
+
+@pytest.fixture
+def backup_dashboard_warning(tmp_path):
+    from types import SimpleNamespace
+    from services.dependency_manager import DependencyManager
+    from services.manifests import load_manifests
+    from services.topology import get_topology
+    from utils.atlas_dashboard import build_dashboard_model, render_dashboard_html
+
+    manifest = next(item for item in load_manifests(Path(__file__).resolve().parents[2] / "services")
+                    if item.name == "backup")
+
+    def build(mode, backup_source="container", minio_source="disabled"):
+        sources = {row.source_var: ("container" if row.locked or row.manifest == "supabase" else "disabled")
+                   for row in get_topology().rows}
+        sources.update(BACKUP_SOURCE=backup_source, MINIO_SOURCE=minio_source)
+        env = dict(sources)
+        if mode is not None:
+            env["BACKUP_S3_MODE"] = mode
+        parser = _config_parser_for_env(tmp_path, "\n".join(f"{key}={value}" for key, value in env.items()))
+        model = build_dashboard_model(parser, hosts_configured=True)
+        manager = DependencyManager.__new__(DependencyManager)
+        manager.get_service_scale = lambda name: 0 if name == "minio" and minio_source == "disabled" else 1
+        manager._runs_off_compose = lambda name: minio_source == "localhost"
+        violations = manager._conditional_dependency_violations("backup", manifest.runtime_deps["backup"], env)
+        warnings = [warning for warning in model.warnings
+                    if warning.startswith(manifest.label + " has disabled required dependencies:")]
+        return SimpleNamespace(model=model, html=render_dashboard_html(model), warnings=warnings,
+                               violations=violations, label=manifest.label)
+
+    return build
+
+
+@pytest.mark.parametrize(("mode", "expected"), [("external", False), ("local", True), (None, True), ("", True)])
+def test_dashboard_backup_dependency_warning_matches_actual_mode(backup_dashboard_warning, mode, expected):
+    from html import escape
+
+    result = backup_dashboard_warning(mode)
+    assert bool(result.violations) == expected
+    assert bool(result.warnings) == expected
+    warning = result.label + " has disabled required dependencies: minio."
+    assert (escape(warning) in result.html) == expected
+    assert all(item == warning for item in result.warnings)
+
+
+@pytest.mark.parametrize(("backup_source", "minio_source"), [
+    ("disabled", "disabled"), ("container", "container"), ("container", "localhost"),
+])
+def test_dashboard_backup_dependency_warning_keeps_source_controls(
+    backup_dashboard_warning, backup_source, minio_source,
+):
+    result = backup_dashboard_warning("local", backup_source, minio_source)
+    assert result.violations == []
+    assert result.warnings == []
+    assert "has disabled required dependencies: minio." not in result.html

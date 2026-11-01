@@ -1,15 +1,22 @@
-"""Host backup admission and the independent one-shot container guard."""
+"""Host backup admission, prepared restore-plan admission, the one-shot container guard, and CommandRunner launch and signal ownership."""
 
 from __future__ import annotations
 
+import json
 import os
+import shutil
+import signal
 import subprocess
 import sys
+import threading
 import types
+import uuid
+from pathlib import Path
 
 import pytest
 
-from tests.test_database_backup_repair_contracts import BACKUP_ENTRYPOINT, _module
+from tests.test_cloudflared_backup_contracts import _backup_s3_env, _fake_s3_boundary
+from tests.test_database_backup_repair_contracts import BACKUP_ENTRYPOINT, REPO, SNAPSHOTS, _module
 
 
 @pytest.fixture
@@ -240,3 +247,471 @@ def test_container_entrypoint_independently_rejects_unadmitted_sources(tmp_path,
     assert result.stderr == "backup: disabled; set BACKUP_SOURCE=container before running backup or restore\n"
     assert not trace.exists()
     assert not snapshot.exists()
+
+
+def _foreign_config_dir(tmp_path, case):
+    """An MC_CONFIG_DIR the restore exit trap must never `rm -rf`."""
+    if case == "unset":
+        return None
+    if case == "operator-dir":
+        return tmp_path / "victim"
+    # Matches the 32-character glob but carries a non-hex suffix. It must exist,
+    # or `[ -d ]` rejects it and a broken hex check would go unnoticed.
+    return Path("/tmp/atlas-restore-s3-" + uuid.uuid4().hex[:31] + "g")
+
+
+@pytest.mark.parametrize("case", ["operator-dir", "unset", "non-hex-suffix"])
+def test_prepared_restore_refuses_a_config_dir_its_exit_trap_would_delete(tmp_path, case):
+    """ATLAS_BACKUP_S3_PREPARED=1 trusts MC_CONFIG_DIR only as the script's own temp dir."""
+    victim = _foreign_config_dir(tmp_path, case)
+    env = {"PATH": "/usr/bin:/bin", "SUPABASE_DB_USER": "u", "SUPABASE_DB_PASSWORD": "p",
+           "SUPABASE_DB_NAME": "n", "ATLAS_BACKUP_S3_PREPARED": "1"}
+    try:
+        if victim is not None:
+            victim.mkdir()
+            (victim / "keep").write_text("operator data", encoding="utf-8")
+            env["MC_CONFIG_DIR"] = str(victim)
+        script = BACKUP_ENTRYPOINT.with_name("restore-postgres.sh")
+        result = subprocess.run(["/bin/sh", str(script), "latest"], env=env, text=True,
+                                capture_output=True, check=False, timeout=10)
+        assert result.returncode == 64
+        assert "prepared S3 client configuration is invalid" in result.stderr
+        assert victim is None or (victim / "keep").is_file()
+    finally:
+        if victim is not None:
+            shutil.rmtree(victim, ignore_errors=True)
+
+
+def _signal_main_thread(sent):
+    # pthread_sigmask masks only the calling thread. A process-directed kill
+    # could reach a leftover worker thread from an earlier test instead.
+    signal.pthread_kill(threading.main_thread().ident, sent)
+
+
+def _launch_pid_exists(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
+
+
+def _reap_launch_children(state):
+    for pid in state.pids:
+        try:
+            reaped, _status = os.waitpid(pid, os.WNOHANG)
+        except ChildProcessError:
+            continue
+        if reaped:
+            continue
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        os.waitpid(pid, 0)
+    assert not any(_launch_pid_exists(pid) for pid in state.pids)
+
+
+@pytest.fixture
+def launch_state(tmp_path, monkeypatch):
+    module = _module()
+    handled = (signal.SIGHUP, signal.SIGINT, signal.SIGTERM)
+    previous = {sig: signal.signal(sig, module._signal_as_exception) for sig in handled}
+    state = types.SimpleNamespace(
+        module=module, path=tmp_path, pids=[], sent=signal.SIGTERM, phase="none", fired=False, signals=None,
+        mask=signal.pthread_sigmask(signal.SIG_BLOCK, []), handled=handled,
+        runner=module.CommandRunner(token="e" * 32, timeout=2, scope="launch-test"),
+    )
+    original_fork = subprocess._fork_exec
+    original_clock = module.time.monotonic
+
+    def fork(*args, **kwargs):
+        pid = original_fork(*args, **kwargs)
+        state.pids.append(pid)
+        if state.phase == "fork":
+            for sent in state.signals or (state.sent,):
+                _signal_main_thread(sent)
+        return pid
+
+    def clock():
+        if state.phase == "runtime" and not state.fired:
+            state.fired = True
+            _signal_main_thread(state.sent)
+        return original_clock()
+
+    monkeypatch.setattr(subprocess, "_fork_exec", fork)
+    monkeypatch.setattr(module.time, "monotonic", clock)
+    try:
+        yield state
+    finally:
+        state.phase = "none"
+        try:
+            _reap_launch_children(state)
+        finally:
+            for sig, handler in previous.items():
+                signal.signal(sig, handler)
+
+
+def _assert_launch_environment_restored(state):
+    assert all(signal.getsignal(sig) == state.module._signal_as_exception for sig in state.handled)
+    assert signal.pthread_sigmask(signal.SIG_BLOCK, []) == state.mask
+
+
+def _finalize_launch_boundary(state, lock):
+    coordinator = types.SimpleNamespace(poison_reason=None, runner=state.runner, boundary_state="pre-cutover")
+    state.module.finalize_boundary_lock(lock, coordinator, retained=set())
+
+
+@pytest.mark.parametrize("sent", (signal.SIGHUP, signal.SIGINT, signal.SIGTERM))
+@pytest.mark.parametrize("input_text", (None, "payload"))
+def test_command_launch_interruption_cleans_before_unlock(launch_state, sent, input_text):
+    state = launch_state
+    lock = state.module.OwnedFileLock(state.path / "boundary.lock", token=state.runner.token)
+    lock.acquire()
+    state.sent, state.phase = sent, "fork"
+    with pytest.raises(state.module.SignalInterruption, match=f"received signal {sent}"):
+        state.runner.run([sys.executable, "-c", "import time; time.sleep(30)"], input_text=input_text)
+    assert not any(_launch_pid_exists(pid) for pid in state.pids)
+    _assert_launch_environment_restored(state)
+    _finalize_launch_boundary(state, lock)
+    assert not lock.path.exists()
+    assert state.runner.process_group_cleanup_failed is False
+
+
+@pytest.mark.parametrize("input_text", (None, "payload"))
+def test_runtime_interruption_keeps_existing_cleanup(launch_state, input_text):
+    state = launch_state
+    state.phase = "runtime"
+    with pytest.raises(state.module.SignalInterruption, match="received signal 15"):
+        state.runner.run([sys.executable, "-c", "import time; time.sleep(30)"], input_text=input_text)
+    assert not any(_launch_pid_exists(pid) for pid in state.pids)
+    _assert_launch_environment_restored(state)
+
+
+def test_command_launch_failure_restores_handlers(launch_state):
+    state = launch_state
+    with pytest.raises(FileNotFoundError):
+        state.runner.run([str(state.path / "missing-command")])
+    assert not any(_launch_pid_exists(pid) for pid in state.pids)
+    _assert_launch_environment_restored(state)
+    assert state.runner.process_group_cleanup_failed is False
+
+
+def test_command_child_inherits_original_signal_mask(launch_state):
+    state = launch_state
+    command = [sys.executable, "-c", "import json,signal; print(json.dumps(sorted(map(int,signal.pthread_sigmask(signal.SIG_BLOCK,[])))))"]
+    result = state.runner.run(command)
+    assert json.loads(result.stdout) == sorted(map(int, state.mask))
+    assert result.args == command
+    assert result.returncode == 0 and result.stderr == ""
+    _assert_launch_environment_restored(state)
+
+
+@pytest.mark.parametrize("input_text", (None, "payload"))
+def test_command_timeout_keeps_command_identity(launch_state, input_text):
+    state = launch_state
+    command = [sys.executable, "-c", "import time; time.sleep(30)"]
+    with pytest.raises(subprocess.TimeoutExpired) as captured:
+        state.runner.run(command, timeout=1, input_text=input_text)
+    assert captured.value.cmd == command
+    assert not any(_launch_pid_exists(pid) for pid in state.pids)
+    _assert_launch_environment_restored(state)
+
+
+def test_command_input_and_output_remain_literal(launch_state):
+    state = launch_state
+    result = state.runner.run([sys.executable, "-c", "import sys; sys.stdout.write(sys.stdin.read())"], input_text="literal input\n")
+    assert result.stdout == "literal input\n"
+    assert result.stderr == "" and result.returncode == 0
+    _assert_launch_environment_restored(state)
+
+
+def test_command_launch_unproven_cleanup_preserves_lock(launch_state, monkeypatch):
+    state = launch_state
+    original_cleanup = state.module._terminate_owned_process_group
+
+    def unproven(process):
+        assert original_cleanup(process)
+        return False
+
+    monkeypatch.setattr(state.module, "_terminate_owned_process_group", unproven)
+    lock = state.module.OwnedFileLock(state.path / "boundary.lock", token=state.runner.token)
+    lock.acquire()
+    state.phase = "fork"
+    with pytest.raises(state.module.SignalInterruption, match="received signal 15"):
+        state.runner.run([sys.executable, "-c", "import time; time.sleep(30)"])
+    assert state.runner.process_group_cleanup_failed is True
+    _finalize_launch_boundary(state, lock)
+    assert "state=poisoned\n" in lock.path.read_text()
+    _assert_launch_environment_restored(state)
+
+
+def test_deferred_signal_precedes_later_popen_error(launch_state):
+    state = launch_state
+    state.phase = "fork"
+    with pytest.raises(state.module.SignalInterruption, match="received signal 15"):
+        state.runner.run([str(state.path / "missing-command")])
+    assert not any(_launch_pid_exists(pid) for pid in state.pids)
+    _assert_launch_environment_restored(state)
+
+
+@pytest.mark.parametrize("earlier", ("body", "deferred"))
+def test_launch_deferral_preserves_interruption_order(launch_state, monkeypatch, earlier):
+    state = launch_state
+    launch = state.module._RecoverySignalDeferral()
+    original_mask = signal.pthread_sigmask
+    fired = False
+
+    def mask(how, values):
+        nonlocal fired
+        restored = signal.getsignal(signal.SIGTERM) == state.module._signal_as_exception
+        if earlier == "body" and how == signal.SIG_SETMASK and restored and not fired:
+            fired = True
+            _signal_main_thread(signal.SIGTERM)
+        return original_mask(how, values)
+
+    monkeypatch.setattr(signal, "pthread_sigmask", mask)
+    with pytest.raises(KeyboardInterrupt):
+        with launch:
+            if earlier == "deferred":
+                _signal_main_thread(signal.SIGTERM)
+            raise KeyboardInterrupt("body interruption")
+    assert (launch.interruption is None) == (earlier == "body")
+    assert launch.body_interruption_precedes_deferred == (earlier == "body")
+    _assert_launch_environment_restored(state)
+
+
+@pytest.mark.parametrize("signals", [(signal.SIGTERM,), (signal.SIGTERM, signal.SIGINT),
+                                    (signal.SIGINT, signal.SIGTERM), (signal.SIGTERM, signal.SIGTERM)])
+@pytest.mark.parametrize("input_text", (None, "payload"))
+def test_command_launch_preserves_outer_recovery_owner(launch_state, signals, input_text):
+    state = launch_state
+    outer = state.module._RecoverySignalDeferral()
+    state.phase, state.signals = "fork", signals
+    with outer:
+        result = state.runner.run([sys.executable, "-c", "print('compensation completed')"], input_text=input_text)
+        assert result.stdout == "compensation completed\n"
+    assert str(outer.interruption) == f"received signal {signals[0]}"
+    assert result.returncode == 0 and result.stderr == ""
+    assert not any(_launch_pid_exists(pid) for pid in state.pids)
+    _assert_launch_environment_restored(state)
+
+
+def test_command_launch_preserves_already_recorded_outer_signal(launch_state):
+    state = launch_state
+    outer = state.module._RecoverySignalDeferral()
+    state.phase, state.signals = "fork", (signal.SIGINT,)
+    with outer:
+        _signal_main_thread(signal.SIGTERM)
+        result = state.runner.run([sys.executable, "-c", "print('compensation completed')"])
+    assert result.stdout == "compensation completed\n"
+    assert str(outer.interruption) == "received signal 15"
+    _assert_launch_environment_restored(state)
+
+
+# --- prepared restore-plan admission ----------------------------------------
+# parse_prepared_plan is the trust boundary between the in-container prepare
+# step and the host restore that mounts /restore/<artifact_stage>. Each
+# negative changes one field of a valid plan, so it reaches one branch.
+_PLAN_TOKEN, _PLAN_TIMESTAMP, _PLAN_BACKUP_ID = "a" * 32, "20260830_010203", "b" * 32
+_PLAN_SNAPSHOT = f"atlas-{_PLAN_TIMESTAMP}-{_PLAN_BACKUP_ID}"
+
+
+def _restore_plan(**fields):
+    values = {
+        "backup_timestamp": _PLAN_TIMESTAMP, "restore_token": _PLAN_TOKEN,
+        "backup_id": _PLAN_BACKUP_ID, "neo4j_state": "complete",
+        "weaviate_state": "disabled", "artifact_stage": f"restore-{_PLAN_TOKEN}",
+        "weaviate_snapshot_id": "disabled", **fields,
+    }
+    body = " ".join(f"{key}={value}" for key, value in values.items() if value is not None)
+    return f"ATLAS_DATABASE_RESTORE_PLAN {body}\n"
+
+
+@pytest.mark.parametrize(
+    ("stdout", "message"),
+    [
+        pytest.param(_restore_plan(artifact_stage=f"restore-{'c' * 32}"), "invalid artifact stage", id="other-run-stage"),
+        pytest.param(_restore_plan(artifact_stage="../escape"), "invalid artifact stage", id="escaping-stage"),
+        pytest.param(_restore_plan() * 2, "exactly one plan marker", id="duplicate-marker"),
+        pytest.param("prepared\n", "exactly one plan marker", id="missing-marker"),
+        pytest.param(_restore_plan(weaviate_state="complete"), "invalid snapshot id", id="complete-without-snapshot"),
+        pytest.param(_restore_plan(weaviate_snapshot_id=_PLAN_SNAPSHOT), "invalid snapshot id", id="disabled-with-snapshot"),
+        pytest.param(_restore_plan(neo4j_state="partial"), "invalid state", id="partial-state"),
+        pytest.param(_restore_plan(backup_timestamp="20260830_010204"), "identity correlation", id="other-timestamp"),
+        pytest.param(_restore_plan(extra="1"), "exact plan fields", id="extra-field"),
+        pytest.param(_restore_plan(weaviate_snapshot_id=None), "exact plan fields", id="missing-field"),
+    ],
+)
+def test_prepared_plan_parser_rejects_each_uncorrelated_field(stdout, message):
+    module = _module()
+    with pytest.raises(module.ContractError, match=message):
+        module.parse_prepared_plan(stdout, token=_PLAN_TOKEN, timestamp=_PLAN_TIMESTAMP)
+
+
+def test_prepared_plan_parser_accepts_a_complete_weaviate_snapshot():
+    module = _module()
+    stdout = _restore_plan(weaviate_state="complete", weaviate_snapshot_id=_PLAN_SNAPSHOT)
+    assert module.parse_prepared_plan(stdout, token=_PLAN_TOKEN, timestamp=_PLAN_TIMESTAMP) == {
+        "backup_timestamp": _PLAN_TIMESTAMP, "restore_token": _PLAN_TOKEN,
+        "backup_id": _PLAN_BACKUP_ID, "neo4j_state": "complete",
+        "weaviate_state": "complete", "artifact_stage": f"restore-{_PLAN_TOKEN}",
+        "weaviate_snapshot_id": _PLAN_SNAPSHOT,
+    }
+
+
+# --- local snapshot retention prune ------------------------------------------
+# The orchestrator runs `database-snapshots.sh prune` after a successful backup.
+# It `rm -rf`s every completed set beyond the newest N, so its ordering, pattern
+# scope and refusals are pinned by running the real script on a relocated root.
+_SNAPSHOT_SETS = tuple(f"2026010{day}_000000" for day in range(1, 6))
+
+
+def _prune_fixture(tmp_path):
+    root = tmp_path / "database-snapshots"
+    # The script dispatches on its own file name, so the copy keeps it.
+    script = tmp_path / "bin" / "database-snapshots.sh"
+    script.parent.mkdir()
+    script.write_text(
+        SNAPSHOTS.read_text(encoding="utf-8").replace("/database-snapshots/", f"{root}/"),
+        encoding="utf-8",
+    )
+    for name in _SNAPSHOT_SETS:
+        (root / "neo4j" / name).mkdir(parents=True)
+        (root / "weaviate" / f"atlas-{name}-{'b' * 32}").mkdir(parents=True)
+    (root / "neo4j" / "other").mkdir()
+    (root / "neo4j" / "20260107_000000").write_text("a file, not a set\n", encoding="utf-8")
+    (root / "weaviate" / "operator-notes").mkdir()
+    return script, root
+
+
+def _run_prune(script, env):
+    return subprocess.run(
+        ["sh", str(script), "prune"], env={"PATH": "/usr/bin:/bin", **env},
+        text=True, capture_output=True, check=False, timeout=30,
+    )
+
+
+def _tree(root):
+    return sorted(str(path.relative_to(root)) for path in root.rglob("*"))
+
+
+def test_local_snapshot_prune_keeps_only_the_newest_completed_sets(tmp_path):
+    script, root = _prune_fixture(tmp_path)
+    result = _run_prune(script, {
+        "BACKUP_DATABASE_SERVICES_QUIESCED": "true", "BACKUP_LOCAL_SNAPSHOT_RETENTION_COUNT": "3",
+    })
+    assert result.returncode == 0, result.stderr
+    assert sorted(path.name for path in (root / "neo4j").iterdir()) == [
+        *_SNAPSHOT_SETS[2:], "20260107_000000", "other",
+    ]
+    assert sorted(path.name for path in (root / "weaviate").iterdir()) == [
+        *(f"atlas-{name}-{'b' * 32}" for name in _SNAPSHOT_SETS[2:]), "operator-notes",
+    ]
+
+
+@pytest.mark.parametrize("case", [
+    ({"BACKUP_LOCAL_SNAPSHOT_RETENTION_COUNT": "3"}, "must be quiesced"),
+    ({"BACKUP_DATABASE_SERVICES_QUIESCED": "true", "BACKUP_LOCAL_SNAPSHOT_RETENTION_COUNT": "0"}, "invalid count"),
+    ({"BACKUP_DATABASE_SERVICES_QUIESCED": "true", "BACKUP_LOCAL_SNAPSHOT_RETENTION_COUNT": "101"}, "at most 100"),
+    ({"BACKUP_DATABASE_SERVICES_QUIESCED": "true", "BACKUP_LOCAL_SNAPSHOT_RETENTION_COUNT": "1",
+      "DATABASE_NEO4J_SNAPSHOT_ROOT": "/tmp/not-a-snapshot-root"}, "unsafe root"),
+], ids=["not-quiesced", "zero", "over-100", "foreign-root"])
+def test_local_snapshot_prune_refusals_remove_nothing(tmp_path, case):
+    env, message = case
+    script, root = _prune_fixture(tmp_path)
+    before = _tree(root)
+    result = _run_prune(script, env)
+    assert result.returncode == 64, result.stderr
+    assert message in result.stderr
+    assert _tree(root) == before
+
+
+# --- backup-all.sh producer refusals -----------------------------------------
+# restore-postgres.sh refuses a backup whose key, deployment identity or
+# inventories are invalid, so the producer must refuse it before publishing.
+BACKUP_ALL = REPO / "services/backup/init/scripts/backup-all.sh"
+_HEX_KEY = "must be exactly 64 lowercase hex characters"
+
+
+@pytest.mark.parametrize("case", [
+    ({"BACKUP_MANIFEST_HMAC_KEY": "A" * 64}, _HEX_KEY),
+    ({"BACKUP_MANIFEST_HMAC_KEY": "a" * 63}, _HEX_KEY),
+    ({"BACKUP_MANIFEST_HMAC_KEY": "g" * 64}, _HEX_KEY),
+    ({"BACKUP_DEPLOYMENT_ID": "bad/id"}, "must use only letters, digits, dot, underscore, and hyphen"),
+    ({"BACKUP_DEPLOYMENT_ID": "a" * 129}, "BACKUP_DEPLOYMENT_ID must be at most 128 characters"),
+    ({"BACKUP_DATABASES": "yes"}, "BACKUP_DATABASES must be true or false"),
+    ({"BACKUP_COMMAND_TIMEOUT_SECONDS": "01"}, "TIMEOUT_SECONDS must be a canonical positive integer"),
+    ({"BACKUP_COMMAND_TIMEOUT_SECONDS": "86401"}, "TIMEOUT_SECONDS must be at most 86400"),
+    ({"BACKUP_MAX_POSTGRES_DUMP_BYTES": "0"}, "DUMP_BYTES must be a canonical positive integer"),
+    ({"BACKUP_MAX_POSTGRES_DUMP_BYTES": "1099511627777"}, "DUMP_BYTES must be at most 1099511627776"),
+    ({"BACKUP_TIMESTAMP": "20260230_000000"}, "invalid backup timestamp: 20260230_000000"),
+], ids=["key-uppercase", "key-short", "key-non-hex", "deployment-charset", "deployment-length",
+        "databases-enum", "timeout-noncanonical", "timeout-max", "dump-cap-zero", "dump-cap-max",
+        "timestamp-calendar"])
+def test_backup_refuses_invalid_producer_inputs_before_s3(tmp_path, case):
+    overrides, message = case
+    trace, bin_dir = _fake_s3_boundary(tmp_path)
+    # A valid external S3 configuration, so only the producer check can refuse
+    # (local mode without credentials exits 64 first, for the wrong reason).
+    # LC_ALL=C matches the container's busybox sh, which compares bracket
+    # ranges by code point; macOS bash 3.2 in a UTF-8 locale collates `a-f`
+    # to include uppercase letters.
+    env = {
+        **_backup_s3_env(bin_dir, trace), "LC_ALL": "C", "BACKUP_S3_MODE": "external",
+        "BACKUP_S3_ENDPOINT": "https://s3.example.test",
+        "BACKUP_S3_ACCESS_KEY": "external-access", "BACKUP_S3_SECRET_KEY": "external-secret",
+        **overrides,
+    }
+    result = subprocess.run(
+        ["sh", str(BACKUP_ALL)], env=env, text=True, capture_output=True, check=False, timeout=30,
+    )
+    assert result.returncode == 64, result.stderr
+    assert message in result.stderr
+    assert not trace.exists()
+
+
+def _backup_fragment(start: str, end: str) -> str:
+    body = BACKUP_ALL.read_text(encoding="utf-8")
+    first = body.index(start)
+    return body[first:body.index(end, first) + len(end)]
+
+
+@pytest.mark.parametrize("case", [
+    ("", "1/1 TABLE public t postgres\n", 1, "empty user-table inventory"),
+    ("7075626c6963\t74\n", "; Archive created\n;\n", 1, "empty archive object inventory"),
+    ("7075626c6963\t74\n", "; Archive created\n1; 1 TABLE public t postgres\n", 0, None),
+], ids=["no-tables", "no-objects", "both-present"])
+def test_backup_refuses_empty_postgres_inventories(tmp_path, case):
+    tables, listing, status, message = case
+    (tmp_path / "postgres.tables").write_text(tables, encoding="utf-8")
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "pg_restore").write_text('#!/bin/sh\nprintf \'%s\' "$PG_RESTORE_LIST"\n', encoding="utf-8")
+    (bin_dir / "pg_restore").chmod(0o755)
+    fragment = _backup_fragment('table_count="$(run_bounded wc -l', "esac\ndatabase_name_hex=")
+    result = subprocess.run(
+        ["sh", "-c", 'set -eu\nrun_bounded() { "$@"; }\n' + fragment.removesuffix("database_name_hex=")],
+        env={"PATH": f"{bin_dir}:{os.environ.get('PATH', '')}", "WORK": str(tmp_path),
+             "PG_RESTORE_LIST": listing},
+        text=True, capture_output=True, check=False, timeout=10,
+    )
+    assert result.returncode == status, result.stderr
+    if message:
+        assert message in result.stderr
+    else:
+        assert result.stderr == ""
+
+
+@pytest.mark.parametrize("case", [(4, 1), (3, 0)], ids=["over-cap", "at-cap"])
+def test_backup_refuses_a_dump_over_the_configured_cap(tmp_path, case):
+    size, status = case
+    (tmp_path / "postgres.dump").write_bytes(b"x" * size)
+    fragment = _backup_fragment('dump_bytes="$(run_bounded wc -c', "exceeds BACKUP_MAX_POSTGRES_DUMP_BYTES\" >&2; exit 1; }")
+    result = subprocess.run(
+        ["sh", "-c", 'set -eu\nrun_bounded() { "$@"; }\n' + fragment],
+        env={"PATH": os.environ.get("PATH", ""), "WORK": str(tmp_path), "MAX_DUMP_BYTES": "3"},
+        text=True, capture_output=True, check=False, timeout=10,
+    )
+    assert result.returncode == status, result.stderr
+    assert ("exceeds BACKUP_MAX_POSTGRES_DUMP_BYTES" in result.stderr) is bool(status)

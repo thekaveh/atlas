@@ -1,6 +1,6 @@
 # Durable OTLP-to-Loki Logging Design
 
-> **Status: archived spec** — dated 2026-08-30; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+> **Status: archived spec** — dated 2026-08-30; a point-in-time record kept for archaeology, not current guidance. It landed in `da7e285b` (#991), which has no CHANGELOG entry.
 
 ## 1. Goal
 

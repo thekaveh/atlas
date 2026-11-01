@@ -168,7 +168,7 @@ def test_lightrag_neo4j_uri_populated_when_neo4j_enabled(env_with_overrides):
     }))
     env = sc.generate_service_environment()
     # Hostname MUST be `neo4j-graph-db` (the compose service id), NOT bare `neo4j`.
-    # Memory: reference_kong_compose_service_id documents the same pattern.
+    # Docker DNS resolves the compose service id, never the family name.
     # The previous assertion asserted `bolt://neo4j:7687` which was a
     # bug-confirming test — both this test and the imperative emission in
     # service_config.py:1106 had the wrong hostname; live smoke surfaced it.
@@ -196,6 +196,47 @@ def test_lightrag_redis_uri_populated_when_redis_enabled(env_with_overrides):
     env = sc.generate_service_environment()
     assert env.get("LIGHTRAG_REDIS_URI", "").startswith("redis://")
     assert "redis:6379/2" in env["LIGHTRAG_REDIS_URI"]
+
+
+@pytest.mark.parametrize("password", [
+    "synthetic-safe123", "synthetic/secret123", "synthetic#secret123",
+    "synthetic?secret123", "synthetic%2Fsecret123", 'synthetic%2F"é中123',
+])
+@pytest.mark.parametrize("encoded_companion", [False, True])
+def test_lightrag_redis_uri_preserves_its_password(
+    env_with_overrides, monkeypatch, password, encoded_companion,
+):
+    from urllib.parse import quote, unquote, urlsplit
+    from utils.atomic_write import render_env_assignment
+
+    monkeypatch.setattr("services.service_config.resolve_host_gateway_ip", lambda: "host-gateway")
+    sc = _sc(env_with_overrides({
+        "LIGHTRAG_SOURCE": "container",
+        "REDIS_SOURCE": "container",
+        "REDIS_PASSWORD": render_env_assignment("REDIS_PASSWORD", password),
+        "REDIS_PASSWORD_URI": quote(password, safe="") if encoded_companion else "",
+    }))
+    uri = sc.generate_service_environment()["LIGHTRAG_REDIS_URI"]
+    parts = urlsplit(uri)
+    assert parts.hostname == "redis" and parts.port == 6379
+    assert unquote(parts.password) == password
+    assert parts.path == "/2" and not parts.query and not parts.fragment
+    assert sc.config_parser.parse_env_file()["REDIS_PASSWORD"] == password
+
+
+@pytest.mark.parametrize("lightrag_source,redis_source", [
+    ("disabled", "container"), ("container", "disabled"),
+])
+def test_lightrag_redis_uri_is_blank_when_a_source_is_disabled(
+    env_with_overrides, monkeypatch, lightrag_source, redis_source,
+):
+    monkeypatch.setattr("services.service_config.resolve_host_gateway_ip", lambda: "host-gateway")
+    sc = _sc(env_with_overrides({
+        "LIGHTRAG_SOURCE": lightrag_source,
+        "REDIS_SOURCE": redis_source,
+        "REDIS_PASSWORD": "synthetic%2Fsecret123",
+    }))
+    assert sc.generate_service_environment()["LIGHTRAG_REDIS_URI"] == ""
 
 
 def test_lightrag_docling_endpoint_mirrors_DOCLING_ENDPOINT(env_with_overrides):

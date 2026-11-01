@@ -31,9 +31,9 @@ use_default_settings:
       - torch
 
 search:
-  # JSON output is OFF in the SearXNG default (HTML only). The Atlas backend,
-  # n8n, and local-deep-researcher all query SearXNG's JSON search API
-  # (`/search?...&format=json`), so it MUST be enabled here.
+  # JSON output is OFF in the SearXNG default (HTML only). Local Deep
+  # Researcher, n8n, mcp-servers, Hermes and JupyterHub query SearXNG's JSON
+  # search API (`/search?...&format=json`), so it MUST be enabled here.
   formats:
     - html
     - json

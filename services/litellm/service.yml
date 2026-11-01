@@ -91,10 +91,10 @@ env:
     description: "Bootstrapper-synchronized percent-encoded LITELLM_DB_PASSWORD for DSN userinfo."
   - name: LITELLM_EMBEDDING_MODEL
     default: "ollama/nomic-embed-text"
-    description: "Default embedding model used by weaviate-init when computing collection vectorizers."
+    description: "Stack-wide embedding model id, set with LANGMEM_EMBEDDING_DIM by the embedding picker. Backend memory and RAG, Celery, Weaviate init, LightRAG init, JupyterHub, Verba and the database seed read it."
   - name: LITELLM_DEFAULT_MODEL
     default: ""
-    description: "Optional default chat model passed to LangMem (backend)."
+    description: "Stack-wide default chat model id, resolved from the model catalog. Backend, Celery, JupyterHub, n8n, LightRAG init, Verba and Local Deep Researcher read it."
   - name: LITELLM_VISION_MODEL
     default: ""
     description: "Default vision-capable model (resolved from the model catalog; forward-looking — no consumer routes on it yet)."

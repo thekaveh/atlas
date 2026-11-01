@@ -39,7 +39,7 @@ sources_consulted:
   - Why valuable: Hermes-agent currently has no shared state between requests; conversation memory, tool-call rate-limits, and per-user budget counters all live in process. A small `redis://` URL turns Hermes into a horizontally-scalable agent.
   - Mechanism sketch: Hermes skill / tool reading-writing `hermes:session:<id>` hashes and `hermes:ratelimit:<user>` counters via `redis-py`; same `REDIS_URL` already exported.
   - Effort: small
-  - Risks / open questions: Hermes provider config is opinionated (see `reference_hermes_provider_config.md`); needs a custom skill, not a built-in.
+  - Risks / open questions: Hermes provider config is opinionated (see the [Hermes README](../../../services/hermes/README.md)); needs a custom skill, not a built-in.
   - Confidence: medium (mechanism is standard, but no first-class Hermes-Redis integration upstream).
 
 - **redis ↔ openclaw**

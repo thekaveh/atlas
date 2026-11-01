@@ -146,9 +146,9 @@ class _Starter:
 def _options(**overrides):
     values = dict(
         cold=False, base_port=63000, project_name="atlas", source_args={},
-        profile="default", explicit_prometheus=None, explicit_grafana=None,
-        cloud_api_keys={}, user_model_selections={}, no_port_migrate=False,
-        setup_hosts=False, skip_hosts=True, track="gen-ai-rag", detach=False,
+        profile="default", cloud_api_keys={}, user_model_selections={},
+        no_port_migrate=False, setup_hosts=False, skip_hosts=True, track="gen-ai-rag",
+        detach=False,
         json_output=False, no_splash=True,
     )
     values.update(overrides)
@@ -765,11 +765,7 @@ def test_prometheus_and_grafana_rows_are_choices_not_locked_services():
     from core.config_parser import ConfigParser
     from ui.textual import integration as I
 
-    class _Hosts:
-        def __getattr__(self, _name):
-            return lambda *a, **k: False
-
-    _steps, rows, *_ = I._build_steps_and_rows(ConfigParser(), _Hosts())
+    _steps, rows, *_ = I._build_steps_and_rows(ConfigParser())
     by_name = {row.name: row for row in rows}
     for name in ("Prometheus", "Grafana"):
         assert by_name[name].configurable, f"{name} must not render as locked"

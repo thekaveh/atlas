@@ -6,8 +6,6 @@ from collections.abc import Mapping
 from contextlib import suppress
 from pathlib import Path
 
-from .models import GLB_CONTENT_TYPE
-
 
 class ArtifactTooLargeError(ValueError):
     pass
@@ -48,9 +46,9 @@ class ArtifactStorage:
         client = self._client()
         response = client.get_object(Bucket=bucket, Key=key)
         body = response["Body"]
-        max_mb = float(os.getenv("ASSET_BAKER_MAX_UPLOAD_MB", "200"))
-        max_bytes = max(1, int(max_mb * 1024 * 1024))
         try:
+            max_mb = float(os.getenv("ASSET_BAKER_MAX_UPLOAD_MB", "200"))
+            max_bytes = max(1, int(max_mb * 1024 * 1024))
             content_length = response.get("ContentLength")
             if content_length is not None and int(content_length) > max_bytes:
                 raise ArtifactTooLargeError(
@@ -129,7 +127,3 @@ class ArtifactStorage:
             if status != 404 and code not in {"404", "NoSuchBucket", "NotFound"}:
                 raise
             client.create_bucket(Bucket=bucket)
-
-
-# Re-export for callers mirroring asset-worker's import shape.
-CONTENT_TYPE = GLB_CONTENT_TYPE

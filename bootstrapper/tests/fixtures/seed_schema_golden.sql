@@ -12,7 +12,7 @@ SET row_security = off;
 
 CREATE SCHEMA auth;
 
-ALTER SCHEMA auth OWNER TO supabase_admin;
+ALTER SCHEMA auth OWNER TO supabase_auth_admin;
 
 CREATE SCHEMA extensions;
 
@@ -84,7 +84,7 @@ CREATE TYPE auth.factor_type AS ENUM (
     'phone'
 );
 
-ALTER TYPE auth.factor_type OWNER TO supabase_admin;
+ALTER TYPE auth.factor_type OWNER TO supabase_auth_admin;
 
 CREATE FUNCTION auth.email() RETURNS text
     LANGUAGE sql STABLE
@@ -478,12 +478,15 @@ BEGIN
         RAISE EXCEPTION 'memory embedding target identity is % generation %, not % generation %',
             target_model, target_generation, expected_model, expected_generation;
     END IF;
+    -- A NULL vector with pending sync intent belongs to the reconciler, so a
+    -- fact the embedder rejects cannot block every other fact.
     SELECT count(*) INTO mismatches
       FROM public.memory_facts
-     WHERE embedding IS NULL
-        OR public.vector_dims(embedding) <> expected_dimension
-        OR embedding_model IS DISTINCT FROM expected_model
-        OR embedding_generation <> expected_generation;
+     WHERE (embedding IS NULL AND NOT vector_sync_pending)
+        OR (embedding IS NOT NULL
+            AND (public.vector_dims(embedding) <> expected_dimension
+                 OR embedding_model IS DISTINCT FROM expected_model
+                 OR embedding_generation <> expected_generation));
     IF mismatches <> 0 THEN
         RAISE EXCEPTION 'memory embedding backfill incomplete: % mismatched row(s)', mismatches;
     END IF;
@@ -1264,7 +1267,6 @@ ALTER PUBLICATION supabase_realtime OWNER TO postgres;
 GRANT USAGE ON SCHEMA auth TO anon;
 GRANT USAGE ON SCHEMA auth TO authenticated;
 GRANT ALL ON SCHEMA auth TO service_role;
-GRANT ALL ON SCHEMA auth TO supabase_auth_admin;
 GRANT ALL ON SCHEMA auth TO dashboard_user;
 GRANT USAGE ON SCHEMA auth TO postgres;
 GRANT USAGE ON SCHEMA auth TO atlas_auth_sync;

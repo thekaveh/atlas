@@ -39,5 +39,6 @@ ensure_python_venv() {
     fi
 
     echo "Local Deep Researcher: Creating clean Python 3.11 environment"
-    uv venv --clear --python "$python_spec" "$venv_dir"
+    # --force lets --clear replace a corrupt, non-venv directory.
+    uv venv --clear --force --python "$python_spec" "$venv_dir"
 }

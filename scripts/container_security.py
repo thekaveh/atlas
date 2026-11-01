@@ -665,10 +665,13 @@ def _changed_service_images(
     if filename == "service.yml":
         # The deployed-image inventory, not only compose literals: images the
         # bootstrapper swaps in at runtime (RAY_GPU_IMAGE, the TEI arm64 and
-        # GPU images) never appear as compose defaults. Local build bases
-        # stay out: their final images are built and scanned instead.
+        # GPU images) never appear as compose defaults. Bases used only by
+        # local builds stay out: their final images are built and scanned
+        # instead. A base that a Compose service also runs directly
+        # (minio-init's mc, weaviate-init's alpine) is a deployed image.
         builds = set().union(*(build.base_images for build in load_compose_builds(services_dir)))
-        owned = _manifest_owned_images(path) & (set(load_image_inventory(services_dir)) - builds)
+        build_only = builds - set(load_compose_image_refs(services_dir))
+        owned = _manifest_owned_images(path) & (set(load_image_inventory(services_dir)) - build_only)
         return select_touched(owned, touched_lines)
     compose_path = services_dir / service / "compose.yml"
     if not compose_path.is_file():
@@ -686,8 +689,9 @@ def load_changed_image_scans(
 ) -> tuple[ImageScan, ...]:
     """Return scans for directly deployed remote images affected by a diff.
 
-    Bases of local Compose builds remain in the complete scheduled inventory,
-    while the required PR workflow scans the corresponding final build output.
+    Bases used only by local Compose builds remain in the complete scheduled
+    inventory, while the required PR workflow scans the corresponding final
+    build output.
     """
 
     variables = _manifest_image_variables(services_dir)
@@ -820,7 +824,7 @@ def load_build_exclusions(path: Path, *, today: date | None = None) -> tuple[str
             raise ValueError(f"builds[{index}].target must be context|dockerfile")
         if not isinstance(reason, str) or len(reason.strip()) < 20:
             raise ValueError(f"builds[{index}].reason must be substantive")
-        expired_at = _expiry(row["expired_at"], row=index)
+        expired_at = _expiry(row["expired_at"], row=index, section="builds")
         if expired_at <= review_date or (expired_at - review_date).days > _MAX_EXCEPTION_DAYS:
             raise ValueError(f"builds[{index}] has a stale or excessive review horizon")
         if target in targets:
@@ -844,7 +848,7 @@ def _nonempty_strings(value: object, *, field: str, row: int) -> tuple[str, ...]
     return tuple(result)
 
 
-def _expiry(value: object, *, row: int) -> date:
+def _expiry(value: object, *, row: int, section: str = "vulnerabilities") -> date:
     if isinstance(value, date):
         return value
     if isinstance(value, str):
@@ -852,9 +856,9 @@ def _expiry(value: object, *, row: int) -> date:
             return date.fromisoformat(value)
         except ValueError as exc:
             raise ValueError(
-                f"vulnerabilities[{row}].expired_at must be an ISO date"
+                f"{section}[{row}].expired_at must be an ISO date"
             ) from exc
-    raise ValueError(f"vulnerabilities[{row}].expired_at is required")
+    raise ValueError(f"{section}[{row}].expired_at is required")
 
 
 def load_exceptions(path: Path, *, today: date | None = None) -> tuple[VulnerabilityException, ...]:
@@ -940,10 +944,6 @@ def load_exceptions(path: Path, *, today: date | None = None) -> tuple[Vulnerabi
             )
         )
     return tuple(exceptions)
-
-
-def render_images_json(images: Sequence[str]) -> str:
-    return json.dumps(list(images), separators=(",", ":"))
 
 
 def render_scan_matrix_json(scans: Sequence[ImageScan]) -> str:

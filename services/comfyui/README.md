@@ -81,7 +81,7 @@ COMFYUI_SCALE / COMFYUI_INIT_SCALE
 
 **Request flow.** The backend POSTs a workflow JSON to `${COMFYUI_ENDPOINT}/prompt` and receives a `prompt_id`. n8n workflows call the backend's `/comfyui/*` routes, not ComfyUI. To track progress, the caller polls `GET /history/{prompt_id}`, or opens a `/ws` websocket and filters by `prompt_id`. Outputs go to `output/` in the container; the `/view` endpoint serves them by filename.
 
-**Init flow.** At start, the bootstrapper resolves the selected models and custom nodes from `COMFYUI_USER_MODELS` and the catalogs, and writes a manifest to `volumes/comfyui/`. `comfyui-init` downloads the models into `comfyui-models`. Downloads are SHA-256 verified; an interrupted download restarts from the beginning, and verified files are kept. The ComfyUI AI-Dock provisioning hook clones the allowlisted nodes into `comfyui-custom-nodes`.
+**Init flow.** At start, the bootstrapper resolves the selected models and custom nodes from `COMFYUI_USER_MODELS` and the catalogs, and writes a manifest to `volumes/comfyui/`. `comfyui-init` downloads the models into `comfyui-models`. Downloads are SHA-256 verified; an interrupted download restarts from the beginning, and verified files are kept. Each file must finish within `COMFYUI_DOWNLOAD_TOTAL_TIMEOUT_SECONDS` (default 7200); raise it on slow links. The ComfyUI AI-Dock provisioning hook clones the allowlisted nodes into `comfyui-custom-nodes`.
 
 Selected models and nodes are required for readiness, whether or not they have a checksum; `provisioning_required: false` opts an advisory asset out.
 
@@ -126,11 +126,11 @@ Each start re-scrapes Hugging Face and civitai. A selected model that the scrape
 
 If two selected models would be saved at the same path, the first wins, and the start warns and continues.
 
-The files under `volumes/comfyui/` are **gitignored runtime artifacts**. Each non-`disabled` start rewrites them; do not edit or commit them. A normal start therefore leaves the checkout, and a consumer's Atlas submodule, clean. Tracked marker files (`.gitkeep` and a short README) keep the directory on fresh clones, because the backend bind-mounts it read-only. The catalog you edit is `services/comfyui/models.yaml`.
+The files under `volumes/comfyui/` are **gitignored runtime artifacts**. Each non-`disabled` start rewrites them; do not edit or commit them. A normal start therefore leaves the checkout, and a consumer's Atlas submodule, clean. A tracked README keeps the directory on fresh clones, because the backend bind-mounts it read-only. The catalog you edit is `services/comfyui/models.yaml`.
 
 CLI alternative (works for all non-disabled sources):
 ```bash
-./start.sh --comfyui-models=sdxl-base-1.0,sdxl-vae,flux1-dev-Q4_K_S
+./start.sh --comfyui-models=sd_xl_base_1.0,sdxl-vae,ip-adapter-plus_sdxl_vit-h
 ```
 Unknown names log a warning at bootstrapper start but don't block startup.
 
@@ -138,7 +138,7 @@ Unknown names log a warning at bootstrapper start but don't block startup.
 
 A node with `install_requirements: true` must also declare `requirements_lock` and `requirements_lock_sha256`. Both the container and managed-MPS provisioners verify that digest and install with `--require-hashes --no-deps`. Unknown or unconstrained nodes fail closed. To regenerate the reviewed locks:
 
-1. Run `uv run python scripts/compile_comfyui_custom_node_locks.py --write`.
+1. Run `uv run --project bootstrapper python scripts/compile_comfyui_custom_node_locks.py --write`.
 2. Update the catalog digest that it prints.
 3. Prove byte identity with `--check`.
 
@@ -221,6 +221,8 @@ curl -X POST http://localhost:${COMFYUI_PORT}/prompt \
   -H 'content-type: application/json' \
   --data-binary @services/comfyui/workflows/krea2-turbo-api.json
 ```
+
+`COMFYUI_PORT` is the published port of the container sources. Under `localhost`, use `COMFYUI_LOCALHOST_PORT` (default `8000`). Under `managed-localhost-mps`, use `COMFYUI_MPS_LOCALHOST_PORT` (default `8188`). Set the variable in your shell to its value in the active env file.
 
 ### 8.4. License and deployment obligations
 
@@ -336,8 +338,9 @@ Fully mocked unit tests (`bootstrapper/tests/test_comfyui_mps_manager.py`) cover
 # 1. Bring the managed host up (reuses your existing host models dir):
 ./start.sh comfyui-mps install && ./start.sh comfyui-mps start
 
-# 2. Prove /system_stats reports MPS:
-uv run --project bootstrapper pytest bootstrapper/tests/test_comfyui_mps_manager.py -m live -q
+# 2. Prove /system_stats reports MPS (reads the real ~/.atlas/comfyui-mps state):
+ATLAS_COMFYUI_MPS_LIVE=1 \
+  uv run --project bootstrapper pytest bootstrapper/tests/test_comfyui_mps_manager.py -m live -q
 
 # 3. Run one Krea 2 Turbo generation against the managed endpoint (reuses the same live smoke as container sources):
 ATLAS_COMFYUI_LIVE_ENDPOINT=http://localhost:8188 \
@@ -363,9 +366,11 @@ The DiT checkpoint (`checkpoints/hunyuan3d-dit-v2.safetensors`) is pinned to rev
 [`workflows/hunyuan3d-2-image-to-glb-api.json`](https://github.com/thekaveh/atlas/blob/main/services/comfyui/workflows/hunyuan3d-2-image-to-glb-api.json) is an API-ready single-image → shape example. It uses only ComfyUI-core nodes: `ImageOnlyCheckpointLoader` → `CLIPVisionEncode` → `Hunyuan3Dv2Conditioning` → `KSampler` → `VAEDecodeHunyuan3D` → `VoxelToMeshBasic` → `SaveGLB`. It needs **no custom node** and no CUDA sparse kernels. `SaveGLB` writes a shape-only `.glb`. Put an input image at ComfyUI's `input/example.png` (or edit node `2`), then:
 
 ```bash
-curl -XPOST "$COMFYUI_ENDPOINT/prompt" -H 'content-type: application/json' \
+curl -XPOST "http://localhost:${COMFYUI_PORT}/prompt" -H 'content-type: application/json' \
   --data-binary @services/comfyui/workflows/hunyuan3d-2-image-to-glb-api.json
 ```
+
+This URL reaches the container sources. Under `managed-localhost-mps`, use `http://localhost:${COMFYUI_MPS_LOCALHOST_PORT}` (default `8188`). Under `localhost`, use `http://localhost:${COMFYUI_LOCALHOST_PORT}` (default `8000`). Set the variable in your shell to its value in the active env file.
 
 ### 10.4. License
 
@@ -407,9 +412,11 @@ ATLAS_COMFYUI_LIVE_ENDPOINT=http://localhost:8188 \
 
 **`ws://comfyui:18188/ws` 502s through Kong.** Kong's WebSocket support is wired, but consumers that use `comfyui.localhost` can see timeout drops. From sibling containers, use the internal DNS name `comfyui:18188`.
 
+`atlas_compose` is the Compose helper from [Troubleshooting](../../docs/quick-start/troubleshooting.md); run it from the repository root. Set `COMFYUI_PORT` in your shell to its value in the active env file.
+
 ```bash
-docker compose ps comfyui comfyui-init
-docker compose logs -f comfyui
+atlas_compose ps comfyui comfyui-init
+atlas_compose logs -f comfyui
 curl -s http://localhost:${COMFYUI_PORT}/system_stats | jq .   # GPU/CPU info, queue depth
 ```
 

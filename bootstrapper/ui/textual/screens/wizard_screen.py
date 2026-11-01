@@ -118,6 +118,22 @@ _FAMILY_FLAG_STEM = {
 }
 
 
+def apply_cli_cloud_overrides(cloud_apis, source_args: dict, api_keys: dict) -> None:
+    """Preview deferred CLI source/key writes using only provider booleans."""
+    from utils.cloud_providers import CLOUD_PROVIDERS
+
+    providers = {provider.name: provider for provider in CLOUD_PROVIDERS}
+    for summary in cloud_apis:
+        provider = providers.get(summary.name)
+        if provider is None:
+            continue
+        source = source_args.get(provider.source_var.lower())
+        if source is not None:
+            summary.enabled = source == "enabled"
+        if provider.api_key_var in api_keys:
+            summary.key_set = bool((api_keys[provider.api_key_var] or "").strip())
+
+
 def _model_names(models) -> list[str]:
     """A multiselect answer (set or CSV) as sorted names."""
     if isinstance(models, set):
@@ -309,6 +325,33 @@ def _report_cancel_cleanup_failure(
     )
 
 
+_OVERLONG_LINE_NOTICE = "[atlas] output line longer than 64 KiB was truncated"
+
+
+async def _stream_lines(
+    stream: asyncio.StreamReader, on_line: Callable[[str], None]
+) -> None:
+    """Deliver each line of ``stream`` to ``on_line`` until EOF.
+
+    A line longer than the reader's 64 KiB limit makes ``readline`` raise
+    ValueError after it has discarded the buffered part of that line.
+    Streamed output is diagnostic, so note the cut and keep reading: an
+    oversized log line must not end the command or turn a successful
+    launch into a crash. The stream is read as an async iterator, as
+    ``async for`` would, so the next item resumes after the cut.
+    """
+    lines = aiter(stream)
+    while True:
+        try:
+            raw = await anext(lines)
+        except StopAsyncIteration:
+            return
+        except ValueError:
+            on_line(_OVERLONG_LINE_NOTICE)
+            continue
+        on_line(raw.decode(errors="replace").rstrip("\r\n"))
+
+
 async def _run_streamed_command(
     command: list[str],
     *,
@@ -332,8 +375,7 @@ async def _run_streamed_command(
     )
     async def consume() -> int:
         assert proc.stdout is not None
-        async for raw in proc.stdout:
-            on_line(raw.decode(errors="replace").rstrip("\r\n"))
+        await _stream_lines(proc.stdout, on_line)
         return await proc.wait()
     stream_task = asyncio.create_task(consume())
     try:
@@ -401,13 +443,16 @@ class _ThreadedComposeExecutor:
                 raise asyncio.CancelledError
             from utils.system import compose_env  # noqa: PLC0415
 
+            # Same PROJECT_NAME rule as the other compose executors: the
+            # wizard's `up` used the raw shell/.env value while stop and
+            # cold cleanup pinned it, so the two disagreed on volumes.
+            # This coroutine runs on the app loop, and compose_env can run a
+            # bounded compose probe, so resolve it off the loop.
+            env = await asyncio.to_thread(compose_env, command)
             return await _run_streamed_command(
                 command,
                 cwd=Path(self._manager.root_dir),
-                # Same PROJECT_NAME rule as the other compose executors: the
-                # wizard's `up` used the raw shell/.env value while stop and
-                # cold cleanup pinned it, so the two disagreed on volumes.
-                env={**compose_env(command), "BUILDKIT_PROGRESS": "plain"},
+                env={**env, "BUILDKIT_PROGRESS": "plain"},
                 on_line=self._stream_line,
                 timeout_seconds=_compose_timeout_seconds(args),
                 termination_grace_seconds=_PROCESS_TERMINATION_GRACE_SECONDS,
@@ -539,10 +584,12 @@ async def _capture_bounded_process_output(
 
     from utils.system import compose_env  # noqa: PLC0415
 
+    # compose_env can run a bounded compose probe; keep it off the event loop.
+    env = await asyncio.to_thread(compose_env, command)
     returncode = await _run_streamed_command(
         command,
         cwd=cwd,
-        env=compose_env(command),
+        env=env,
         on_line=capture_line,
         timeout_seconds=timeout_seconds,
     )
@@ -991,6 +1038,13 @@ _SEARCH_ALLOWED_ACTIONS = frozenset({
     "back", "quit_wizard", "move", "toggle_search_focus", "cycle_tab",
 })
 
+# While the Logs-tab source picker is open, every other priority key must
+# reach its focused SelectionList (Up/Down move, Space toggles). Esc still
+# closes and applies it (``back``); ``s``, ``1``/``2`` and Shift+Tab close it.
+_POPUP_ALLOWED_ACTIONS = frozenset({
+    "back", "filter_sources", "quit_wizard", "show_setup", "show_logs", "cycle_tab",
+})
+
 
 def _permission_recovery_hints(joined: str) -> list[str]:
     """Explain known permission symptoms without assuming ownership or repair."""
@@ -1330,7 +1384,8 @@ class WizardScreen(Screen):
         )
         summaries = [
             ServiceSummary(name=r.name, source=r.source, port=r.port,
-                           alias=r.alias, pending=r.pending)
+                           alias=r.alias, pending=r.pending,
+                           off_track=r.off_track)
             for r in services
         ]
         self._info_panel = InfoPanel(
@@ -1752,13 +1807,13 @@ class WizardScreen(Screen):
             exclusive=False, exit_on_error=False, group="support_bundle",
         )
 
-    async def _export_support_bundle(self, destination: Path, snapshot=None) -> None:
+    async def _export_support_bundle(self, destination: Path, snapshot) -> None:
         """Build the bundle off the UI thread from the doctor checks and the
-        session log, stream its full preview into the log pane, then write
-        it. A bundle failure is reported, never raised into the launch."""
+        session-log ``snapshot`` the caller captured, stream its full preview
+        into the log pane, then write it. A bundle failure is reported, never
+        raised into the launch."""
         from core import support_bundle as sb
 
-        snapshot = snapshot or sb.LogSnapshot(error="session snapshot was not captured before export")
         logs = (sb.LogSource("session.log", snapshot=snapshot),)
         options = sb.BundleOptions(
             context={"command": "start", "interface": "textual"}, logs=logs,
@@ -1975,7 +2030,20 @@ class WizardScreen(Screen):
         ``Screen._binding_chain`` / ``Input.check_consume_key`` mechanism
         that lets some printable-character bindings skip the whitelist
         entirely.
+
+        Two overlays also take the keys. While the opening splash shows,
+        every screen binding is off, so any key reaches the splash and
+        skips it. While the source picker is open, only
+        ``_POPUP_ALLOWED_ACTIONS`` stay on.
         """
+        from ui.textual.widgets.atlas_splash import AtlasSplash
+        if any(isinstance(w, AtlasSplash) for w in self.children):
+            return False
+        if (
+            self._log_chips.source_picker_open
+            and action not in _POPUP_ALLOWED_ACTIONS
+        ):
+            return False
         if (
             self._phase == "setup"
             and self._prompt.has_search_focus()
@@ -2618,7 +2686,8 @@ class WizardScreen(Screen):
         """
         summaries = [
             ServiceSummary(name=r.name, source=r.source, port=r.port,
-                           alias=r.alias, pending=r.pending)
+                           alias=r.alias, pending=r.pending,
+                           off_track=r.off_track)
             for r in self._services
         ]
         self._info_panel.update_state(
@@ -3137,10 +3206,12 @@ class WizardScreen(Screen):
             # Bounded + rotating tee (#1178): 3 × 32 MiB per session with the
             # first segment (session start + earliest diagnostics) pinned,
             # active sessions protected, and disk exhaustion degrading logging
-            # loudly instead of failing the launch.
+            # loudly instead of failing the launch. The notice fires in the
+            # thread whose write failed, often a pipeline worker, so it goes
+            # through _safe_log to reach the pane on the event-loop thread.
             tee = SessionLogTee(
                 prefix=f"atlas-launch-{ts}-",
-                on_degraded=lambda msg: self._log_pane.write_log(
+                on_degraded=lambda msg: self._safe_log(
                     f"⚠ {msg}", level="warn", source="pipeline",
                 ),
             )
@@ -3491,10 +3562,11 @@ class WizardScreen(Screen):
         if path is None:
             self.notify("No session log yet.", severity="warning", timeout=3)
             return
-        # The session-log tee is segment-capped (#1178: 32 MiB max here —
-        # this copies segment 0, the pinned first-failure context), but a
-        # full segment is still large — read it off the UI thread in a
-        # worker so ``Y`` can't freeze the TUI for the duration of the read. A dedicated group
+        # The session-log tee is segment-capped (#1178: 32 MiB max here).
+        # This copies at most the last 2 MiB of segment 0, so once segment 0
+        # outgrows that it is not the pinned head. Even the capped read is
+        # large — read it off the UI thread in a worker so ``Y`` can't
+        # freeze the TUI for the duration of the read. A dedicated group
         # keeps this from colliding with (and cancelling) unrelated
         # exclusive=True workers — e.g. the pipeline/transition workers —
         # that run in the default group.
@@ -3579,13 +3651,16 @@ class WizardScreen(Screen):
         import threading
         self._tee_to_log(msg, source=source, level=level)
         on_main = threading.current_thread() is threading.main_thread()
+
+        def write_to_ui() -> None:
+            self._log_pane.write_log(msg, level=level, source=source)
+            self._flag_logs_alert(level)
+
         try:
             if on_main:
-                self._log_pane.write_log(msg, level=level, source=source)
+                write_to_ui()
             else:
-                self.app.call_from_thread(
-                    self._log_pane.write_log, msg, level=level, source=source,
-                )
+                self.app.call_from_thread(write_to_ui)
         except Exception:  # noqa: BLE001
             pass
 
@@ -3800,20 +3875,11 @@ class WizardScreen(Screen):
         steps = [
             ("Apply source overrides",
              lambda: starter.apply_source_overrides(**(self._source_args or {}))),
-            # Apply prod-profile env overrides after source overrides so the
-            # observability default-ON only fires when the user didn't set
-            # prometheus/grafana sources explicitly. The explicit_prometheus/
-            # explicit_grafana guards replicate start.py's linear-path logic:
-            # if the user already set them via source_args, those args were
-            # already applied above, so we pass None here (helper skips the
-            # default-ON write). The TUI wizard merges user choices into
-            # source_args so we can safely read from there.
+            # Apply profile overrides after source overrides: the wizard
+            # merges user choices into source_args, so they are already in
+            # _explicit_source_vars and win over the profile's sources.
             ("Apply profile overrides",
-             lambda _p=_resolved_profile: starter.apply_profile_overrides(
-                 _p,
-                 explicit_prometheus=(self._source_args or {}).get("prometheus_source"),
-                 explicit_grafana=(self._source_args or {}).get("grafana_source"),
-             )),
+             lambda _p=_resolved_profile: starter.apply_profile_overrides(_p)),
             # Validate that no dev-only source (e.g. ollama-localhost) is active
             # under --profile prod. This mirrors the linear-path check in start.py
             # but was absent from the TUI pipeline: a track-skipped service step
@@ -3983,8 +4049,9 @@ class WizardScreen(Screen):
                                    style="bold red", source="pipeline")
                 await self._capture_failure_compose_logs()
                 self._write_status(
-                    f"📝 see {self._launch_log_path or '/tmp/atlas-launch-*.log'} "
-                    "for full output",
+                    f"📝 see {self._launch_log_path} for full output"
+                    if self._launch_log_path is not None
+                    else "📝 file logging unavailable; full output is in the Logs tab",
                     style="bold yellow", source="pipeline",
                 )
                 self._mark_launch_failed()
@@ -4136,9 +4203,11 @@ class WizardScreen(Screen):
         # project's volumes than stop and --no-tui (2026-10-08 run, cycle 37).
         from utils.system import compose_env  # noqa: PLC0415
 
-        env = {**compose_env(full_cmd), "BUILDKIT_PROGRESS": "plain"}
+        # A `${...}` REDIS_PASSWORD makes compose_env run a bounded compose
+        # probe; keep it off the event loop so the TUI stays responsive.
+        env = {**(await asyncio.to_thread(compose_env, full_cmd)), "BUILDKIT_PROGRESS": "plain"}
         # Route through _safe_log so every compose line lands in the
-        # launch-log tee (/tmp/atlas-launch-*.log). Direct
+        # launch-log tee (the private session-log store). Direct
         # _log_pane.write_* calls bypassed the tee — image-pull errors
         # from compose up never reached the file.
         self._safe_log("$ " + " ".join(full_cmd), source="docker", level="dim")
@@ -4217,6 +4286,20 @@ def _strip_project(name: str) -> str:
     return n
 
 
+def _compose_logs_prefix(line: str) -> tuple[str, str] | None:
+    """Split a ``compose logs`` ``<container>  | body`` line, else None.
+
+    Only one whitespace-free token before the first ``|`` is a container
+    name. A BuildKit line quoting a piped RUN command (``#9 ERROR: ...
+    | sha512sum``) is not, so it keeps its whole text for level sniffing.
+    """
+    head, sep, rest = line.partition("|")
+    name = _strip_ansi(head).strip()
+    if not sep or not name or len(name.split()) != 1:
+        return None
+    return name, rest.strip()
+
+
 def _classify_compose_line(line: str) -> tuple[str, str]:
     """Best-effort (source, level) classification for a docker compose line.
 
@@ -4229,11 +4312,10 @@ def _classify_compose_line(line: str) -> tuple[str, str]:
     """
     src = ""
     rest = line
-    if "|" in line:
-        head, _, rest = line.partition("|")
-        head_word = head.strip().split()[0] if head.strip() else ""
+    prefix = _compose_logs_prefix(line)
+    if prefix is not None:
+        head_word, rest = prefix
         src = _strip_project(head_word)
-        rest = rest.strip()
     else:
         words = line.strip().split()
         if len(words) >= 2 and words[0] in ("Container", "Network", "Volume"):
@@ -4293,8 +4375,7 @@ class _NullSink:
     Returning a bare ``lambda`` from ``__getattr__`` (the previous behavior)
     handled ``banner.foo()`` but crashed on ``banner.console.print(...)`` with
     ``'function' object has no attribute 'print'`` — the pipeline reaches the
-    latter via ``starter.banner.console.print(...)`` (e.g. the embedding
-    dimension warning in ``apply_user_model_selections``).
+    latter via ``starter.banner.console.print(...)``.
     """
 
     def __call__(self, *args, **kwargs): return None
@@ -4362,10 +4443,6 @@ class _NullBanner:
             level = {"warning": "warn", "success": "ok"}.get(level, level)
             self._sink(str(message), str(level or "info"))
     def show_section_header(self, *args, **kwargs) -> None: ...
-    def show_subsection_header(self, *args, **kwargs) -> None: ...
-    def log(self, *args, **kwargs) -> None: ...
-    def status(self, *args, **kwargs) -> None: ...
-    def section(self, *args, **kwargs) -> None: ...
     # Undefined attributes (e.g. ``console``) resolve to a sink that swallows
     # both further attribute access and calls — see _NullSink.
     def __getattr__(self, name): return _NULL_SINK

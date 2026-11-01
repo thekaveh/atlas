@@ -2,16 +2,14 @@
 CLI lint for the per-service modular layout.
 
 Runs the manifest loader + cross-manifest validator on the project's
-services/ tree. With --check-env-example, also re-assembles .env.example
-from manifests and diffs against the committed file.
-
-Phase A scope: manifest + env-example checks only. Compose-fragment merge
-verification (`docker compose -f docker-compose.yml config -q`) lands when
-fragments exist (Phase D).
+services/ tree, then checks that the README.md TOPOLOGY block matches
+`tools.generate_readme_topology`. With --check-env-example, also
+re-assembles .env.example from manifests and diffs against the committed file.
 
 Exit codes:
     0  — clean
-    1  — manifest load or cross-manifest validation errors
+    1  — manifest load or cross-manifest validation errors, or a missing or
+         stale README TOPOLOGY block
     2  — .env.example drift (only when --check-env-example is set)
     3  — uncaught internal error
 """
@@ -120,7 +118,10 @@ def _info(msg: str) -> None:
 def _main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="validate-fragments",
-        description="Lint the per-service modular layout (manifests + .env.example).",
+        description=(
+            "Lint the per-service modular layout (manifests, README TOPOLOGY block, "
+            "optional .env.example)."
+        ),
     )
     parser.add_argument(
         "--project-root",

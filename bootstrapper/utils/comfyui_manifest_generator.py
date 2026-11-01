@@ -294,10 +294,6 @@ class ComfyUIManifestGenerator:
             download_rows.append(row)
         return "".join(self._row_tsv(row) + "\n" for row in download_rows)
 
-    def _write_custom_nodes_tsv(self, entries: list[Any], tsv_path: Path) -> None:
-        """Write the tab-separated active custom-node install plan atomically."""
-        self._atomic_write(tsv_path, self._custom_nodes_tsv_text(entries, tsv_path.parent))
-
     def _custom_nodes_tsv_text(self, entries: list[Any], output_dir: Path) -> str:
         """The custom-node install plan, validated; copies each node's lock
         file next to it."""

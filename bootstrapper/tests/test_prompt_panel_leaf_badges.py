@@ -259,14 +259,14 @@ def test_rebuild_uses_detail_cache_then_appends_unlisted_pulled_tags():
     )
     rows = stub._rebuild_visible()
     leaves = [r.variant for r in rows if r.kind == "leaf"]
-    # Detail-page tags come first, in detail order.
-    assert leaves[:5] == ["latest", "27b", "35b", "27b-mlx", "35b-mlx"], (
-        f"Detail-page tags must drive leaf order. Got: {leaves}"
-    )
-    # Pulled tag missing from the detail page is appended.
-    assert "custom-quant" in leaves[5:], (
-        f"Custom pulled tag must still appear when detail page omits "
-        f"it. Got: {leaves}"
+    # Detail-page tags come first, in detail order. The pulled tag the
+    # detail page omits is appended; the pulled ``latest`` the detail page
+    # already lists must NOT be appended a second time.
+    assert leaves == [
+        "latest", "27b", "35b", "27b-mlx", "35b-mlx", "custom-quant",
+    ], (
+        "Detail-page tags must drive leaf order, unlisted pulled tags must "
+        f"be appended, and listed pulled tags must not repeat. Got: {leaves}"
     )
 
 

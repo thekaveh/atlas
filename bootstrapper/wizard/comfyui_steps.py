@@ -512,9 +512,9 @@ def build_comfyui_steps(
         call). For those sources comfyui-init (the download container)
         scales to 0 per service_config.py — same shape as ollama-pull
         being scale=0 for non-container ollama sources. The user
-        populates their host ComfyUI install's models dir themselves,
-        same as running `ollama pull <name>` on the host for Ollama
-        localhost.
+        populates their host ComfyUI install's models dir themselves.
+        (Ollama localhost differs: the bootstrapper pulls declared models
+        onto the host daemon at start, #757.)
         """
         # The wizard's selections dict is keyed by STEP TITLE (see
         # WizardScreen.action_confirm), so the live user choice must be

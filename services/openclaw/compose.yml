@@ -19,8 +19,7 @@ services:
       - |
         set -e
         CONFIG=/home/node/.openclaw/openclaw.json
-        PATCH='{"gateway":{"controlUi":{"dangerouslyAllowHostHeaderOriginFallback":true}}}'
-        # Write via tmp + mv on BOTH branches: `> "$$CONFIG"` truncates
+        # Write via tmp + mv on EVERY write: `> "$$CONFIG"` truncates
         # the target before jq runs, so a missing/failed jq used to
         # leave a 0-byte config the gateway chokes on (and re-runs
         # could not self-heal — jq errors on the empty file).
@@ -33,13 +32,16 @@ services:
           chown -R 1000:1000 /home/node/.openclaw
           exit 0
         fi
-        if [ -s "$$CONFIG" ]; then
-          jq --argjson patch "$$PATCH" '. * $$patch' "$$CONFIG" > "$$CONFIG.tmp" || exit 1
-          mv "$$CONFIG.tmp" "$$CONFIG"
-        else
-          echo "$$PATCH" | jq . > "$$CONFIG.tmp" || exit 1
+        if [ ! -s "$$CONFIG" ]; then
+          echo '{}' > "$$CONFIG.tmp" || exit 1
           mv "$$CONFIG.tmp" "$$CONFIG"
         fi
+        # Allow the Host-header origin fallback for the non-loopback bind
+        # only when the operator set neither an explicit value nor a
+        # gateway.controlUi.allowedOrigins list, so a hardening survives.
+        # Not `//=`: jq's alternative operator treats an explicit false as unset.
+        jq 'if (((.gateway.controlUi.allowedOrigins // []) | length) > 0) or ((.gateway.controlUi // {}) | has("dangerouslyAllowHostHeaderOriginFallback")) then . else .gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback = true end' "$$CONFIG" > "$$CONFIG.tmp" || exit 1
+        mv "$$CONFIG.tmp" "$$CONFIG"
         # The bundled litellm provider reads LITELLM_API_KEY but defaults its
         # base URL to http://localhost:4000 (ECONNREFUSED in this container).
         # Point it at the gateway only when unset, keeping operator values.

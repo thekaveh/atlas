@@ -1835,8 +1835,8 @@ def test_doc_only_folders_are_skipped_by_real_manifest_load():
     `_is_service_dir` predicate gates on `service.yml` existence so
     they're never loaded as manifests; they appear in other services'
     `data_flow.calls` as aggregator names and the regen / topology
-    layers handle that aliasing separately. See project memory
-    `project_doc_only_service_folders.md`.
+    layers handle that aliasing separately. See AGENTS.md (Per-service
+    manifest) and docs/CONTRIBUTING-services.md §5.
 
     Synthetic-folder tests above (test_load_manifests*) cover the
     predicate in isolation. This test pins the contract against the
@@ -1853,7 +1853,7 @@ def test_doc_only_folders_are_skipped_by_real_manifest_load():
         assert (services_root / name).is_dir(), (
             f"services/{name}/ should exist as a doc-only folder; "
             f"if you renamed or removed it, update this test "
-            f"(and project_doc_only_service_folders.md memory)."
+            f"(and the doc-only folder list in AGENTS.md)."
         )
 
     manifests = load_manifests(services_root)

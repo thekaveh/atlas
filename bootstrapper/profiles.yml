@@ -4,8 +4,9 @@
 # This file expresses EXACTLY the behavior `apply_profile_overrides` used to
 # hard-code, so a repo that never touches profiles behaves identically:
 #   prod    → retain the loopback host-port default, observability ON (unless
-#             an explicit --prometheus-source/--grafana-source flag was passed
-#             this run), and log-rotation defaults (unless operator-set).
+#             --prometheus-source/--grafana-source was passed this run, or the
+#             consumer manifest env, .env.user or ATLAS_ENV_USER_FILE pins
+#             that *_SOURCE), and log-rotation defaults (unless operator-set).
 #   default → retain the loopback host-port default; select nothing else.
 #
 # Field semantics (enforced by AtlasStarter.apply_profile_overrides):
@@ -14,8 +15,9 @@
 #                 operator's non-empty bind is never touched.
 #   sources       {<service-name>: <option-id> | auto}. Asserted on every
 #                 start of this profile unless that service's source was set
-#                 by an explicit CLI flag this run or is declared in a consumer
-#                 manifest's env (CLI > manifest > profile). `auto`
+#                 by an explicit CLI flag this run, or is pinned in a consumer
+#                 manifest's env, .env.user or ATLAS_ENV_USER_FILE
+#                 (CLI > manifest/.env.user > profile). `auto`
 #                 delegates to the durable `<SVC>_SOURCE: auto` resolver
 #                 (#753). On a profile SWITCH, a value asserted by the prior
 #                 profile is reset to the service default first (sentinel

@@ -419,7 +419,7 @@ def test_cutover_promotes_recovery_signal_after_compensating_rollback(capsys) ->
 
     coordinator.compose = compose
     with pytest.raises(module.SignalInterruption, match="signal 15 during recovery"):
-        coordinator.cutover({})
+        coordinator.cutover()
 
     assert "neo4j-rollback-restore" in copy_roles
     assert running["neo4j-graph-db"] is True
@@ -806,7 +806,7 @@ def test_second_cutover_copy_failure_restores_both_live_generations():
     coordinator._copy_volume = types.MethodType(copy, coordinator)
 
     with pytest.raises(module.ContractError, match="second cutover"):
-        coordinator.cutover({})
+        coordinator.cutover()
     assert contents["neo-live"] == "neo-old"
     assert contents["weaviate-live"] == "weaviate-old"
     assert running == {"neo4j-graph-db": True, "weaviate": True}
@@ -851,7 +851,7 @@ def test_second_service_stop_failure_restarts_the_first_without_mutation():
     coordinator.compose = types.MethodType(compose, coordinator)
     coordinator._copy_volume = lambda *_args: None
     with pytest.raises(module.ContractError, match="stop failure"):
-        coordinator.cutover({})
+        coordinator.cutover()
     assert running == {"neo4j-graph-db": True, "weaviate": True}
 
 

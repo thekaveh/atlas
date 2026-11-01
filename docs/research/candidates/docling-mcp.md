@@ -34,7 +34,7 @@ medium — packaging is straightforward (upstream ships a container image and su
 
 ## 5. Risks & open questions
 - MCP transport choice: SSE vs streamable-HTTP — streamable-HTTP is friendlier behind Kong but newer.
-- Auth surface: docling-mcp inherits whatever auth docling-serve has (currently none); fronting via Kong with a shared header is the likely answer.
+- Auth surface: the Atlas-managed Docling provider requires a Bearer token by default; only `/health` is public. A future MCP adapter must forward `DOCLING_API_TOKEN` unless the operator explicitly selects `DOCLING_AUTH_MODE=disabled`. Authentication for the MCP endpoint itself still needs design.
 - Tool naming collisions: if multiple MCP servers expose `convert_document`, agents need namespacing.
 - Resource overhead: running both docling-serve and docling-mcp doubles the container count; remote-mode mitigates by avoiding model reload.
 

@@ -28,6 +28,7 @@ from rich.text import Text
 from textual import events
 from textual.app import ComposeResult
 from textual.containers import Container
+from textual.markup import escape
 from textual.widget import Widget
 
 from utils import brand_logo
@@ -45,11 +46,6 @@ from .. import palette as P
 _LOGO_ROWS_FULL: list[str] = brand_logo.ATLAS_FULL
 _LOGO_ROWS_COMPACT: list[str] = brand_logo.ATLAS_COMPACT
 _WIDTH_THRESHOLD = brand_logo.width_threshold(brand_logo.ATLAS_FULL)
-
-
-# Width of one fully-rendered row of the full lockup. Used by tests
-# that compare canvas dimensions.
-_ROW_WIDTH = len(_LOGO_ROWS_FULL[0])
 
 
 # Vertical-gradient color stops (top → bottom). Top is the brightest.
@@ -295,15 +291,18 @@ class BrandPanel(Container):
         self._render_border()
 
     def _render_border(self) -> None:
+        # Brand text comes from BRAND_* / a consumer manifest and is display
+        # text, not markup: Textual parses border titles, so an unescaped
+        # ``[beta]`` vanished and a stray ``[/]`` raised MarkupError on mount.
         if self.tagline:
-            self.border_title = f" {self.tagline} "
+            self.border_title = f" {escape(self.tagline)} "
 
         if not self._tabs_enabled:
             # Byline-only path (original behavior): use right-alignment and let Textual fill dashes.
             # This avoids the implicit-gap artifact that occurs when left-aligned padding starts
             # with dashes (╰─ gap ───... would appear). Instead: ╰────── byline.
             self.styles.border_subtitle_align = "right"
-            self.border_subtitle = self._byline()
+            self.border_subtitle = escape(self._byline())
         else:
             # Tabs-enabled path: left-aligned with manual padding to position tabs+byline.
             # The implicit gap after the corner is unavoidable with left-alignment;
@@ -320,8 +319,10 @@ class BrandPanel(Container):
             # - 2 chars: left (╰) and right (╯) border corners
             # - ~2 chars: Textual's implicit gap-padding around the border_subtitle
             inner = max(0, self.size.width - 4)
+            # ``right`` stays plain for the width budget; only the escaped
+            # copy reaches Textual, whose ``\[`` renders as one column.
             pad = max(1, inner - left_rendered_len - len(right))
-            self.border_subtitle = left + "─" * pad + right
+            self.border_subtitle = left + "─" * pad + escape(right)
 
             # Adjust tab spans to account for the border rendering offset.
             # Textual renders the border_subtitle on the bottom border as:

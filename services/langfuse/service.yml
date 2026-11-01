@@ -209,9 +209,13 @@ runtime_sc:
 # validates, and only services declaring runtime_deps are checked. MinIO is the
 # one source-configurable dependency Langfuse cannot start without -- it needs
 # S3-compatible event storage, and langfuse-init runs after minio-init
-# provisions the bucket and service account. Without this, a track that offers
-# Langfuse while force-disabling MinIO produces a Langfuse that never works and
-# no warning at all. Matches the trino -> minio/iceberg-rest precedent.
+# provisions the bucket and service account. Matches the trino ->
+# minio/iceberg-rest precedent. Note: service_config._generate_langfuse_config
+# refuses MINIO_SOURCE=disabled with a hard error, and that runs before
+# check_service_dependencies. So a Langfuse + disabled-MinIO start stops there
+# (naming --minio-source container), never reaching this block's report or
+# auto-resolve. gen-ai-rag, gen-ai-eng and gen-ai-creative offer Langfuse but
+# force-disable MinIO, so choosing Langfuse in them hits that error.
 runtime_deps:
   langfuse:
     requires:

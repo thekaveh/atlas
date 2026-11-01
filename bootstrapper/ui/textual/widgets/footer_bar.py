@@ -105,14 +105,10 @@ class FooterBar(Container):
         self,
         *,
         hints: list[Hint] | None = None,
-        right: Hint | None = None,  # kept for back-compat; merged inline
         id: str | None = None,
     ) -> None:
         super().__init__(id=id)
-        merged = list(hints) if hints else list(DEFAULT_HINTS)
-        if right is not None:
-            merged.append(right)
-        self._body = _Body(merged)
+        self._body = _Body(list(hints) if hints else list(DEFAULT_HINTS))
 
     def on_mount(self) -> None:
         self.border_title = " Shortcuts "
@@ -120,16 +116,8 @@ class FooterBar(Container):
     def compose(self) -> ComposeResult:
         yield self._body
 
-    def update_hints(
-        self,
-        hints: list[Hint],
-        *,
-        right: Hint | None = None,
-    ) -> None:
-        merged = list(hints)
-        if right is not None:
-            merged.append(right)
-        self._body.update_hints(merged)
+    def update_hints(self, hints: list[Hint]) -> None:
+        self._body.update_hints(hints)
 
     def set_compact(self, compact: bool, *, title_hint: str = "") -> None:
         """Tighten separators and expose an essential out-of-band action."""

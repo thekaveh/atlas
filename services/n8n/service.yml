@@ -102,6 +102,21 @@ env:
   - name: N8N_SEED_MAX_RESPONSE_BYTES
     default: 1048576
     description: "Maximum bytes accepted from one consumer workflow seeder HTTP response; must be positive."
+  - name: N8N_METRICS
+    default: "true"
+    description: "Serves Prometheus /metrics on n8n and n8n-worker. The endpoint is unauthenticated on N8N_PORT and the n8n.localhost route. Prometheus scrapes it when enabled."
+  - name: N8N_METRICS_PREFIX
+    default: "n8n_"
+    description: "Prefix of every n8n metric name. The shipped Grafana n8n dashboard queries the n8n_ prefix."
+  - name: N8N_METRICS_INCLUDE_DEFAULT_METRICS
+    default: "true"
+    description: "Adds the Node.js process and runtime metrics to n8n's /metrics output."
+  - name: N8N_METRICS_INCLUDE_WORKFLOW_ID_LABEL
+    default: "true"
+    description: "Labels n8n workflow metrics with the workflow ID."
+  - name: N8N_METRICS_INCLUDE_EXECUTION_DATA_METRICS
+    default: "true"
+    description: "Exports execution-data write metrics. Upstream n8n defaults it off; without it the Grafana execution-data panel shows no data."
   # TZ is intentionally NOT declared here. main's .env.example doesn't expose
   # it; n8n's compose has `GENERIC_TIMEZONE: ${TZ:-UTC}` which falls back to
   # UTC when TZ is unset. Declaring TZ on the manifest would force a value
@@ -199,10 +214,9 @@ runtime_adaptive:
       LIGHTRAG_API_KEY: ${LIGHTRAG_API_KEY}
       CRAWL4AI_ENDPOINT: ${CRAWL4AI_ENDPOINT}
       CRAWL4AI_API_TOKEN: ${CRAWL4AI_API_TOKEN}
-      # n8n + n8n-worker compose blocks inject these (services/n8n/
-      # compose.yml lines ~75-77 / ~138-141). Declaring them here keeps
-      # the auto-generated diagram and §N.x dependency tables in sync
-      # with the actual runtime wiring; n8n-worker mirrors n8n.
+      # services/n8n/compose.yml injects these into n8n and n8n-worker.
+      # This block is not read at runtime and does not feed the diagram
+      # (data_flow.calls does); tests assert its keys.
       HERMES_ENDPOINT: ${HERMES_ENDPOINT}
       HERMES_API_KEY: ${HERMES_API_KEY}
     extra_hosts_adaptation: inherit from stt_provider, tts_provider, doc_processor

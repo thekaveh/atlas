@@ -15,7 +15,6 @@ from rich.text import Text
 from textual.widget import Widget
 
 _ASSETS = Path(__file__).resolve().parent.parent / "assets"
-_BREAKPOINTS = (160, 120, 100, 80, 60)  # descending
 HERO_BACKGROUND = Style(bgcolor="#000412")
 
 

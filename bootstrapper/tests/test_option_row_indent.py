@@ -16,7 +16,10 @@ same contract.
 """
 from __future__ import annotations
 
+from unittest.mock import PropertyMock, patch
+
 from rich.console import Console
+from textual.geometry import Size
 
 from ui.textual.widgets.option_row import OptionRow
 
@@ -28,15 +31,15 @@ def _rendered_lines(row: OptionRow, width: int) -> list[str]:
     widget is painted, which is where the indent is lost. Wrapping here
     through a real Rich console reproduces what the terminal shows —
     asserting on ``render().plain`` alone would pass against the bug.
-    """
-    class _Size:
-        def __init__(self, w: int) -> None:
-            self.width = w
-            self.height = 2
 
-    row._size = _Size(width)  # type: ignore[attr-defined]
+    ``Widget.size`` reads the content region, not ``_size``, so the width
+    is patched on the property itself. Without that, ``render()`` falls
+    back to 60 cells and never reaches the wide aligned layout.
+    """
+    size = PropertyMock(return_value=Size(width, 2))
     console = Console(width=width)
-    return [line.plain for line in row.render().wrap(console, width)]
+    with patch.object(OptionRow, "size", new_callable=lambda: size):
+        return [line.plain for line in row.render().wrap(console, width)]
 
 
 def test_a_long_hint_keeps_every_continuation_line_indented() -> None:
@@ -80,3 +83,89 @@ def test_the_hint_text_survives_wrapping_intact() -> None:
 
     joined = " ".join(line.strip() for line in lines[1:])
     assert joined.split() == words
+
+
+def test_a_wide_single_select_row_keeps_its_badges_on_line_one() -> None:
+    """A long source label must not push a status badge onto its own line.
+
+    At 100+ cells the row used to reserve the full capability-column block
+    even with no capability tag, so ``[disabled]`` wrapped to column 0.
+    """
+    row = OptionRow(
+        "No backup service (default).",
+        hint="Skip this service entirely",
+        badges=["rec.", "disabled"],
+    )
+    for width in (100, 108, 128):
+        lines = _rendered_lines(row, width)
+        assert len(lines) == 2, f"width {width}: expected label + hint, got {lines!r}"
+        assert "[rec.]" in lines[0] and "[disabled]" in lines[0], lines
+
+
+def test_a_parent_that_cannot_fit_the_columns_keeps_its_pull_count() -> None:
+    """The inline fallback must engage when the aligned line would overflow."""
+    row = OptionRow(
+        "gemma3",
+        badges=["library", "vision"],
+        multi=True,
+        sizes=("1b", "4b"),
+        pulls=28_600_000,
+        tag_start_col_override=38,
+    )
+    lines = _rendered_lines(row, 107)
+
+    assert len(lines) == 2, f"expected parent + sizes, got {lines!r}"
+    assert "28.6M" in lines[0], f"pull count wrapped off line 1: {lines!r}"
+
+
+def test_a_parent_that_fits_keeps_its_canonical_tag_column() -> None:
+    """Rows wide enough for the aligned layout render exactly as before."""
+    row = OptionRow(
+        "gemma3",
+        badges=["library", "vision"],
+        multi=True,
+        sizes=("1b", "4b"),
+        pulls=28_600_000,
+        tag_start_col_override=38,
+    )
+    lines = _rendered_lines(row, 127)
+
+    assert len(lines) == 2, lines
+    assert lines[0].index("[vision]") == 63, lines[0]
+    assert "28.6M" in lines[0], lines[0]
+
+
+def test_a_fitting_single_select_row_keeps_its_badge_column() -> None:
+    row = OptionRow("Container (GPU)", hint="h", badges=["rec.", "GPU"])
+    lines = _rendered_lines(row, 108)
+
+    assert len(lines) == 2, lines
+    assert lines[0].index("[rec.]") == 90, lines[0]
+
+
+def test_a_leaf_that_cannot_fit_the_columns_stays_one_line() -> None:
+    row = OptionRow(
+        "qwen3.6:8b",
+        badges=["thinking", "tools", "pulled"],
+        multi=True,
+        is_leaf=True,
+        leaf_size_label="(8b · 4.8GB)",
+    )
+    for width in (130, 131):
+        lines = _rendered_lines(row, width)
+        assert len(lines) == 1, f"width {width}: leaf wrapped: {lines!r}"
+        assert "[pulled]" in lines[0], lines
+
+
+def test_a_leaf_that_fits_keeps_its_canonical_tag_column() -> None:
+    row = OptionRow(
+        "qwen3.6:8b",
+        badges=["thinking", "tools", "pulled"],
+        multi=True,
+        is_leaf=True,
+        leaf_size_label="(8b · 4.8GB)",
+    )
+    lines = _rendered_lines(row, 140)
+
+    assert len(lines) == 1, lines
+    assert lines[0].index("[thinking]") == 77, lines[0]

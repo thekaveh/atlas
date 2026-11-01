@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import subprocess
 
 from tests.three_surface_test_utils import surface_text
 
@@ -22,14 +23,21 @@ def test_chonkie_dependency_is_limited_to_backend_and_jupyterhub_surfaces() -> N
     assert "chonkie>=1.7.0,<2" in jupyter_requirements
     assert "requirements-test-locked.txt" in workflow
 
-    for unexpected_path in (
-        "services/docling/app/requirements.txt",
-        "services/lightrag/build/requirements.txt",
-        "services/n8n/requirements.txt",
-    ):
-        path = ROOT / unexpected_path
-        if path.exists():
-            assert "chonkie" not in path.read_text(encoding="utf-8").lower()
+    tracked = subprocess.run(
+        ["git", "ls-files", "-z", "--", "*requirements*.txt", "*pyproject.toml", "*uv.lock"],
+        cwd=ROOT, check=True, capture_output=True, text=True,
+    ).stdout.split("\0")
+    declaring = {
+        path for path in tracked
+        if path and "chonkie" in (ROOT / path).read_text(encoding="utf-8").lower()
+    }
+    assert declaring == {
+        "services/backend/app/app/requirements.txt",
+        "services/backend/app/app/requirements-locked.txt",
+        "services/backend/app/app/requirements-test-locked.txt",
+        "services/jupyterhub/build/requirements.txt",
+        "services/jupyterhub/build/requirements-locked.txt",
+    }
 
 
 def test_chonkie_notebook_and_docs_register_backend_runtime_contract() -> None:
@@ -56,4 +64,4 @@ def test_chonkie_notebook_and_docs_register_backend_runtime_contract() -> None:
     assert "/api/chunk" in notebook_text
     assert "13_chonkie_chunking.ipynb" in docs_text
     assert "POST /api/chunk" in docs_text
-    assert "n8n workflows" in docs_text
+    assert "the scoped notebook token" in docs_text

@@ -1,8 +1,8 @@
 """Boundary redaction and exact member-budget contracts for #1759."""
 from base64 import b64encode
 from dataclasses import replace
+import datetime
 import io
-import json
 import tarfile
 
 import pytest
@@ -62,6 +62,45 @@ def test_cut_source_cannot_reintroduce_unsafe_context_after_redaction():
     assert "MULTILINE_BOUNDARY_SECRET79" not in combined and "end\n" not in combined
     assert "safe terminal canary" in combined
     assert bundle.body["logs"][0]["truncated"]
+
+
+def test_redaction_inside_the_omitted_head_keeps_the_safe_boundary():
+    raw = b"abc PARTIALSECRETVALUE99 more-excluded\nnext head line\n" + b"ok line\n" * 3
+    bundle = bundle_for(LogSnapshot(data=raw, original_bytes=len(raw) + 5, head_cut=True),
+                        env={"PRIVATE_TOKEN": "PARTIALSECRETVALUE99"})
+    assert bundle.logs["session.log"] == "next head line\n" + "ok line\n" * 3
+
+
+@pytest.mark.parametrize(("key", "secret", "line"), [
+    ("POSTGRES_PASSWORD", "p4ss;word,99", "PGPASSWORD={} started"),
+    ("GRAPH_DB_PASSWORD", "Tr0ub;dor&3x", "export GRAPH_DB_PASSWORD={}"),
+    ("OPENAI_API_KEY", "abc def ghij klm", "OPENAI_API_KEY={}"),
+    ("MY_PASSWORD", "red horse 99 battery", "my_password: {}"),
+    ("MY_PASSWORD", "red horse 99 battery", "run --password {}"),
+], ids=["comma", "semicolon-ampersand", "space-assignment", "space-yaml", "space-flag"])
+def test_known_value_with_a_delimiter_is_fully_redacted_after_a_key(monkeypatch, key, secret, line):
+    monkeypatch.setattr(sb.os, "environ", {})
+    text = line.format(secret) + "\nterminal canary\n"
+    redactor = sb.Redactor({key: secret})
+    bundle = sb.build_bundle(sb.BundleRequest(
+        env={key: secret}, logs=[sb.LogSource("transcript.log", text=text)]))
+    expected = line.format(sb.REDACTED) + "\nterminal canary\n"
+    assert (redactor.text(text), redactor.window(text, 0)[0],
+            bundle.logs["transcript.log"]) == (expected, expected, expected)
+
+
+def test_known_value_holding_a_key_word_still_lets_its_assignment_redact():
+    redactor = sb.Redactor({"ROOT_PASSWORD": "PASSWORD_ROOT1"})
+    assert redactor.text("PASSWORD_ROOT1=xyz123") == f"{sb.REDACTED}={sb.REDACTED}"
+
+
+def test_a_short_secret_inside_a_key_word_secret_does_not_split_it():
+    """The early pass must not break a longer key-word value apart."""
+    env = {"SHORT_TOKEN": "abc123xyz", "LONG_PASSWORD": "mypasswordabc123xyzTAIL"}
+    redactor = sb.Redactor(env)
+    line = "a mypasswordabc123xyzTAIL b abc123xyz c"
+    for out in (redactor.text(line), redactor.window(line, 0)[0]):
+        assert "TAIL" not in out and "mypassword" not in out and "abc123xyz" not in out
 
 
 @pytest.mark.parametrize("raw", [
@@ -195,6 +234,16 @@ def test_aggregate_cap_matches_exact_previewed_and_archived_members():
     assert "aggregate" in preview
     for log in bundle.body["logs"]:
         assert log["kept_bytes"] == len(bundle.logs[log["name"]].encode())
+    assert any(log.get("aggregate_truncated") and log["truncated"] for log in bundle.body["logs"])
+
+
+def test_aggregate_cap_leaves_a_bundle_that_fits_exactly_untouched():
+    now = datetime.datetime(2026, 11, 1, 12, 0, tzinfo=datetime.timezone.utc)
+    request = sb.BundleRequest(env={}, logs=[sb.LogSource("x", text="failure canary\n" * 50)])
+    request.limits = replace(request.limits, max_bundle_bytes=member_payload_size(sb.build_bundle(request, now=now)))
+    bundle = sb.build_bundle(request, now=now)
+    assert bundle.logs["x"] == "failure canary\n" * 50
+    assert bundle.body["truncation"] == [] and not bundle.body["logs"][0]["truncated"]
 
 
 def test_metadata_overflow_is_visible_before_any_archive_write(tmp_path):
@@ -248,3 +297,103 @@ def test_cut_pem_end_redacts_body_and_preserves_following_failure():
     preview, members = rendered(bundle)
     assert b"KEYBODYabc" not in b"".join(members.values()) and "KEYBODYabc" not in preview
     assert "terminal canary" in bundle.logs["session.log"]
+
+
+@pytest.mark.parametrize(("address", "local"), [
+    ("/var/run/docker.sock", True),
+    (("localhost", 1), True),
+    (("127.0.0.1", 1), True),
+    (("::1", 1, 0, 0), True),
+    (("::ffff:127.0.0.1", 1, 0, 0), True),
+    (("fe80::1%lo0", 1, 0, 0), False),
+    (("example.com", 80), False),
+    (("192.0.2.1", 1), False),
+])
+def test_offline_guard_admits_only_loopback_and_unix_sockets(address, local):
+    """`offline()` keeps loopback and Unix sockets usable; any hostname counts as remote."""
+    assert sb._is_local_address(address) is local
+
+
+def test_six_character_secret_value_is_scrubbed_from_free_text():
+    """`_MIN_SECRET_LEN` is inclusive: a 6-character non-wordlike secret is matched by value."""
+    scrubbed = sb.Redactor({"API_KEY": "a1#b2!"}).text("upstream echoed a1#b2! back")
+    assert "a1#b2!" not in scrubbed
+    assert sb.REDACTED in scrubbed
+
+
+def test_bundle_fields_are_clipped_to_the_limit_with_a_truncation_note():
+    checks = [{"id": "c", "status": "fail", "message": "m" * 40},
+              {"id": "d", "status": "ok", "message": "n" * 16}]
+    body = sb.build_bundle(sb.BundleRequest(
+        env={}, checks=checks, limits=sb.BundleLimits(max_field_chars=16))).body
+    assert body["checks"][0]["message"] == "m" * 16 + " … [truncated]"
+    assert body["checks"][1]["message"] == "n" * 16
+    assert "bundle.checks[0].message: cut to 16 of 40 characters" in body["truncation"]
+    assert not any(note.startswith("bundle.checks[1]") for note in body["truncation"])
+
+
+def test_archive_is_deterministic_owner_only_and_sanitizes_member_names():
+    now = datetime.datetime(2026, 11, 1, 12, 0, tzinfo=datetime.timezone.utc)
+    request = sb.BundleRequest(env={}, logs=[
+        sb.LogSource("zeta", text="z\n"), sb.LogSource("../x", text="escape\n"),
+        sb.LogSource("", text="unnamed\n")])
+    archive = sb.archive_bytes(sb.build_bundle(request, now=now))
+    assert archive == sb.archive_bytes(sb.build_bundle(request, now=now))
+    stamp = int(now.timestamp())
+    assert int.from_bytes(archive[4:8], "little") == stamp  # gzip header MTIME
+    with tarfile.open(fileobj=io.BytesIO(archive)) as opened:
+        members = opened.getmembers()
+    assert [member.name for member in members] == [
+        f"{sb.ARCHIVE_ROOT}/{name}" for name in ("bundle.json", "logs/.._x", "logs/log", "logs/zeta")]
+    assert {(member.mode, member.mtime, member.uid, member.gid, member.uname, member.gname)
+            for member in members} == {(0o600, stamp, 0, 0, "atlas", "atlas")}
+
+
+def test_failed_archive_write_leaves_no_temporary_file(tmp_path, monkeypatch):
+    bundle = sb.build_bundle(sb.BundleRequest(env={}))
+
+    def refuse(*_args):
+        raise OSError("synthetic replace failure")
+
+    monkeypatch.setattr(sb.os, "replace", refuse)
+    with pytest.raises(OSError, match="synthetic replace failure"):
+        sb.write_bundle(bundle, tmp_path / "bundle.tar.gz")
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_preview_shows_bundle_json_in_full_and_elides_only_long_logs():
+    bundle = sb.build_bundle(sb.BundleRequest(env={}, logs=[
+        sb.LogSource("even", text="".join(f"even {index}\n" for index in range(4))),
+        sb.LogSource("long", text="".join(f"long {index}\n" for index in range(5)))]))
+    full = sb.preview_lines(bundle)
+    start = full.index("long 0")
+    expected = [*full[:start], "long 0", "long 1",
+                "… 1 more redacted lines, as shown in the log pane …", "long 3", "long 4",
+                *full[start + 5:]]
+    assert sb.preview_lines(bundle, log_lines=2) == expected
+
+
+@pytest.mark.parametrize("case", [
+    ("BASE_PORT", "atlas.consumer.yml", "Change `env.values.BASE_PORT` in {origin}. Every start writes "
+     "the manifest's values into .env, so an edit to .env alone does not stick."),
+    ("PROJECT_NAME", "atlas.consumer.yaml", "Change `project_name` in {origin}. Every start writes "
+     "the manifest's values into .env, so an edit to .env alone does not stick."),
+    ("BASE_PORT", "override.env", "Change BASE_PORT in {origin}, the env file that sets it; "
+     "it is applied over .env on every start."),
+    ("BASE_PORT", None, "Change BASE_PORT in {origin} (or pass the matching ./start.sh flag), then restart."),
+], ids=["manifest", "manifest-project-name", "overlay", "active-env"])
+def test_config_entry_action_names_the_file_that_sets_the_value(tmp_path, case):
+    name, origin_name, action = case
+    env_file = tmp_path / "active.env"
+    env_file.write_text(f"{name}=1\n", encoding="utf-8")
+    origins = {name: str(tmp_path / origin_name)} if origin_name else {}
+    request = sb.BundleRequest(env={name: "1"}, env_origins=origins, env_file=env_file)
+    entries, _omitted = sb.config_entries(request, sb.Redactor())
+    origin = origins.get(name, str(env_file))
+    assert entries == [{"key": name, "value": "1", "origin": origin, "action": action.format(origin=origin)}]
+
+
+def test_file_key_discovery_ignores_a_line_without_an_assignment(tmp_path):
+    env_file = tmp_path / "active.env"
+    env_file.write_text("BASE_PORT\nPROJECT_NAME=atlas\n", encoding="utf-8")
+    assert sb._file_keys(env_file) == {"PROJECT_NAME"}

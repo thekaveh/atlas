@@ -63,17 +63,6 @@ def _docker(*args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
     )
 
 
-def _add_exception_note(exc: BaseException, note: str) -> None:
-    if hasattr(exc, "add_note"):
-        exc.add_note(note)
-        return
-    notes = getattr(exc, "__notes__", None)
-    if notes is None:
-        notes = []
-        exc.__notes__ = notes
-    notes.append(note)
-
-
 def _inspect_owned_resource(kind: str, name: str) -> dict | None:
     inspected = _docker(kind, "inspect", name, check=False)
     if inspected.returncode == 0:
@@ -174,10 +163,10 @@ def _cleanup_owned_resources(
             )
             note = f"OTLP/Loki fixture cleanup could not be proven: {detail}"
             if deferred_error is not None:
-                _add_exception_note(deferred_error, note)
+                deferred_error.add_note(note)
                 raise_deferred_cleanup_error(primary, deferred_error)
                 return
-            _add_exception_note(failures[0][1], note)
+            failures[0][1].add_note(note)
             raise failures[0][1]
         deferred_error = sleep_for_cleanup(0.1, deferred_error)
 
@@ -195,7 +184,7 @@ def _add_docker_diagnostics(
                 f"--- {name} ---\nDocker diagnostics unavailable: "
                 f"{type(exc).__name__}: {exc}"
             )
-    _add_exception_note(primary, "\n".join(diagnostics))
+    primary.add_note("\n".join(diagnostics))
 
 
 def _free_port() -> int:

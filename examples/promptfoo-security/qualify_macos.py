@@ -129,7 +129,7 @@ def helper_and_version(context, runtime):
     if version["exit_code"] or version["stop"] or version.get("stderr"):
         raise RuntimeError("contained CLI startup failed: " + json.dumps(version))
     if not re.search(r"(?m)^0\.124\.1$", version["stdout"]):
-        raise RuntimeError("actual contained CLI does not report pinned version0.124.1")
+        raise RuntimeError("actual contained CLI does not report pinned version 0.124.1")
     runtime.save(inputs / "startup.json", {"actual_helper": proof, "cli": version})
 
 
@@ -197,6 +197,8 @@ def emit_bindings(context, runtime):
 
 
 def main():
+    if sys.flags.optimize:
+        raise SystemExit("qualification requires assertions; do not run with -O")
     modules = {name: adjacent("host_" + name) for name in ["profile", "runtime", "network"]}
     context = None
     try:

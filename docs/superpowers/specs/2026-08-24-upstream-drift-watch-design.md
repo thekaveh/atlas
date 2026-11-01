@@ -1,6 +1,6 @@
 # Scheduled upstream-drift watch — design
 
-> **Status: archived spec** — dated 2026-08-24; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+> **Status: archived spec** — dated 2026-08-24; a point-in-time record kept for archaeology, not current guidance. It landed in `f257ccc5` (#969), which has no CHANGELOG entry.
 
 - **Ticket:** [#969](https://github.com/thekaveh/atlas/issues/969)
 - **Branch:** `codex/969-upstream-drift-watch` (cut from `develop`)
@@ -102,7 +102,9 @@ deduplicate them, and fail closed when the services directory, service-manifest
 set, or aggregate image inventory is missing or empty. A manifest may omit the
 `images` key when other manifests supply the non-empty inventory; a declared
 `images: null` is invalid. Every declared row requires non-empty literal `var`,
-`container`, and `default` fields. Resolve each of the 71 unique references with
+`container`, and `default` fields.
+
+Resolve each of the 71 unique references with
 `docker buildx imagetools inspect <reference>` using a bounded subprocess and
 a small fixed worker pool. This reads registry manifests only; it never pulls
 layers. Failure output is truncated to a bounded diagnostic.

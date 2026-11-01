@@ -204,6 +204,8 @@ def test_build_config_digest_tracks_resolved_local_build_args(monkeypatch):
     from core.docker_manager import DockerManager
 
     manager = DockerManager(str(REPO_ROOT))
+    # Preset the CLI probe: the stubbed runner must not depend on a real docker.
+    monkeypatch.setattr(manager, "_compose_cmd", "docker compose")
     rendered = {
         "services": {
             "mlflow": {
@@ -246,6 +248,8 @@ def test_build_config_digest_tracks_target_dependency_closure(monkeypatch) -> No
     from core.docker_manager import DockerManager
 
     manager = DockerManager(str(REPO_ROOT))
+    # Preset the CLI probe: the stubbed runner must not depend on a real docker.
+    monkeypatch.setattr(manager, "_compose_cmd", "docker compose")
     rendered = {
         "services": {
             "backend": {"build": {"context": "backend"}},
@@ -273,6 +277,8 @@ def test_warm_start_rebuilds_after_mlflow_image_change(monkeypatch, tmp_path):
     from core.docker_manager import DockerManager
 
     manager = DockerManager(str(REPO_ROOT))
+    # Preset the CLI probe: the stubbed runner must not depend on a real docker.
+    monkeypatch.setattr(manager, "_compose_cmd", "docker compose")
     monkeypatch.setattr(manager, "root_dir", Path(tmp_path))
     monkeypatch.setattr(manager, "_current_source_commit", lambda: "same789")
     rendered = {

@@ -144,7 +144,11 @@ def _construct_converter(settings: PipelineSettings):
         PdfPipelineOptions,
         TableFormerMode,
     )
-    from docling.document_converter import DocumentConverter, PdfFormatOption
+    from docling.document_converter import (
+        DocumentConverter,
+        ImageFormatOption,
+        PdfFormatOption,
+    )
 
     options = PdfPipelineOptions()
     options.do_ocr = settings.do_ocr
@@ -159,6 +163,7 @@ def _construct_converter(settings: PipelineSettings):
     return DocumentConverter(
         format_options={
             InputFormat.PDF: PdfFormatOption(pipeline_options=options),
+            InputFormat.IMAGE: ImageFormatOption(pipeline_options=options),
             InputFormat.JSON_DOCLING: _json_format_option(),
         }
     )

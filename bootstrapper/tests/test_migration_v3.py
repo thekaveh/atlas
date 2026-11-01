@@ -118,6 +118,26 @@ def test_preserves_existing_user_models_via_union(tmp_path):
     assert "v1-5-pruned-emaonly" in text
 
 
+def test_keeps_custom_models_file_and_user_models_first(tmp_path):
+    """A customized sidecar path survives; user entries lead, without duplicates."""
+    env = tmp_path / ".env"
+    env.write_text(
+        "BOOTSTRAPPER_PORT_LAYOUT_VERSION=2\n"
+        "COMFYUI_MODEL_SET=sd15\n"
+        "COMFYUI_USER_MODELS=epiCRealism-XL,v1-5-pruned-emaonly\n"
+        "COMFYUI_CUSTOM_MODELS_FILE=/my/models.yaml\n"
+    )
+    apply_v3(env)
+    lines = env.read_text().splitlines()
+    assert lines.count("COMFYUI_CUSTOM_MODELS_FILE=/my/models.yaml") == 1
+    assert not [line for line in lines if "/custom-models.yaml" in line]
+    user_models = [line for line in lines if line.startswith("COMFYUI_USER_MODELS=")]
+    assert user_models == [
+        "COMFYUI_USER_MODELS="
+        "epiCRealism-XL,v1-5-pruned-emaonly,vae-ft-mse-840000-ema-pruned"
+    ]
+
+
 def test_handles_crlf_line_endings(tmp_path):
     """Windows line endings — reuses pattern from migration_v2's test fixtures."""
     env = tmp_path / ".env"

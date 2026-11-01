@@ -638,6 +638,7 @@ def test_extract_generation_caps_are_documented():
 # --- the smoke proves each role's own request (#1389) ------------------------
 
 _FAKE_DOCKER = """#!/bin/sh
+echo "docker $*" >>"$DOCKER_LOG"
 case "$*" in
   *" exec "*) echo "EXTRACT_LLM_MODEL=x" ;;
   *" logs "*) printf '%s\\n' "$FAKE_LITELLM_LOGS" ;;
@@ -645,6 +646,7 @@ esac
 """
 _FAKE_CURL = """#!/bin/sh
 echo "$*" >>"$CURL_LOG"
+case "$*" in *"--header @-"*) cat >>"$HEADER_LOG" ;; esac
 case "$*" in
   */documents/upload*) printf '{"status":"%s","message":"m"}' "${FAKE_UPLOAD_STATUS:-success}" ;;
   *) printf '{"response":"r"}' ;;
@@ -653,18 +655,24 @@ esac
 
 
 def _run_smoke(tmp_path: Path, logs: str, **env):
+    """Run the smoke with fake docker and curl; an env value of None drops that key."""
     bin_dir, tmp = tmp_path / "bin", tmp_path / "tmp"
     for path, body in ((bin_dir / "docker", _FAKE_DOCKER), (bin_dir / "curl", _FAKE_CURL)):
         path.parent.mkdir(exist_ok=True)
         path.write_text(body)
         path.chmod(0o755)
     tmp.mkdir(exist_ok=True)
+    full_env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "TMPDIR": str(tmp), "LIGHTRAG_API_KEY": "k",
+                "LIGHTRAG_EXTRACT_LLM_MODEL": "gpt-4o", "LIGHTRAG_QUERY_LLM_MODEL": "qwen3:8b",
+                "LIGHTRAG_SMOKE_WAIT_SECONDS": "0", "FAKE_LITELLM_LOGS": logs,
+                "CURL_LOG": str(tmp_path / "curl.log"),
+                "HEADER_LOG": str(tmp_path / "header.log"),
+                "DOCKER_LOG": str(tmp_path / "docker.log"), **env}
+    # cwd=tmp_path: the script reads ./.env, so a developer's real .env never leaks in.
     return subprocess.run(
         ["bash", str(SMOKE_SCRIPT)], text=True, capture_output=True, check=False, timeout=60,
-        env={"PATH": f"{bin_dir}:/usr/bin:/bin", "TMPDIR": str(tmp), "LIGHTRAG_API_KEY": "k",
-             "LIGHTRAG_EXTRACT_LLM_MODEL": "gpt-4o", "LIGHTRAG_QUERY_LLM_MODEL": "qwen3:8b",
-             "LIGHTRAG_SMOKE_WAIT_SECONDS": "0", "FAKE_LITELLM_LOGS": logs,
-             "CURL_LOG": str(tmp_path / "curl.log"), **env},
+        cwd=tmp_path, stdin=subprocess.DEVNULL,
+        env={key: value for key, value in full_env.items() if value is not None},
     )
 
 
@@ -687,3 +695,47 @@ def test_lightrag_smoke_needs_each_exact_role_model_and_reruns_cleanly(tmp_path:
     assert same.returncode == 2 and "set different models" in same.stderr
     refused = _run_smoke(tmp_path, both, FAKE_UPLOAD_STATUS="failure")
     assert refused.returncode == 1 and "not accepted for extraction" in refused.stderr
+
+
+# `. ./.env` aborts zsh at the `==` pin and runs BRAND_TAGLINE words in bash.
+_SMOKE_DOTENV = (
+    "COMFYUI_MPS_TORCH_PIN=torch==2.11.0 torchvision==0.26.0 torchaudio==2.11.0\n"
+    "BRAND_TAGLINE=A self-hosted, source-configurable engineering platform.\n"
+    "PROJECT_NAME=atlas-dotenv\n"
+    "LIGHTRAG_API_PORT=64074\n"
+    "LIGHTRAG_API_KEY='dotenv-key'\n"
+    'LIGHTRAG_EXTRACT_LLM_MODEL="gpt-4o"  # extract role\n'
+    "LIGHTRAG_QUERY_LLM_MODEL=qwen3:8b\n"
+)
+
+
+def _run_smoke_with_dotenv(tmp_path: Path, **env):
+    (tmp_path / ".env").write_text(_SMOKE_DOTENV)
+    return _run_smoke(tmp_path, "model=openai/gpt-4o\nmodel=ollama_chat/qwen3:8b", **env)
+
+
+def test_lightrag_smoke_reads_dotenv_without_sourcing_it(tmp_path: Path) -> None:
+    run = _run_smoke_with_dotenv(tmp_path, LIGHTRAG_API_KEY=None,
+                                 LIGHTRAG_EXTRACT_LLM_MODEL=None, LIGHTRAG_QUERY_LLM_MODEL=None)
+    assert run.returncode == 0, run.stderr
+    assert "command not found" not in run.stderr
+    assert "LightRAG URL: http://localhost:64074" in run.stdout
+    assert "expected EXTRACT model: gpt-4o\n" in run.stdout
+    assert (tmp_path / "header.log").read_text() == "X-API-Key: dotenv-key\n" * 2
+    assert "docker compose -p atlas-dotenv " in (tmp_path / "docker.log").read_text()
+
+
+def test_lightrag_smoke_prefers_exported_values_over_dotenv(tmp_path: Path) -> None:
+    run = _run_smoke_with_dotenv(tmp_path, LIGHTRAG_API_PORT="65074", PROJECT_NAME="atlas-shell")
+    assert run.returncode == 0, run.stderr
+    assert "LightRAG URL: http://localhost:65074" in run.stdout
+    assert (tmp_path / "header.log").read_text() == "X-API-Key: k\n" * 2
+    assert "docker compose -p atlas-shell " in (tmp_path / "docker.log").read_text()
+
+
+def test_lightrag_smoke_missing_key_hint_does_not_source_dotenv(tmp_path: Path) -> None:
+    (tmp_path / ".env").write_text("LIGHTRAG_API_KEY=\n")
+    run = _run_smoke(tmp_path, "", LIGHTRAG_API_KEY=None)
+    assert run.returncode == 2
+    assert "Set LIGHTRAG_API_KEY in .env or export it" in run.stderr
+    assert ". ./.env" not in run.stderr

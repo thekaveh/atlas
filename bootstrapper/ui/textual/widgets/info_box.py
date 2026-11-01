@@ -15,7 +15,7 @@ Mockup 003 layout:
     └─────────────────────────────────────────────────────────────────┘
 
 Module name `info_box.py` retained for back-compat with import paths;
-class is renamed `InfoPanel`. `InfoBox` alias kept too.
+class is renamed `InfoPanel`.
 """
 
 from __future__ import annotations
@@ -29,6 +29,7 @@ from textual.containers import Container
 from textual.widgets import Static
 
 from .. import palette as P
+from utils.source_availability import source_has_endpoint
 # state_builder doesn't import from widgets, so this top-level import is
 # circular-safe. Keeps render() free of deferred imports.
 from wizard.model.state_builder import cloud_api_status_text
@@ -41,15 +42,21 @@ class ServiceSummary:
     port: str = ""
     alias: str = ""
     pending: bool = False
+    # Excluded by the active track: the service table labels the row
+    # "disabled (off-track)" whatever its stored source, so it counts as off.
+    off_track: bool = False
 
     @property
     def is_disabled(self) -> bool:
-        return self.source.lower() == "disabled" or not self.source
+        # ``none`` (LLM Engine without Ollama) runs nothing, like ``disabled``;
+        # source_has_endpoint is the same predicate the service table uses.
+        return not self.source or self.off_track or not source_has_endpoint(self.source)
 
     @property
     def is_localhost_or_external(self) -> bool:
+        # ``enabled`` is a cloud passthrough (FAL), not a local container.
         s = self.source.lower()
-        return "localhost" in s or "external" in s or s == "api"
+        return "localhost" in s or "external" in s or s in ("api", "enabled")
 
     @property
     def is_gpu(self) -> bool:
@@ -140,7 +147,9 @@ class InfoBoxFooter(Static):
     def _counts(self) -> tuple[int, int, int, int, int]:
         pending = container = local = off = gpu = 0
         for s in self._services:
-            if s.pending:
+            # An off-track row is never asked about, so it counts as off even
+            # while its wizard step is unanswered.
+            if s.pending and not s.off_track:
                 pending += 1
             elif s.is_disabled:
                 off += 1
@@ -323,7 +332,7 @@ class InfoPanel(Container):
         width: 100%;
     }
     InfoPanel > .info-body { height: auto; min-height: 5; }
-    InfoPanel > InfoBoxFooter { height: 1; padding-top: 1; }
+    InfoPanel > InfoBoxFooter { height: auto; }
     """
 
     def __init__(
@@ -373,7 +382,3 @@ class InfoPanel(Container):
     @property
     def body(self) -> Container:
         return self._body
-
-
-# Back-compat alias
-InfoBox = InfoPanel

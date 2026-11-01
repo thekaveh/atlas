@@ -279,8 +279,9 @@ def parallel_shortfall(
     current = observed.get("OLLAMA_NUM_PARALLEL")
     if current is None:
         return False, (
-            "could not read the host daemon's OLLAMA_NUM_PARALLEL "
-            "(only macOS launchctl is supported); skipping the comparison"
+            "could not read a numeric OLLAMA_NUM_PARALLEL from `launchctl getenv` "
+            "(the probe reads only macOS launchctl; a value set another way, or a "
+            "non-macOS host, is not visible to it); skipping the comparison"
         )
     if current >= declared_min:
         return False, (
@@ -353,8 +354,9 @@ def residency_shortfall(
     max_loaded = observed.get("OLLAMA_MAX_LOADED_MODELS")
     if max_loaded is None:
         return False, (
-            "could not read the host daemon's OLLAMA_MAX_LOADED_MODELS "
-            "(only macOS launchctl is supported); skipping the comparison"
+            "could not read a numeric OLLAMA_MAX_LOADED_MODELS from `launchctl getenv` "
+            "(the probe reads only macOS launchctl; a value set another way, or a "
+            "non-macOS host, is not visible to it); skipping the comparison"
         )
     if max_loaded >= declared_min:
         detail = (

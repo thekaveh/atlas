@@ -195,7 +195,7 @@ def test_consolidate_reraises_transient_llm_failure_for_worker(monkeypatch):
         raise AssertionError("worker-mode consolidation swallowed a transient error")
 
 
-def test_consolidate_deactivates_weaviate_before_superseding_fact(monkeypatch):
+def test_consolidate_supersedes_in_postgres_before_deactivating_weaviate(monkeypatch):
     import memory_service
 
     events = []
@@ -311,7 +311,7 @@ def test_consolidate_deactivates_weaviate_before_superseding_fact(monkeypatch):
     ]
 
 
-def test_consolidate_deactivates_weaviate_before_retention_expiry(monkeypatch):
+def test_consolidate_expires_in_postgres_before_deactivating_weaviate(monkeypatch):
     import memory_service
 
     events = []

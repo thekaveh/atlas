@@ -3,8 +3,8 @@ LLM cluster prompt-step builders for the Textual wizard.
 
 Two consumers in ``bootstrapper/ui/textual/integration.py``:
   * ``build_ollama_steps(env_vars)`` — two steps: a unified models
-    multiselect (container modes show the library catalog; localhost/
-    external show merged [pulled] + [library]) and a free-text
+    multiselect (container modes show the library catalog; localhost
+    shows merged [pulled] + [library]) and a free-text
     "additional to pull" step that fires only for container sources.
     Gating via ``skip_if_prev`` on ``LLM_PROVIDER_SOURCE``.
   * ``build_cloud_steps(env_vars, warn)`` — three (secret + multiselect)
@@ -58,7 +58,6 @@ from ui.textual.widgets.prompt_panel import (
 )
 from wizard.model.cloud_rules import resolve_cloud_provider, resolve_secret_verdict
 from wizard.model.llm_rules import (
-    LLM_ENGINE_TITLE,
     is_container_ollama as _is_container_ollama,
     is_localhost_or_external as _is_localhost_or_external,
     parse_csv as _csv,
@@ -66,21 +65,15 @@ from wizard.model.llm_rules import (
 )
 
 
-# LLM_ENGINE_TITLE is re-exported (not redefined) from wizard.model.llm_rules
-# — the canonical definition moved there in the #535 followups review
-# (finding R5) so selected_llm_source could reach it without a deferred,
-# textual-pulling import of this module. Kept importable from here too for
-# backward compatibility with any existing `from wizard.llm_steps import
-# LLM_ENGINE_TITLE` call sites.
 LLM_DEFAULT_CONTENT_TITLE = "LLM defaults  ·  chat model"
 LLM_DEFAULT_EMBED_TITLE   = "LLM defaults  ·  embedding model"
 LLM_DEFAULT_EMBED_DIM_TITLE = "LLM defaults  ·  embedding dimension"
 LLM_DEFAULT_VISION_TITLE  = "LLM defaults  ·  vision model"
 # Single unified Ollama models step. Replaces the previous pulled+library
-# split, which produced two near-duplicate pages for localhost/external
-# users (the library was a strict superset of /api/tags). Now: container
-# sources show library only (nothing's pulled yet); localhost/external
-# show a merged list with [pulled] / [library] badges.
+# split, which produced two near-duplicate pages for localhost users
+# (the library was a strict superset of /api/tags). Now: container
+# sources show library only (nothing's pulled yet); localhost shows a
+# merged list with [pulled] / [library] badges.
 OLLAMA_MODELS_TITLE = "Ollama  ·  models"
 OLLAMA_CUSTOM_TITLE = "Ollama  ·  additional models to pull"
 
@@ -323,7 +316,7 @@ def build_ollama_steps(
 
     ``warn`` is the same launch-log sink the cloud steps use — passed
     here so live-discovery failures (``/api/tags`` unreachable) get
-    persisted to ``/tmp/atlas-launch-*.log`` instead of
+    persisted to the private session-log store instead of
     silently producing an empty multiselect.
     """
     _warn = warn or (lambda _msg: None)
@@ -344,7 +337,6 @@ def build_ollama_steps(
 
     def _ollama_upstream_for_wizard(selections: dict) -> str:
         src = _selected_llm_source(env_vars, selections)
-        url = (env_vars.get("LITELLM_OLLAMA_UPSTREAM", "") or "").strip()
         if "localhost" in src:
             # Honor the user's port override — the 5th consumer site of
             # the localhost-port symmetry rule (runtime_sc, Kong,
@@ -357,8 +349,6 @@ def build_ollama_steps(
                 or "11434"
             )
             return f"http://localhost:{port}"
-        if "external" in src and url:
-            return url
         return ""
 
 
@@ -448,7 +438,7 @@ def build_ollama_steps(
                 opts = [_fallback_notice_option(live_count, len(library_entries))] + opts
             return opts
 
-        # Localhost/external: merge /api/tags + library.
+        # Localhost: merge /api/tags + library.
         url = _ollama_upstream_for_wizard(selections)
         pulled_names: List[str] = []
         if not url:
@@ -546,7 +536,7 @@ def build_ollama_steps(
 
     return [
         # Single unified step. Container modes get library only;
-        # localhost/external get a merged [pulled] + [library] view.
+        # localhost gets a merged [pulled] + [library] view.
         # See _merged_ollama_options for details.
         PromptStep(
             title=OLLAMA_MODELS_TITLE,
@@ -554,9 +544,9 @@ def build_ollama_steps(
             heading="Which Ollama models to register?",
             subtitle=(
                 "Container: full ollama.com/library catalog (ollama-pull fetches checked at startup). "
-                "Localhost/external: [pulled] = already on your Ollama host (usable immediately); "
-                "[library] = in the public catalog but NOT on your host yet (you'll need to "
-                "`ollama pull <name>` afterwards). "
+                "Localhost: [pulled] = already on your Ollama host (usable immediately); "
+                "[library] = in the public catalog, not on your host yet; Atlas pulls it onto "
+                "your Ollama host at the next start. "
                 "Recent models first (by pull count); [legacy] = updated > 1 year ago. "
                 "Each row's 2nd line shows variant sizes — both Ollama tag (8b) and approximate "
                 "Q4 disk footprint (4.8GB); selected variants render in green. "
@@ -633,8 +623,16 @@ _RETRY_HINT = "Esc re-enters the key and retries"
 # The untruncated text is still in the session log.
 _MAX_DETAIL = 60
 
+# Providers whose model listing is fetched without the API key. A live
+# listing from one of them proves nothing about the key, so its caption
+# must not say the key was accepted.
+_KEYLESS_LISTINGS = frozenset({"openrouter"})
 
-def _provenance_subtitle(state: "str | None", detail: str) -> str:
+_KEY_NOT_CHECKED = "key not checked (OpenRouter lists models without a key)"
+
+
+def _provenance_subtitle(state: "str | None", detail: str, *,
+                         key_checked: bool = True) -> str:
     """The caption above a cloud model picker, stating where its rows came from.
 
     ``state`` is ``None`` before discovery has run (the loading splash).
@@ -643,14 +641,19 @@ def _provenance_subtitle(state: "str | None", detail: str) -> str:
     says that, names the cause, and points at the retry. An unrecognised
     state still lands on the fallback wording: claiming a live listing is
     the one thing this caption must never do by default.
+
+    On a live listing, ``detail`` is the cap discovery applied (``first N
+    of M``), and ``key_checked`` is False when the listing was fetched
+    without the key, so the caption cannot vouch for it.
     """
     if state is None:
         return f"Checking the provider's model list · {_PICKER_KEYS}"
     if state == cloud_models.LIVE:
-        head = "Live from the provider · key accepted"
+        head = "Live from the provider"
         if detail:
             head = f"{head} ({detail})"
-        return f"{head} · {_PICKER_KEYS}"
+        key = "key accepted" if key_checked else _KEY_NOT_CHECKED
+        return f"{head} · {key} · {_PICKER_KEYS}"
     cause = _FALLBACK_CAPTIONS.get(state, "discovery failed")
     if detail:
         if len(detail) > _MAX_DETAIL:
@@ -698,8 +701,42 @@ def _live_rows(models) -> List[PromptOption]:
     ]
 
 
+def _shown_live_rows(result: DiscoveryResult,
+                     provider_key: str) -> List[PromptOption]:
+    """Live rows, plus the curated rows that a capped listing cut off.
+
+    A live result carries a ``detail`` only when discovery capped the
+    list (OpenRouter's ``first N of M``, taken in alphabetical order).
+    The cap can drop curated models, so those stay selectable. They keep
+    the ``catalog`` badge, because this run did not see the provider
+    list them. An uncapped listing is the provider's full answer and is
+    shown as it is.
+    """
+    rows = _live_rows(result.models)
+    if not result.detail:
+        return rows
+    known = {r.value for r in rows}
+    return rows + [r for r in _curated_rows(provider_key)
+                   if r.value not in known]
+
+
+def _live_subtitle(outcome: Dict[str, object], provider_key: str) -> str:
+    """Caption for a picker showing live rows.
+
+    The cap detail is used only when the last fetch was itself live: a
+    stale fallback reason (``HTTP 401``) must never reach a live caption.
+    """
+    detail = (str(outcome["detail"])
+              if outcome["state"] == cloud_models.LIVE else "")
+    return _provenance_subtitle(
+        cloud_models.LIVE, detail,
+        key_checked=provider_key not in _KEYLESS_LISTINGS,
+    )
+
+
 def _curated_rows(provider_key: str) -> List[PromptOption]:
-    """Picker rows from the bundled catalog — shown when discovery failed.
+    """Picker rows from the bundled catalog — shown when discovery failed,
+    and after a capped live list for the curated models it cut off.
 
     Badged ``catalog`` so no row on screen can be read as the provider
     confirming it supports that model with this key.
@@ -796,7 +833,7 @@ def _make_cloud_options_provider(provider, env_vars: Dict[str, str],
         )
         outcome["state"] = result.state
         outcome["detail"] = result.detail
-        rows = (_live_rows(result.models) if result.is_live
+        rows = (_shown_live_rows(result, provider_key) if result.is_live
                 else _curated_rows(provider_key))
         return _with_saved_rows(rows, env_vars, provider.user_models_var)
 
@@ -809,7 +846,7 @@ def _make_cloud_options_provider(provider, env_vars: Dict[str, str],
         # fallback; the holder only supplies the reason, and is ignored
         # when it disagrees with what is rendered.
         if any(BADGE_LIVE in o.badges for o in options or []):
-            return _provenance_subtitle(cloud_models.LIVE, "")
+            return _live_subtitle(outcome, provider_key)
         state = outcome["state"]
         if state not in cloud_models.FALLBACK_STATES:
             return _provenance_subtitle("unknown", "")
@@ -1055,14 +1092,15 @@ def build_default_model_steps(
 
     Convention pre-selection
     ------------------------
-    * **Chat / content:** pre-selects the first content-capable model in
+    * **Chat / content:** pre-selects the saved ``LITELLM_DEFAULT_MODEL`` when
+      it is offered, otherwise the first content-capable model in
       catalog-priority order among the user's current selections.
     * **Embedding:** pre-selects the current ``LITELLM_EMBEDDING_MODEL`` value
       from ``.env``, falling back to ``ollama/nomic-embed-text``. Curated
       models derive their dimension from catalog metadata; a custom model
       opens a required, visible dimension step.
-    * **Vision:** pre-selects the first vision-capable model in priority order,
-      or ``""`` (none / skip) when no vision model is selected.
+    * **Vision:** pre-selects the saved ``LITELLM_VISION_MODEL``; on a fresh
+      setup (empty) the ``"— none / skip —"`` sentinel.
 
     Skip logic
     ----------
@@ -1096,7 +1134,6 @@ def build_default_model_steps(
             secret_value=selections.get(cloud_secret_title(p.name)),
             selected_models=selected_models,
             existing_key_set=bool(existing_key),
-            existing_source=existing_source,
         )
         source = verdict.source
         if source is None:
@@ -1121,12 +1158,21 @@ def build_default_model_steps(
 
         return not (ollama_active or cloud_active)
 
+    def _selected_custom_models(selections: dict) -> List[str]:
+        """Names from the 'additional models to pull' step, or the saved
+        OLLAMA_CUSTOM_MODELS when the step was not shown (ollama-localhost)."""
+        custom = selections.get(OLLAMA_CUSTOM_TITLE)
+        if custom in (None, SECRET_KEEP):
+            custom = env_vars.get("OLLAMA_CUSTOM_MODELS", "")
+        return [] if custom == SECRET_CLEAR else _csv(custom)
+
     def _gather_selected_models(selections: dict) -> List[tuple]:
         """Return a list of (provider, name) pairs for the user's current
         selections across all providers.
 
-        For Ollama: reads from the selections dict; falls back to .env when
-        the step returned SECRET_KEEP (degraded fetch).
+        For Ollama: reads the models step plus the custom-models step (both
+        are registered with LiteLLM); falls back to .env when a step returned
+        SECRET_KEEP (degraded fetch) or was not shown.
         For cloud: reads per-provider multiselect; falls back to .env when
         the step was not visited.
         """
@@ -1139,6 +1185,7 @@ def build_default_model_steps(
             ollama_names = _csv(env_vars.get("OLLAMA_USER_MODELS", ""))
         else:
             ollama_names = _csv(ollama_v)
+        ollama_names = list(dict.fromkeys(ollama_names + _selected_custom_models(selections)))
         src = _selected_llm_source(env_vars, selections)
         if src.startswith("ollama-"):
             for name in ollama_names:
@@ -1171,10 +1218,7 @@ def build_default_model_steps(
             "LLM_PROVIDER_SOURCE": _selected_llm_source(env_vars, selections),
             "OLLAMA_USER_MODELS": ",".join(name for provider, name in pairs if provider == "ollama"),
         }
-        custom = selections.get(OLLAMA_CUSTOM_TITLE)
-        if custom in (None, SECRET_KEEP):
-            custom = env_vars.get("OLLAMA_CUSTOM_MODELS", "")
-        env["OLLAMA_CUSTOM_MODELS"] = "" if custom == SECRET_CLEAR else (custom or "")
+        env["OLLAMA_CUSTOM_MODELS"] = ",".join(_selected_custom_models(selections))
         for p in CLOUD_PROVIDERS:
             # The verdict already checks source and key presence. Metadata
             # resolution needs an activation marker, never the secret value.
@@ -1271,7 +1315,7 @@ def build_default_model_steps(
     # ── Step 2: default embedding model ──────────────────────────────
     def _embed_options(selections: dict) -> List[PromptOption]:
         # Auto-match: stable-sort so embedding models whose declared dim equals
-        # the consumer's required dimension (memory_facts vector(768)) come
+        # the 768-dim default (MEMORY_FACTS_EMBEDDING_DIM) come
         # first — index 0 is the wizard's pre-selected default. Catalog/selection
         # order is preserved as the tiebreaker within each dim group, and models
         # with no declared dim sort after the matching ones.
@@ -1348,8 +1392,9 @@ def build_default_model_steps(
     _content_default = (env_vars.get("LITELLM_DEFAULT_MODEL", "") or "").strip() or None
 
     # default_value semantics for these options steps:
-    #   - content: default_value=None → the WizardScreen pre-selects the FIRST
-    #     option (highest-priority content model) after options_provider runs.
+    #   - content: default_value=_content_default → the saved
+    #     LITELLM_DEFAULT_MODEL; when that model is not offered, the prompt
+    #     panel falls back to option 0 (highest-priority content model).
     #   - embedding: default_value=_embedding_default → the current saved value
     #     (or the 768-dim safe default), deterministic at build time.
     #   - vision: default_value=_vision_default → the saved LITELLM_VISION_MODEL

@@ -628,3 +628,61 @@ def test_removing_the_last_workflow_reconciles_once_then_cleans_up(tmp_path):
     starter.config_parser.parse_env_file = lambda: {"N8N_API_KEY": "key"}
     assert starter._finalize_consumer_n8n_workflows()
     assert not any("N8N_API_KEY" in msg for _level, msg in warnings), warnings
+
+
+def _disabled_n8n_starter(tmp_path, workflows):
+    from types import SimpleNamespace
+
+    import start
+
+    messages = []
+    starter = start.AtlasStarter.__new__(start.AtlasStarter)
+    starter.root_dir = tmp_path
+    starter.banner = SimpleNamespace(
+        show_status_message=lambda msg, level="info": messages.append((level, msg))
+    )
+    starter.config_parser = SimpleNamespace(
+        load_consumer_config=lambda: SimpleNamespace(n8n_workflows=workflows),
+        parse_env_file=lambda: {"N8N_SOURCE": "disabled", "N8N_API_KEY": ""},
+    )
+    return starter, messages
+
+
+def test_disabled_n8n_skips_the_seed_overlay_loudly(tmp_path):
+    """With N8N_SOURCE=disabled the seed depended on an n8n with zero replicas:
+    readiness failed --detach and the seed waited 300 s for /healthz."""
+    from types import SimpleNamespace
+
+    from core.consumer_manifest import N8N_CONSUMER_OVERLAY_PATH
+
+    overlay = tmp_path / N8N_CONSUMER_OVERLAY_PATH
+    overlay.parent.mkdir(parents=True)
+    overlay.write_text("services: {}\n")
+    starter, messages = _disabled_n8n_starter(tmp_path, [SimpleNamespace(id="a")])
+
+    assert starter._finalize_consumer_n8n_workflows()
+    assert not overlay.exists()
+    assert any(
+        level == "warning" and "N8N_SOURCE=disabled" in msg and "1 declared workflow" in msg
+        for level, msg in messages
+    ), messages
+
+
+def test_disabled_n8n_keeps_a_pending_reconcile_plan(tmp_path):
+    """A stale plan.json with no manifest must not resurrect the overlay while
+    n8n is disabled; the plan stays so the reconcile resumes once n8n returns."""
+    from core.consumer_manifest import N8N_CONSUMER_OVERLAY_PATH, N8N_CONSUMER_WORKFLOWS_DIR
+
+    seed_dir = tmp_path / N8N_CONSUMER_WORKFLOWS_DIR
+    seed_dir.mkdir(parents=True)
+    plan = json.dumps({"namespace": "atlas-consumer-", "workflows": [{"id": "a"}]})
+    (seed_dir / "plan.json").write_text(plan)
+    starter, messages = _disabled_n8n_starter(tmp_path, [])
+
+    assert starter._finalize_consumer_n8n_workflows()
+    assert not (tmp_path / N8N_CONSUMER_OVERLAY_PATH).exists()
+    assert (seed_dir / "plan.json").read_text() == plan
+    assert any(
+        level == "warning" and "reconciled when n8n is enabled again" in msg
+        for level, msg in messages
+    ), messages

@@ -58,7 +58,7 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 
 ## 6. Sample Ingest/Query
 
-1. Enable the RAG track or explicitly start with `./start.sh --verba-source container --weaviate-source container`.
+1. Start with `./start.sh --verba-source container --weaviate-source container`, or choose `container` at the wizard's Verba step. The `gen-ai-rag` and `all` tracks show that step; choosing a track does not enable Verba.
 2. Open `http://verba.localhost:${KONG_HTTP_PORT}`.
 3. Select Docker/custom Weaviate deployment if prompted and confirm it points at Atlas Weaviate.
 4. Upload a small text/PDF sample through the Verba UI.

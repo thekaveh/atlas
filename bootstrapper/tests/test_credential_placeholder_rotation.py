@@ -329,6 +329,21 @@ def test_generate_missing_keys_creates_asset_api_and_minio_tokens(tmp_path):
     assert kg.get_current_env_value("MINIO_ASSET_INGEST_SECRET_KEY")
 
 
+@pytest.mark.parametrize("source", ["container", "disabled"])
+def test_generate_missing_keys_creates_lightrag_secrets_only_when_enabled(tmp_path, source):
+    """A blank LIGHTRAG_TOKEN_SECRET makes LightRAG sign JWTs with its
+    hardcoded default key, so an enabled LightRAG must get all three secrets,
+    and a rerun must keep them."""
+    names = ("LIGHTRAG_API_KEY", "LIGHTRAG_TOKEN_SECRET", "LIGHTRAG_RERANK_ADAPTER_TOKEN")
+    _seed_env(tmp_path, f"LIGHTRAG_SOURCE={source}\n" + "".join(f"{n}=\n" for n in names))
+    kg = KeyGenerator(str(tmp_path))
+    kg.generate_missing_keys(force_regenerate=False)
+    values = {n: kg.get_current_env_value(n) for n in names}
+    assert {bool(v) for v in values.values()} == {source == "container"}
+    kg.generate_missing_keys(force_regenerate=False)
+    assert {n: kg.get_current_env_value(n) for n in names} == values
+
+
 def test_assert_no_placeholders_detects_unrotated(tmp_path):
     import sys, pathlib
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
@@ -558,3 +573,122 @@ def test_graph_db_auth_is_left_alone_when_docker_cannot_be_asked(tmp_path, monke
     kg.sync_graph_db_auth()
 
     assert kg.get_current_env_value("GRAPH_DB_AUTH") == "neo4j/old"
+
+
+@pytest.mark.parametrize("raw", ["synthetic-safe", "synthetic%2Fsecret", "synthetic/secret", "synthetic#secret", "synthetic?secret", "synthetic'é雪", "synthetic\\secret"])
+def test_redis_password_syncs_encoded_twin_on_every_launch(tmp_path, raw):
+    from urllib.parse import quote
+    from core.config_parser import ConfigParser
+    from utils.atomic_write import render_env_assignment
+
+    env = _seed_env(tmp_path, "REDIS_PASSWORD=" + render_env_assignment("REDIS_PASSWORD", raw) + "\nREDIS_PASSWORD_URI=stale\n")
+    generator = KeyGenerator(str(tmp_path))
+    assert generator.generate_and_update_redis_password()
+    values = ConfigParser(str(tmp_path)).parse_env_file()
+    assert values["REDIS_PASSWORD"] == raw
+    assert values["REDIS_PASSWORD_URI"] == quote(raw, safe="")
+    first = env.read_bytes()
+    assert generator.generate_and_update_redis_password()
+    assert env.read_bytes() == first
+
+
+@pytest.mark.parametrize("url,expected", [
+    ("redis://:${REDIS_PASSWORD}@redis:6379/13?note=${REDIS_PASSWORD}", "redis://:${REDIS_PASSWORD_URI}@redis:6379/13?note=${REDIS_PASSWORD}"),
+    ("rediss://user:${REDIS_PASSWORD}@custom.invalid:6380/9", "rediss://user:${REDIS_PASSWORD_URI}@custom.invalid:6380/9"),
+    ("redis://:${REDIS_PASSWORD_URI}@redis:6379/0", "redis://:${REDIS_PASSWORD_URI}@redis:6379/0"),
+    ('"redis://:${REDIS_PASSWORD}@redis:6379/13" # preserved comment', '"redis://:${REDIS_PASSWORD_URI}@redis:6379/13" # preserved comment'),
+    ("redis://:literal%2F@custom.invalid:6380/7", "redis://:literal%2F@custom.invalid:6380/7"),
+    ("'redis://:${REDIS_PASSWORD}@literal.invalid:6380/9'", "'redis://:${REDIS_PASSWORD}@literal.invalid:6380/9'"),
+    ("redis://${REDIS_PASSWORD}:fixed@custom.invalid/9", "redis://${REDIS_PASSWORD}:fixed@custom.invalid/9"),
+    ("redis://custom.invalid/9?next=redis://:${REDIS_PASSWORD}@other.invalid/8", "redis://custom.invalid/9?next=redis://:${REDIS_PASSWORD}@other.invalid/8"),
+])
+def test_redis_twin_precedes_only_expanding_password_templates(tmp_path, url, expected):
+    raw = "synthetic%2Fsecret"
+    body = ("\ufeff# preserved comment\r\nREDIS_URL=" + url + "\r\n  export REDIS_URL=" + url + "\r\n"
+            "REDIS_PASSWORD=" + raw + "\r\nREDIS_PASSWORD_URI=stale\r\n"
+            "export REDIS_PASSWORD_URI=duplicate\r\nOTHER=unchanged\r\n")
+    env = tmp_path / ".env"
+    env.write_bytes(body.encode("utf-8"))
+    assert KeyGenerator(str(tmp_path)).generate_and_update_redis_password()
+    content = env.read_bytes().decode("utf-8")
+    assert content.startswith("\ufeffREDIS_PASSWORD_URI=synthetic%252Fsecret\r\n")
+    assert "  export REDIS_URL=" + expected + "\r\n" in content
+    assert "# preserved comment\r\n" in content
+    assert "REDIS_PASSWORD=" + raw + "\r\n" in content
+    assert "OTHER=unchanged\r\n" in content
+    assert content.count("REDIS_PASSWORD_URI=") == 1
+
+
+def test_redis_password_append_starts_its_own_line_after_unterminated_last_line(tmp_path):
+    """An absent REDIS_PASSWORD is generated and appended; a .env whose last
+    line has no newline must not get the assignment glued onto it."""
+    from urllib.parse import quote
+    from core.config_parser import ConfigParser
+
+    env = tmp_path / ".env"
+    env.write_bytes(b"A=1")
+    assert KeyGenerator(str(tmp_path)).generate_and_update_redis_password()
+    lines = env.read_bytes().decode("utf-8").splitlines()
+    assert "A=1" in lines
+    assert sum(line.startswith("REDIS_PASSWORD=") for line in lines) == 1
+    values = ConfigParser(str(tmp_path)).parse_env_file()
+    assert values["A"] == "1"
+    assert values["REDIS_PASSWORD"] not in ("", "redis_password")
+    assert values["REDIS_PASSWORD_URI"] == quote(values["REDIS_PASSWORD"], safe="")
+
+
+def test_redis_placeholder_rotation_keeps_crlf_on_the_rewritten_line(tmp_path):
+    env = tmp_path / ".env"
+    env.write_bytes(b"REDIS_PASSWORD=redis_password\r\nB=2\r\n")
+    assert KeyGenerator(str(tmp_path)).generate_and_update_redis_password()
+    content = env.read_bytes().decode("utf-8")
+    assert "REDIS_PASSWORD=redis_password" not in content
+    lines = content.splitlines(keepends=True)
+    assert len(lines) == 3
+    assert all(line.endswith("\r\n") and "\r" not in line[:-2] for line in lines), lines
+
+
+@pytest.mark.parametrize("original", ["synthetic%2Fsecret", "redis_password"])
+def test_redis_sync_failure_keeps_file_atomic(tmp_path, monkeypatch, original):
+    env = _seed_env(tmp_path, "REDIS_PASSWORD=" + original + "\nREDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0\n")
+    before = env.read_bytes()
+    def refuse_write(*args, **kwargs):
+        raise OSError("synthetic atomic write refusal")
+    monkeypatch.setattr("services.service_config.atomic_write_text", refuse_write)
+    assert KeyGenerator(str(tmp_path)).generate_and_update_redis_password() is False
+    assert env.read_bytes() == before
+
+
+def test_redis_twin_refreshes_after_raw_password_edit(tmp_path):
+    from core.config_parser import ConfigParser
+    env = _seed_env(tmp_path, "REDIS_PASSWORD=first%2Fsecret\n")
+    generator = KeyGenerator(str(tmp_path))
+    assert generator.generate_and_update_redis_password()
+    env.write_text(env.read_text().replace("first%2Fsecret", "second/secret"))
+    assert generator.generate_and_update_redis_password()
+    values = ConfigParser(str(tmp_path)).parse_env_file()
+    assert values["REDIS_PASSWORD"] == "second/secret"
+    assert values["REDIS_PASSWORD_URI"] == "second%2Fsecret"
+
+
+
+def test_unchanged_redis_twin_keeps_env_inode(tmp_path):
+    env = _seed_env(tmp_path, "REDIS_PASSWORD=synthetic%2Fsecret\n")
+    generator = KeyGenerator(str(tmp_path))
+    assert generator.generate_and_update_redis_password()
+    before = env.stat()
+    assert generator.generate_and_update_redis_password()
+    after = env.stat()
+    assert (after.st_ino, after.st_mtime_ns) == (before.st_ino, before.st_mtime_ns)
+
+
+@pytest.mark.parametrize("synchronized", [True, False])
+def test_redis_aggregator_reports_the_derived_twin_result(tmp_path, monkeypatch, synchronized):
+    _seed_env(tmp_path, "REDIS_PASSWORD=synthetic%2Fsecret\n")
+    generator = KeyGenerator(str(tmp_path))
+    monkeypatch.setattr(generator, "_supabase_db_volume_exists", lambda: False)
+    monkeypatch.setattr(generator, "_neo4j_db_volume_exists", lambda unknown=False: False)
+    monkeypatch.setattr("utils.key_generator.synchronize_redis_uri_credentials", lambda path, raw, rewrite_password: synchronized)
+    results = generator.generate_missing_keys()
+    assert results["REDIS_PASSWORD"] is synchronized
+    assert results.get("REDIS_PASSWORD_URI") is synchronized

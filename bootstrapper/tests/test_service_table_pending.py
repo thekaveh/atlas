@@ -70,3 +70,21 @@ def test_answered_row_renders_full_dot_and_real_port():
     text = _render(table)
     assert "63040" in text
     assert "container-cpu" in text
+
+
+def test_off_track_label_is_never_truncated_by_shorter_stored_sources():
+    """The source column was sized from the stored ``.env`` sources, but an
+    off-track row renders the longer ``disabled (off-track)`` label. With
+    every stored source at 18 cells or fewer it rendered ``disabled (off-tra…``.
+    """
+    from ui.textual.widgets.service_table import ServiceRow, ServiceTable
+    rows = [
+        ServiceRow(name="Spark", source="container", category="data"),
+        ServiceRow(name="Ray", source="ray-container-cpu", category="data"),
+        ServiceRow(name="LLM Engine", source="ollama-localhost", category="llm"),
+        ServiceRow(name="STT", source="disabled", category="media", off_track=True),
+    ]
+    table = ServiceTable(rows, columns=1)
+    off_row = rows[-1]
+    text = table._slot_text(off_row, is_cursor=False, widths=table._raw_widths(rows))
+    assert "disabled (off-track)" in text.plain

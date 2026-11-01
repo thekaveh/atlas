@@ -7,7 +7,7 @@ name: services-lint
 #   - unit tests (loader, validator, assembler, hooks, validate_fragments CLI),
 #     split into parallel jobs behind the required `Manifest lint + unit tests`
 #     gate: `lint` (with containers + Backend), `unit-fast` (no Docker, the
-#     early signal), `python-floor` (Python 3.10) and `component-tests` (#1176)
+#     early signal), `python-floor` (Python 3.11) and `component-tests` (#1176)
 #   - compose merge (`docker compose -f docker-compose.yml config -q`)
 #   - byte-equivalence vs the golden baseline at
 #     bootstrapper/tests/fixtures/rendered_config_baseline.yml
@@ -44,7 +44,7 @@ jobs:
     runs-on: ubuntu-24.04
     # One bootstrapper pass with the container-backed backup/restore
     # integration tests (near 40 minutes on its own) plus the Backend suite.
-    # The Python 3.10 pass and the MCP and asset suites run in parallel jobs.
+    # The Python 3.11 pass and the MCP and asset suites run in parallel jobs.
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -67,7 +67,11 @@ jobs:
           # Pin uv so CI is deterministic. With no version, setup-uv installs
           # the latest uv at run time, whose resolver/lock semantics can shift
           # under us and silently flip a `uv lock --locked` check. Bump
-          # deliberately; keep in sync with the Dockerfile `uv==` pins.
+          # deliberately. This uv renders the committed lock exports that the
+          # lock checks compare, and matches the backend builder's `uv==` pin
+          # in services/backend/app/Dockerfile. The Local Deep Researcher
+          # image pins uv 0.11.33 on purpose (GHSA-4w2j-m93h-cj5j, #1002);
+          # do not sync that pin with this one.
           version: "0.11.19"
 
       - name: Sync dependencies
@@ -129,6 +133,24 @@ jobs:
             --tag atlas-backup:local \
             services/backup/init
 
+      # The co-launched consumer examples in reusing-atlas.md are merged
+      # through the real Compose plugin (daemon-free `config`); without this
+      # path test_reusing_atlas_consumer_endpoints.py skips those cases.
+      - name: Locate the Docker Compose plugin
+        run: |
+          plugin="$(timeout 1m docker info --format \
+            '{{range .ClientInfo.Plugins}}{{if eq .Name "compose"}}{{.Path}}{{end}}{{end}}')"
+          test -x "$plugin"
+          echo "ATLAS_DOCS_COMPOSE_PLUGIN=$plugin" >> "$GITHUB_ENV"
+
+      - name: Locate native PostgreSQL binaries
+        # The role-ownership SQL drills run a throwaway native cluster, not
+        # Docker. The runner image ships PostgreSQL under /usr/lib/postgresql.
+        run: |
+          bin="$(ls -d /usr/lib/postgresql/*/bin | sort -V | tail -1)"
+          test -x "$bin/initdb"
+          echo "ATLAS_TEST_NATIVE_POSTGRES_BIN=$bin" >> "$GITHUB_ENV"
+
       - name: Run unit tests (loader, validator, assembler, hooks, CLI)
         working-directory: bootstrapper
         env:
@@ -151,8 +173,9 @@ jobs:
         run: |
           BACKEND_TEST_VENV="${RUNNER_TEMP:-$PWD}/backend-ci-venv"
           REDIS_CONTAINER="atlas-backend-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          PG_CONTAINER="atlas-backend-ci-pg-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           cleanup_backend_redis() {
-            docker rm -f "$REDIS_CONTAINER" >/dev/null 2>&1 || true
+            docker rm -f "$REDIS_CONTAINER" "$PG_CONTAINER" >/dev/null 2>&1 || true
           }
           trap cleanup_backend_redis EXIT
           docker run -d --pull=never --name "$REDIS_CONTAINER" \
@@ -171,6 +194,24 @@ jobs:
           REDIS_ENDPOINT=$(docker port "$REDIS_CONTAINER" 6379/tcp)
           REDIS_PORT=${REDIS_ENDPOINT##*:}
           export ATLAS_TEST_REDIS_URL="redis://127.0.0.1:${REDIS_PORT}/15"
+          # The memory reconcile scan/clear SQL and the media spend ledger
+          # store run against a real, disposable PostgreSQL. Each fixture
+          # provisions its own schema (the ledger applies its seed script).
+          docker run -d --pull=never --name "$PG_CONTAINER" \
+            -e POSTGRES_PASSWORD=ci -p 127.0.0.1::5432 postgres:17.11-alpine
+          for attempt in $(seq 1 120); do
+            if docker exec "$PG_CONTAINER" pg_isready -h 127.0.0.1 -U postgres >/dev/null 2>&1; then
+              break
+            fi
+            if [ "$attempt" -eq 120 ]; then
+              echo "Backend test PostgreSQL did not become ready" >&2
+              exit 1
+            fi
+            sleep 0.5
+          done
+          PG_ENDPOINT=$(docker port "$PG_CONTAINER" 5432/tcp)
+          export ATLAS_TEST_MEMORY_RECONCILE_POSTGRES_URL="postgresql://postgres:ci@127.0.0.1:${PG_ENDPOINT##*:}/postgres"
+          export ATLAS_TEST_MEDIA_LEDGER_POSTGRES_URL="$ATLAS_TEST_MEMORY_RECONCILE_POSTGRES_URL"
           uv venv --python 3.12 "$BACKEND_TEST_VENV"
           # Runtime and test requirements jointly own the tested import
           # closure. Both are repository-managed; no inline CI subset may
@@ -242,7 +283,7 @@ jobs:
     # The supported Python floor. It runs the full bootstrapper suite, with
     # the same images `lint` pulls, because its Docker-backed tests require
     # them locally in CI.
-    name: Bootstrapper suite on Python 3.10
+    name: Bootstrapper suite on Python 3.11
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
@@ -288,15 +329,23 @@ jobs:
             --tag atlas-backup:local \
             services/backup/init
 
-      - name: Set up Python 3.10
+      - name: Set up Python 3.11
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
-          python-version: "3.10"
+          python-version: "3.11"
 
-      - name: Run bootstrapper tests on Python 3.10
+      - name: Locate native PostgreSQL binaries
+        # The role-ownership SQL drills run a throwaway native cluster, not
+        # Docker. The runner image ships PostgreSQL under /usr/lib/postgresql.
+        run: |
+          bin="$(ls -d /usr/lib/postgresql/*/bin | sort -V | tail -1)"
+          test -x "$bin/initdb"
+          echo "ATLAS_TEST_NATIVE_POSTGRES_BIN=$bin" >> "$GITHUB_ENV"
+
+      - name: Run bootstrapper tests on Python 3.11
         working-directory: bootstrapper
         run: >-
-          uv run --python 3.10 --isolated --locked --group dev
+          uv run --python 3.11 --isolated --locked --group dev
           pytest tests/ -q
           --ignore=tests/test_fragment_equivalence.py
           --ignore=tests/test_source_permutations.py
@@ -387,7 +436,11 @@ jobs:
           # Pin uv so CI is deterministic. With no version, setup-uv installs
           # the latest uv at run time, whose resolver/lock semantics can shift
           # under us and silently flip a `uv lock --locked` check. Bump
-          # deliberately; keep in sync with the Dockerfile `uv==` pins.
+          # deliberately. This uv renders the committed lock exports that the
+          # lock checks compare, and matches the backend builder's `uv==` pin
+          # in services/backend/app/Dockerfile. The Local Deep Researcher
+          # image pins uv 0.11.33 on purpose (GHSA-4w2j-m93h-cj5j, #1002);
+          # do not sync that pin with this one.
           version: "0.11.19"
 
       - name: Sync dependencies
@@ -431,7 +484,11 @@ jobs:
           # Pin uv so CI is deterministic. With no version, setup-uv installs
           # the latest uv at run time, whose resolver/lock semantics can shift
           # under us and silently flip a `uv lock --locked` check. Bump
-          # deliberately; keep in sync with the Dockerfile `uv==` pins.
+          # deliberately. This uv renders the committed lock exports that the
+          # lock checks compare, and matches the backend builder's `uv==` pin
+          # in services/backend/app/Dockerfile. The Local Deep Researcher
+          # image pins uv 0.11.33 on purpose (GHSA-4w2j-m93h-cj5j, #1002);
+          # do not sync that pin with this one.
           version: "0.11.19"
 
       - name: Sync dependencies
@@ -602,10 +659,14 @@ jobs:
           # build contexts and is refreshed whenever a floating upstream tag moves.
           # Feeding that churn into the changed-image set re-scanned all 69
           # manifest-owned image/platform pairs for an edit that changes no image
-          # Atlas ships, so the baseline is filtered out here. Every service
-          # manifest, compose fragment, and Dockerfile still triggers a scan, and
-          # the `builds:` exclusions remain gated by container_security's own
-          # schema, expiry, and horizon checks.
+          # Atlas ships, so the baseline is filtered out here. A manifest or
+          # compose change schedules the images its changed lines name (all owned
+          # images for a rename); any change to a service with a commit-pinned
+          # GitHub build context also rescans the reviewed remote bases. A
+          # Dockerfile change otherwise only re-validates its build contract here;
+          # the non-required final-image-scan job builds and scans it. The
+          # `builds:` exclusions remain gated by container_security's own schema,
+          # expiry, and horizon checks.
           git diff --unified=0 --no-color "$BASE_SHA" "$GITHUB_SHA" -- \
             'services/*/service.yml' 'services/*/compose.yml' \
             'services/**/Dockerfile' \

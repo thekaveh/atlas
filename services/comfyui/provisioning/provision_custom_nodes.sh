@@ -280,7 +280,7 @@ install_custom_node() {
     else
       echo "atlas-comfyui-provision: updating $name to $ref"
       if safe_existing_node "$name" \
-          && git -C "$dest" fetch origin "$ref" \
+          && git -C "$dest" fetch "$repo" "$ref" \
           && safe_existing_node "$name" \
           && git -C "$dest" checkout --detach "$ref" \
           && safe_existing_node "$name"; then

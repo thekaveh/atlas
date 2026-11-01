@@ -26,7 +26,7 @@ NocoDB is not a Supabase Studio replacement. Supabase Studio remains the admin/o
 
 Future service shape, if a later human-review ticket promotes this:
 
-- Track membership: `platform` by default; optionally `agents` when tied to n8n workflow approvals, and optionally `rag` when tied to RAG curation queues. Do not add it to every track just because it can view tables.
+- Track membership: roadmap label `platform` by default, optionally `agents` for n8n workflow approvals, and optionally `rag` for RAG curation queues. These labels are not runtime track keys. Choose membership from the [runtime track registry](../../../bootstrapper/tracks.yml) if the service is approved. Do not add it to every track just because it can view tables.
 - Service category: `apps`, because users interact with it as a browser UI.
 - Source values/default: `NOCODB_SOURCE=disabled|container`, disabled by default.
 - Wizard placement: apps or workflow/human-review section after n8n, with copy that it is an end-user review queue surface, not the admin database UI.

@@ -32,7 +32,6 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-import pytest
 
 from utils.key_generator import _cli_safe_token_urlsafe
 

@@ -27,8 +27,9 @@ column across visible rows. Absent capabilities still reserve their
 slot. Status tags (``pulled`` / ``library`` / ``legacy`` / ``default``)
 follow with variable width. Below
 ``_PARENT_ALIGNED_MIN_WIDTH``/``_LEAF_ALIGNED_MIN_WIDTH`` cells of
-terminal width the row falls back to inline variable-width tag
-rendering so the right-aligned pull count doesn't get pushed off.
+terminal width, or when the aligned line would not fit the row, the
+row falls back to inline variable-width tag rendering so no badge or
+right-aligned pull count gets pushed onto its own line.
 
 Optional fields driving the multiselect shape:
 * ``sizes``        — tuple of variant tags (``"8b"``, ``"70b"``, …).
@@ -145,6 +146,11 @@ _CAPABILITY_COLUMN_WIDTHS = {
 }
 _CAPABILITY_COLUMN_GAP = 2  # cells between adjacent capability slots
 _CAPABILITY_TAGS = frozenset(_CAPABILITY_COLUMN_ORDER)
+# Cells the aligned capability block always occupies (58): every slot
+# plus the gaps between them, whether or not the row carries a tag.
+_CAPABILITY_BLOCK_WIDTH = sum(_CAPABILITY_COLUMN_WIDTHS.values()) + (
+    _CAPABILITY_COLUMN_GAP * (len(_CAPABILITY_COLUMN_ORDER) - 1)
+)
 
 # Default target start columns for the capability block. The caller
 # (PromptPanel._mount_visible_rows) supersedes these with a dynamic
@@ -162,11 +168,22 @@ _LEAF_TAG_COL = 64
 _PARENT_PREFIX_WIDTH = 11   # cursor(3) + 2-space gap + expand(2) + checkbox(4)
 _LEAF_PREFIX_WIDTH = 14     # indent(3) + cursor(3) + space(1) + connector(3) + checkbox(4)
 
-# Below these widths we drop alignment and fall back to inline,
-# variable-width tag rendering so a narrow terminal doesn't push the
-# pull count off-screen or wrap the row.
+# Below these widths, or when the aligned line would not fit the row
+# (see ``_aligned_fits``), we drop alignment and fall back to inline,
+# variable-width tag rendering so a narrow terminal or a long label
+# doesn't push the pull count off-screen or wrap the row.
 _PARENT_ALIGNED_MIN_WIDTH = 100
 _LEAF_ALIGNED_MIN_WIDTH = 130
+
+
+def _aligned_fits(start_col: int, tail_width: int, width: int) -> bool:
+    """True when the aligned capability block plus its tail fits ``width``.
+
+    ``start_col`` is where the block begins after padding; ``tail_width``
+    covers the status badges and, for parents, the pull count plus its
+    one-cell minimum gap.
+    """
+    return start_col + _CAPABILITY_BLOCK_WIDTH + tail_width <= width
 
 
 # Quantization rule of thumb for converting Ollama parameter counts to
@@ -378,14 +395,15 @@ class OptionRow(Widget):
         # pre-feature layout for every non-Ollama caller.
         sizes: tuple[str, ...] | None = None,
         pulls: int = 0,
-        # Tags within ``sizes`` that the user has explicitly checked
-        # via the variant picker (or pre-checked from default-active
-        # in .env). When non-empty, the line-2 size column renders
-        # those variants in ``P.OK`` instead of the default muted
-        # colour, so a row checked with specific variants reads as
-        # "qwen3 with 8b + 14b highlighted" at a glance. Empty set
-        # means the row is either unchecked or checked-bare (default
-        # :latest pull) — line 2 stays uniformly muted.
+        # Tags within ``sizes`` that are in the per-tag checked set
+        # (checked on the expanded variant rows, or pre-checked from
+        # default-active in .env). When non-empty, the line-2 size
+        # column renders those variants in ``P.OK`` instead of the
+        # default muted colour, so a row checked with specific
+        # variants reads as "qwen3 with 8b + 14b highlighted" at a
+        # glance. Empty set means the row is either unchecked or
+        # checked-bare (default :latest pull) — line 2 stays
+        # uniformly muted.
         checked_variants: frozenset[str] | None = None,
         # Expand-tree state for the Ollama multiselect: ``"collapsed"``
         # / ``"expanded"`` (the row is a multi-variant parent and the
@@ -456,18 +474,6 @@ class OptionRow(Widget):
         if value == self.checked:
             return
         self.checked = value
-        self.refresh()
-
-    def set_checked_variants(self, value: frozenset[str]) -> None:
-        """Update which size variants render highlighted on line 2.
-
-        Called after the variant-picker popup confirms — the row stays
-        in place but its line-2 colouring updates to reflect the new
-        per-tag selection.
-        """
-        if value == self.checked_variants:
-            return
-        self.checked_variants = value
         self.refresh()
 
     # ─── render ─────────────────────────────────────────────────────────
@@ -580,13 +586,16 @@ class OptionRow(Widget):
                 if self.tag_start_col_override is None
                 else self.tag_start_col_override
             )
-            aligned = width >= _LEAF_ALIGNED_MIN_WIDTH
+            status = _render_status_badges(self.badges)
+            aligned = width >= _LEAF_ALIGNED_MIN_WIDTH and _aligned_fits(
+                max(target_col, line.cell_len + 2), status.cell_len, width,
+            )
             if aligned:
                 _pad_to_column(line, target_col)
             else:
                 line.append("  ")
             line.append(_render_capability_block(self.badges, aligned=aligned))
-            line.append(_render_status_badges(self.badges))
+            line.append(status)
         return line
 
     def render(self) -> Text:
@@ -640,21 +649,26 @@ class OptionRow(Widget):
         # parent's tag block at the same column even when one parent
         # has a much longer label than its siblings. Explicit
         # ``is None`` check — see the matching note in ``_render_leaf``.
+        pull_text = _format_pulls(self.pulls)
         if self.badges:
             target_col = (
                 _PARENT_TAG_COL
                 if self.tag_start_col_override is None
                 else self.tag_start_col_override
             )
-            aligned = width >= _PARENT_ALIGNED_MIN_WIDTH
+            status = _render_status_badges(self.badges)
+            aligned = width >= _PARENT_ALIGNED_MIN_WIDTH and _aligned_fits(
+                max(target_col, line1.cell_len + 2),
+                status.cell_len + len(pull_text) + 1,
+                width,
+            )
             if aligned:
                 _pad_to_column(line1, target_col)
             else:
                 line1.append("  ")
             line1.append(_render_capability_block(self.badges, aligned=aligned))
-            line1.append(_render_status_badges(self.badges))
+            line1.append(status)
         right = Text()
-        pull_text = _format_pulls(self.pulls)
         if pull_text:
             right.append(pull_text, style=P.TEXT_MUTED)
         gap = max(1, width - line1.cell_len - right.cell_len - 2)

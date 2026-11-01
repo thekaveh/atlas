@@ -1,7 +1,9 @@
 """
 Production bridge between the Textual TUI and ``bootstrapper/start.py``.
 
-Single public entry: ``run_setup_flow(starter, hosts_manager)``.
+Public entries: ``run_setup_flow(config_parser, *, starter=...)`` (wizard)
+and ``run_launch_flow(config_parser, *, starter, source_args, stack_options)``
+(CLI flags, no wizard).
 
 The whole user-facing flow lives inside ONE Textual ``WizardScreen``:
 the wizard prompts run in the lower pane during the setup phase, then
@@ -30,7 +32,7 @@ _THEME_PATH = Path(__file__).parent / "theme.css"
 # truth lives in wizard/comfyui_steps.py; imported here to keep the drain
 # loop (selections.get(COMFYUI_MODELS_TITLE)) aligned with what the step
 # registers without duplicating the string literal.
-from tracks import consumer_declared_track_keys, consumer_override_keys, remark_off_track_rows as _remark_off_track_rows
+from tracks import ALWAYS_ON_SERVICE_KEYS, consumer_declared_track_keys, consumer_override_keys, remark_off_track_rows as _remark_off_track_rows
 from core.config_parser import project_name_error
 # The wizard-time warning sink lives in ``wizard`` (the step builders and the
 # screen share it); these names stay importable from here.
@@ -261,7 +263,7 @@ def recompute_ports_for_base(
     machine's port.
     """
     from wizard.model.state_builder import lookup_service_meta, resolve_port as _resolve_port
-    from .widgets.service_table import ServiceRow as _SR
+    from .widgets.service_table import ServiceRow as _SR, minio_s3_endpoints
 
     live_env = config_parser.parse_env_file()
     synth_env = dict(live_env)
@@ -284,7 +286,9 @@ def recompute_ports_for_base(
             off_track=r.off_track,
             # Preserve the hover-card metadata — a base-port change must not
             # strip a row's S3 endpoints / source options / dependencies.
-            tooltip_extra=r.tooltip_extra,
+            # MinIO's S3 endpoints follow the new base port.
+            tooltip_extra=(minio_s3_endpoints(synth_env, new_kong)
+                           if r.name == "MinIO Console" else r.tooltip_extra),
             source_options=r.source_options,
             depends_on=r.depends_on,
         ))
@@ -315,7 +319,6 @@ def _unless_pinned(provider, svc, pinned_source_vars):
 
 def _build_steps_and_rows(
     config_parser,
-    hosts_manager,
     *,
     track_key: str | None = None,
     overridden_services: frozenset[str] | None = None,
@@ -335,10 +338,10 @@ def _build_steps_and_rows(
     from wizard.model.state_builder import build_app_state
     from core.config_parser import DEFAULT_BASE_PORT, DEFAULT_PROJECT_NAME
     from .widgets.prompt_panel import PromptOption, PromptStep
-    from .widgets.service_table import ServiceRow
+    from .widgets.service_table import ServiceRow, minio_s3_endpoints
     from services.manifests import load_manifests as _load_manifests, option_in_profile as _option_in_profile
     from services.manifests import manifest_source_default
-    from services.profiles import profile_source_map
+    from services.profiles import launch_profile_source_map
     try:
         _manifests = _load_manifests(Path(config_parser.root_dir) / "services")
     except Exception:  # noqa: BLE001
@@ -352,7 +355,7 @@ def _build_steps_and_rows(
         for mf in _manifests
         if mf.sources is not None
     }
-    _profile_sources = profile_source_map()
+    _profile_sources = launch_profile_source_map(config_parser)
     _secondary_by_source_var = {
         row.source_var: row.secondary_number
         for manifest in _manifests
@@ -428,7 +431,7 @@ def _build_steps_and_rows(
     if _track_registry is not None:
         _always_on = _track_registry.always_on
     else:
-        _always_on = frozenset({"llm-provider", "prometheus", "grafana"})
+        _always_on = ALWAYS_ON_SERVICE_KEYS
     _overridden = (overridden_services or frozenset()) | consumer_override_keys(consumer_declared, services_info)
 
     # Picker step (only shown if the registry loaded). When --track was
@@ -917,7 +920,7 @@ def _build_steps_and_rows(
         return display_name not in _off_track_display_names
 
     state = build_app_state(
-        config_parser, hosts_manager,
+        config_parser,
         in_track=(
             _in_track_display
             if (track_key and _track_registry is not None)
@@ -932,12 +935,10 @@ def _build_steps_and_rows(
         for ca in state.cloud_apis
     ]
 
-    # Kong's listener port — every Kong-routed alias URL uses this port
-    # (virtual-host routing on a single listener), not the upstream
-    # service's own port. Mirror state_builder.build_app_state()'s
-    # `"63000"` fallback so the wizard's first paint matches the linear
-    # state-builder path when KONG_HTTP_PORT is blank in .env.
-    kong_port = (env_vars.get("KONG_HTTP_PORT", "") or "63000").strip()
+    # Kong's listener port (state_builder.kong_listener_port). Every
+    # Kong-routed alias URL uses it (virtual-host routing on a single
+    # listener), not the upstream service's own port.
+    kong_port = state.kong_port
     # Set of display names whose source the user CAN configure. Used
     # to drive the lock-icon column in the overview — services not in
     # this set are always-on infrastructure.
@@ -952,18 +953,9 @@ def _build_steps_and_rows(
 
     # MinIO's wizard row is the admin console; surface its S3 API endpoints
     # (direct port + the s3.minio.localhost Kong alias) in the hover tooltip
-    # so external s3 clients can discover them from the services pane.
-    _minio_port = (env_vars.get("MINIO_PORT", "") or "63020").strip()
-
+    # so external s3 clients can discover them from the services pane. The
+    # base-port recompute paths re-derive them with the same helper.
     from wizard.model.state_builder import service_extras
-
-    def _tooltip_extra_for(svc) -> list[tuple[str, str]]:
-        if svc.name == "MinIO Console":
-            return [
-                ("S3 API", f"http://localhost:{_minio_port}"),
-                ("S3 (Kong)", f"http://s3.minio.localhost:{kong_port}"),
-            ]
-        return []
 
     rows = [
         ServiceRow(
@@ -975,7 +967,8 @@ def _build_steps_and_rows(
             category=s.category,
             pending=(s.name in configurable_names),  # locked rows start not-pending
             off_track=s.off_track,
-            tooltip_extra=_tooltip_extra_for(s),
+            tooltip_extra=(minio_s3_endpoints(env_vars, kong_port)
+                           if s.name == "MinIO Console" else []),
             source_options=service_extras(s.name)["options"],
             depends_on=service_extras(s.name)["depends"],
         )
@@ -993,9 +986,12 @@ def _selections_to_args(
 ):
     """Map wizard selections back to (source_args, stack_options).
 
-    ``env_vars`` is the resolved .env snapshot at wizard-build time;
-    used to auto-promote SECRET_KEEP+disabled+key-already-set into
-    ``--cloud-X-source enabled`` so the multiselect picks aren't inert.
+    ``env_vars`` is the resolved .env snapshot at wizard-build time.
+    It tells each cloud provider and fal.ai whether a key is already
+    stored (``existing_key_set``). It also supplies the memory-model
+    override check, the current PROJECT_NAME and the values a cold start
+    carries forward. Since #1183 a stored key alone no longer promotes a
+    disabled provider.
 
     ``consumer_declared`` (#783, threaded through here per the #535
     followups review, finding R1): cli-style keys (e.g. ``minio_source``)
@@ -1006,18 +1002,14 @@ def _selections_to_args(
     caller (``run_setup_flow``'s ``_resolve`` closure) passes the real
     set, computed the same way ``start.py`` computes it for ``--no-tui``.
 
-    Fix-round note (#535 Pass 1 followups review, finding C1): this
-    parameter is REQUIRED, deliberately with no default. It used to
+    Fix-round note (#535 Pass 1 followups review, finding C1):
+    ``env_vars`` is REQUIRED, deliberately with no default. It used to
     default to ``None`` and get normalized to ``{}`` here, which made
     ``existing_key_set`` False for EVERY cloud provider on every call
     that omitted it -- silently force-disabling every already-keyed
     provider in .env via ``resolve_cloud_provider``'s SECRET_KEEP
-    branch. That is the exact class of bug ``resolve_cloud_provider``'s
-    own ``existing_source`` parameter was already made required to
-    prevent (see ``wizard/model/cloud_rules.py``'s fix-round-2 note);
-    this call site had simply re-opened the same trap one layer up.
-    Omitting it is now a ``TypeError`` at the call site instead of a
-    silent .env corruption.
+    branch. Omitting it is now a ``TypeError`` at the call site instead
+    of a silent .env corruption.
     """
     from utils.cloud_providers import CLOUD_PROVIDERS
     from wizard.llm_steps import (
@@ -1107,8 +1099,7 @@ def _selections_to_args(
     #
     # Enable/disable + key resolution is delegated to
     # wizard/model/cloud_rules.resolve_cloud_provider (#535 Pass 1) —
-    # see there for why ``existing_source`` is threaded through
-    # explicitly and why ``source is None`` must be left unwritten
+    # see there for why ``source is None`` must be left unwritten
     # rather than coerced to "disabled". The models-CSV write stays
     # here: it persists the raw multiselect string verbatim (not a
     # re-parsed/rejoined form of anything the resolution returns),
@@ -1126,7 +1117,6 @@ def _selections_to_args(
         models_var = provider.user_models_var
 
         secret_v = selections.get(cloud_secret_title(name))
-        existing_source = (env_vars.get(source_var, 'disabled') or '').strip().lower()
         existing_key = (env_vars.get(api_key_var, '') or '').strip()
 
         # Multiselect intent (renders only when the provider is enabled
@@ -1173,7 +1163,6 @@ def _selections_to_args(
             secret_value=secret_v,
             selected_models=selected_models,
             existing_key_set=bool(existing_key),
-            existing_source=existing_source,
         )
         if resolution.source is not None:
             source_args[cli_arg] = resolution.source
@@ -1211,7 +1200,7 @@ def _selections_to_args(
 
     # Single unified Ollama models step (replaces the previous
     # pulled+library split). Container modes show library only;
-    # localhost/external show a merged [pulled]/[library] list. The
+    # localhost shows a merged [pulled]/[library] list. The
     # CSV is already the user's final selection — no union needed.
     ollama_user_models: dict = {}
     models_v = selections.get(OLLAMA_MODELS_TITLE)
@@ -1353,7 +1342,7 @@ def _run_app_with_process_cleanup(app) -> None:
 
 
 def run_setup_flow(
-    config_parser, hosts_manager, *,
+    config_parser, *,
     starter=None,
     no_port_migrate: bool = False,
     track: str | None = None,
@@ -1363,7 +1352,10 @@ def run_setup_flow(
 ) -> int:
     """Run wizard + pipeline + docker compose all in ONE Textual screen.
 
-    Returns exit code: 0 on success / cancellation.
+    Returns 0 when the launch succeeds (a later detach or Ctrl+C keeps 0),
+    or when the user quits with Esc or Ctrl+Q before launching. Returns 1
+    when the launch fails, including after a detach. Returns 130 when
+    Ctrl+C interrupts before a launch result is recorded.
     """
     from .widgets import BrandInfo
     from .screens.wizard_screen import GuardedQuitMixin, WizardScreen, teardown_blocks_exit
@@ -1382,7 +1374,7 @@ def run_setup_flow(
     )
     steps, rows, services_info, current_base_port, state, cloud_summaries = (
         _build_steps_and_rows(
-            config_parser, hosts_manager,
+            config_parser,
             track_key=track,
             overridden_services=overridden_services or frozenset(),
             profile=profile,
@@ -1501,7 +1493,7 @@ def run_setup_flow(
 # ─── CLI-flag-driven launch (no wizard) ──────────────────────────────
 
 def run_launch_flow(
-    config_parser, hosts_manager, *,
+    config_parser, *,
     starter,
     source_args: dict,
     stack_options: dict,
@@ -1518,12 +1510,17 @@ def run_launch_flow(
     flags so the user gets the same in-screen pipeline + log streaming
     UX as the wizard path.
 
-    Returns exit code: 0 on detach, non-zero on interrupt.
+    Returns 0 when the launch succeeds (a later detach or Ctrl+C keeps 0).
+    Returns 1 when the launch fails, including after a detach. Returns 130
+    when Ctrl+C interrupts before a launch result is recorded.
     """
     from .widgets import BrandInfo
-    from .screens.wizard_screen import GuardedQuitMixin, WizardScreen, teardown_blocks_exit
+    from .screens.wizard_screen import (
+        GuardedQuitMixin, WizardScreen, teardown_blocks_exit, apply_cli_cloud_overrides,
+    )
     from core.port_manager import PortManager
     from wizard.model.state_builder import lookup_service_meta, resolve_port as _resolve_port
+    from .widgets.service_table import minio_s3_endpoints
 
     # Port-layout v0 → v1 migration runs BEFORE the launch overview reads
     # .env so the displayed ports match the post-migration topology.
@@ -1535,7 +1532,7 @@ def run_launch_flow(
 
     _, rows, services_info, current_base_port, state, cloud_summaries = (
         _build_steps_and_rows(
-            config_parser, hosts_manager,
+            config_parser,
             track_key=track,
             overridden_services=overridden_services or frozenset(),
             profile=profile,
@@ -1558,6 +1555,7 @@ def run_launch_flow(
 
     port_offsets = _pm.port_offsets()
     env_vars = config_parser.parse_env_file()
+    apply_cli_cloud_overrides(cloud_summaries, source_args, stack_options.get("cloud_api_keys") or {})
 
     # Resolve the effective base port. CLI ``--base-port N`` wins; else
     # whatever's in .env today.
@@ -1625,7 +1623,9 @@ def run_launch_flow(
             # Preserve hover-card metadata — CLI-flag launch mode must show the
             # same S3 endpoints / source options / dependencies as wizard mode
             # (mirrors recompute_ports_for_base, which carries the same comment).
-            tooltip_extra=r.tooltip_extra,
+            # MinIO's S3 endpoints follow the effective base port.
+            tooltip_extra=(minio_s3_endpoints(synth_env, kong_port)
+                           if r.name == "MinIO Console" else r.tooltip_extra),
             source_options=r.source_options,
             depends_on=r.depends_on,
         ))

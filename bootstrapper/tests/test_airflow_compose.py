@@ -253,3 +253,11 @@ def test_airflow_webserver_uses_fab_auth_manager_for_basic_auth():
         "AIRFLOW__API__AUTH_BACKENDS is a no-op in Airflow 3.x; use "
         "AIRFLOW__FAB__AUTH_BACKENDS instead. Remove the deprecated var."
     )
+
+
+def test_sample_dag_langchain_block_reads_the_seeded_litellm_connection():
+    """No Airflow task container receives LITELLM_MASTER_KEY; only
+    airflow-init does, and it seeds the litellm_default Connection."""
+    dag = (REPO_ROOT / "services/airflow/dags/example_etl_with_llm.py").read_text(encoding="utf-8")
+    assert 'os.environ["LITELLM_MASTER_KEY"]' not in dag
+    assert 'get_connection("litellm_default")' in dag

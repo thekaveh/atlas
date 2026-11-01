@@ -350,26 +350,15 @@ def test_research_client_does_not_log_rejected_response_bodies(monkeypatch, capl
             request = httpx.Request("POST", url)
             return httpx.Response(503, text="provider secret-token", request=request)
 
-        async def get(self, url, **kwargs):
-            request = httpx.Request("GET", url)
-            return httpx.Response(502, text="status secret-token", request=request)
-
     monkeypatch.setattr(research_client.httpx, "AsyncClient", RejectedClient)
     client = ResearchClient(base_url="http://local-deep-researcher:2024")
 
-    async def scenario():
-        started = await client.start_research(ResearchRequest(query="atlas"))
-        status = await client.get_research_status("thread-123")
-        return started, status
-
     with caplog.at_level(logging.WARNING):
-        started, status = asyncio.run(scenario())
+        started = asyncio.run(client.start_research(ResearchRequest(query="atlas")))
 
     assert started.status == ResearchStatus.FAILED
-    assert status.status == ResearchStatus.FAILED
     assert "secret-token" not in caplog.text
     assert "status=503" in caplog.text
-    assert "status=502" in caplog.text
 
 
 def test_research_client_redacts_client_lifecycle_failures(monkeypatch, caplog):
@@ -385,41 +374,14 @@ def test_research_client_redacts_client_lifecycle_failures(monkeypatch, caplog):
     async def scenario():
         health = await client.health_check()
         started = await client.start_research(ResearchRequest(query="atlas"))
-        status = await client.get_research_status("thread-123")
-        return health, started, status
+        return health, started
 
     with caplog.at_level(logging.WARNING):
-        health, started, status = asyncio.run(scenario())
+        health, started = asyncio.run(scenario())
 
     assert health["error"] == "Research service is unavailable"
     assert started.message == "Research service is unavailable"
-    assert status.message == "Research service is unavailable"
     assert "secret-token" not in caplog.text
-
-
-def test_research_client_redacts_http_200_failed_state(monkeypatch):
-    import research_client
-
-    class FailedStateClient(FakeAsyncClient):
-        async def get(self, url, **kwargs):
-            return FakeResponse(
-                200,
-                {
-                    "status": "failed",
-                    "message": "upstream secret-token",
-                    "error": {"detail": "raw secret-token"},
-                },
-            )
-
-    monkeypatch.setattr(research_client.httpx, "AsyncClient", FailedStateClient)
-    client = ResearchClient(base_url="http://local-deep-researcher:2024")
-
-    status = asyncio.run(client.get_research_status("thread-123"))
-
-    assert status.status == ResearchStatus.FAILED
-    assert status.message == "Research service request failed"
-    assert status.data is None
-    assert "secret-token" not in status.model_dump_json()
 
 
 def test_research_client_honors_total_stream_timeout(monkeypatch):
@@ -464,36 +426,6 @@ def test_research_client_discard_pending_removes_stranded_request():
     client.discard_pending("thread-123")
 
     assert asyncio.run(client.list_active_sessions()) == []
-
-
-def test_stream_research_logs_does_not_start_duplicate_langgraph_run(monkeypatch):
-    import research_client
-
-    FakeAsyncClient.calls = []
-    monkeypatch.setattr(research_client.httpx, "AsyncClient", FakeAsyncClient)
-    client = ResearchClient(base_url="http://local-deep-researcher:2024")
-    client._pending_requests["thread-123"] = ResearchRequest(
-        query="atlas",
-        max_loops=2,
-        search_api="searxng",
-        user_id="user-123",
-    )
-
-    async def scenario():
-        events = []
-        async for event in client.stream_research_logs("thread-123"):
-            events.append(event)
-        return events
-
-    events = asyncio.run(scenario())
-
-    assert events == [
-        {
-            "type": "unsupported",
-            "message": "Research log streaming is not supported for LangGraph runs",
-        }
-    ]
-    assert FakeAsyncClient.calls == []
 
 
 @pytest.mark.parametrize("events", [

@@ -12,9 +12,11 @@ import importlib.util
 import json
 import os
 import re
+import shlex
 import shutil
 import signal
 import stat
+import sqlite3
 import subprocess
 import sys
 import time
@@ -277,6 +279,10 @@ def test_backup_compose_passes_source_to_runner() -> None:
 
 
 def _render_backup_service(tmp_path: Path, overrides: dict[str, str]) -> dict:
+    if shutil.which("docker") is None:
+        if os.environ.get("CI", "").lower() in {"1", "true", "yes"}:
+            pytest.fail("docker CLI is required to render the backup Compose contract")
+        pytest.skip("docker CLI unavailable")
     env_text = (REPO / ".env.example").read_text(encoding="utf-8")
     values = dict(overrides)
     rendered_lines: list[str] = []
@@ -513,6 +519,24 @@ def _backup_s3_env(bin_dir: Path, trace: Path) -> dict[str, str]:
     }
 
 
+def _backup_script_with_private_work(tmp_path: Path) -> Path:
+    """Stage backup-all.sh with its WORK directory under ``tmp_path``.
+
+    The shipped script works in /tmp/atlas-backup-<id> and never removes it,
+    which is harmless in its --rm container. Host test runs leaked one per run.
+    """
+    _stage_backup_script_siblings(tmp_path)
+    shipped = (REPO / "services/backup/init/scripts/backup-all.sh").read_text(encoding="utf-8")
+    work_line = 'WORK="/tmp/atlas-backup-${backup_id}"'
+    assert work_line in shipped
+    backup = tmp_path / "backup-all.sh"
+    backup.write_text(
+        shipped.replace(work_line, f"WORK={shlex.quote(str(tmp_path / 'work'))}"),
+        encoding="utf-8",
+    )
+    return backup
+
+
 def test_external_s3_credentials_are_uri_safe_and_never_fall_back_to_minio_root(
     tmp_path: Path,
 ) -> None:
@@ -521,7 +545,7 @@ def test_external_s3_credentials_are_uri_safe_and_never_fall_back_to_minio_root(
     external_secret = 'se/cr et+$"\\value'
     external_token = "tok:@/+="
     result = subprocess.run(
-        ["sh", str(REPO / "services/backup/init/scripts/backup-all.sh")],
+        ["sh", str(_backup_script_with_private_work(tmp_path))],
         env={
             **_backup_s3_env(bin_dir, trace),
             "BACKUP_S3_MODE": "external",
@@ -611,6 +635,13 @@ def test_local_s3_mode_refuses_to_send_minio_root_credentials_to_remote_endpoint
         ("https://[:::]", "true", "us-east-1", "BACKUP_S3_ENDPOINT"),
         ("https://[127.0.0.1]", "true", "us-east-1", "BACKUP_S3_ENDPOINT"),
         ("https://999.1.2.3", "true", "us-east-1", "BACKUP_S3_ENDPOINT"),
+        ("https://256.1.2.3", "true", "us-east-1", "BACKUP_S3_ENDPOINT"),
+        ("https://1.2.3", "true", "us-east-1", "BACKUP_S3_ENDPOINT"),
+        ("https://1.2.3.4.5", "true", "us-east-1", "BACKUP_S3_ENDPOINT"),
+        ("https://-s3.example.test", "true", "us-east-1", "BACKUP_S3_ENDPOINT"),
+        ("https://s3-.example.test", "true", "us-east-1", "BACKUP_S3_ENDPOINT"),
+        ("https://[12345::1]", "true", "us-east-1", "BACKUP_S3_ENDPOINT"),
+        ("https://[1:2:3:4::5:6:7:8]", "true", "us-east-1", "BACKUP_S3_ENDPOINT"),
         ("https://a..b", "true", "us-east-1", "BACKUP_S3_ENDPOINT"),
         (f"https://{'a' * 64}.example", "true", "us-east-1", "BACKUP_S3_ENDPOINT"),
         (f"https://{'a.' * 126}aa", "true", "us-east-1", "BACKUP_S3_ENDPOINT"),
@@ -647,6 +678,70 @@ def test_backup_rejects_invalid_s3_endpoint_tls_and_region_before_io(
     assert not trace.exists()
 
 
+_NO_S3_CREDENTIALS = {
+    "BACKUP_S3_ENDPOINT": "", "BACKUP_S3_ACCESS_KEY": "", "BACKUP_S3_SECRET_KEY": "",
+    "BACKUP_S3_SESSION_TOKEN": "", "BACKUP_S3_ALIAS_URL": "",
+    "MINIO_ROOT_USER": "", "MINIO_ROOT_PASSWORD": "",
+}
+_MINIO_ROOT = {"MINIO_ROOT_USER": "local-root-access", "MINIO_ROOT_PASSWORD": "local-root-secret"}
+
+
+@pytest.mark.parametrize("case", [
+    ({"BACKUP_S3_MODE": "local", "BACKUP_S3_ACCESS_KEY": "dedicated-access"},
+     "BACKUP_S3_ACCESS_KEY and BACKUP_S3_SECRET_KEY must be set together"),
+    ({"BACKUP_S3_MODE": "local", "BACKUP_S3_SECRET_KEY": "dedicated-secret"},
+     "BACKUP_S3_ACCESS_KEY and BACKUP_S3_SECRET_KEY must be set together"),
+    ({"BACKUP_S3_MODE": "local"},
+     "local mode requires dedicated S3 credentials or both MINIO_ROOT_USER and MINIO_ROOT_PASSWORD"),
+    ({"BACKUP_S3_MODE": "local", "MINIO_ROOT_USER": "local-root-access"},
+     "local mode requires dedicated S3 credentials or both MINIO_ROOT_USER and MINIO_ROOT_PASSWORD"),
+    ({"BACKUP_S3_MODE": "local", **_MINIO_ROOT, "BACKUP_S3_SESSION_TOKEN": "t"},
+     "BACKUP_S3_SESSION_TOKEN requires dedicated S3 credentials in local mode"),
+    ({"BACKUP_S3_MODE": "remote", **_MINIO_ROOT}, "BACKUP_S3_MODE must be local or external"),
+    ({"BACKUP_S3_MODE": "external", "BACKUP_S3_ENDPOINT": "https://a.example.test",
+      "BACKUP_S3_ALIAS_URL": "https://b.example.test", "BACKUP_S3_ACCESS_KEY": "external-access",
+      "BACKUP_S3_SECRET_KEY": "external-secret"},
+     "BACKUP_S3_ALIAS_URL conflicts with BACKUP_S3_ENDPOINT"),
+], ids=["access-only", "secret-only", "no-credentials", "half-root", "root-with-token",
+        "unknown-mode", "alias-conflict"])
+def test_backup_s3_local_mode_and_mode_rules_fail_closed(tmp_path: Path, case) -> None:
+    """services/backup/README.md: a partial pair fails closed; a token needs the dedicated pair."""
+    overrides, message = case
+    trace, bin_dir = _fake_s3_boundary(tmp_path)
+    result = subprocess.run(
+        ["sh", str(REPO / "services/backup/init/scripts/backup-all.sh")],
+        env={**_backup_s3_env(bin_dir, trace), **_NO_S3_CREDENTIALS, **overrides},
+        text=True, capture_output=True, check=False, timeout=30,
+    )
+    assert result.returncode == 64, result.stderr
+    assert message in result.stderr
+    assert not trace.exists()
+    assert "local-root-secret" not in result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("case", [("true", "1", ""), ("false", "", "1")],
+                         ids=["verify-clears-inherited", "no-verify-sets"])
+def test_backup_tls_verify_decides_mc_insecure(tmp_path: Path, case) -> None:
+    """TLS_VERIFY=true must clear an inherited MC_INSECURE, or mc skips verification."""
+    tls_verify, inherited, expected = case
+    trace, bin_dir = _fake_s3_boundary(tmp_path)
+    result = subprocess.run(
+        ["sh", str(_backup_script_with_private_work(tmp_path))],
+        env={
+            **_backup_s3_env(bin_dir, trace), **_NO_S3_CREDENTIALS,
+            "BACKUP_S3_MODE": "external", "BACKUP_S3_ENDPOINT": "https://s3.example.test",
+            "BACKUP_S3_ACCESS_KEY": "AK:ID@", "BACKUP_S3_SECRET_KEY": 'se/cr et+$"\\value',
+            "BACKUP_S3_SESSION_TOKEN": "tok:@/+=", "BACKUP_S3_TLS_VERIFY": tls_verify,
+            "MC_INSECURE": inherited,
+        },
+        text=True, capture_output=True, check=False, timeout=30,
+    )
+    calls = trace.read_text(encoding="utf-8")
+    assert "credentials=ok" in calls, result.stderr
+    assert f"insecure={expected}\n" in calls
+    assert ("MC_INSECURE=1" in calls) is (expected == "1")
+
+
 @pytest.mark.parametrize(
     "endpoint",
     [
@@ -655,12 +750,14 @@ def test_backup_rejects_invalid_s3_endpoint_tls_and_region_before_io(
         "http://127.0.0.1:9000",
         "http://[2001:db8::1]:9000",
         "https://[::1]",
+        "https://255.1.2.3",
+        "https://[1:2:3::6:7:8]",
     ],
 )
 def test_backup_accepts_deliberate_s3_origin_forms(tmp_path: Path, endpoint: str) -> None:
     trace, bin_dir = _fake_s3_boundary(tmp_path)
     result = subprocess.run(
-        ["sh", str(REPO / "services/backup/init/scripts/backup-all.sh")],
+        ["sh", str(_backup_script_with_private_work(tmp_path))],
         env={
             **_backup_s3_env(bin_dir, trace),
             "BACKUP_S3_MODE": "external",
@@ -697,7 +794,7 @@ PY
     )
     mc.chmod(0o755)
     result = subprocess.run(
-        ["sh", str(REPO / "services/backup/init/scripts/backup-all.sh")],
+        ["sh", str(_backup_script_with_private_work(tmp_path))],
         env={
             **_backup_s3_env(bin_dir, trace),
             "BACKUP_S3_MODE": "external",
@@ -1852,6 +1949,11 @@ def _presession_stopped_producer_fixture(tmp_path: Path) -> tuple[Path, Path]:
         "set -eu\n"
         "if [ \"${4:-}\" = atlas-s3-producer ]; then\n"
         "  printf '%s' \"$$\" >\"$PRODUCER_PID\"\n"
+        # Bounded reaper: an interrupted pytest run must not leave this
+        # stopped fake alive. SIGCONT lets it reach `exit 70` on its own;
+        # the reaper quits as soon as the supervisor has killed it.
+        "  (i=0; while [ \"$i\" -lt 120 ] && kill -0 \"$$\"; do sleep 1; i=$((i + 1)); done;"
+        " kill -CONT \"$$\") >/dev/null 2>&1 &\n"
         "  kill -STOP \"$$\"\n"
         "fi\n"
         "exit 70\n",
@@ -3048,17 +3150,6 @@ def _assert_owned_network_absent(name: str, owner_token: str) -> None:
     assert _exact_network_owner(name) != owner_token
 
 
-def _add_exception_note(exc: BaseException, note: str) -> None:
-    if hasattr(exc, "add_note"):
-        exc.add_note(note)
-        return
-    notes = getattr(exc, "__notes__", None)
-    if notes is None:
-        notes = []
-        exc.__notes__ = notes
-    notes.append(note)
-
-
 def _report_fixture_cleanup_failures(
     primary: BaseException | None, failures: list[tuple[str, BaseException]],
 ) -> None:
@@ -3068,10 +3159,10 @@ def _report_fixture_cleanup_failures(
     )
     note = f"Exact Docker fixture cleanup could not be proven: {detail}"
     if primary is not None:
-        _add_exception_note(primary, note)
+        primary.add_note(note)
         return
     cleanup_error = failures[0][1]
-    _add_exception_note(cleanup_error, note)
+    cleanup_error.add_note(note)
     raise cleanup_error
 
 
@@ -3749,7 +3840,8 @@ case "$1" in
     trap 'exit 129' HUP
     trap 'exit 130' INT
     trap 'exit 143' TERM
-    while :; do sleep 1; done
+    # Bounded so an interrupted pytest run cannot leave this fake looping.
+    i=0; while [ "$i" -lt 120 ]; do sleep 1; i=$((i + 1)); done; exit 124
     ;;
 esac
 exit 0
@@ -3803,10 +3895,10 @@ def test_production_backup_restore_and_global_wrapper_clean_s3_config_on_signals
         assert not tmp_path.joinpath("leak").exists()
         for raw in ("signal-access", "signal-secret", "db-secret"):
             assert raw not in stdout + stderr
-        if script_name == "backup-all.sh":
-            work = config_dir.parent
-            if work.name.startswith("atlas-backup-"):
-                shutil.rmtree(work)
+        if script_name == "backup-all.sh" and config_dir.name.startswith("atlas-backup-s3-"):
+            # backup-all.sh keeps WORK beside the S3 config, as /tmp/atlas-backup-<id>.
+            work_name = "atlas-backup-" + config_dir.name.removeprefix("atlas-backup-s3-")
+            shutil.rmtree(config_dir.with_name(work_name), ignore_errors=True)
     finally:
         if process.poll() is None:
             os.killpg(process.pid, signal.SIGKILL)
@@ -3846,9 +3938,9 @@ def test_concurrent_production_backups_use_unique_s3_config_directories(
             for raw in ("signal-access", "signal-secret", "db-secret"):
                 assert raw not in stdout + stderr
         for config_dir in dirs:
-            work = config_dir.parent
-            if work.name.startswith("atlas-backup-"):
-                shutil.rmtree(work)
+            if config_dir.name.startswith("atlas-backup-s3-"):
+                work_name = "atlas-backup-" + config_dir.name.removeprefix("atlas-backup-s3-")
+                shutil.rmtree(config_dir.with_name(work_name), ignore_errors=True)
     finally:
         for process in processes:
             if process.poll() is None:
@@ -4723,7 +4815,7 @@ exit 0
         (tmp_path / name).chmod(0o755)
     trace = tmp_path / "trace"
     result = subprocess.run(
-        ["sh", str(REPO / "services/backup/init/scripts/backup-all.sh")],
+        ["sh", str(_backup_script_with_private_work(tmp_path))],
         env={
             **os.environ, "PATH": f"{tmp_path}:{os.environ.get('PATH', '')}", "TRACE": str(trace),
             "SUPABASE_DB_USER": "postgres", "SUPABASE_DB_PASSWORD": "secret", "SUPABASE_DB_NAME": "postgres",
@@ -4748,7 +4840,7 @@ def test_backup_observes_busy_status_after_lock_process_exits(tmp_path: Path) ->
     (bin_dir / "sed").write_text(
         "#!/bin/sh\n"
         "case \"${1:-} ${2:-} ${3:-}\" in\n"
-        "  '-n 1p /tmp/atlas-backup-'*'/publication-lock.status')\n"
+        f"  {shlex.quote(f'-n 1p {tmp_path}/work/publication-lock.status')})\n"
         "    if [ ! -e \"$SED_MARKER\" ]; then : >\"$SED_MARKER\"; sleep 0.2; exit 0; fi;;\n"
         "esac\n"
         f'exec "{real_sed}" "$@"\n',
@@ -4758,7 +4850,7 @@ def test_backup_observes_busy_status_after_lock_process_exits(tmp_path: Path) ->
         executable.chmod(0o755)
 
     result = subprocess.run(
-        ["sh", str(REPO / "services/backup/init/scripts/backup-all.sh")],
+        ["sh", str(_backup_script_with_private_work(tmp_path))],
         env={
             **_backup_s3_env(bin_dir, trace),
             "BACKUP_S3_MODE": "external",
@@ -5499,7 +5591,8 @@ def test_bulk_volume_steps_use_the_data_timeout():
 def test_neo4j_dump_and_load_are_bounded_by_the_data_timeout():
     """offline-backup/restore bound every dump, load and check with the value
     passed in, which was the 120 s quiesce timeout: any real-sized graph's
-    backup exited 124 and its restore could never complete."""
+    backup exited 124 and its restore could never complete. The job deadline
+    covers every chained step: 8 restore steps and 4 backup steps of 910 s."""
     from types import SimpleNamespace
 
     from tests.test_database_backup_third_rereview import _coordinator, _module
@@ -5507,10 +5600,16 @@ def test_neo4j_dump_and_load_are_bounded_by_the_data_timeout():
     module = _module(); coordinator = _coordinator(module)
     coordinator.timeout = 120
     commands: list = []
-    coordinator._owned_run = lambda role, command, **kw: commands.append(command)
+    timeouts: list = []
+    coordinator._owned_run = lambda role, command, **kw: (
+        commands.append(command), timeouts.append((role, kw.get("timeout")))
+    )
     coordinator.runner = SimpleNamespace(
         create_volume=lambda _n: "vol", unique_name=lambda n: n, register_container=lambda _n: None,
-        run=lambda command, **kw: commands.append(command), scope="s",
+        run=lambda command, **kw: (
+            commands.append(command), timeouts.append(("compose-run", kw.get("timeout")))
+        ),
+        scope="s",
     )
     coordinator._validate_neo4j_data_volume = lambda *_a: None
     coordinator.repo = Path("/repo"); coordinator.token = "t"
@@ -5519,6 +5618,7 @@ def test_neo4j_dump_and_load_are_bounded_by_the_data_timeout():
     coordinator.validate_neo4j_stage("artifacts", "stage")
     coordinator.backup_neo4j("20261007T000000Z")
     assert all("BACKUP_DATABASE_QUIESCE_TIMEOUT_SECONDS=900" in c for c in commands), commands
+    assert timeouts == [("neo-load", 8 * 910 + 60), ("compose-run", 4 * 910 + 60)], timeouts
 
 
 from tests.test_database_role_boundaries import (  # noqa: E402
@@ -5722,7 +5822,7 @@ def _ensure_setsid(bin_dir) -> None:
         shim.chmod(0o755)
 
 
-def _restore_harness(tmp_path, *, publish_postgres: bool, marker: str = "valid"):
+def _restore_harness(tmp_path, *, token: str, publish_postgres: bool, marker: str = "valid"):
     """Publish a disabled-source database set into a fake bucket, then run
     restore-databases.sh prepare against it through a stub mc."""
     import shutil
@@ -5762,7 +5862,6 @@ def _restore_harness(tmp_path, *, publish_postgres: bool, marker: str = "valid")
         if marker == "bad-hmac":
             mac = "0" * 64
         (bucket / ts / "postgres.complete").write_text(payload + f"hmac_sha256={mac}\n")
-    token = "1" * 32
     return subprocess.run(
         ["sh", str(_BACKUP_SCRIPTS / 'restore-databases.sh'), "prepare"], capture_output=True, text=True, timeout=120,
         env={**env, "MINIO_ROOT_USER": "u", "MINIO_ROOT_PASSWORD": "p", "BACKUP_TIMESTAMP": ts,
@@ -5775,20 +5874,21 @@ def test_a_database_restore_needs_the_published_postgres_marker(tmp_path):
     still cut over Neo4j/Weaviate alone (2026-10-08 run, cycle 34)."""
     import shutil
 
+    token = uuid.uuid4().hex
     try:
-        refused = _restore_harness(tmp_path / "a", publish_postgres=False)
+        refused = _restore_harness(tmp_path / "a", token=token, publish_postgres=False)
         assert refused.returncode != 0
         assert "never published" in refused.stderr
-        accepted = _restore_harness(tmp_path / "b", publish_postgres=True)
+        accepted = _restore_harness(tmp_path / "b", token=token, publish_postgres=True)
         assert accepted.returncode == 0, accepted.stderr
         # A forged marker or one from another backup authorizes nothing;
         # neither case was tested (cycle 44).
         for marker in ("bad-hmac", "other-id"):
-            shutil.rmtree(f"/tmp/atlas-database-restore-test-{'1' * 32}", ignore_errors=True)
-            forged = _restore_harness(tmp_path / marker, publish_postgres=True, marker=marker)
+            shutil.rmtree(f"/tmp/atlas-database-restore-test-{token}", ignore_errors=True)
+            forged = _restore_harness(tmp_path / marker, token=token, publish_postgres=True, marker=marker)
             assert forged.returncode != 0, (marker, forged.stderr)
     finally:
-        shutil.rmtree(f"/tmp/atlas-database-restore-test-{'1' * 32}", ignore_errors=True)
+        shutil.rmtree(f"/tmp/atlas-database-restore-test-{token}", ignore_errors=True)
 
 
 def _writable_repo_mounts(label, spec):
@@ -5814,8 +5914,7 @@ def test_init_containers_mount_repo_sources_read_only_and_label_studio_blocks_ss
     repo = Path(__file__).resolve().parents[2]
     writable = list(_writable_repo_init_mounts(repo))
     # Not yet reviewed for read-only mounts; listed so a new one is noticed.
-    pending_review = {"airflow/airflow-init: ./dags:/opt/airflow/dags",
-                      "supabase/supabase-db-init: ./db/scripts:/scripts"}
+    pending_review = {"airflow/airflow-init: ./dags:/opt/airflow/dags"}
     assert sorted(set(writable) - pending_review) == [], writable
     label_studio = yaml.safe_load((repo / "services/label-studio/compose.yml").read_text())
     assert label_studio["services"]["label-studio"]["environment"]["SSRF_PROTECTION_ENABLED"] == "true"
@@ -5894,3 +5993,89 @@ def test_atomic_lock_reclaims_reused_pid_with_spaced_comm(tmp_path, monkeypatch)
     finally:
         second.release()
         first.release()
+
+
+def _postgres_table_inventory_sql(script: Path) -> str:
+    source = script.read_text(encoding="utf-8")
+    start = source.index("SELECT encode(convert_to(n.nspname, 'UTF8'), 'hex')")
+    return source[start:source.index(";", start) + 1]
+
+
+def _postgres_catalog_inventory(script: Path, rows: list[tuple[str, str, str, str]]) -> list[str]:
+    """Execute the source predicate with only PostgreSQL syntax/function adapters."""
+    connection = sqlite3.connect(":memory:")
+    connection.create_function("convert_to", 2, lambda value, encoding: value.encode(encoding))
+    connection.create_function("encode", 2, lambda value, encoding: value.hex())
+    connection.create_function("regexp", 2, lambda pattern, value: bool(re.search(pattern, value)))
+    connection.executescript(
+        "CREATE TABLE pg_namespace(oid INTEGER, nspname TEXT);"
+        "CREATE TABLE pg_class(relnamespace INTEGER, relname TEXT, relkind TEXT, relpersistence TEXT);"
+    )
+    for oid, (namespace, table, kind, persistence) in enumerate(rows, 1):
+        connection.execute("INSERT INTO pg_namespace VALUES (?, ?)", (oid, namespace))
+        connection.execute("INSERT INTO pg_class VALUES (?, ?, ?, ?)", (oid, table, kind, persistence))
+    query = _postgres_table_inventory_sql(script).replace("E'\\t'", "char(9)").replace(" !~ ", " NOT REGEXP ")
+    try:
+        return [row[0] for row in connection.execute(query)]
+    finally:
+        connection.close()
+
+
+_POSTGRES_TABLE_INVENTORY_CASES = [
+    pytest.param([("public", "state", "r", "p")], [("public", "state")], id="permanent"),
+    pytest.param(
+        [("analytics", "events", "r", "u"), ("public", "parent", "p", "p")],
+        [("analytics", "events"), ("public", "parent")], id="unlogged-partitioned",
+    ),
+    pytest.param(
+        [("pgapp", "state", "r", "p"), ("pg_catalog", "pg_class", "r", "p"),
+         ("information_schema", "sql_features", "r", "p"), ("pg_toast", "pg_toast_1", "r", "p"),
+         ("public", "a_view", "v", "p"), ("public", "an_index", "i", "p")],
+        [("pgapp", "state")], id="system-and-non-table-exclusion",
+    ),
+    pytest.param(
+        [("public", "state", "r", "p"), ("pg_temp_7", "session_work", "r", "t")],
+        [("public", "state")], id="other-session-temporary-table",
+    ),
+]
+
+
+@pytest.mark.parametrize("script_name", ["backup-all.sh", "restore-postgres.sh"])
+@pytest.mark.parametrize("rows, expected", _POSTGRES_TABLE_INVENTORY_CASES)
+def test_postgres_table_inventory_matches_default_dump_namespace_contract(script_name, rows, expected):
+    script = REPO / "services/backup/init/scripts" / script_name
+    actual = _postgres_catalog_inventory(script, rows)
+    assert actual == [namespace.encode().hex() + "\t" + table.encode().hex() for namespace, table in expected]
+
+
+def _run_postgres_staged_inventory_gate(tmp_path: Path, producer_rows, restored_rows):
+    scripts = REPO / "services/backup/init/scripts"
+    trusted = "\n".join(_postgres_catalog_inventory(scripts / "backup-all.sh", producer_rows)) + "\n"
+    staged = "\n".join(_postgres_catalog_inventory(scripts / "restore-postgres.sh", restored_rows)) + "\n"
+    (tmp_path / "staged.tables").write_text(staged, encoding="utf-8")
+    source = (scripts / "restore-postgres.sh").read_text(encoding="utf-8")
+    start = source.index("staged_tables_sha_output=")
+    gate = source[start:source.index("\nlock_still_held=", start)]
+    env = {"PATH": os.environ.get("PATH", ""), "WORK": str(tmp_path),
+           "expected_tables_sha": hashlib.sha256(trusted.encode()).hexdigest(),
+           "expected_table_count": str(len(trusted.splitlines()))}
+    return subprocess.run(
+        ["sh", "-c", 'set -eu\nrun_bounded() { "$@"; }\n' + gate], env=env,
+        capture_output=True, text=True, check=False, timeout=5,
+    )
+
+
+@pytest.mark.parametrize("case", ["ordinary", "temporary-table", "missing-permanent-table", "same-count-wrong-name"])
+def test_postgres_staged_inventory_accepts_dumped_tables_and_rejects_missing_persistent_table(tmp_path, case):
+    producer = [("public", "state", "r", "p")]
+    restored = list(producer)
+    if case == "temporary-table":
+        producer.append(("pg_temp_7", "session_work", "r", "t"))
+    if case == "missing-permanent-table":
+        producer.append(("public", "required_table", "r", "p"))
+    if case == "same-count-wrong-name":
+        restored[0] = ("public", "different", "r", "p")
+    result = _run_postgres_staged_inventory_gate(tmp_path, producer, restored)
+    rejected = case in {"missing-permanent-table", "same-count-wrong-name"}
+    assert result.returncode == (1 if rejected else 0), result.stderr
+    assert ("staged table inventory does not match authenticated backup inventory" in result.stderr) == rejected

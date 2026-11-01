@@ -6,16 +6,15 @@ from pathlib import Path
 def _wizard_steps():
     from core.config_parser import ConfigParser
     from ui.textual.integration import _build_steps_and_rows
-    from utils.hosts_manager import HostsManager
     repo_root = Path(__file__).resolve().parent.parent.parent
     cp = ConfigParser(str(repo_root))
     cp.parse_env_file()
-    hm = HostsManager()
-    steps, _rows, _info, _bp, _state, _cloud = _build_steps_and_rows(cp, hm)
+    steps, _rows, _info, _bp, _state, _cloud = _build_steps_and_rows(cp)
     return steps
 
 
-def test_spark_source_step_has_worker_count_secondary():
+def test_spark_source_step_has_worker_count_secondary(env_with_overrides, monkeypatch):
+    monkeypatch.setenv("ATLAS_ENV_FILE", str(env_with_overrides({})))
     steps = _wizard_steps()
     spark_step = next(
         (s for s in steps if s.service_name == "Apache Spark" and "source" in s.title.lower()),
