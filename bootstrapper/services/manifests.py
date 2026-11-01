@@ -10,8 +10,9 @@ environment, the bootstrapper state, or docker-compose. The
 manifest_validator module performs the cross-manifest checks; this module
 only handles per-file load + schema validation + per-manifest sanity checks.
 
-Wired into start.py via services.topology and services.env_assembler — see
-those modules for the consumer-side flow.
+Wired into start.py via services.topology — see that module for the
+consumer-side flow. services.env_assembler reads the same manifests to
+regenerate .env.example.
 """
 
 from __future__ import annotations
@@ -362,9 +363,10 @@ def _get_validator() -> Draft202012Validator:
 def load_manifests(services_root: Path) -> list[Manifest]:
     """Discover, parse, and validate every manifest under services_root.
 
-    Each immediate subfolder of services_root (skipping ones whose name starts
-    with `_` or `.`) must contain a `service.yml`. Returns manifests sorted
-    alphabetically by folder name for deterministic ordering.
+    Each immediate subfolder of services_root that holds a `service.yml` is
+    loaded. Folders without one, and names starting with `_` or `.`, are
+    skipped (doc-only folders such as services/stt-provider). Returns
+    manifests sorted alphabetically by folder name for deterministic ordering.
 
     Raises ManifestLoadError with an aggregated message if any manifest fails.
     """

@@ -61,6 +61,7 @@ driver_calls = {
     ("state_builder", "all_services"): lambda f: f(),
     ("state_builder", "all_cloud_apis"): lambda f: f(),
     ("state_builder", "cloud_api_status_text"): lambda f: f(True, True),
+    ("state_builder", "kong_listener_port"): lambda f: f({}),
     ("state_builder", "build_app_state"): lambda f: f(
         __import__("core.config_parser", fromlist=["ConfigParser"]).ConfigParser()
     ),

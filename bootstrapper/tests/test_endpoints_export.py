@@ -434,9 +434,10 @@ def test_empty_scoped_credential_keeps_reference_without_value(secret):
 # ── deterministic / byte-stable output ──────────────────────────────
 
 def test_env_and_json_output_are_byte_stable() -> None:
-    env = _base_env()
-    assert render_env(build_export(env)) == render_env(build_export(env))
-    assert render_json(build_export(env)) == render_json(build_export(env))
+    env = dict(_base_env(), ATLAS_STORE_ZED_BUCKET="z", ATLAS_STORE_ALPHA_BUCKET="a")
+    reordered = dict(reversed(list(env.items())))
+    assert render_env(build_export(env)) == render_env(build_export(reordered))
+    assert render_json(build_export(env)) == render_json(build_export(reordered))
 
 
 def test_render_env_and_json_shapes() -> None:

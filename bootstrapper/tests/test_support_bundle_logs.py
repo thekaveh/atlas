@@ -247,3 +247,25 @@ def test_cut_pem_end_redacts_body_and_preserves_following_failure():
     preview, members = rendered(bundle)
     assert b"KEYBODYabc" not in b"".join(members.values()) and "KEYBODYabc" not in preview
     assert "terminal canary" in bundle.logs["session.log"]
+
+
+@pytest.mark.parametrize(("address", "local"), [
+    ("/var/run/docker.sock", True),
+    (("localhost", 1), True),
+    (("127.0.0.1", 1), True),
+    (("::1", 1, 0, 0), True),
+    (("::ffff:127.0.0.1", 1, 0, 0), True),
+    (("fe80::1%lo0", 1, 0, 0), False),
+    (("example.com", 80), False),
+    (("192.0.2.1", 1), False),
+])
+def test_offline_guard_admits_only_loopback_and_unix_sockets(address, local):
+    """`offline()` keeps loopback and Unix sockets usable; any hostname counts as remote."""
+    assert sb._is_local_address(address) is local
+
+
+def test_six_character_secret_value_is_scrubbed_from_free_text():
+    """`_MIN_SECRET_LEN` is inclusive: a 6-character non-wordlike secret is matched by value."""
+    scrubbed = sb.Redactor({"API_KEY": "a1#b2!"}).text("upstream echoed a1#b2! back")
+    assert "a1#b2!" not in scrubbed
+    assert sb.REDACTED in scrubbed

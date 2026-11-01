@@ -132,7 +132,6 @@ class MemoryStore:
         self.weaviate_state_reason = (
             "not_configured" if not weaviate_url else "not_probed"
         )
-        self._weaviate_client = None
         self._initialized = False
         # Self-guards the one-shot init so the destructive collection heal
         # in _ensure_weaviate_collection can never race itself, regardless

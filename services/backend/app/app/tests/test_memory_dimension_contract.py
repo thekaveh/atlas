@@ -2401,20 +2401,27 @@ async def test_vectorizer_write_failure_keeps_a_pgvector_shadow_then_raises():
 
 
 @pytest.mark.asyncio
-async def test_systematic_vectorizer_failures_halt_reconcile_without_raising(monkeypatch):
-    """Recall runs reconcile: a vectorizer failing every row must not retry 100 rows."""
+@pytest.mark.parametrize("failure", ["weaviate_vectorizer", "direct_embedder_model"])
+async def test_systematic_vectorizer_failures_halt_reconcile_without_raising(monkeypatch, failure):
+    """Recall runs reconcile: a vectorizer failing every row must not retry 100 rows.
+    The direct LiteLLM call that serves pgvector halts on the same error."""
     import httpx
     import memory_service as mod
 
     calls = {"n": 0}
-    request = httpx.Request("POST", "http://weaviate/v1/objects")
+    status, url, text = {
+        "weaviate_vectorizer": (500, "http://weaviate/v1/objects", "update vector: remote client failed"),
+        "direct_embedder_model": (
+            400, "http://litellm:4000/v1/embeddings", "Invalid model name passed in model=x"),
+    }[failure]
+    request = httpx.Request("POST", url)
 
     class VectorizerFailingStore:
         async def update_embedding(self, **_kwargs):
             calls["n"] += 1
             raise httpx.HTTPStatusError(
                 "x", request=request,
-                response=httpx.Response(500, text="update vector: remote client failed", request=request),
+                response=httpx.Response(status, text=text, request=request),
             )
 
     class FakeConn:

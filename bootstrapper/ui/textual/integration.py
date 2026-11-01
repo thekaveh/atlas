@@ -341,7 +341,7 @@ def _build_steps_and_rows(
     from .widgets.service_table import ServiceRow, minio_s3_endpoints
     from services.manifests import load_manifests as _load_manifests, option_in_profile as _option_in_profile
     from services.manifests import manifest_source_default
-    from services.profiles import profile_source_map
+    from services.profiles import launch_profile_source_map
     try:
         _manifests = _load_manifests(Path(config_parser.root_dir) / "services")
     except Exception:  # noqa: BLE001
@@ -355,7 +355,7 @@ def _build_steps_and_rows(
         for mf in _manifests
         if mf.sources is not None
     }
-    _profile_sources = profile_source_map()
+    _profile_sources = launch_profile_source_map(config_parser)
     _secondary_by_source_var = {
         row.source_var: row.secondary_number
         for manifest in _manifests
@@ -935,12 +935,10 @@ def _build_steps_and_rows(
         for ca in state.cloud_apis
     ]
 
-    # Kong's listener port — every Kong-routed alias URL uses this port
-    # (virtual-host routing on a single listener), not the upstream
-    # service's own port. Mirror state_builder.build_app_state()'s
-    # `"63000"` fallback so the wizard's first paint matches the linear
-    # state-builder path when KONG_HTTP_PORT is blank in .env.
-    kong_port = (env_vars.get("KONG_HTTP_PORT", "") or "63000").strip()
+    # Kong's listener port (state_builder.kong_listener_port). Every
+    # Kong-routed alias URL uses it (virtual-host routing on a single
+    # listener), not the upstream service's own port.
+    kong_port = state.kong_port
     # Set of display names whose source the user CAN configure. Used
     # to drive the lock-icon column in the overview — services not in
     # this set are always-on infrastructure.
@@ -1202,7 +1200,7 @@ def _selections_to_args(
 
     # Single unified Ollama models step (replaces the previous
     # pulled+library split). Container modes show library only;
-    # localhost/external show a merged [pulled]/[library] list. The
+    # localhost shows a merged [pulled]/[library] list. The
     # CSV is already the user's final selection — no union needed.
     ollama_user_models: dict = {}
     models_v = selections.get(OLLAMA_MODELS_TITLE)

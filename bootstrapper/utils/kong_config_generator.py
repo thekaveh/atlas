@@ -663,6 +663,10 @@ class KongConfigGenerator:
             present.update(parts[1:])
         return bool(needed & present)
 
+    # Streaming LLM upstreams. Kong buffers each route's response, which
+    # batches SSE tokens, unless the route sets response_buffering: false.
+    _UNBUFFERED_ALIAS_SERVICES = frozenset({"ollama-api"})
+
     def get_alias_only_services(self) -> List[Dict[str, Any]]:
         """Kong routes for the 7 aliases added in the topology rework
         that lacked dedicated routing logic before.
@@ -764,15 +768,18 @@ class KongConfigGenerator:
             if not url:
                 # Source not recognized for this alias — skip silently.
                 continue
+            route = {
+                "name": f"{service_name}-all",
+                "strip_path": False,
+                "preserve_host": True,
+                "hosts": [alias],
+            }
+            if service_name in self._UNBUFFERED_ALIAS_SERVICES:
+                route["response_buffering"] = False
             services.append({
                 "name": service_name,
                 "url": url,
-                "routes": [{
-                    "name": f"{service_name}-all",
-                    "strip_path": False,
-                    "preserve_host": True,
-                    "hosts": [alias],
-                }],
+                "routes": [route],
                 "plugins": [{"name": "cors"}],
             })
         return services
@@ -2310,6 +2317,10 @@ class KongConfigGenerator:
                     # route.
                     'preserve_host': True,
                     'hosts': ['litellm.localhost'],
+                    # Kong's `location /` forces proxy_buffering on, so
+                    # KONG_NGINX_PROXY_PROXY_BUFFERING has no effect. Only
+                    # this route field streams SSE completions as they arrive.
+                    'response_buffering': False,
                     'plugins': [
                         {
                             'name': 'pre-function',

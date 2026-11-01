@@ -3,8 +3,8 @@ LLM cluster prompt-step builders for the Textual wizard.
 
 Two consumers in ``bootstrapper/ui/textual/integration.py``:
   * ``build_ollama_steps(env_vars)`` — two steps: a unified models
-    multiselect (container modes show the library catalog; localhost/
-    external show merged [pulled] + [library]) and a free-text
+    multiselect (container modes show the library catalog; localhost
+    shows merged [pulled] + [library]) and a free-text
     "additional to pull" step that fires only for container sources.
     Gating via ``skip_if_prev`` on ``LLM_PROVIDER_SOURCE``.
   * ``build_cloud_steps(env_vars, warn)`` — three (secret + multiselect)
@@ -70,10 +70,10 @@ LLM_DEFAULT_EMBED_TITLE   = "LLM defaults  ·  embedding model"
 LLM_DEFAULT_EMBED_DIM_TITLE = "LLM defaults  ·  embedding dimension"
 LLM_DEFAULT_VISION_TITLE  = "LLM defaults  ·  vision model"
 # Single unified Ollama models step. Replaces the previous pulled+library
-# split, which produced two near-duplicate pages for localhost/external
-# users (the library was a strict superset of /api/tags). Now: container
-# sources show library only (nothing's pulled yet); localhost/external
-# show a merged list with [pulled] / [library] badges.
+# split, which produced two near-duplicate pages for localhost users
+# (the library was a strict superset of /api/tags). Now: container
+# sources show library only (nothing's pulled yet); localhost shows a
+# merged list with [pulled] / [library] badges.
 OLLAMA_MODELS_TITLE = "Ollama  ·  models"
 OLLAMA_CUSTOM_TITLE = "Ollama  ·  additional models to pull"
 
@@ -337,7 +337,6 @@ def build_ollama_steps(
 
     def _ollama_upstream_for_wizard(selections: dict) -> str:
         src = _selected_llm_source(env_vars, selections)
-        url = (env_vars.get("LITELLM_OLLAMA_UPSTREAM", "") or "").strip()
         if "localhost" in src:
             # Honor the user's port override — the 5th consumer site of
             # the localhost-port symmetry rule (runtime_sc, Kong,
@@ -350,8 +349,6 @@ def build_ollama_steps(
                 or "11434"
             )
             return f"http://localhost:{port}"
-        if "external" in src and url:
-            return url
         return ""
 
 
@@ -441,7 +438,7 @@ def build_ollama_steps(
                 opts = [_fallback_notice_option(live_count, len(library_entries))] + opts
             return opts
 
-        # Localhost/external: merge /api/tags + library.
+        # Localhost: merge /api/tags + library.
         url = _ollama_upstream_for_wizard(selections)
         pulled_names: List[str] = []
         if not url:
@@ -539,7 +536,7 @@ def build_ollama_steps(
 
     return [
         # Single unified step. Container modes get library only;
-        # localhost/external get a merged [pulled] + [library] view.
+        # localhost gets a merged [pulled] + [library] view.
         # See _merged_ollama_options for details.
         PromptStep(
             title=OLLAMA_MODELS_TITLE,
@@ -547,7 +544,7 @@ def build_ollama_steps(
             heading="Which Ollama models to register?",
             subtitle=(
                 "Container: full ollama.com/library catalog (ollama-pull fetches checked at startup). "
-                "Localhost/external: [pulled] = already on your Ollama host (usable immediately); "
+                "Localhost: [pulled] = already on your Ollama host (usable immediately); "
                 "[library] = in the public catalog but NOT on your host yet (you'll need to "
                 "`ollama pull <name>` afterwards). "
                 "Recent models first (by pull count); [legacy] = updated > 1 year ago. "
@@ -1095,14 +1092,15 @@ def build_default_model_steps(
 
     Convention pre-selection
     ------------------------
-    * **Chat / content:** pre-selects the first content-capable model in
+    * **Chat / content:** pre-selects the saved ``LITELLM_DEFAULT_MODEL`` when
+      it is offered, otherwise the first content-capable model in
       catalog-priority order among the user's current selections.
     * **Embedding:** pre-selects the current ``LITELLM_EMBEDDING_MODEL`` value
       from ``.env``, falling back to ``ollama/nomic-embed-text``. Curated
       models derive their dimension from catalog metadata; a custom model
       opens a required, visible dimension step.
-    * **Vision:** pre-selects the first vision-capable model in priority order,
-      or ``""`` (none / skip) when no vision model is selected.
+    * **Vision:** pre-selects the saved ``LITELLM_VISION_MODEL``; on a fresh
+      setup (empty) the ``"— none / skip —"`` sentinel.
 
     Skip logic
     ----------
@@ -1387,8 +1385,9 @@ def build_default_model_steps(
     _content_default = (env_vars.get("LITELLM_DEFAULT_MODEL", "") or "").strip() or None
 
     # default_value semantics for these options steps:
-    #   - content: default_value=None → the WizardScreen pre-selects the FIRST
-    #     option (highest-priority content model) after options_provider runs.
+    #   - content: default_value=_content_default → the saved
+    #     LITELLM_DEFAULT_MODEL; when that model is not offered, the prompt
+    #     panel falls back to option 0 (highest-priority content model).
     #   - embedding: default_value=_embedding_default → the current saved value
     #     (or the 768-dim safe default), deterministic at build time.
     #   - vision: default_value=_vision_default → the saved LITELLM_VISION_MODEL

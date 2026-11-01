@@ -851,8 +851,17 @@ def test_legacy_polling_malformed_history_returns_truthful_502(
 
     response = fastapi_client.post(route, json=payload)
 
+    # The prompt was queued, so the 502 names it: a caller polls or cancels it
+    # instead of re-queueing a duplicate render.
     assert response.status_code == 502
-    assert response.json() == {"detail": "ComfyUI returned an invalid response"}
+    assert response.json() == {
+        "detail": {
+            "message": "ComfyUI returned an invalid response while polling; "
+                       "the prompt may still be running, so poll or cancel "
+                       "it before retrying",
+            "prompt_id": "prompt-malformed",
+        }
+    }
     assert "SENTINEL_COMFY_MALFORMED_HISTORY" not in response.text
 
 

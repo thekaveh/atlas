@@ -28,7 +28,7 @@ Select models from the `litellm` provider. Its built-in default `litellm/claude-
 **Container Mode Initialization**: When running in container mode, an `openclaw-init` container runs first to:
 
 - Set correct volume permissions (uid 1000/node) on config and workspace volumes
-- Pre-configure the gateway for non-loopback binding (`gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback`)
+- Pre-configure the gateway for non-loopback binding (`gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback`). Init sets it to `true` only when the config has neither an explicit value nor a `gateway.controlUi.allowedOrigins` list, so an operator's hardening survives restarts.
 
 OpenClaw accepts JSON5 (comments, trailing commas), but `jq` does not. `openclaw-init` leaves a config that `jq` cannot parse unpatched and logs a warning. Set `models.providers.litellm.baseUrl` and `gateway.controlUi.dangerouslyAllowHostHeaderOriginFallback` in that file yourself.
 

@@ -34,7 +34,6 @@ services:
       N8N_PROTOCOL: ${N8N_PROTOCOL:-http}
       N8N_PROXY_HOPS: 1
       N8N_PUSH_BACKEND: websocket
-      VUE_APP_URL_BASE_API: http://n8n.localhost:${KONG_HTTP_PORT}/
       GENERIC_TIMEZONE: ${TZ:-UTC}
       N8N_EDITOR_BASE_URL: http://n8n.localhost:${KONG_HTTP_PORT}
       WEBHOOK_URL: http://n8n.localhost:${KONG_HTTP_PORT}/

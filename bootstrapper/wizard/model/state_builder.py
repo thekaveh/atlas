@@ -17,7 +17,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Callable, Optional
 
-from core.config_parser import ConfigParser
+from core.config_parser import DEFAULT_BASE_PORT, ConfigParser
 from wizard.model.state import AppState, CloudApiEntry, ConsumerEntry, ServiceEntry
 from services.topology import get_topology, Topology
 
@@ -265,6 +265,18 @@ def cloud_api_status_text(enabled: bool, key_set: bool) -> str:
     return "disabled"
 
 
+def kong_listener_port(env: dict) -> str:
+    """Kong's listener port, which every Kong-routed alias URL uses. Kong
+    holds slot 0 of the port block, so a blank or missing KONG_HTTP_PORT
+    falls back to a numeric BASE_PORT, then to DEFAULT_BASE_PORT. A plain
+    ``dict.get`` default would return "" for the blank value."""
+    kong = (env.get("KONG_HTTP_PORT") or "").strip()
+    if kong:
+        return kong
+    base = (env.get("BASE_PORT") or "").strip()
+    return base if base.isdigit() else str(DEFAULT_BASE_PORT)
+
+
 def _brand_field(env: dict, env_var: str, fallback: str) -> str:
     """Read a brand metadata value from .env, falling back to the canonical default."""
     value = env.get(env_var)
@@ -349,5 +361,5 @@ def build_app_state(
         services=services,
         cloud_apis=cloud_apis,
         consumers=consumer_entries,
-        kong_port=env.get("KONG_HTTP_PORT", "63000"),
+        kong_port=kong_listener_port(env),
     )

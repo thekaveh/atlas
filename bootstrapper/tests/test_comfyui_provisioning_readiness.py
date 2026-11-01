@@ -35,7 +35,7 @@ def _health_env(tmp_path: Path, manifest: Path, models: Path, nodes: Path) -> di
     }
 
 
-def _run_health(tmp_path: Path, *, model_state: str = "ready", node_state: str = "ready"):
+def _run_health(tmp_path: Path, *, model_state: str = "ready", node_state: str = "ready", curl_exit: int = 0):
     manifest = tmp_path / "manifest"
     manifest.mkdir(parents=True)
     models_plan = manifest / "active-models.tsv"
@@ -49,7 +49,7 @@ def _run_health(tmp_path: Path, *, model_state: str = "ready", node_state: str =
     fakebin = tmp_path / "bin"
     fakebin.mkdir()
     curl = fakebin / "curl"
-    curl.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    curl.write_text(f"#!/bin/sh\nexit {curl_exit}\n", encoding="utf-8")
     curl.chmod(0o755)
     return subprocess.run(
         ["sh", str(HEALTH_SCRIPT)],
@@ -64,6 +64,12 @@ def _run_health(tmp_path: Path, *, model_state: str = "ready", node_state: str =
 def test_exact_ready_manifests_and_reachable_api_are_healthy(tmp_path: Path) -> None:
     result, _manifest, _models, _nodes = _run_health(tmp_path)
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_ready_plans_with_an_unreachable_api_are_unhealthy(tmp_path: Path) -> None:
+    """The header promises readiness only once the HTTP API answers."""
+    result, *_ = _run_health(tmp_path, curl_exit=7)
+    assert result.returncode != 0
 
 
 def test_required_model_or_node_failure_is_never_healthy(tmp_path: Path) -> None:

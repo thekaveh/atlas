@@ -170,7 +170,7 @@ def _write_base_env(tmp_path: Path, extra: str = "") -> None:
     (tmp_path / ".env.example").write_text(
         "PROJECT_NAME=atlas\n"
         "COMFYUI_ENDPOINT=http://comfyui:18188\n"
-        "LITELLM_URL=http://litellm:4000\n"
+        "LITELLM_BASE_URL=http://litellm:4000\n"
         "MINIO_ENDPOINT=http://minio:9000\n"
         f"{extra}",
         encoding="utf-8",
@@ -178,7 +178,7 @@ def _write_base_env(tmp_path: Path, extra: str = "") -> None:
     (tmp_path / ".env").write_text(
         "PROJECT_NAME=atlas\n"
         "COMFYUI_ENDPOINT=http://host.docker.internal:8188\n"
-        "LITELLM_URL=http://litellm:4000\n"
+        "LITELLM_BASE_URL=http://litellm:4000\n"
         "MINIO_ENDPOINT=http://minio:9000\n"
         f"{extra}",
         encoding="utf-8",
@@ -270,6 +270,7 @@ def test_doctor_text_reports_endpoint_resolution(tmp_path, monkeypatch) -> None:
     assert result.exit_code == 0, result.output
     assert "Consumer Doctor" in result.output
     assert "COMFYUI_ENDPOINT=http://host.docker.internal:8188" in result.output
+    assert "LITELLM_BASE_URL=http://litellm:4000" in result.output
     assert "compose" in result.output
     assert "overlay-env" in result.output
 
@@ -1926,7 +1927,7 @@ def test_doctor_bundle_names_the_manifest_that_set_a_wrong_key(tmp_path, monkeyp
     assert f"Change `env.values.BASE_PORT` in {manifest}" in port["action"]
     model = config["LITELLM_DEFAULT_MODEL"]
     assert (model["value"], model["origin"]) == ("wrong-model", str(manifest))
-    assert "LITELLM_URL" not in config  # not allowlisted
+    assert "LITELLM_BASE_URL" not in config  # not allowlisted
 
 
 def test_doctor_bundle_opt_in_only_adds_unlisted_fields(tmp_path, monkeypatch) -> None:
@@ -1944,7 +1945,7 @@ def test_doctor_bundle_opt_in_only_adds_unlisted_fields(tmp_path, monkeypatch) -
     base_keys = {e["key"] for e in base["config"]}
     full_keys = {e["key"] for e in full["config"]}
     assert base_keys < full_keys
-    assert "LITELLM_URL" in full_keys - base_keys
+    assert "LITELLM_BASE_URL" in full_keys - base_keys
     assert all("details" not in check for check in base["checks"])
     assert all("details" in check for check in full["checks"])
     assert [c["id"] for c in base["checks"]] == [c["id"] for c in full["checks"]]

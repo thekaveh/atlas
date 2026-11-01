@@ -4854,7 +4854,7 @@ class AtlasStarter:
         from rich.table import Table
         from rich.text import Text
         from rich.box import HEAVY_HEAD
-        from wizard.model.state_builder import all_services, all_cloud_apis, alias_for, cloud_api_status_text
+        from wizard.model.state_builder import all_services, all_cloud_apis, alias_for, cloud_api_status_text, kong_listener_port
         from services.topology import get_topology
         from ui.textual.palette import style_for_category
 
@@ -4863,7 +4863,7 @@ class AtlasStarter:
 
         env_vars = self.config_parser.parse_env_file()
         service_sources = self.config_parser.parse_service_sources()
-        kong_port = env_vars.get('KONG_HTTP_PORT', '63000')
+        kong_port = kong_listener_port(env_vars)
 
         # Check if hosts entries are configured (yields the set of hostnames
         # that are PRESENT in /etc/hosts).
@@ -5885,7 +5885,7 @@ def _doctor_check_plugin_manifests(starter: "AtlasStarter") -> dict:
 
 
 def _doctor_check_ollama_parallel(starter: "AtlasStarter") -> dict:
-    """Warn when a host Ollama daemon is provisioned below the declared need.
+    """Fail when a host Ollama daemon is provisioned below the declared need.
 
     Only meaningful for ``ollama-localhost``: on the container sources
     Atlas sets ``OLLAMA_NUM_PARALLEL`` itself, but the host-prereq
@@ -5943,7 +5943,7 @@ def _doctor_check_ollama_parallel(starter: "AtlasStarter") -> dict:
 
 
 def _doctor_check_ollama_residency(starter: "AtlasStarter") -> dict:
-    """Warn when a host Ollama will evict its own working set mid-run.
+    """Fail when a host Ollama will evict its own working set mid-run.
 
     A multi-model ingest (extract + embed + keyword) touches several models
     in sequence. When OLLAMA_MAX_LOADED_MODELS is below that count, Ollama
@@ -6731,9 +6731,9 @@ def _doctor_check_endpoints(starter: "AtlasStarter") -> dict:
     env_values = starter.config_parser.parse_env_file()
     endpoints = {
         "COMFYUI_ENDPOINT": env_values.get("COMFYUI_ENDPOINT", ""),
-        "LITELLM_URL": env_values.get("LITELLM_URL", ""),
+        "LITELLM_BASE_URL": env_values.get("LITELLM_BASE_URL", ""),
         "MINIO_ENDPOINT": env_values.get("MINIO_ENDPOINT", ""),
-        "MINIO_BROWSER_REDIRECT_URL": env_values.get("MINIO_BROWSER_REDIRECT_URL", ""),
+        "MINIO_PUBLIC_CONSOLE_ENDPOINT": env_values.get("MINIO_PUBLIC_CONSOLE_ENDPOINT", ""),
     }
     visible = {key: value for key, value in endpoints.items() if value}
     if not visible:

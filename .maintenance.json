@@ -147,8 +147,8 @@
       {
         "path": "bootstrapper/ui/textual/integration.py",
         "symbol": "_build_steps_and_rows",
-        "cyclomatic_complexity": 74,
-        "rationale": "Declarative adapter over the complete manifest-driven wizard option matrix; discovery and parity tests exercise its service-specific branches. 76 -> 75 on #1050: the subtitle fallback moved into _support_subtitle. 75 -> 74 on the 2026-10-05 maintenance run: the source-step fallback now reads the manifest's sources.default through services.manifests.manifest_source_default instead of an inline svc.options[0] conditional, and the profile-aware default lives in the module-level _make_profile_default_provider."
+        "cyclomatic_complexity": 73,
+        "rationale": "Declarative adapter over the complete manifest-driven wizard option matrix; discovery and parity tests exercise its service-specific branches. 76 -> 75 on #1050: the subtitle fallback moved into _support_subtitle. 75 -> 74 on the 2026-10-05 maintenance run: the source-step fallback now reads the manifest's sources.default through services.manifests.manifest_source_default instead of an inline svc.options[0] conditional, and the profile-aware default lives in the module-level _make_profile_default_provider. 74 -> 73 on the 2026-11-01 overnight maintenance run (cycle 5): the inline KONG_HTTP_PORT fallback moved into wizard.model.state_builder.kong_listener_port, and the wizard reads state.kong_port."
       },
       {
         "path": "bootstrapper/ui/textual/integration.py",
@@ -227,8 +227,8 @@
       {
         "path": "bootstrapper/ui/textual/integration.py",
         "symbol": "_build_steps_and_rows",
-        "cyclomatic_complexity": 74,
-        "rationale": "Declarative adapter over the complete manifest-driven wizard option matrix; parity and discovery tests cover the branches. 75 -> 74 on the 2026-10-05 maintenance run (manifest default lookup moved to services.manifests.manifest_source_default). Revisit when prompt construction changes next."
+        "cyclomatic_complexity": 73,
+        "rationale": "Declarative adapter over the complete manifest-driven wizard option matrix; parity and discovery tests cover the branches. 75 -> 74 on the 2026-10-05 maintenance run (manifest default lookup moved to services.manifests.manifest_source_default). 74 -> 73 on the 2026-11-01 overnight maintenance run (Kong listener port read from state.kong_port). Revisit when prompt construction changes next."
       },
       {
         "path": "bootstrapper/ui/textual/integration.py",

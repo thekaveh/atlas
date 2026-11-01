@@ -26,7 +26,7 @@ services:
       # Every var listed in runtime_sc.tei-reranker.<source>.environment MUST
       # also appear here: compose, not runtime_sc, injects the value.
       TEI_RERANKER_ENDPOINT: ${TEI_RERANKER_ENDPOINT}
-      HF_HOME: ${TEI_RERANKER_HF_CACHE_DIR:-/data}
+      HUGGINGFACE_HUB_CACHE: ${TEI_RERANKER_HF_CACHE_DIR:-/data}
     volumes:
       - tei-reranker-data:/data
     networks:

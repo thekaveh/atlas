@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import signal
 import subprocess
 import sys
 import threading
 import types
+import uuid
+from pathlib import Path
 
 import pytest
 
@@ -243,6 +246,39 @@ def test_container_entrypoint_independently_rejects_unadmitted_sources(tmp_path,
     assert result.stderr == "backup: disabled; set BACKUP_SOURCE=container before running backup or restore\n"
     assert not trace.exists()
     assert not snapshot.exists()
+
+
+def _foreign_config_dir(tmp_path, case):
+    """An MC_CONFIG_DIR the restore exit trap must never `rm -rf`."""
+    if case == "unset":
+        return None
+    if case == "operator-dir":
+        return tmp_path / "victim"
+    # Matches the 32-character glob but carries a non-hex suffix. It must exist,
+    # or `[ -d ]` rejects it and a broken hex check would go unnoticed.
+    return Path("/tmp/atlas-restore-s3-" + uuid.uuid4().hex[:31] + "g")
+
+
+@pytest.mark.parametrize("case", ["operator-dir", "unset", "non-hex-suffix"])
+def test_prepared_restore_refuses_a_config_dir_its_exit_trap_would_delete(tmp_path, case):
+    """ATLAS_BACKUP_S3_PREPARED=1 trusts MC_CONFIG_DIR only as the script's own temp dir."""
+    victim = _foreign_config_dir(tmp_path, case)
+    env = {"PATH": "/usr/bin:/bin", "SUPABASE_DB_USER": "u", "SUPABASE_DB_PASSWORD": "p",
+           "SUPABASE_DB_NAME": "n", "ATLAS_BACKUP_S3_PREPARED": "1"}
+    try:
+        if victim is not None:
+            victim.mkdir()
+            (victim / "keep").write_text("operator data", encoding="utf-8")
+            env["MC_CONFIG_DIR"] = str(victim)
+        script = BACKUP_ENTRYPOINT.with_name("restore-postgres.sh")
+        result = subprocess.run(["/bin/sh", str(script), "latest"], env=env, text=True,
+                                capture_output=True, check=False, timeout=10)
+        assert result.returncode == 64
+        assert "prepared S3 client configuration is invalid" in result.stderr
+        assert victim is None or (victim / "keep").is_file()
+    finally:
+        if victim is not None:
+            shutil.rmtree(victim, ignore_errors=True)
 
 
 def _signal_main_thread(sent):

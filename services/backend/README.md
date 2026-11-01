@@ -267,6 +267,7 @@ MEDIA_LEDGER_RECOVERY_MAX_CYCLES=4
 - The intent and unsettled ledger row are exempt from normal retention until settlement. Same-outcome retries are safe while terminal ledger history remains retained.
 - If the operation-state write fails (`local_record_persisted=false`), the spend ledger is the recovery source.
 - If reservation attachment or cleanup fails after provider acceptance, Atlas keeps the candidate ledger ids as a non-expiring recovery intent. It retries every 30 s and on each poll. The response exposes `recovery_ledger_ids`.
+- `/reconcile` first completes a pending ledger attachment or cleanup. It returns `503` while the ledger is unavailable.
 - A ComfyUI `/media/generate` that may have queued without confirmation returns `504` with a `local_submission_id` and keeps a `submission_unknown` operation.
 - This includes malformed replies and invalid prompt ids. Check ComfyUI's queue before you retry.
 
@@ -284,7 +285,7 @@ MEDIA_LEDGER_RECOVERY_MAX_CYCLES=4
 - `GET /comfyui/image/{filename}` serves the n8n and Open WebUI automation callers.
 - `POST /comfyui/generate` uses FAL when `FAL_SOURCE=enabled`, and ComfyUI otherwise. With FAL it returns `409` while media budgets are enabled, because it reserves no budget. It returns `504` on a FAL timeout and `502` when FAL's reply cannot be parsed.
 - If ComfyUI may have queued a prompt without confirming it, `/comfyui/generate` and `/comfyui/workflow` return `504`. Check `/comfyui/queue` before you retry, because a retry can render twice.
-- Only a connection failure returns a retryable `503`. After a prompt is queued, a timeout or a lost history poll returns `504` with its `prompt_id`.
+- Only a connection failure returns a retryable `503`. After a prompt is queued, a timeout or a lost history poll returns `504` with its `prompt_id`. An invalid history reply after queueing returns `502` with its `prompt_id`.
 - `GET /comfyui/health` returns ComfyUI's `system_stats` only to n8n, Open WebUI and service callers. A user token gets the status alone.
 
 **Spend ledger and budgets (`MEDIA_BUDGET_ENABLED`, disabled by default).**

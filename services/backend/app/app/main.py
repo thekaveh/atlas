@@ -1928,6 +1928,18 @@ async def _wait_or_cancel_comfyui(client, prompt_id: str, deadline: float) -> Di
                 "prompt_id": prompt_id,
             },
         ) from exc
+    except ComfyUIResponseError as exc:
+        # Queued, then a non-2xx or malformed history reply: the prompt may
+        # still be rendering, so the 502 must name it to avoid a duplicate.
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "message": "ComfyUI returned an invalid response while polling; "
+                           "the prompt may still be running, so poll or cancel "
+                           "it before retrying",
+                "prompt_id": prompt_id,
+            },
+        ) from exc
 
 
 class ComfyUIGenerateRequest(BaseModel):
@@ -3999,6 +4011,9 @@ async def reconcile_unknown_media_submission(
             }
         )
 
+    # Finish a pending ledger attach or cleanup first, as GET polling does: a
+    # terminal disposition before the attach left the reservation held forever.
+    operation = await _maybe_recover_media_ledger_intent(operation_id, operation)
     last_payload = dict(operation.get("last_payload") or {})
     if (
         (last_payload.get("provenance") or {}).get("ledger_cleanup_only")

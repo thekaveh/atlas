@@ -23,6 +23,7 @@
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
       "id": 2,
+      "fieldConfig": { "defaults": { "unit": "suffix:tok/s" }, "overrides": [] },
       "targets": [
         { "expr": "sum(rate(litellm_total_tokens_metric_total[5m])) by (model)", "refId": "A" }
       ]
@@ -42,7 +43,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "Prometheus" },
-      "title": "Spend (USD, by model)",
+      "title": "Spend rate (USD/s, by model)",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
       "id": 4,

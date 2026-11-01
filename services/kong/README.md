@@ -12,7 +12,7 @@ Kong runs DB-less (`KONG_DATABASE: "off"`) and loads one declarative file. It is
 
 - **Route generation**: each enabled service gets its routes.
 - **Disabled services**: a service with `*_SOURCE=disabled` gets no route.
-- **Health check (advisory)**: the generator probes localhost-sourced services and warns if they are down. It creates the route either way.
+- **Health check (advisory)**: the generator probes some localhost-sourced services (§4.3) and warns if they are down. It creates the route either way.
 
 `volumes/api/kong-dynamic.yml` is a generated runtime file, not a checked-in file. It is in `.gitignore` and reflects the resolved SOURCE state at the last `./start.sh`. A direct `docker compose up` from a clean checkout fails because the bind-mount source does not exist. Always start through `./start.sh`, which writes the file before it runs compose.
 
@@ -30,8 +30,8 @@ uv run --project bootstrapper python scripts/check-kong-routes.py
 - `/` on bare `localhost` → Atlas service directory and health dashboard
 - `/auth/v1/` → Supabase Auth service
 - `/rest/v1/` → Supabase API (PostgREST)
-- `/graphql/v1` → Supabase GraphQL
-- `/realtime/v1/` → Supabase Realtime
+- `/graphql/v1` → PostgREST `rpc/graphql`. The route exists but returns 404 because `pg_graphql` is not installed ([Supabase §4.4](../supabase/README.md#44-api-service-postgrest)).
+- `/realtime/v1/` → Supabase Realtime. The route exists but Realtime is not functional yet ([Supabase §4.5](../supabase/README.md#45-realtime-service)).
 - `/storage/v1/` → Supabase Storage (key-auth). `/storage/v1/object/public/`, `/storage/v1/object/sign/` and `/storage/v1/object/upload/sign/` carry CORS only. Browsers and outside services fetch public-bucket and signed URLs without an `apikey`; Storage enforces the bucket's public flag or the signed token.
 - `/pg/` → Supabase Meta service
 - `supabase-studio.localhost` → Supabase Studio dashboard
@@ -84,11 +84,13 @@ Kong 3.x has no global proxy-timeout setting, and its per-service default is 60 
 | Backend plugin services | the plugin's own values; the Backend value for any field the plugin does not set |
 | `litellm-gateway`, `ollama-api` | 630 s, for slow non-streaming completions |
 
+The `litellm-gateway` and `ollama-api` routes also set `response_buffering: false`, so streamed completions reach the client token by token. Kong's `location /` block overrides the server-level `KONG_NGINX_PROXY_PROXY_BUFFERING` setting.
+
 Kong retries only on connection errors (`KONG_NGINX_PROXY_PROXY_NEXT_UPSTREAM=error`). A request that times out on connect, send or read fails after one wait and is not re-sent.
 
 ### 4.3. Localhost Service Health Checks
 
-`check_localhost_service()` opens a TCP connection to each localhost-sourced service with a 2-second timeout. If it fails, the generator prints a warning and still creates the route. The route returns errors until the host service starts.
+`check_localhost_service()` opens a TCP connection with a 2-second timeout to the localhost-sourced ComfyUI, OpenClaw and Hermes dashboard upstreams. If it fails, the generator prints a warning and still creates the route. The route returns errors until the host service starts. Other localhost routes, such as Ollama, Weaviate, Neo4j, LightRAG and TEI, are created without this probe.
 
 ## 5. Authentication
 
@@ -153,11 +155,13 @@ Kong supports WebSocket connections for real-time services:
 }
 ```
 
+The generator emits this Realtime route, but Realtime refuses every connection today ([Supabase §4.5](../supabase/README.md#45-realtime-service)).
+
 ## 9. Configuration Generation Process
 
 1. **Startup**: `./start.sh` runs `generate_kong_configuration` after service configuration and dependency checks, and before LiteLLM configuration.
 2. **Environment parsing**: the generator reads SOURCE values from the parsed `.env`.
-3. **Health checks**: the generator probes localhost-sourced services and warns if they are down (§4.3).
+3. **Health checks**: the generator probes some localhost-sourced services and warns if they are down (§4.3).
 4. **Route generation**: only enabled services get routes.
 5. **File writing**: the configuration is written to `volumes/api/kong-dynamic.yml`.
 6. **Kong startup**: Kong loads the generated file from `/home/kong/kong.yml`.

@@ -117,9 +117,9 @@ def apply(env_path: Path) -> None:
         # Warn on non-default host.
         if host and host != "host.docker.internal":
             print(
-                f"[migration_v2] {url_var} had hostname {host!r}; "
-                f"dropping it (PORT-only override). Set the URL var by "
-                f"hand-edit if you need a custom hostname.",
+                f"[migration_v2] {url_var} had hostname {host!r}. Atlas "
+                f"reaches host services only at host.docker.internal, so "
+                f"the hostname was dropped and only the port was kept.",
                 flush=True,
             )
 

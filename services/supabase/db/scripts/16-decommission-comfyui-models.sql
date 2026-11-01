@@ -12,6 +12,6 @@
 -- This drop cleans up pre-existing supabase-db-data volumes. Idempotent; the
 -- table held only the regenerable model catalog (no precious user data —
 -- selections live in .env / the YAML). public.comfyui_workflows and
--- public.comfyui_generations are RUNTIME app state and are NOT affected.
+-- public.comfyui_generations are not affected.
 
 DROP TABLE IF EXISTS public.comfyui_models;

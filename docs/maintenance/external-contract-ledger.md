@@ -193,8 +193,8 @@ Both commit-pinned upstream Dockerfiles were fetched from `neo4j-labs/llm-graph-
 
 Docker Hub index inspection initially found only the Python channel had moved. Its index identified Python `3.12.14-slim-trixie` from `docker-library/python@688a0b86bb44289df16a363e9f41d90514c1a5f9` on the hosted scan architectures. The reviewed platform manifests were:
 
-- `linux/amd64@sha256:44ff437bba879d4941b710a369a8f19266aea34b29002807f0c487fabc9eec9b`.
-- `linux/arm64/v8@sha256:950206c37262dd86c55659797f6ee418fee30535072f65a82ed470d985f5cda5`.
+- `linux/amd64@sha256:2fe5997d249a808b8eeea52c58a1dbffbba28754dc11699ef5c029f2d818ce79`.
+- `linux/arm64/v8@sha256:3949e4271b0a3ff82afac7306764c313dcc8edeeb89c0376a3c2ac6007c66b1d`.
 
 The Python index move re-published only attestation manifests. Both reviewed platform manifests re-resolved unchanged, so scanned image content was identical. The recorded index advanced from `sha256:e5c9fa26ffb76e11e0f054f30dc2523a2f9693f0c36c0cf1e39b27e152d899fc`.
 
@@ -238,8 +238,8 @@ On 2026-09-18 UTC, the index moved from `sha256:3a7edb15...` to `sha256:62ff2089
 
 The Python index moved from `sha256:78387bc3...` to `sha256:23b5dc88...` with genuinely new content:
 
-- `linux/amd64`: `sha256:2fe5997d...` to `sha256:44ff437b...`.
-- `linux/arm64/v8`: `sha256:3949e427...` to `sha256:950206c3...`.
+- `linux/amd64`: `sha256:2fe5997d...` to `sha256:44ff437bba879d4941b710a369a8f19266aea34b29002807f0c487fabc9eec9b`.
+- `linux/arm64/v8`: `sha256:3949e427...` to `sha256:950206c37262dd86c55659797f6ee418fee30535072f65a82ed470d985f5cda5`.
 
 The same Python 3.12.14 moved from Debian 13.6 to Debian 13.7. A pinned Trivy 0.74.0 scan of the outgoing amd64 manifest reported thirteen fixed HIGH findings:
 

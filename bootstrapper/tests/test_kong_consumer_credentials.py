@@ -60,7 +60,8 @@ def test_consumers_block_has_a_dashboard_user(consumers):
     This previously asserted `len(consumers) == 1` unconditionally, which
     pinned a CRITICAL defect as correct: with no `keyauth_credentials`
     anywhere, the five Supabase services that enforce `key-auth` rejected
-    every request — see `test_kong_key_auth_is_satisfiable.py`.
+    every request — see
+    `test_kong_route_and_auth_invariants.py::test_no_key_auth_plugin_is_unsatisfiable`.
     """
     assert [c["username"] for c in consumers] == ["dashboard_user"]
 
@@ -203,9 +204,10 @@ def test_every_key_auth_supabase_service_admits_only_anon_and_admin(tmp_path):
     for service in keyed:
         acls = [p for p in service["plugins"] if p["name"] == "acl"]
         assert [a["config"]["allow"] for a in acls] == [["anon", "admin"]], service["name"]
+        assert all(a["config"]["hide_groups_header"] is True for a in acls), service["name"]
 
 
-def test_every_supabase_path_route_has_a_host_allowlist(tmp_path):
+def test_every_supabase_path_route_has_a_host_allowlist(tmp_path, capsys):
     services = _generator(tmp_path, "KONG_SUPABASE_EXTRA_HOSTS=Tunnel.Example.com, bad host:1\n")
     routes = [(s["name"], r) for s in services.get_supabase_services() for r in s["routes"]]
 
@@ -217,6 +219,12 @@ def test_every_supabase_path_route_has_a_host_allowlist(tmp_path):
         assert {"localhost", "kong-api-gateway", "127.0.0.1", "host.docker.internal"} <= set(hosts), name
         assert "tunnel.example.com" in hosts and "bad host:1" not in hosts, name
     assert {name for name, _ in routes} >= {"meta", "storage-v1-object-public"}
+    assert "ignoring KONG_SUPABASE_EXTRA_HOSTS entry 'bad host:1'" in capsys.readouterr().out
+
+
+def test_an_invalid_project_name_adds_no_container_host(tmp_path):
+    hosts = _generator(tmp_path, "PROJECT_NAME=My Project\n")._supabase_hosts()
+    assert not [host for host in hosts if host.endswith("-kong-api-gateway")]
 
 
 def test_keyless_storage_object_routes_stay_keyless(tmp_path):
@@ -250,3 +258,27 @@ def test_route_audit_exempts_exactly_the_tagged_supabase_routes():
         {"url": "http://rogue:1/", "routes": [{"paths": ["/x"], "hosts": ["evil.localhost"]}]},
     ]}
     assert module.host_url_map(config) == {"evil.localhost": "http://rogue:1/"}
+
+
+# --- KONG_CORS_EXTRA_ORIGINS: refused input and its warning ------------------
+
+
+@pytest.mark.parametrize("entry", [
+    "ftp://a.com", "http://user@a.com", "https://a.com/?q=1", "https://a.com#f", "http://",
+])
+def test_non_origin_cors_entries_are_refused(entry):
+    from utils.kong_config_generator import _canonical_origin
+
+    assert _canonical_origin(entry) is None
+
+
+def test_explicit_default_http_port_is_normalised_away():
+    from utils.kong_config_generator import _canonical_origin
+
+    assert _canonical_origin("http://a.com:80") == "http://a.com"
+
+
+def test_refused_cors_entry_is_reported_and_not_allowed(tmp_path, capsys):
+    gen = _generator(tmp_path, "KONG_CORS_EXTRA_ORIGINS=ftp://a.com\n")
+    assert gen._cors_origins() == list(KongConfigGenerator._LOCAL_CORS_ORIGINS)
+    assert "ignoring KONG_CORS_EXTRA_ORIGINS entry 'ftp://a.com'" in capsys.readouterr().out

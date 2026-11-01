@@ -62,7 +62,7 @@ env:
     # default removed — computed by services/topology.py slot allocator
   - name: WEAVIATE_INIT_SOURCE
     default: container
-    description: "Auto-managed by weaviate. Container/disabled."
+    description: "Init-container selector listed in the SOURCE matrix (container or disabled). No code reads it: WEAVIATE_INIT_SCALE follows WEAVIATE_SOURCE."
   - name: MULTI2VEC_CLIP_SOURCE
     default: container-cpu
     description: "Options: container-cpu, container-gpu, disabled. container-gpu sets ENABLE_CUDA=1, but Compose reserves no GPU device yet. The CLIP container then fails to start; use container-cpu."

@@ -2101,6 +2101,54 @@ def test_operator_can_settle_a_user_cancelled_fal_job_fal_never_resolves(monkeyp
     assert record.status == main.media_ledger.STATUS_RELEASED
 
 
+def test_reconcile_completes_a_pending_attach_before_settling(monkeypatch):
+    """A reconcile that went terminal before the pending attach left the row
+    keyed by its reservation id: the release missed it, every later poll
+    returned 409 and the reservation stayed held for good."""
+    main = _fresh_main(monkeypatch, budget_enabled=True, default_cap=10.0)
+    monkeypatch.setattr(main, "FalClient", _CapturingFalClient, raising=False)
+    original_attach = main.MEDIA_BUDGET_ENGINE.attach_operation
+
+    async def fail_attach(*_args, **_kwargs):
+        raise RuntimeError("simulated attach failure")
+
+    async def _running(*, provider, operation_id, modality, model):
+        return {"operation_id": operation_id, "provider": provider,
+                "modality": modality, "model": model, "status": "running"}
+
+    monkeypatch.setattr(main.MEDIA_BUDGET_ENGINE, "attach_operation", fail_attach)
+    monkeypatch.setattr(main, "_poll_media_provider", _running)
+    from fastapi.testclient import TestClient
+
+    client = TestClient(main.app)
+    assert _submit(client).status_code == 202
+    operation = asyncio.run(main.MEDIA_OPERATION_STORE.get("fal-3d-9"))
+    assert operation["last_payload"]["provenance"]["ledger_attach_pending"] is True
+    cancelled = client.post("/media/operations/fal-3d-9/cancel")
+    assert cancelled.json()["status"] == "cancellation_requested", cancelled.json()
+
+    unavailable = client.post(
+        "/media/operations/fal-3d-9/reconcile", json={"outcome": "release"}
+    )
+    assert unavailable.status_code == 503, unavailable.json()
+    operation = asyncio.run(main.MEDIA_OPERATION_STORE.get("fal-3d-9"))
+    assert operation["last_payload"]["status"] == "cancellation_requested"
+    assert operation["last_payload"]["provenance"]["ledger_attach_pending"] is True
+
+    monkeypatch.setattr(main.MEDIA_BUDGET_ENGINE, "attach_operation", original_attach)
+    settled = client.post("/media/operations/fal-3d-9/reconcile", json={"outcome": "release"})
+    assert settled.status_code == 200 and settled.json()["status"] == "failed", settled.json()
+    spend = client.get("/media/spend", params={"consumer": "acme"}).json()
+    assert spend["reserved_usd"] == 0.0
+    assert [row["status"] for row in spend["records"]] == ["released"]
+    record = asyncio.run(main.MEDIA_BUDGET_ENGINE.store.get("fal-3d-9"))
+    assert record.status == main.media_ledger.STATUS_RELEASED
+    polled = client.get("/media/operations/fal-3d-9")
+    assert polled.status_code == 200 and polled.json()["status"] == "failed", polled.json()
+    pending = asyncio.run(main.MEDIA_OPERATION_STORE.pending_ledger_intent_page())
+    assert "fal-3d-9" not in [row["operation_id"] for row in pending.records]
+
+
 def test_timed_out_fal_job_keeps_its_reservation_after_a_recovered_attach(monkeypatch):
     """The reservation is tracked once a failed submit-time attach is
     recovered, although the operation's budget_tracked flag stays False."""

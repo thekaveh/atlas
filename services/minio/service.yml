@@ -75,7 +75,7 @@ env:
     default: us-east-1
   - name: MINIO_INIT_SOURCE
     default: container
-    description: "Auto-managed by minio. Container/disabled."
+    description: "Init-container selector listed in the SOURCE matrix (container or disabled). No code reads it: MINIO_INIT_SCALE follows MINIO_SOURCE."
   - name: MINIO_SCALE
     description: "Set by ./start.sh from MINIO_SOURCE; do not edit. 1 runs the minio container, 0 does not."
     auto_managed: true

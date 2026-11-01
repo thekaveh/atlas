@@ -68,10 +68,6 @@ class ServiceRow:
     source_options: list[str] = field(default_factory=list)
     depends_on: list[str] = field(default_factory=list)
 
-    @property
-    def is_changed(self) -> bool:
-        return bool(self.default_source) and self.source != self.default_source
-
 
 def _fit(text: str, width: int) -> str:
     """Pad with spaces, or truncate with an ellipsis when too long."""
@@ -408,12 +404,9 @@ class ServiceTable(Widget):
         slot.append(" ")
         # 5) Source — full variant name. Color tracks the source-state
         # ● dot via `style_for_source_choice` so localhost variants
-        # render in the same light blue as the dot itself. (Previously
-        # this branch applied WARN/yellow when `r.is_changed`, which
-        # made a user-picked localhost variant look orange instead of
-        # blue. "Changed from default" is a transient state that the
-        # wizard's command preview already surfaces; the source column
-        # is reserved for steady-state semantics.)
+        # render in the same light blue as the dot itself. The source
+        # column shows steady-state semantics only; the wizard's command
+        # preview surfaces "changed from default".
         # off-track rows render as "disabled (off-track)" per spec §5.2 #5:
         # their effective fate is disabled regardless of the actual source
         # value stored in .env. The actual source is preserved in r.source;

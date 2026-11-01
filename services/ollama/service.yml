@@ -118,7 +118,7 @@ env:
     description: "Advisory, ollama-localhost only: how many models a workload needs resident at once. ./start.sh doctor reports a failure when the daemon's OLLAMA_MAX_LOADED_MODELS is lower. Empty declares no expectation. A LightRAG run with separate extract, embed and keyword models needs 3."
   - name: OLLAMA_PARALLEL_MIN
     default: ""
-    description: "Advisory, ollama-localhost only: the concurrent-request floor a consumer needs. ./start.sh doctor warns when the daemon's OLLAMA_NUM_PARALLEL is lower. Empty declares no expectation. Ollama's default of 1 slot silently serializes a multi-agent consumer."
+    description: "Advisory, ollama-localhost only: the concurrent-request floor a consumer needs. ./start.sh doctor reports a failure when the daemon's OLLAMA_NUM_PARALLEL is lower. Empty declares no expectation. Ollama's default of 1 slot silently serializes a multi-agent consumer."
 
 depends_on:
   # `litellm` is listed here NOT because the ollama container calls

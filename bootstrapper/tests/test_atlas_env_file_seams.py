@@ -243,7 +243,14 @@ def _writers():
             {"SUPABASE_JWT_SECRET": "new-value"}, create_backup=False
         )
 
-    return [key_generator, supabase_keys, service_config]
+    def source_override_manager(root):
+        from utils.source_override_manager import SourceOverrideManager
+
+        SourceOverrideManager(ConfigParser(str(root))).update_env_file(
+            {"SUPABASE_JWT_SECRET": "new-value"}
+        )
+
+    return [key_generator, supabase_keys, service_config, source_override_manager]
 
 
 @pytest.mark.parametrize("write", _writers(), ids=lambda w: w.__name__)
@@ -257,6 +264,23 @@ def test_each_writer_rewrites_an_export_line_instead_of_appending(tmp_path, writ
     assignments = [line for line in text.splitlines() if "SUPABASE_JWT_SECRET=" in line]
     assert assignments == ["export SUPABASE_JWT_SECRET=new-value"]
     assert ConfigParser(str(tmp_path)).parse_env_file()["SUPABASE_JWT_SECRET"] == "new-value"
+
+
+@pytest.mark.parametrize("write", _writers(), ids=lambda w: w.__name__)
+def test_each_writer_leaves_env_owner_only(tmp_path, write):
+    """The .env holds secrets, so every writer forces 0o600. Seeding at 0o644
+    catches a writer that drops `mode=0o600`, since the atomic writer would
+    otherwise keep the existing mode. The unterminated last line survives."""
+    import stat
+
+    env = tmp_path / ".env"
+    env.write_text("SUPABASE_JWT_SECRET=old-value\nOPENAI_API_KEY=sk-x", encoding="utf-8")
+    env.chmod(0o644)
+
+    write(tmp_path)
+
+    assert stat.S_IMODE(env.stat().st_mode) == 0o600
+    assert "OPENAI_API_KEY=sk-x" in env.read_text(encoding="utf-8").splitlines()
 
 
 def test_set_env_assignment_appends_only_when_the_key_is_absent():

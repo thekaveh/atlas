@@ -125,7 +125,7 @@ env:
     description: "Host port of the Hermes dashboard for HERMES_SOURCE=localhost; the hermes.localhost Kong route targets it. Default: the native dashboard port. The wizard edits only HERMES_LOCALHOST_PORT, so set this one in .env."
   - name: HERMES_INIT_SOURCE
     default: container
-    description: "Auto-managed by hermes. Container/disabled."
+    description: "Init-container selector listed in the SOURCE matrix (container or disabled). No code reads it: HERMES_INIT_SCALE follows HERMES_SOURCE."
   - name: HERMES_INIT_SCALE
     description: "Set by ./start.sh from HERMES_SOURCE; do not edit. 1 runs hermes-init only for the container source, else 0."
     auto_managed: true

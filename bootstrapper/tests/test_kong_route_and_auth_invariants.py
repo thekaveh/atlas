@@ -93,6 +93,39 @@ def test_no_key_auth_plugin_is_unsatisfiable(kong_config):
     assert all(c.get("key") for c in credentials), "an empty key authenticates nobody"
 
 
+def test_the_start_time_validation_gate_accepts_the_generated_config(kong_config):
+    """`./start.sh` aborts Kong generation on any error this gate returns."""
+    generator = KongConfigGenerator(ConfigParser(str(REPO_ROOT)))
+    assert generator.validate_config(kong_config) == []
+
+
+def test_the_start_time_validation_gate_reports_each_missing_field():
+    generator = KongConfigGenerator(ConfigParser(str(REPO_ROOT)))
+    assert generator.validate_config({"services": [{"name": "svc"}, {"url": "http://x"}]}) == [
+        "Missing required field: _format_version",
+        "Service svc missing URL",
+        "Service 1 missing name",
+    ]
+
+
+def _streaming_routes(monkeypatch, llm_source: str) -> dict:
+    gen = KongConfigGenerator(ConfigParser(str(REPO_ROOT)))
+    env = {"LLM_PROVIDER_SOURCE": llm_source}
+    monkeypatch.setattr(gen, "get_env_value", lambda key, default="": env.get(key, default))
+    ollama = next(s for s in gen.get_alias_only_services() if s["name"] == "ollama-api")
+    return {"litellm": gen.generate_litellm_service()["routes"][0], "ollama": ollama["routes"][0]}
+
+
+@pytest.mark.parametrize("llm_source", ["ollama-container-cpu", "ollama-localhost"])
+def test_streaming_llm_routes_are_unbuffered(monkeypatch, llm_source):
+    """Kong 3.9's `location /` forces proxy_buffering on, overriding the
+    server-level KONG_NGINX_PROXY_PROXY_BUFFERING. Only the route field reaches
+    the unbuffered location, so SSE completions stream token by token."""
+    routes = _streaming_routes(monkeypatch, llm_source)
+    assert routes["litellm"]["response_buffering"] is False
+    assert routes["ollama"]["response_buffering"] is False
+
+
 def test_supabase_key_auth_services_are_all_covered(kong_config):
     """Pin the specific surface, so a silent regression is loud."""
     assert {"auth-v1", "rest-v1", "storage-v1"} <= _key_auth_services(kong_config)

@@ -209,18 +209,6 @@ def test_a_failure_reason_reaches_the_session_log(monkeypatch):
     assert any("401" in line for line in sink)
 
 
-# ─── Back-compat wrappers ───────────────────────────────────────────
-
-
-def test_list_wrappers_still_return_plain_model_lists(monkeypatch):
-    monkeypatch.setattr(urllib.request, "urlopen", _serves('{"data": [{"id": "gpt-5"}]}'))
-    assert [m.id for m in cm.list_openai_models(_KEY)] == ["gpt-5"]
-    monkeypatch.setattr(urllib.request, "urlopen", _raises(_http_error(401)))
-    assert cm.list_openai_models(_KEY) == []
-    assert cm.list_openrouter_models() == []
-    assert cm.list_anthropic_models(_KEY) == []
-
-
 # ─── Wizard captions ────────────────────────────────────────────────
 
 

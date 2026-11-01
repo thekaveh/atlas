@@ -13,7 +13,8 @@ def _wizard_steps():
     return steps
 
 
-def test_spark_source_step_has_worker_count_secondary():
+def test_spark_source_step_has_worker_count_secondary(env_with_overrides, monkeypatch):
+    monkeypatch.setenv("ATLAS_ENV_FILE", str(env_with_overrides({})))
     steps = _wizard_steps()
     spark_step = next(
         (s for s in steps if s.service_name == "Apache Spark" and "source" in s.title.lower()),

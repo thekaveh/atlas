@@ -273,6 +273,38 @@ def test_openclaw_init_leaves_a_json5_config_unpatched(tmp_path) -> None:
     assert "dangerouslyAllowHostHeaderOriginFallback" in patched and "litellm:4000" in patched
 
 
+def test_openclaw_init_keeps_an_operator_origin_hardening(tmp_path) -> None:
+    """Init deep-merged the Host-header origin fallback as true on every
+    start, re-enabling it over an operator's explicit false or their
+    allowedOrigins list. It now sets true only when neither is present."""
+    import shutil
+    import subprocess
+
+    if not shutil.which("jq"):
+        pytest.skip("jq not installed")
+    compose = yaml.safe_load((REPO_ROOT / "services/openclaw/compose.yml").read_text(encoding="utf-8"))
+    script = compose["services"]["openclaw-init"]["entrypoint"][-1].replace("$$", "$")
+    config = tmp_path / "openclaw.json"
+    script = script.replace("/home/node/.openclaw/openclaw.json", str(config)).replace(
+        "chown -R 1000:1000 /home/node/.openclaw", "true")
+
+    def run(initial: str | None) -> dict:
+        if initial is None:
+            config.unlink(missing_ok=True)
+        else:
+            config.write_text(initial, encoding="utf-8")
+        assert subprocess.run(["sh", "-c", script], capture_output=True).returncode == 0
+        return json.loads(config.read_text(encoding="utf-8"))["gateway"]["controlUi"]
+
+    explicit_false = '{"gateway":{"controlUi":{"dangerouslyAllowHostHeaderOriginFallback":false}}}'
+    assert run(explicit_false)["dangerouslyAllowHostHeaderOriginFallback"] is False
+    origins = run('{"gateway":{"controlUi":{"allowedOrigins":["http://a"]}}}')
+    assert origins == {"allowedOrigins": ["http://a"]}
+    assert run("{}")["dangerouslyAllowHostHeaderOriginFallback"] is True
+    assert run(None)["dangerouslyAllowHostHeaderOriginFallback"] is True
+    assert run('{"gateway":{"controlUi":{"allowedOrigins":[]}}}')["dangerouslyAllowHostHeaderOriginFallback"] is True
+
+
 
 def test_returning_to_a_custom_n8n_node_set_reinstalls_it(tmp_path) -> None:
     """The locked-set install left the custom set's stamp behind, so going

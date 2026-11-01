@@ -1089,7 +1089,7 @@ Consumed by: **ComfyUI** (sketch-conditioned image generation via ControlNet), *
 
 #### 2.5.3. Financial / trading-AI track
 
-This track composes a full pipeline: **OpenBB Platform** provides multi-provider financial data; **TimescaleDB** (Postgres extension on the existing Supabase Postgres) stores tick / OHLC history; **Redpanda** carries real-time exchange feeds; **NautilusTrader** runs backtests, paper-trade, and live execution; **Hermes** and **Backend** generate or tune strategies via **LiteLLM**; **Langfuse** observes LLM-driven decisions; **Infisical** holds exchange credentials.
+This track composes a full pipeline: **OpenBB Platform** provides multi-provider financial data; **TimescaleDB** (custom Supabase-compatible Postgres image or separate container) stores tick / OHLC history; **Redpanda** carries real-time exchange feeds; **NautilusTrader** runs backtests, paper-trade, and live execution; **Hermes** and **Backend** generate or tune strategies via **LiteLLM**; **Langfuse** observes LLM-driven decisions; **Infisical** holds exchange credentials.
 
 **NautilusTrader (or Freqtrade) — algorithmic trading engine**
 
@@ -1101,7 +1101,7 @@ This track composes a full pipeline: **OpenBB Platform** provides multi-provider
 
 Depends on (services NautilusTrader would consume):
 
-- **TimescaleDB extension on Supabase Postgres** — backtest and live market-data store
+- **TimescaleDB** (custom Supabase-compatible image or separate container) — backtest and live market-data store
 - **Redpanda** — real-time market-data ingest
 - **Infisical** — exchange API credentials
 - **LiteLLM gateway** — strategy-tuning and signal-explanation calls
@@ -1135,17 +1135,17 @@ Consumed by (services that would call OpenBB):
 - **NautilusTrader** — fundamentals enrichment alongside live market feeds
 - **JupyterHub** — research notebooks
 
-**TimescaleDB extension — time-series on existing Postgres**
+**TimescaleDB — time-series on Postgres**
 
 - Postgres extension (Apache-2.0 + Timescale License) adding hypertables, continuous aggregates, retention policies, and time-bucketed query operators
-- Zero new container — enabled on the **existing Supabase Postgres** instance via `CREATE EXTENSION timescaledb`
+- The pinned Supabase Postgres 17 image does not include TimescaleDB. Adoption needs a custom Supabase-compatible Postgres image or a separate TimescaleDB container. The [research record](research/candidates/timescaledb.md) compares these deployment options.
 - Provides the storage layer for tick / OHLC market data underpinning the trading-AI track; also useful for any time-series workload (Langfuse trace aggregates, IoT, observability rollups)
 
 **Stack integration points:**
 
 Depends on (services TimescaleDB would consume):
 
-- **Supabase (PostgreSQL)** — same Postgres instance, extension-loaded
+- **Supabase (PostgreSQL)** — host instance only with a custom Supabase-compatible image; a separate container needs its own data volume
 
 Consumed by (services that would call TimescaleDB):
 
@@ -1470,7 +1470,7 @@ Consumed by (services that would call LiveKit):
 
 ### 3.17. Time-series storage
 
-- **TimescaleDB extension (on existing Postgres) vs standalone QuestDB / InfluxDB**: TimescaleDB is the zero-new-container option (extension on Supabase Postgres) and the recommended default; QuestDB / InfluxDB are worth considering only if write throughput exceeds Postgres + TimescaleDB headroom
+- **TimescaleDB vs standalone QuestDB / InfluxDB**: TimescaleDB is the recommended default because it keeps Postgres semantics. The pinned Supabase Postgres 17 image lacks it, so it needs a custom image or its own container. QuestDB / InfluxDB are worth considering only if write throughput exceeds Postgres + TimescaleDB headroom
 
 ### 3.18. Considered and rejected
 
@@ -1592,7 +1592,7 @@ Atlas has no fixed release cadence. Release tags are cut on `main` at the mainta
 **Foundation for vertical AI applications**
 
 - **3D and game generation** — host the full pipeline end-to-end: text or sketch (**Excalidraw** + ControlNet) → image (**ComfyUI**) → 3D mesh fast-path (**InstantMesh**) or fidelity-path (**Hunyuan3D-2** / **TRELLIS**) or splat-path (**DreamGaussian**) → scene assembly (**Blender headless**) → real-scene capture (**NerfStudio**) → optimized asset pipeline (**glTF-Transform** / **SuperSplat**) → browser viewer (**Three.js** + **react-three-fiber**) → multiplayer (**Colyseus**); world representations evolve from snowdome-style free-form scenes to voxel (**Vengi**-converted) and RTS-tile (**PostGIS** + **Tegola** + **MapLibre**) maps, with **LightRAG** indexing the asset graph and **AudioCraft / MusicGen** providing procedural audio
-- **Financial / trading AI** — paper-first fleet (**Hummingbot API** + Dashboard orchestrating **NautilusTrader** workers via **CCXT** and equities adapters) over **OpenBB Platform** data, **TimescaleDB**-backed market history on the existing Supabase Postgres, **Redpanda** for streaming fan-out; strategies promoted to live via signed **Windmill** flows, executed against **OpenBao**-custodied keys, gated by an in-house risk-control service, evaluated at fleet scale on **Ray** with **E2B** sandboxes for LLM-generated code, monitored via **Langfuse** + **Grafana** + Hummingbot Dashboard, audited via **OpenSearch** + **MinIO Object Lock** with Merkle anchors, and exposed to every LLM consumer through the **MCP gateway**
+- **Financial / trading AI** — paper-first fleet (**Hummingbot API** + Dashboard orchestrating **NautilusTrader** workers via **CCXT** and equities adapters) over **OpenBB Platform** data, **TimescaleDB**-backed market history, **Redpanda** for streaming fan-out; strategies promoted to live via signed **Windmill** flows, executed against **OpenBao**-custodied keys, gated by an in-house risk-control service, evaluated at fleet scale on **Ray** with **E2B** sandboxes for LLM-generated code, monitored via **Langfuse** + **Grafana** + Hummingbot Dashboard, audited via **OpenSearch** + **MinIO Object Lock** with Merkle anchors, and exposed to every LLM consumer through the **MCP gateway**
 - **RAG specializations** — compose domain-tuned RAG pipelines (legal, academic, financial-research, personal-knowledge) from **TEI** + **LightRAG** + **GROBID** / **Apache Tika** / **Docling** / **whisperX**, with the appropriate ingestion surface (**Karakeep** for captures, **SilverBullet** for authored notes, **Paperless-ngx** for OCR'd archives, **Crawl4AI** + **Browserless** for the open web)
 - **Data Engineering — lakehouse + ML platform** — host a complete data-engineering pipeline: **MinIO** lake → **Apache Iceberg** tables in **Lakekeeper** catalog → **Trino** + **DuckDB** for federated SQL → **dbt-core** transformations → **Apache Superset** for BI; orchestrated by **Dagster** (or **Apache Airflow** under `ORCHESTRATOR_SOURCE`); ingested via **dlt** + **Debezium Server** → Redpanda; quality enforced by **Soda Core** + **Elementary**; cataloged in **OpenMetadata**; MLOps via **MLflow** + **lakeFS** + **Feast**; Scala notebooks via **Almond** on existing **JupyterHub**, with **Spark Connect** keeping the rest of the stack Python-native
 

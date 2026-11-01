@@ -9,15 +9,18 @@ Regression guards for the network-blip data-loss path:
 """
 from __future__ import annotations
 
+import pytest
+
 from ui.textual.integration import _selections_to_args
 from ui.textual.widgets.prompt_panel import (
     PromptOption,
     PromptPanel,
     PromptStep,
+    SECRET_CLEAR,
     SECRET_KEEP,
 )
 from wizard.comfyui_steps import COMFYUI_MODELS_TITLE
-from wizard.llm_steps import OLLAMA_MODELS_TITLE
+from wizard.llm_steps import OLLAMA_CUSTOM_TITLE, OLLAMA_MODELS_TITLE
 
 
 def _multiselect_panel(options):
@@ -78,6 +81,40 @@ def test_selections_to_args_still_persists_real_csv():
     )
     blob = repr(result)
     assert "'OLLAMA_USER_MODELS': 'a-model,b-model'" in blob
+
+
+def _launch_options(selections: dict) -> dict:
+    _source_args, options = _selections_to_args(selections, [], current_base_port=63000, env_vars={})
+    return options
+
+
+@pytest.mark.parametrize(("answer", "expected"), [
+    ("qwen3:8b,acme/x:1b", {"OLLAMA_CUSTOM_MODELS": "qwen3:8b,acme/x:1b"}),
+    (SECRET_CLEAR, {"OLLAMA_CUSTOM_MODELS": ""}),
+    (SECRET_KEEP, {}),
+])
+def test_custom_ollama_models_answer_is_written_cleared_or_kept(answer, expected):
+    """Typed models persist verbatim, 'clear' empties them, keep leaves .env alone."""
+    assert _launch_options({OLLAMA_CUSTOM_TITLE: answer})["ollama_user_models"] == expected
+
+
+def test_secondary_number_inputs_are_drained_into_the_env_write():
+    """Worker counts and localhost-port overrides ride `__secondary__:<VAR>` keys."""
+    options = _launch_options({"__secondary__:RAY_WORKER_COUNT": "7"})
+    assert options["ollama_user_models"] == {"RAY_WORKER_COUNT": "7"}
+
+
+@pytest.mark.parametrize(("answer", "expected"), [
+    (None, (False, False)),
+    ("default", (False, False)),
+    ("setup", (True, False)),
+    ("skip", (False, True)),
+])
+def test_only_the_setup_answer_requests_the_privileged_hosts_write(answer, expected):
+    """`setup` edits /etc/hosts with elevated rights; no other answer may."""
+    selections = {} if answer is None else {"Hosts setup  ·  /etc/hosts": answer}
+    options = _launch_options(selections)
+    assert (options["setup_hosts"], options["skip_hosts"]) == expected
 
 
 def test_launch_prune_drops_skip_hidden_step_commits():

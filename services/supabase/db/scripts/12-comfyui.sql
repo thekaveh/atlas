@@ -1,11 +1,10 @@
 -- 12-comfyui.sql
 -- OWNER: comfyui — comfyui_workflows / comfyui_generations, their indexes,
--- and the default workflow seeds. Only this service's objects belong here.
+-- service-role-only row-level security, and the default workflow seeds. Only
+-- this service's objects belong here.
 -- public.comfyui_models was decommissioned (16-decommission-comfyui-models.sql);
 -- the ComfyUI model catalog SoT is now services/comfyui/models.yaml.
--- Assembled verbatim from the former 05-public-tables.sql (comfyui tables +
--- indexes) and 08-seed-data.sql (default workflow seeds). Tables are created
--- before the seed blocks that depend on them.
+-- Tables are created before the seed blocks that depend on them.
 
 CREATE TABLE IF NOT EXISTS public.comfyui_workflows (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

@@ -136,9 +136,13 @@ open_items:
   R-BUILD:
     question: Which licenses apply to binaries a local Dockerfile downloads or copies on top of its base image? Known cases are the headless Blender that asset-baker adds, which has no image row of its
       own, and the MinIO mc client that the backup and Jenkins images copy from the digest-pinned pgsty/mc image (its minio MINIO_INIT_IMAGE row records AGPL-3.0). asset-worker copies the npm tree from
-      its node stage, where @gltf-transform/cli 4.5.1 pulls sharp 0.35.5 and its LGPL-3.0-or-later libvips binaries (@img/sharp-libvips-linux-x64 and -linux-arm64 1.3.4). What these licenses ask of
-      those images when redistributed, including any LGPL source offer for libvips, is not settled.
-    applies: asset-baker, asset-worker, backup, jenkins.
+      its node stage, where @gltf-transform/cli 4.5.1 pulls sharp 0.35.5 and its LGPL-3.0-or-later libvips binaries (@img/sharp-libvips-linux-x64 and -linux-arm64 1.3.4). The spark, zeppelin and
+      airflow builds add the hadoop-aws, AWS SDK v2 bundle, Iceberg Spark runtime and Iceberg AWS bundle jars from Maven Central. spark also adds the Kafka connector jars, kafka-clients and
+      commons-pool2. zeppelin also copies the whole Spark distribution from the apache/spark image (its spark SPARK_IMAGE row records Apache-2.0). iceberg-rest adds the PostgreSQL JDBC driver
+      (BSD-2-Clause), and jupyterhub adds the Coursier launcher and the Almond Scala kernels with their resolved jars. Version swaps of components a base image already ships keep that component's
+      license and are not open. Examples are Jackson (airflow, neo4j, spark, zeppelin), Bouncy Castle (zeppelin), and Julia, its package environment and Underscore (jupyterhub). What these
+      licenses ask of those images when redistributed, including any LGPL source offer for libvips, is not settled.
+    applies: airflow, asset-baker, asset-worker, backup, iceberg-rest, jenkins, jupyterhub, spark, zeppelin.
     modes:
     - redistribution
   R-CUDA:
@@ -230,6 +234,9 @@ images:
   license: Apache-2.0
   url: https://github.com/apache/airflow/blob/aa19d2dbb9ed187ec01957a92848d9b005e9ba9d/LICENSE
   notice: https://github.com/apache/airflow/blob/aa19d2dbb9ed187ec01957a92848d9b005e9ba9d/NOTICE
+  open:
+  - R-BUILD
+  redistribution: unresolved
 - service: asset-baker
   var: ASSET_BAKER_IMAGE
   image: python:3.12.9-slim
@@ -349,6 +356,9 @@ images:
   license: Apache-2.0
   url: https://github.com/apache/iceberg/blob/ccb8bc435062171e64bc8b7e5f56e6aed9c5b934/LICENSE
   notice: https://github.com/apache/iceberg/blob/ccb8bc435062171e64bc8b7e5f56e6aed9c5b934/NOTICE
+  open:
+  - R-BUILD
+  redistribution: unresolved
 - service: iceberg-rest
   var: ICEBERG_REST_INIT_IMAGE
   image: postgres:15.19-alpine
@@ -373,6 +383,8 @@ images:
   url: https://github.com/jupyter/docker-stacks/blob/ac62373f9f60a6b4aa68735e76d0feb2eadf7bd1/LICENSE.md
   open:
   - R-FLOAT
+  - R-BUILD
+  redistribution: unresolved
 - service: kong
   var: KONG_API_GATEWAY_IMAGE
   image: kong:3.9.3
@@ -641,6 +653,9 @@ images:
   license: Apache-2.0
   url: https://github.com/apache/spark/blob/f0bb2e6a47d0ebda424ffd633fcea8644a597954/LICENSE
   notice: https://github.com/apache/spark/blob/f0bb2e6a47d0ebda424ffd633fcea8644a597954/NOTICE
+  open:
+  - R-BUILD
+  redistribution: unresolved
 - service: speaches
   var: SPEACHES_IMAGE
   image: ghcr.io/speaches-ai/speaches:0.9.0-rc.3-cpu
@@ -795,6 +810,9 @@ images:
   license: Apache-2.0
   url: https://github.com/apache/zeppelin/blob/ae9cb72ffaa6b3c007f57b152e2a3eb2208b910a/LICENSE
   notice: https://github.com/apache/zeppelin/blob/ae9cb72ffaa6b3c007f57b152e2a3eb2208b910a/NOTICE
+  open:
+  - R-BUILD
+  redistribution: unresolved
 - service: zeppelin
   var: ZEPPELIN_INIT_IMAGE
   image: python:3.12.13-alpine

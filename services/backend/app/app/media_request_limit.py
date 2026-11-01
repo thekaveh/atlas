@@ -21,10 +21,6 @@ dependencies, including authentication, are resolved. Route classes:
 Content-Length is validated when present but never trusted: chunked and
 lying-length bodies are counted as they stream and cut off at the cap.
 Responses are stable 413/400 JSON that never echo request bytes.
-
-``MediaRequestLimitMiddleware`` remains as the single-route configuration of
-the general middleware (media rule only, no default envelope), preserving its
-original contract byte-for-byte for existing deployments and tests.
 """
 
 from __future__ import annotations
@@ -347,30 +343,3 @@ def media_rule(max_bytes: int) -> BodyLimitRule:
             f"({max_bytes} bytes)"
         ),
     )
-
-
-class MediaRequestLimitMiddleware(RequestLimitMiddleware):
-    """Authenticate and bound ``POST /media/generate`` before route parsing.
-
-    The original single-route configuration: only the media route is gated,
-    everything else passes through with the original receive/send untouched.
-    """
-
-    def __init__(
-        self,
-        app: Callable[..., Awaitable[None]],
-        max_bytes: int | None = None,
-        *,
-        authenticate: Callable[[Dict[str, Any]], Awaitable[Any]],
-    ):
-        resolved = (
-            media_request_max_bytes_from_env() if max_bytes is None else max_bytes
-        )
-        if resolved <= 0:
-            raise ValueError("MEDIA_REQUEST_MAX_BYTES must be a positive integer")
-        super().__init__(
-            app,
-            policy=LimitPolicy(rules=[media_rule(resolved)], default_max_bytes=None),
-            authenticate=authenticate,
-        )
-        self.max_bytes = resolved

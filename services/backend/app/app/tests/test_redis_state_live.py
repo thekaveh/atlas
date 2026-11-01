@@ -243,6 +243,30 @@ def test_rag_create_rejects_corrupt_or_exhausted_sequence_without_partial_write(
     redis.delete(_INDEX_SET, _INDEX_ZSET, _INDEX_SEQUENCE, _INDEX_MIGRATION_CURSOR)
 
 
+def test_rag_create_rejects_wrong_typed_legacy_index_without_partial_write() -> None:
+    """The legacy set is first written after the record and the sequence, and
+    Lua errors do not roll back, so its type guard must run before any write."""
+    store = RedisIngestionStore(_REDIS_URL)
+    redis = store._redis
+    record = _rag_record(f"rag-legacy-type-{uuid.uuid4().hex}")
+    idempotency_key = f"atlas:rag:idempotency:{record.idempotency_key}"
+    redis.delete(_INDEX_SET, _INDEX_ZSET, _INDEX_SEQUENCE)
+    try:
+        redis.set(_INDEX_SET, "not-a-set")
+        with pytest.raises(ResponseError):
+            store.create_if_absent(record)
+        assert redis.get(RAG_KEY_PREFIX + record.id) is None
+        assert redis.get(idempotency_key) is None
+        assert redis.zscore(_INDEX_ZSET, record.id) is None
+        assert redis.get(_INDEX_SEQUENCE) is None
+    finally:
+        # _INDEX_SET is shared: other live tests expect it to be a set.
+        redis.delete(
+            _INDEX_SET, _INDEX_ZSET, _INDEX_SEQUENCE,
+            RAG_KEY_PREFIX + record.id, idempotency_key,
+        )
+
+
 def test_media_set_only_upgrade_is_atomic_resumable_and_race_safe() -> None:
     async def scenario() -> None:
         store = RedisMediaOperationStore(_REDIS_URL)
@@ -715,3 +739,41 @@ def test_transition_lua_keeps_confirmed_cancellation_like_in_memory(case) -> Non
     assert redis_payload["status"] == next_status
     assert redis_payload["provenance"]["provider_cancellation_requested"] is expected
     assert "old_observation" not in redis_payload["provenance"]
+
+
+def test_media_redis_store_round_trips_empty_lists_through_lua_rewrites() -> None:
+    """Lua cjson re-encodes [] as {}. A provider's empty lists must still come
+    back as lists after a transition and mark_reconciled, as in memory."""
+    from media_operation_store import InMemoryMediaOperationStore
+
+    async def round_trip(store, operation_id: str) -> dict:
+        operation = _pending_media(operation_id)
+        operation.update(budget_tracked=False, artifacts=[])
+        operation["last_payload"]["provenance"] = {}
+        await store.create(operation)
+        payload = {
+            **operation["last_payload"], "status": "running", "artifacts": [],
+            "raw": {"status": {"status": "IN_PROGRESS", "logs": []}},
+            "provenance": {"provider_fields": {"texture_urls": []}},
+        }
+        transitioned, changed = await store.transition_payload(operation_id, payload)
+        assert changed is True
+        assert transitioned["last_payload"] == payload
+        assert await store.mark_reconciled(operation_id)
+        return await store.get(operation_id)
+
+    async def scenario() -> list[dict]:
+        redis_store = RedisMediaOperationStore(_REDIS_URL)
+        operation_id = f"media-lists-{uuid.uuid4().hex}"
+        try:
+            return [await round_trip(store, operation_id)
+                    for store in (redis_store, InMemoryMediaOperationStore())]
+        finally:
+            await redis_store._redis.delete(MEDIA_KEY_PREFIX + operation_id)
+            await redis_store.aclose()
+
+    redis_record, memory_record = asyncio.run(scenario())
+    assert redis_record["artifacts"] == []
+    assert redis_record["last_payload"]["raw"]["status"]["logs"] == []
+    assert redis_record["last_payload"]["provenance"]["provider_fields"] == {"texture_urls": []}
+    assert redis_record == memory_record

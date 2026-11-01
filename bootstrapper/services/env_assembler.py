@@ -6,24 +6,27 @@ is deterministic — re-running with the same inputs produces byte-identical
 output — so CI can diff against the committed `.env.example`.
 
 Used by `bootstrapper/tools/validate_fragments.py --check-env-example` to
-assert that the committed file matches the manifest-driven assembly. Also
-consumed by start.py for the pre-launch env-example sync.
+assert that the committed file matches the manifest-driven assembly, and by
+`python -m services.env_assembler` to regenerate it. start.py does not call
+it; it only backfills .env from the committed file.
 
-Output shape (per service):
+Output shape (per service; descriptions abridged, image digest omitted):
 
     # ──────────────────────────────────────────────────────────────────────
-    # llm: Ollama (services/ollama/service.yml)
+    # llm: Ollama (local LLM engine)  (services/ollama/service.yml)
     # ──────────────────────────────────────────────────────────────────────
-    # Source: ollama-container-cpu | ollama-container-gpu | ollama-localhost | none
+    # Source variant. Options: ollama-container-cpu | ollama-container-gpu | ollama-localhost | none
     LLM_PROVIDER_SOURCE=ollama-container-cpu
 
     # Image references
     LLM_PROVIDER_IMAGE=ollama/ollama:0.30.11
     OLLAMA_PULL_IMAGE=alpine:3.24.2
 
-    # auto-managed (computed from LLM_PROVIDER_SOURCE)
+    # Free-text extra Ollama models; ...
+    OLLAMA_CUSTOM_MODELS=
+    # Set by ./start.sh from LLM_PROVIDER_SOURCE; do not edit. ...
+    # (auto-managed)
     OLLAMA_SCALE=
-    OLLAMA_ENDPOINT=
 """
 
 from __future__ import annotations

@@ -65,13 +65,14 @@ def test_wizard_build_handles_blank_base_port(tmp_path):
 
 def test_wizard_build_handles_blank_kong_http_port(tmp_path):
     """When ``KONG_HTTP_PORT`` is blank in .env, the wizard's first paint
-    must show alias_port=63000 for every Kong-routed service, matching
-    the linear ``state_builder.build_app_state()`` fallback.
+    must show alias_port=63000 for every Kong-routed service. The wizard,
+    ``AppState.kong_port`` and the linear summary all read the port from
+    ``state_builder.kong_listener_port``, which falls back to a numeric
+    BASE_PORT, then to DEFAULT_BASE_PORT.
 
     Without this guard, _build_steps_and_rows()'s old empty-string
-    fallback rendered alias_port='' while the linear path showed
-    '63000' — same data, two different first paints depending on
-    whether the user hit the TUI or the --no-tui path."""
+    fallback rendered alias_port='', and build_app_state() kept the blank
+    value although a comment claimed the two derivations matched."""
     import shutil
     from pathlib import Path
 
@@ -88,7 +89,8 @@ def test_wizard_build_handles_blank_kong_http_port(tmp_path):
 
     cp = ConfigParser(str(repo_root))
     cp.env_file_path = env
-    _, rows, *_ = _build_steps_and_rows(cp)
+    _, rows, _, _, state, _ = _build_steps_and_rows(cp)
+    assert state.kong_port == "63000"
 
     aliased = [r for r in rows if r.alias]
     assert aliased, "expected at least one Kong-aliased row in the wizard"
@@ -97,3 +99,14 @@ def test_wizard_build_handles_blank_kong_http_port(tmp_path):
             f"row {r.name!r} has alias_port={r.alias_port!r}; "
             f"expected '63000' (KONG_HTTP_PORT fallback)"
         )
+
+
+def test_kong_listener_port_follows_a_numeric_base_port():
+    """Kong holds slot 0 of the port block, so a blank KONG_HTTP_PORT takes
+    a numeric BASE_PORT. 'auto' or a blank BASE_PORT falls back to 63000."""
+    from wizard.model.state_builder import kong_listener_port
+
+    assert kong_listener_port({"KONG_HTTP_PORT": "", "BASE_PORT": "64000"}) == "64000"
+    assert kong_listener_port({"KONG_HTTP_PORT": " ", "BASE_PORT": "auto"}) == "63000"
+    assert kong_listener_port({"BASE_PORT": ""}) == "63000"
+    assert kong_listener_port({"KONG_HTTP_PORT": "63100", "BASE_PORT": "64000"}) == "63100"

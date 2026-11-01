@@ -122,6 +122,11 @@ Also in this range: 160 fixes, 75 documentation, 4 build and ci, 42 maintenance,
     - In a masked API-key step, typing `remove`, `clear`, `disable` or `enable` shows the pending action, not a character count.
     - An off-track service's details card shows `disabled (off-track)` and lists the `.env` value as `Stored source`.
     - The backup wizard option points to `services/backup/run-consistent-backup.sh`.
+    - The `doctor` endpoints row reports `LITELLM_BASE_URL` and `MINIO_PUBLIC_CONSOLE_ENDPOINT`. Before, it read two keys that Atlas never writes, so both showed blank.
+    - Wizard source steps default to the consumer manifest's `profile_overrides` sources, as `--no-tui` does. Pressing Enter no longer commits the platform bundle's value.
+    - At 100 columns and wider, a wizard option row that cannot fit the aligned layout keeps its badge inline. Before, the badge wrapped onto its own line.
+    - A blank `KONG_HTTP_PORT` falls back to a numeric `BASE_PORT`, then to 63000. The wizard, `AppState` and the `--no-tui` summary share this rule.
+    - The `migration_v2` message for a custom localhost hostname no longer points at a variable that nothing reads.
 - **Backend.**
     - With `FAL_SOURCE=enabled`, an unknown or unverified `FAL_IMAGE_TO_3D_MODEL` stops startup. Before, every `image_to_3d` request without `model` returned `400`.
     - With `provider=comfyui`, an integer `cfg` or `guidance_scale` too large for a float returns `400`, not `502`. An oversized `strength` is clamped.
@@ -130,6 +135,10 @@ Also in this range: 160 fixes, 75 documentation, 4 build and ci, 42 maintenance,
     - On the Redis state store, the ingestion status returns `[]`, not `{}`, for `parser_order`, `vector_targets` and `graph_targets`.
     - LangMem retention expires a user's oldest excess facts by creation time. Vector sync, backfill and failback rewrite `updated_at`, so they no longer change which facts expire.
     - A FAL result that the SDK cannot parse returns `502`, not `400` with the parser text. This covers `GET /media/operations/{id}` and `POST /comfyui/generate`.
+    - `POST /media/operations/{id}/reconcile` finishes a pending ledger attachment before it settles the operation. Before, later polls returned `409` and the reservation stayed held.
+    - After ComfyUI queues a prompt, a bad `/history` reply returns `502` with `detail.prompt_id`. Callers can poll or cancel that prompt instead of queueing a duplicate.
+    - The memory vector reconcile stops after 3 consecutive embedder failures on both vector paths. Before, the pgvector path made up to 100 failing calls per request.
+    - In the default Redis mode, `GET /media/operations` keeps empty JSON arrays. Before, they turned into `{}` after the first status change.
 - **Services.**
     - The welcome README in a new JupyterHub work volume uses `LITELLM_DEFAULT_MODEL` in its Quick Start.
     - The commented LangChain example in the Airflow sample DAG reads the LiteLLM URL and key from the `litellm_default` connection. Before, the example failed with `KeyError`.
@@ -137,6 +146,13 @@ Also in this range: 160 fixes, 75 documentation, 4 build and ci, 42 maintenance,
     - The Stack Overview panel `HTTP request rate (Backend)` is now `HTTP request rate (FastAPI services, by job)`. Its query also covers the Asset Worker and Asset Baker.
     - JupyterHub runs with `init: true`, so an init process reaps orphaned kernel and terminal processes.
     - The Backend and Celery worker no longer receive the unused, always-`true` `WEAVIATE_ENABLED` variable.
+    - The Kong `litellm.localhost` and `ollama.localhost` routes turn off response buffering, so streamed completions arrive token by token.
+    - `TEI_RERANKER_HF_CACHE_DIR` reaches TEI as `HUGGINGFACE_HUB_CACHE`. As `HF_HOME` it had no effect.
+    - `openclaw-init` sets the Control UI host-header fallback only when the operator set neither a value nor `allowedOrigins`. Before, it overwrote an operator's `false` on every start.
+    - The staged n8n `research-batch` workflow accepts at most 4 queries. The Backend admits `RESEARCH_MAX_CONCURRENT` sessions (default 4), so larger batches always failed.
+    - The JupyterHub image registers the Julia kernel as `julia-1.12` ("Julia 1.12"). Before, it was `julia-1.12-1.12`.
+    - docling-gpu no longer sets the unused `DOCLING_MODEL_PATH`. The n8n container no longer sets the build-time `VUE_APP_URL_BASE_API`.
+    - More Grafana panels state their units. The LiteLLM spend panel is now `Spend rate (USD/s, by model)`.
 - **Tooling and tests.**
     - The Build-validation image scan covers a changed manifest image that a Compose service runs directly, even when a local Dockerfile also uses it as a base.
     - `scripts/check-docs-drift.py` skips the gitignored `.audit/`, `.pytest_cache/` and `node_modules/` directories.
@@ -146,6 +162,8 @@ Also in this range: 160 fixes, 75 documentation, 4 build and ci, 42 maintenance,
     - `scripts/check-kong-routes.py` also ignores the deprecated `GENAI_ENV_FILE`. The `scripts/release_notes.py` help describes its changelog and title modes.
     - Bootstrapper tests clear exported `.env.example` variables, so an operator's shell does not change results. The state-dir removal-guard test cannot delete real directories.
     - New tests cover the restore-plan parser branches, `env backfill` write failures, S3 endpoint boundaries, failed Spark drivers and the n8n community-node pin sites.
+    - Unused code is removed: the `cloud_models` list wrappers, `MediaRequestLimitMiddleware`, two Docling helpers, `ModelInfo`, `ServiceRow.is_changed` and `MemoryStore._weaviate_client`.
+    - New tests check that every `.env` writer keeps mode `0600`. Others cover the Kong `validate_config` start gate, the support-bundle offline guard and the Redis Lua fences.
 - **Docs.**
     - The Weaviate README and the Access and Credentials page disclose that Weaviate allows anonymous access and holds `LITELLM_MASTER_KEY`. That key is also the LiteLLM admin UI password.
     - The cloud-providers README says the `CLOUD_*_SOURCE` switches gate only LiteLLM routes. Hermes and LLM Graph Builder still receive raw provider keys.
@@ -155,11 +173,17 @@ Also in this range: 160 fixes, 75 documentation, 4 build and ci, 42 maintenance,
     - The Expected Startup Warnings page says how to set an Open WebUI CORS origin list. The docs landing page says `--track` still applies when a flag skips the wizard.
     - The ROADMAP records Firecrawl as deferred. The Backend and FAL READMEs say `provider=comfyui` serves any enabled ComfyUI source, and FAL has no video or audio route.
     - The external-contract ledger, the integration-claims ledger, the Authentik SSO evaluation and the Redpanda, ComfyUI, Backup and Grafana READMEs are corrected.
+    - The consumer `compose_overlays` reference says relative paths resolve from the Atlas checkout. Its corpus and plugin mount examples use path variables.
+    - The Kong README says `/graphql/v1` returns `404` and Realtime refuses connections. It also states the scope of the localhost probe.
+    - The Jenkins publishing example keeps the MinIO keys out of the build log. The n8n README names the Code nodes that check parameter ranges.
+    - The Supabase, MinIO, SearXNG, Ollama and multi2vec-clip READMEs, the ROADMAP TimescaleDB entry and the license inventory are corrected.
 - **Upgrade notes.**
     - Remove `crawl4ai` from every consumer manifest `parser_order`.
     - With FAL enabled, check that `FAL_IMAGE_TO_3D_MODEL` names a verified registry entry.
     - The next start recreates the JupyterHub container for `init: true`.
     - With SearXNG disabled, the start now disables Local Deep Researcher. Enable SearXNG to keep it.
+    - Split n8n `research-batch` runs into batches of at most 4 queries.
+    - Rebuild the JupyterHub image to register the Julia kernel as `julia-1.12`.
 
 ### 1.3. Fixed — 2026-10-31 — Overnight maintenance: secrets, startup checks, memory re-embedding, restores, test isolation and docs
 

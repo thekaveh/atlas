@@ -869,6 +869,8 @@ def test_all_production_env_writers_use_shared_atomic_primitive() -> None:
         "bootstrapper/services/migrations/migration_v1.py",
         "bootstrapper/services/migrations/migration_v2.py",
         "bootstrapper/services/migrations/migration_v3.py",
+        "bootstrapper/services/migrations/migration_v4.py",
+        "bootstrapper/services/migrations/migration_v5.py",
         "bootstrapper/scripts/reorg_user_env.py",
         "bootstrapper/services/service_config.py",
         "bootstrapper/utils/source_override_manager.py",

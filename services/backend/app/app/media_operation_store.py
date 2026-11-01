@@ -106,6 +106,38 @@ def _in_flight_budget_tracked(operation: dict[str, Any]) -> bool:
     )
 
 
+#: Redis Lua cjson re-encodes an empty table as {}, so every [] in a stored
+#: operation came back as {} after the first script rewrote it. Provider data
+#: is opaque, so the Redis store swaps [] for this marker on the way in.
+_EMPTY_LIST_MARKER = "__atlas_empty_list__"
+
+
+def _encode_lua_lists(value: Any) -> Any:
+    """Replace each empty list with a marker object that survives Lua cjson."""
+    if isinstance(value, dict):
+        return {key: _encode_lua_lists(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return _encode_lua_list(value)
+    return value
+
+
+def _encode_lua_list(values: list | tuple) -> Any:
+    return [_encode_lua_lists(item) for item in values] or {_EMPTY_LIST_MARKER: True}
+
+
+def _decode_lua_list(obj: dict[str, Any]) -> Any:
+    """`json.loads` object hook: the marker object becomes [] again."""
+    return [] if obj == {_EMPTY_LIST_MARKER: True} else obj
+
+
+def _lua_json(value: Any) -> str:
+    return json.dumps(_encode_lua_lists(value))
+
+
+def _from_lua_json(blob: Optional[str]) -> Optional[dict[str, Any]]:
+    return json.loads(blob, object_hook=_decode_lua_list) if blob else None
+
+
 def _ttl_seconds() -> int:
     try:
         value = int(os.getenv("MEDIA_OPERATION_TTL_SECONDS", str(7 * 24 * 3600)))
@@ -783,7 +815,7 @@ return 1
         operation.setdefault("state_version", 0)
         operation_id = str(operation["operation_id"])
         key = _KEY_PREFIX + operation_id
-        blob = json.dumps(operation)
+        blob = _lua_json(operation)
         status = str((operation.get("last_payload") or {}).get("status", ""))
         provenance = dict((operation.get("last_payload") or {}).get("provenance") or {})
         no_expiry = bool(
@@ -807,7 +839,7 @@ return 1
             "1" if _has_pending_ledger_intent(operation) else "0",
             operation_id,
         )
-        persisted = json.loads(persisted_blob)
+        persisted = _from_lua_json(persisted_blob)
         if not created and _operation_identity(persisted) != _operation_identity(operation):
             raise MediaOperationCollisionError(
                 f"media operation id collision: {operation_id}"
@@ -846,7 +878,7 @@ return 1
             if not blob:
                 stale.append(str(operation_id))
                 continue
-            operation = json.loads(blob)
+            operation = _from_lua_json(blob)
             if _has_pending_ledger_intent(operation):
                 pending.append(operation)
             else:
@@ -900,8 +932,7 @@ return 1
         )
 
     async def get(self, operation_id: str) -> Optional[dict[str, Any]]:
-        blob = await self._redis.get(_KEY_PREFIX + operation_id)
-        return json.loads(blob) if blob else None
+        return _from_lua_json(await self._redis.get(_KEY_PREFIX + operation_id))
 
     async def transition_payload(
         self,
@@ -917,11 +948,11 @@ return 1
             _PENDING_LEDGER_KEY,
             _PENDING_LEDGER_ZSET,
             _PENDING_LEDGER_SEQUENCE,
-            json.dumps(payload),
+            _lua_json(payload),
             self._ttl,
             expected_status or "",
         )
-        return (json.loads(blob) if blob else None), bool(changed)
+        return _from_lua_json(blob), bool(changed)
 
     async def replace_terminal_payload(
         self,
@@ -937,10 +968,10 @@ return 1
             _PENDING_LEDGER_ZSET,
             _PENDING_LEDGER_SEQUENCE,
             expected_status,
-            json.dumps(payload),
+            _lua_json(payload),
             self._ttl,
         )
-        return (json.loads(blob) if blob else None), bool(changed)
+        return _from_lua_json(blob), bool(changed)
 
     async def mark_reconciled(self, operation_id: str) -> bool:
         result = await self._redis.eval(
@@ -966,7 +997,7 @@ return 1
             _PENDING_LEDGER_SEQUENCE,
             self._ttl,
         )
-        return (json.loads(blob) if blob else None), bool(changed)
+        return _from_lua_json(blob), bool(changed)
 
     async def adopt_ledger_reconciliation(
         self,
@@ -982,10 +1013,10 @@ return 1
             _PENDING_LEDGER_ZSET,
             _PENDING_LEDGER_SEQUENCE,
             expected_outcome,
-            json.dumps(payload),
+            _lua_json(payload),
             self._ttl,
         )
-        return (json.loads(blob) if blob else None), bool(changed)
+        return _from_lua_json(blob), bool(changed)
 
     async def adopt_ledger_fallback(
         self,
@@ -1001,9 +1032,9 @@ return 1
             _PENDING_LEDGER_ZSET,
             _PENDING_LEDGER_SEQUENCE,
             expected_version,
-            json.dumps(payload),
+            _lua_json(payload),
         )
-        return (json.loads(blob) if blob else None), bool(changed)
+        return _from_lua_json(blob), bool(changed)
 
     async def aclose(self) -> None:
         await self._redis.aclose()

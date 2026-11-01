@@ -459,16 +459,16 @@ At startup the backend mounts each package in `$BACKEND_PLUGINS_DIR` (default `/
 
 **Apply plugin changes by recreating the backend.** Run `./start.sh --consumer <manifest>` again. A bare `docker compose up -d --force-recreate backend` targets the wrong Compose project and drops the overlay that mounts the plugins. The backend's auto-reloader is off by default, so git churn in a bind-mounted plugin tree does not restart it. Set `BACKEND_DEV_RELOAD=true` only while you edit plugin source.
 
-Atlas does not bind plugin directories into the backend, with or without a manifest. Extend Atlas's `backend` service from your parent Compose. With a manifest, list that file under `compose_overlays`; [Consumer Manifest Reference §8](../reference/consumer-manifest.md#8-backend_plugins-and-pluginyml) shows a `${BACKEND_PLUGINS_DIR}` form.
+Atlas does not bind plugin directories into the backend, with or without a manifest. Extend Atlas's `backend` service from your parent Compose. With a manifest, list that file under `compose_overlays`. Compose resolves its relative paths from the Atlas checkout, so mount the absolute `${BACKEND_PLUGINS_DIR}` path that `backend_plugins` sets. Several roots: [Consumer Manifest Reference §8](../reference/consumer-manifest.md#8-backend_plugins-and-pluginyml).
 
 ```yaml
-# your parent docker-compose.yml — overlay onto Atlas's backend
+# compose/myproject-overlay.yml — listed under compose_overlays
 services:
   backend:
     volumes:
-      - ./my-plugins:/app/plugins:ro
+      - ${BACKEND_PLUGINS_DIR}:/app/plugins:ro
     environment:
-      BACKEND_PLUGINS_DIR: /app/plugins   # the default; shown for clarity
+      BACKEND_PLUGINS_DIR: /app/plugins   # the container path (the default); never the host value
 ```
 
 Each plugin is a package directory that exposes `router`:

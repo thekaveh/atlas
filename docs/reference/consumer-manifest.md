@@ -152,6 +152,8 @@ Field rules and switch behaviour: [SOURCE Configuration Guide §9](../operations
 
 A list of external Compose files. Atlas validates the paths before Compose runs and appends the files to the Compose command, with no symlinks into the submodule. Pass the same manifest to `./stop.sh`; otherwise `--cold` does not remove volumes declared only in these overlays.
 
+Compose resolves relative paths inside an overlay from the Atlas checkout, not from the overlay's directory. Use absolute paths or `${VAR}` references for bind mounts and build contexts. [§8](#8-backend_plugins-and-pluginyml) shows the `${BACKEND_PLUGINS_DIR}` form.
+
 ---
 
 ## 6. `model_sidecars`, `custom_nodes`
@@ -411,16 +413,17 @@ curl "$BACKEND_URL/api/rag/ingestions/<ingestion_id>" \
      -H "Authorization: Bearer ${BACKEND_INTERNAL_API_TOKEN}"
 ```
 
-You own mounted corpora. Mount the same read-only host directory at `RAG_INGESTION_CORPUS_ROOT` in both services, so the corpus does not change when Celery is on:
+You own mounted corpora. Mount the same read-only host directory at `RAG_INGESTION_CORPUS_ROOT` in both services, so the corpus does not change when Celery is on. Set `MYPROJECT_CORPUS_DIR` to the corpus's absolute host path in `env.values`, `env.file` or `.env.user` ([§5](#5-compose_overlays)):
 
 ```yaml
+# compose/myproject-overlay.yml — listed under compose_overlays
 services:
   backend:
     volumes:
-      - ./corpus:/app/corpus:ro
+      - ${MYPROJECT_CORPUS_DIR}:/app/corpus:ro
   celery-worker:
     volumes:
-      - ./corpus:/app/corpus:ro
+      - ${MYPROJECT_CORPUS_DIR}:/app/corpus:ro
 ```
 
 - **Corpus paths.** A `mount` corpus must be a relative path under `RAG_INGESTION_CORPUS_ROOT` (default `/app/corpus`). An absolute path, `~` or a `..` segment is rejected. A MinIO corpus must name a store the same consumer declared. A missing path is never an empty corpus: submission returns HTTP 400, and a worker without the backend's mount fails the job.

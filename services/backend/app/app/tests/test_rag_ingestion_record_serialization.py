@@ -237,6 +237,34 @@ def test_worker_save_does_not_undo_a_later_dispatch_acceptance(live_redis: bool)
         assert stored.dispatch_job_id == "job-1"
 
 
+@pytest.mark.parametrize("live_redis", [False, True])
+def test_stale_dispatch_owner_cannot_settle_a_reclaimed_claim(live_redis: bool) -> None:
+    """A dispatcher whose claim was reclaimed must neither accept nor fail the
+    job the new owner is dispatching, on the production Redis store too."""
+    from rag_ingestion.store import InMemoryIngestionStore
+    from tests.conftest import disposable_redis_url
+
+    store = RedisIngestionStore(disposable_redis_url()) if live_redis else InMemoryIngestionStore()
+    rid = str(uuid.uuid4())
+    store.create_if_absent(IngestionRecord(
+        id=rid, consumer="acme", profile="default", revision="1",
+        idempotency_key=rid,
+    ))
+    assert store.claim_dispatch(rid, ("owner-a", "2026-01-01T00:00:01", "2026-01-01"))
+    # An explicit stale_before past owner-a's claim time reclaims it.
+    assert store.claim_dispatch(rid, ("owner-b", "2026-01-01T00:00:05", "2026-01-01T00:00:02"))
+
+    store.mark_dispatched(rid, ("job-a", "owner-a"), "2026-01-01T00:00:06")
+    store.fail_pending_dispatch(
+        rid, {"phase": "dispatch", "message": "queue unavailable"},
+        ("2026-01-01T00:00:07", "owner-a"),
+    )
+    stored = store.get(rid)
+    assert (stored.status, stored.dispatch_state, stored.dispatch_owner) == (
+        "pending", "dispatching", "owner-b"
+    )
+
+
 def test_redis_save_scripts_keep_dispatch_fields() -> None:
     for script in (
         RedisIngestionStore._SAVE_SCRIPT, RedisIngestionStore._SAVE_CLAIMED_SCRIPT

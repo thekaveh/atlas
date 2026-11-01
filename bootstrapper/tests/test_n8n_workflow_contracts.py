@@ -342,8 +342,15 @@ def test_research_batch_rejects_unbounded_or_invalid_requests() -> None:
     )
     assert accepted.returncode == 0, accepted.stderr
 
+    # The Backend admits RESEARCH_MAX_CONCURRENT=4 research sessions by
+    # default, so the batch cap must fit inside that admission bulkhead.
+    at_capacity = _run_code_node(
+        process, input_payload={"body": {"queries": ["atlas"] * 4}}
+    )
+    assert at_capacity.returncode == 0, at_capacity.stderr
+
     invalid_payloads = (
-        {"queries": ["atlas"] * 26},
+        {"queries": ["atlas"] * 5},
         {"queries": ["   "]},
         {"queries": [{"query": "atlas", "max_loops": 0}]},
         {"queries": [{"query": "atlas", "search_api": "commercial"}]},

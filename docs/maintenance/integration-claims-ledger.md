@@ -288,3 +288,5 @@ and removed.
 | `verba` | 1 | litellm (:113) |
 | `weaviate` | 1 | multi2vec-clip (:216) |
 | `zeppelin` | 5 | supabase (:206), minio (:207), iceberg-rest (:208), redpanda (:209), trino (:210) |
+
+Edges added after this pass are not in the table. `kong → trueforge` (`services/kong/service.yml:141` at `65a556f2`) was added by `ac002f50` (#1489) on 2026-10-09 and is unsampled.

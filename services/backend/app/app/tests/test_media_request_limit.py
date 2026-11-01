@@ -14,8 +14,10 @@ import pytest
 import media_request_limit
 from backend_identity import authenticate_backend_scope
 from media_request_limit import (
-    MediaRequestLimitMiddleware,
+    LimitPolicy,
+    RequestLimitMiddleware,
     media_request_max_bytes_from_env,
+    media_rule,
 )
 
 
@@ -46,10 +48,11 @@ def _scope(
     }
 
 
-def _middleware(app, *, max_bytes: int) -> MediaRequestLimitMiddleware:
-    return MediaRequestLimitMiddleware(
+def _middleware(app, *, max_bytes: int) -> RequestLimitMiddleware:
+    """Gate only the media route, with no default envelope for other routes."""
+    return RequestLimitMiddleware(
         app,
-        max_bytes=max_bytes,
+        policy=LimitPolicy(rules=[media_rule(max_bytes)], default_max_bytes=None),
         authenticate=authenticate_backend_scope,
     )
 

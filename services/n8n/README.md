@@ -103,7 +103,9 @@ Only `BACKEND_N8N_API_TOKEN` is route-scoped. The web and worker containers also
 
 - `services/n8n/init/config/searxng-research-workflow.json` is a worked example of the SearXNG → LiteLLM research pattern.
 - More examples are staged under `services/n8n/workflows-stage/workflows/`. `comfyui-image-generation.json` also lists the active ComfyUI models at `GET webhook/comfyui-models`.
-- Parameter ranges (query count and length, loop limits, search-API choice) and node behavior are in each workflow's inline notes.
+- Code nodes enforce the parameter ranges. In `research-batch.json`, `Process Batch Request` checks query count and length, loop limits and the search API.
+- In `comfyui-image-generation.json`, `Validate Request` checks image size, steps and CFG scale.
+- The batch and scheduled research examples start all their queries at the same time. The Backend admits `RESEARCH_MAX_CONCURRENT` research sessions (default `4`) and answers more starts with `429`. A `429` stops the whole run, so the batch example accepts at most 4 queries. Raise `RESEARCH_MAX_CONCURRENT` before you raise that limit.
 
 Secure every webhook before activation. The legacy bundled POST `/research` fixture has no webhook authentication or credential declaration. Each staged webhook fixture names an `Atlas Webhook Header Auth` credential. Create a local n8n **Header Auth** credential with that name, select it on the webhook node, and give callers the same header and value.
 

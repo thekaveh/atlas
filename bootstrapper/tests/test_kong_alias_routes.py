@@ -1056,7 +1056,7 @@ def test_extra_cors_origins_are_appended_as_exact_matches():
 
 
 
-def test_extra_cors_origins_are_normalised_or_refused(capsys):
+def test_extra_cors_origins_are_normalised_or_refused():
     from utils.kong_config_generator import _canonical_origin
 
     assert _canonical_origin("HTTPS://App.Example.com/") == "https://app.example.com"

@@ -22,6 +22,7 @@
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
       "id": 2,
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
       "targets": [
         { "expr": "rate(pg_stat_database_xact_commit[5m])", "refId": "commits" },
         { "expr": "rate(pg_stat_database_xact_rollback[5m])", "refId": "rollbacks" }

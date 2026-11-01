@@ -64,10 +64,15 @@ def _counts_toward_reconcile_halt(exc: BaseException, target_signal: bool) -> bo
     """Target failures halt the pass; so do systematic vectorizer failures
     (Weaviate up, embedding provider failing every row), which never raise.
     A vectorizer 4xx that rejects one fact's content is per-row: counting it
-    let three such rows at the head of the queue stall every later pass."""
+    let three such rows at the head of the queue stall every later pass.
+    A direct-embedder or target 4xx that is not a row's own rejection (403,
+    404, an invalid model, an exhausted budget) hits every row, so it counts
+    too: the pgvector path otherwise paid 100 failing calls per recall."""
     if target_signal:
         return True
-    return _weaviate_vectorizer_failure(exc) and not _weaviate_vectorizer_row_rejection(exc)
+    if _weaviate_vectorizer_failure(exc):
+        return not _weaviate_vectorizer_row_rejection(exc)
+    return isinstance(exc, httpx.HTTPStatusError) and not _is_row_rejection(exc)
 
 
 def _is_target_health_signal(exc: BaseException) -> bool:

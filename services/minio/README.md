@@ -205,7 +205,7 @@ _No upstream calls._
 <a id="104-future--missing-pair-integrations"></a>
 
 - **minio ↔ backend (general artifact API)** — *Why:* Backend RAG ingestion reads consumer-declared corpora with each store's scoped MinIO account. The built-in `backend` bucket is not yet a general destination for large blobs, model checkpoints or embedding caches. *Mechanism:* add an artifact client at `http://minio:9000` using `MINIO_BACKEND_ACCESS_KEY`/`SECRET_KEY`, with upload/download routes and path-style addressing. *Effort:* small. *Confidence:* high.
-- **minio ↔ n8n** — *Why:* the `n8n` bucket and keys are pre-provisioned, and n8n's S3 node supports a custom endpoint. Workflows could store files above Supabase Storage's 50 MB limit. *Mechanism:* n8n S3 credential at `http://minio:9000`; optional `N8N_EXTERNAL_BINARY_DATA_MODE=s3`. *Effort:* small. *Confidence:* high.
+- **minio ↔ n8n** — *Why:* the `n8n` bucket and keys are pre-provisioned, and n8n's S3 node supports a custom endpoint. Workflows could store files above Supabase Storage's 50 MB limit. *Mechanism:* n8n S3 credential at `http://minio:9000`. Binary-data offload also needs `N8N_AVAILABLE_BINARY_DATA_MODES=filesystem,s3`, `N8N_DEFAULT_BINARY_DATA_MODE=s3`, `N8N_EXTERNAL_STORAGE_S3_*` and a Business or Enterprise license; without one, n8n does not start. *Effort:* small. *Confidence:* high.
 - **minio ↔ weaviate (direct `backup-s3`)** — *Why:* the backup runner already archives native `backup-filesystem` snapshots. `backup-s3` would write straight to the bucket and skip the local snapshot volume. *Mechanism:* enable `backup-s3` in `WEAVIATE_ENABLE_MODULES`, set `BACKUP_S3_BUCKET=weaviate-backups`, `BACKUP_S3_ENDPOINT=minio:9000`, `BACKUP_S3_USE_SSL=false`; add `weaviate-backups` entry in `init-minio.sh`. *Effort:* small. *Confidence:* high.
 - **minio ↔ comfyui** — *Why:* ComfyUI outputs use a named volume for this project, and a `comfyui` bucket exists. Uploaded renders would let Backend, n8n and Open WebUI share artifacts across ordinary restarts.
 
@@ -228,6 +228,6 @@ _No high-confidence opportunities identified._
 <a id="106-future--unused-features-in-this-service"></a>
 
 - **Bucket notifications (webhook/Redis/NATS targets)** — *Why pursue:* MinIO can POST object-created events to a webhook or Redis stream. Backend, n8n and Weaviate could react to uploads instead of polling. *Effort:* medium.
-- **Object lifecycle rules (expiration + versioning)** — *Why pursue:* the `comfyui` and `jupyter` buckets grow without limit. Per-bucket ILM rules (expire after N days, keep N versions) are one `mc ilm` config in `init-minio.sh`. *Effort:* small.
+- **Object lifecycle rules (expiration + versioning)** — *Why pursue:* the `jupyter` bucket grows without limit, and the proposed ComfyUI upload hook (§12.4) would add another unbounded bucket. Per-bucket ILM rules (expire after N days, keep N versions) are one `mc ilm` config in `init-minio.sh`. *Effort:* small.
 - **Server-side encryption (SSE-S3 / SSE-KMS)** — *Why pursue:* the stack stores secrets and user uploads in plaintext on the host volume. SSE-S3 with a generated KEK encrypts at rest with no consumer change. *Effort:* medium.
 - **STS / AssumeRole for per-user JupyterHub creds** — *Why pursue:* replaces the single shared `MINIO_JUPYTER_*` credential with short-lived per-user tokens. *Effort:* large.

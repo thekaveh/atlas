@@ -591,3 +591,20 @@ def test_the_cli_flag_overview_applies_consumer_profile_overrides() -> None:
     parser.load_consumer_config = lambda: SimpleNamespace(
         profile_overrides={"prod": {"sources": {"prometheus": "disabled"}}}, env_overrides={})
     assert profile_launch_sources(services_info, "prod", parser, set()).get(prometheus) == "disabled"
+
+
+def test_source_step_defaults_apply_consumer_profile_overrides() -> None:
+    """The wizard defaulted source steps from the platform bundles only, so
+    Enter under prod committed Prometheus "container" as an explicit answer
+    and skipped the consumer's profile_overrides "disabled"."""
+    from types import SimpleNamespace
+
+    parser = ConfigParser()
+    parser.load_consumer_config = lambda: SimpleNamespace(
+        profile_overrides={"prod": {"sources": {"prometheus": "disabled"}}},
+        env_overrides={}, consumers=[])
+    steps, *_ = I._build_steps_and_rows(parser)
+    step = next(s for s in steps if s.title.startswith("Prometheus") and s.title.endswith("·  source"))
+    assert PROFILES["prod"]["sources"]["prometheus"] != "disabled"  # the override is what changes it
+    assert step.default_value_provider({I.PROFILE_STEP_TITLE: "prod"}) == "disabled"
+    assert step.default_value_provider({I.PROFILE_STEP_TITLE: "default"}) == step.default_value

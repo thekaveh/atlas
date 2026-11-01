@@ -672,8 +672,9 @@ class VllmMetalManager:
                 + "; ".join(f"{c['name']}: {c['detail']}" for c in fails)
             )
         with self._launch_guard():
-            # Decide before install: it rewrites the status file without the
-            # pid, which would erase the record of the old port.
+            # Decide before install: a process already serving the configured
+            # port and listen address is reused without reinstalling; one
+            # launched with other settings is stopped first (#1361).
             if self._reusable(self.status()):
                 return self.status(), False
             self._install_locked()

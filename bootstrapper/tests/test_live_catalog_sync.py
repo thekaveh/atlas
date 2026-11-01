@@ -98,12 +98,13 @@ def _http_get_json(url: str, *, headers=None, timeout: float = 3.0):
 
 def _ollama_upstream_url() -> str:
     """Return the URL that litellm-init / the wizard would query for
-    /api/tags. Localhost mode is hardcoded to 11434 in the wizard;
-    container and `none` sources return empty (no host-side upstream
-    to probe)."""
+    /api/tags. Localhost mode uses OLLAMA_LOCALHOST_PORT, defaulting to
+    11434 like the wizard and the Ollama manifest; container and `none`
+    sources return empty (no host-side upstream to probe)."""
     src = _read_env_var("LLM_PROVIDER_SOURCE")
     if "localhost" in src:
-        return "http://localhost:11434"
+        port = _read_env_var("OLLAMA_LOCALHOST_PORT") or "11434"
+        return f"http://localhost:{port}"
     return ""
 
 
@@ -131,8 +132,8 @@ def _query_litellm_models() -> list[str] | None:
     """Return LiteLLM /v1/models IDs, or None when the proxy isn't
     reachable. Reads the master key from .env for auth."""
     key = _read_env_var("LITELLM_MASTER_KEY")
-    port = _read_env_var("LITELLM_PORT") or "63012"
-    if not key:
+    port = _read_env_var("LITELLM_PORT")
+    if not key or not port:
         return None
     data = _http_get_json(
         f"http://localhost:{port}/v1/models",
@@ -162,7 +163,7 @@ def _skip_unless_stack_up():
     if litellm_models is None:
         pytest.skip(
             "LiteLLM proxy unreachable on localhost:LITELLM_PORT — "
-            "stack not up, or LITELLM_MASTER_KEY missing from .env"
+            "stack not up, or LITELLM_MASTER_KEY or LITELLM_PORT unset in .env"
         )
     return host_tags, litellm_models
 

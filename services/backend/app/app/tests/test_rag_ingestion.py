@@ -4620,17 +4620,20 @@ def test_overlapping_corpus_generations_preserve_current_publication(
             assert repeated.id == second.id
 
 
+@pytest.mark.parametrize("live_redis", [False, True])
 @pytest.mark.parametrize("competing_profile", ["showcase-default", "showcase.default"])
 def test_publication_begin_excludes_other_active_jobs_for_the_same_physical_class(
-    competing_profile,
+    competing_profile, live_redis,
 ):
     from rag_ingestion.models import weaviate_class_name
     from rag_ingestion.store import publication_target
 
-    class_name = weaviate_class_name("RagShowcase", "showcase-default")
-    assert weaviate_class_name("RagShowcase", competing_profile) == class_name
+    # A fresh prefix: the shared Redis database must hold no guard for it.
+    prefix = "Rag" + uuid.uuid4().hex
+    class_name = weaviate_class_name(prefix, "showcase-default")
+    assert weaviate_class_name(prefix, competing_profile) == class_name
     target = publication_target(class_name)
-    store = InMemoryIngestionStore()
+    store = _ingestion_regression_store(live_redis)
     first, second = _generation_record([target]), _generation_record([target])
     second.profile = competing_profile
     for record, owner in ((first, "owner-a"), (second, "owner-b")):

@@ -555,3 +555,48 @@ def test_in_memory_failed_intent_defers_behind_current_work_before_later_arrival
         assert seen == ["existing", "failed", "later"]
 
     asyncio.run(scenario())
+
+
+def _lua_cjson_round_trip(value):
+    """What a Redis Lua decode + re-encode does: an empty table becomes {}."""
+    if isinstance(value, dict):
+        return {key: _lua_cjson_round_trip(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_lua_cjson_round_trip(item) for item in value] or {}
+    return value
+
+
+def test_redis_media_store_keeps_empty_lists_through_lua_rewrites(monkeypatch) -> None:
+    """Every script after create re-encodes the whole operation with cjson,
+    which turned the provider's [] into {} in the default Redis mode."""
+    import redis.asyncio as redis
+
+    class FakeRedis:
+        blob = None
+
+        async def eval(self, _script, _key_count, *args):
+            if self.blob is None:  # create stores ARGV[1] verbatim
+                self.blob = args[4]
+            else:  # transition_payload: decode, replace, re-encode
+                operation = json.loads(self.blob)
+                operation["last_payload"] = json.loads(args[4])
+                self.blob = json.dumps(_lua_cjson_round_trip(operation))
+            return [1, self.blob]
+
+        async def get(self, _key):
+            return self.blob
+
+    monkeypatch.setattr(redis.Redis, "from_url", lambda *_a, **_k: FakeRedis())
+    store = RedisMediaOperationStore("redis://redis:6379/0")
+    operation = {**_operation(), "artifacts": [], "tags": {}}
+    payload = {
+        **operation["last_payload"], "status": "running", "artifacts": [[], {"a": []}],
+        "raw": {"status": {"logs": []}}, "provenance": {"provider_fields": {}},
+    }
+
+    assert asyncio.run(store.create(operation)) == {**operation, "state_version": 0}
+    transitioned, _changed = asyncio.run(store.transition_payload("media-op-1", payload))
+    assert transitioned["last_payload"] == payload
+    stored = asyncio.run(store.get("media-op-1"))
+    assert stored["artifacts"] == [] and stored["tags"] == {}
+    assert stored["last_payload"] == payload
