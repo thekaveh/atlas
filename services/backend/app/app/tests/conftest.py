@@ -21,6 +21,7 @@ import os
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock
+from urllib.parse import parse_qsl, urlsplit
 
 import pytest
 
@@ -48,6 +49,32 @@ try:
     import ray.dashboard.modules.job.common  # noqa: F401
 except ImportError:
     pass
+
+
+# The live Redis tests FLUSHDB and delete Atlas's global RAG and media index
+# keys. The stack's Redis is published on the host and uses databases 0 and
+# 2-5, so only database 15 (the index CI uses) counts as disposable.
+DISPOSABLE_REDIS_DB = "15"
+DISPOSABLE_REDIS_SKIP = (
+    "ATLAS_TEST_REDIS_URL must name database 15 of a disposable Redis; these tests FLUSHDB it"
+)
+
+
+def redis_url_is_disposable(url: str | None) -> bool:
+    """Whether ``url`` selects database 15 (by path or ``?db=``)."""
+    if not url:
+        return False
+    parts = urlsplit(url)
+    database = parts.path.lstrip("/") or dict(parse_qsl(parts.query)).get("db", "0")
+    return database == DISPOSABLE_REDIS_DB
+
+
+def disposable_redis_url() -> str:
+    """ATLAS_TEST_REDIS_URL when it names the disposable database, else skip."""
+    url = os.environ.get("ATLAS_TEST_REDIS_URL")
+    if not redis_url_is_disposable(url):
+        pytest.skip(DISPOSABLE_REDIS_SKIP)
+    return url
 
 
 @pytest.fixture(autouse=True)

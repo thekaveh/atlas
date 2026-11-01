@@ -136,7 +136,8 @@ services:
       # not-configured branch. Matches STT/TTS/DOCLING_ENDPOINT alongside.
       WEAVIATE_URL: ${WEAVIATE_URL}
       WEAVIATE_ENABLED: true
-      # STT/TTS/DOC endpoints (available for future proxy implementation)
+      # STT/TTS endpoints are for a planned proxy; DOCLING_* and TIKA_ENDPOINT
+      # feed /documents/extract and RAG ingestion.
       STT_ENDPOINT: ${STT_ENDPOINT}
       TTS_ENDPOINT: ${TTS_ENDPOINT}
       DOCLING_ENDPOINT: ${DOCLING_ENDPOINT}

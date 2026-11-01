@@ -191,9 +191,15 @@ def test_both_docling_processors_separate_conversion_from_rendering():
         source = (ROOT / relative).read_text(encoding="utf-8")
         assert "def convert_document_once(" in source
         assert "def render_conversion(" in source
-        assert "result = await asyncio.to_thread(" in source
-        assert "convert_document_once," in source
+    # The APIs convert once, render, and offload both through the deadline.
+    for relative in (
+        "services/docling/provider/shared/api_server.py",
+        "services/docling/provider/localhost/server.py",
+    ):
+        source = (ROOT / relative).read_text(encoding="utf-8")
+        assert "result = convert_document_once(" in source
         assert "return render_conversion(" in source
+        assert "lambda: _convert_and_render(" in source
 
 
 def test_both_docling_apis_install_boundary_and_deadline_expensive_routes():

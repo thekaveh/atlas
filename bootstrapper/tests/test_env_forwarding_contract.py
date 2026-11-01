@@ -68,12 +68,6 @@ FORWARDING_EXCEPTIONS: dict[str, str] = {
     "STT_PROVIDER_SCALE": "virtual engine family; no container to scale",
     "TTS_PROVIDER_SCALE": "virtual engine family; no container to scale",
     "VLLM_METAL_SCALE": "managed-localhost family; no container to scale",
-    # -- consumed through service_config's weaviate module wiring, not
-    #    compose interpolation
-    "WEAVIATE_LITELLM_API_KEY": (
-        "manifest-declared, folded into weaviate module configuration by "
-        "service_config (see service_config.py, weaviate module wiring)"
-    ),
 }
 
 

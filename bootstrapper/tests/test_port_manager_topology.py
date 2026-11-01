@@ -15,6 +15,7 @@ from __future__ import annotations
 from pathlib import Path
 import os
 import socket
+import stat
 
 import pytest
 
@@ -242,6 +243,7 @@ def test_base_port_change_rewrites_an_export_port_line(tmp_path):
 
     env = tmp_path / ".env"
     env.write_text("BASE_PORT=63000\nexport LITELLM_PORT=63012\n", encoding="utf-8")
+    env.chmod(0o644)
     manager = PortManager()
     manager.config_parser = ConfigParser(str(tmp_path))
 
@@ -250,6 +252,9 @@ def test_base_port_change_rewrites_an_export_port_line(tmp_path):
     text = env.read_text(encoding="utf-8")
     assert "export LITELLM_PORT=640" in text and "63012" not in text
     assert ConfigParser(str(tmp_path)).parse_env_file()["LITELLM_PORT"].startswith("640")
+    # .env carries secrets: the rewrite must leave it owner-only, even when
+    # the operator's copy was group/world-readable before.
+    assert stat.S_IMODE(env.stat().st_mode) == 0o600
 
 
 def test_auto_base_port_probes_with_this_runs_source_flags(monkeypatch):

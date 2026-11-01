@@ -143,6 +143,8 @@ ZEPPELIN_DB_PASSWORD=              # auto-generated
 
 Use it as a template for your own notebooks.
 
+Zeppelin derives a note's id and list name from its file name, `<name>_<id>.zpln`. Each bundled note's JSON `id` matches that id, so the UI can run it. The note list shows `spark` and `iceberg_advanced`. A new note file must follow the same pattern.
+
 `services/zeppelin/notebooks/iceberg_advanced_sql.zpln` is the opt-in
 standalone Spark counterpart to JupyterHub's Spark Connect advanced smoke,
 covering Iceberg's MERGE/branching/streaming/maintenance surface. Its

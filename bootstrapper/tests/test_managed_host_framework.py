@@ -95,11 +95,18 @@ def test_loopback_bind_passes_preflight(tmp_path):
     assert bind["status"] == "ok"
 
 
-def test_a_non_loopback_bind_fails_without_allow_remote(tmp_path):
-    result = ManagedHostManager(_spec(bind="0.0.0.0"), tmp_path).preflight()
+def test_a_non_loopback_bind_fails_without_allow_remote(tmp_path, monkeypatch):
+    manager = ManagedHostManager(_spec(bind="0.0.0.0"), tmp_path)
+    result = manager.preflight()
     bind = next(c for c in result.checks if c["name"] == "bind")
     assert bind["status"] == "fail"
     assert result.ok is False
+    # `./start.sh managed-host <name> start` runs no preflight, so start()
+    # itself must refuse to expose an unauthenticated host process. The pid
+    # file is written only after `_spawn`, so this guard also proves none was.
+    monkeypatch.setattr(manager, "_spawn", lambda: pytest.fail("spawned"))
+    with pytest.raises(ManagedHostError, match="refusing non-loopback bind"):
+        manager.start()
 
 
 def test_a_non_loopback_bind_warns_when_explicitly_opted_in(tmp_path):

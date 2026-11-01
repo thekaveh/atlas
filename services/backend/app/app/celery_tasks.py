@@ -11,6 +11,7 @@ from celery.utils.time import get_exponential_backoff_interval
 from redis.exceptions import RedisError
 
 from celery_app import (
+    _visibility_timeout,
     celery_app,
     claim_memory_execution,
     complete_memory_execution,
@@ -289,14 +290,75 @@ def _retry_rag_redis_outage(task, exc, state: "_RagRetryState", owner: str) -> N
     _schedule_rag_retry(task, exc, state, _rag_retry_countdown(state.infrastructure_attempt - 1))
 
 
-def _fail_abandoned_rag(ingestion_id: str, owner: str, reason: str) -> None:
-    """Best effort: leave the job terminal, not "running", when giving up."""
+def _fail_abandoned_rag(ingestion_id: str, owner: str, reason: str) -> bool:
+    """Best effort: leave the job terminal, not "running", when giving up.
+    True when this call marked it failed."""
     from rag_ingestion import fail_abandoned_ingestion
 
     try:
-        fail_abandoned_ingestion(ingestion_id, recovery_owner=owner, reason=reason)
+        return bool(fail_abandoned_ingestion(ingestion_id, recovery_owner=owner, reason=reason))
     except Exception:  # noqa: BLE001 - the original error is re-raised by the caller
         logger.exception("Could not mark abandoned RAG ingestion %s failed", ingestion_id)
+        return False
+
+
+# task_reject_on_worker_lost requeues a delivery whose worker process died
+# (an OOM kill) with no limit and no failure record. More than this many
+# consecutive killed runs fail the job instead of re-running every phase.
+_RAG_LOST_DELIVERY_LIMIT = 2
+
+
+class _RagDeliveryBudget:
+    """Count deliveries that may run the job. A killed worker process skips
+    every Python exit, so only consecutive mid-run deaths accumulate."""
+
+    def __init__(self, ingestion_id: str) -> None:
+        self.ingestion_id = ingestion_id
+        self.counted = False
+
+    def exhausted(self) -> bool:
+        from rag_ingestion import note_rag_delivery
+
+        starts = note_rag_delivery(self.ingestion_id, ttl_seconds=_visibility_timeout)
+        self.counted = True
+        return starts > _RAG_LOST_DELIVERY_LIMIT
+
+    def undo(self) -> None:
+        """This delivery never ran: its execution lease was busy."""
+        from rag_ingestion import undo_rag_delivery
+
+        self.counted = False
+        _best_effort_delivery_update(undo_rag_delivery, self.ingestion_id)
+
+    def settle(self) -> None:
+        """A Python-level exit: this run did not die with its process."""
+        from rag_ingestion import clear_rag_delivery
+
+        if self.counted:
+            self.counted = False
+            _best_effort_delivery_update(clear_rag_delivery, self.ingestion_id)
+
+
+def _best_effort_delivery_update(update, ingestion_id: str) -> None:
+    try:
+        update(ingestion_id)
+    except RedisError as exc:
+        logger.warning(
+            "Could not update the RAG delivery count for %s (error_type=%s)",
+            ingestion_id, type(exc).__name__,
+        )
+
+
+def _abandon_after_lost_deliveries(budget: _RagDeliveryBudget, owner: str) -> Optional[dict]:
+    """Fail a job whose previous deliveries all died mid-run. Returns None to
+    run it normally: under budget, or the claim found a live lease or a
+    terminal record, which the normal run handles."""
+    if not budget.exhausted():
+        return None
+    reason = "worker process lost on consecutive deliveries"
+    if not _fail_abandoned_rag(budget.ingestion_id, owner, reason):
+        return None
+    return {"id": budget.ingestion_id, "status": "failed", "reason": reason}
 
 
 def _rag_retry_countdown(attempt: int) -> int:
@@ -358,7 +420,10 @@ def rag_ingestion_task(
 
     state = _rag_retry_state(ingestion_id, transient_attempt, retry_state)
     owner = f"{self.request.id or 'celery'}:{uuid4()}"
+    budget = _RagDeliveryBudget(ingestion_id)
     try:
+        if (abandoned := _abandon_after_lost_deliveries(budget, owner)) is not None:
+            return abandoned
         return run_rag_ingestion(
             ingestion_id,
             execution_owner=owner,
@@ -371,6 +436,7 @@ def rag_ingestion_task(
             ),
         )
     except IngestionExecutionBusy as exc:
+        budget.undo()
         _retry_rag_busy(self, exc, state)
     except IngestionExecutionLeaseLost as exc:
         # Counted like a Redis outage: an unbounded lease-lost loop kept the
@@ -389,11 +455,9 @@ def rag_ingestion_task(
     except TRANSIENT_EXCEPTIONS as exc:
         if state.phase_attempt >= 3:
             raise
-        state = replace(
-            state,
-            phase_attempt=state.phase_attempt + 1,
-            recovery_owner=None,
-        )
+        state = replace(state, phase_attempt=state.phase_attempt + 1, recovery_owner=None)
         _schedule_rag_retry(
             self, exc, state, _rag_retry_countdown(state.phase_attempt - 1)
         )
+    finally:
+        budget.settle()

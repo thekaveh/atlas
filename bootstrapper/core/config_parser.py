@@ -1,7 +1,5 @@
 """
 Configuration parsing for YAML service configs and .env files.
-
-Python implementation of configuration parsing from start.sh and stop.sh.
 """
 
 import os
@@ -361,7 +359,6 @@ class ConfigParser:
     def parse_service_sources(self) -> Dict[str, str]:
         """
         Parse service SOURCE configurations from .env file.
-        Replicates the parse_service_sources() function from start.sh.
         
         Returns:
             dict: Dictionary mapping SOURCE variable names to their values

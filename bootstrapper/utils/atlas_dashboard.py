@@ -76,11 +76,10 @@ def build_dashboard_model(
     env = config_parser.parse_env_file()
     service_sources = config_parser.parse_service_sources()
     kong_port = (env.get("KONG_HTTP_PORT") or str(DEFAULT_BASE_PORT)).strip()
-    brand_name = env.get("BRAND_NAME") or "Atlas"
-    tagline = (
-        env.get("BRAND_TAGLINE")
-        or "A self-hosted, source-configurable engineering platform."
-    )
+    from wizard.model.state import AppState  # manifest-mirrored brand defaults
+
+    brand_name = env.get("BRAND_NAME") or AppState.brand_name
+    tagline = env.get("BRAND_TAGLINE") or AppState.tagline
     track_label = _track_label(track_key)
     overridden = overridden_services or frozenset()
 
@@ -113,7 +112,7 @@ def build_dashboard_model(
 
         direct_url = _direct_url(row, source, env)
         kong_url = _kong_url(row.alias, kong_port) if available else None
-        health_url = kong_url or direct_url
+        health_url = _health_url(row, kong_url, direct_url)
         if "localhost" in source and available:
             warnings.append(
                 f"{row.display_name} uses a host-installed source; start it on the configured localhost port before using the Kong alias."
@@ -228,8 +227,7 @@ def _render_card(row: DashboardService, accent: str) -> str:
     status_html = (
         f'<span class="status" data-status="{row.status}"{health_attr}>'
         f'<span class="dot" aria-hidden="true"></span>'
-        # Until the page's probe answers, an enabled row is only "checking".
-        f'<span class="status-text">{"checking" if row.status == "degraded" else row.status}</span></span>'
+        f'<span class="status-text">{_status_label(row)}</span></span>'
     )
     desc = escape(row.description) if row.description else ""
     desc_html = f'<p class="card-desc">{desc}</p>' if desc else ""
@@ -450,6 +448,29 @@ __SECTIONS__
 </body>
 </html>
 """
+
+
+# Published host ports that speak a raw TCP protocol, not HTTP. A browser fetch
+# there reports a healthy service "unreachable", and Redis logs each one as a
+# cross-protocol attack.
+_NON_HTTP_PORT_VARS = frozenset({"SUPABASE_DB_PORT", "REDIS_PORT", "BLENDER_MCP_LOCALHOST_PORT"})
+
+
+def _health_url(row, kong_url: str | None, direct_url: str | None) -> str | None:
+    """The URL the page probes: the Kong route, else an HTTP direct port."""
+    if kong_url:
+        return kong_url
+    if {row.port_var, row.localhost_port_var} & _NON_HTTP_PORT_VARS:
+        return None
+    return direct_url
+
+
+def _status_label(row) -> str:
+    """Until the page's probe answers, an enabled row is only "checking"; one
+    with nothing to probe (a raw TCP port) stays "not probed"."""
+    if row.status != "degraded":
+        return row.status
+    return "checking" if row.health_url else "not probed"
 
 
 def _direct_url(row, source: str, env: dict[str, str]) -> str | None:

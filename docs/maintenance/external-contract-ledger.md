@@ -355,12 +355,12 @@ The image is amd64-only; the manifest declares `platform: "linux/amd64"`. The re
 A pinned Trivy 0.74.0 scan reports 25 unique HIGH findings and 0 CRITICAL findings. The Debian 12 base findings comprise:
 
 - Five util-linux advisories across eight base packages.
-- Seven perl-base advisories.
+- Eight perl-base advisories.
 - zlib1g's MiniZip CVE, ncurses, systemd libs, gzip and libacl1.
 
 Those findings have no fixed Debian 12 package. Three additional libpcre2 findings have a Debian fix (`10.42-1+deb12u1`) but await an upstream image rebuild (the #1002 wave).
 
-Three upstream-bundled node_modules packages need fixes from the next TrueForge release: brace-expansion 5.0.7, ip-address 10.2.0 and node-tar 7.5.19.
+Three upstream-bundled node_modules packages carry four advisories: two in brace-expansion 5.0.7, one in ip-address 10.2.0 and one in node-tar 7.5.19. Their fixes need the next TrueForge release.
 
 All 25 findings have purl-scoped exceptions expiring 2026-12-09. Upstream releases roughly daily; clearance should come through a reviewed pin bump, not exception renewal.
 

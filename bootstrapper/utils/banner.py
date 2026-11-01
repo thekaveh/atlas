@@ -1,7 +1,5 @@
 """
 Banner display utilities with gradient colors and responsive sizing.
-
-Python implementation of banner functions from start.sh.
 """
 
 import shutil
@@ -21,17 +19,26 @@ class BannerDisplay:
 
 
 
-    def _brand_tagline(self) -> str:
-        """BRAND_TAGLINE from .env, falling back to the stock tagline —
-        same rebranding contract as _brand_credits."""
+    def _brand_value(self, key: str) -> str:
+        """A BRAND_* value from .env, or "" when unset or unreadable."""
         try:
             from core.config_parser import ConfigParser
-            v = (ConfigParser().parse_env_file().get("BRAND_TAGLINE", "") or "").strip()
-            if v:
-                return v
+            return (ConfigParser().parse_env_file().get(key, "") or "").strip()
         except Exception:  # noqa: BLE001 — banner must never break startup
-            pass
-        return "A self-hosted, source-configurable, multi-disciplinary engineering platform"
+            return ""
+
+    def _brand_tagline(self) -> str:
+        """BRAND_TAGLINE from .env, falling back to the manifest default that
+        the wizard also uses — same rebranding contract as _brand_credits."""
+        from wizard.model.state import AppState
+
+        return self._brand_value("BRAND_TAGLINE") or AppState.tagline
+
+    def _brand_name(self) -> str:
+        """BRAND_NAME from .env, falling back to the manifest default."""
+        from wizard.model.state import AppState
+
+        return self._brand_value("BRAND_NAME") or AppState.brand_name
 
     def _brand_credits(self) -> tuple[str, str, str]:
         """(author, repo_url, license) for the credit lines.
@@ -72,7 +79,7 @@ class BannerDisplay:
     ) -> Text:
         """
         Apply rich multi-color gradient to text.
-        Replicates the apply_enhanced_gradient() function from start.sh with 256-color palette.
+        Uses a 256-color palette.
 
         Args:
             text: Text to apply gradient to
@@ -143,15 +150,17 @@ class BannerDisplay:
 
     def get_ascii_art_compact(self) -> List[str]:
         """
-        Get the compact ASCII art banner for narrow terminals.
-        Based on the show_compact_banner() function from start.sh.
+        Get the compact ASCII art banner for narrow terminals. The box shows
+        BRAND_NAME, truncated to fit; the default renders "Atlas" as before.
 
         Returns:
             list: List of compact ASCII art lines
         """
+        name = self._brand_name()[:33]
+        left = max(1, (35 - len(name)) // 2 - 1)
         return [
             "╔═══════════════════════════════════╗",
-            "║              Atlas                ║",
+            "║" + " " * left + name + " " * (35 - left - len(name)) + "║",
             "║       Engineering Platform        ║",
             "╚═══════════════════════════════════╝",
         ]
@@ -180,7 +189,6 @@ class BannerDisplay:
     def show_banner(self, force_compact: bool = False) -> None:
         """
         Display the appropriate banner based on terminal width.
-        Replicates the show_banner() function from start.sh.
 
         Args:
             force_compact: Force compact banner regardless of terminal width
@@ -196,7 +204,6 @@ class BannerDisplay:
     def show_full_banner(self) -> None:
         """
         Display the full branded ASCII banner with gradient colors and centering.
-        Replicates the show_full_banner() function from start.sh.
         """
         ascii_art = self.get_ascii_art_full()
 
@@ -232,7 +239,6 @@ class BannerDisplay:
     def show_compact_banner(self) -> None:
         """
         Display a compact banner for narrow terminals.
-        Replicates the show_compact_banner() function from start.sh.
         """
         ascii_art = self.get_ascii_art_compact()
 

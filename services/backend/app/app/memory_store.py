@@ -2,20 +2,25 @@
 Dual vector backend for LangMem memory storage.
 
 Supports an explicitly latched Weaviate or pgvector backend. Initial Weaviate
-failure selects authoritative pgvector; failback happens only through an
-explicit readiness probe.
+failure selects authoritative pgvector; failback happens through the explicit
+readiness probe and the startup probe in initialize().
 """
 
 import os
 import asyncio
 import logging
-import re
 from typing import Optional, List, Dict, Any, Union
 from uuid import UUID
 
 import httpx
 
 from db_connection import acquire_conn
+from memory_reconciliation import (  # noqa: F401 - re-exported for callers and tests
+    WeaviateQueryError,
+    _is_row_rejection,
+    _weaviate_vectorizer_failure,
+    _weaviate_vectorizer_row_rejection,
+)
 
 
 def _to_uuid(value: Union[str, UUID, None]) -> Optional[UUID]:
@@ -76,52 +81,6 @@ def _parse_embedding_dimension(value: Union[str, int, None]) -> int:
 # Writes and nearText queries make Weaviate call LiteLLM for an embedding; a
 # cold Ollama model load can exceed 10s (the direct pgvector embed allows 30s).
 _WEAVIATE_VECTORIZE_TIMEOUT = 30.0
-
-
-class WeaviateQueryError(RuntimeError):
-    """Weaviate answered, but the query failed (GraphQL ``errors``)."""
-
-
-def _weaviate_vectorizer_failure(exc: BaseException) -> bool:
-    """Weaviate is reachable but its embedding call (via LiteLLM) failed.
-
-    Weaviate reports a vectorizer error as a 5xx on writes and as GraphQL
-    ``errors`` on nearText queries. Neither means Weaviate is down, so they
-    must not latch pgvector (which then holds until restart or a probe).
-    """
-    if isinstance(exc, WeaviateQueryError):
-        return True
-    if isinstance(exc, httpx.HTTPStatusError):
-        response = getattr(exc, "response", None)
-        if response is None or response.status_code < 500:
-            return False
-        try:
-            body = response.text.lower()
-        except Exception:  # noqa: BLE001 - unreadable body: not classifiable
-            return False
-        return "vectoriz" in body or "update vector" in body
-    return False
-
-
-# Weaviate wraps the embedding provider's status in its error text ("failed
-# with status: 400 ..."). A 4xx rejects that one fact (too long, filtered),
-# except auth/timeouts/rate limits and model-configuration errors, which hit
-# every row; anything else (5xx, connection, DNS) is systematic too.
-_VECTORIZER_ROW_REJECTION = re.compile(r"status:?\s*4(?!01|03|04|08|29)\d\d\b")
-_VECTORIZER_SYSTEMATIC_TEXT = re.compile(
-    r"invalid model|model not found|no such model|authentication|api key|budget", re.IGNORECASE
-)
-
-
-def _weaviate_vectorizer_row_rejection(exc: BaseException) -> bool:
-    """A vectorizer failure caused by this row's content, not the provider."""
-    if not _weaviate_vectorizer_failure(exc) or isinstance(exc, WeaviateQueryError):
-        return False
-    try:
-        body = exc.response.text
-    except Exception:  # noqa: BLE001 - unreadable body: not classifiable
-        return False
-    return bool(_VECTORIZER_ROW_REJECTION.search(body)) and not _VECTORIZER_SYSTEMATIC_TEXT.search(body)
 
 
 def _weaviate_target_unavailable(exc: BaseException) -> bool:
@@ -622,42 +581,7 @@ class MemoryStore:
             if not rows:
                 break
             for row in rows:
-                # The potentially slow external call deliberately happens with
-                # no pooled connection or advisory lock checked out.
-                embedding = await self._generate_embedding(row["content"])
-                self._validate_embedding(embedding)
-                async with acquire_conn(self.database_url) as conn:
-                    result = await conn.execute(
-                        f"""
-                        UPDATE public.memory_facts
-                        SET embedding = $1::vector({self.embedding_dimension}),
-                            embedding_model = $4,
-                            embedding_generation = {target_generation}
-                        WHERE id = $2 AND content = $3
-                          AND (embedding IS NULL OR
-                               vector_dims(embedding) <> {self.embedding_dimension} OR
-                               embedding_model IS DISTINCT FROM $4 OR
-                               embedding_generation <> {target_generation})
-                          AND EXISTS (
-                              SELECT 1
-                              FROM public.memory_embedding_schema_state
-                              WHERE singleton = true
-                                AND target_dimension = {self.embedding_dimension}
-                                AND pgvector_target_model = $4
-                                AND pgvector_target_generation = {target_generation}
-                          )
-                        """,
-                        str(embedding),
-                        row["id"],
-                        row["content"],
-                        self.embedding_model,
-                    )
-                if result == "UPDATE 0":
-                    logger.debug(
-                        "Memory embedding backfill row changed or was completed "
-                        "by another replica (id=%s)",
-                        row["id"],
-                    )
+                await self._backfill_row(row, target_generation)
 
         async with acquire_conn(self.database_url) as conn:
             await conn.execute(
@@ -667,6 +591,85 @@ class MemoryStore:
                 target_generation,
             )
         self._pgvector_generation = target_generation
+
+    async def _backfill_row(self, row, target_generation: int) -> None:
+        """Re-embed one backfill row. A fact the provider rejects on its own
+        content keeps no vector and stays pending for the reconciler, as a
+        write-time rejection does, instead of aborting initialization."""
+        # The potentially slow external call deliberately happens with
+        # no pooled connection or advisory lock checked out.
+        try:
+            embedding = await self._generate_embedding(row["content"])
+            self._validate_embedding(embedding)
+        except Exception as exc:
+            if not _is_row_rejection(exc):
+                raise
+            await self._defer_rejected_backfill_row(row, target_generation)
+            logger.warning(
+                "Memory embedding backfill deferred a rejected fact (id=%s, error_type=%s)",
+                row["id"], type(exc).__name__,
+            )
+            return
+        async with acquire_conn(self.database_url) as conn:
+            result = await conn.execute(
+                f"""
+                UPDATE public.memory_facts
+                SET embedding = $1::vector({self.embedding_dimension}),
+                    embedding_model = $4,
+                    embedding_generation = {target_generation}
+                WHERE id = $2 AND content = $3
+                  AND (embedding IS NULL OR
+                       vector_dims(embedding) <> {self.embedding_dimension} OR
+                       embedding_model IS DISTINCT FROM $4 OR
+                       embedding_generation <> {target_generation})
+                  AND EXISTS (
+                      SELECT 1
+                      FROM public.memory_embedding_schema_state
+                      WHERE singleton = true
+                        AND target_dimension = {self.embedding_dimension}
+                        AND pgvector_target_model = $4
+                        AND pgvector_target_generation = {target_generation}
+                  )
+                """,
+                str(embedding),
+                row["id"],
+                row["content"],
+                self.embedding_model,
+            )
+        if result == "UPDATE 0":
+            logger.debug(
+                "Memory embedding backfill row changed or was completed "
+                "by another replica (id=%s)",
+                row["id"],
+            )
+
+    async def _defer_rejected_backfill_row(self, row, target_generation: int) -> None:
+        """Clear a rejected row's stale vector and mark it pending, guarded like
+        the success write so a replica's correct vector is never cleared."""
+        async with acquire_conn(self.database_url) as conn:
+            await conn.execute(
+                f"""
+                UPDATE public.memory_facts
+                SET embedding = NULL, vector_sync_pending = true
+                WHERE id = $1 AND content = $2
+                  AND ((embedding IS NULL AND NOT vector_sync_pending) OR
+                       (embedding IS NOT NULL AND
+                        (vector_dims(embedding) <> {self.embedding_dimension} OR
+                         embedding_model IS DISTINCT FROM $3 OR
+                         embedding_generation <> {target_generation})))
+                  AND EXISTS (
+                      SELECT 1
+                      FROM public.memory_embedding_schema_state
+                      WHERE singleton = true
+                        AND target_dimension = {self.embedding_dimension}
+                        AND pgvector_target_model = $3
+                        AND pgvector_target_generation = {target_generation}
+                  )
+                """,
+                row["id"],
+                row["content"],
+                self.embedding_model,
+            )
 
     async def _ensure_weaviate_collection(self, *, force_recreate: bool = False):
         """Ensure the collection exactly matches the configured vector contract."""

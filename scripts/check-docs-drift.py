@@ -350,7 +350,6 @@ PROSE_BASELINE_COMMAND = "python scripts/check-docs-drift.py --write-prose-basel
 _PROSE_EXEMPT_PREFIXES = ("docs/architecture/",)
 _PROSE_EXEMPT_FILES = {
     "docs/CHANGELOG.md",
-    "docs/ROADMAP.md",
     "docs/services.md",
     "docs/tracks.md",
     "docs/reference/index.md",

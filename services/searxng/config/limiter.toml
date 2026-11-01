@@ -5,10 +5,12 @@
 # Schema documented at:
 # https://docs.searxng.org/admin/searx.limiter.html
 #
-# This stack is single-tenant and runs behind Kong on the user's host;
-# we want the limiter loaded with permissive defaults so Searxng's
-# botdetection module initialises cleanly but doesn't block legitimate
-# traffic from JupyterHub notebooks, local-deep-researcher, n8n
+# This stack is single-tenant and runs behind Kong on the user's host.
+# Searxng reads this file to initialise its botdetection module even
+# though the limiter itself stays disabled (``server.limiter: false``,
+# inherited from the image defaults via settings.yml). The permissive
+# ``pass_ip`` list keeps it harmless if the limiter is enabled later:
+# it would not block JupyterHub notebooks, local-deep-researcher, n8n
 # workflows, or browser sessions.
 #
 # Mirrors the upstream default schema from
@@ -26,12 +28,12 @@ ipv6_prefix = 48
 # Trust Docker's bridge subnets ONLY as reverse proxies. Kong (the
 # real proxy in front of Searxng) lives on Docker's network, so its
 # IP falls in 172.16.0.0/12. We deliberately do NOT trust 127.0.0.0/8
-# / ::1 here — Searxng's own healthcheck (``wget http://localhost:8080/healthz``
-# from inside the container) hits Searxng from 127.0.0.1 without
-# setting X-Forwarded-For, and treating loopback as a proxy makes
-# bot-detection log "X-Forwarded-For nor X-Real-IP header is set!"
-# every health check. Loopback should be treated as a direct
-# (non-proxied) caller.
+# / ::1 here: loopback is treated as a direct (non-proxied) caller.
+# Searxng's own healthcheck (compose.yml) runs ``wget`` against
+# http://localhost:8080/healthz from inside the container and sends
+# ``X-Forwarded-For: 127.0.0.1`` so bot-detection does not log
+# "X-Forwarded-For nor X-Real-IP header is set!". Loopback is listed in
+# ``pass_ip`` below, so the probe bypasses bot detection.
 trusted_proxies = [
     '172.16.0.0/12',
     '192.168.0.0/16',

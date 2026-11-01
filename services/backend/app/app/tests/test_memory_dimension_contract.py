@@ -1745,7 +1745,9 @@ async def test_failback_rebuild_syncs_active_and_retired_without_holding_db_io(
     import memory_store
 
     connection_held = False
-    fetches = 0
+    fetch_args = []
+    clears = []
+    retired = []
     stale_cleanups = []
     rows = [
         {
@@ -1773,12 +1775,12 @@ async def test_failback_rebuild_syncs_active_and_retired_without_holding_db_io(
     ]
 
     class Conn:
-        async def fetch(self, *_args):
-            nonlocal fetches
-            fetches += 1
-            return rows if fetches == 1 else []
+        async def fetch(self, _query, *args):
+            fetch_args.append(args)
+            return rows if len(fetch_args) == 1 else []
 
-        async def execute(self, *_args):
+        async def execute(self, query, *args):
+            clears.append((" ".join(query.split()), args))
             return "UPDATE 1"
 
     @asynccontextmanager
@@ -1795,8 +1797,9 @@ async def test_failback_rebuild_syncs_active_and_retired_without_holding_db_io(
         assert not connection_held
         return "00000000-0000-4000-8000-000000000001"
 
-    async def retire(*_args):
+    async def retire(*args):
         assert not connection_held
+        retired.append(args)
 
     async def cleanup(fact_id, *, keep_id):
         assert not connection_held
@@ -1818,6 +1821,18 @@ async def test_failback_rebuild_syncs_active_and_retired_without_holding_db_io(
             "00000000-0000-4000-8000-000000000001",
         )
     ]
+    # Retired facts are deactivated in Weaviate, not left isActive=true.
+    assert retired == [("00000000-0000-4000-8000-000000000002", "legacy-2")]
+    # Each applied intent is drained with an updated_at guard, so a
+    # concurrent edit keeps its pending intent.
+    assert [args for _query, args in clears] == [
+        (rows[0]["id"], "00000000-0000-4000-8000-000000000001", "v1"),
+        (rows[1]["id"], "legacy-2", "v2"),
+    ]
+    for query, _args in clears:
+        assert "SET vector_sync_pending = false" in query
+        assert "WHERE id = $1 AND updated_at = $3" in query
+    assert fetch_args == [(None,), (rows[1]["id"],)]
 
 
 @pytest.mark.asyncio
@@ -2069,6 +2084,121 @@ async def test_schema_backfill_leaves_pending_null_vectors_to_the_reconciler(
     assert "OR (embedding IS NOT NULL AND (vector_dims(embedding) <> 1536" in selector
     generate.assert_not_awaited()
     assert "contract_memory_embedding_contract" in queries[-1]
+
+
+def _backfill_state_conn(rows, calls):
+    """A backfill-phase connection: hands out ``rows`` pages, records writes."""
+
+    class Conn:
+        async def fetchrow(self, *_args):
+            return {
+                "active_dimension": 768,
+                "target_dimension": 1536,
+                "phase": "backfill",
+                "pgvector_active_model": "ollama/nomic-embed-text",
+                "pgvector_target_model": "ollama/nomic-embed-text",
+                "pgvector_active_generation": 1,
+                "pgvector_target_generation": 2,
+            }
+
+        async def fetch(self, *_args):
+            return rows.pop(0)
+
+        async def execute(self, query, *args):
+            calls.append((" ".join(query.split()), args))
+            return "UPDATE 1"
+
+    @asynccontextmanager
+    async def acquire(_url):
+        yield Conn()
+
+    return acquire
+
+
+def _calls_with(calls, needle):
+    return [(query, args) for query, args in calls if needle in query]
+
+
+def _embedding_http_error(status: int, body: str):
+    import httpx
+
+    request = httpx.Request("POST", "http://litellm:4000/v1/embeddings")
+    return httpx.HTTPStatusError(
+        "x", request=request, response=httpx.Response(status, text=body, request=request)
+    )
+
+
+@pytest.mark.asyncio
+async def test_schema_backfill_defers_a_row_the_provider_rejects(monkeypatch, caplog):
+    """A re-embed after a model or dimension change sent every old-contract
+    vector to the provider; one per-row 4xx (here: over the context length)
+    aborted initialization, and with it Backend startup, on every restart.
+    The rejected fact now keeps no vector and stays pending for the reconciler.
+    The same holds for a retired fact whose vector the reconciler left NULL."""
+    import memory_store
+
+    rejected = {"id": "00000000-0000-4000-8000-000000000001", "content": "too long"}
+    accepted = {"id": "00000000-0000-4000-8000-000000000002", "content": "fine"}
+    calls = []
+    monkeypatch.setattr(
+        memory_store, "acquire_conn", _backfill_state_conn([[rejected, accepted], []], calls)
+    )
+
+    store = memory_store.MemoryStore(
+        "postgresql://atlas", embedding_dimension=1536, manage_schema=True
+    )
+    monkeypatch.setattr(store, "_generate_embedding", AsyncMock(side_effect=[
+        _embedding_http_error(400, "input exceeds the context length"), [0.1] * 1536,
+    ]))
+
+    with caplog.at_level("WARNING", logger="memory_store"):
+        await store._ensure_pgvector_schema_contract()
+
+    [(deferred, deferred_args)] = _calls_with(calls, "SET embedding = NULL, vector_sync_pending = true")
+    assert deferred_args == (rejected["id"], "too long", store.embedding_model)
+    assert "(embedding IS NULL AND NOT vector_sync_pending)" in deferred
+    assert "pgvector_target_generation = 2" in deferred
+    [(_written, written_args)] = _calls_with(calls, "SET embedding = $1::vector(1536)")
+    assert written_args[1] == accepted["id"]
+    assert "contract_memory_embedding_contract" in calls[-1][0]
+    assert rejected["id"] in caplog.text
+    assert "HTTPStatusError" in caplog.text
+    assert "too long" not in caplog.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status, body", [
+    (401, "unauthorized"),
+    (404, "not found"),
+    (429, "rate limited"),
+    (400, "model not found: ollama/nomic-embed-text"),
+    (500, "internal error"),
+])
+async def test_schema_backfill_still_aborts_on_systematic_provider_failure(
+    monkeypatch, status, body,
+):
+    import httpx
+    import memory_store
+
+    calls = []
+    monkeypatch.setattr(
+        memory_store,
+        "acquire_conn",
+        _backfill_state_conn([[{"id": "fact-1", "content": "first"}], []], calls),
+    )
+    store = memory_store.MemoryStore(
+        "postgresql://atlas", embedding_dimension=1536, manage_schema=True
+    )
+    monkeypatch.setattr(
+        store, "_generate_embedding",
+        AsyncMock(side_effect=_embedding_http_error(status, body)),
+    )
+
+    with pytest.raises(httpx.HTTPStatusError):
+        await store._ensure_pgvector_schema_contract()
+
+    assert not any("SET embedding" in query for query, _args in calls)
+    assert not any("contract_memory" in query for query, _args in calls)
 
 
 @pytest.mark.asyncio

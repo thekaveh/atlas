@@ -281,7 +281,6 @@ class PortManager:
     def update_env_ports(self, base_port: int, create_backup: bool = True) -> bool:
         """
         Update port assignments in .env file based on base port.
-        Replicates the update_port() function from start.sh.
 
         Args:
             base_port: Base port number

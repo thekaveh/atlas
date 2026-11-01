@@ -126,7 +126,7 @@ services:
       # AuthManager.is_authorized_dag during DAG parsing. Without these,
       # it falls back to SimpleAuthManager and may emit auth warnings
       # into the scheduler log (no current functional break but a
-      # dual-write boundary violation per project_runtime_sc_vs_compose_env).
+      # dual-write boundary violation: runtime_sc and this block must match).
       AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
       AIRFLOW__FAB__AUTH_BACKENDS: airflow.providers.fab.auth_manager.api.auth.backend.basic_auth
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
@@ -277,8 +277,8 @@ services:
       # `db migrate` doesn't accidentally seed examples into our metadata DB.
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
       AIRFLOW_UID: "50000"
-      # Sibling-source vars for conditional connection seeding (dual-write per
-      # project_runtime_sc_vs_compose_env). init-airflow.sh reads SPARK_SOURCE,
+      # Sibling-source vars for conditional connection seeding (dual-write:
+      # runtime_sc mirrors this block). init-airflow.sh reads SPARK_SOURCE,
       # MINIO_SOURCE, WEAVIATE_SOURCE and NEO4J_GRAPH_DB_SOURCE;
       # ICEBERG_REST_SOURCE is injected for parity but has no seeding branch yet,
       # so it is inert until one is added -- do not cite it as a live consumer.

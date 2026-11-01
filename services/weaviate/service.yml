@@ -78,10 +78,6 @@ env:
   - name: WEAVIATE_URL
     auto_managed: true
     description: "Resolved per WEAVIATE_SOURCE. Consumed by n8n, backend, jupyterhub."
-  - name: WEAVIATE_LITELLM_API_KEY
-    auto_managed: true
-    secret: true
-    description: "Mirror of LITELLM_MASTER_KEY for Weaviate's vectorizer auth."
   - name: WEAVIATE_SCALE
     description: "Set by ./start.sh from WEAVIATE_SOURCE; do not edit. 1 runs weaviate for container, 0 otherwise."
     auto_managed: true

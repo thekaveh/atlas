@@ -363,6 +363,7 @@ On `./start.sh`, the bootstrapper normalizes each workflow JSON. It sets the act
 - **Validation.** Malformed JSON, an invalid `active` or `version`, a checksum mismatch and duplicate webhook routes are rejected at load.
 - **Probes.** After import, the seed calls only the webhooks that set `probe: true`. It logs a warning when the status is not `expect_status` (default `200`). Other webhooks are used only to detect duplicate routes. Set `probe: true` on a `POST` webhook only when a call is safe, because it can trigger side effects.
 - **API key warning.** `./start.sh doctor` warns when an active workflow declares webhooks and `N8N_API_KEY` is not set.
+- **Disabled n8n.** With `N8N_SOURCE=disabled`, the start skips the seed with a warning, and `./start.sh doctor` warns too. A pending empty-plan reconcile resumes once n8n is enabled.
 - **Seed bounds.** Each seed HTTP request times out after `N8N_SEED_HTTP_TIMEOUT_MS` (default `10000`). Each n8n CLI command times out after `N8N_SEED_COMMAND_TIMEOUT_MS` (default `120000`). The seed drops an HTTP response larger than `N8N_SEED_MAX_RESPONSE_BYTES` (default `1048576`).
 - **No API key.** n8n Community Edition cannot activate a workflow over its API without a key. Atlas then restarts the n8n container once after seeding, to register the webhook. A failed import or activation is logged per workflow, and the seed container always exits 0.
 

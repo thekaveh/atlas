@@ -299,10 +299,9 @@ def test_comfyui_substep_respects_track_skip():
     the track-skip predicate)."""
     from ui.textual.integration import _build_steps_and_rows, PICKER_STEP_TITLE
     from core.config_parser import ConfigParser
-    from utils.hosts_manager import HostsManager
     cp = ConfigParser()
     steps, _, _, _, _, _ = _build_steps_and_rows(
-        cp, HostsManager(),
+        cp,
         track_key="data-eng",  # excludes ComfyUI
         overridden_services=frozenset(),
     )

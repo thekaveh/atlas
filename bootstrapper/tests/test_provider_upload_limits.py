@@ -321,7 +321,7 @@ def test_docling_converter_failure_is_not_returned_as_successful_markdown(
     source.write_bytes(b"%PDF-broken")
 
     with pytest.raises(RuntimeError, match="Docling processing failed"):
-        asyncio.run(processor.process_document(str(source)))
+        processor.convert_document_once(str(source), use_ocr="auto", table_mode="accurate")
 
 
 def test_provider_upload_spool_ignores_unusable_client_extensions(tmp_path):

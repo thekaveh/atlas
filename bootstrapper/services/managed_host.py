@@ -542,7 +542,6 @@ class ManagedHostManager:
         if status.running:
             return await_owned_process_readiness(
                 self,
-                status,
                 wait_timeout,
                 (repr(self.spec.name), self.spec.bind, self.spec.port, ManagedHostError, time),
             )

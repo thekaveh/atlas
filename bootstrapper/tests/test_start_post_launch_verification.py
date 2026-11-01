@@ -196,6 +196,33 @@ def test_one_shot_init_checks_enabled_post_start_init_services(monkeypatch):
     ]
 
 
+def test_one_shot_skips_n8n_seed_when_n8n_is_disabled(monkeypatch):
+    """With N8N_SOURCE=disabled the seed overlay is dropped, so there is no
+    n8n-seed run to wait for even when workflows are declared."""
+    import start as start_module
+
+    starter = start_module.AtlasStarter()
+    monkeypatch.setattr(
+        starter.config_parser,
+        "parse_env_file",
+        lambda: {"N8N_SOURCE": "disabled", "OPEN_WEB_UI_INIT_SCALE": "1"},
+    )
+    monkeypatch.setattr(
+        starter.config_parser,
+        "load_consumer_config",
+        lambda: type("ConsumerConfig", (), {"n8n_workflows": [object()]})(),
+    )
+    calls = []
+    monkeypatch.setattr(
+        starter.docker_manager,
+        "failed_one_shot_services",
+        lambda services, **kwargs: calls.append(services) or [],
+    )
+
+    assert starter.verify_one_shot_init_containers() is True
+    assert calls == [["open-webui-init"]]
+
+
 def test_one_shot_waits_for_terminal_failure(monkeypatch):
     from core.docker_manager import DockerManager
 

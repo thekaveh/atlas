@@ -30,10 +30,10 @@ USAGE
 }
 
 require_container() {
-  local name="$1"
+  local name="$1" enable_flag="$2"
   if ! docker inspect "$name" >/dev/null 2>&1; then
     echo "[smoke] missing container: $name" >&2
-    echo "[smoke] Start with SPARK_SOURCE=container ICEBERG_REST_SOURCE=container MINIO_SOURCE=container." >&2
+    echo "[smoke] Enable it with ./start.sh ... $enable_flag; run $0 --help for the full prerequisite command." >&2
     return 1
   fi
 }
@@ -58,7 +58,7 @@ load_env_file() {
 }
 
 run_spark_connect() {
-  require_container "${project}-jupyterhub"
+  require_container "${project}-jupyterhub" "--jupyterhub-source container"
   echo "[smoke] running advanced Iceberg SQL through Spark Connect in ${project}-jupyterhub"
   docker exec -i "${project}-jupyterhub" python - <<'PY'
 import os
@@ -200,12 +200,13 @@ spark.sql(
     "CALL lakehouse.system.remove_orphan_files(table => 'atlas_smoke.advanced_sql', dry_run => true, prefix_listing => true)"
 ).collect()
 
-print("[smoke] Spark Connect advanced Iceberg SQL passed via", spark_remote)
+# No endpoint: a managed SPARK_REMOTE can carry a token (sc://host/;token=...).
+print("[smoke] Spark Connect advanced Iceberg SQL passed")
 PY
 }
 
 run_zeppelin() {
-  require_container "${project}-zeppelin"
+  require_container "${project}-zeppelin" "--zeppelin-source container"
   if [[ ! -f "$notebook_path" ]]; then
     echo "[smoke] missing Zeppelin notebook artifact: $notebook_path" >&2
     return 1

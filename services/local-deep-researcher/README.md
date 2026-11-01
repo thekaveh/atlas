@@ -122,9 +122,11 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 
 **Kong route 404 for `research.localhost`.** Kong has the route only when `LOCAL_DEEP_RESEARCHER_SOURCE=container`. A Kong 404 ("no Route matched") means the service is disabled; set the source and rerun `./start.sh`. If the host name does not resolve at all, run `./start.sh --setup-hosts`.
 
+`atlas_compose` is the Compose helper from [Troubleshooting](../../docs/quick-start/troubleshooting.md); run it from the repository root. Set `LOCAL_DEEP_RESEARCHER_PORT` in your shell to its value in the active env file.
+
 ```bash
-docker compose ps local-deep-researcher
-docker compose logs -f local-deep-researcher
+atlas_compose ps local-deep-researcher
+atlas_compose logs -f local-deep-researcher
 curl -s http://localhost:${LOCAL_DEEP_RESEARCHER_PORT}/threads -X POST -H 'content-type: application/json' -d '{}'
 ```
 

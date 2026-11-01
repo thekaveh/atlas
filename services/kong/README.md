@@ -166,6 +166,9 @@ Kong loads only the plugins named in `KONG_PLUGINS` (`services/kong/compose.yml`
 ## 10. Debugging Kong Configuration
 
 ### 10.1. View Generated Configuration
+
+Set `PROJECT_NAME` and `KONG_HTTP_PORT` in your shell to their values in the active env file (defaults `atlas` and `63000`).
+
 ```bash
 # Check what configuration was generated
 cat volumes/api/kong-dynamic.yml
@@ -263,7 +266,7 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 ### 14.2. Debug Commands
 ```bash
 # Check Kong gateway status
-docker compose ps | grep kong
+docker ps --filter name=${PROJECT_NAME}-kong
 
 # View detailed Kong configuration
 docker exec ${PROJECT_NAME}-kong-api-gateway cat /home/kong/kong.yml

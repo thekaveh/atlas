@@ -336,8 +336,9 @@ Fully mocked unit tests (`bootstrapper/tests/test_comfyui_mps_manager.py`) cover
 # 1. Bring the managed host up (reuses your existing host models dir):
 ./start.sh comfyui-mps install && ./start.sh comfyui-mps start
 
-# 2. Prove /system_stats reports MPS:
-uv run --project bootstrapper pytest bootstrapper/tests/test_comfyui_mps_manager.py -m live -q
+# 2. Prove /system_stats reports MPS (reads the real ~/.atlas/comfyui-mps state):
+ATLAS_COMFYUI_MPS_LIVE=1 \
+  uv run --project bootstrapper pytest bootstrapper/tests/test_comfyui_mps_manager.py -m live -q
 
 # 3. Run one Krea 2 Turbo generation against the managed endpoint (reuses the same live smoke as container sources):
 ATLAS_COMFYUI_LIVE_ENDPOINT=http://localhost:8188 \
@@ -407,9 +408,11 @@ ATLAS_COMFYUI_LIVE_ENDPOINT=http://localhost:8188 \
 
 **`ws://comfyui:18188/ws` 502s through Kong.** Kong's WebSocket support is wired, but consumers that use `comfyui.localhost` can see timeout drops. From sibling containers, use the internal DNS name `comfyui:18188`.
 
+`atlas_compose` is the Compose helper from [Troubleshooting](../../docs/quick-start/troubleshooting.md); run it from the repository root. Set `COMFYUI_PORT` in your shell to its value in the active env file.
+
 ```bash
-docker compose ps comfyui comfyui-init
-docker compose logs -f comfyui
+atlas_compose ps comfyui comfyui-init
+atlas_compose logs -f comfyui
 curl -s http://localhost:${COMFYUI_PORT}/system_stats | jq .   # GPU/CPU info, queue depth
 ```
 

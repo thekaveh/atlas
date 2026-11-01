@@ -93,7 +93,7 @@ Also in this range: 160 fixes, 75 documentation, 4 build and ci, 42 maintenance,
 
 <!-- END GENERATED RELEASE NOTES -->
 
-### 1.2. Fixed — 2026-10-31 — Overnight maintenance: secrets off disk and argv, startup checks, memory backfill and docs
+### 1.2. Fixed — 2026-10-31 — Overnight maintenance: secrets, startup checks, memory re-embedding, restores, test isolation and docs
 
 - **Security.**
     - LiteLLM's generated `config.yaml` no longer holds the LightRAG key. The `lightrag` row reads `os.environ/LIGHTRAG_API_KEY`, which the `litellm` container now receives.
@@ -101,6 +101,8 @@ Also in this range: 160 fixes, 75 documentation, 4 build and ci, 42 maintenance,
     - `weaviate-init` no longer receives the LiteLLM master key or `LITELLM_BASE_URL`. It read neither.
     - Supavisor's epmd and Erlang distribution listen on container loopback only, as Realtime does. The API on 4000 and the pooler on 6543 are unchanged.
     - `POST /storage/upload` and `POST /documents/extract` check credentials before they read the body. An anonymous caller gets `401` before the multipart parser spools anything.
+    - Atlas no longer writes `WEAVIATE_LITELLM_API_KEY`, a copy of the LiteLLM master key that nothing read.
+    - The Backend README diagnostics no longer print API keys or passwords. The Iceberg smoke no longer prints `SPARK_REMOTE`, which can carry a token.
 - **Bootstrapper and CLI.**
     - `./start.sh` and `./stop.sh` run `uv run --no-dev`, so the launcher syncs only the runtime dependency set.
     - `./start.sh storage inventory` and `storage clean` use the exact `PROJECT_NAME` spelling. A mixed-case value such as `MyStack` finds its `MyStack-*` resources.
@@ -110,6 +112,13 @@ Also in this range: 160 fixes, 75 documentation, 4 build and ci, 42 maintenance,
     - The OpenRouter caption says the key was not checked, because that listing never sends the key.
     - A Compose output line over 64 KiB is truncated with a notice. It no longer crashes the stream reader or marks a good launch as failed.
     - BuildKit lines that quote a piped `RUN` command no longer create bogus log source chips. Their `ERROR` lines count for the Errors filter.
+    - With `N8N_SOURCE=disabled`, consumer n8n workflow seeding is skipped with a warning, and `./start.sh doctor` warns. Before, every `--detach` start exited 1 after about 300 s.
+    - A launch that repoints only a chat or vision default also applies the corrected catalog embedding dimension. Before, the repair waited one more launch.
+    - The wizard's stack overview shows its count line, and a `Track: <name>` line when a track is set. Before, top padding hid it.
+    - In those counts, `none` and off-track rows count as off. An enabled FAL row counts as local and uses the local color, also in the `--no-tui` summary.
+    - The Ollama and ComfyUI filter chips no longer stay on later steps. ComfyUI name search also matches the repository names inside a family row.
+    - The compact `--no-tui` banner for narrow terminals shows `BRAND_NAME`. The banner's default tagline is now the wizard's default.
+    - The Kong root dashboard no longer probes PostgreSQL, Redis or the Blender MCP socket over HTTP. It marks them `not probed`.
     - `bootstrapper.docs.merge_research` writes a null front-matter value as `null`, so `regen --all` no longer rejects a proposed candidate.
 - **Backend.**
     - A malformed `COMFYUI_MAX_IMAGE_BYTES` or `COMFYUI_INIT_IMAGE_TRUSTED_ORIGINS` fails startup. Before, every ComfyUI request returned `400`. A blank size uses the 20 MiB default.
@@ -118,25 +127,45 @@ Also in this range: 160 fixes, 75 documentation, 4 build and ci, 42 maintenance,
     - A Postgres acquisition timeout while a new connection is still opening raises a database error. It no longer reports pool saturation.
     - A memory fact that the embedding provider rejected no longer holds the pgvector backfill. Before, Backend startup failed on every restart; the reconciler now handles the fact.
     - When vector bookkeeping fails after extraction commits, extraction returns its result. Before, it returned `503`, and a client retry stored every fact twice.
+    - A memory fact that the embedding provider rejects during a model or dimension re-embed no longer fails Backend startup. It keeps no vector and stays pending for the reconciler.
+    - A RAG ingestion whose Celery worker is killed during two consecutive runs now fails. Before, the broker redelivered it forever.
+    - The media budget check sums ledger totals in PostgreSQL instead of reading every row. A `MEDIA_BUDGET_CURRENCY` longer than 8 characters stops startup.
 - **Backup and restore.**
     - The Neo4j and Weaviate restore stages start under the shipped `WEAVIATE_ENABLE_MODULES`. `multi2vec-clip` gets a stubbed inference API for the restore.
     - The host backup and restore scripts honor `ATLAS_ENV_FILE` and the deprecated `GENAI_ENV_FILE`. They refuse a missing custom file.
+    - Orchestrated Neo4j and Weaviate restores with `WEAVIATE_SOURCE=container` no longer fail at the Weaviate stage. Weaviate writes `restore_config.json` beside the snapshot, so the private per-run artifacts are now mounted writable.
+    - The PostgreSQL restore copies list-valued settings such as `search_path` exactly, as `pg_dump` does. Before, it quoted the whole list as one schema name.
+- **Services.**
+    - The bundled Zeppelin notes have a JSON id that matches their file names, so they run from the Zeppelin UI.
+    - The staged n8n ComfyUI workflow serves its models branch at `GET webhook/comfyui-models`.
+    - The Open WebUI "Research Assistant (Enhanced)" tool drops its unused `poll_interval` valve. Its description now matches its single blocking run.
+    - `scripts/smoke-lightrag-role-models.sh` reads its settings from `./.env` without sourcing the file. A value exported in the shell still wins.
 - **Tooling and tests.**
     - `scripts/check-compose-source-deps.py` prints the `docker compose config` error text when the default render fails. A caller-supplied `--env-file` stays redacted.
     - The source-permutation CI matrix renders each SOURCE value through the bootstrapper's `.env` synthesis instead of a raw SOURCE flip.
     - Dependabot also ignores `pyspark-client`. A test keeps every Spark client pin equal to the `SPARK_IMAGE` tag.
     - CI runs the native PostgreSQL role-ownership drills and the Backend memory reconcile SQL tests against a disposable PostgreSQL.
     - Live tests need an explicit opt-in: `ATLAS_LIVE_STACK=1` for the catalog sync and `ATLAS_VLLM_METAL_LIVE=1` for the vLLM Metal smoke. [AGENTS.md](https://github.com/thekaveh/atlas/blob/main/AGENTS.md) lists them.
+    - More live tests need an opt-in: `ATLAS_COMFYUI_MPS_LIVE=1` for the ComfyUI MPS smoke. Backend live Redis tests also need `ATLAS_TEST_REDIS_URL` to name database 15.
+    - CI also runs the media-ledger PostgreSQL tests. A new test fails when `docling-core` moves in a Docling provider lock but its qualification choice does not.
+    - Bootstrapper tests clear `ATLAS_ENV_FILE`, `GENAI_ENV_FILE` and the consumer-manifest selectors first. A shell that exports a custom env file no longer has it overwritten.
     - Unused code is removed: 83 palette aliases, ten dead helpers and the Parakeet `shared/utils.py`, which nothing imported.
+    - More unused code is removed: the Docling `process_document()` and Parakeet GPU `transcribe_audio()` async wrappers, three `ResearchClient` methods and two diagram templates.
 - **Docs.**
     - The Ollama README states that `ollama-container-gpu` has no GPU device reservation. It reaches a GPU only when the Docker default runtime is `nvidia`.
     - `backend_plugins` sets `BACKEND_PLUGINS_DIR` but does not mount the roots. A `compose_overlays` file must bind each root into the backend.
     - Service READMEs list only the consumers Atlas wires and give working commands. Paste-to-run blocks no longer use `|| exit 1`, which closed the reader's shell.
     - The Trino and Langfuse READMEs say `./start.sh` stops with an error when a required dependency is disabled.
     - The architecture diagram draws LiteLLM's routes to vLLM Metal and Cloud Providers as direct edges.
+    - Service READMEs set `PROJECT_NAME` before they use it. Diagnostics use `docker ps` and `docker logs` or the `atlas_compose` helper, not bare `docker compose`.
+    - The Langfuse README says how to enable MinIO in tracks that disable it: pass `--minio-source container`.
+    - The license inventory records Crawl4AI's attribution requirement and the LGPL libvips binaries in the Asset Worker image.
+    - SECURITY.md describes the real Final-image scan rules. ROADMAP corrects the Hermes image, the Trino and Crawl4AI dependencies and several shipped states.
 - **Upgrade notes.**
     - Atlas no longer writes or reads `LABEL_STUDIO_DB_NAME_URI`. A leftover key in `.env` is inert and safe to delete.
     - `ASSET_WORKER_MINIO_ENDPOINT` and `ASSET_BAKER_MINIO_ENDPOINT` are now rewritten at start, like other auto-managed values. Their effective default, `http://minio:9000`, is unchanged.
+    - A leftover `WEAVIATE_LITELLM_API_KEY` in `.env` holds a copy of the LiteLLM master key. Delete it.
+    - Shorten a `MEDIA_BUDGET_CURRENCY` longer than 8 characters before you upgrade, or the Backend does not start.
     - Run `./start.sh` to apply the LiteLLM, Flower, `weaviate-init` and Supavisor changes.
 
 ### 1.3. Fixed — 2026-10-30 — Review of the last week: Redis password, overlay warnings, session logs and dead code

@@ -1,6 +1,5 @@
 """Docling GPU processor."""
 
-import asyncio
 import os
 from pathlib import Path
 import sys
@@ -135,36 +134,4 @@ def render_conversion(
         format=output_format,
         metadata=metadata,
         chunks=chunks,
-    )
-
-
-async def process_document(
-    file_path: str,
-    output_format: str = "markdown",
-    use_ocr: str = "auto",
-    table_mode: str = "accurate",
-    enable_chunking: bool = False,
-    chunk_size: int = 512,
-    chunk_overlap: int = 50,
-) -> ConversionResponse:
-    """Compatibility wrapper for callers that use the original processor API."""
-    if output_format not in SUPPORTED_OUTPUT_FORMATS:
-        raise ValueError(
-            f"output_format must be one of: {', '.join(sorted(SUPPORTED_OUTPUT_FORMATS))}"
-        )
-    started_at = time.time()
-    result = await asyncio.to_thread(
-        convert_document_once,
-        file_path,
-        use_ocr=use_ocr,
-        table_mode=table_mode,
-    )
-    return render_conversion(
-        result,
-        file_path=file_path,
-        output_format=output_format,
-        enable_chunking=enable_chunking,
-        chunk_size=chunk_size,
-        chunk_overlap=chunk_overlap,
-        started_at=started_at,
     )

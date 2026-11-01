@@ -168,7 +168,7 @@ def test_lightrag_neo4j_uri_populated_when_neo4j_enabled(env_with_overrides):
     }))
     env = sc.generate_service_environment()
     # Hostname MUST be `neo4j-graph-db` (the compose service id), NOT bare `neo4j`.
-    # Memory: reference_kong_compose_service_id documents the same pattern.
+    # Docker DNS resolves the compose service id, never the family name.
     # The previous assertion asserted `bolt://neo4j:7687` which was a
     # bug-confirming test — both this test and the imperative emission in
     # service_config.py:1106 had the wrong hostname; live smoke surfaced it.

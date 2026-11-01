@@ -194,8 +194,9 @@ jobs:
           REDIS_ENDPOINT=$(docker port "$REDIS_CONTAINER" 6379/tcp)
           REDIS_PORT=${REDIS_ENDPOINT##*:}
           export ATLAS_TEST_REDIS_URL="redis://127.0.0.1:${REDIS_PORT}/15"
-          # The memory reconcile scan/clear SQL runs against a real,
-          # disposable PostgreSQL; the fixture creates its own table.
+          # The memory reconcile scan/clear SQL and the media spend ledger
+          # store run against a real, disposable PostgreSQL. Each fixture
+          # provisions its own schema (the ledger applies its seed script).
           docker run -d --pull=never --name "$PG_CONTAINER" \
             -e POSTGRES_PASSWORD=ci -p 127.0.0.1::5432 postgres:17.11-alpine
           for attempt in $(seq 1 120); do
@@ -210,6 +211,7 @@ jobs:
           done
           PG_ENDPOINT=$(docker port "$PG_CONTAINER" 5432/tcp)
           export ATLAS_TEST_MEMORY_RECONCILE_POSTGRES_URL="postgresql://postgres:ci@127.0.0.1:${PG_ENDPOINT##*:}/postgres"
+          export ATLAS_TEST_MEDIA_LEDGER_POSTGRES_URL="$ATLAS_TEST_MEMORY_RECONCILE_POSTGRES_URL"
           uv venv --python 3.12 "$BACKEND_TEST_VENV"
           # Runtime and test requirements jointly own the tested import
           # closure. Both are repository-managed; no inline CI subset may

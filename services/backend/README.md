@@ -123,21 +123,25 @@ Recall and update confidence must be finite and in `0..1`. Invalid requests retu
 
 **Failback to Weaviate.**
 
-- Failback happens only through `POST /memory/vector-store/probe`. The probe checks the model, dimension and collection module.
+- Failback happens through `POST /memory/vector-store/probe` and at Backend startup. Startup runs the same probe and rebuild before the Backend accepts traffic. The probe checks the model, dimension and collection module.
 - It then rebuilds active objects and retirements from Postgres before searches switch.
-- It clears the generation by a compare-and-set on model and dimension, after every pending retirement drains.
+- It clears the generation by a compare-and-set on model and dimension, only when no `vector_sync_pending` row remains.
+- A restart after an outage therefore delays startup by the rebuild time.
 - Sustained write churn keeps pgvector latched and reports the reason.
 - The probe and `GET /memory/health` (whose fact count spans every user) accept only service callers: n8n, Open WebUI and the internal token. A user JWT is refused.
 
 **Embedding and recall limits.**
 
 - A failed embedding inside Weaviate (its LiteLLM vectorizer call) is not an outage. It shows as a 5xx on writes or GraphQL `errors` on recall.
-- In that case the write lands in pgvector and stays `vector_sync_pending`. Recall uses pgvector for that request, and nothing latches. Weaviate allows 30 s for the embedding call.
+- In that case the write lands in pgvector and stays `vector_sync_pending`. Recall uses pgvector for that request, and nothing latches.
+- The Backend waits 30 s for each Weaviate write or recall, including its embedding call. A slower answer counts as an outage and latches pgvector until the next probe or restart.
 - Reconciliation keeps a bounded, process-local cache of row versions rejected by the target. It skips remembered unchanged versions; restarting clears the cache.
 - Bounded passes advance through other pending work even when the cache is full. Changed, synchronized, no-longer-pending or deleted versions release cache capacity.
 - `min_confidence` is applied inside the vector query, so low-confidence hits cannot take `limit` slots.
 - `WEAVIATE_SOURCE=localhost` is unsupported for memory. The collection vectorizes through `http://litellm:4000`, which a host Weaviate cannot resolve, and the Backend sends no Weaviate API key. Every write fails vectorization, and recall uses pgvector.
 - `LANGMEM_EMBEDDING_DIM` is checked against a real LiteLLM embedding before startup. The migration keeps existing vectors and re-embeds them in short transactions. It narrows the column only when every row matches.
+- A fact the new embedding model rejects on its own content is left without a vector and marked `vector_sync_pending`. Startup continues, and reconciliation retries the fact.
+- In Weaviate mode, such a fact also blocks failback. Recall stays on pgvector until you edit or delete the fact.
 
 **Reviewing and deleting memories.**
 
@@ -283,7 +287,9 @@ MEDIA_LEDGER_RECOVERY_MAX_CYCLES=4
 
 **Spend ledger and budgets (`MEDIA_BUDGET_ENABLED`, disabled by default).**
 
-- When enabled, each generation reserves its estimated cost before the provider call. It records an immutable row in `public.media_spend_ledger` (Postgres) and stops over-budget requests before any provider call.
+- When enabled, each generation reserves its estimated cost before the provider call. It records one row per operation in `public.media_spend_ledger` (default `postgres` store) and stops over-budget requests before any provider call.
+- Attribution and the estimate never change. Attachment and settlement update the operation id, status, final cost, artifact references and reason.
+- A refused request also adds a `denied` row. `MEDIA_BUDGET_RETENTION_DAYS` prunes denied rows with the other terminal history.
 - A request estimated at $0 (local ComfyUI) is never refused by the cap, even when settled spend already exceeds it.
 - `MEDIA_BUDGET_RETENTION_DAYS` is blank by default, which keeps ledger history indefinitely. When set, an hourly sweep removes terminal history after that window.
 - The window starts at terminal disposition (`updated_at`), preserving a retry window after settlement. Original reservation attribution (`created_at`) stays unchanged.
@@ -527,7 +533,7 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 | Media generation gateway | partial | tested | The Backend normalizes bounded ComfyUI and FAL operations with durable operation and optional spend state, while provider availability, cloud retrieval, and synchronous deadlines remain source-specific. |
 | Asynchronous backend jobs | partial | tested | Celery can offload memory consolidation and RAG ingestion with owner-fenced leases, but research and other long-running routes retain separate in-process or database lifecycles. |
 | Trusted backend plugin seam | partial | tested | Atlas validates plugin manifests and route auth modes. It then installs and imports operator-supplied Python code at Backend startup without sandboxing. Recreate the container to apply changes. |
-| Adaptive proxy environment placeholders | stubbed | documented | STT, TTS, document-provider, Neo4j, and Hermes variables are injected for planned paths. No general Backend proxy or Hermes/Neo4j consumer uses all of those settings today. |
+| Adaptive proxy environment placeholders | stubbed | documented | STT, TTS, Neo4j, and Hermes variables are injected for planned paths. No general Backend proxy or Hermes/Neo4j consumer uses all of those settings today. |
 | Backend horizontal availability | not-supported | documented | Atlas fixes the adaptive Backend to one container; PostgreSQL and Redis preserve selected state, but process-local concurrency guards and in-memory fallbacks are not replica-coordinated HA. |
 
 ## 7. Troubleshooting
@@ -536,14 +542,16 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 
 **LangMem extraction fails with "No content model available".** `./start.sh` resolves `LITELLM_DEFAULT_MODEL` from the YAML model catalogs and the enabled providers, then writes it to `.env`. If no content-capable model is active, it stays empty and every extraction call fails. Set `LANGMEM_EXTRACTION_MODEL` or `LITELLM_DEFAULT_MODEL` to a model id that LiteLLM serves (e.g. `ollama/qwen3:8b`), then recreate the Backend.
 
-**Cold start hangs on Supabase.** The Backend has `depends_on: supabase-db-init: { condition: service_completed_successfully }`. If `supabase-db-init` is stuck (usually a bad SQL script in `services/supabase/db/scripts/`), the Backend waits forever. Check `docker logs <project>-supabase-db-init`.
+**Backend does not start after Supabase initialization.** The Backend starts only after `supabase-db-init` completes successfully. That container exits with an error when a SQL script fails, or when the database is not ready after 300 probes. Compose then does not start the Backend. A script that blocks, for example on a lock, keeps the Backend waiting. Check `docker logs <project>-supabase-db-init`.
 
 **`HERMES_ENDPOINT` reachable but feature returns 404.** Hermes-native endpoints are not wired (see §8.4). Calls go through LiteLLM's `hermes-agent` model only.
 
+These commands inspect the running Backend container. Replace `<project>` with `PROJECT_NAME` from `.env` (default `atlas`). The `env` filter prints endpoints and model names only, not keys.
+
 ```bash
-docker compose ps backend
-docker compose logs -f backend
-docker exec <project>-backend env | grep -E 'LITELLM|WEAVIATE|HERMES|NEO4J|STT|TTS|DOCLING'
+docker ps --filter name=<project>-backend
+docker logs -f <project>-backend
+docker exec <project>-backend env | grep -E '^(LITELLM_BASE_URL|LITELLM_DEFAULT_MODEL|LITELLM_EMBEDDING_MODEL|WEAVIATE_URL|HERMES_ENDPOINT|NEO4J_URI|STT_ENDPOINT|TTS_ENDPOINT|DOCLING_ENDPOINT|TIKA_ENDPOINT)='
 ```
 
 For general startup and routing issues, see [Troubleshooting](../../docs/quick-start/troubleshooting.md).

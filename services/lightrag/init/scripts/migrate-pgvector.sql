@@ -13,10 +13,9 @@ DO $$ BEGIN
     END IF;
 END $$;
 
--- Chunks vector table. The actual dimension is configured by LightRAG at
--- runtime via PGVectorStorage; we provision a generic placeholder that the
--- LightRAG storage layer will manage. If LightRAG creates tables on first
--- run, this no-ops harmlessly.
+-- Atlas-owned schema-version marker. LightRAG's PGVectorStorage creates its
+-- own vector tables (public.lightrag_vdb_*) at runtime; this table is not
+-- one of them.
 -- schema_version is the PK: without a unique constraint, ON CONFLICT
 -- can never fire and this table grew one row per `docker compose up`.
 CREATE TABLE IF NOT EXISTS lightrag.vectors_meta (

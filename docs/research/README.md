@@ -9,7 +9,7 @@ specs live under [`docs/superpowers/`](../superpowers/).
 
 | Path | Purpose |
 |---|---|
-| `rows/<service>.md` | One per service researched in the Phase B run (§6): 21 services. Services added later have no row. Captures the service's missing-pair integrations, candidate new services, and feature gaps. **One file = one author = one subagent run.** |
+| `rows/<service>.md` | One per service researched in the Phase B run (§6): 21 services. Services added later have no row. Records the missing-pair integrations, candidate new services and feature gaps that run found on its `generated:` date. Rows are not kept current and can contradict the stack. Each service README's Dependencies & Integrations "Future" subsections hold the maintained list. **One file = one author = one subagent run.** |
 | `candidates/<slug>.md` | One per candidate new service (e.g. `crawl4ai.md`, `langfuse.md`). Multiple rows may reference the same candidate. |
 | `integration-matrix.md` | Generated index that aggregates all rows by service, by category, plus a global candidates table. **Do not edit by hand.** Re-generate with `PYTHONPATH=bootstrapper uv run --project bootstrapper python -m bootstrapper.docs.merge_research`. |
 

@@ -2,7 +2,7 @@
 title: Research Assistant (Enhanced)
 author: Atlas
 author_url: https://github.com/thekaveh/atlas
-description: Enhanced research tool with progress tracking and detailed results
+description: Research in one blocking run, with optional start and session lines and a formatted final report
 required_open_webui_version: 0.4.4
 requirements: requests
 version: 1.0.0
@@ -26,9 +26,6 @@ class Tools:
             default=900,
             description="Max wait time in seconds (15 minutes, matching research_tool; a 3-loop run outlasts 300s)",
         )
-        poll_interval: float = Field(
-            default=3.0, description="Status check interval in seconds"
-        )
         assistant_id: str = Field(
             default="ollama_deep_researcher",
             description="LangGraph assistant/graph id for Local Deep Researcher",
@@ -45,7 +42,7 @@ class Tools:
         self, query: str, __user__: Dict[str, Any] = None
     ) -> str:
         """
-        Enhanced research with progress tracking and detailed results
+        Research a topic in one blocking run and return a formatted final report
 
         :param query: The research question or topic to investigate
         """

@@ -66,13 +66,13 @@ Closest precedent is Chatterbox, where a third-party FastAPI wrapper exposes `/v
   - `server.py` — exposes `POST /v1/audio/speech` (JSON path) and the multipart-with-`voice_file` form for cloning, matching Chatterbox's contract for routing-layer reuse.
   - `compose.yml` — GPU deploy block, model-cache volume, port `OMNIVOICE_PORT` (new slot in allocator).
   - `service.yml` — manifest with `env` schema (`OMNIVOICE_IMAGE`, `OMNIVOICE_PORT`, `OMNIVOICE_MODEL`, `OMNIVOICE_LOCALHOST_PORT`).
-- `services/tts-provider/`: add `omnivoice-container-gpu` / `omnivoice-localhost` to the `TTS_PROVIDER_SOURCE` enum, with the 4-seam CLI flag plumbing (Click decl, `source_mapping`, collector dict, `wizard_screen` lambda) per `project_cli_source_flag_three_seams.md`.
+- `services/tts-provider/`: add `omnivoice-container-gpu` / `omnivoice-localhost` to the `TTS_PROVIDER_SOURCE` enum, with the 4-seam CLI flag plumbing (Click decl, `source_mapping`, collector dict, `wizard_screen` lambda) per [CONTRIBUTING-services §11.4](../../CONTRIBUTING-services.md).
 - Auto-regen: `README.md` + `architecture.{svg,html}` via `bootstrapper.docs.regen`.
 - Tests: extend `test_fragment_equivalence.py` baseline + AST seam-parity tests + bump the `test_localhost_port_consumer_symmetry.py` expectation set.
 
 ## 6. Effort
 
-**~3–5 focused days for the initial wire-up**, then **ongoing maintenance debt** of owning the FastAPI shim against a 0.1.x library that's changing fast. Roughly 1.5× the original Chatterbox add (PR #29 patterns apply: not infra-band so no slot pin needed, but the dual-write rule for compose env + runtime_sc still applies — see `project_runtime_sc_vs_compose_env_dual_write.md`).
+**~3–5 focused days for the initial wire-up**, then **ongoing maintenance debt** of owning the FastAPI shim against a 0.1.x library that's changing fast. Roughly 1.5× the original Chatterbox add (PR #29 patterns apply: not infra-band so no slot pin needed, but the dual-write rule still applies: every `runtime_sc` environment var must also appear in the compose environment block).
 
 ## 7. Risks & open questions
 

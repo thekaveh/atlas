@@ -10,7 +10,9 @@ from rich.console import Console
 from services.topology import get_topology
 from start import AtlasStarter
 from ui.textual import palette as P
-from ui.textual.widgets.info_box import CloudApiSummary, CloudApisRow
+from ui.textual.widgets.info_box import (
+    CloudApiSummary, CloudApisRow, InfoBoxFooter, ServiceSummary,
+)
 from ui.textual.widgets.service_table import ServiceRow, ServiceTable, service_card
 from utils.atlas_dashboard import (
     _direct_url, _render_card, build_dashboard_model, render_dashboard_html,
@@ -231,3 +233,28 @@ def test_unavailable_direct_endpoint_ignores_stale_port(source):
     row = next(row for row in get_topology().rows if row.display_name == 'LLM Engine')
     stale = replace(row, port_var='STALE_PORT')
     assert _direct_url(stale, source, {'STALE_PORT': '11434'}) is None
+
+
+@pytest.mark.parametrize('source,expected', [
+    ('enabled', P.ACCENT), ('api', P.ACCENT), ('ollama-localhost', P.ACCENT),
+    ('container', P.OK), ('none', P.TEXT_MUTED), ('disabled', P.TEXT_MUTED),
+])
+def test_source_choice_hue_follows_endpoint_intent(source, expected):
+    """An enabled cloud row (FAL ``enabled``) must not share the off hue."""
+    assert P.style_for_source_choice(source) == expected
+
+
+def test_overview_counts_follow_endpoint_availability():
+    """``none`` runs nothing and off-track rows are shown as disabled, so both
+    count as off; FAL ``enabled`` is a cloud passthrough, not a container."""
+    footer = InfoBoxFooter([
+        ServiceSummary('LLM Engine', 'none'),
+        ServiceSummary('FAL Cloud Media', 'enabled'),
+        ServiceSummary('Redis', 'container'),
+        ServiceSummary('Weaviate', 'container', off_track=True),
+        ServiceSummary('n8n', 'container', pending=True, off_track=True),
+        ServiceSummary('ComfyUI', 'container-gpu'),
+        ServiceSummary('Grafana', 'disabled'),
+    ])
+    pending, container, local, gpu, off = footer._counts()
+    assert (pending, container, local, gpu, off) == (1, 1, 1, 1, 3)

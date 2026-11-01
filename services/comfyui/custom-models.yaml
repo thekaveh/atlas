@@ -28,7 +28,10 @@
 #       sha256: <exact lowercase 64-hex SHA-256>  # optional; verified when present
 #       cpu_supported: <bool>       # optional; defaults true; false adds "requires GPU" badge
 #       min_vram_gb: <float>        # optional; adds "requires N GB VRAM" badge when host has less
-#       requires_custom_node:       # optional; list of node-repo names (warn-only badges)
+#       requires_custom_node:       # optional; list of node-repo names. Sidecar models
+#                                   #   are always active, so names allowlisted in
+#                                   #   custom-nodes.yaml are installed and gate
+#                                   #   ComfyUI readiness; unlisted names only warn
 #         - <repo-name>
 #       notes: <string>             # optional; one-line note shown in wizard subtitle
 #       precision: bf16             # optional: bf16 | fp16 | fp8

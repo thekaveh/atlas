@@ -102,7 +102,7 @@ Only `BACKEND_N8N_API_TOKEN` is route-scoped. The web and worker containers also
 **Seeded workflows.** Import them manually in the n8n UI:
 
 - `services/n8n/init/config/searxng-research-workflow.json` is a worked example of the SearXNG → LiteLLM research pattern.
-- More examples are staged under `services/n8n/workflows-stage/workflows/`.
+- More examples are staged under `services/n8n/workflows-stage/workflows/`. `comfyui-image-generation.json` also lists the active ComfyUI models at `GET webhook/comfyui-models`.
 - Parameter ranges (query count and length, loop limits, search-API choice) and node behavior are in each workflow's inline notes.
 
 Secure every webhook before activation. The legacy bundled POST `/research` fixture has no webhook authentication or credential declaration. Each staged webhook fixture names an `Atlas Webhook Header Auth` credential. Create a local n8n **Header Auth** credential with that name, select it on the webhook node, and give callers the same header and value.
@@ -142,19 +142,23 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 
 ## 7. Troubleshooting
 
-**`Command start not found` restart loop.** The cause is not established; a damaged `n8n-data` volume after an interrupted start is one possibility. Stop the n8n containers first: Docker refuses to remove a volume in use. Then run `docker volume rm <project>-n8n-data` (not `./stop.sh --cold`). The next `./start.sh` recreates the volume and reinstalls the community nodes. Workflows and credentials stay, because they live in Postgres (schema `n8n`) and `N8N_ENCRYPTION_KEY` comes from `.env`.
+**`Command start not found` restart loop.** The cause is not established; a damaged `n8n-data` volume after an interrupted start is one possibility. Run `./stop.sh` (not `--cold`). It removes the containers, including the exited `n8n-init`, and keeps the volumes. Docker refuses to remove a volume that any container uses. Then run `docker volume rm <project>-n8n-data`.
 
-**Init container exits with `EACCES` writing nodes.** The community-package install needs a writable node-modules directory. Check `docker logs <project>-n8n-init`. The cause is usually a remnant of an earlier failed run. Stop the n8n containers, then run `docker volume rm <project>-n8n-data` to clear it.
+The next `./start.sh` recreates the volume and reinstalls the community nodes. Workflows and credentials stay, because they live in Postgres (schema `n8n`) and `N8N_ENCRYPTION_KEY` comes from `.env`.
 
-**Workflows enqueued but never execute.** Queue mode needs both the web and worker containers. Check that `docker compose ps | grep n8n` shows two healthy n8n rows and that both reach Redis.
+**Init container exits with `EACCES` writing nodes.** The community-package install needs a writable node-modules directory. Check `docker logs <project>-n8n-init`. The cause is usually a remnant of an earlier failed run. Run `./stop.sh`, then `docker volume rm <project>-n8n-data`, then `./start.sh`.
+
+**Workflows enqueued but never execute.** Queue mode needs both the web and worker containers. Check that `docker ps --filter "name=^<project>-n8n"` shows two healthy n8n rows and that both reach Redis.
 
 **AI Agent node calls fail.** LiteLLM is down, or `LITELLM_MASTER_KEY` changed and n8n was not restarted. The key is read at container start, so restart n8n after a rotation.
 
+Replace `<project>` with `PROJECT_NAME` from `.env` (default `atlas`).
+
 ```bash
-docker compose ps n8n n8n-worker
-docker compose logs -f n8n
-docker compose logs -f n8n-worker
-docker compose logs n8n-init        # one-shot; useful for first-run debug
+docker ps --all --filter "name=^<project>-n8n"
+docker logs -f <project>-n8n
+docker logs -f <project>-n8n-worker
+docker logs <project>-n8n-init        # one-shot; useful for first-run debug
 ```
 
 For general startup and routing issues, see [Troubleshooting](../../docs/quick-start/troubleshooting.md).

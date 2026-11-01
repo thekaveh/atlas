@@ -6,8 +6,6 @@ from collections.abc import Mapping
 from contextlib import suppress
 from pathlib import Path
 
-from .models import GLB_CONTENT_TYPE
-
 
 class ArtifactTooLargeError(ValueError):
     pass
@@ -129,7 +127,3 @@ class ArtifactStorage:
             if status != 404 and code not in {"404", "NoSuchBucket", "NotFound"}:
                 raise
             client.create_bucket(Bucket=bucket)
-
-
-# Re-export for callers mirroring asset-worker's import shape.
-CONTENT_TYPE = GLB_CONTENT_TYPE

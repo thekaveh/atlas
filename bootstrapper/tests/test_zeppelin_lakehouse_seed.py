@@ -386,3 +386,17 @@ def test_successful_interpreter_reply_preserves_properties(monkeypatch):
     }}]}
     monkeypatch.setattr(seed.urllib.request, "urlopen", lambda request, timeout: io.BytesIO(json.dumps(response).encode()))
     assert seed.request_json("GET", "http://owned-test.invalid/api/interpreter/setting") == response
+
+
+def test_bundled_notes_follow_the_notebook_repo_file_name_contract() -> None:
+    """Zeppelin 0.12 lists a note's id from ``<name>_<id>.zpln`` and loads its
+    id from the JSON. Without a matching JSON id each load got a random id, so
+    a paragraph run from the UI could not find its note."""
+    import re
+
+    notes = sorted((SERVICE_DIR / "notebooks").glob("*.zpln"))
+    assert notes
+    for note in notes:
+        match = re.fullmatch(r"(?P<name>.+)_(?P<id>[^_]+)\.zpln", note.name)
+        assert match, f"{note.name} must be named <name>_<id>.zpln"
+        assert json.loads(note.read_text())["id"] == match["id"], note.name

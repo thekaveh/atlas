@@ -2,7 +2,6 @@
 """
 Atlas - Stop Script
 
-Python implementation of stop.sh with full feature parity.
 Cross-platform stop script for Atlas — the self-hosted engineering platform.
 """
 

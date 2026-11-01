@@ -51,7 +51,7 @@ EXAMPLE_PATH = REPO_ROOT / ".env.example"
 
 # `KEY=value` with optional inline comment. We deliberately don't strip
 # the inline comment from the captured value here — that's a known
-# pitfall (see project_env_read_inline_comment_bug.md).
+# pitfall (an inline comment after a blank value reads as the value).
 KEY_VALUE_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=(.*)$")
 
 

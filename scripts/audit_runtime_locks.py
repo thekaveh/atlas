@@ -122,7 +122,7 @@ AUDIT_SPECS = (
         # PYSEC-2026-3967 was fixed by flooring it at 2.6.6 rather than
         # excepted. NeMo leaves
         # Transformers unconstrained. Atlas calls
-        # only ASRModel.from_pretrained at transcribe.py:37 for the
+        # only ASRModel.from_pretrained at transcribe.py:38 for the
         # operator-configured PARAKEET_MODEL. NeMo restore routes Hydra through
         # safe_instantiate's recursive target allowlist and bypasses Lightning
         # load_from_checkpoint; request payloads cannot choose or upload a model.

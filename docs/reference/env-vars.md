@@ -104,7 +104,7 @@
 | MEDIA_INPUT_MAX_PIXELS | backend | 40000000 | Maximum decoded or conditioned image pixel count. Dimensions are checked before full Pillow conversion to bound decompression and canvas memory. |
 | MEDIA_BUDGET_ENABLED | backend | false | Enables media spend accounting and budget enforcement. When off, ordinary operations record no spend rows and enforce no caps; ambiguous FAL submissions still create a recovery row. |
 | MEDIA_BUDGET_STORE | backend | postgres | Ledger/recovery store: 'postgres' (durable, media_spend_ledger table) or 'memory' (process-local, non-durable — testing/ephemeral). Ambiguous FAL submissions use it for recovery even when budget enforcement is disabled. |
-| MEDIA_BUDGET_CURRENCY | backend | USD | Currency label recorded on media spend ledger rows. |
+| MEDIA_BUDGET_CURRENCY | backend | USD | Currency label recorded on media spend ledger rows. Use 1 to 8 characters; a longer value stops the Backend at startup. |
 | MEDIA_BUDGET_DEFAULT_USD | backend |  | Default per-consumer/project spend cap in USD. Empty = no default cap (ledger records without hard-stop). Per-consumer overrides go in MEDIA_BUDGET_CONSUMER_CAPS. |
 | MEDIA_BUDGET_CONSUMER_CAPS | backend |  | Optional JSON map of per-scope caps, keyed by 'consumer' or 'consumer:project', e.g. {"rag-showcase":25,"rag-showcase:demo":5}. Overrides MEDIA_BUDGET_DEFAULT_USD for matching scopes. A 'consumer' key still caps each project separately, and user callers choose the project name, so it is not a per-user total. |
 | MEDIA_DISABLED_PROVIDERS | backend |  | Comma-separated media providers to kill-switch off (e.g. 'fal', 'comfyui'). A disabled provider hard-stops its own submissions (/media/generate, /comfyui/generate and /comfyui/workflow, whether or not MEDIA_BUDGET_ENABLED is set) without downing the gateway or other providers. |
@@ -301,11 +301,11 @@
 | BASE_PORT | globals | 63000 | Base port for allocated stack ports. Each uses this plus a fixed offset. Native host-service port settings with `_LOCALHOST_` in their names stay independent. |
 | HOST_BIND_IP | globals | 127.0.0.1: | Published-port interface prefix (trailing colon). Default 127.0.0.1: is host-only; 0.0.0.0: is for deliberate remote access. Existing .env files with HOST_BIND_IP= are upgraded by backfill. Empty binds all interfaces except Ray, Zeppelin, mcp-servers, Supabase DB, Docling, Parakeet. LAN Supabase routes: KONG_SUPABASE_EXTRA_HOSTS. |
 | HOST_GATEWAY_IP | globals |  | Set by ./start.sh for the container runtime: host-gateway on Docker, the literal gateway IP on Podman. If you write .env without ./start.sh, use host-gateway on Docker, or the real bridge IP on rootless setups. |
-| BRAND_NAME | globals | Atlas | Wizard branding: the brand name shown by the wizard and --no-tui banner. Empty uses the Atlas default. |
+| BRAND_NAME | globals | Atlas | Wizard branding: the brand name shown by the wizard and the compact (narrow-terminal) --no-tui banner. Empty uses the Atlas default. |
 | BRAND_TAGLINE | globals | A self-hosted, source-configurable, multi-disciplinary engineering platform — gen-AI, ML, and data. | Wizard branding: the tagline shown by the wizard and --no-tui banner. Empty uses the Atlas default. |
-| BRAND_VERSION | globals | 0.1.0 | Wizard branding: the version shown by the wizard and --no-tui banner. Empty uses the Atlas default. |
+| BRAND_VERSION | globals | 0.1.0 | Wizard branding: the version shown by the wizard. Empty uses the Atlas default. |
 | BRAND_AUTHOR | globals | Kaveh Razavi | Wizard branding: the author shown by the wizard and --no-tui banner. Empty uses the Atlas default. |
-| BRAND_AUTHOR_EMAIL | globals | kaveh.razavi@gmail.com | Wizard branding: the author email shown by the wizard and --no-tui banner. Empty uses the Atlas default. |
+| BRAND_AUTHOR_EMAIL | globals | kaveh.razavi@gmail.com | Wizard branding: the author email shown by the wizard. Empty uses the Atlas default. |
 | BRAND_LICENSE | globals | Apache License 2.0 | Wizard branding: the license shown by the wizard and --no-tui banner. Empty uses the Atlas default. |
 | BRAND_REPO_URL | globals | https://github.com/thekaveh/atlas | Wizard branding: the repository URL shown by the wizard and --no-tui banner. Empty uses the Atlas default. |
 | BRAND_LOGO_FILE | globals |  | Optional path to a block-art logo that replaces the built-in ATLAS lockup in the wizard and --no-tui banner. Empty keeps ATLAS. Keep it 6 rows tall. File format: docs/quick-start/interactive-setup-wizard.md (Brand Customization). |
@@ -517,8 +517,8 @@
 | LITELLM_DB_PASSWORD | litellm | atlas-db-password | Auto-generated password for the owner of LiteLLM's dedicated database. |
 | LITELLM_DB_USER_URI | litellm | litellm | Bootstrapper-synchronized percent-encoded LITELLM_DB_USER for DSN userinfo. |
 | LITELLM_DB_PASSWORD_URI | litellm | atlas-db-password | Bootstrapper-synchronized percent-encoded LITELLM_DB_PASSWORD for DSN userinfo. |
-| LITELLM_EMBEDDING_MODEL | litellm | ollama/nomic-embed-text | Default embedding model used by weaviate-init when computing collection vectorizers. |
-| LITELLM_DEFAULT_MODEL | litellm | ollama/qwen3.8:latest | Optional default chat model passed to LangMem (backend). |
+| LITELLM_EMBEDDING_MODEL | litellm | ollama/nomic-embed-text | Stack-wide embedding model id, set with LANGMEM_EMBEDDING_DIM by the embedding picker. Backend memory and RAG, Celery, Weaviate init, LightRAG init, JupyterHub, Verba and the database seed read it. |
+| LITELLM_DEFAULT_MODEL | litellm | ollama/qwen3.8:latest | Stack-wide default chat model id, resolved from the model catalog. Backend, Celery, JupyterHub, n8n, LightRAG init, Verba and Local Deep Researcher read it. |
 | LITELLM_VISION_MODEL | litellm | ollama/qwen3.8:latest | Default vision-capable model (resolved from the model catalog; forward-looking — no consumer routes on it yet). |
 | LITELLM_BASE_URL | litellm |  | In-network URL consumers point at (backend, n8n, jupyterhub, open-webui). |
 | LITELLM_IMAGE | litellm | ghcr.io/berriai/litellm:v1.83.14-stable.patch.2 | Container image for `litellm`. |
@@ -1015,7 +1015,6 @@
 | CLIP_INFERENCE_API | weaviate | http://multi2vec-clip:8080 | URL Weaviate uses for the multi2vec-clip module. ./start.sh empties it when MULTI2VEC_CLIP_SOURCE=disabled. |
 | MULTI2VEC_CLIP_SIGLIP2_IMAGE | weaviate | semitechnologies/multi2vec-clip:google-siglip2-so400m-patch16-512-1.5.1 | Opt-in SigLIP 2 image reference for MULTI2VEC_CLIP_IMAGE. Produces 1152-d vectors; revectorize or create new Weaviate collections before switching. |
 | WEAVIATE_URL | weaviate |  | Resolved per WEAVIATE_SOURCE. Consumed by n8n, backend, jupyterhub. |
-| WEAVIATE_LITELLM_API_KEY | weaviate |  | Mirror of LITELLM_MASTER_KEY for Weaviate's vectorizer auth. |
 | WEAVIATE_SCALE | weaviate |  | Set by ./start.sh from WEAVIATE_SOURCE; do not edit. 1 runs weaviate for container, 0 otherwise. |
 | WEAVIATE_INIT_SCALE | weaviate |  | Set by ./start.sh from WEAVIATE_SOURCE; do not edit. 1 runs weaviate-init with a container Weaviate, 0 otherwise. |
 | CLIP_SCALE | weaviate |  | Computed from MULTI2VEC_CLIP_SOURCE. |

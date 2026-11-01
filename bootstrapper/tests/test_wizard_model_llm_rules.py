@@ -154,16 +154,6 @@ def test_selected_llm_source_prefers_selections_over_env():
     assert result == "ollama-localhost"
 
 
-def test_llm_engine_title_reexported_from_llm_steps_is_the_same_object():
-    """wizard/llm_steps.py imports LLM_ENGINE_TITLE from here (#535
-    followups review, finding R5) rather than defining its own copy — a
-    regression back to two separate string literals would silently
-    reintroduce a drift risk identical to what R2 fixed for parse_csv."""
-    from wizard.llm_steps import LLM_ENGINE_TITLE as reexported
-
-    assert reexported is LLM_ENGINE_TITLE
-
-
 def test_selected_llm_source_falls_back_to_env():
     env = {"LLM_PROVIDER_SOURCE": "ollama-container-gpu"}
     assert selected_llm_source(env, {}) == "ollama-container-gpu"

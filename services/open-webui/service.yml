@@ -178,7 +178,7 @@ runtime_sc:
         # service_config.py reads them from THOSE runtime_sc dicts, not
         # this one. Open-WebUI itself plumbs them into AUDIO_*_OPENAI_API_*
         # variables in the compose env block (which is the actual injection
-        # point — see project_runtime_sc_vs_compose_env_dual_write.md).
+        # point under the runtime_sc/compose dual-write rule).
         # Listing them here is dead data on both axes.
       deploy: {}
       extra_hosts: []

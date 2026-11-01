@@ -978,6 +978,24 @@ def test_corrected_catalog_dimension_reaches_an_existing_env(tmp_path, capsys):
     assert "1536 -> 1024" in capsys.readouterr().out
 
 
+def test_catalog_dimension_repair_runs_when_a_chat_default_also_moves(tmp_path, capsys):
+    """Repointing an unrouted chat default skipped the dimension repair, so the
+    Backend ran that launch against the stale 1536 contract."""
+    starter = _reconcile_starter(
+        tmp_path,
+        "LLM_PROVIDER_SOURCE=ollama-container-cpu\n"
+        "LITELLM_DEFAULT_MODEL=ollama/retired-model:1b\n"
+        "LITELLM_EMBEDDING_MODEL=ollama/qwen3-embedding:0.6b\n"
+        "LANGMEM_EMBEDDING_MODEL=ollama/qwen3-embedding:0.6b\n"
+        "LANGMEM_EMBEDDING_DIM=1536\n",
+    )
+    assert starter.reconcile_default_models() is True
+    env = starter.config_parser.parse_env_file()
+    assert env["LITELLM_DEFAULT_MODEL"] != "ollama/retired-model:1b"
+    assert env["LANGMEM_EMBEDDING_DIM"] == "1024"
+    assert "1536 -> 1024" in capsys.readouterr().out
+
+
 def test_custom_embedding_dimension_is_left_alone(tmp_path):
     starter = _reconcile_starter(
         tmp_path,

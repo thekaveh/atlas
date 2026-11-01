@@ -90,12 +90,12 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 
 ## 6. Troubleshooting
 
-Run the `docker compose` commands from the repository root. Add `-p "$PROJECT_NAME"` if the checkout directory name differs from `PROJECT_NAME`.
+`atlas_compose` is the Compose helper from [Troubleshooting](../../docs/quick-start/troubleshooting.md). Define it first and run it from the repository root. Set `WEAVIATE_PORT` in your shell to its value in the active env file (default `63030`).
 
 ```bash
 # Check the three containers: weaviate-init must exit 0 before weaviate starts
-docker compose ps -a weaviate-init weaviate multi2vec-clip
-docker compose logs weaviate-init weaviate
+atlas_compose ps -a weaviate-init weaviate multi2vec-clip
+atlas_compose logs weaviate-init weaviate
 
 # Readiness from the host (container mode)
 curl -fsS http://localhost:${WEAVIATE_PORT}/v1/.well-known/ready

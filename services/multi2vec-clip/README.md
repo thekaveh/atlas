@@ -97,13 +97,15 @@ The default model is `sentence-transformers-clip-ViT-B-32` (English-only ViT-B/3
 
 **Weaviate ingest fails with `connection refused to multi2vec-clip:8080`.** `MULTI2VEC_CLIP_SOURCE` is `disabled`, or the container is down. CLIP has no host port, so query `/meta` from a sibling container (commands below). The Weaviate image has `wget` but no `curl`.
 
-**Embeddings look random / clustering broken.** Confirm that `/meta` returns the configuration of the expected model. A stale image cache after a model change can pin you to the old checkpoint. `docker compose pull multi2vec-clip && docker compose up -d --force-recreate multi2vec-clip`.
+**Embeddings look random / clustering broken.** Confirm that `/meta` returns the configuration of the expected model. A stale image cache after a model change can pin you to the old checkpoint. Run `atlas_compose pull multi2vec-clip && atlas_compose up -d --force-recreate multi2vec-clip`, using the `atlas_compose` helper from [Troubleshooting](../../docs/quick-start/troubleshooting.md).
 
 **Module not available in Weaviate.** `WEAVIATE_ENABLE_MODULES` must list `multi2vec-clip`. Check `docker exec <project>-weaviate env | grep ENABLE_MODULES`.
 
+Replace `<project>` with `PROJECT_NAME` from `.env` (default `atlas`).
+
 ```bash
-docker compose ps multi2vec-clip
-docker compose logs -f multi2vec-clip
+docker ps --all --filter "name=^<project>-multi2vec-clip$"
+docker logs -f <project>-multi2vec-clip
 docker exec <project>-weaviate wget -qO- http://multi2vec-clip:8080/meta | jq .
 ```
 
@@ -129,7 +131,7 @@ docker exec <project>-backend curl -s -X POST http://multi2vec-clip:8080/vectori
 
 Output vectors are 512-d for ViT-B/32. Cosine similarity between a text vector and an image vector gives the canonical CLIP score.
 
-**Restart without rebuilding.** Stateless — `docker compose restart multi2vec-clip` is safe. The model file is in the image, so restart reuses the same packaged weights without a rebuild.
+**Restart without rebuilding.** Stateless — `docker restart <project>-multi2vec-clip` is safe. The model file is in the image, so restart reuses the same packaged weights without a rebuild.
 
 ## 8. Dependencies & Integrations
 

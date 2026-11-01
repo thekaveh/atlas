@@ -464,8 +464,9 @@ def _credential_expected_docker(context, values):
     if context == "openclaw-onboard":
         return [["exec", "-it", name, "openclaw", "onboard"]]
     if context == "hermes-diagnostics":
-        return [["compose", "ps", "hermes", "hermes-init"], ["compose", "logs", "-f", "hermes"],
-                ["compose", "logs", "hermes-init"], ["compose", "exec", "hermes", "cat", "/opt/data/config.yaml"]]
+        prefix = values["PROJECT_NAME"] + "-hermes"
+        return [["ps", "--all", "--filter", "name=^" + prefix], ["logs", "-f", prefix],
+                ["logs", prefix + "-init"], ["exec", prefix, "cat", "/opt/data/config.yaml"]]
     if context != "openclaw-cli":
         return []
     return [["exec", "-it", name, "openclaw", "onboard"],

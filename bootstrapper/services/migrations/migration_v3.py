@@ -10,11 +10,11 @@ Do NOT edit when the schema changes again — author a sibling migration_v4.py.
 Triggered from start.py::run_port_migration when needs_migration() returns True.
 After successful apply, call stamp_version() to update the sentinel to 3.
 
-Per project_env_read_inline_comment_bug.md: inline comments on blank-value
-lines silently break auto-gen; this migration appends new vars without inline
+Inline comments on blank-value lines silently break auto-gen (the comment
+reads as the value); this migration appends new vars without inline
 comments.
 
-Per project_env_write_semantics.md: new vars are appended to the bottom.
+New vars are appended to the bottom of the file.
 """
 from __future__ import annotations
 from utils.atomic_write import env_lines

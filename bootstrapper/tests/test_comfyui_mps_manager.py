@@ -11,6 +11,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
+import os
 import platform
 import subprocess
 import threading
@@ -1189,7 +1190,12 @@ def test_live_managed_host_reports_mps():
     if a managed process is already up, asserts the compute device is MPS. If it
     isn't running, skips with an operator hint — bring it up first with
     ``./start.sh comfyui-mps install && ./start.sh comfyui-mps start``.
+
+    Opt in with ``ATLAS_COMFYUI_MPS_LIVE=1``: it reads the real
+    ``~/.atlas/comfyui-mps`` state, like the vLLM Metal smoke.
     """
+    if os.environ.get("ATLAS_COMFYUI_MPS_LIVE") != "1":
+        pytest.skip("set ATLAS_COMFYUI_MPS_LIVE=1 for the live ComfyUI MPS smoke")
     mgr = manager_from_env({
         "COMFYUI_MPS_STATE_DIR": "~/.atlas/comfyui-mps",
         "COMFYUI_MPS_LOCALHOST_PORT": "8188",

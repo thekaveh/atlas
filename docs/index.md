@@ -99,7 +99,7 @@ git clone https://github.com/thekaveh/atlas && cd atlas
 
 ![Atlas platform topology: entrypoints, Kong gateway, apps and agents, LLM core, data stores, and cloud-provider boundary](diagrams/img/atlas-platform.png)
 
-<p class="atlas-home__caption">Kong routes every declared *.localhost host; LiteLLM is the default model path for Atlas-managed consumers, with explicit native-provider overrides where supported.</p>
+<p class="atlas-home__caption">Kong routes every declared *.localhost host; LiteLLM is the default model path for Atlas-managed consumers, with explicit native-provider overrides where supported. The diagram covers the major tiers and selected services; the <a href="services.md">service catalog</a> lists every family.</p>
 
 </div>
 

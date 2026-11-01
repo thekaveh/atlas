@@ -42,19 +42,19 @@ env:
     description: "Set by ./start.sh for the container runtime: host-gateway on Docker, the literal gateway IP on Podman. If you write .env without ./start.sh, use host-gateway on Docker, or the real bridge IP on rootless setups."
   # Branding (TUI wizard)
   - name: BRAND_NAME
-    description: "Wizard branding: the brand name shown by the wizard and --no-tui banner. Empty uses the Atlas default."
+    description: "Wizard branding: the brand name shown by the wizard and the compact (narrow-terminal) --no-tui banner. Empty uses the Atlas default."
     default: "Atlas"
   - name: BRAND_TAGLINE
     description: "Wizard branding: the tagline shown by the wizard and --no-tui banner. Empty uses the Atlas default."
     default: "A self-hosted, source-configurable, multi-disciplinary engineering platform — gen-AI, ML, and data."
   - name: BRAND_VERSION
-    description: "Wizard branding: the version shown by the wizard and --no-tui banner. Empty uses the Atlas default."
+    description: "Wizard branding: the version shown by the wizard. Empty uses the Atlas default."
     default: "0.1.0"
   - name: BRAND_AUTHOR
     description: "Wizard branding: the author shown by the wizard and --no-tui banner. Empty uses the Atlas default."
     default: "Kaveh Razavi"
   - name: BRAND_AUTHOR_EMAIL
-    description: "Wizard branding: the author email shown by the wizard and --no-tui banner. Empty uses the Atlas default."
+    description: "Wizard branding: the author email shown by the wizard. Empty uses the Atlas default."
     default: "kaveh.razavi@gmail.com"
   - name: BRAND_LICENSE
     description: "Wizard branding: the license shown by the wizard and --no-tui banner. Empty uses the Atlas default."

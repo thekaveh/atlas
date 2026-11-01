@@ -1,7 +1,5 @@
 """
 Service configuration generation based on YAML and SOURCE values.
-
-Python implementation of generate_service_environment() and related functions from start.sh.
 """
 
 import os
@@ -183,7 +181,6 @@ class ServiceConfig:
     def generate_service_environment(self) -> Dict[str, str]:
         """
         Generate all service environment variables based on YAML configuration.
-        Replicates the generate_service_environment() function from start.sh.
 
         Returns:
             dict: Dictionary of environment variables to set
@@ -527,11 +524,7 @@ class ServiceConfig:
         weaviate_url = self._resolved_host_url(weaviate_url)
         env_vars['WEAVIATE_URL'] = weaviate_url
         
-        # Weaviate's text2vec-openai / generative-openai modules talk to LiteLLM.
-        # The base URL goes into per-collection module configs (set by
-        # weaviate-init), not into Weaviate's startup env.
         env_file_vars = self.config_parser.parse_env_file()
-        env_vars['WEAVIATE_LITELLM_API_KEY'] = env_file_vars.get('LITELLM_MASTER_KEY', '')
 
         # Multi2Vec CLIP is optional. If its service is disabled/scaled to zero,
         # Weaviate must not enable the multi2vec-clip module or it will block
@@ -776,7 +769,7 @@ class ServiceConfig:
             # that's the container's host-bound port). The wizard writes the
             # user's host port to DOCLING_LOCALHOST_PORT; reading the wrong
             # var here silently strands the override (asymmetric-override
-            # class — see feedback_localhost_url_override_symmetry.md).
+            # class — docs/CONTRIBUTING-services.md §14.2).
             if source_value == 'docling-localhost':
                 current_env = self.config_parser.parse_env_file()
                 doc_port = current_env.get('DOCLING_LOCALHOST_PORT', '18159')
@@ -845,7 +838,7 @@ class ServiceConfig:
             # writes for host-side Hermes. Reading HERMES_API_PORT here would
             # always be the container's host-bound port, silently
             # stranding any port override — same asymmetric-override class
-            # as docling above (feedback_localhost_url_override_symmetry.md).
+            # as docling above (docs/CONTRIBUTING-services.md §14.2).
             hermes_port = current_env.get('HERMES_LOCALHOST_PORT', '8642')
             endpoint = f'http://{self.localhost_host}:{hermes_port}'
             env_vars['HERMES_ENDPOINT'] = endpoint
@@ -2196,7 +2189,6 @@ class ServiceConfig:
     def update_env_file(self, env_vars: Dict[str, str], create_backup: bool = True) -> bool:
         """
         Update .env file with computed environment variables.
-        Replicates the update_env_file() function from start.sh.
         
         Args:
             env_vars: Dictionary of environment variables to set
@@ -2243,7 +2235,6 @@ class ServiceConfig:
     def check_comfyui_local_models(self, on_line=None) -> bool | None:
         """
         Check ComfyUI local models directory.
-        Replicates the ComfyUI local models check from start.sh.
 
         When `on_line` is provided (TUI mode), output routes through it as
         ``on_line(msg, level)`` — matching show_container_status_and_verify_ports

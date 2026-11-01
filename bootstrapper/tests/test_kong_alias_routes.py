@@ -15,15 +15,16 @@ def _generate(env_body: str) -> dict:
 
     The generator's ``generate_kong_config`` calls
     ``load_environment_variables`` first, which would otherwise reset
-    ``env_vars`` from disk. We stub that loader so it starts from the
-    real .env (unrelated vars resolve normally) and applies the test
-    overrides on top.
+    ``env_vars`` from disk. We stub that loader so it starts from
+    .env.example (unrelated vars resolve to their defaults, independent of
+    the developer's .env) and applies the test overrides on top.
     """
     from core.config_parser import ConfigParser
     from utils.kong_config_generator import KongConfigGenerator
 
     repo_root = Path(__file__).resolve().parent.parent.parent
     cp = ConfigParser(str(repo_root))
+    cp.env_file_path = repo_root / ".env.example"
     g = KongConfigGenerator(cp)
     overrides: dict[str, str] = {}
     for line in env_body.splitlines():
@@ -172,6 +173,7 @@ def _generate_with_plugin_auth(
 
     repo_root = Path(__file__).resolve().parent.parent.parent
     cp = ConfigParser(str(repo_root))
+    cp.env_file_path = repo_root / ".env.example"
     g = KongConfigGenerator(cp)
     g.plugin_route_auth = list(plugin_route_auth)
     g.plugin_route_timeouts = list(plugin_route_timeouts or [])

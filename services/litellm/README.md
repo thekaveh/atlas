@@ -239,7 +239,7 @@ These concern the configured LiteLLM database. This is an upstream LiteLLM race.
 Its 4 uvicorn workers each start Prisma and probe dashboard views while the views are being created.
 The errors clear within tens of milliseconds and do not recur.
 
-Before both database checks, set `LITELLM_DB_NAME` to the value in the active env file.
+Before both database checks, set `PROJECT_NAME`, `SUPABASE_DB_PASSWORD` and `LITELLM_DB_NAME` in your shell to their values in the active env file.
 Unset or blank values use `litellm`. Use the raw name, not `LITELLM_DB_NAME_URI`.
 Confirm that all 8 dashboard views exist:
 
@@ -283,7 +283,7 @@ psql -h localhost -p ${SUPABASE_DB_PORT} -U supabase_admin \
 ## 11. Bypass paths
 
 - **`ollama-pull`** calls the Ollama upstream directly (`/api/pull`), because model pulls are not OpenAI-compatible. Compose sets its `OLLAMA_HOST_URL` from `LITELLM_OLLAMA_UPSTREAM`. It runs only for the `ollama-container-*` sources; for other sources `OLLAMA_PULL_SCALE=0`. For `ollama-localhost`, the bootstrapper pulls onto the host daemon instead ([Ollama §5](../ollama/README.md)).
-- **Open WebUI's native Ollama UI features** (model pulls in the UI) are disabled — `ENABLE_OLLAMA_API: "false"` is set in compose. To pull a model directly on an `ollama-container-*` source, run `docker exec -it $PROJECT_NAME-ollama ollama pull <model>`. On `ollama-localhost`, run `ollama pull <model>` on the host.
+- **Open WebUI's native Ollama UI features** (model pulls in the UI) are disabled — `ENABLE_OLLAMA_API: "false"` is set in compose. To pull a model directly on an `ollama-container-*` source, set `PROJECT_NAME` to its value in the active env file. Then run `docker exec -it $PROJECT_NAME-ollama ollama pull <model>`. On `ollama-localhost`, run `ollama pull <model>` on the host.
 
 ## 12. Backup option
 

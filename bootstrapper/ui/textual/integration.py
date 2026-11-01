@@ -1,7 +1,9 @@
 """
 Production bridge between the Textual TUI and ``bootstrapper/start.py``.
 
-Single public entry: ``run_setup_flow(starter, hosts_manager)``.
+Public entries: ``run_setup_flow(config_parser, *, starter=...)`` (wizard)
+and ``run_launch_flow(config_parser, *, starter, source_args, stack_options)``
+(CLI flags, no wizard).
 
 The whole user-facing flow lives inside ONE Textual ``WizardScreen``:
 the wizard prompts run in the lower pane during the setup phase, then
@@ -30,7 +32,7 @@ _THEME_PATH = Path(__file__).parent / "theme.css"
 # truth lives in wizard/comfyui_steps.py; imported here to keep the drain
 # loop (selections.get(COMFYUI_MODELS_TITLE)) aligned with what the step
 # registers without duplicating the string literal.
-from tracks import consumer_declared_track_keys, consumer_override_keys, remark_off_track_rows as _remark_off_track_rows
+from tracks import ALWAYS_ON_SERVICE_KEYS, consumer_declared_track_keys, consumer_override_keys, remark_off_track_rows as _remark_off_track_rows
 from core.config_parser import project_name_error
 # The wizard-time warning sink lives in ``wizard`` (the step builders and the
 # screen share it); these names stay importable from here.
@@ -315,7 +317,6 @@ def _unless_pinned(provider, svc, pinned_source_vars):
 
 def _build_steps_and_rows(
     config_parser,
-    hosts_manager,
     *,
     track_key: str | None = None,
     overridden_services: frozenset[str] | None = None,
@@ -428,7 +429,7 @@ def _build_steps_and_rows(
     if _track_registry is not None:
         _always_on = _track_registry.always_on
     else:
-        _always_on = frozenset({"llm-provider", "prometheus", "grafana"})
+        _always_on = ALWAYS_ON_SERVICE_KEYS
     _overridden = (overridden_services or frozenset()) | consumer_override_keys(consumer_declared, services_info)
 
     # Picker step (only shown if the registry loaded). When --track was
@@ -917,7 +918,7 @@ def _build_steps_and_rows(
         return display_name not in _off_track_display_names
 
     state = build_app_state(
-        config_parser, hosts_manager,
+        config_parser,
         in_track=(
             _in_track_display
             if (track_key and _track_registry is not None)
@@ -1349,7 +1350,7 @@ def _run_app_with_process_cleanup(app) -> None:
 
 
 def run_setup_flow(
-    config_parser, hosts_manager, *,
+    config_parser, *,
     starter=None,
     no_port_migrate: bool = False,
     track: str | None = None,
@@ -1378,7 +1379,7 @@ def run_setup_flow(
     )
     steps, rows, services_info, current_base_port, state, cloud_summaries = (
         _build_steps_and_rows(
-            config_parser, hosts_manager,
+            config_parser,
             track_key=track,
             overridden_services=overridden_services or frozenset(),
             profile=profile,
@@ -1497,7 +1498,7 @@ def run_setup_flow(
 # ─── CLI-flag-driven launch (no wizard) ──────────────────────────────
 
 def run_launch_flow(
-    config_parser, hosts_manager, *,
+    config_parser, *,
     starter,
     source_args: dict,
     stack_options: dict,
@@ -1533,7 +1534,7 @@ def run_launch_flow(
 
     _, rows, services_info, current_base_port, state, cloud_summaries = (
         _build_steps_and_rows(
-            config_parser, hosts_manager,
+            config_parser,
             track_key=track,
             overridden_services=overridden_services or frozenset(),
             profile=profile,

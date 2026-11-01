@@ -374,7 +374,6 @@ class BlenderMcpManager:
         if status.running:
             return await_owned_process_readiness(
                 self,
-                status,
                 wait_timeout,
                 ("Blender MCP", self.bind, self.port, BlenderMcpError, time),
             )

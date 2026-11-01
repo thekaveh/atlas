@@ -1786,7 +1786,10 @@ class DatabaseCoordinator:
                 *self._weaviate_stage_module_env(),
                 "-e", "DEFAULT_VECTORIZER_MODULE=none",
                 "-v", f"{stage_volume}:/var/lib/weaviate",
-                "-v", f"{artifact_volume}:/restore:ro",
+                # Writable: Weaviate records restore_config.json beside the
+                # snapshot before it restores. The volume is this run's own
+                # disposable, already-authenticated copy and never feeds cutover.
+                "-v", f"{artifact_volume}:/restore",
                 "-e", f"BACKUP_FILESYSTEM_PATH=/restore/{artifact_stage}/weaviate",
                 WEAVIATE_IMAGE,
             ],
@@ -1999,7 +2002,7 @@ class DatabaseCoordinator:
         else:
             self._restart_snapshot_services(stopped, preserve_primary=False)
 
-    def cutover(self, prepared: dict[str, str]) -> set[str]:
+    def cutover(self) -> set[str]:
         enabled: list[tuple[str, str, str]] = []
         if self.plan.neo4j:
             enabled.append(("neo4j", self.neo_live, self.stage["neo4j"]))
@@ -2106,7 +2109,7 @@ class DatabaseCoordinator:
             )
         elif prepared["weaviate_state"] != "disabled":
             raise ContractError("Weaviate snapshot state does not match disabled source")
-        return self.cutover(prepared)
+        return self.cutover()
 
     def _restore_neo4j_after_backup(
         self, service: str, *, preserve_primary: bool = False

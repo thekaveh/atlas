@@ -891,7 +891,7 @@ volumes:
             "weaviate", "wget", "-qO-", "--timeout=5",
             "http://127.0.0.1:8080/v1/.well-known/ready",
         )
-        retained = coordinator.cutover({})
+        retained = coordinator.cutover()
         assert len(retained) == 2
         neo = _run(
             "docker", "compose", "exec", "-T", "neo4j-graph-db",
@@ -1052,7 +1052,7 @@ def test_signal_at_cutover_mutation_transition_runs_compensation() -> None:
     )
 
     with pytest.raises(module.SignalInterruption, match="mutation transition"):
-        coordinator.cutover({})
+        coordinator.cutover()
 
     assert "neo4j-rollback-restore" in roles
     assert running["neo4j-graph-db"] is True

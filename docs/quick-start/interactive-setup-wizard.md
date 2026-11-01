@@ -26,6 +26,8 @@ Smaller terminals (**59×20**, **60×19** or less) use the linear stdout flow. T
 
 *At 120×44 the full logo, stack overview and work area are shown.*
 
+The stack overview ends with a count line of container, local, GPU and off services. `none` and off-track rows count as off, and an enabled FAL row counts as local. Cloud API and consumer counts follow. When a track is set, a `Track: <name>` line sits above the counts.
+
 The dark palette meets the WCAG 2.2 AA normal-text ratio of **4.5:1**; the faintest text measures 4.54:1. Selection and status also use cursor glyphs, checkbox text, icons and words, not color alone. The wizard is keyboard-operable; screen-reader support is not tested.
 
 The screenshots use the dark theme and Textual's headless renderer at the stated cell sizes. Fonts, emoji width and inline images vary between terminal emulators.
@@ -204,7 +206,9 @@ Each row shows:
 
 **Custom nodes.** For container sources, Atlas installs only allowlisted nodes from `services/comfyui/custom-nodes.yaml`, at pinned commits and from hash-verified locks. Unknown, unallowlisted or unconstrained nodes are not installed; this currently includes 3D-Pack. The [ComfyUI README](../../services/comfyui/README.md) §6 gives the rules and the 3D-Pack reasons.
 
-**Search, chips and variants** work as in the Ollama picker (§4.2). The chips are `ALL image image-edit video audio 3d`. Hugging Face repositories with a common family root share one parent row. For example, `TRELLIS  ·  6 variants` holds all `microsoft--TRELLIS-*` and `gqk--TRELLIS-*` repositories. Selections are saved as full repository names. Single-entry families, civitai IDs, allowlist entries and custom entries stay flat.
+**Search, chips and variants** work as in the Ollama picker (§4.2). The chips are `ALL image image-edit video audio 3d`. Hugging Face repositories with a common family root share one parent row. For example, `TRELLIS  ·  6 variants` holds all `microsoft--TRELLIS-*` and `gqk--TRELLIS-*` repositories. Selections are saved as full repository names. Name search also matches the repository names inside a family row.
+
+Single-entry families, civitai IDs, allowlist entries and custom entries stay flat.
 
 The first open waits while file sizes load from Hugging Face: one request per repository, 10 at a time, each with a 15 s timeout. A failed size lookup shows `0.00 GB` and does not block the catalog.
 

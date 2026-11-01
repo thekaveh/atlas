@@ -4174,9 +4174,9 @@ async def generate_image(request: ComfyUIGenerateRequest):
             )
         _require_provider_enabled("fal")
         if MEDIA_BUDGET_ENGINE.enabled:
-            # This compatibility path calls FAL directly with no reservation
-            # and no kill-switch check, so with budgets on it would spend
-            # outside every cap. 409, not 503: retrying cannot succeed.
+            # This compatibility path calls FAL directly and reserves no
+            # budget, so with budgets on it would spend outside every cap.
+            # 409, not 503: retrying cannot succeed.
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=(

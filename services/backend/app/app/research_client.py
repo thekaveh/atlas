@@ -4,7 +4,7 @@ import json
 import asyncio
 import logging
 import re
-from typing import Dict, Any, List, Optional, AsyncGenerator
+from typing import Dict, Any, List, Optional
 from pydantic import BaseModel
 from enum import Enum
 
@@ -136,57 +136,6 @@ class ResearchClient:
                 message=_UPSTREAM_UNAVAILABLE,
             )
 
-    async def get_research_status(self, session_id: str) -> ResearchResponse:
-        """Get the status of a research session"""
-        try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.get(f"{self.base_url}/threads/{session_id}/state")
-                response.raise_for_status()
-                data = response.json()
-                status = ResearchStatus(data.get("status", "pending"))
-                if status in {ResearchStatus.FAILED, ResearchStatus.CANCELLED}:
-                    return ResearchResponse(
-                        session_id=session_id,
-                        status=status,
-                        message=(
-                            _UPSTREAM_REQUEST_FAILED
-                            if status == ResearchStatus.FAILED
-                            else "Research session was cancelled"
-                        ),
-                    )
-                return ResearchResponse(
-                    session_id=session_id,
-                    status=status,
-                    message=data.get("message", ""),
-                    data=data
-                )
-        except httpx.HTTPStatusError as e:
-            if e.response.status_code == 404:
-                return ResearchResponse(
-                    session_id=session_id,
-                    status=ResearchStatus.FAILED,
-                    message="Research session not found"
-                )
-            logger.warning(
-                "research status request was rejected (status=%s)",
-                e.response.status_code,
-            )
-            return ResearchResponse(
-                session_id=session_id,
-                status=ResearchStatus.FAILED,
-                message=_UPSTREAM_REQUEST_FAILED,
-            )
-        except Exception as e:
-            logger.warning(
-                "research status request failed (error_type=%s)",
-                type(e).__name__,
-            )
-            return ResearchResponse(
-                session_id=session_id,
-                status=ResearchStatus.FAILED,
-                message=_UPSTREAM_UNAVAILABLE,
-            )
-
     async def get_research_result(self, session_id: str) -> Optional[ResearchResult]:
         """Get the final result of a completed research session"""
         return self._completed_results.pop(session_id, None)
@@ -202,29 +151,6 @@ class ResearchClient:
     def discard_pending(self, session_id: str) -> None:
         """Forget a pending LangGraph thread after cancellation or early failure."""
         self._pending_requests.pop(session_id, None)
-
-    async def cancel_research(self, session_id: str) -> ResearchResponse:
-        """Cancel a running research session.
-
-        The LangGraph dev-server integration exposes no cancellation endpoint,
-        so this is a no-op that reports the session FAILED with an explanatory
-        message. (The prior body opened an ``async with httpx.AsyncClient`` and
-        declared ``except httpx.HTTPStatusError`` / ``except Exception`` handlers
-        around an unconditional return — no request was ever made, so those
-        handlers were unreachable dead code implying a network call. Removed.)
-        """
-        return ResearchResponse(
-            session_id=session_id,
-            status=ResearchStatus.FAILED,
-            message="Cancellation is not supported by the LangGraph dev server integration",
-        )
-
-    async def stream_research_logs(self, session_id: str) -> AsyncGenerator[Dict[str, Any], None]:
-        """Stream real-time logs from a research session"""
-        yield {
-            "type": "unsupported",
-            "message": "Research log streaming is not supported for LangGraph runs",
-        }
 
     async def list_active_sessions(self) -> List[Dict[str, Any]]:
         """List all currently active research sessions."""

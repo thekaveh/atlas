@@ -9,6 +9,7 @@ import yaml
 from docs.deps_resolver import _AGGREGATE_DOC_FOLDERS, doc_folder_to_manifests
 from services.manifests import Manifest, call_edges, load_manifests
 from services.topology import get_topology
+from tracks import ALWAYS_ON_SERVICE_KEYS
 
 
 
@@ -114,9 +115,9 @@ def _track_membership(
     all_track_keys = {track.key for track in tracks}
     curated_track_keys = {track.key for track in tracks if not track.all_services and track.services}
 
-    # tracks.py's always-on tier ({llm-provider, prometheus, grafana}) is in
-    # every track; llm-provider is the role Ollama fills.
-    always_on = {"ollama", "llm-provider", "prometheus", "grafana"}
+    # tracks.py's always-on tier is in every track; llm-provider is the role
+    # Ollama fills.
+    always_on = {"ollama", *ALWAYS_ON_SERVICE_KEYS}
     aggregate_members = {m for members in _AGGREGATE_DOC_FOLDERS.values() for m in members}
 
     for track in tracks:

@@ -68,6 +68,8 @@ The base image is pinned by digest, and a base change requires a reviewed pin up
 
 ### 4.2. Authentication
 
+The commands on this page use `${PROJECT_NAME}`. Set it in your shell to the value in `.env` (default `atlas`).
+
 - **No token set**: Auto-generated token shown in logs
 - **Custom token**: Set `JUPYTERHUB_TOKEN` in `.env`
 - **View token**: `docker logs ${PROJECT_NAME}-jupyterhub 2>&1 | grep token=`
@@ -291,7 +293,7 @@ You should see `python3`, `ir`, `julia-1.12`, `scala213`, and `scala3`. If `juli
 docker compose -p "$PROJECT_NAME" up jupyterhub --build --no-deps -d
 ```
 
-Set `PROJECT_NAME` in your shell to the value in `.env` (default `atlas`); without `-p`, Compose uses the checkout directory name and creates a second project. `--no-deps` replaces only the jupyterhub container. The rebuild reuses cached layers after the first run.
+Without `-p`, Compose uses the checkout directory name and creates a second project. `--no-deps` replaces only the jupyterhub container. The rebuild reuses cached layers after the first run.
 
 **Smoke-test a Scala cell** without opening JupyterLab — useful in CI / cold-start verification:
 

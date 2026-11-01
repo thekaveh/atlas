@@ -28,7 +28,7 @@ capabilities:
   - name: "Adaptive proxy environment placeholders"
     status: stubbed
     verification: documented
-    note: "STT, TTS, document-provider, Neo4j, and Hermes variables are injected for planned paths. No general Backend proxy or Hermes/Neo4j consumer uses all of those settings today."
+    note: "STT, TTS, Neo4j, and Hermes variables are injected for planned paths. No general Backend proxy or Hermes/Neo4j consumer uses all of those settings today."
   - name: "Backend horizontal availability"
     status: not-supported
     verification: documented
@@ -149,7 +149,7 @@ env:
     description: "Ledger/recovery store: 'postgres' (durable, media_spend_ledger table) or 'memory' (process-local, non-durable — testing/ephemeral). Ambiguous FAL submissions use it for recovery even when budget enforcement is disabled."
   - name: MEDIA_BUDGET_CURRENCY
     default: USD
-    description: "Currency label recorded on media spend ledger rows."
+    description: "Currency label recorded on media spend ledger rows. Use 1 to 8 characters; a longer value stops the Backend at startup."
   - name: MEDIA_BUDGET_DEFAULT_USD
     default: ""
     description: "Default per-consumer/project spend cap in USD. Empty = no default cap (ledger records without hard-stop). Per-consumer overrides go in MEDIA_BUDGET_CONSUMER_CAPS."

@@ -506,10 +506,10 @@ def test_marker_error_blocks_public_flow_before_dependent_work(tmp_path, monkeyp
             run_linear_startup(starter, options)
     elif flow == "setup":
         with pytest.raises(click.ClickException):
-            integration.run_setup_flow(starter.config_parser, None, starter=starter)
+            integration.run_setup_flow(starter.config_parser, starter=starter)
     elif flow == "launch":
         with pytest.raises(click.ClickException):
-            integration.run_launch_flow(starter.config_parser, None, starter=starter, source_args={}, stack_options={})
+            integration.run_launch_flow(starter.config_parser, starter=starter, source_args={}, stack_options={})
     else:
         @click.command()
         @click.option("--json", "json_output", is_flag=True)

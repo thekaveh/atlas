@@ -302,17 +302,18 @@ if not value:
 print(value)
 PYENV
 }
+PROJECT_NAME=$(env_get PROJECT_NAME atlas) || exit 1
 HERMES_API_PORT=$(env_get HERMES_API_PORT 63072) || exit 1
 LITELLM_PORT=$(env_get LITELLM_PORT 63040) || exit 1
 HERMES_API_KEY=$(env_get HERMES_API_KEY) || exit 1
 LITELLM_MASTER_KEY=$(env_get LITELLM_MASTER_KEY) || exit 1
 
 # Service status
-docker compose ps hermes hermes-init
+docker ps --all --filter "name=^${PROJECT_NAME}-hermes"
 
 # Logs
-docker compose logs -f hermes
-docker compose logs hermes-init   # one-shot config rendering
+docker logs -f "${PROJECT_NAME}-hermes"
+docker logs "${PROJECT_NAME}-hermes-init"   # one-shot config rendering
 
 # Verify the OpenAI-compatible API is up
 curl -fsS http://localhost:${HERMES_API_PORT}/v1/models \
@@ -323,7 +324,7 @@ curl -fsS http://localhost:${LITELLM_PORT}/v1/models \
   -H "Authorization: Bearer ${LITELLM_MASTER_KEY}" | jq '.data[].id' | grep hermes
 
 # Inspect the rendered config Hermes is using
-docker compose exec hermes cat /opt/data/config.yaml
+docker exec "${PROJECT_NAME}-hermes" cat /opt/data/config.yaml
 ```
 
 For general startup and routing issues, see [Troubleshooting](../../docs/quick-start/troubleshooting.md).

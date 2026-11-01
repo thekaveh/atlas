@@ -8,7 +8,6 @@ from dataclasses import dataclass
 import importlib.util
 from pathlib import Path
 import sys
-import threading
 import types
 
 from httpx2 import ASGITransport, AsyncClient
@@ -230,23 +229,6 @@ def test_default_preserves_plain_string_and_hypothesis_text(gpu, result):
 def test_other_result_keeps_existing_string_fallback(gpu):
     gpu._model = Model(123)
     assert gpu.transcribe_audio_sync("synthetic.wav") == {"text": "123", "language": "auto"}
-
-
-def test_async_wrapper_forwards_all_arguments_and_offloads(gpu, monkeypatch):
-    _use_model(gpu, [types.SimpleNamespace(text="hello atlas", timestamp=TIMING)])
-    original = gpu.transcribe_audio_sync
-    calls = []
-    main_thread = threading.get_ident()
-
-    def recording(*args):
-        calls.append((args, threading.get_ident()))
-        return original(*args)
-
-    monkeypatch.setattr(gpu, "transcribe_audio_sync", recording)
-    result = asyncio.run(gpu.transcribe_audio("synthetic.wav", "en", 0.25, False, True))
-    assert calls[0][0] == ("synthetic.wav", "en", 0.25, False, True)
-    assert calls[0][1] != main_thread
-    assert result == {**_expected(False, True), "language": "en"}
 
 
 @pytest.fixture

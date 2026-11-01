@@ -727,3 +727,51 @@ def test_the_prompt_is_visible_during_the_wizard():
     prompt, summary = asyncio.run(scenario())
     assert prompt is True
     assert summary is True
+
+
+def _overview_screen(track: str | None) -> WizardScreen:
+    """A wizard with real service rows, so the overview footer has counts."""
+    from ui.textual.widgets.service_table import ServiceRow
+
+    step = PromptStep(
+        title="Dummy", step_index=1, step_total=1,
+        heading="Dummy step", subtitle="",
+        options=[PromptOption(value="a", label="A")], default_value="a",
+    )
+    rows = [
+        ServiceRow(name="Redis", source="container", category="infra",
+                   configurable=False),
+        ServiceRow(name="LLM Engine", source="none", category="llm"),
+    ]
+    return _register(WizardScreen(
+        steps=[step], services=rows, no_splash=True, track_display_name=track,
+    ))
+
+
+@pytest.mark.parametrize("track", [None, "Gen AI RAG"])
+def test_the_overview_footer_is_actually_rendered(track):
+    """The footer's CSS gave it one row and filled that row with top padding,
+    so the track banner and the count line never reached the screen."""
+    from ui.textual.widgets.info_box import InfoBoxFooter
+
+    scr = _overview_screen(track)
+
+    async def scenario():
+        async with _App(scr).run_test(size=(140, 44)) as pilot:
+            await pilot.pause()
+            footer = scr.query_one(InfoBoxFooter)
+            screen_lines = [
+                "".join(seg.text for seg in strip)
+                for strip in scr.app.screen._compositor.render_strips()
+            ]
+            return footer.content_region.height, screen_lines
+
+    height, screen_lines = asyncio.run(scenario())
+
+    assert height == (2 if track else 1)
+    counts = [line for line in screen_lines if "1 container" in line]
+    assert counts, "the count line is not on screen"
+    # LLM Engine=none runs nothing, so it counts as off, not as a container.
+    assert "1 off" in counts[0]
+    banner = [line for line in screen_lines if "Track: Gen AI RAG" in line]
+    assert bool(banner) is bool(track)

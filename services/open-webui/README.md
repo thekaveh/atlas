@@ -96,12 +96,15 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 
 ## 6. Troubleshooting
 
+Replace `<project>` with `PROJECT_NAME` from `.env` (default `atlas`).
+
 ```bash
 # Check service status
-docker compose ps open-web-ui
+docker ps --all --filter "name=^<project>-open-web"
 
 # Check logs
-docker compose logs -f open-web-ui open-webui-init
+docker logs -f <project>-open-web-ui
+docker logs <project>-open-webui-init
 ```
 
 For general startup and routing issues, see [Troubleshooting](../../docs/quick-start/troubleshooting.md).

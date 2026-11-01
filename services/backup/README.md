@@ -14,6 +14,8 @@ PostgreSQL restore stages the dump and keeps a rollback database. Neo4j and Weav
 
 The container is **never long-running** (`BACKUP_SCALE=0`). It is in Compose to share the stack network, env vars and volume mounts. It does work only when you invoke it. Before the first backup, set `BACKUP_MANIFEST_HMAC_KEY` and `BACKUP_DEPLOYMENT_ID` (§3).
 
+`atlas_compose` is the Compose helper from [Troubleshooting](../../docs/quick-start/troubleshooting.md). Define it first and run it from the repository root. It applies the project name, overlays and `ATLAS_ENV_FILE`.
+
 ```bash
 # Persist the enabled SOURCE through the Atlas CLI
 ./start.sh --backup-source container --detach
@@ -22,12 +24,12 @@ The container is **never long-running** (`BACKUP_SCALE=0`). It is in Compose to 
 services/backup/run-consistent-backup.sh
 
 # Restore the latest backup after quiescing every database writer
-docker compose run --rm \
+atlas_compose run --rm \
   -e BACKUP_RESTORE_MAINTENANCE_MODE=confirmed \
   backup /scripts/restore-postgres.sh
 
 # Restore a specific timestamp
-docker compose run --rm \
+atlas_compose run --rm \
   -e BACKUP_RESTORE_MAINTENANCE_MODE=confirmed \
   -e BACKUP_TIMESTAMP=20240101_120000 \
   backup /scripts/restore-postgres.sh
@@ -372,17 +374,19 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 
 ## 6. Troubleshooting
 
+The `atlas_compose` commands below use the Compose helper from [Troubleshooting](../../docs/quick-start/troubleshooting.md).
+
 **`backup image is missing the pinned mc` / `pinned mc checksum verification failed`**. The image's `/usr/local/bin/mc` is absent, or is not the binary that `init/Dockerfile` copies from the digest-pinned `pgsty/mc` image.
 
 - The usual cause is a `backup` image built before the client was baked in. Backup and restore runs reuse the existing local image and do not rebuild it.
 - Otherwise the image was built from a modified Dockerfile or an overridden `MC_IMAGE`.
-- Do not bypass verification or substitute Alpine's mutable `minio-client` package. Rebuild from the committed Dockerfile (`docker compose build backup`), check the architecture, and retry.
+- Do not bypass verification or substitute Alpine's mutable `minio-client` package. Rebuild from the committed Dockerfile (`atlas_compose build backup`), check the architecture, and retry.
 
 **`Backup local S3 mode requires MINIO_SOURCE to be enabled`**. Either enable on-stack MinIO for local mode, or explicitly select `BACKUP_S3_MODE=external` and provide dedicated external credentials before disabling MinIO.
 
-**`pg_dump: connection refused`.** `supabase-db` is not healthy. Check `docker compose ps supabase-db` and wait for the health check to pass before running the backup.
+**`pg_dump: connection refused`.** `supabase-db` is not healthy. Check `atlas_compose ps supabase-db` and wait for the health check to pass before running the backup.
 
-**`ERROR: bucket does not exist`.** The bucket is auto-created by the script (`mc mb --ignore-existing`). In local mode, check `docker compose ps minio`. In external mode, verify the endpoint, region, dedicated credentials, bucket-creation permission, and provider network policy.
+**`ERROR: bucket does not exist`.** The bucket is auto-created by the script (`mc mb --ignore-existing`). In local mode, check `atlas_compose ps minio`. In external mode, verify the endpoint, region, dedicated credentials, bucket-creation permission, and provider network policy.
 
 **`BACKUP_S3_ACCESS_KEY and BACKUP_S3_SECRET_KEY are required for external endpoints`.** External mode never falls back to `MINIO_ROOT_*`. Supply a dedicated pair and, when using temporary credentials, the matching session token.
 

@@ -432,8 +432,8 @@ Consumed by (services that would call Karakeep):
 
 **Crawl4AI — LLM-friendly web crawler** — Shipped
 
-- Apache-2.0 Playwright-based crawler purpose-built for LLM ingestion: clean Markdown output, structured extraction strategies, sitemap traversal, JavaScript-rendered page support
-- Apache-2.0 license is intentional — Firecrawl-self-hosted (AGPL-3.0) is incompatible with this stack's permissive boilerplate posture
+- Playwright-based crawler purpose-built for LLM ingestion: clean Markdown output, structured extraction strategies, sitemap traversal, JavaScript-rendered page support
+- Apache-2.0 with an added attribution requirement: every distribution, publication or public use must credit Crawl4AI. The [license inventory](reference/license-inventory.md) records it as conditional. Firecrawl-self-hosted (AGPL-3.0) is incompatible with this stack's permissive boilerplate posture
 - Fills the web-ingestion gap for both RAG (article corpora) and trading-AI (filings / news / sentiment scrape) use-cases
 - Lighter than running a full Browserless cluster for one-shot scrapes; pair them when both batch crawl and persistent sessions are needed
 
@@ -442,7 +442,6 @@ Consumed by (services that would call Karakeep):
 Depends on (services Crawl4AI consumes):
 
 - None at runtime (bundled Chromium)
-- Optional **MinIO** — large-output offload bucket
 
 Consumed by (services that would call Crawl4AI):
 
@@ -568,8 +567,9 @@ Consumed by (services that would call Browserless):
 - **n8n** — multi-step browser-automation workflow nodes
 - **Crawl4AI** — falls back to Browserless when a target needs persistent session handling
 
-**Three.js + react-three-fiber + glTF-Transform — browser 3D pipeline foundation**
+**Three.js + react-three-fiber + glTF-Transform — browser 3D pipeline foundation** — **Partly shipped**
 
+- Shipped: the glTF-Transform worker, as `asset-worker`. The Three.js / r3f viewer is not shipped.
 - The browser-first half of the 3D / game-generation track. **Three.js** (MIT) is the dominant self-hostable WebGL framework in 2026; **react-three-fiber** (MIT) is the React renderer for it; **glTF-Transform** (MIT) is the CLI / library that wraps KTX2 + Draco + meshopt asset compression in a single pass.
 - Three.js + r3f are frontend dependencies (no new container); glTF-Transform runs as a small FastAPI worker that ingests raw meshes from Hunyuan3D-2 / TRELLIS / InstantMesh / Blender exports and emits optimized glTF for browser delivery.
 - **Babylon.js** (Apache-2.0) is an acceptable secondary if physics + native WebXR become priorities; same integration shape.
@@ -653,10 +653,9 @@ Consumed by (services that would use CCXT):
 **Hermes Agent (programmable AI agent for chat & messaging)** — **shipped**
 
 Lives in [services/hermes/README.md](https://github.com/thekaveh/atlas/blob/main/services/hermes/README.md). Shipped as the
-`hermes` service (`nousresearch/hermes-agent:latest` — upstream publishes
-only `latest` + per-commit `sha-<digest>` tags, no semver; production
-pins via `HERMES_IMAGE=nousresearch/hermes-agent:sha-...`) plus
-`hermes-init` companion. Registered in the LiteLLM model catalog as
+`hermes` service (`nousresearch/hermes-agent:v2026.6.19`, a dated upstream
+release; set `HERMES_IMAGE` to a `sha-<commit>` tag to pin one build) plus
+the `hermes-init` companion. Registered in the LiteLLM model catalog as
 `hermes-agent`, so every consumer (Open WebUI, n8n, backend, jupyterhub,
 openclaw) sees it in the model dropdown automatically. Dashboard exposed
 at `http://hermes.localhost:63000`.
@@ -908,10 +907,11 @@ Consumed by (services that would call Paperless-ngx):
 
 #### 2.5.2. 3D / game-generation track
 
-This track composes a full pipeline: **ComfyUI** (concept image, exists) → **Hunyuan3D-2 / TRELLIS** (image-to-3D mesh) → **Blender headless** (scene assembly and render) → **Godot headless** (game runtime). **NerfStudio** runs in parallel for real-scene capture. **LightRAG** indexes the asset graph; **AudioCraft / MusicGen** provides procedural audio.
+This track composes a full pipeline: **ComfyUI** (concept image, exists) → **Hunyuan3D-2 / TRELLIS** (image-to-3D mesh) → **Blender headless** (scene assembly and render) → **Godot headless** (game runtime). The image-to-3D and Blender stages partly exist; their entries below say how. **NerfStudio** runs in parallel for real-scene capture. **LightRAG** indexes the asset graph; **AudioCraft / MusicGen** provides procedural audio.
 
-**Blender (headless + Python API)**
+**Blender (headless + Python API)** — **Partly shipped**
 
+- Shipped: `asset-baker` (CPU Cycles bake worker) and `blender-mcp` `managed-localhost` (headless Blender host). No scene-assembly service exists yet.
 - Long-established open-source 3D suite (GPL-2.0+); headless mode plus the `bpy` Python API make Blender scriptable as a backend service for rendering, mesh manipulation, scene assembly, and asset format conversion (FBX, GLB, USD, OBJ)
 - The mature foundation for the 3D / game-generation track: ComfyUI generates concept images or textures, image-to-3D models (Hunyuan3D-2 / TRELLIS) produce meshes, Blender assembles them into scenes and exports to game-engine-friendly formats
 - Single GPU container handles both production rendering and AI-assisted asset cleanup
@@ -930,8 +930,9 @@ Consumed by (services that would call Blender):
 - **Hermes** — 3D-asset agent personas
 - **Godot** (and external game engines like Unreal) — downstream asset consumer
 
-**Hunyuan3D-2 (Tencent) or TRELLIS (Microsoft) — image-to-3D generation**
+**Hunyuan3D-2 (Tencent) or TRELLIS (Microsoft) — image-to-3D generation** — **Partly shipped**
 
+- Shipped: ComfyUI `hunyuan3d-2` (shape-only) and FAL hosted `image_to_3d` (TRELLIS default; Hunyuan3D, Tripo, Rodin). Self-hosted TRELLIS and mesh texturing are not shipped.
 - State-of-the-art image-to-3D mesh generation (2025 / 2026). Hunyuan3D-2 is more textured-mesh focused; TRELLIS is broader (mesh, Gaussian splatting, radiance field outputs from a single image)
 - Slots between ComfyUI and Blender in the 3D pipeline: image → mesh → scene assembly
 - GPU-only; expect 12–24 GB VRAM for production-quality outputs
@@ -1238,6 +1239,7 @@ Consumed by (services that would call Spark):
 
 - Apache-2.0; Rust single-binary REST catalog for Apache Iceberg. Postgres-backed metadata.
 - Lighter alternative to **Apache Polaris** (Snowflake-donated, Apache governance, Spring Boot stack) for this stack's footprint. Polaris is a defensible upgrade if Apache governance is a hard requirement.
+- `services/iceberg-rest` fills the catalog role today: an Apache Iceberg REST fixture with a Supabase JDBC catalog. Lakekeeper is a candidate replacement.
 
 **Stack integration points:**
 
@@ -1252,7 +1254,7 @@ Consumed by: **Apache Spark**, **Trino**, **DuckDB** (via Iceberg connector), **
 
 **Stack integration points:**
 
-Depends on: **Lakekeeper** (Iceberg catalog), **Supabase (PostgreSQL)** (federation source + Trino's own metadata), **MinIO** (lake reads).
+Depends on: **Iceberg REST catalog** (`services/iceberg-rest`), **MinIO** (lake reads).
 
 Consumed by: **Apache Superset** (BI queries), **Backend (FastAPI)** (application analytical queries), **JupyterHub** (research notebooks), **Hermes / MCP gateway** (text-to-SQL agent tool), **Feast** (offline feature reads).
 
@@ -1344,7 +1346,7 @@ Depends on: **Redis** (online store), **Trino** + **Lakekeeper** + **MinIO** (of
 
 Consumed by: **JupyterHub** (feature-engineering notebooks), **Backend (FastAPI)** (online feature reads during inference), **Dagster** (feature-pipeline assets).
 
-**Almond Scala kernel on existing JupyterHub — Scala lane image flavor**
+**Almond Scala kernel on existing JupyterHub — Scala lane image flavor** — **Shipped 2026-06-04** (PR #35; Almond 0.14.5, kernels `scala213` and `scala3`)
 
 - BSD-3 library, not a service. Adds a Scala / Spark / Iceberg notebook kernel to the already-shipped JupyterHub. The dominant 2026 Scala-notebook path. **Coexists with the (now-shipped) Apache Zeppelin** — Almond serves the Python-notebook audience that wants Scala kernels in the JupyterHub Lab UI; Zeppelin serves the Spark-first audience that wants paragraph-based interpreter cells (Spark + SQL + JDBC pre-configured). Polynote is abandoned (last release 2022) — Almond is the still-active Scala kernel.
 
@@ -1475,7 +1477,7 @@ Consumed by (services that would call LiveKit):
 The following candidates were evaluated and explicitly *not* recommended at this time. Recording them prevents the same suggestions from cycling back into roadmap discussions.
 
 - **A1111 (Automatic1111) / Forge as a default SD UI** — stagnant or fork-only as of 2026 relative to ComfyUI and InvokeAI. ComfyUI remains the existing default; InvokeAI fills the canvas / inpaint gap.
-- **Firecrawl self-hosted** — AGPL-3.0 license contaminates the stack's permissive boilerplate posture. Crawl4AI (Apache-2.0) is the choice for web crawling.
+- **Firecrawl self-hosted** — AGPL-3.0 license contaminates the stack's permissive boilerplate posture. Crawl4AI (Apache-2.0 with an attribution requirement) is the choice for web crawling.
 - **Helicone** — entered maintenance mode in early 2026; Langfuse is the actively-developed equivalent with native LiteLLM callback support.
 - **Vaultwarden as a secrets manager** — Vaultwarden is a Bitwarden-compatible *password* vault, not a secrets manager. Infisical (or HashiCorp Vault for enterprise scenarios) is the right layer.
 - **Logseq / Trilium / AppFlowy / AFFiNE as "Obsidian-as-a-service"** — all client-centric or 5+ container database-backed stacks. For an LLM/RAG stack the value is files RAG can read; SilverBullet's files-on-disk model is the right fit, with Karakeep and Paperless-ngx covering capture and archive.

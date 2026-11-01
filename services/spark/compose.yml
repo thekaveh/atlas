@@ -270,7 +270,7 @@ services:
     ports:
       - "${HOST_BIND_IP-127.0.0.1:}${SPARK_HISTORY_PORT}:18080"
     environment:
-      # NOTE: dual-write per project_runtime_sc_vs_compose_env_dual_write.md.
+      # NOTE: dual-write — this block is the injection point.
       # Same SPARK_HISTORY_OPTS must appear in service.yml::runtime_sc.
       SPARK_KAFKA_BOOTSTRAP_SERVERS: ${SPARK_KAFKA_BOOTSTRAP_SERVERS:-}
       SPARK_HISTORY_OPTS: >-
@@ -295,7 +295,7 @@ services:
       - backend-network
 
   # Use the same MinIO Client (mc) image as minio-init. The vanilla-alpine +
-  # inline apk pattern (project_init_container_pattern.md) FAILS here because
+  # inline apk pattern (CONTRIBUTING-services §14.3) FAILS here because
   # Alpine's `mc` package is GNU Midnight Commander (a TUI file manager),
   # NOT MinIO Client — `mc alias set` would error and spark-history would
   # never start. minio-init solves this by pinning the mc image; spark-init

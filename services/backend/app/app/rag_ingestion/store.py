@@ -35,6 +35,7 @@ _INDEX_ZSET = "atlas:rag:ingestion-ids:v2"
 _INDEX_SEQUENCE = "atlas:rag:ingestion-ids:v2:sequence"
 _INDEX_MIGRATION_CURSOR = "atlas:rag:ingestion-ids:v2:migration-cursor"
 _LEASE_PREFIX = "atlas:rag:execution:"
+_DELIVERY_PREFIX = "atlas:rag:delivery-starts:"
 _PUBLICATION_PREFIX = "atlas:rag:publication:"
 _PUBLICATION_GUARD_PREFIX = "atlas:rag:publication-guard:"
 _DEFAULT_LIST_LIMIT = 100
@@ -245,6 +246,21 @@ class IngestionStore:
     def release_execution(self, ingestion_id: str, owner: str) -> bool:
         raise NotImplementedError
 
+    def note_delivery(self, ingestion_id: str, ttl_seconds: int) -> int:
+        """Count one Celery delivery that may run the job; return the count.
+
+        Every Python-level exit clears it, so it only grows across deliveries
+        whose worker process was killed mid-run.
+        """
+        raise NotImplementedError
+
+    def undo_delivery(self, ingestion_id: str) -> None:
+        """Uncount a delivery that never ran (its execution lease was busy)."""
+        raise NotImplementedError
+
+    def clear_delivery(self, ingestion_id: str) -> None:
+        raise NotImplementedError
+
 
 class InMemoryIngestionStore(IngestionStore):
     def __init__(self) -> None:
@@ -255,6 +271,7 @@ class InMemoryIngestionStore(IngestionStore):
         self._publication_guards: Dict[str, str] = {}
         self._record_sequence: Dict[str, int] = {}
         self._next_sequence = 0
+        self._deliveries: Dict[str, int] = {}
         self._lock = threading.Lock()
 
     def _save_locked(self, record: IngestionRecord) -> None:
@@ -549,6 +566,20 @@ class InMemoryIngestionStore(IngestionStore):
                 return False
             del self._leases[ingestion_id]
             return True
+
+    def note_delivery(self, ingestion_id: str, ttl_seconds: int) -> int:
+        with self._lock:
+            self._deliveries[ingestion_id] = self._deliveries.get(ingestion_id, 0) + 1
+            return self._deliveries[ingestion_id]
+
+    def undo_delivery(self, ingestion_id: str) -> None:
+        with self._lock:
+            if self._deliveries.get(ingestion_id, 0) > 0:
+                self._deliveries[ingestion_id] -= 1
+
+    def clear_delivery(self, ingestion_id: str) -> None:
+        with self._lock:
+            self._deliveries.pop(ingestion_id, None)
 
 
 class RedisIngestionStore(IngestionStore):
@@ -1251,6 +1282,26 @@ return 1
                 owner,
             )
         )
+
+    # DECR on a missing key would create a counter with no TTL.
+    _UNDO_DELIVERY_SCRIPT = """
+if redis.call('EXISTS', KEYS[1]) == 1 and tonumber(redis.call('GET', KEYS[1])) > 0 then
+    return redis.call('DECR', KEYS[1])
+end
+return 0
+"""
+
+    def note_delivery(self, ingestion_id: str, ttl_seconds: int) -> int:
+        pipe = self._redis.pipeline()
+        pipe.incr(_DELIVERY_PREFIX + ingestion_id)
+        pipe.expire(_DELIVERY_PREFIX + ingestion_id, max(1, int(ttl_seconds)))
+        return int(pipe.execute()[0])
+
+    def undo_delivery(self, ingestion_id: str) -> None:
+        self._redis.eval(self._UNDO_DELIVERY_SCRIPT, 1, _DELIVERY_PREFIX + ingestion_id)
+
+    def clear_delivery(self, ingestion_id: str) -> None:
+        self._redis.delete(_DELIVERY_PREFIX + ingestion_id)
 
 
 def default_store() -> IngestionStore:

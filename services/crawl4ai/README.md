@@ -3,6 +3,8 @@
 ## 1. Overview
 Crawl4AI is a local, token-protected web extraction API. It renders pages in a browser so Atlas services can summarize, ingest or index them. Atlas pins `unclecode/crawl4ai:0.9.0`. Its API is secure by default: every endpoint except `GET /health` requires `CRAWL4AI_API_TOKEN`.
 
+Crawl4AI is licensed under Apache-2.0 with an added attribution requirement. Every distribution, publication or public use must credit Crawl4AI. See the crawl4ai row in the [license inventory](../../docs/reference/license-inventory.md).
+
 ## 2. Access
 - Direct URL: `http://localhost:${CRAWL4AI_PORT}`
 - Kong URL: `http://crawl4ai.localhost:${KONG_HTTP_PORT}`

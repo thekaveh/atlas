@@ -784,6 +784,38 @@ def test_doctor_n8n_workflows_pass_when_valid(tmp_path, monkeypatch) -> None:
     assert "adaptive-rag" in checks["n8n-workflows"]["details"]["workflows"]
 
 
+def test_doctor_n8n_workflows_warns_when_n8n_is_disabled(tmp_path, monkeypatch) -> None:
+    """Start skips the seed with N8N_SOURCE=disabled; doctor says so up front."""
+    import start as start_module
+
+    manifest = _write_n8n_consumer(
+        tmp_path, "rag-showcase",
+        """
+        n8n_workflows:
+          version: 1
+          workflows:
+            - id: adaptive-rag
+              path: ./wf.json
+              active: "false"
+        """,
+        "wf.json",
+    )
+    _write_base_env(tmp_path, extra="N8N_API_KEY=k\nN8N_SOURCE=disabled\n")
+    monkeypatch.setenv("ATLAS_CONSUMER_MANIFEST", str(manifest))
+    _patch_starter_paths(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        start_module.DockerManager,
+        "validate_compose_config",
+        lambda self: (0, "", "", ["docker", "compose", "config", "-q"]),
+    )
+
+    result = CliRunner().invoke(start_module.main, ["doctor", "--format", "json"])
+    assert result.exit_code == 0, result.output
+    checks = {entry["id"]: entry for entry in json.loads(result.output)["checks"]}
+    assert checks["n8n-workflows"]["status"] == "warn"
+    assert "N8N_SOURCE is disabled" in checks["n8n-workflows"]["message"]
+
+
 def test_doctor_n8n_workflows_warns_without_api_key(tmp_path, monkeypatch) -> None:
     import start as start_module
 

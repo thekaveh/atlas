@@ -1,7 +1,7 @@
 # services/lightrag/compose.yml
 # LightRAG fragment. Every env var declared in runtime_sc.lightrag.<src>.environment
 # AND every adaptive var (LIGHTRAG_DOCLING_ENDPOINT, etc.) MUST also appear in
-# the environment block below — memory: project_runtime_sc_vs_compose_env_dual_write.
+# the environment block below: compose, not runtime_sc, injects the value.
 services:
   lightrag:
     image: ${LIGHTRAG_IMAGE:-ghcr.io/hkuds/lightrag:v1.5.4}

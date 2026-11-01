@@ -1,3 +1,4 @@
+import ast
 from pathlib import Path
 
 
@@ -13,7 +14,30 @@ def test_open_webui_users_are_synchronized_to_backend_owners() -> None:
     assert "AFTER INSERT OR DELETE OR UPDATE OF name" in source
     assert "INSERT INTO public.users" in source
     assert "NOT EXISTS (" in source and "FROM auth.users" in source
-    assert "install_backend_user_sync()" in source
+
+
+def _main_call_lines(source: str) -> dict[str, int]:
+    tree = ast.parse(source, filename=str(SCRIPT))
+    main = next(
+        node for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "main"
+    )
+    lines: dict[str, int] = {}
+    for node in ast.walk(main):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+            name = node.func.id
+            lines[name] = min(lines.get(name, node.lineno), node.lineno)
+    return lines
+
+
+def test_main_installs_the_user_sync_before_the_admin_lookup() -> None:
+    # A substring check also matches the `def` line, so it cannot tell
+    # whether main() still calls the installer. The admin lookup can exit
+    # early, so the trigger must be installed before it.
+    calls = _main_call_lines(SCRIPT.read_text(encoding="utf-8"))
+    assert "install_backend_user_sync" in calls
+    assert "get_admin_user_id" in calls
+    assert calls["install_backend_user_sync"] < calls["get_admin_user_id"]
 
 
 def test_open_webui_sync_skips_gotrue_identities_before_insert() -> None:

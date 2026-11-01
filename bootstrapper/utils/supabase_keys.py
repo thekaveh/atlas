@@ -1,7 +1,6 @@
 """
 Supabase JWT key generation utilities.
 
-Python implementation of generate_supabase_keys.sh functionality.
 Generates JWT secrets and tokens for Supabase authentication.
 """
 

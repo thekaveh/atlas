@@ -3,8 +3,6 @@ SOURCE configuration validation against per-service manifests.
 
 Each services/<name>/service.yml declares its `sources.options[]` set; this
 module asserts that every *_SOURCE value in .env matches one of those options.
-
-Python implementation of the validate_source_values() function from start.sh.
 """
 
 from utils.atomic_write import env_lines
@@ -271,7 +269,6 @@ class SourceValidator:
     def validate_all_sources(self) -> bool:
         """
         Validate all SOURCE configurations from .env file.
-        Replicates the validate_source_values() function from start.sh.
 
         Returns:
             bool: True if all sources are valid

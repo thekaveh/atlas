@@ -479,6 +479,16 @@ def test_docling_patch_family_floor(mode, package, floor) -> None:
 
 
 @pytest.mark.parametrize("mode", ("gpu", "localhost"))
+def test_docling_qualification_choice_tracks_the_core_lock(mode) -> None:
+    # Tripwire: a docling-core bump must rerun test_document_metadata.py in each
+    # provider environment before its docstring and --expected-core choice move.
+    pinned = re.findall(
+        r'--expected-core(?: |", required=True, choices=\(")([^"\s]+)(?:\n|",\)\))',
+        _text("services/docling/provider/tests/test_document_metadata.py"))
+    assert pinned == [_docling_lock(mode)["docling-core"]] * 2, pinned
+
+
+@pytest.mark.parametrize("mode", ("gpu", "localhost"))
 def test_docling_slim_and_gpu_transformers_floor(mode) -> None:
     lock = _docling_lock(mode)
     assert lock["docling-slim"] == lock["docling"]

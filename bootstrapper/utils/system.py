@@ -1,7 +1,5 @@
 """
 System utilities for OS detection, permission checking, and localhost resolution.
-
-Python implementation of functions from hosts-utils.sh and start.sh.
 """
 
 import os

@@ -183,9 +183,9 @@ def test_multi_session_research_flows_poll_and_report_all_failed_runs() -> None:
 
 
 def test_shipped_workflow_nodes_are_reachable_from_a_trigger() -> None:
+    # Every shipped workflow, not only the research ones: the ComfyUI models
+    # branch had no trigger and could never run (cycle 2).
     for path in WORKFLOWS:
-        if "research" not in path.name:
-            continue
         workflow = _load(path)
         names = {node["name"] for node in workflow.get("nodes", [])}
         assert _reachable_nodes(workflow) == names, path.name

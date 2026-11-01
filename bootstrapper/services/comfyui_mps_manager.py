@@ -1275,7 +1275,7 @@ class ComfyUiMpsManager:
     ) -> str:
         """Clone/update one node at a pinned SHA. Returns skipped|updated|provisioned.
 
-        Mirrors ``provision_custom_nodes.sh:33-85``. Re-validates name/repo/ref
+        Mirrors ``provision_custom_nodes.sh::install_custom_node()``. Re-validates name/repo/ref
         before touching git (defense-in-depth — the last gate before clone).
         ``dest/.git`` + ``rev-parse HEAD == ref`` -> skip; HEAD drift ->
         fetch+checkout --detach; absent -> clone-into-tmp + checkout --detach +

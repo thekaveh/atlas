@@ -300,9 +300,12 @@ uv run --project bootstrapper pytest bootstrapper/tests -k weaviate             
 
 Some bootstrapper tests need an opt-in variable:
 
-- `ATLAS_TEST_NATIVE_POSTGRES_BIN=<PostgreSQL bin directory>` runs the native role-ownership SQL drills. CI sets it in the lint and python-floor jobs.
+- `ATLAS_TEST_NATIVE_POSTGRES_BIN=<PostgreSQL bin directory>` runs the native role-ownership and restore settings-copy SQL drills. CI sets it in the lint and python-floor jobs.
 - `ATLAS_LIVE_STACK=1` runs `test_live_catalog_sync.py` against the running stack.
 - `ATLAS_VLLM_METAL_LIVE=1` runs the live vLLM Metal smoke in `test_vllm_metal_manager.py -m live` on Apple Silicon.
+- `ATLAS_COMFYUI_MPS_LIVE=1` runs the live ComfyUI MPS smoke in `test_comfyui_mps_manager.py -m live` on Apple Silicon.
+- `ATLAS_DOCKER_LIVE=1` runs the rebuild proof in `test_source_drift_rebuild.py`. It needs Docker and Git.
+- `ATLAS_COMFYUI_LIVE_ENDPOINT=<url>` runs the Krea 2 and Hunyuan3D live smokes against a running ComfyUI.
 
 The Backend's runtime and test dependencies are separate. Run its default,
 non-live suite under Python 3.12 with both requirement sets and the tested lock
@@ -321,12 +324,16 @@ stops at the first failing step:
     -r requirements.txt -r requirements-dev.txt -c requirements-test-locked.txt
   env -u ATLAS_TEST_REDIS_URL -u ATLAS_COMFYUI_LIVE_ENDPOINT \
     -u ATLAS_TEI_RERANKER_LIVE_ENDPOINT \
+    -u ATLAS_TEST_MEMORY_RECONCILE_POSTGRES_URL -u ATLAS_TEST_MEDIA_LEDGER_POSTGRES_URL \
     "$BACKEND_TEST_VENV/bin/python" -m pytest tests/ -q -W error
 )
 ```
 
 This suite is not collected by the bootstrapper tests. Opt-in live smokes remain
-skipped unless their documented `ATLAS_*` endpoint variables are configured.
+skipped unless their documented `ATLAS_*` endpoint variables are configured:
+
+- `ATLAS_TEST_REDIS_URL=redis://127.0.0.1:<port>/15` runs the Redis Lua and paging tests. Use a throwaway Redis, because they flush database 15.
+- `ATLAS_TEST_MEMORY_RECONCILE_POSTGRES_URL` and `ATLAS_TEST_MEDIA_LEDGER_POSTGRES_URL` name a disposable PostgreSQL database. They run the memory-reconcile and media-ledger SQL tests, and CI sets both.
 
 ### Audit scripts (`scripts/`)
 

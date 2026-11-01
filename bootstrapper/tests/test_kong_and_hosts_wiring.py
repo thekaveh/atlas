@@ -429,8 +429,10 @@ def test_hosts_setup_without_sudo_is_not_fatal(monkeypatch):
     """No sudo binary (minimal Linux, dev containers) raised FileNotFoundError
     and failed the launch; stop's twin already reported it."""
     import start as start_module
+    import utils.system
 
-    monkeypatch.setattr(start_module, "is_elevated", lambda: False, raising=False)
+    # start imports is_elevated inside the function, so patch its home module.
+    monkeypatch.setattr(utils.system, "is_elevated", lambda: False)
 
     def no_sudo(*_args, **_kwargs):
         raise FileNotFoundError("sudo")

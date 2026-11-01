@@ -1230,14 +1230,24 @@ class AtlasStarter:
                     changed[key] = replacements[key]
         if not changed:
             return self._repair_catalog_embedding_dim(env)
+        return self._apply_default_model_changes(env, changed)
+
+    def _apply_default_model_changes(self, env: dict, changed: dict) -> bool:
+        """Write the repointed defaults, then run the catalog dimension repair
+        when no embedding key moved: repointing only a chat or vision default
+        skipped it, so a corrected catalog dimension waited a launch."""
         try:
-            return self.apply_user_model_selections(changed)
+            if not self.apply_user_model_selections(changed):
+                return False
         except ValueError as exc:
             # An embedding contract that was already inconsistent (e.g. a
             # custom model with no declared dimension) must not abort a launch
             # this best-effort repair was never needed for.
             print(f"WARNING: default models left unchanged: {exc}")
             return True
+        if changed.keys() & {"LITELLM_EMBEDDING_MODEL", "LANGMEM_EMBEDDING_MODEL"}:
+            return True  # the selection path already rewrote LANGMEM_EMBEDDING_DIM
+        return self._repair_catalog_embedding_dim({**env, **changed})
 
     def _repair_catalog_embedding_dim(self, env: dict) -> bool:
         """Follow a corrected catalog dimension (qwen3-embedding:0.6b was
@@ -3064,10 +3074,9 @@ class AtlasStarter:
     def _finalize_consumer_n8n_workflows(self) -> bool:
         """Materialize consumer-owned n8n workflow seeding (#412): write the
         normalized workflow JSONs + plan.json into the gitignored seed dir and the
-        seed compose overlay, or remove any stale generated artifacts when no
-        consumer declares n8n_workflows. Idempotent; a removed manifest (or a
-        removed single workflow) drops exactly its own artifacts on the next start.
-        """
+        seed compose overlay, or remove stale generated artifacts when no consumer
+        declares n8n_workflows. Idempotent; a removed manifest or workflow drops
+        exactly its own artifacts on the next start."""
         from core.consumer_manifest import (
             N8N_CONSUMER_OVERLAY_PATH,
             N8N_CONSUMER_WORKFLOWS_DIR,
@@ -3084,6 +3093,8 @@ class AtlasStarter:
         seed_dir = self.root_dir / N8N_CONSUMER_WORKFLOWS_DIR
         overlay_path = self.root_dir / N8N_CONSUMER_OVERLAY_PATH
 
+        if self._skip_n8n_seed_when_disabled(config, seed_dir, overlay_path):
+            return True
         # No consumer declares n8n_workflows → remove any stale generated
         # artifacts so a warm restart doesn't re-seed removed workflows.
         if not config.n8n_workflows:
@@ -3097,9 +3108,8 @@ class AtlasStarter:
             return True
 
         seed_dir.mkdir(parents=True, exist_ok=True)
-        # Drop stale *.json (workflows removed since the last start) before
-        # writing the current set — otherwise a removed workflow's file lingers
-        # and the seed would re-import it.
+        # Drop stale *.json (workflows removed since the last start) first, or a
+        # removed workflow's file lingers and the seed would re-import it.
         current_files = {artifact.path.name for artifact in config.n8n_artifacts}
         for stale in seed_dir.glob("*.json"):
             if stale.name not in current_files:
@@ -3119,6 +3129,27 @@ class AtlasStarter:
             f"  • Seeding {len(config.n8n_workflows)} consumer n8n workflow(s) "
             f"from {', '.join(owners)}",
             "info",
+        )
+        return True
+
+    def _skip_n8n_seed_when_disabled(self, config, seed_dir: Path, overlay_path: Path) -> bool:
+        """With N8N_SOURCE=disabled there is no n8n for the seed to wait on:
+        drop the overlay and warn, as consumer storage does for disabled MinIO.
+        The seed dir and plan.json stay, so a pending empty-plan reconcile
+        resumes once n8n is enabled again."""
+        if not _n8n_disabled(self.config_parser.parse_env_file()):
+            return False
+        if overlay_path.exists():
+            overlay_path.unlink()
+        if config.n8n_workflows:
+            detail = f" for {len(config.n8n_workflows)} declared workflow(s)"
+        elif (seed_dir / "plan.json").exists():
+            detail = "; previously seeded workflows are reconciled when n8n is enabled again"
+        else:
+            return True
+        self.banner.show_status_message(
+            f"  • N8N_SOURCE=disabled — skipping the consumer n8n seed{detail}",
+            "warning",
         )
         return True
 
@@ -4745,7 +4776,7 @@ class AtlasStarter:
             else:
                 on_line(message, "error")
             return False
-        if consumer_config.n8n_workflows:
+        if _n8n_seed_expected(consumer_config, env_vars):
             services.append("n8n-seed")
         # An image build that left a failed optional image out never started
         # it, so there is no one-shot run to wait for (#989).
@@ -5335,6 +5366,18 @@ def _n8n_workflow_effective_active(wf) -> bool:
         return bool(data.get("active"))
     except Exception:
         return False
+
+
+def _n8n_disabled(env: "dict[str, str]") -> bool:
+    """True only for an explicit ``N8N_SOURCE=disabled``. A missing value means
+    the manifest default (container), as for ``MINIO_SOURCE`` in consumer storage."""
+    return str(env.get("N8N_SOURCE") or "container").strip().lower() == "disabled"
+
+
+def _n8n_seed_expected(consumer_config, env: "dict[str, str]") -> bool:
+    """Whether the one-shot ``n8n-seed`` runs: workflows are declared and n8n is
+    not disabled (the overlay is dropped then)."""
+    return bool(consumer_config.n8n_workflows) and not _n8n_disabled(env)
 
 
 def _n8n_needs_reactivation_restart(env: "dict[str, str]", consumer) -> bool:
@@ -6280,7 +6323,13 @@ def _doctor_check_n8n_workflows(starter: "AtlasStarter") -> dict:
             "No consumer n8n workflows declared.",
         )
 
+    env_values = starter.config_parser.parse_env_file()
     warnings: list[str] = []
+    if _n8n_disabled(env_values):
+        warnings.append(
+            f"{len(config.n8n_workflows)} consumer n8n workflow(s) declared but "
+            "N8N_SOURCE is disabled — the seed is skipped until n8n is enabled."
+        )
     for wf in config.n8n_workflows:
         if not wf.source_path.is_file():
             warnings.append(
@@ -6288,27 +6337,14 @@ def _doctor_check_n8n_workflows(starter: "AtlasStarter") -> dict:
                 f"{wf.source_path}"
             )
 
-    def _effective_active(wf) -> bool:
-        # Resolve the actual imported-active state so the warning only fires for
-        # workflows that will really be active. ``fromJson`` defers to the file's
-        # own ``active`` flag, so a fromJson workflow whose file is inactive is
-        # NOT a live-activation case and must not trigger the no-key warning.
-        if wf.active == "true":
-            return True
-        if wf.active == "false":
-            return False
-        try:
-            return bool(json.loads(wf.source_path.read_text(encoding="utf-8")).get("active"))
-        except (OSError, ValueError):
-            return False
-
-    env_values = starter.config_parser.parse_env_file()
     has_api_key = bool(env_values.get("N8N_API_KEY", "").strip())
     if not has_api_key:
+        # Resolve the imported-active state so the warning fires only for
+        # workflows that will really be active (``fromJson`` reads the file).
         needs_live = [
             wf.id
             for wf in config.n8n_workflows
-            if wf.webhooks and _effective_active(wf)
+            if wf.webhooks and _n8n_workflow_effective_active(wf)
         ]
         if needs_live:
             warnings.append(
@@ -8404,7 +8440,7 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
                 from ui.textual.integration import run_setup_flow
                 starter.tui_launch_started = False  # set once the wizard launches
                 rc = run_setup_flow(
-                    starter.config_parser, starter.hosts_manager,
+                    starter.config_parser,
                     starter=starter,
                     no_port_migrate=no_port_migrate,
                     track=track,
@@ -8533,7 +8569,7 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
                     },
                 }
                 rc = run_launch_flow(
-                    starter.config_parser, starter.hosts_manager,
+                    starter.config_parser,
                     starter=starter,
                     source_args=source_args,
                     stack_options=stack_options,

@@ -25,6 +25,7 @@ from rag_ingestion.store import (
     _INDEX_ZSET,
     _KEY_PREFIX as RAG_KEY_PREFIX,
 )
+from tests.conftest import DISPOSABLE_REDIS_SKIP, redis_url_is_disposable
 
 
 _REDIS_URL = os.getenv("ATLAS_TEST_REDIS_URL")
@@ -33,8 +34,8 @@ _PENDING_LEDGER_MIGRATION_CURSOR = (
     "atlas:media:pending-ledger-intents:v2:migration-cursor"
 )
 pytestmark = pytest.mark.skipif(
-    not _REDIS_URL,
-    reason="set ATLAS_TEST_REDIS_URL to a disposable Redis instance",
+    not redis_url_is_disposable(_REDIS_URL),
+    reason=DISPOSABLE_REDIS_SKIP,
 )
 
 
@@ -110,6 +111,26 @@ def test_rag_set_only_upgrade_resume_and_mixed_writer_have_no_skips() -> None:
 
     redis.delete(*[RAG_KEY_PREFIX + record_id for record_id in legacy_ids + [late_id, new_record.id]])
     redis.delete(_INDEX_SET, _INDEX_ZSET, _INDEX_SEQUENCE, _INDEX_MIGRATION_CURSOR)
+
+
+def test_rag_delivery_count_keeps_a_ttl_and_never_goes_negative() -> None:
+    """The worker-loss budget: INCR keeps the TTL, an undo never creates a
+    TTL-less key, and a clear removes the count."""
+    from rag_ingestion.store import _DELIVERY_PREFIX
+
+    store = RedisIngestionStore(_REDIS_URL)
+    key = _DELIVERY_PREFIX + "delivery-live"
+    store._redis.delete(key)
+
+    assert store.note_delivery("delivery-live", 120) == 1
+    assert store.note_delivery("delivery-live", 120) == 2
+    assert 0 < store._redis.ttl(key) <= 120
+    store.undo_delivery("delivery-live")
+    assert store._redis.get(key) == "1"
+    store.clear_delivery("delivery-live")
+    assert store._redis.exists(key) == 0
+    store.undo_delivery("delivery-live")
+    assert store._redis.exists(key) == 0
 
 
 def test_rag_migration_reserves_only_actual_new_members() -> None:

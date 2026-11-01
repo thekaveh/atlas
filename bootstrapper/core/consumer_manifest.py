@@ -3566,10 +3566,12 @@ def load_consumer_config(
         )
         all_host_services.extend(record_host_services)
         # Optional #411 integration (opt-in, not coupled): a profile with a
-        # litellm_alias becomes a consumer-owned LiteLLM row pointing at the
-        # backend's profile-aware OpenAI route. Merge those rows into the litellm
-        # accumulation so they are collision-checked with every other alias and
-        # attributed to this consumer for removal semantics.
+        # litellm_alias becomes a consumer-owned LiteLLM row on the Backend base
+        # URL. Atlas serves no /chat/completions there, so a consumer
+        # integration must (see LightragQueryProfile.to_litellm_alias). Merge
+        # those rows into the litellm accumulation so they are collision-checked
+        # with every other alias and attributed to this consumer for removal
+        # semantics.
         profile_aliases = [
             alias
             for alias in (p.to_litellm_alias() for p in record_lightrag_profiles)

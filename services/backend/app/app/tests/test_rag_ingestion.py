@@ -50,6 +50,7 @@ from rag_ingestion.store import (
     InMemoryIngestionStore,
     RedisIngestionStore,
 )
+from tests.conftest import disposable_redis_url
 
 
 # ── fakes ────────────────────────────────────────────────────────────
@@ -2895,15 +2896,10 @@ def _dedup_record(record_id):
 def test_a_resubmit_after_cancel_starts_a_new_ingestion(live_redis):
     """Dedup folded a resubmit into the cancelled (still running) record, so
     the explicit resubmit came back as a job that ends cancelled."""
-    import os
-
     from rag_ingestion.store import InMemoryIngestionStore, RedisIngestionStore
 
     if live_redis:
-        url = os.environ.get("ATLAS_TEST_REDIS_URL")
-        if not url:
-            pytest.skip("needs ATLAS_TEST_REDIS_URL")
-        store = RedisIngestionStore(url)
+        store = RedisIngestionStore(disposable_redis_url())
         store._redis.flushdb()
     else:
         store = InMemoryIngestionStore()
@@ -2946,15 +2942,11 @@ def test_a_fully_migrated_index_lists_in_ceil_n_over_limit_calls():
     finished and padded traversals with empty pages: 5,000 records at limit
     10 took 946 calls (#1452). Needs a real Redis (ZINTERCARD)."""
     import math
-    import os
 
     from rag_ingestion.models import IngestionRecord
     from rag_ingestion.store import RedisIngestionStore
 
-    url = os.environ.get("ATLAS_TEST_REDIS_URL")
-    if not url:
-        pytest.skip("needs ATLAS_TEST_REDIS_URL")
-    store = RedisIngestionStore(url)
+    store = RedisIngestionStore(disposable_redis_url())
     store._redis.flushdb()
     total, limit = 1000, 10  # > 128: a hash-encoded set, scanned in many SSCAN steps
     for index in range(total):
@@ -3170,15 +3162,11 @@ def test_class_rebuild_note_survives_a_retried_worker(tmp_path, monkeypatch, reb
 def test_legacy_only_count_is_atomic_against_a_concurrent_writer(monkeypatch):
     """SCARD and ZINTERCARD ran as two calls; a create between them made a
     lone set-only member read as 0, ending a listing early (cycle 2)."""
-    import os
-
     import redis as redis_module
 
     from rag_ingestion import store as store_module
 
-    url = os.environ.get("ATLAS_TEST_REDIS_URL")
-    if not url:
-        pytest.skip("needs ATLAS_TEST_REDIS_URL")
+    url = disposable_redis_url()
     store = store_module.RedisIngestionStore(url)
     client = store._redis
     client.delete(store_module._INDEX_SET, store_module._INDEX_ZSET)
@@ -3269,6 +3257,101 @@ def test_a_lost_lease_at_the_infrastructure_limit_is_not_retried_again(monkeypat
                          "infrastructure_attempt": celery_tasks._RAG_INFRASTRUCTURE_RETRY_LIMIT},
         )
     assert [ingestion_id for ingestion_id, _ in abandoned] == ["ingestion-1"]
+
+
+def _shared_delivery_store(monkeypatch):
+    """One store across the task's delivery-count calls (the memory default
+    builds a fresh store per call, so the count never persists in tests)."""
+    from rag_ingestion import store as store_module
+
+    shared = InMemoryIngestionStore()
+    monkeypatch.setattr(store_module, "default_store", lambda: shared)
+    return shared
+
+
+class _Rescheduled(Exception):
+    pass
+
+
+def test_consecutive_worker_deaths_fail_the_job_instead_of_running_again(monkeypatch):
+    """task_reject_on_worker_lost requeued a delivery whose worker process
+    was killed (an OOM kill) forever: each run re-parsed and re-embedded the
+    corpus, and the record stayed "running", a dedup hit for every resubmit."""
+    import celery_tasks
+    import rag_ingestion
+
+    shared = _shared_delivery_store(monkeypatch)
+    for _ in range(celery_tasks._RAG_LOST_DELIVERY_LIMIT):
+        shared.note_delivery("ingestion-1", 60)  # two runs that died mid-run
+    abandoned = []
+
+    def abandon(ingestion_id, **kw):
+        abandoned.append((ingestion_id, kw["reason"]))
+        return True
+
+    def never_run(*_args, **_kwargs):
+        raise AssertionError("an exhausted delivery budget must not run the job")
+
+    monkeypatch.setattr(rag_ingestion, "fail_abandoned_ingestion", abandon)
+    monkeypatch.setattr(rag_ingestion, "run_rag_ingestion", never_run)
+
+    result = celery_tasks.rag_ingestion_task.run("ingestion-1")
+
+    assert result["status"] == "failed"
+    assert abandoned == [("ingestion-1", "worker process lost on consecutive deliveries")]
+    assert shared._deliveries == {}
+
+
+def test_a_live_dead_lease_defers_the_abandon_to_a_later_delivery(monkeypatch):
+    """The claim fails while the killed run's lease is still live: the run is
+    tried normally, finds the lease busy, uncounts itself and retries after
+    one lease period, so the next delivery can abandon the job."""
+    import celery_tasks
+    import rag_ingestion
+
+    shared = _shared_delivery_store(monkeypatch)
+    for _ in range(celery_tasks._RAG_LOST_DELIVERY_LIMIT):
+        shared.note_delivery("ingestion-1", 60)
+    retries = []
+
+    def busy(*_args, **_kwargs):
+        raise rag_ingestion.IngestionExecutionBusy("busy")
+
+    def reschedule(**kwargs):
+        retries.append(kwargs["countdown"])
+        return _Rescheduled()
+
+    monkeypatch.setattr(rag_ingestion, "fail_abandoned_ingestion", lambda *_a, **_k: False)
+    monkeypatch.setattr(rag_ingestion, "run_rag_ingestion", busy)
+    monkeypatch.setattr(celery_tasks.rag_ingestion_task, "retry", reschedule)
+
+    with pytest.raises(_Rescheduled):
+        celery_tasks.rag_ingestion_task.run("ingestion-1")
+
+    assert retries == [rag_ingestion.ingestion_execution_lease_seconds()]
+    assert shared._deliveries == {"ingestion-1": celery_tasks._RAG_LOST_DELIVERY_LIMIT}
+
+
+def test_a_run_that_exits_in_python_does_not_count_against_the_budget(monkeypatch):
+    """Only a killed process skips the Python exit; a finished run, a busy
+    lease and a scheduled retry never accumulate toward the abandon limit."""
+    import celery_tasks
+    import rag_ingestion
+
+    shared = _shared_delivery_store(monkeypatch)
+    monkeypatch.setattr(rag_ingestion, "run_rag_ingestion", lambda *_a, **_k: {"status": "completed"})
+    assert celery_tasks.rag_ingestion_task.run("ingestion-1") == {"status": "completed"}
+    assert shared._deliveries == {}
+
+    def busy(*_args, **_kwargs):
+        raise rag_ingestion.IngestionExecutionBusy("busy")
+
+    monkeypatch.setattr(rag_ingestion, "run_rag_ingestion", busy)
+    monkeypatch.setattr(celery_tasks.rag_ingestion_task, "retry", lambda **_k: _Rescheduled())
+    for _ in range(5):
+        with pytest.raises(_Rescheduled):
+            celery_tasks.rag_ingestion_task.run("ingestion-1")
+    assert shared._deliveries == {"ingestion-1": 0}
 
 
 def test_an_abandoned_run_is_marked_failed_so_a_resubmit_starts_fresh(tmp_path, monkeypatch):
@@ -3448,10 +3531,7 @@ def _mutable_ingestion_corpus(tmp_path, monkeypatch, source):
 
 def _ingestion_regression_store(live_redis):
     if live_redis:
-        url = os.environ.get("ATLAS_TEST_REDIS_URL")
-        if not url:
-            pytest.skip("needs disposable ATLAS_TEST_REDIS_URL")
-        return RedisIngestionStore(url)
+        return RedisIngestionStore(disposable_redis_url())
     return InMemoryIngestionStore()
 
 

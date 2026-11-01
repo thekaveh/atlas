@@ -164,7 +164,7 @@ def launched_with_other_settings(record: dict, pid, settings: dict) -> bool:
     return any(key in record and record[key] != value for key, value in settings.items())
 
 
-def await_owned_process_readiness(manager, status, wait_timeout, error_details):
+def await_owned_process_readiness(manager, wait_timeout, error_details):
     """Wait for a health proof while repeatedly retaining ownership proof."""
     label, bind, port, error_type, clock = error_details
     deadline = clock.monotonic() + wait_timeout

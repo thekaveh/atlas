@@ -175,6 +175,19 @@ def _row_is_checked_comfyui(opt_sizes: tuple[str, ...], checked: set[str]) -> bo
     return any(v in checked for v in opt_sizes)
 
 
+def _matches_name_query(opt: "PromptOption", query: str) -> bool:
+    """Name-search match for one multiselect parent row.
+
+    ``query`` is already lowercased. Ollama rows match on ``opt.value``,
+    the model id users type. A ComfyUI family parent's value is the
+    synthetic ``family:<root>``, so it also matches when any member's
+    catalog name (its ``sizes`` / ``leaf_details`` keys) contains the query.
+    """
+    if query in opt.value.lower():
+        return True
+    return bool(opt.leaf_details) and any(query in n.lower() for n in opt.sizes)
+
+
 def _row_variants(row_value: str, checked: set[str]) -> frozenset[str]:
     """Tags currently selected for ``row_value`` in ``checked``.
 
@@ -840,6 +853,9 @@ class PromptPanel(Container):
         # forms it doesn't belong to.
         if self._search_input is not None:
             self._search_input.display = False
+        # The chip row gets the same treatment: only a multiselect step
+        # with ``filter_tags`` shows it (the multiselect branch remounts).
+        self._drop_filter_chips_off_multiselect(step)
 
         if step.kind == "number":
             # Free integer input — reuse the persistent Input/Static
@@ -1168,6 +1184,16 @@ class PromptPanel(Container):
         )
         self._filter_slot.mount(self._filter_chips)
 
+    def _drop_filter_chips_off_multiselect(self, step: PromptStep) -> None:
+        """Remove a chip row left by an earlier multiselect step.
+
+        Only the multiselect branch of ``load_step`` mounts chips, so
+        without this an options / number / secret / text step reached
+        after the Ollama or ComfyUI models step kept a dead chip row.
+        """
+        if step.kind != "multiselect":
+            self._mount_filter_chips(())
+
     def _mount_search_input(self, filter_tags: tuple[str, ...]) -> None:
         """Show (or hide) the search-by-name input above the chip row.
 
@@ -1312,8 +1338,9 @@ class PromptPanel(Container):
             # Empty query matches everything. Matched against
             # ``opt.value`` (the canonical Ollama model id) which is
             # what users type when they go looking for ``qwen3.6`` or
-            # ``llama3.1``.
-            if query and query not in opt.value.lower():
+            # ``llama3.1``; a ComfyUI family parent also matches on its
+            # member catalog names (see _matches_name_query).
+            if query and not _matches_name_query(opt, query):
                 continue
             out.append(_VisibleRow(
                 kind="parent", abs_idx=i,

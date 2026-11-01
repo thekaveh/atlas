@@ -43,6 +43,25 @@ def _no_real_project_stop(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_inherited_env_file_selection(monkeypatch):
+    """Never let a test resolve or rewrite the operator's selected env file.
+
+    ConfigParser prefers an exported ATLAS_ENV_FILE or GENAI_ENV_FILE over
+    ``root/.env``, so writer tests seeded in tmp_path rewrote the shell's real
+    file: Supabase JWT keys and DB passwords, with no backup (2026-10-31 run).
+    The overlay and consumer-manifest selectors are cleared for hermetic reads.
+    A test that needs one of these sets it itself."""
+    for name in (
+        "ATLAS_ENV_FILE",
+        "GENAI_ENV_FILE",
+        "ATLAS_ENV_USER_FILE",
+        "ATLAS_CONSUMER_MANIFEST",
+        "_ATLAS_CONSUMER_MANIFEST_CLI",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+
+@pytest.fixture(autouse=True)
 def _private_session_log_store(monkeypatch, tmp_path_factory):
     """Keep WizardScreen's launch-log tee out of the developer's real store.
 

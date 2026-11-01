@@ -105,6 +105,7 @@ The Redis visibility timeout is longer than the hard task time limit. RAG ingest
 - Redis can re-deliver a task if a worker dies before it acknowledges the task. Tasks must be idempotent or tolerate a retry.
 - RAG ingestion takes and renews an owner-fenced execution lease before phase side effects. Every state save checks the owner.
 - A duplicate delivery that finds an active lease waits for it to expire, then retries.
+- A worker process killed during two consecutive runs of one ingestion, for example by the OOM killer, fails that job. It is not run a third time. Resubmit it after you fix the cause, such as worker memory or corpus size.
 - A RAG job whose Weaviate class another job holds stays `pending` before it parses anything. It retries with full-jitter backoff capped at 600 s, outside the transient and Redis retry budgets.
 - A worker that loses its lease cancels the running phase, logs the failure and reschedules without overwriting state.
 - Transient upstream failures get three retries with exponential backoff, counted separately from lease waits. After that, the ingestion fails.

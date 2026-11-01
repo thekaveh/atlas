@@ -141,7 +141,15 @@ def test_managed_host_stop_checks_default_state_without_env(monkeypatch):
     assert stop_calls == [True]
 
 
-def test_main_exits_nonzero_when_managed_host_remains_running(monkeypatch):
+_MANAGED_HOST_STOPS = {
+    "comfyui": "stop_managed_comfyui_mps",
+    "vllm": "stop_managed_vllm_metal",
+    "blender": "stop_managed_blender_mcp",
+}
+
+
+@pytest.mark.parametrize("failing_host", sorted(_MANAGED_HOST_STOPS))
+def test_main_exits_nonzero_when_managed_host_remains_running(monkeypatch, failing_host):
     monkeypatch.setattr(
         stop_module.AtlasStopper,
         "show_configuration_info",
@@ -155,16 +163,12 @@ def test_main_exits_nonzero_when_managed_host_remains_running(monkeypatch):
         "stop_services",
         lambda self, cold, project_name: True,
     )
-    monkeypatch.setattr(
-        stop_module.AtlasStopper,
-        "stop_managed_comfyui_mps",
-        lambda self: False,
-    )
-    monkeypatch.setattr(
-        stop_module.AtlasStopper,
-        "stop_managed_vllm_metal",
-        lambda self: True,
-    )
+    # Exactly one host runtime fails its teardown; each must reach the exit code.
+    for host, method in _MANAGED_HOST_STOPS.items():
+        host_ok = host != failing_host
+        monkeypatch.setattr(
+            stop_module.AtlasStopper, method, lambda self, ok=host_ok: ok,
+        )
 
     # Managed-host teardown is opt-in since #655 — the failure only reaches the
     # exit code when the operator explicitly requests it.

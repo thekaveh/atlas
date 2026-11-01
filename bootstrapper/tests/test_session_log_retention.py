@@ -43,9 +43,14 @@ def test_closed_group_is_reclaimed_whole_and_legacy_is_untouched(tmp_path):
     old.write("x" * 1800)
     paths = payloads(old)
     old.close()
+    survived = []
     for _ in range(5):
         later = make_tee(tmp_path)
         later.close()
+        survived.append(all(p.exists() for p in paths))
+    # A completed group is kept until the five-group cap forces eviction;
+    # admission must not reclaim the previous launch's log early.
+    assert survived == [True, True, True, True, False]
     assert not any(p.exists() for p in paths)
     assert legacy.read_text() == "legacy"
 

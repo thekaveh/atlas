@@ -154,8 +154,8 @@ class KongConfigGenerator:
         Returns ``http://host.docker.internal:<port>/`` where <port> is
         the value of ``port_var`` in .env if set, else ``default_port``.
         Centralized helper so all the localhost routes share one
-        substitution path — drift between them is the bug class memory
-        ``feedback_localhost_url_override_symmetry`` warns against.
+        substitution path — drift between them is the bug class
+        docs/CONTRIBUTING-services.md §14.2 warns against.
         """
         port = self.get_env_value(port_var) or str(default_port)
         return f"http://host.docker.internal:{port}/"
@@ -670,8 +670,8 @@ class KongConfigGenerator:
         # each service's ``<SVC>_LOCALHOST_PORT`` env var (with the
         # manifest's default-port as fallback). Compose's runtime_sc reads
         # the same PORT var, so Kong and the in-container consumers stay
-        # in sync — closing the symmetry gap memory note
-        # ``feedback_localhost_url_override_symmetry`` warns against.
+        # in sync — closing the symmetry gap
+        # docs/CONTRIBUTING-services.md §14.2 warns against.
         rows: List[tuple] = [
             # (alias, service_name, source_var,
             #  container_url_factory, localhost_url_factory)
@@ -1258,8 +1258,8 @@ class KongConfigGenerator:
                     # Without preserve_host, Kong forwards the upstream
                     # service's host (openclaw-gateway:18789) and the SPA's
                     # asset URLs / redirects bake that internal hostname,
-                    # which is unreachable from the operator's browser.
-                    # See reference_kong_preserve_host memory.
+                    # which is unreachable from the operator's browser
+                    # (docs/CONTRIBUTING-services.md §14.2).
                     'preserve_host': True,
                 }
             ],
@@ -1468,8 +1468,8 @@ class KongConfigGenerator:
                     "name": "lightrag-all",
                     "strip_path": False,
                     # LightRAG WebUI SPA at /webui derives asset and API URLs
-                    # from the Host header — preserve_host is mandatory.
-                    # See reference_kong_preserve_host memory.
+                    # from the Host header — preserve_host is mandatory
+                    # (docs/CONTRIBUTING-services.md §14.2).
                     "preserve_host": True,
                     "hosts": ["lightrag.localhost"],
                 }
@@ -1655,7 +1655,7 @@ class KongConfigGenerator:
     # ── Uniform SPA-style routes ─────────────────────────────────────
     # Four services share one exact route shape: gate on SOURCE ==
     # 'container', route the whole host with preserve_host (SPAs bake
-    # hostnames into redirects/assets — reference_kong_preserve_host)
+    # hostnames into redirects/assets — CONTRIBUTING-services.md §14.2)
     # and CORS only. Data-driven so the next observability-style
     # service is one row, not a 26-line method.
     #   (env var, kong service name, upstream url, alias host)

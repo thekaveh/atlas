@@ -591,7 +591,7 @@ def test_parakeet_gpu_advisory_review_retains_only_unfixed_constraints() -> None
         "hydra-core<=1.3.2",
         "lightning<=2.4.0",
         "leaves Transformers unconstrained",
-        "transcribe.py:39",
+        "transcribe.py:38",
         "ASRModel.from_pretrained",
         "load_from_checkpoint",
         "hydra.utils.instantiate",
@@ -601,7 +601,7 @@ def test_parakeet_gpu_advisory_review_retains_only_unfixed_constraints() -> None
     ):
         assert evidence in requirements
     assert "ASRModel.from_pretrained" in provider
-    assert provider.splitlines()[38].strip() == (
+    assert provider.splitlines()[37].strip() == (
         "model = nemo_asr.models.ASRModel.from_pretrained(model_name)"
     )
     for unreachable in (

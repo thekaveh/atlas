@@ -106,7 +106,7 @@ def test_cli_launch_cloud_overview_uses_effective_flags(
     sources = {} if source_override is None else {provider.source_var.lower(): source_override}
     keys = {} if key_override is None else {provider.api_key_var: key_override}
     starter = SimpleNamespace(run_port_migration=lambda *a: None)
-    integration.run_launch_flow(parser, None, starter=starter, source_args=sources,
+    integration.run_launch_flow(parser, starter=starter, source_args=sources,
                                 stack_options={"cloud_api_keys": keys})
 
     actual = captured[0]["cloud_apis"][0]

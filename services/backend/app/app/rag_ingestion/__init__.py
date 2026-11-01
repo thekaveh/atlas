@@ -41,6 +41,9 @@ __all__ = [
     "get_profile",
     "load_profiles",
     "fail_abandoned_ingestion",
+    "note_rag_delivery",
+    "undo_rag_delivery",
+    "clear_rag_delivery",
     "run_rag_ingestion",
     "IngestionExecutionBusy",
     "CollectionPublicationBusy",
@@ -52,6 +55,25 @@ __all__ = [
 def fail_abandoned_ingestion(ingestion_id: str, *, recovery_owner: str, reason: str) -> bool:
     """Synchronous entrypoint: mark a run the Celery task gave up on failed."""
     return asyncio.run(RagIngestionService().fail_abandoned(ingestion_id, recovery_owner, reason))
+
+
+def note_rag_delivery(ingestion_id: str, *, ttl_seconds: int) -> int:
+    """Count one Celery delivery of the job; see ``IngestionStore.note_delivery``."""
+    from .store import default_store
+
+    return default_store().note_delivery(ingestion_id, ttl_seconds)
+
+
+def undo_rag_delivery(ingestion_id: str) -> None:
+    from .store import default_store
+
+    default_store().undo_delivery(ingestion_id)
+
+
+def clear_rag_delivery(ingestion_id: str) -> None:
+    from .store import default_store
+
+    default_store().clear_delivery(ingestion_id)
 
 
 def run_rag_ingestion(

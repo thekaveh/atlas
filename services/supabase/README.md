@@ -285,7 +285,7 @@ SUPABASE_SERVICE_KEY=generated_service_key
 SUPABASE_AUTH_PORT=63016          # reserved, not bound (use Kong /auth/v1)
 SUPABASE_API_PORT=63017
 SUPABASE_STORAGE_PORT=63015
-SUPABASE_STUDIO_PORT=63019
+SUPABASE_STUDIO_PORT=63019        # reserved, not bound (use Kong supabase-studio.localhost)
 SUPABASE_REALTIME_PORT=63018
 
 # Dashboard Credentials (password auto-rotated on first launch)

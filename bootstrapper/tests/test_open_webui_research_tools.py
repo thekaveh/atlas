@@ -37,6 +37,10 @@ def test_streaming_research_tool_is_gated_and_timed_like_research_tool() -> None
     assert "if not self.valves.show_progress:" not in text
     assert "default=900" in text
     assert ":param query:" in text
+    # The tool makes one blocking /runs/wait call: no unread polling valve and
+    # no claim of progress tracking it does not do.
+    assert "poll_interval" not in text
+    assert "progress tracking" not in text
 
 
 

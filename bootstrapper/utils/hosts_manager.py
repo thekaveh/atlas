@@ -1,7 +1,5 @@
 """
 Hosts file management utilities.
-
-Python implementation of hosts-utils.sh functions.
 """
 
 import os
@@ -104,7 +102,6 @@ class HostsManager:
     def get_atlas_hosts(self) -> List[str]:
         """
         Get the list of Atlas hostnames.
-        Replicates the get_atlas_hosts() function from hosts-utils.sh.
         
         Returns:
             list: List of Atlas hostnames
@@ -114,7 +111,6 @@ class HostsManager:
     def check_missing_hosts(self) -> List[str]:
         """
         Check which hosts entries are missing from the hosts file.
-        Replicates the check_missing_hosts() function from hosts-utils.sh.
         
         Returns:
             list: List of missing hostnames
@@ -210,7 +206,6 @@ class HostsManager:
     def remove_hosts_entries_silent(self, hosts_file_path: str) -> bool:
         """
         Remove Atlas hosts entries without creating backup.
-        Replicates the remove_hosts_entries_silent() function from hosts-utils.sh.
         
         Args:
             hosts_file_path: Path to hosts file
@@ -237,7 +232,6 @@ class HostsManager:
     def add_hosts_entries(self, hosts_file_path: str, create_backup: bool = True) -> bool:
         """
         Add Atlas hosts entries to the hosts file.
-        Replicates the add_hosts_entries() function from hosts-utils.sh.
         
         Args:
             hosts_file_path: Path to hosts file
@@ -284,7 +278,6 @@ class HostsManager:
     def remove_hosts_entries(self, hosts_file_path: str) -> bool:
         """
         Remove Atlas hosts entries with backup.
-        Replicates the remove_hosts_entries() function from hosts-utils.sh.
         
         Args:
             hosts_file_path: Path to hosts file
@@ -332,7 +325,6 @@ class HostsManager:
     def setup_hosts_entries(self) -> bool:
         """
         Main function to setup Atlas hosts entries.
-        Replicates the setup_hosts_entries() function from hosts-utils.sh.
         
         Returns:
             bool: True if successful

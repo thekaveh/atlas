@@ -97,6 +97,8 @@ A native LightRAG 1.5.4 binding does not send them. The Ollama binding forwards 
 - **Explicit role settings win.** A role that sets its own `LIGHTRAG_<ROLE>_LLM_BINDING`, `_BINDING_HOST` or `_BINDING_API_KEY` is never re-routed. If those settings put it on a native host, it cannot receive its model's defaults, and the start log and doctor say so.
 - **Where to see it.** At start, the container logs one `lightrag: <ROLE> role: …` line per role, with binding, host, model and request defaults (never a key). `./start.sh doctor` reports the same in its `lightrag-role-transport` check and warns when a role loses its defaults. LightRAG's `/health` shows each role's `binding`, `host` and `model` under `configuration.role_llm_config`, with keys stripped.
 - **End-to-end test.** On a development stack, `scripts/smoke-lightrag-role-models.sh` uploads a document, runs a query, and checks LiteLLM's logs for each role's model. The two role models must differ. `LIGHTRAG_SMOKE_WAIT_SECONDS` (default 30) sets the extraction wait.
+    - Run it from the repo root. It reads `PROJECT_NAME`, `LIGHTRAG_API_PORT`, `LIGHTRAG_API_KEY` and both role models from `./.env` without sourcing the file.
+    - A value exported in the shell wins over `./.env`.
 
 ### 3.5. Extract-role caps on native Ollama
 

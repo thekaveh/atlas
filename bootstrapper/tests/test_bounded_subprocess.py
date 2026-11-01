@@ -1076,7 +1076,10 @@ def test_final_image_scan_passes_when_every_image_is_clean(tmp_path: Path) -> No
 def _compose_deps_lint():
     import importlib.util
 
-    sys.path.insert(0, str(ROOT / "scripts"))
+    # The lint script imports ``bounded_subprocess`` by bare name. Registering
+    # the already-imported module avoids prepending scripts/ to sys.path, whose
+    # ``docs`` package would shadow bootstrapper/docs for later tests.
+    sys.modules.setdefault("bounded_subprocess", bounded_subprocess)
     spec = importlib.util.spec_from_file_location(
         "check_compose_source_deps", ROOT / "scripts/check-compose-source-deps.py"
     )

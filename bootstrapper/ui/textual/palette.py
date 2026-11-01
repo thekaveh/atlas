@@ -137,7 +137,8 @@ def style_for_source_choice(source: str) -> str:
         return TEXT_MUTED
     if "container" in source or source.endswith("-cpu") or source.endswith("-gpu"):
         return OK
-    if "localhost" in source or "external" in source or source == "api":
+    # ``enabled`` is a cloud passthrough (FAL), so it shares the localhost hue.
+    if "localhost" in source or "external" in source or source in ("api", "enabled"):
         return ACCENT
     return TEXT_MUTED
 

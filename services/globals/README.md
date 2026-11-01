@@ -26,7 +26,7 @@
 | `BASE_PORT` | `63000` | Base port. Allocated service ports are this value plus a fixed offset. `_LOCALHOST_` host-service ports keep their own values. |
 | `HOST_BIND_IP` | `127.0.0.1:` | Host interface prefix for all published ports. Keep the trailing colon. Set `0.0.0.0:` only for deliberate remote access. |
 | `HOST_GATEWAY_IP` | `host-gateway` | Target of `host.docker.internal`. `./start.sh` computes it: `host-gateway` on Docker, the gateway IP on Podman. |
-| `BRAND_NAME`, `BRAND_TAGLINE`, `BRAND_VERSION`, `BRAND_AUTHOR`, `BRAND_AUTHOR_EMAIL`, `BRAND_LICENSE`, `BRAND_REPO_URL` | Atlas values | Brand metadata in the wizard and the `--no-tui` banner. |
+| `BRAND_NAME`, `BRAND_TAGLINE`, `BRAND_VERSION`, `BRAND_AUTHOR`, `BRAND_AUTHOR_EMAIL`, `BRAND_LICENSE`, `BRAND_REPO_URL` | Atlas values | Brand metadata in the wizard. The `--no-tui` banner shows the tagline, author, repository URL and license. Only its compact form for narrow terminals shows the name; the full form shows the logo. |
 | `BRAND_LOGO_FILE` | empty | Path to a custom block-art logo. Empty uses the built-in ATLAS lockup. |
 | `COMPOSE_PROFILES` | empty | Compose profile list. `./start.sh` rebuilds it on every run from the STT, TTS and doc-processor sources. Do not edit it. |
 | `NVIDIA_VISIBLE_DEVICES` | `all` | Host GPU visibility for NVIDIA-runtime containers. |

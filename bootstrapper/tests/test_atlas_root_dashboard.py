@@ -168,6 +168,30 @@ def test_dashboard_service_cards_show_descriptions(tmp_path):
     assert 'class="card-desc"' in html
 
 
+def test_raw_tcp_ports_are_not_probed_over_http(tmp_path):
+    """Postgres, Redis and the Blender MCP socket answer no HTTP: a browser
+    fetch showed them "unreachable" and Redis logged a cross-protocol attack."""
+    from utils.atlas_dashboard import build_dashboard_model, render_dashboard_html
+
+    cp = _config_parser_for_env(
+        tmp_path,
+        "BASE_PORT=63000\nKONG_HTTP_PORT=63000\nREDIS_PORT=63012\n"
+        "SUPABASE_DB_PORT=63001\nBLENDER_MCP_SOURCE=localhost\n"
+        "BLENDER_MCP_LOCALHOST_PORT=9876\n",
+    )
+    model = build_dashboard_model(cp, track_key="all")
+    raw_ports = {"http://localhost:63012", "http://localhost:63001", "http://localhost:9876"}
+    raw_tcp = {row.direct_url: row.health_url for row in model.services if row.direct_url in raw_ports}
+    assert raw_tcp == dict.fromkeys(raw_ports)
+    html = render_dashboard_html(model)
+    assert 'data-health-url="http://localhost:63012"' not in html
+    assert 'data-health-url="http://localhost:63001"' not in html
+    assert 'data-health-url="http://localhost:9876"' not in html
+    assert "not probed" in html
+    # HTTP services keep their probe.
+    assert any(row.health_url for row in model.services)
+
+
 # ── #1189: a card's auth note matches what its Kong route enforces ──────────
 
 _REPO = Path(__file__).resolve().parents[2]

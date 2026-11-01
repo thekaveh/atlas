@@ -56,9 +56,16 @@ def test_opt_in_smoke_script_covers_spark_connect_and_zeppelin_surfaces() -> Non
 
     assert script.startswith("#!/usr/bin/env bash")
     assert "set -euo pipefail" in script
-    assert "SPARK_SOURCE=container" in script
-    assert "ICEBERG_REST_SOURCE=container" in script
-    assert "MINIO_SOURCE=container" in script
+    # The prerequisites name the documented start.sh flags, not a shell-env
+    # prefix (which does not configure the bootstrapper).
+    assert "--spark-source container" in script
+    assert "--iceberg-rest-source container" in script
+    assert "--minio-source container" in script
+    assert "--zeppelin-source container" in script
+    assert 'require_container "${project}-zeppelin" "--zeppelin-source container"' in script
+    assert 'require_container "${project}-jupyterhub" "--jupyterhub-source container"' in script
+    # A managed SPARK_REMOTE can carry a token; the smoke never prints it.
+    assert "passed via" not in script
     assert "spark-connect" in script
     assert "zeppelin" in script
     assert '${PROJECT_NAME:-atlas}' in script

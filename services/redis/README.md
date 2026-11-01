@@ -15,7 +15,7 @@ Volume: `${PROJECT_NAME}-redis-data` (AOF files and RDB snapshots). `./stop.sh -
 
 | Path | URL | Notes |
 |---|---|---|
-| Host (debug) | `localhost:${REDIS_PORT}` (default `63025`) | Use with `redis-cli -h 127.0.0.1 -p 63025 -a "$REDIS_PASSWORD"`. |
+| Host (debug) | `localhost:${REDIS_PORT}` (default `63025`) | Prefer `docker exec -it <project>-redis redis-cli`; the container sets `REDISCLI_AUTH`. From the host, use `REDISCLI_AUTH=<REDIS_PASSWORD from .env> redis-cli -h 127.0.0.1 -p 63025`. |
 | Internal | `redis://:${REDIS_PASSWORD_URI}@redis:6379/<db>` | What sibling containers use; the password component is percent-encoded. |
 | Kong | — | Redis is infrastructure; no Kong route. |
 
@@ -79,7 +79,7 @@ A consumer that needs its own namespace builds a URL from `${REDIS_PASSWORD_URI}
 
 ## 5. LightRAG KV store
 
-When `LIGHTRAG_SOURCE != disabled` AND `REDIS_SOURCE != disabled`, LightRAG uses Redis `db=2` as its KV and doc-status backend (via `RedisKVStorage`). Use `redis-cli -a "$REDIS_PASSWORD" -n 2 --scan --pattern '*'` to inspect.
+When `LIGHTRAG_SOURCE != disabled` AND `REDIS_SOURCE != disabled`, LightRAG uses Redis `db=2` as its KV and doc-status backend (via `RedisKVStorage`). Use `docker exec <project>-redis redis-cli -n 2 --scan --pattern '*'` to inspect.
 
 ## 6. Capabilities & limitations
 
@@ -144,18 +144,24 @@ docker run --rm -it -v "$VOLUME":/data -w /data/appendonlydir "$REDIS_IMAGE" \
 }
 ```
 
-If the doctor reports that the base snapshot is not sane, `--fix` cannot repair it. Restore an earlier backup, or remove the volume (`docker volume rm "$VOLUME"`) to start Redis empty and lose its queue, sessions and cache. To restore a backup, extract it through the same container, because the archive is root-owned on Linux:
+If the doctor reports that the base snapshot is not sane, `--fix` cannot repair it. The `./start.sh` above then fails, and the restarting Redis keeps using the volume. Restore an earlier backup, or remove the volume (`docker volume rm "$VOLUME"`) to start Redis empty and lose its queue, sessions and cache.
+
+Run `./stop.sh` first: Docker refuses to remove a volume that any container uses, and Redis must not read the AOF during a restore. `VOLUME` and `REDIS_IMAGE` come from the sequence above. In a new shell, rerun its `REDIS_IMAGE` assignment and set `VOLUME=<project>-redis-data` first. To restore a backup, extract it through the same container, because the archive is root-owned on Linux:
 
 ```bash
+./stop.sh
 docker run --rm -v "$VOLUME":/data -v "$PWD":/backup "$REDIS_IMAGE" \
   sh -c 'rm -rf /data/appendonlydir && tar xzf /backup/redis-aof-backup.tgz -C /data'
+./start.sh
 ```
 
 **Data loss after `./stop.sh --cold`.** Expected — `--cold` deletes the `${PROJECT_NAME}-redis-data` volume, taking the AOF log with it. Use `./stop.sh` (no `--cold`) to preserve queue/session state across restarts.
 
+Replace `<project>` with `PROJECT_NAME` from `.env` (default `atlas`).
+
 ```bash
-docker compose ps redis
-docker compose logs -f redis
+docker ps --all --filter "name=^<project>-redis$"
+docker logs -f <project>-redis
 docker exec <project>-redis redis-cli INFO server
 ```
 

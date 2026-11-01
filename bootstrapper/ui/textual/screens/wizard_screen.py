@@ -1377,7 +1377,8 @@ class WizardScreen(Screen):
         )
         summaries = [
             ServiceSummary(name=r.name, source=r.source, port=r.port,
-                           alias=r.alias, pending=r.pending)
+                           alias=r.alias, pending=r.pending,
+                           off_track=r.off_track)
             for r in services
         ]
         self._info_panel = InfoPanel(
@@ -2665,7 +2666,8 @@ class WizardScreen(Screen):
         """
         summaries = [
             ServiceSummary(name=r.name, source=r.source, port=r.port,
-                           alias=r.alias, pending=r.pending)
+                           alias=r.alias, pending=r.pending,
+                           off_track=r.off_track)
             for r in self._services
         ]
         self._info_panel.update_state(

@@ -696,7 +696,7 @@ DROP POLICY IF EXISTS "Users can view their own consolidation logs" ON public.me
 DROP POLICY IF EXISTS "Service role can access all consolidation logs" ON public.memory_consolidation_log;
 
 -- Service role (backend) can access all memory data. Scoped to the
--- service_role claim like the research tables in 09 — the previous
+-- service_role claim like the research tables in 13-backend-research.sql — the previous
 -- USING (true) made the policy a no-op, and 06-permissions' default
 -- privileges grant `authenticated` table rights, so any authenticated
 -- PostgREST caller had full CRUD on every user's memories. The

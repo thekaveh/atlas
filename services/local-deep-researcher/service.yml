@@ -122,8 +122,8 @@ runtime_sc:
         # this one. The local-deep-researcher container itself doesn't
         # consume STT/TTS at present (LangGraph research agent path is
         # text-only). If wiring lands later it must go into the compose
-        # env block to actually reach the container — see
-        # project_runtime_sc_vs_compose_env_dual_write.md.
+        # env block to actually reach the container (runtime_sc/compose
+        # dual-write rule).
       deploy: {}
       extra_hosts: []
     disabled:

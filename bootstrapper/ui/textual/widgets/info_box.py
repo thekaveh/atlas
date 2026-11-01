@@ -29,6 +29,7 @@ from textual.containers import Container
 from textual.widgets import Static
 
 from .. import palette as P
+from utils.source_availability import source_has_endpoint
 # state_builder doesn't import from widgets, so this top-level import is
 # circular-safe. Keeps render() free of deferred imports.
 from wizard.model.state_builder import cloud_api_status_text
@@ -41,15 +42,21 @@ class ServiceSummary:
     port: str = ""
     alias: str = ""
     pending: bool = False
+    # Excluded by the active track: the service table labels the row
+    # "disabled (off-track)" whatever its stored source, so it counts as off.
+    off_track: bool = False
 
     @property
     def is_disabled(self) -> bool:
-        return self.source.lower() == "disabled" or not self.source
+        # ``none`` (LLM Engine without Ollama) runs nothing, like ``disabled``;
+        # source_has_endpoint is the same predicate the service table uses.
+        return not self.source or self.off_track or not source_has_endpoint(self.source)
 
     @property
     def is_localhost_or_external(self) -> bool:
+        # ``enabled`` is a cloud passthrough (FAL), not a local container.
         s = self.source.lower()
-        return "localhost" in s or "external" in s or s == "api"
+        return "localhost" in s or "external" in s or s in ("api", "enabled")
 
     @property
     def is_gpu(self) -> bool:
@@ -323,7 +330,7 @@ class InfoPanel(Container):
         width: 100%;
     }
     InfoPanel > .info-body { height: auto; min-height: 5; }
-    InfoPanel > InfoBoxFooter { height: 1; padding-top: 1; }
+    InfoPanel > InfoBoxFooter { height: auto; }
     """
 
     def __init__(

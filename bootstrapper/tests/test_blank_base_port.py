@@ -47,7 +47,6 @@ def test_wizard_build_handles_blank_base_port(tmp_path):
 
     from core.config_parser import ConfigParser, DEFAULT_BASE_PORT
     from ui.textual.integration import _build_steps_and_rows
-    from utils.hosts_manager import HostsManager
 
     repo_root = Path(__file__).resolve().parents[2]
     env = tmp_path / ".env"
@@ -58,7 +57,7 @@ def test_wizard_build_handles_blank_base_port(tmp_path):
     cp = ConfigParser(str(repo_root))
     cp.env_file_path = env
     steps, rows, services_info, current_base_port, state, cloud = (
-        _build_steps_and_rows(cp, HostsManager())
+        _build_steps_and_rows(cp)
     )
     assert current_base_port == DEFAULT_BASE_PORT
     assert steps and rows
@@ -78,7 +77,6 @@ def test_wizard_build_handles_blank_kong_http_port(tmp_path):
 
     from core.config_parser import ConfigParser
     from ui.textual.integration import _build_steps_and_rows
-    from utils.hosts_manager import HostsManager
 
     repo_root = Path(__file__).resolve().parents[2]
     env = tmp_path / ".env"
@@ -90,7 +88,7 @@ def test_wizard_build_handles_blank_kong_http_port(tmp_path):
 
     cp = ConfigParser(str(repo_root))
     cp.env_file_path = env
-    _, rows, *_ = _build_steps_and_rows(cp, HostsManager())
+    _, rows, *_ = _build_steps_and_rows(cp)
 
     aliased = [r for r in rows if r.alias]
     assert aliased, "expected at least one Kong-aliased row in the wizard"

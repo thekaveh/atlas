@@ -585,18 +585,40 @@ WHERE d.datname = :'target_db' \gexec
 
 SELECT format(
   CASE WHEN s.setrole = 0
-    THEN 'ALTER DATABASE %I SET %I TO %L'
-    ELSE 'ALTER ROLE %I IN DATABASE %I SET %I TO %L'
+    THEN 'ALTER DATABASE %I SET %I TO %s'
+    ELSE 'ALTER ROLE %I IN DATABASE %I SET %I TO %s'
   END,
   CASE WHEN s.setrole = 0 THEN :'temp_db' ELSE r.rolname END,
-  CASE WHEN s.setrole = 0 THEN split_part(cfg, '=', 1) ELSE :'temp_db' END,
-  CASE WHEN s.setrole = 0 THEN substring(cfg FROM position('=' IN cfg) + 1) ELSE split_part(cfg, '=', 1) END,
-  CASE WHEN s.setrole = 0 THEN NULL ELSE substring(cfg FROM position('=' IN cfg) + 1) END
+  CASE WHEN s.setrole = 0 THEN setting.name ELSE :'temp_db' END,
+  CASE WHEN s.setrole = 0 THEN setting.value ELSE setting.name END,
+  CASE WHEN s.setrole = 0 THEN NULL ELSE setting.value END
 )
 FROM pg_database AS d
 JOIN pg_db_role_setting AS s ON s.setdatabase = d.oid
 LEFT JOIN pg_roles AS r ON r.oid = s.setrole
 CROSS JOIN LATERAL unnest(s.setconfig) AS cfg
+CROSS JOIN LATERAL (
+  SELECT split_part(cfg, '=', 1) AS name,
+         substring(cfg FROM position('=' IN cfg) + 1) AS raw
+) AS kv
+-- The server stores list settings such as search_path already
+-- identifier-quoted. Copy each element as a literal, as pg_dump does, so the
+-- value is not quoted a second time.
+CROSS JOIN LATERAL (
+  SELECT kv.name, CASE
+    WHEN kv.name IN (
+      'search_path', 'temp_tablespaces',
+      'local_preload_libraries', 'session_preload_libraries'
+    ) THEN (
+      SELECT string_agg(quote_literal(CASE WHEN left(m.item[1], 1) = '"'
+        THEN replace(substr(m.item[1], 2, length(m.item[1]) - 2), '""', '"')
+        ELSE m.item[1] END), ', ' ORDER BY m.ord)
+      FROM regexp_matches(kv.raw, '"(?:[^"]|"")*"|[^",[:space:]]+', 'g')
+        WITH ORDINALITY AS m(item, ord)
+    )
+    ELSE quote_literal(kv.raw)
+  END AS value
+) AS setting
 WHERE d.datname = :'target_db' \gexec
 SQL
 run_bounded pg_restore \

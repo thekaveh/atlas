@@ -273,7 +273,6 @@ def _brand_field(env: dict, env_var: str, fallback: str) -> str:
 
 def build_app_state(
     config_parser: ConfigParser,
-    hosts_manager=None,  # noqa: ARG001  # kept for back-compat with start.py / integration.py callers
     *,
     in_track: "Callable[[str], bool] | None" = None,
 ) -> AppState:

@@ -381,7 +381,7 @@ No service requires the Document Processor. For the services that call it, see Â
 
 **Solution**:
 
-1. Check logs: `docker logs ${PROJECT_NAME}-docling-gpu`
+1. Check logs: `docker logs ${PROJECT_NAME}-docling-gpu`. Set `PROJECT_NAME` in your shell to its value in the active env file (default `atlas`) first.
 2. Verify SOURCE setting matches your hardware
 3. Ensure Docker has sufficient resources allocated
 4. Check GPU drivers and CUDA version
