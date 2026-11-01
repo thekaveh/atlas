@@ -858,7 +858,6 @@ class MemoryStore:
         namespace: str,
         fact_type: str,
         confidence: float,
-        metadata: Dict[str, Any],
     ) -> Optional[str]:
         """Store an embedding for a memory fact. Returns weaviate_id or None."""
         await self.initialize()
@@ -1188,42 +1187,6 @@ class MemoryStore:
                 }
                 for row in rows
             ]
-
-    async def delete_embedding(self, fact_id: str, weaviate_id: Optional[str] = None):
-        """Delete an embedding from the vector store."""
-        await self.initialize()
-        async with self._transition_lock:
-            backend = self.backend
-        if backend != "weaviate":
-            # pgvector recall follows the canonical row lifecycle. The dirty
-            # marker invalidates a concurrent failback CAS.
-            await self._mark_weaviate_dirty()
-            return
-        if not weaviate_id:
-            await self._mark_weaviate_dirty()
-            return
-
-        clean_generation = await self._clean_weaviate_generation()
-        if clean_generation is None:
-            await self._mark_weaviate_dirty()
-            return
-        try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                resp = await client.delete(
-                    f"{self.weaviate_url}/v1/objects/"
-                    f"{WEAVIATE_COLLECTION_NAME}/{weaviate_id}"
-                )
-                if resp.status_code not in (200, 204, 404):
-                    resp.raise_for_status()
-        except Exception as exc:
-            if not _weaviate_target_unavailable(exc):
-                raise
-            await self._latch_pgvector_after_runtime_failure(exc)
-            return
-        if await self._weaviate_mutation_crossed_generation(clean_generation):
-            await self._mark_weaviate_dirty()
-            await self._latch_pgvector_for_generation_change()
-        # pgvector: embedding is in the row, deleted when the row is deleted/updated
 
     async def deactivate_embedding(
         self, fact_id: str, weaviate_id: Optional[str] = None

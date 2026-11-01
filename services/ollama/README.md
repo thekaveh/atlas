@@ -68,7 +68,7 @@ For `ollama-localhost`, Atlas cannot set either; the host daemon owns them. Decl
 
 **Concurrency floor for a host daemon.** On `ollama-localhost`, Atlas cannot set the daemon's environment; you own it. Ollama's default is **one** parallel slot, and it queues extra concurrent requests silently. A consumer that needs eight slots is then correct but slow, with nothing in any log. Set `OLLAMA_PARALLEL_MIN` to the slots your workload needs. `./start.sh doctor` reads the daemon's `OLLAMA_NUM_PARALLEL`, fails the check below the floor, and prints the `launchctl` fix.
 
-The check works only on macOS, where the daemon inherits `launchctl setenv`. Elsewhere, the daemon's environment depends on how it was started, with no single readable source. The check then reports `skipped` and never warns.
+The check works only on macOS, where the daemon inherits `launchctl setenv`. Elsewhere, the daemon's environment depends on how it was started, with no single readable source. The check then reports `skipped` and never warns. On macOS, the check also reports `skipped` when `launchctl` holds no value, for example when the variable is set only in a brew services plist.
 
 LiteLLM resolves the upstream URL from `LITELLM_OLLAMA_UPSTREAM` (set automatically by the bootstrapper based on `LLM_PROVIDER_SOURCE`). Consumers should never reference `LITELLM_OLLAMA_UPSTREAM` directly.
 

@@ -116,6 +116,7 @@ def test_redis_lua_roundtrip_preserves_public_list_contract() -> None:
         profile="redis-regression",
         revision="rev-1",
         idempotency_key=f"key-{record_id}",
+        profile_snapshot={"graph_targets": [], "chunker": {}},
     )
 
     try:
@@ -128,7 +129,10 @@ def test_redis_lua_roundtrip_preserves_public_list_contract() -> None:
         store.save(record)
         raw = json.loads(store._redis.get(_KEY_PREFIX + record_id))
         assert raw["errors"] == {}
+        assert raw["profile_snapshot"]["graph_targets"] == {}
         assert store.get(record_id).errors == []
+        snapshot = store.get(record_id).profile_snapshot
+        assert snapshot == {"graph_targets": [], "chunker": {}}, "dict fields stay dicts"
         score = store._redis.zscore(_INDEX_ZSET, record_id)
         assert score is not None
         page = store.list_page(cursor=str(int(score) - 1), limit=1)
@@ -202,28 +206,35 @@ def test_live_redis_execution_claim_exact_owner_contract() -> None:
         store._redis.zrem(_INDEX_ZSET, record.id)
 
 
-def test_worker_save_does_not_undo_a_later_dispatch_acceptance() -> None:
+@pytest.mark.parametrize("live_redis", [False, True])
+def test_worker_save_does_not_undo_a_later_dispatch_acceptance(live_redis: bool) -> None:
     """The worker reads the record while `dispatching`; the API then records
-    `accepted`. The worker's later save must not restore its stale copy."""
+    `accepted`. The worker's later save must not restore its stale copy, on
+    the claimed write path production uses or on the unfenced one."""
     from rag_ingestion.store import InMemoryIngestionStore
+    from tests.conftest import disposable_redis_url
 
-    store = InMemoryIngestionStore()
+    # Built here, not in the parametrize list: the Redis URL check skips.
+    store = RedisIngestionStore(disposable_redis_url()) if live_redis else InMemoryIngestionStore()
+    rid = str(uuid.uuid4())
     record = IngestionRecord(
-        id="ing-1", consumer="acme", profile="default", revision="1",
-        idempotency_key="key-1",
+        id=rid, consumer="acme", profile="default", revision="1",
+        idempotency_key=rid,
     )
     store.create_if_absent(record)
-    assert store.claim_dispatch("ing-1", ("api", "2026-01-01T00:00:01", "2026-01-01"))
-    worker_copy = store.get("ing-1")
-    assert store.mark_dispatched("ing-1", ("job-1", "api"), "2026-01-01T00:00:02")
+    assert store.claim_dispatch(rid, ("api", "2026-01-01T00:00:01", "2026-01-01"))
+    worker_copy, legacy_copy = store.get(rid), store.get(rid)
+    assert store.mark_dispatched(rid, ("job-1", "api"), "2026-01-01T00:00:02")
+    assert store.claim_execution(rid, ExecutionClaim("worker", 60))
 
-    worker_copy.status = "running"
-    store.save(worker_copy)
-
-    stored = store.get("ing-1")
-    assert stored.status == "running"
-    assert stored.dispatch_state == "accepted"
-    assert stored.dispatch_job_id == "job-1"
+    worker_copy.status = legacy_copy.status = "running"
+    for persist in (lambda: store.save_claimed(worker_copy, "worker"),
+                    lambda: store.save(legacy_copy) is None):
+        assert persist()
+        stored = store.get(rid)
+        assert stored.status == "running"
+        assert stored.dispatch_state == "accepted"
+        assert stored.dispatch_job_id == "job-1"
 
 
 def test_redis_save_scripts_keep_dispatch_fields() -> None:

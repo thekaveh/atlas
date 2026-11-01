@@ -131,7 +131,7 @@ def _bounded_int(payload_value: Any, *, field: str, minimum: int, maximum: int) 
 def _bounded_float(payload_value: Any, *, field: str, minimum: float, maximum: float) -> float:
     try:
         value = float(payload_value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):  # a 401-digit JSON int
         raise ValueError(
             f"provider=comfyui {field} must be a number, got {payload_value!r}"
         ) from None
@@ -1006,11 +1006,14 @@ def _first_given(*values: Any) -> Any:
 
 def _strength(value: Any) -> float:
     """img2img strength; a non-number (or NaN) is a client error, not 0.75.
-    Out-of-range numbers are clamped to 0..1 by the caller."""
+    Out-of-range numbers are clamped to 0..1 by the caller, including an
+    integer too large for a float, which maps to +/-inf like JSON `1e400`."""
     if value is None:
         return 0.75
     try:
         strength = float(value)
+    except OverflowError:
+        strength = math.inf if value > 0 else -math.inf
     except (TypeError, ValueError):
         strength = math.nan
     if math.isnan(strength):

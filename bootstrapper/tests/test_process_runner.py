@@ -532,6 +532,9 @@ def test_sighup_cleanup_installs_dispatches_and_restores(monkeypatch) -> None:
         lambda errors: reported.extend(errors),
     )
     previous = signal.getsignal(signal.SIGHUP)
+    # Exit-on-SIGHUP is the SIG_DFL contract; under nohup the inherited
+    # disposition is ignored (or conftest's no-op stand-in), which must return.
+    signal.signal(signal.SIGHUP, signal.SIG_DFL)
     try:
         with process_runner.cleanup_active_processes_on_sigterm():
             handler = signal.getsignal(signal.SIGHUP)
@@ -541,7 +544,7 @@ def test_sighup_cleanup_installs_dispatches_and_restores(monkeypatch) -> None:
             assert raised.value.code == 128 + signal.SIGHUP
         assert reported == [cleanup_error]
         # Restored to the prior disposition on context exit.
-        assert signal.getsignal(signal.SIGHUP) is previous
+        assert signal.getsignal(signal.SIGHUP) == signal.SIG_DFL
     finally:
         signal.signal(signal.SIGHUP, previous)
 

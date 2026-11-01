@@ -87,8 +87,8 @@
       {
         "path": "bootstrapper/start.py",
         "symbol": "AtlasStarter.apply_profile_overrides",
-        "cyclomatic_complexity": 43,
-        "rationale": "Central precedence boundary for CLI, track, and persisted source choices; host-bind ownership is extracted into B-grade helpers and profile/source-permutation tests cover the remaining explicit override cases. Overnight maintenance 2026-10-05 moved the env-knob loop into _profile_env_overrides (with _env_example_values/_prior_profile_env) and manifest SOURCE precedence into _manifest_source_vars, 48->45. 2026-10-06: the ATLAS_PROFILE_APPLIED record condition (now also written on a no-op first start) moved into _should_record_profile, 45->43."
+        "cyclomatic_complexity": 40,
+        "rationale": "Central precedence boundary for CLI, track, and persisted source choices; host-bind ownership is extracted into B-grade helpers and profile/source-permutation tests cover the remaining explicit override cases. Overnight maintenance 2026-10-05 moved the env-knob loop into _profile_env_overrides (with _env_example_values/_prior_profile_env) and manifest SOURCE precedence into _manifest_source_vars, 48->45. 2026-10-06: the ATLAS_PROFILE_APPLIED record condition (now also written on a no-op first start) moved into _should_record_profile, 45->43. Overnight maintenance 2026-11-01 cycle 3: removed the legacy explicit_prometheus/explicit_grafana parameters, which duplicated _explicit_source_vars, 43->40."
       },
       {
         "path": "bootstrapper/start.py",
@@ -165,8 +165,8 @@
       {
         "path": "bootstrapper/ui/textual/screens/wizard_screen.py",
         "symbol": "WizardScreen._run_pipeline_and_stream",
-        "cyclomatic_complexity": 52,
-        "rationale": "Async UI orchestration state machine for setup, launch, log streaming, cancellation, and terminal reporting; focused lifecycle tests protect each transition. 50 -> 49 on #989: the pre-up image build (cold and stale-warm) moved out into WizardScreen._build_launch_images, taking the build call's `targets or []` with it."
+        "cyclomatic_complexity": 50,
+        "rationale": "Async UI orchestration state machine for setup, launch, log streaming, cancellation, and terminal reporting; focused lifecycle tests protect each transition. 50 -> 49 on #989: the pre-up image build (cold and stale-warm) moved out into WizardScreen._build_launch_images, taking the build call's `targets or []` with it. Overnight maintenance 2026-11-01 cycle 3: the pipeline call no longer passes the legacy explicit_prometheus/explicit_grafana arguments, 52->50."
       },
       {
         "path": "bootstrapper/ui/textual/widgets/prompt_panel.py",

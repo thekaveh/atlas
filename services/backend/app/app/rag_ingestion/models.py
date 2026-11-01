@@ -113,6 +113,8 @@ PUBLICATION_WAIT_NOTES = {
     None: "waiting for collection publication; another job is writing the class, "
           "or an interrupted write requires operator recovery",
 }
+# profile_snapshot keys that are always lists (profiles.LoadedProfile.to_dict).
+_SNAPSHOT_LIST_FIELDS = ("parser_order", "vector_targets", "graph_targets")
 
 
 @dataclass
@@ -194,6 +196,12 @@ class IngestionRecord:
         payload["errors"] = list_field("errors")
         if payload.get("publication_targets") == {}:
             payload["publication_targets"] = []
+        snapshot = payload.get("profile_snapshot")
+        if isinstance(snapshot, dict):
+            # The snapshot's list fields lose their shape the same way.
+            payload["profile_snapshot"] = {**snapshot, **{
+                key: [] for key in _SNAPSHOT_LIST_FIELDS if snapshot.get(key) == {}
+            }}
         return cls(phases=phases, **payload)
 
     def phase(self, name: str) -> PhaseRecord:

@@ -75,6 +75,8 @@ The complete reception deadline starts after authentication and admission. Progr
 The default is 300 seconds; increase `ASSET_WORKER_UPLOAD_TIMEOUT_SECONDS` for slower links. Invalid values return a configuration `500` before reception.
 Converter timeouts remain separate and return `504`. Reference requests do not use the upload reception deadline.
 
+The Kong route's read/write timeout is 3 × `ASSET_WORKER_TIMEOUT_SECONDS` + 60 s. It covers all three converter commands, so the gateway does not cut a long request.
+
 An admitted upload occupies a mutation slot through reception, parsing, conversion, response completion, and form cleanup. Busy requests return `429` before reading the body.
 Retry after the active request finishes or its reception deadline expires. A cancelled request during conversion retains its slot until owned work and cleanup finish.
 
@@ -111,11 +113,11 @@ curl -H "Authorization: Bearer ${ASSET_WORKER_API_TOKEN}" \
 | `target_width_m` | no | Finite positive target max horizontal width after normalization when `normalize_axis=width`. |
 | `normalize_axis` | no | `height` or `width`; default `height`. |
 | `up_axis` | no | Orientation policy. `keep` (default) trusts +Y-up and only scales, centers and grounds. `auto` searches small pitch/roll tilts for the minimum bounding-box volume; it never rotates a model already within a few degrees of Y-up. `x`/`y`/`z` rotates that axis to +Y (a proper rotation, never a mirror). Only `POSITION` data changes; normals, tangents and node transforms are not rotated or applied. |
-| `simplify_ratio` | no | glTF-Transform simplification ratio, greater than `0` and up to `1`. Without it (and without `collider_decimation`), no simplification runs. |
+| `simplify_ratio` | no | Target fraction of vertices to keep, greater than `0` and up to `1`. The glTF-Transform optimizer stops early at its default error limit (`--simplify-error 0.0001`, 0.01% of mesh extent), so the output can keep more vertices. Without it (and without `collider_decimation`), no simplification runs. |
 | `draco` | no | Enables Draco mesh compression. |
 | `meshopt` | no | Meshopt mesh compression. Default `true`; Draco takes precedence when `draco=true`. Pass `meshopt=false` for an uncompressed mesh, for example to re-import into Blender. |
 | `ktx2` | no | Requests KTX2 texture compression; otherwise WebP is used. KTX2 needs the KTX-Software `ktx` binary, which the stock image does not include, so the request is rejected with `422` there. |
-| `collider_decimation` | no | Ratio for collider decimation, used as the simplification ratio when `simplify_ratio` is absent (same range). |
+| `collider_decimation` | no | Ratio for collider decimation, used as the simplification ratio when `simplify_ratio` is absent (same range and error limit). |
 
 Invalid numeric parameters, including NaN and infinity, return `422` before conversion or object-store access. This applies to multipart and JSON requests.
 

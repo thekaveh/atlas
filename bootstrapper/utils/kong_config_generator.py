@@ -71,17 +71,30 @@ _ANY_SLASH = r'(?:/|\x252[Ff])+'
 _KONG_MAX_TIMEOUT_MS = 2**31 - 2
 
 
-def _bake_timeout_ms(raw: object, default: str = "600") -> int:
-    """Kong timeout for the asset-baker route: the worker's own
-    float(ASSET_BAKER_TIMEOUT_SECONDS) + 30 s, capped below Kong's 2^31 ms
-    limit (a larger value would stop the whole declarative config loading)."""
+def _positive_seconds(raw: object, default: str) -> float:
+    """float(raw), as the workers read it; the default when the value does
+    not parse, is not finite or is not positive."""
     try:
         seconds = float(str(raw or default).strip())
     except ValueError:
         seconds = float(default)
     if not math.isfinite(seconds) or seconds <= 0:
         seconds = float(default)
-    return min(int((seconds + 30) * 1000), _KONG_MAX_TIMEOUT_MS)
+    return seconds
+
+
+def _bake_timeout_ms(raw: object, default: str = "600") -> int:
+    """Kong timeout for the asset-baker route: the worker's own
+    float(ASSET_BAKER_TIMEOUT_SECONDS) + 30 s, capped below Kong's 2^31 ms
+    limit (a larger value would stop the whole declarative config loading)."""
+    return int(min((_positive_seconds(raw, default) + 30) * 1000, _KONG_MAX_TIMEOUT_MS))
+
+
+def _asset_worker_timeout_ms(raw: object, default: str = "300") -> int:
+    """Kong timeout for the asset-worker route: inspect, validate and optimize
+    each get float(ASSET_WORKER_TIMEOUT_SECONDS), so 3 x that + 60 s,
+    capped below Kong's 2^31 ms limit like the baker's."""
+    return int(min((3 * _positive_seconds(raw, default) + 60) * 1000, _KONG_MAX_TIMEOUT_MS))
 
 def _is_bare_origin(parsed) -> bool:
     """scheme://host with no path, query, fragment or userinfo; browsers send
@@ -1395,9 +1408,17 @@ class KongConfigGenerator:
         """
         if self.get_env_value("ASSET_WORKER_SOURCE", "disabled") == "disabled":
             return None
+        # One request runs three converter commands, each up to
+        # ASSET_WORKER_TIMEOUT_SECONDS; the gateway's 300 s default 504'd a
+        # long one while the worker kept its only slot.
+        worker_ms = _asset_worker_timeout_ms(
+            self.get_env_value("ASSET_WORKER_TIMEOUT_SECONDS", "300")
+        )
         return {
             "name": "asset-worker",
             "url": "http://asset-worker:8095/",
+            "read_timeout": worker_ms,
+            "write_timeout": worker_ms,
             "routes": [
                 {
                     "name": "asset-worker-all",

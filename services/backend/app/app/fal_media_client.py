@@ -129,6 +129,16 @@ def validate_fal_config() -> None:
     fal_timeout_seconds_from_env()
     _output_format(os.getenv("FAL_OUTPUT_FORMAT", "jpeg") or "jpeg")
     _env_bool("FAL_ENABLE_SAFETY_CHECKER", True)
+    # Otherwise every image_to_3d request without `model` answers 400. Only
+    # an enabled FAL needs it: a disabled one must not stop the Backend.
+    fal_enabled = (os.getenv("FAL_SOURCE") or "disabled").strip().lower() == "enabled"
+    default_3d = (os.getenv("FAL_IMAGE_TO_3D_MODEL") or "").strip()
+    if fal_enabled and default_3d:
+        entry = media_registry.lookup(default_3d)
+        if entry is None or not entry.endpoint_verified:
+            raise ValueError(
+                "FAL_IMAGE_TO_3D_MODEL must name a verified image_to_3d registry entry"
+            )
 
 
 class FalClient:

@@ -67,6 +67,7 @@ FORWARDING_EXCEPTIONS: dict[str, str] = {
     # -- families without containers (virtual/engine manifests)
     "STT_PROVIDER_SCALE": "virtual engine family; no container to scale",
     "TTS_PROVIDER_SCALE": "virtual engine family; no container to scale",
+    "TTS_PROVIDER_PORT": "wizard display slot mirrored from SPEACHES_PORT or CHATTERBOX_PORT; no container reads it",
     "VLLM_METAL_SCALE": "managed-localhost family; no container to scale",
 }
 
@@ -86,8 +87,12 @@ def _generated_keys() -> set[str]:
     from services.service_config import ServiceConfig
 
     parser = ConfigParser(str(ROOT))
+    parser.env_file_path = ROOT / ".env.example"  # committed defaults, never the operator's .env
     config = ServiceConfig(parser)
     config.yaml_config = parser.load_yaml_config()
+    # generate_service_environment() calls load_config(), which re-reads SOURCE values from
+    # the env file and would discard the source sets assigned below.
+    config.load_config = lambda: True
 
     def generate(sources: dict[str, str]) -> set[str]:
         config.service_sources = dict(sources)

@@ -11,10 +11,26 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import shlex
+import signal
 from typing import Any
 
 import pytest
 import yaml
+
+
+def _ignore_in_pytest_only(signum, frame):
+    """Stand-in for an inherited SIG_IGN on HUP/INT.
+
+    ``nohup`` and ``cmd &`` start pytest with these ignored, and exec keeps an
+    ignored signal ignored, so the signal probes' traps never fire. exec resets
+    a Python handler to SIG_DFL, so probes can trap again while pytest still
+    ignores the signal."""
+
+
+def pytest_configure(config):
+    for sig in (signal.SIGHUP, signal.SIGINT):
+        if signal.getsignal(sig) is signal.SIG_IGN:
+            signal.signal(sig, _ignore_in_pytest_only)
 
 
 @pytest.fixture(autouse=True)

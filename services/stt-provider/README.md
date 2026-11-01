@@ -230,7 +230,7 @@ until inference is available. Speaches `/health` reports process liveness only.
 
 ## 7. Supported audio formats
 
-- Parakeet providers expect WAV, FLAC, MP3, M4A, OGG or OPUS. Other extensions log a warning and still go to the model.
+- Parakeet providers do not check the audio format. They pass the upload, with a short file extension, to the model library. A file the library cannot decode returns HTTP 500 `Transcription failed`.
 - whisper.cpp accepts WAV, MP3 and FLAC. Other formats need `--convert` and `ffmpeg` on the `PATH`.
 - Open WebUI (`v0.6.32`) converts AAC audio to MP3 before it sends it. It also converts any codec other than FLAC, M4A, MP3, MP4, MPEG, WAV or WebM. Browser microphone recordings (Opus or AAC) therefore arrive as MP3.
 

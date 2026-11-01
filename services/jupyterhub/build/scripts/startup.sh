@@ -158,7 +158,7 @@ client = OpenAI(
     api_key=os.environ["OPENAI_API_KEY"],
 )
 resp = client.chat.completions.create(
-    model="ollama/qwen3.8:latest",
+    model=os.environ.get("LITELLM_DEFAULT_MODEL") or "ollama/qwen3.8:latest",
     messages=[{"role": "user", "content": "Hello!"}],
 )
 print(resp.choices[0].message.content)

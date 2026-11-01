@@ -1967,7 +1967,8 @@ def test_doctor_include_unlisted_requires_bundle(tmp_path, monkeypatch) -> None:
 
 def test_doctor_bundle_records_checks_that_could_not_run(tmp_path, monkeypatch) -> None:
     """#1057 AC4: a disabled service's check is kept as skipped/unavailable,
-    and a check that raises is recorded rather than dropped."""
+    and a check that raises is recorded rather than dropped. It still fails
+    the run, as it does without --bundle."""
     import start as start_module
 
     _write_base_env(tmp_path, extra="COMFYUI_SOURCE=disabled\n")
@@ -1992,7 +1993,8 @@ def test_doctor_bundle_records_checks_that_could_not_run(tmp_path, monkeypatch) 
             checks["comfyui-mps"]["message"]) == (
         "skipped", False, "COMFYUI_SOURCE is not managed-localhost-mps.")
     assert (checks["compose"]["status"], checks["compose"]["available"]) == ("skipped", False)
-    assert checks["broken-probe"]["status"] == "unavailable"
+    assert (checks["broken-probe"]["status"], result.exit_code,
+            json.loads(result.stdout)["ok"]) == ("unavailable", 1, False)
     assert "RuntimeError: probe exploded" in checks["broken-probe"]["message"]
     # The JSON on stdout stays machine-clean; the preview went to stderr.
     assert json.loads(result.stdout)["checks"][-1]["id"] == "broken-probe"

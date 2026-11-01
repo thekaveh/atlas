@@ -3855,20 +3855,11 @@ class WizardScreen(Screen):
         steps = [
             ("Apply source overrides",
              lambda: starter.apply_source_overrides(**(self._source_args or {}))),
-            # Apply prod-profile env overrides after source overrides so the
-            # observability default-ON only fires when the user didn't set
-            # prometheus/grafana sources explicitly. The explicit_prometheus/
-            # explicit_grafana guards replicate start.py's linear-path logic:
-            # if the user already set them via source_args, those args were
-            # already applied above, so we pass None here (helper skips the
-            # default-ON write). The TUI wizard merges user choices into
-            # source_args so we can safely read from there.
+            # Apply profile overrides after source overrides: the wizard
+            # merges user choices into source_args, so they are already in
+            # _explicit_source_vars and win over the profile's sources.
             ("Apply profile overrides",
-             lambda _p=_resolved_profile: starter.apply_profile_overrides(
-                 _p,
-                 explicit_prometheus=(self._source_args or {}).get("prometheus_source"),
-                 explicit_grafana=(self._source_args or {}).get("grafana_source"),
-             )),
+             lambda _p=_resolved_profile: starter.apply_profile_overrides(_p)),
             # Validate that no dev-only source (e.g. ollama-localhost) is active
             # under --profile prod. This mirrors the linear-path check in start.py
             # but was absent from the TUI pipeline: a track-skipped service step

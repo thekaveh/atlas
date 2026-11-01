@@ -65,6 +65,11 @@ class ServiceEndpoints:
     # source value → host port for host-process sources (overrides host_port_var)
     host_port_overrides: Mapping[str, HostPortOverride] = field(default_factory=dict)
     kong_alias: str | None = None         # → http://<alias>:${KONG_HTTP_PORT}
+    # SOURCE of the component that serves the host port / the Kong route,
+    # when it is not the row's ``source_var`` (Supabase: PostgREST, Studio).
+    # A disabled component's field is omitted; the rest of the row stays.
+    host_source_var: str | None = None
+    kong_source_var: str | None = None
 
 
 # Curated, ordered contract. Aliases are the stable Kong *.localhost hostnames.
@@ -74,6 +79,8 @@ class ServiceEndpoints:
 # only its ``ATLAS_<SVC>_SOURCE`` and NO stale endpoints. Always-on tier
 # services (Backend/LiteLLM/Redis/Supabase) still carry their real SOURCE var so
 # consumers can read the active mode; those simply never hit the disable path.
+# Supabase's host and Kong fields follow its PostgREST and Studio sub-sources
+# instead (``host_source_var``/``kong_source_var``), which can be disabled.
 CONSUMER_SERVICES: tuple[ServiceEndpoints, ...] = (
     ServiceEndpoints(
         service="BACKEND",
@@ -169,6 +176,8 @@ CONSUMER_SERVICES: tuple[ServiceEndpoints, ...] = (
         source_var="SUPABASE_DB_SOURCE",
         host_port_var="SUPABASE_API_PORT",
         kong_alias="supabase-studio.localhost",
+        host_source_var="SUPABASE_API_SOURCE",
+        kong_source_var="SUPABASE_STUDIO_SOURCE",
     ),
 )
 
@@ -191,6 +200,9 @@ _STORAGE_CRED_VALUE_SUFFIXES = ("_ACCESS_KEY", "_SECRET_KEY")
 _STORAGE_CRED_TARGET_PREFIX = "MINIO_"
 
 DISABLED_SOURCES = frozenset({"disabled", "none", ""})
+# An unset sub-component SOURCE keeps its service default, so only an explicit
+# value drops a field (see ``ServiceEndpoints.host_source_var``).
+_DISABLED_SUBSOURCES = DISABLED_SOURCES - {""}
 
 
 def _is_scoped_cred_target(var_name: str) -> bool:
@@ -265,6 +277,15 @@ def _host_url(
     if not port:
         return None
     return f"{scheme}://localhost:{port}"
+
+
+def _unless_disabled(
+    env: Mapping[str, str], source_var: str | None, value: str | None
+) -> str | None:
+    """``value``, or ``None`` when ``source_var`` names a disabled component."""
+    if source_var and env.get(source_var, "").strip() in _DISABLED_SUBSOURCES:
+        return None
+    return value
 
 
 def _kong_url(env: Mapping[str, str], alias: str) -> str | None:
@@ -351,12 +372,14 @@ def build_export(
             override = svc.host_port_overrides[source]
             host_port_var = override.port_var
             host_port_default = override.default
+        host_port_var = _unless_disabled(env, svc.host_source_var, host_port_var)
         if host_port_var:
             host = _host_url(env, host_port_var, host_port_default, svc.host_scheme)
             if host:
                 out.append(ExportField(f"{prefix}_HOST_ENDPOINT", host))
-        if svc.kong_alias:
-            kong = _kong_url(env, svc.kong_alias)
+        kong_alias = _unless_disabled(env, svc.kong_source_var, svc.kong_alias)
+        if kong_alias:
+            kong = _kong_url(env, kong_alias)
             if kong:
                 out.append(ExportField(f"{prefix}_KONG_ENDPOINT", kong))
 

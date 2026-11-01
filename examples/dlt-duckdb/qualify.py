@@ -1,4 +1,7 @@
-"""Qualify incremental loads, schema evolution and retry recovery with local fixtures."""
+"""Qualify incremental loads, schema evolution and retry recovery with local fixtures.
+
+Run it with the isolated launcher in docs/operations/dlt-duckdb.md (section 5).
+"""
 
 import argparse
 from contextlib import ExitStack

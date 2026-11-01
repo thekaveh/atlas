@@ -64,7 +64,7 @@ env:
     # default computed by services/topology.py slot allocator
     description: "Host port for the MinIO admin console (in-container listen port is 9001)."
   - name: MINIO_ROOT_USER
-    description: "MinIO root username. minio-init, airflow and backup also receive it; consumer services use their own scoped access keys."
+    description: "MinIO root username. minio-init, airflow, spark-init and backup also receive it; consumer services use their own scoped access keys."
     default: minioadmin
   - name: MINIO_ROOT_PASSWORD
     default: ""

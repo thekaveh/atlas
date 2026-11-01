@@ -392,7 +392,7 @@ rag_ingestion_profiles:
         - { backend: lightrag, mode: upload_documents, wait_for_extraction: true, timeout_seconds: 3600, on_unavailable: skip }
 ```
 
-Accepted values: `parser_order` entries `docling`, `tika`, `crawl4ai`, `plain_text`; `chunker.strategy` `token`, `recursive`, `semantic`; vector backend `weaviate`; graph backend `lightrag` with mode `upload_documents`.
+Accepted values: `parser_order` entries `docling`, `tika`, `plain_text`; `chunker.strategy` `token`, `recursive`, `semantic`; vector backend `weaviate`; graph backend `lightrag` with mode `upload_documents`.
 
 On `./start.sh`, the bootstrapper validates and normalizes each profile and hashes it into a stable `revision`. It writes the gitignored `volumes/backend/rag-ingestion-profiles.json` and mounts it into Backend and Celery at a reserved internal path. Both services get the same `RAG_INGESTION_PROFILES_FILE`, Redis state URL, upstream endpoints and resource limits. A MinIO corpus bucket must also be in the same consumer's `storage.buckets`. Atlas then injects only that store's credential variable names into both services.
 
@@ -457,7 +457,7 @@ The unit suite checks the contract, phases, idempotency and path safety with fak
 
 ## 12. `lightrag_query_profiles`
 
-Each profile is a named bundle of LightRAG per-query settings. Open WebUI users can then pick "graph-rag local k=30" or "graph-rag hybrid k=10", and the app does not hard-code them.
+Each profile is a named bundle of LightRAG per-query settings, such as "graph-rag local k=30". Atlas validates, compiles and mounts the profiles. A consumer plugin or integration selects one by name; Atlas does not apply profiles to queries itself.
 
 ```yaml
 # atlas.consumer.yml

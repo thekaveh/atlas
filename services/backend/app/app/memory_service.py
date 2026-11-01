@@ -540,7 +540,6 @@ Extract the facts as JSON:"""
                     namespace=namespace,
                     fact_type=fact["fact_type"],
                     confidence=fact["confidence"],
-                    metadata={},
                 )
                 embedding_stored = True
             except Exception as exc:

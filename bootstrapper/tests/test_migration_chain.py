@@ -501,7 +501,7 @@ def test_marker_error_blocks_public_flow_before_dependent_work(tmp_path, monkeyp
     monkeypatch.setattr(starter, "apply_source_overrides", forbidden)
     monkeypatch.setattr(integration, "_build_steps_and_rows", forbidden)
     if flow == "linear":
-        options = LinearStartupOptions(False, None, None, {}, None, None, None, {}, {}, False, False, True, None, True, False, True)
+        options = LinearStartupOptions(False, None, None, {}, None, {}, {}, False, False, True, None, True, False, True)
         with pytest.raises(click.ClickException):
             run_linear_startup(starter, options)
     elif flow == "setup":

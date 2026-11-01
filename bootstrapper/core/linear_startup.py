@@ -39,8 +39,6 @@ class LinearStartupOptions:
     project_name: str | None
     source_args: dict[str, Any]
     profile: str | None
-    explicit_prometheus: str | None
-    explicit_grafana: str | None
     cloud_api_keys: dict[str, str]
     user_model_selections: dict[str, str]
     no_port_migrate: bool
@@ -164,11 +162,9 @@ def _run_linear_startup(
     starter.run_port_migration(options.no_port_migrate)
     if not starter.apply_source_overrides(**options.source_args):
         return 1
-    if not starter.apply_profile_overrides(
-        options.profile or "default",
-        explicit_prometheus=options.explicit_prometheus,
-        explicit_grafana=options.explicit_grafana,
-    ):
+    # After the source overrides: this run's flags are in
+    # _explicit_source_vars, so they win over the profile's sources.
+    if not starter.apply_profile_overrides(options.profile or "default"):
         return 1
     if not starter.apply_cloud_api_keys(options.cloud_api_keys):
         return 1

@@ -146,9 +146,9 @@ class _Starter:
 def _options(**overrides):
     values = dict(
         cold=False, base_port=63000, project_name="atlas", source_args={},
-        profile="default", explicit_prometheus=None, explicit_grafana=None,
-        cloud_api_keys={}, user_model_selections={}, no_port_migrate=False,
-        setup_hosts=False, skip_hosts=True, track="gen-ai-rag", detach=False,
+        profile="default", cloud_api_keys={}, user_model_selections={},
+        no_port_migrate=False, setup_hosts=False, skip_hosts=True, track="gen-ai-rag",
+        detach=False,
         json_output=False, no_splash=True,
     )
     values.update(overrides)

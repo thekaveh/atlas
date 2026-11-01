@@ -159,7 +159,6 @@ class ResearchClient:
     async def wait_for_completion(
         self, 
         session_id: str, 
-        poll_interval: int = 5, 
         max_wait_time: int = 300
     ) -> ResearchResponse:
         """Execute the LangGraph research run and wait for the SSE stream to finish."""

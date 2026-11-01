@@ -570,6 +570,8 @@ The field **names are a compatibility contract**: a rename is a breaking change.
 
 It also emits `ATLAS_KONG_GATEWAY` and every `ATLAS_STORE_*` field from the [storage contract](#612-adding-parent-owned-minio-buckets). Host and Kong URLs follow `BASE_PORT`. The internal and public MinIO endpoints differ; sign presigned URLs against `ATLAS_MINIO_PUBLIC_ENDPOINT`.
 
+**Supabase components.** `ATLAS_SUPABASE_HOST_ENDPOINT` is PostgREST and `ATLAS_SUPABASE_KONG_ENDPOINT` is Studio. `SUPABASE_API_SOURCE=disabled` drops the host field, and `SUPABASE_STUDIO_SOURCE=disabled` drops the Kong field.
+
 **Host-process sources.** `ATLAS_<SVC>_HOST_ENDPOINT` uses the port the host process serves on, not the Compose published port. Container sources use their published port.
 
 - `COMFYUI_SOURCE=managed-localhost-mps` → `http://localhost:8188` (`COMFYUI_MPS_LOCALHOST_PORT`)
@@ -752,7 +754,7 @@ A warm `./start.sh` always recreates containers (`--force-recreate`). It adds `-
 
 Release archives without Git metadata still track build inputs and targets. A targeted build records only its own target set, so building other services cannot mark a disabled service fresh. An unchanged warm restart skips the build.
 
-**Dockerfile edits are not detected.** The marker does not hash source files, so an uncommitted Dockerfile or build-context edit does not trigger a rebuild. Rebuild only that service, for example `docker compose -p <project> build --no-cache <svc>`, then run `./start.sh`.
+**Dockerfile edits are not detected.** The marker does not hash source files, so an uncommitted Dockerfile or build-context edit does not trigger a rebuild. Rebuild only that service with the `atlas_compose` helper from [Quick Start Troubleshooting](../quick-start/troubleshooting.md), for example `atlas_compose build --no-cache <svc>`, then run `./start.sh`. Set `ATLAS_CONSUMER_MANIFEST` to the launch manifest and keep the launch's `ATLAS_ENV_FILE`.
 
 **Warning:** do not use `./start.sh --cold` to pick up a Dockerfile edit. It rebuilds without cache, but it also **deletes all of the project's volumes** and regenerates `.env` and its secrets. Use it only for a full reset.
 

@@ -142,9 +142,9 @@ class _InlineExecutor:
 def _options(selections):
     return LinearStartupOptions(
         cold=False, base_port=None, project_name=None, source_args={}, profile="default",
-        explicit_prometheus=None, explicit_grafana=None, cloud_api_keys={},
-        user_model_selections=selections, no_port_migrate=True, setup_hosts=False,
-        skip_hosts=True, track=None, detach=True, json_output=False, no_splash=True,
+        cloud_api_keys={}, user_model_selections=selections, no_port_migrate=True,
+        setup_hosts=False, skip_hosts=True, track=None, detach=True, json_output=False,
+        no_splash=True,
     )
 
 

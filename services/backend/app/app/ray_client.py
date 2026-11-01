@@ -297,11 +297,9 @@ class RayClient:
     def cluster_status(self) -> dict:
         # Hits the Ray dashboard's /api/cluster_status directly over the internal
         # backend-network (container-to-container); the Ray dashboard has no auth.
-        # The backend's own Kong route (backend-api) is behind key-auth + ACL ONLY
-        # when the operator sets BACKEND_KONG_AUTH=key-auth (default: disabled) —
-        # see kong_config_generator.generate_backend_service. Operators exposing
-        # the stack should set it to gate the Ray job-submission surface
-        # (/api/ray/jobs/submit runs an arbitrary shell entrypoint on the cluster).
+        # Its only caller is GET /api/ray/cluster/status.
+        # ray_routes._require_ray_job_token gates every /api/ray route with
+        # RAY_JOB_API_TOKEN (fail closed), whatever BACKEND_KONG_AUTH is.
         import urllib.request, json
         self._ensure_client()
         try:

@@ -270,6 +270,20 @@ def test_rows_the_downloader_would_refuse_are_skipped_alone(tmp_path, capsys):
     assert capsys.readouterr().err.count("construction failed") == 3
 
 
+@pytest.mark.parametrize("length,loads", [(255, True), (256, False)])
+def test_sidecar_filename_length_limit_is_255(tmp_path, capsys, length, loads):
+    """The downloader caps a filename at 255 characters; 255 is legal."""
+    fname = "a" * (length - len(".safetensors")) + ".safetensors"
+    sidecar = tmp_path / "custom-models.yaml"
+    sidecar.write_text(
+        "models:\n"
+        f"  - {{name: m, category: lora, url: 'https://h/a/x.safetensors', filename: '{fname}'}}\n",
+        encoding="utf-8",
+    )
+    assert bool(load_custom_models(str(sidecar))) is loads
+    assert ("filename is longer than 255 characters" in capsys.readouterr().err) is not loads
+
+
 def test_two_models_never_share_a_download_path(tmp_path, capsys):
     """Diffusers repos all ship diffusion_pytorch_model.safetensors: two
     scraped or fallback ControlNets landed on one path and the plan writer

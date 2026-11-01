@@ -176,14 +176,16 @@ a log excerpt into one local `.tar.gz` you can attach to an issue. A relative
   log excerpt shows its first and last 20 lines, since the pane already holds
   that log. Ctrl+Q waits until the bundle is written.
 
-The file is created owner-only (`0600`). **Atlas does not upload the bundle.**
+The file is created owner-only (`0600`). A symlink at `PATH` is replaced, not
+followed. **Atlas does not upload the bundle.**
 While checks run, Python socket connections outside loopback or a Unix socket
 are refused in every thread.
 
 A check that exceeds the collection budget is reported as `unavailable`; its
-thread can keep running. The guard stays active until all check threads finish,
-even after collection returns. A check that never finishes keeps the guard
-active for that process.
+thread can keep running. Like a failed check, an `unavailable` check makes
+`doctor --bundle` exit non-zero. The guard stays active until all check
+threads finish, even after collection returns. A check that never finishes
+keeps the guard active for that process.
 
 The guard does not cover subprocesses such as `docker compose config` or DNS
 lookups. A check that probes a non-local address reports that it could not

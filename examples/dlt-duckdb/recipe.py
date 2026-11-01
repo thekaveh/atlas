@@ -1,4 +1,7 @@
-"""Load bounded local JSON revisions into DuckDB."""
+"""Load bounded local JSON revisions into DuckDB.
+
+Run it with the isolated launcher in docs/operations/dlt-duckdb.md (sections 2 and 3).
+"""
 
 import argparse
 import hashlib
@@ -128,7 +131,8 @@ def runtime_require(condition, detail):
 def check_launcher():
     runtime_require(sys.version_info[:2] == (3, 12), "use the reviewed Python 3.12 interpreter")
     runtime_require(sys.flags.isolated and sys.flags.no_site and sys.flags.dont_write_bytecode,
-            "launch with -I -S -B before importing optional packages")
+            "launch with -I -S -B before importing optional packages; "
+            "see the launcher in docs/operations/dlt-duckdb.md")
     venv = Path(sys.executable).absolute().parent.parent
     config = venv / "pyvenv.cfg"
     runtime_require(config.is_file() and not config.is_symlink(), "executable is not in the owned venv")

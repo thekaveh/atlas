@@ -106,7 +106,8 @@ def render_plan_archive_line(repo_root: Path) -> str:
     return (
         "- [plans](plans/) and [specs](specs/): point-in-time implementation "
         f"plans and specs dated {first.isoformat()} through {last.isoformat()}. "
-        "CHANGELOG entries link the relevant artifacts."
+        "The CHANGELOG links only a few of these files, and not every record "
+        "led to a change."
     )
 
 

@@ -154,6 +154,29 @@ def _alias_url(r: ServiceRow) -> str:
     return f"http://{alias}"
 
 
+def _extra_endpoints(r: ServiceRow) -> list[tuple[str, str]]:
+    """The row's extra card endpoints (MinIO's S3 URLs), under the same
+    availability rule as ``_alias_url``: a source without an endpoint
+    advertises none."""
+    return list(r.tooltip_extra) if source_has_endpoint(r.source or "") else []
+
+
+def minio_s3_endpoints(env: dict, kong_port: str) -> list[tuple[str, str]]:
+    """S3 API endpoints for the MinIO Console hover card.
+
+    Derived from ``env`` and ``kong_port`` so callers that re-derive ports
+    for a new base port pass their synthetic env and get matching URLs. A
+    blank port omits its pair rather than showing a guessed default.
+    """
+    pairs: list[tuple[str, str]] = []
+    s3_port = (env.get("MINIO_PORT") or "").strip()
+    if s3_port:
+        pairs.append(("S3 API", f"http://localhost:{s3_port}"))
+    if kong_port:
+        pairs.append(("S3 (Kong)", f"http://s3.minio.localhost:{kong_port}"))
+    return pairs
+
+
 class ServiceTable(Widget):
     """Service grid rendered as a single styled Text block."""
 
@@ -313,8 +336,10 @@ class ServiceTable(Widget):
         # Pending-state branch: row decided by the user has not been confirmed yet.
         # All "decided" columns collapse to em-dashes / placeholders; the dot
         # switches to a hollow yellow ◌. Locked rows can never be pending so we
-        # don't need to coordinate with the lock branch.
-        if r.pending:
+        # don't need to coordinate with the lock branch. An off-track row is
+        # never asked about and is force-disabled at launch, so it skips this
+        # branch and renders "disabled (off-track)" (spec §5.2 #5).
+        if r.pending and not r.off_track:
             slot.append("◌", style=P.WARN)
             slot.append("  ")
             if r.configurable:
@@ -500,7 +525,7 @@ class ServiceTable(Widget):
         port = (row.port or "").lstrip(":").strip()
         if port and port != "—":
             pairs.append(("Local", f"localhost:{port}"))
-        pairs.extend(row.tooltip_extra)
+        pairs.extend(_extra_endpoints(row))
         return pairs
 
     @staticmethod

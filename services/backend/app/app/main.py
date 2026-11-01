@@ -1429,7 +1429,6 @@ async def _latest_rag_record(
 async def _queue_rag_ingestion(
     service: RagIngestionService,
     record: Any,
-    created: bool,
     cancellation_seen: asyncio.Event,
 ) -> RagIngestionQueuedResponse:
     owner = uuid4().hex
@@ -1521,9 +1520,7 @@ async def submit_rag_ingestion(request: RagIngestionRequest, async_job: bool = T
         return existing
 
     if use_celery:
-        return await _queue_rag_ingestion(
-            service, record, created, cancellation_seen
-        )
+        return await _queue_rag_ingestion(service, record, cancellation_seen)
 
     # Synchronous fallback (Celery disabled or async_job=false).
     run_task = asyncio.create_task(service.run(record.id))

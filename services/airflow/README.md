@@ -89,7 +89,7 @@ The same pattern works for `spark_default`. Use direct `airflow.settings.Session
 2. `summarize_via_litellm` calls LiteLLM's chat-completions endpoint through `OpenAIHook.get_conn()`. It defaults to `ollama/qwen3.8:latest`. With `--llm-provider-source none` and `CLOUD_OPENAI_SOURCE=enabled`, switch to a cloud model such as `gpt-4o-mini`.
 3. `list_minio_buckets` calls `S3Hook.list_buckets()` against `minio_default`.
 
-A commented LangChain block at the end of the file shows chain-based LLM steps in a `PythonOperator`. Apache publishes no LangChain provider, so wrap chains in a Python callable.
+A commented LangChain block at the end of the file shows chain-based LLM steps in a `PythonOperator`. It reads the LiteLLM URL and key from the seeded `litellm_default` Connection. Apache publishes no LangChain provider, so wrap chains in a Python callable.
 
 Use it as a template. Put your own DAGs in `services/airflow/dags/`. The folder is bind-mounted into the scheduler, DAG processor and API server.
 

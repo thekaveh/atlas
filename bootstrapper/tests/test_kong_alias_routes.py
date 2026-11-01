@@ -1012,7 +1012,20 @@ def test_asset_baker_route_outlasts_the_bake_timeout():
 
     assert _bake_timeout_ms(" 900.0 ") == 930_000  # the worker reads it with float()
     assert _bake_timeout_ms("1e9") == 2**31 - 2  # beyond Kong's limit breaks the config
+    assert _bake_timeout_ms("1e308") == 2**31 - 2  # overflows to inf before the cap
     assert _bake_timeout_ms("nan") == _bake_timeout_ms("junk") == 630_000
+
+
+def test_asset_worker_route_outlasts_its_three_commands():
+    """inspect, validate and optimize each get ASSET_WORKER_TIMEOUT_SECONDS;
+    Kong's 300 s default cut a request the worker was still within budget on."""
+    from utils.kong_config_generator import _asset_worker_timeout_ms
+
+    config = _generate("ASSET_WORKER_SOURCE=container\nASSET_WORKER_TIMEOUT_SECONDS=300")
+    service = _service(config, "asset-worker")
+    assert service["read_timeout"] == service["write_timeout"] == 960_000
+    assert _asset_worker_timeout_ms("nan") == _asset_worker_timeout_ms("-5") == 960_000
+    assert _asset_worker_timeout_ms("1e9") == _asset_worker_timeout_ms("1e308") == 2**31 - 2
 
 
 def test_cors_is_scoped_to_local_browser_origins():

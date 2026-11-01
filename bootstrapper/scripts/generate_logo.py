@@ -2,11 +2,19 @@
 """Maintainer-only generator: render assets/atlas-source.png to per-width
 terminal cell-grids committed under bootstrapper/ui/textual/assets/.
 
-Requires Pillow and chafa (NOT runtime deps):
-    pip install pillow   &&   brew install chafa   # or apt-get install chafa
+Run from the repo root, in the bootstrapper environment (Pillow, rich and
+textual come from bootstrapper/pyproject.toml):
+    uv run --project bootstrapper python bootstrapper/scripts/generate_logo.py
 
-Run from the repo root:
-    python bootstrapper/scripts/generate_logo.py
+Install chafa first (brew install chafa, or apt-get install chafa). pngquant
+is optional; it keeps the profile and social PNGs under 1 MB.
+
+Outputs to commit:
+    bootstrapper/ui/textual/assets/atlas_hero_*.json
+    bootstrapper/ui/textual/assets/atlas_poster_*.json
+    assets/atlas-poster.png
+    assets/atlas-profile.png
+    assets/atlas-social-preview.png
 """
 from __future__ import annotations
 

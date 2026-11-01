@@ -512,10 +512,13 @@ class SourceValidator:
         vLLM Metal — must be configured, otherwise the LiteLLM gateway has no
         models to route to.
         """
+        # The provider list comes from the registry, so a provider added
+        # there counts as an upstream here without a second edit.
+        from utils.cloud_providers import CLOUD_PROVIDERS
         llm_source = service_sources.get('LLM_PROVIDER_SOURCE', 'ollama-container-cpu')
         cloud_enabled = any(
-            service_sources.get(var, 'disabled') == 'enabled'
-            for var in ('CLOUD_OPENAI_SOURCE', 'CLOUD_ANTHROPIC_SOURCE', 'CLOUD_OPENROUTER_SOURCE')
+            service_sources.get(p.source_var, 'disabled') == 'enabled'
+            for p in CLOUD_PROVIDERS
         )
         # vLLM Metal is a genuine LiteLLM upstream: litellm-init registers a
         # model_list entry (init.py::vllm_metal_model_entry) when
@@ -526,10 +529,10 @@ class SourceValidator:
         )
 
         if llm_source == 'none' and not cloud_enabled and not vllm_metal_enabled:
+            cloud_vars = ' / '.join(p.source_var for p in CLOUD_PROVIDERS)
             self.validation_errors.append(
                 "❌ LiteLLM has no upstream configured. Set LLM_PROVIDER_SOURCE to an "
-                "ollama-* value, enable at least one of CLOUD_OPENAI_SOURCE / "
-                "CLOUD_ANTHROPIC_SOURCE / CLOUD_OPENROUTER_SOURCE, or set "
+                f"ollama-* value, enable at least one of {cloud_vars}, or set "
                 "VLLM_METAL_SOURCE=managed-localhost."
             )
             return False

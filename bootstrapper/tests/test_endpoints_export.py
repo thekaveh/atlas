@@ -251,6 +251,16 @@ def test_disabled_neo4j_omits_endpoints_and_signals_source() -> None:
     assert "ATLAS_NEO4J_KONG_ENDPOINT" not in d
 
 
+def test_disabled_supabase_api_and_studio_drop_only_their_endpoints() -> None:
+    env = _base_env()  # PostgREST/Studio sources unset: their container default
+    on = _as_dict(build_export(env))
+    env.update(SUPABASE_API_SOURCE="disabled", SUPABASE_STUDIO_SOURCE="disabled")
+    off = {k: v for k, v in _as_dict(build_export(env)).items() if k.startswith("ATLAS_SUPABASE_")}
+    assert (on["ATLAS_SUPABASE_HOST_ENDPOINT"], on["ATLAS_SUPABASE_KONG_ENDPOINT"], off) == (
+        "http://localhost:63017", "http://supabase-studio.localhost:63000",
+        {"ATLAS_SUPABASE_SOURCE": "container"})
+
+
 def test_every_service_emits_a_source_field() -> None:
     """Each consumer-relevant service advertises its active SOURCE mode so a
     consumer can distinguish active vs disabled services (AC #2)."""

@@ -519,7 +519,7 @@ class ParserAdapter:
                         return ParsedDocument(name=file.name, text=str(text), parser=parser)
                     errors.append(f"{parser}: returned empty content")
                     continue
-                # crawl4ai and any future parser: not wired yet → fall through.
+                # Any parser the manifest loader does not allow: not wired.
                 errors.append(f"{parser}: not available")
             except Exception as exc:  # noqa: BLE001 - try the next parser
                 errors.append(f"{parser}: {exc}")
@@ -680,20 +680,18 @@ class WeaviateClient:
                 client, {"class": class_name, **existing.json()}, embedding
             ):
                 return False
-            resp = await client.post(
-                f"{self._url}/v1/schema",
-                json={
-                    "class": class_name,
-                    **({"description": description} if description else {}),
-                    "vectorizer": "none",
-                    "properties": [
-                        {"name": "content", "dataType": ["text"]},
-                        {"name": "source", "dataType": ["text"]},
-                        {"name": "profile", "dataType": ["text"]},
-                        {"name": "chunkIndex", "dataType": ["int"]},
-                    ],
-                },
-            )
+            schema = {
+                "class": class_name,
+                **({"description": description} if description else {}),
+                "vectorizer": "none",
+                "properties": [
+                    {"name": "content", "dataType": ["text"]},
+                    {"name": "source", "dataType": ["text"]},
+                    {"name": "profile", "dataType": ["text"]},
+                    {"name": "chunkIndex", "dataType": ["int"]},
+                ],
+            }
+            resp = await client.post(f"{self._url}/v1/schema", json=schema)
             if resp.status_code == 422:
                 # Creation can race another worker, but 422 also represents
                 # malformed schemas. Re-read to distinguish those outcomes.
@@ -702,6 +700,15 @@ class WeaviateClient:
                 )
                 if confirmed.status_code != 200:
                     resp.raise_for_status()
+                if existing.status_code != 200 and not await self._keep_existing_class(
+                    client, {"class": class_name, **confirmed.json()}, embedding
+                ):
+                    # The first read failed (e.g. a transient 503), so the
+                    # identity was never checked (#1364). The class held other
+                    # vectors and has been dropped: create it for this run's.
+                    recreated = await client.post(f"{self._url}/v1/schema", json=schema)
+                    recreated.raise_for_status()
+                    return True
             elif resp.status_code != 200:
                 resp.raise_for_status()
         return existing.status_code == 200

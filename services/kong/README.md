@@ -79,6 +79,7 @@ Kong 3.x has no global proxy-timeout setting, and its per-service default is 60 
 | Default (including n8n, so long webhooks are not cut off) | 300 s |
 | `docling-api` | `DOCLING_INFERENCE_TIMEOUT_SECONDS` + 30 s (930 s by default) |
 | `asset-baker` | `ASSET_BAKER_TIMEOUT_SECONDS` + 30 s (630 s by default) |
+| `asset-worker` | 3 × `ASSET_WORKER_TIMEOUT_SECONDS` + 60 s (960 s by default); one request runs inspect, validate and optimize |
 | Backend `api.localhost` | 3,630 s, or the Docling value + 30 s if larger. Backend requests wait on Docling or on a ComfyUI job of up to 3,600 s. |
 | Backend plugin services | the plugin's own values; the Backend value for any field the plugin does not set |
 | `litellm-gateway`, `ollama-api` | 630 s, for slow non-streaming completions |

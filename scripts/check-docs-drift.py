@@ -2,12 +2,13 @@
 """Local documentation drift checks for Atlas.
 
 Default scope excludes:
-  * historical audit/plan files
+  * historical audit/plan files, including the gitignored .audit/ overnight
+    logs and the local upstream-drift-report.md
   * bootstrapper/ — pytest fixtures under bootstrapper/tests/fixtures/
     contain intentionally-malformed sample Markdown that would generate
     false positives; user-facing bootstrapper docs are surfaced via the
     main README.md hub instead
-  * local virtualenvs + generated dependency directories
+  * local virtualenvs, tool caches + generated dependency directories
 
 Invoke as ``python scripts/check-docs-drift.py``. With no arguments it runs
 every probe. ``--write-prose-baseline`` instead rewrites the STE prose-length
@@ -17,7 +18,8 @@ refuses to raise any count unless ``--allow-prose-increase`` is also given.
 Exit codes:
     0  — every probe (links / architecture_refs / source_matrix /
          required_files / placeholder_urls / ... / prose_length) reports PASS
-    1  — at least one probe reported FAIL with details on stderr
+    1  — at least one probe reported FAIL; the FAIL lines and their details
+         are printed on stdout
 """
 import argparse
 import json
@@ -70,8 +72,9 @@ EXCLUDED_PARTS = {
     'tts-venv', 'site-packages', 'plans', '.mypy_cache', '.superpowers', '.kilo',
     '.claude',  # Claude Code's worktrees / scratch dirs are ephemeral, not source
     '.Codex',  # Codex worktrees / scratch dirs are ephemeral, not source
+    '.audit', '.pytest_cache', 'node_modules',  # gitignored logs and caches CI never sees
 }
-EXCLUDED_FILES = {'repo-issues-report.md', 'CLAUDE.md'}
+EXCLUDED_FILES = {'repo-issues-report.md', 'CLAUDE.md', 'upstream-drift-report.md'}
 
 LINK_RE = re.compile(r'\[[^\]]*\]\(([^)]+)\)')
 URL_RE = re.compile(r'^[a-z][a-z0-9+.-]*:', re.I)

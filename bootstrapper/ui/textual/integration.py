@@ -263,7 +263,7 @@ def recompute_ports_for_base(
     machine's port.
     """
     from wizard.model.state_builder import lookup_service_meta, resolve_port as _resolve_port
-    from .widgets.service_table import ServiceRow as _SR
+    from .widgets.service_table import ServiceRow as _SR, minio_s3_endpoints
 
     live_env = config_parser.parse_env_file()
     synth_env = dict(live_env)
@@ -286,7 +286,9 @@ def recompute_ports_for_base(
             off_track=r.off_track,
             # Preserve the hover-card metadata — a base-port change must not
             # strip a row's S3 endpoints / source options / dependencies.
-            tooltip_extra=r.tooltip_extra,
+            # MinIO's S3 endpoints follow the new base port.
+            tooltip_extra=(minio_s3_endpoints(synth_env, new_kong)
+                           if r.name == "MinIO Console" else r.tooltip_extra),
             source_options=r.source_options,
             depends_on=r.depends_on,
         ))
@@ -336,7 +338,7 @@ def _build_steps_and_rows(
     from wizard.model.state_builder import build_app_state
     from core.config_parser import DEFAULT_BASE_PORT, DEFAULT_PROJECT_NAME
     from .widgets.prompt_panel import PromptOption, PromptStep
-    from .widgets.service_table import ServiceRow
+    from .widgets.service_table import ServiceRow, minio_s3_endpoints
     from services.manifests import load_manifests as _load_manifests, option_in_profile as _option_in_profile
     from services.manifests import manifest_source_default
     from services.profiles import profile_source_map
@@ -953,18 +955,9 @@ def _build_steps_and_rows(
 
     # MinIO's wizard row is the admin console; surface its S3 API endpoints
     # (direct port + the s3.minio.localhost Kong alias) in the hover tooltip
-    # so external s3 clients can discover them from the services pane.
-    _minio_port = (env_vars.get("MINIO_PORT", "") or "63020").strip()
-
+    # so external s3 clients can discover them from the services pane. The
+    # base-port recompute paths re-derive them with the same helper.
     from wizard.model.state_builder import service_extras
-
-    def _tooltip_extra_for(svc) -> list[tuple[str, str]]:
-        if svc.name == "MinIO Console":
-            return [
-                ("S3 API", f"http://localhost:{_minio_port}"),
-                ("S3 (Kong)", f"http://s3.minio.localhost:{kong_port}"),
-            ]
-        return []
 
     rows = [
         ServiceRow(
@@ -976,7 +969,8 @@ def _build_steps_and_rows(
             category=s.category,
             pending=(s.name in configurable_names),  # locked rows start not-pending
             off_track=s.off_track,
-            tooltip_extra=_tooltip_extra_for(s),
+            tooltip_extra=(minio_s3_endpoints(env_vars, kong_port)
+                           if s.name == "MinIO Console" else []),
             source_options=service_extras(s.name)["options"],
             depends_on=service_extras(s.name)["depends"],
         )
@@ -1523,6 +1517,7 @@ def run_launch_flow(
     )
     from core.port_manager import PortManager
     from wizard.model.state_builder import lookup_service_meta, resolve_port as _resolve_port
+    from .widgets.service_table import minio_s3_endpoints
 
     # Port-layout v0 → v1 migration runs BEFORE the launch overview reads
     # .env so the displayed ports match the post-migration topology.
@@ -1625,7 +1620,9 @@ def run_launch_flow(
             # Preserve hover-card metadata — CLI-flag launch mode must show the
             # same S3 endpoints / source options / dependencies as wizard mode
             # (mirrors recompute_ports_for_base, which carries the same comment).
-            tooltip_extra=r.tooltip_extra,
+            # MinIO's S3 endpoints follow the effective base port.
+            tooltip_extra=(minio_s3_endpoints(synth_env, kong_port)
+                           if r.name == "MinIO Console" else r.tooltip_extra),
             source_options=r.source_options,
             depends_on=r.depends_on,
         ))

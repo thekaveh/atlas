@@ -20,7 +20,7 @@ A local-first AI voice studio — a Tauri (Rust) **desktop GUI app**, MIT, ~32k 
 
 ## 2. Problem it solves
 
-The genuinely novel capability is **agent voice over MCP**: `voicebox.speak` lets any MCP-aware agent talk in a cloned voice, with `voicebox.transcribe`, `voicebox.list_captures`, `voicebox.list_profiles` alongside. That maps cleanly onto the stack's MCP-client tier — Hermes ("MCP-native"), LiteLLM's `mcp_servers`, Open WebUI's native MCP client, n8n's `n8n-nodes-mcp`, and OpenClaw's MCP CLI — and would be the first concrete MCP server in the ROADMAP §3.10 architecture.
+The genuinely novel capability is **agent voice over MCP**: `voicebox.speak` lets any MCP-aware agent talk in a cloned voice, with `voicebox.transcribe`, `voicebox.list_captures`, `voicebox.list_profiles` alongside. That maps cleanly onto the stack's MCP-client tier — Hermes ("MCP-native"), LiteLLM's `mcp_servers`, Open WebUI's native MCP client, n8n's `n8n-nodes-mcp`, and OpenClaw's MCP CLI. Atlas already ships MCP tools through the `mcp-servers` service.
 
 Everything else is **redundant**: Voicebox bundles Chatterbox + Kokoro + Whisper, exactly the engines the stack already runs via Speaches and Chatterbox. As a TTS/STT engine it adds weight and a GUI dependency, not capability.
 
@@ -53,7 +53,7 @@ If pursued, the realistic shape is **MCP-only** (the OpenAI-provider path is a n
 
 ## 6. Risks & open questions
 
-- **No OpenAI-compatible endpoint.** This is the blocker. The native API is `POST /generate` (requires a stateful `profile_id`), `POST /speak`, `POST /transcribe` (field `audio`, not OpenAI's `file`). OpenAI compat is **planned but unshipped** — `docs/plans/OPENAI_SUPPORT.md` is marked "Status: Planned for v0.2.0," tracked in **issue #10 (still open)**, with **no `backend/openai_compat.py` in `main` despite the project being at v0.5.0** — it slipped three minor versions. Without it, Voicebox cannot serve the stack's OpenAI-protocol voice consumers (Open WebUI mic/speak buttons via `AUDIO_*_OPENAI_API_BASE_URL`, backend `/synthesize`+`/transcribe`, JupyterHub helpers), all of which would go dark if Voicebox were the chosen source.
+- **No OpenAI-compatible endpoint.** This is the blocker. The native API is `POST /generate` (requires a stateful `profile_id`), `POST /speak`, `POST /transcribe` (field `audio`, not OpenAI's `file`). OpenAI compat is **planned but unshipped** — `docs/plans/OPENAI_SUPPORT.md` is marked "Status: Planned for v0.2.0," tracked in **issue #10 (still open)**, with **no `backend/openai_compat.py` in `main` despite the project being at v0.5.0** — it slipped three minor versions. Without it, Voicebox cannot serve the stack's OpenAI-protocol voice consumers (Open WebUI mic/speak buttons via `AUDIO_*_OPENAI_API_BASE_URL`, JupyterHub helpers), all of which would go dark if Voicebox were the chosen source.
 - **Host desktop app, single-machine only.** `voicebox.speak` plays audio on the host's physical speakers with an on-screen pill. It is meaningless on a remote/headless server — so the integration is inherently local-dev-only and must default to disabled.
 - **Redundancy + statefulness.** Engines overlap with Speaches/Chatterbox; TTS requires pre-created voice profiles living in the app's SQLite, awkward for a stateless provider model.
 

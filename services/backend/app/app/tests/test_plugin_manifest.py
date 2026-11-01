@@ -451,3 +451,24 @@ def test_malformed_secret_default_is_not_in_plugin_diagnostics(tmp_path, monkeyp
         client.close()
         asyncio.run(main.n8n_client.aclose())
         sys.modules.pop("isolation_good_plugin", None)
+
+
+@pytest.mark.parametrize("raw", ["0", "-5", "300s"])
+def test_invalid_plugin_pip_timeout_warns_and_uses_default(monkeypatch, caplog, raw):
+    import logging
+
+    from plugin_seam import _pip_install_timeout_from_env
+
+    monkeypatch.setenv("BACKEND_PLUGINS_PIP_TIMEOUT_SECONDS", raw)
+    caplog.set_level(logging.WARNING, logger="uvicorn.error")
+    assert _pip_install_timeout_from_env() == 300
+    assert "BACKEND_PLUGINS_PIP_TIMEOUT_SECONDS" in caplog.text
+    assert repr(raw) in caplog.text
+
+
+def test_positive_plugin_pip_timeout_is_used(monkeypatch, caplog):
+    from plugin_seam import _pip_install_timeout_from_env
+
+    monkeypatch.setenv("BACKEND_PLUGINS_PIP_TIMEOUT_SECONDS", "45")
+    assert _pip_install_timeout_from_env() == 45
+    assert "BACKEND_PLUGINS_PIP_TIMEOUT_SECONDS" not in caplog.text

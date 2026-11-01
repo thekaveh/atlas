@@ -189,6 +189,31 @@ def _assert_bundle_base_port_origin(body, expected):
     assert body["findings"][0]["keys"] == [entry]
 
 
+def test_doctor_bundle_replaces_a_symlink_at_path_instead_of_its_target(tmp_path, monkeypatch):
+    from click.testing import CliRunner
+    from core.config_parser import ConfigParser
+    import start
+
+    parser = ConfigParser(str(tmp_path))
+    parser.env_file_path = tmp_path / "active.env"
+    parser.env_file_path.write_text("BASE_PORT=63000\n")
+    starter = SimpleNamespace(config_parser=parser, _env_origins=lambda: {},
+                              materialize_consumer_env_for_preflight=lambda: {})
+    build = start.AtlasStarter.build_support_bundle
+    starter.build_support_bundle = lambda options, checks=None: build(starter, options, checks)
+    monkeypatch.setattr(start, "AtlasStarter", lambda: starter)
+    monkeypatch.setattr(start, "DOCTOR_CHECKS", [])
+    target, link = tmp_path / "keep.txt", tmp_path / "shared" / "bundle.tar.gz"
+    target.write_text("untouched\n")
+    link.parent.mkdir()
+    link.symlink_to(target)
+    result = CliRunner().invoke(start.main, ["doctor", "--bundle", str(link)])
+    assert (result.exit_code, target.read_text(), link.is_symlink(), tarfile.is_tarfile(link),
+            link.stat().st_mode & 0o777) == (0, "untouched\n", False, True, 0o600), result.output
+    # --support-bundle resolves its PATH the same way.
+    assert start._invoker_output_path(link) == link.parent.resolve() / link.name
+
+
 @pytest.mark.parametrize("file_state", ["none", "missing", "other-key"])
 def test_bundle_origin_keeps_genuine_default_fallback(tmp_path, file_state):
     from core.support_bundle import BundleRequest, Redactor, config_entries

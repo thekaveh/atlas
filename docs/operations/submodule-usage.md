@@ -777,4 +777,4 @@ For every service and value, see [Source Configuration](source-configuration.md)
 - [Reusing Atlas as Infrastructure](reusing-atlas.md)
 - [Source Configuration](source-configuration.md)
 - [Git Submodules Documentation](https://git-scm.com/book/en/v2/Git-Tools-Submodules)
-- Container logs: run `docker compose -p <PROJECT_NAME> logs` from `infra/`, or `docker logs <PROJECT_NAME>-<service>`. A bare `docker compose logs` in `infra/` uses the folder name, `infra`, as the project.
+- Container logs: run `docker logs <PROJECT_NAME>-<service>`, or define the `atlas_compose` helper from [Quick Start Troubleshooting](../quick-start/troubleshooting.md) and run `atlas_compose logs <service>` from `infra/`. Set `ATLAS_CONSUMER_MANIFEST` to the launch manifest and keep the launch's `ATLAS_ENV_FILE`. A bare `docker compose logs` in `infra/` uses the folder name, `infra`, as the project.

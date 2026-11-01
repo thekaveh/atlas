@@ -262,7 +262,7 @@ Depends on (services Langfuse consumes):
 - **Supabase (PostgreSQL)** — control-plane metadata
 - **ClickHouse** — high-volume trace event store (added alongside)
 - **Redis** — queueing and rate-limit state
-- **MinIO** — large-payload offload (optional)
+- **MinIO** — S3 event and media storage (required: with `MINIO_SOURCE=disabled`, `./start.sh` stops with a Langfuse error)
 
 Consumed by (services that would call Langfuse):
 

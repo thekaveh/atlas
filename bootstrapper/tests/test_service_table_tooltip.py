@@ -182,25 +182,76 @@ def test_tooltip_pairs_includes_source_options_and_depends():
     assert labels.index("Source options") < labels.index("Source") + 3
 
 
+class _EnvParser:
+    def __init__(self, env=None):
+        self._env = dict(env or {})
+
+    def parse_env_file(self):
+        return dict(self._env)
+
+
 def test_recompute_ports_preserves_card_metadata():
     """A base-port change must not strip a row's hover-card metadata
     (the bug where MinIO lost its S3 endpoints after the base-port step)."""
     from ui.textual.integration import recompute_ports_for_base
 
-    class _CP:
-        def parse_env_file(self):
-            return {}
-
     row = ServiceRow(
-        name="MinIO Console", source="container", alias="minio.localhost",
-        tooltip_extra=[("S3 API", "http://localhost:63020")],
+        name="n8n", source="container", alias="n8n.localhost",
+        tooltip_extra=[("Webhook", "http://localhost:63064/webhook")],
         source_options=["container", "disabled"],
         depends_on=["supabase"],
     )
-    out = recompute_ports_for_base(64000, [row], _CP(), {})
-    assert out[0].tooltip_extra == [("S3 API", "http://localhost:63020")]
+    out = recompute_ports_for_base(64000, [row], _EnvParser(), {})
+    assert out[0].tooltip_extra == [("Webhook", "http://localhost:63064/webhook")]
     assert out[0].source_options == ["container", "disabled"]
     assert out[0].depends_on == ["supabase"]
+
+
+def test_recompute_ports_rederives_minio_s3_endpoints():
+    """MinIO's S3 endpoints must follow the new base port, like URL/Local,
+    instead of keeping the .env block (one card showed two port blocks)."""
+    from ui.textual.integration import recompute_ports_for_base
+
+    row = ServiceRow(
+        name="MinIO Console", source="container", alias="minio.localhost",
+        tooltip_extra=[("S3 API", "http://localhost:63020"),
+                       ("S3 (Kong)", "http://s3.minio.localhost:63000")],
+        source_options=["container", "disabled"],
+        depends_on=["supabase"],
+    )
+    env = _EnvParser({"MINIO_PORT": "63020", "KONG_HTTP_PORT": "63000"})
+    offsets = {"MINIO_PORT": 20, "KONG_HTTP_PORT": 0}
+    out = recompute_ports_for_base(64000, [row], env, offsets)
+    assert out[0].tooltip_extra == [
+        ("S3 API", "http://localhost:64020"),
+        ("S3 (Kong)", "http://s3.minio.localhost:64000"),
+    ]
+    assert out[0].source_options == ["container", "disabled"]
+    assert out[0].depends_on == ["supabase"]
+
+
+def test_minio_s3_endpoints_omit_blank_ports():
+    from ui.textual.widgets.service_table import minio_s3_endpoints
+
+    assert minio_s3_endpoints({"MINIO_PORT": " 63020 "}, "63000") == [
+        ("S3 API", "http://localhost:63020"),
+        ("S3 (Kong)", "http://s3.minio.localhost:63000"),
+    ]
+    assert minio_s3_endpoints({"MINIO_PORT": ""}, "") == []
+
+
+def test_tooltip_pairs_hide_extra_endpoints_for_disabled_source():
+    """A disabled MinIO runs nothing, so its card must not advertise S3 URLs
+    (the alias URL is already hidden for the same source)."""
+    row = _row("MinIO Console", source="disabled", alias="minio.localhost",
+               alias_port="63000",
+               tooltip_extra=[("S3 API", "http://localhost:63020"),
+                              ("S3 (Kong)", "http://s3.minio.localhost:63000")])
+    pairs = ServiceTable._tooltip_pairs(row)
+    labels = [k for k, _ in pairs]
+    assert "S3 API" not in labels and "S3 (Kong)" not in labels
+    assert "URL" not in labels
+    assert pairs[0] == ("Source", "disabled")
 
 
 def test_source_options_highlights_active_source():

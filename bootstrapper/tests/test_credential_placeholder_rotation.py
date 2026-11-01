@@ -329,6 +329,21 @@ def test_generate_missing_keys_creates_asset_api_and_minio_tokens(tmp_path):
     assert kg.get_current_env_value("MINIO_ASSET_INGEST_SECRET_KEY")
 
 
+@pytest.mark.parametrize("source", ["container", "disabled"])
+def test_generate_missing_keys_creates_lightrag_secrets_only_when_enabled(tmp_path, source):
+    """A blank LIGHTRAG_TOKEN_SECRET makes LightRAG sign JWTs with its
+    hardcoded default key, so an enabled LightRAG must get all three secrets,
+    and a rerun must keep them."""
+    names = ("LIGHTRAG_API_KEY", "LIGHTRAG_TOKEN_SECRET", "LIGHTRAG_RERANK_ADAPTER_TOKEN")
+    _seed_env(tmp_path, f"LIGHTRAG_SOURCE={source}\n" + "".join(f"{n}=\n" for n in names))
+    kg = KeyGenerator(str(tmp_path))
+    kg.generate_missing_keys(force_regenerate=False)
+    values = {n: kg.get_current_env_value(n) for n in names}
+    assert {bool(v) for v in values.values()} == {source == "container"}
+    kg.generate_missing_keys(force_regenerate=False)
+    assert {n: kg.get_current_env_value(n) for n in names} == values
+
+
 def test_assert_no_placeholders_detects_unrotated(tmp_path):
     import sys, pathlib
     sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))

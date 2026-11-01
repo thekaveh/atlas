@@ -880,25 +880,36 @@ def test_cancellation_survives_a_stale_worker_save(tmp_path, monkeypatch):
     assert persisted.cancel_requested is True
 
 
-def test_execution_claim_fences_non_owner_saves_and_allows_recovery():
-    store = InMemoryIngestionStore()
+@pytest.mark.parametrize("live_redis", [False, True])
+def test_execution_claim_fences_non_owner_saves_and_allows_recovery(live_redis):
+    # save_claimed is the only production write path (service.py), so its
+    # lease fence and terminal refusal are checked on the Redis store too.
+    store = _ingestion_regression_store(live_redis)
+    rid = str(uuid.uuid4())
     record = IngestionRecord(
-        id="ingestion-1",
+        id=rid,
         consumer="acme",
         profile="default",
         revision="1",
-        idempotency_key="key-1",
+        idempotency_key=rid,
     )
     store.create_if_absent(record)
 
-    assert store.claim_execution(record.id, ExecutionClaim("worker-a", 60)) is True
-    assert store.claim_execution(record.id, ExecutionClaim("worker-b", 60)) is False
-    claimed = store.get(record.id)
+    assert store.claim_execution(rid, ExecutionClaim("worker-a", 60)) is True
+    assert store.claim_execution(rid, ExecutionClaim("worker-b", 60)) is False
+    claimed = store.get(rid)
     claimed.status = "running"
     assert store.save_claimed(claimed, "worker-b") is False
     assert store.save_claimed(claimed, "worker-a") is True
-    assert store.release_execution(record.id, "worker-a") is True
-    assert store.claim_execution(record.id, ExecutionClaim("worker-b", 60)) is True
+    assert store.release_execution(rid, "worker-a") is True
+    assert store.claim_execution(rid, ExecutionClaim("worker-b", 60)) is True
+    claimed.status = "completed"
+    assert store.save_claimed(claimed, "worker-b")
+    claimed.status = "running"
+    assert store.save_claimed(claimed, "worker-b") is False, "a terminal record is never revived"
+    assert store.get(rid).status == "completed"
+    store.request_cancel(rid)
+    assert store.get(rid).cancel_requested is False, "a terminal record takes no cancel"
 
 
 def test_execution_claim_recovery_replaces_only_exact_ambiguous_owner():
@@ -930,16 +941,27 @@ def test_execution_claim_recovery_replaces_only_exact_ambiguous_owner():
 def test_run_rejects_concurrent_execution_before_side_effects(tmp_path, monkeypatch):
     from rag_ingestion.service import IngestionExecutionBusy
 
+    class RecordingEmbedder(FakeEmbedder):
+        def __init__(self):
+            super().__init__()
+            self.calls = []
+
+        async def embed(self, texts):
+            self.calls.append(list(texts))
+            return await super().embed(texts)
+
     _corpus(tmp_path, monkeypatch, {"a.txt": "content"})
     profile_path = _profiles_file(tmp_path)
     store = InMemoryIngestionStore()
-    embedder = FakeEmbedder()
+    embedder = RecordingEmbedder()
+    weaviate = FakeWeaviate()
+    lightrag = FakeLightrag()
     service = RagIngestionService(
         store=store,
         deps=Deps(
             embedder=embedder,
-            weaviate=FakeWeaviate(),
-            lightrag=FakeLightrag(),
+            weaviate=weaviate,
+            lightrag=lightrag,
             poll_interval=0.01,
         ),
         profiles_path=profile_path,
@@ -957,7 +979,9 @@ def test_run_rejects_concurrent_execution_before_side_effects(tmp_path, monkeypa
             )
         )
 
-    assert embedder.available() is True
+    side_effects = (weaviate.classes, weaviate.written, weaviate.reconciled,
+                    lightrag.uploaded, embedder.calls)
+    assert side_effects == ([], [], [], [], [])
     assert store.get(record.id).status == "pending"
 
 
@@ -1318,20 +1342,31 @@ def test_schema_drift_missing_profiles_file(tmp_path):
         load_profiles(str(bad))
 
 
-def test_partial_retry_after_failure_creates_fresh_run(tmp_path, monkeypatch):
-    # A failed job is not a dedup candidate: re-submitting the same corpus after a
-    # failure creates a new run, which succeeds once the target is available.
+@pytest.mark.parametrize("live_redis", [False, True])
+def test_partial_retry_after_failure_creates_fresh_run(tmp_path, monkeypatch, live_redis):
+    # A failed job is not a dedup candidate: re-submitting the same corpus under
+    # the SAME idempotency key after a failure creates a new run, in both stores.
+    class FailingEmbedder(FakeEmbedder):
+        async def embed(self, texts):
+            raise RuntimeError("embedder failed")
+
     _corpus(tmp_path, monkeypatch, {"a.txt": "content body"})
-    pf = _profiles_file(tmp_path, vector=[{"backend": "weaviate", "collection_prefix": "P", "on_unavailable": "fail"}])
-    store = InMemoryIngestionStore()
-    down = Deps(embedder=FakeEmbedder(), weaviate=FakeWeaviate(available=False), lightrag=FakeLightrag(), poll_interval=0.01)
-    svc = RagIngestionService(store=store, deps=down, profiles_path=pf)
+    prefix = f"P{uuid.uuid4().hex}"  # a fresh class: no guard left by other runs
+    pf = _profiles_file(tmp_path, vector=[{"backend": "weaviate", "collection_prefix": prefix, "on_unavailable": "fail"}])
+    payload = json.loads(Path(pf).read_text())
+    payload["profiles"][0]["revision"] = str(uuid.uuid4())  # a fresh key in shared Redis
+    Path(pf).write_text(json.dumps(payload))
+    weaviate, lightrag = FakeWeaviate(), FakeLightrag()
+    store = _ingestion_regression_store(live_redis)
+    deps = Deps(embedder=FailingEmbedder(), weaviate=weaviate, lightrag=lightrag, poll_interval=0.01)
+    svc = RagIngestionService(store=store, deps=deps, profiles_path=pf)
     rec1, created1 = svc.submit("showcase-default")
-    final1 = asyncio.run(svc.run(rec1.id))
+    final1 = asyncio.run(svc.run(rec1.id, retry_transient=False))
     assert created1 and final1.status == "failed"
-    # Now the vector store is back; a fresh submit is NOT deduped to the failed run.
-    svc.deps = Deps(embedder=FakeEmbedder(), weaviate=FakeWeaviate(), lightrag=FakeLightrag(), poll_interval=0.01)
+    # The embedder recovers; the same key is NOT deduped to the failed run.
+    svc.deps = Deps(embedder=FakeEmbedder(), weaviate=weaviate, lightrag=lightrag, poll_interval=0.01)
     rec2, created2 = svc.submit("showcase-default")
+    assert rec2.idempotency_key == rec1.idempotency_key
     assert created2 is True and rec2.id != rec1.id
     final2 = asyncio.run(svc.run(rec2.id))
     assert final2.status == "completed"
@@ -1639,6 +1674,44 @@ def test_minio_corpus_bounds_stream_when_size_metadata_is_missing(monkeypatch, o
             {"source": "minio", "bucket": "corpus", "prefix": "docs/"}
         )
     assert cleanup == ["closed", "released"]
+
+
+@pytest.mark.parametrize("operation", ["discover", "fingerprint"])
+def test_minio_corpus_bounds_aggregate_stream_when_size_metadata_is_missing(
+    monkeypatch, operation
+):
+    """Each object is under the per-file limit; their sum is not. Without size
+    metadata only the streaming check enforces RAG_INGESTION_MAX_CORPUS_BYTES."""
+    import io
+    import minio
+
+    class Object:
+        size = None
+
+        def __init__(self, name):
+            self.object_name = name
+
+    def response():
+        stream = io.BytesIO(b"123")
+        stream.release_conn = lambda: None
+        return stream
+
+    class FakeClient:
+        def list_objects(self, *args, **kwargs):
+            return [Object("a.bin"), Object("b.bin")]
+
+        def get_object(self, *args, **kwargs):
+            return response()
+
+    monkeypatch.setattr(minio, "Minio", lambda *args, **kwargs: FakeClient())
+    monkeypatch.setenv("MINIO_ENDPOINT", "http://minio:9000")
+    monkeypatch.setenv("RAG_INGESTION_MAX_FILE_BYTES", "4")
+    monkeypatch.setenv("RAG_INGESTION_MAX_CORPUS_BYTES", "5")
+
+    with pytest.raises(ValueError, match="corpus exceeds configured limit"):
+        getattr(MinioCorpusReader(), operation)(
+            {"source": "minio", "bucket": "corpus", "prefix": "docs/"}
+        )
 
 
 def test_corpus_fingerprint_enforces_the_same_resource_limits(tmp_path, monkeypatch):
@@ -3003,6 +3076,47 @@ def test_a_new_embedding_model_rebuilds_the_class_instead_of_appending(monkeypat
     assert [c[0] for c in calls] == ["GET", "DELETE", "POST"]
     assert schema["Rag"]["description"] == WeaviateClient.embedding_identity(
         "openai/text-embedding-3-large", 3072)
+
+
+@pytest.mark.parametrize("recorded, rebuilt", [("old-model", True), ("new-model", False)])
+def test_a_create_conflict_after_a_failed_schema_read_still_checks_the_identity(
+    monkeypatch, recorded, rebuilt
+):
+    """A transient 503 on the first schema read skipped the identity check, so
+    a 422 'already exists' kept a class recorded for another model (#1364)."""
+    schema = {"Rag_p": {"description": WeaviateClient.embedding_identity(recorded, 3)}}
+    calls, first_read = [], [503]
+
+    class Client:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def get(self, url):
+            calls.append("GET")
+            status = first_read.pop() if first_read else (200 if "Rag_p" in schema else 404)
+            body = schema.get("Rag_p") if status == 200 else None
+            return httpx.Response(status, json=body, request=httpx.Request("GET", url))
+
+        async def delete(self, url):
+            calls.append("DELETE")
+            schema.pop("Rag_p", None)
+            return httpx.Response(200, request=httpx.Request("DELETE", url))
+
+        async def post(self, url, json):
+            calls.append("POST")
+            status = 422 if json["class"] in schema else 200
+            schema.setdefault(json["class"], json)
+            return httpx.Response(status, request=httpx.Request("POST", url))
+
+    monkeypatch.setattr(httpx, "AsyncClient", lambda **_kwargs: Client())
+    weaviate = WeaviateClient("http://weaviate")
+    assert asyncio.run(weaviate.ensure_class("Rag_p", embedding=("new-model", 3))) is rebuilt
+    tail = ["DELETE", "POST"] if rebuilt else []
+    assert calls == ["GET", "POST", "GET", *tail]
+    assert schema["Rag_p"]["description"] == WeaviateClient.embedding_identity("new-model", 3)
 
 
 def test_an_unchanged_corpus_under_a_new_embedding_model_is_a_new_job():
@@ -5144,15 +5258,22 @@ def test_weaviate_server_error_keeps_the_guard_dirty(tmp_path, monkeypatch, corp
 def test_publication_guard_probe_is_read_only_and_exact(live_redis):
     store = _ingestion_regression_store(live_redis)
     record, claim = _reserved_publication(store)
+    other, other_claim = _reserved_publication(store)
+    clean_target = other.publication_targets[0]
     target, free = record.publication_targets[0], str(uuid.uuid4())
     probes = [store.publication_guarded(targets) for targets in ([], [free], [free, target])]
     assert probes == [None, None, "clean"]
     assert _publication_guard_value(store, target).endswith(":clean"), "the probe never claims"
     assert store.mark_publication(record.id, claim, (target, False))
     assert store.publication_guarded([free, target]) == "dirty"
+    # A mixed set reports the guard that needs operator recovery.
+    assert store.publication_guarded([clean_target, target]) == "dirty"
+    assert store.publication_guarded([clean_target]) == "clean"
     assert store.settle_publication(record.id, claim, target)
     store.release_publications(record.id, claim, [target])
+    store.release_publications(other.id, other_claim, [clean_target])
     assert store.publication_guarded([target]) is None
+    assert store.publication_guarded([clean_target]) is None
 
 
 @pytest.mark.parametrize("live_redis", [False, True])

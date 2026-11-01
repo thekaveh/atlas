@@ -28,7 +28,7 @@ fi
 
 echo "ollama-pull: Waiting for Ollama API at $OLLAMA_HOST_URL..."
 sleep 5 # Initial wait
-# Bounded wait (300s, mirroring weaviate/minio/n8n init): ollama has no
+# Bounded wait (300s, the same bound as n8n's seed wait): ollama has no
 # compose healthcheck and comfyui-init gates on this container completing,
 # so an unbounded loop here used to wedge the whole init chain forever.
 WAITED=0

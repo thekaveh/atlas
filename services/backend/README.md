@@ -6,7 +6,7 @@ Always-on FastAPI service that orchestrates the stack. It serves memory, researc
 
 ## 1. Overview
 
-Source: `services/backend/app/`. The app boots in `app/main.py` and reads its adaptive env vars at startup. It mounts `/memory`, `/research`, `/storage`, `/health`, `/ready`, `/workflows`, `/media/*`, `/comfyui/*`, `/api/ray/*`, `/api/chunk`, `/api/rag/evaluate` and `/api/rag/ingestions`.
+Source: `services/backend/app/`. The app boots in `app/main.py` and reads its adaptive env vars at startup. It mounts `/memory`, `/research`, `/storage`, `/documents`, `/jobs`, `/workflows`, `/media/*`, `/comfyui/*` and `/lightrag/rerank`. It also mounts `/api/ray/*`, `/api/chunk`, `/api/rag/evaluate`, `/api/rag/ingestions`, `/plugins`, `/health`, `/ready` and `/metrics`.
 
 LangMem (long-term memory) is on by default (`LANGMEM_ENABLED=true`). Its models come from `LITELLM_DEFAULT_MODEL` and `LITELLM_EMBEDDING_MODEL`, which `./start.sh` resolves from the YAML model catalogs. If `LITELLM_EMBEDDING_MODEL` is empty, the entrypoint uses `/shared/weaviate-config.env` (written by `weaviate-init`), then `ollama/nomic-embed-text`. Compose always sets it.
 

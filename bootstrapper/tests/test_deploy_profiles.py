@@ -234,7 +234,9 @@ def test_same_profile_restart_keeps_operator_source_choice(tmp_path):
 def test_explicit_flag_this_run_beats_profile_source(tmp_path):
     body = "HOST_BIND_IP=\nPROMETHEUS_SOURCE=disabled\nGRAFANA_SOURCE=disabled\n"
     s = _make_starter(tmp_path, body)
-    ok = s.apply_profile_overrides("prod", explicit_prometheus="disabled")
+    # The flag is recorded by apply_source_overrides, which runs first.
+    assert s.apply_source_overrides(prometheus_source="disabled") is True
+    ok = s.apply_profile_overrides("prod")
     assert ok is True
     env = _env(tmp_path)
     assert env["PROMETHEUS_SOURCE"] == "disabled"  # operator wins

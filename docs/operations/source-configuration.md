@@ -84,7 +84,7 @@ Each cloud model row is badged `live`, `catalog` or `saved`. See [Interactive Se
 
 ### 3.5. Numeric wizard entries
 
-The wizard accepts `BASE_PORT` and the inline numbers (`RAY_WORKER_COUNT`, `SPARK_WORKER_COUNT`, `PROMETHEUS_RETENTION_DAYS`, the STT provider ports) as typed, or refuses them. Empty keeps the current value, and `auto` is a valid `BASE_PORT` value. See [Interactive Setup Wizard §7.2](../quick-start/interactive-setup-wizard.md#72-invalid-numbers-are-refused-not-adjusted).
+The wizard accepts `BASE_PORT` and its inline numbers as typed, or refuses them. The inline numbers are `RAY_WORKER_COUNT`, `SPARK_WORKER_COUNT`, `PROMETHEUS_RETENTION_DAYS` and the localhost port inputs listed in [Interactive Setup Wizard §6](../quick-start/interactive-setup-wizard.md#6-inline-secondary-numeric-inputs). Empty keeps the current value, and `auto` is a valid `BASE_PORT` value. See [Interactive Setup Wizard §7.2](../quick-start/interactive-setup-wizard.md#72-invalid-numbers-are-refused-not-adjusted).
 
 ## 4. Detailed SOURCE Configurations
 

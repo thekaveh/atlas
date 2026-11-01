@@ -232,10 +232,10 @@ runtime_adaptive:
       COMFYUI_INTERNAL_URL: ${COMFYUI_ENDPOINT}
       SEARXNG_INTERNAL_URL: http://searxng:8080
       LIGHTRAG_INTERNAL_URL: ${LIGHTRAG_ENDPOINT}
-      # Bearer key the rendered hermes config.yaml passes on every
-      # LightRAG call; init-hermes.sh + config.yaml.tmpl both read it.
-      # Missing from this list = the runtime_adaptive contract under-
-      # specifies what compose actually injects.
+      # Compose injects the LightRAG key for a future MCP or skill integration
+      # (README §7). config.yaml.tmpl renders no LightRAG block, and
+      # init-hermes.sh only exports it. Listed so this contract matches
+      # what compose actually injects.
       LIGHTRAG_API_KEY: ${LIGHTRAG_API_KEY}
     extra_hosts_adaptation: none
     failure_mode: "Capability block omitted from config.yaml; Hermes runs without it."

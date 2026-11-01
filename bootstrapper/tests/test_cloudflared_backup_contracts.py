@@ -12,6 +12,7 @@ import importlib.util
 import json
 import os
 import re
+import shlex
 import shutil
 import signal
 import stat
@@ -514,6 +515,24 @@ def _backup_s3_env(bin_dir: Path, trace: Path) -> dict[str, str]:
     }
 
 
+def _backup_script_with_private_work(tmp_path: Path) -> Path:
+    """Stage backup-all.sh with its WORK directory under ``tmp_path``.
+
+    The shipped script works in /tmp/atlas-backup-<id> and never removes it,
+    which is harmless in its --rm container. Host test runs leaked one per run.
+    """
+    _stage_backup_script_siblings(tmp_path)
+    shipped = (REPO / "services/backup/init/scripts/backup-all.sh").read_text(encoding="utf-8")
+    work_line = 'WORK="/tmp/atlas-backup-${backup_id}"'
+    assert work_line in shipped
+    backup = tmp_path / "backup-all.sh"
+    backup.write_text(
+        shipped.replace(work_line, f"WORK={shlex.quote(str(tmp_path / 'work'))}"),
+        encoding="utf-8",
+    )
+    return backup
+
+
 def test_external_s3_credentials_are_uri_safe_and_never_fall_back_to_minio_root(
     tmp_path: Path,
 ) -> None:
@@ -522,7 +541,7 @@ def test_external_s3_credentials_are_uri_safe_and_never_fall_back_to_minio_root(
     external_secret = 'se/cr et+$"\\value'
     external_token = "tok:@/+="
     result = subprocess.run(
-        ["sh", str(REPO / "services/backup/init/scripts/backup-all.sh")],
+        ["sh", str(_backup_script_with_private_work(tmp_path))],
         env={
             **_backup_s3_env(bin_dir, trace),
             "BACKUP_S3_MODE": "external",
@@ -661,7 +680,7 @@ def test_backup_rejects_invalid_s3_endpoint_tls_and_region_before_io(
 def test_backup_accepts_deliberate_s3_origin_forms(tmp_path: Path, endpoint: str) -> None:
     trace, bin_dir = _fake_s3_boundary(tmp_path)
     result = subprocess.run(
-        ["sh", str(REPO / "services/backup/init/scripts/backup-all.sh")],
+        ["sh", str(_backup_script_with_private_work(tmp_path))],
         env={
             **_backup_s3_env(bin_dir, trace),
             "BACKUP_S3_MODE": "external",
@@ -698,7 +717,7 @@ PY
     )
     mc.chmod(0o755)
     result = subprocess.run(
-        ["sh", str(REPO / "services/backup/init/scripts/backup-all.sh")],
+        ["sh", str(_backup_script_with_private_work(tmp_path))],
         env={
             **_backup_s3_env(bin_dir, trace),
             "BACKUP_S3_MODE": "external",
@@ -3793,10 +3812,10 @@ def test_production_backup_restore_and_global_wrapper_clean_s3_config_on_signals
         assert not tmp_path.joinpath("leak").exists()
         for raw in ("signal-access", "signal-secret", "db-secret"):
             assert raw not in stdout + stderr
-        if script_name == "backup-all.sh":
-            work = config_dir.parent
-            if work.name.startswith("atlas-backup-"):
-                shutil.rmtree(work)
+        if script_name == "backup-all.sh" and config_dir.name.startswith("atlas-backup-s3-"):
+            # backup-all.sh keeps WORK beside the S3 config, as /tmp/atlas-backup-<id>.
+            work_name = "atlas-backup-" + config_dir.name.removeprefix("atlas-backup-s3-")
+            shutil.rmtree(config_dir.with_name(work_name), ignore_errors=True)
     finally:
         if process.poll() is None:
             os.killpg(process.pid, signal.SIGKILL)
@@ -3836,9 +3855,9 @@ def test_concurrent_production_backups_use_unique_s3_config_directories(
             for raw in ("signal-access", "signal-secret", "db-secret"):
                 assert raw not in stdout + stderr
         for config_dir in dirs:
-            work = config_dir.parent
-            if work.name.startswith("atlas-backup-"):
-                shutil.rmtree(work)
+            if config_dir.name.startswith("atlas-backup-s3-"):
+                work_name = "atlas-backup-" + config_dir.name.removeprefix("atlas-backup-s3-")
+                shutil.rmtree(config_dir.with_name(work_name), ignore_errors=True)
     finally:
         for process in processes:
             if process.poll() is None:
@@ -4713,7 +4732,7 @@ exit 0
         (tmp_path / name).chmod(0o755)
     trace = tmp_path / "trace"
     result = subprocess.run(
-        ["sh", str(REPO / "services/backup/init/scripts/backup-all.sh")],
+        ["sh", str(_backup_script_with_private_work(tmp_path))],
         env={
             **os.environ, "PATH": f"{tmp_path}:{os.environ.get('PATH', '')}", "TRACE": str(trace),
             "SUPABASE_DB_USER": "postgres", "SUPABASE_DB_PASSWORD": "secret", "SUPABASE_DB_NAME": "postgres",
@@ -4738,7 +4757,7 @@ def test_backup_observes_busy_status_after_lock_process_exits(tmp_path: Path) ->
     (bin_dir / "sed").write_text(
         "#!/bin/sh\n"
         "case \"${1:-} ${2:-} ${3:-}\" in\n"
-        "  '-n 1p /tmp/atlas-backup-'*'/publication-lock.status')\n"
+        f"  {shlex.quote(f'-n 1p {tmp_path}/work/publication-lock.status')})\n"
         "    if [ ! -e \"$SED_MARKER\" ]; then : >\"$SED_MARKER\"; sleep 0.2; exit 0; fi;;\n"
         "esac\n"
         f'exec "{real_sed}" "$@"\n',
@@ -4748,7 +4767,7 @@ def test_backup_observes_busy_status_after_lock_process_exits(tmp_path: Path) ->
         executable.chmod(0o755)
 
     result = subprocess.run(
-        ["sh", str(REPO / "services/backup/init/scripts/backup-all.sh")],
+        ["sh", str(_backup_script_with_private_work(tmp_path))],
         env={
             **_backup_s3_env(bin_dir, trace),
             "BACKUP_S3_MODE": "external",

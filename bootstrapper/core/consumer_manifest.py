@@ -513,8 +513,9 @@ class ConsumerConfig:
     rag_ingestion_file: GeneratedArtifact | None = None
     rag_ingestion_overlay: GeneratedArtifact | None = None
     lightrag_query_profiles: tuple[LightragQueryProfile, ...] = ()
-    # Generated LightRAG query-profile registry the backend reads at runtime, plus
-    # a compose overlay that bind-mounts it + points LIGHTRAG_QUERY_PROFILES_FILE.
+    # Generated LightRAG query-profile registry that a consumer Backend plugin can
+    # read, plus a compose overlay that bind-mounts it + points
+    # LIGHTRAG_QUERY_PROFILES_FILE.
     lightrag_query_profiles_file: GeneratedArtifact | None = None
     lightrag_query_profiles_overlay: GeneratedArtifact | None = None
     # #795: consumer-declared managed host processes. They run on the host, not
@@ -2144,7 +2145,7 @@ def _weaviate_class_name(collection_prefix: str, profile_name: str) -> str:
     class name the backend actually writes/reconciles."""
     return f"{collection_prefix}_{_RAG_CLASS_SANITIZE_RE.sub('_', profile_name)}"
 _RAG_CORPUS_SOURCES = frozenset({"mount", "minio"})
-_RAG_PARSERS = frozenset({"docling", "tika", "crawl4ai", "plain_text"})
+_RAG_PARSERS = frozenset({"docling", "tika", "plain_text"})
 _RAG_CHUNK_STRATEGIES = frozenset({"token", "recursive", "semantic"})
 _RAG_VECTOR_BACKENDS = frozenset({"weaviate"})
 _RAG_GRAPH_BACKENDS = frozenset({"lightrag"})
@@ -2916,10 +2917,10 @@ def render_rag_ingestion_overlay(profiles: Iterable[RagIngestionProfile]) -> str
 # for the single deployment-wide default: a profile bundles the per-query knobs a
 # caller picks by name for evaluation / UI flavors. Atlas validates + normalizes
 # each profile, hashes it to a stable ``revision``, and compiles one deterministic
-# JSON registry the backend reads at runtime plus a compose overlay that mounts it
-# and points ``LIGHTRAG_QUERY_PROFILES_FILE`` at it. All artifacts regenerate every
-# start, so a deployment with no profiles stays byte/behavior compatible and a
-# removed manifest drops only that consumer's profiles.
+# JSON registry that a consumer Backend plugin can read, plus a compose overlay
+# that mounts it and points ``LIGHTRAG_QUERY_PROFILES_FILE`` at it. All artifacts
+# regenerate every start, so a deployment with no profiles stays byte/behavior
+# compatible and a removed manifest drops only that consumer's profiles.
 #
 # Precedence (documented + carried in the artifact): a per-request query parameter
 # overrides the profile, which overrides the deployment ``LIGHTRAG_QUERY_*`` env
@@ -3224,7 +3225,7 @@ def _validate_lightrag_query_profiles_collisions(
 def compile_lightrag_query_profiles_file(
     profiles: Iterable[LightragQueryProfile],
 ) -> str:
-    """Render the deterministic JSON registry the backend reads at runtime.
+    """Render the deterministic JSON registry that a consumer Backend plugin can read.
 
     Carries a top-level ``precedence`` contract (request > profile > service env
     default) so a runtime consumer resolves an omitted bound against the deployment

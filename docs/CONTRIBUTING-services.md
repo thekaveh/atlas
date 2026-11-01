@@ -187,7 +187,7 @@ Every user-configurable service has an `<SVC>_SOURCE` env var. The wizard reads 
     - The manifest-validator lint fails only when no prod-eligible option is left. Annotate each dev-only option yourself.
     - The matching Python predicate is `option_in_profile` in `bootstrapper/services/manifests.py`.
     - The profile bundles live in `bootstrapper/profiles.yml`: `default` and `prod` maps of `sources`, `env` and `host_bind_ip` that `apply_profile_overrides` applies at start. Consumers override fields with `profile_overrides:` in `atlas.consumer.yml` ([Reusing Atlas §6.1](operations/reusing-atlas.md#61-registering-a-parent-project-with-atlasconsumeryml)).
-- **`<SVC>_LOCALHOST_PORT` is the single source of truth.** If you offer `localhost`, declare `<SVC>_LOCALHOST_PORT` (an integer string, defaulting to the upstream host port). The URL is derived as `http://host.docker.internal:${<SVC>_LOCALHOST_PORT:-<default>}`. The in-container consumers (`runtime_sc.<svc>.localhost.environment`) and the Kong route generator (`bootstrapper/utils/kong_config_generator.py`) must read the same var. The wizard shows an inline port box on the `localhost` row. See also [Common gotchas](#14-common-gotchas--anti-patterns).
+- **`<SVC>_LOCALHOST_PORT` is the single source of truth.** If you offer `localhost`, declare `<SVC>_LOCALHOST_PORT` (an integer string, defaulting to the upstream host port). The URL is derived as `http://host.docker.internal:${<SVC>_LOCALHOST_PORT:-<default>}`. The in-container consumers (`runtime_sc.<svc>.localhost.environment`) and the Kong route generator (`bootstrapper/utils/kong_config_generator.py`) must read the same var. To show an inline port box on that row, add a `(display_name, option id)` entry to `LOCALHOST_PORT_WIRING` in `bootstrapper/wizard/model/state_builder.py`. See also [Common gotchas](#14-common-gotchas--anti-patterns).
 - **`runtime_sc` slice per source.** Every source variant declared in `sources.options` must have a matching `runtime_sc.<key>.<source>` slice. By convention each slice sets `scale`, `environment`, `deploy` and `extra_hosts`. The manifest validator reports a missing slice as `runtime_sc_missing_variant`, so a declared option cannot silently scale to 0.
 - **`auto_prefer:` (optional).** This enables `<SVC>_SOURCE: auto` in `atlas.consumer.yml`. The resolver picks the first entry whose `requires_capability` (`apple_silicon`, `nvidia_gpu`, `host_ollama`; probed by `bootstrapper/services/host_capabilities.py`) holds on the host and whose option the active profile offers.
     - Each id must be in `options[].id`. The last entry must have no `requires_capability`; it is the terminal fallback, usually the CPU container. The lint (`_check_auto_prefer_integrity`) enforces both rules.
@@ -630,7 +630,7 @@ make docs-check
 
 **Prerequisite: Cairo.** Diagram rendering uses `cairosvg`, which needs the native Cairo library: `libcairo2` (Debian/Ubuntu) or `brew install cairo` (macOS). CI installs `libcairo2`.
 
-**Atlas hero art:** regenerate with `python bootstrapper/scripts/generate_logo.py` (needs `pip install pillow` + `chafa` on PATH); commit the refreshed `bootstrapper/ui/textual/assets/atlas_hero_*.json`. Not gated in CI.
+**Atlas hero art:** Run `uv run --project bootstrapper python bootstrapper/scripts/generate_logo.py` from the repository root. Install `chafa` first; `pngquant` is optional and keeps the profile and social PNGs under 1 MB. Commit the refreshed `atlas_hero_*.json` and `atlas_poster_*.json` files under `bootstrapper/ui/textual/assets/` and the three `assets/atlas-*.png` images. Not gated in CI.
 
 <a id="13-audit-script--ci-implications"></a>
 
@@ -781,7 +781,7 @@ adding a picker.
 
 ### 14.2. URL / localhost handling
 
-`<SVC>_LOCALHOST_PORT` is the single source of truth for localhost URLs — see [Decision 3](#7-decision-3--source-variants) for the full rule. The gotcha: the in-container consumer, the Kong route generator and the wizard's inline input must read the *same* PORT var. Otherwise they silently disagree about where the localhost upstream lives.
+`<SVC>_LOCALHOST_PORT` is the single source of truth for localhost URLs — see [Decision 3](#7-decision-3--source-variants) for the full rule. The gotcha: the in-container consumer, the Kong route generator and the wizard's `LOCALHOST_PORT_WIRING` entry must read the *same* PORT var. Otherwise they silently disagree about where the localhost upstream lives.
 
 - **Kong routes fronting browser SPAs need `preserve_host: True`.** Without it the SPA emits unreachable redirect URLs containing the internal Docker hostname.
 
@@ -803,7 +803,7 @@ adding a picker.
 
 ### 14.5. Topology / category gotchas
 
-- **A new service in a full category block trips the category-overflow lint.** The `infra` block (10 slots) is full. A new infra `*_PORT` needs a new block or a different category. `data` has 30 slots (Supabase alone uses 8) and `media` 20. Check current utilization before assuming there's room: `PYTHONPATH=bootstrapper python -c "from services.topology import get_topology; print(get_topology().port_defaults)"`.
+- **A new service in a full category block trips the category-overflow lint.** The `infra` block (10 slots) is full. A new infra `*_PORT` needs a new block or a different category. `data` has 30 slots (Supabase alone uses 8) and `media` 20. Check current utilization before assuming there's room: `PYTHONPATH=bootstrapper uv run --project bootstrapper python -c "from services.topology import get_topology; print(get_topology().port_defaults)"`.
 - **Renaming a `row.display_name` breaks tests that hardcode it.** `test_wizard_app_discovery.py` has an `EXPECTED_DISCOVERED` frozenset; update it when renaming.
 
 ### 14.6. Wizard discovery gotchas

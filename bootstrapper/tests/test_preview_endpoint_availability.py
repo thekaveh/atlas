@@ -228,6 +228,19 @@ def test_off_track_keeps_existing_label_and_dimming(source, available):
     assert _style_at(text, '●') == f'dim {P.style_for_source_choice(source)}'
 
 
+@pytest.mark.parametrize('source', ['none', 'disabled', 'ollama-container-cpu'])
+def test_unanswered_off_track_row_renders_disabled_not_pending(source):
+    """A track-skipped step is never confirmed, so its row keeps pending=True;
+    the launch force-disables it, so it must read as off-track, not pending."""
+    row = ServiceRow(name='LLM Engine', source=source, port=':11434',
+                     alias='ollama.localhost', alias_port='63000', category='llm',
+                     configurable=True, pending=True, off_track=True)
+    text = ServiceTable([row])._slot_text(row, is_cursor=False, widths=(8, 14, 25, 40))
+    assert 'disabled (off-track)' in text.plain
+    assert 'pending…' not in text.plain and '◌' not in text.plain
+    assert _style_at(text, '●') == f'dim {P.style_for_source_choice(source)}'
+
+
 @pytest.mark.parametrize('source', ['none', 'disabled'])
 def test_unavailable_direct_endpoint_ignores_stale_port(source):
     row = next(row for row in get_topology().rows if row.display_name == 'LLM Engine')
@@ -257,4 +270,13 @@ def test_overview_counts_follow_endpoint_availability():
         ServiceSummary('Grafana', 'disabled'),
     ])
     pending, container, local, gpu, off = footer._counts()
-    assert (pending, container, local, gpu, off) == (1, 1, 1, 1, 3)
+    # The unanswered off-track n8n row is never asked about, so it is off.
+    assert (pending, container, local, gpu, off) == (0, 1, 1, 1, 4)
+
+
+def test_overview_counts_keep_in_track_unanswered_rows_pending():
+    footer = InfoBoxFooter([
+        ServiceSummary('n8n', 'container', pending=True),
+        ServiceSummary('Weaviate', 'container', pending=True, off_track=True),
+    ])
+    assert footer._counts() == (1, 0, 0, 0, 1)

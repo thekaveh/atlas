@@ -870,9 +870,9 @@ class KeyGenerator:
         return self.update_env_key('OPEN_WEB_UI_ADMIN_PASSWORD', self.generate_password())
 
     def generate_grafana_admin_password(self) -> str:
-        """Grafana admin password — 32-char URL-safe random. Mirrors the
-        LiteLLM master-key strength. Persisted to .env on first run; rotating
-        is a deliberate operator action.
+        """Grafana admin password — 32-char URL-safe random (24 bytes).
+        Persisted to .env on first run; rotating is a deliberate operator
+        action.
         """
         return _cli_safe_token_urlsafe(24)
 

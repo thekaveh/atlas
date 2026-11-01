@@ -49,10 +49,11 @@ The endpoint is stable across restarts for a given `BASE_PORT`, so you can hard-
 - **Root user:** `MINIO_ROOT_USER` (default `minioadmin`)
 - **Root password:** `MINIO_ROOT_PASSWORD` — auto-generated to `.env` on first `./start.sh`. Retrieve with `grep ^MINIO_ROOT_PASSWORD= .env`. Use these credentials to log into the admin console.
 
-Consumers do not get the root credentials. They use the scoped service accounts in §5, including Spark's worker, connect and history containers. Two exceptions are deliberate:
+Consumers do not get the root credentials. They use the scoped service accounts in §5, including Spark's worker, connect and history containers. Three exceptions are deliberate:
 
 - **Airflow**: its containers and seeded `minio_default` connection carry the root pair, so DAG authors must be trusted. The Airflow README states this trusted-DAG boundary.
 - **Backup runner**: it falls back to the root pair in local S3 mode (see the backup README).
+- **Spark init**: the one-shot `spark-init` uses the root pair once, for an idempotent `mc mb` of the spark-history bucket.
 
 `minio-init` applies a changed secret key to the existing account. A changed access key creates a new account, and `minio-init` never removes earlier ones. Remove a leaked key yourself with `mc admin user svcacct rm local <old-access-key>`.
 

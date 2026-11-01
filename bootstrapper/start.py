@@ -919,13 +919,7 @@ class AtlasStarter:
                     "warning",
                 )
 
-    def apply_profile_overrides(
-        self,
-        profile: str,
-        *,
-        explicit_prometheus: str | None = None,
-        explicit_grafana: str | None = None,
-    ) -> bool:
+    def apply_profile_overrides(self, profile: str) -> bool:
         """Apply the active deployment profile's declarative bundle to .env (#755).
 
         Bundles live in ``bootstrapper/profiles.yml`` (platform-defined
@@ -940,8 +934,10 @@ class AtlasStarter:
           the current value equals another profile's non-empty bind.
         - ``sources``: asserted on every start of this profile, EXCEPT when
           that service's source was set by an explicit CLI flag this run
-          (operator wins — tracked via ``_explicit_source_vars`` plus the
-          legacy ``explicit_prometheus``/``explicit_grafana`` params).
+          (tracked via ``_explicit_source_vars``, which
+          ``apply_source_overrides`` fills before this runs) or is pinned in
+          the consumer manifest's ``env.values``, ``.env.user`` or
+          ``ATLAS_ENV_USER_FILE`` (CLI flag > manifest/.env.user > profile).
           ``auto`` delegates to the durable ``<SVC>_SOURCE: auto`` resolver
           (#753). On a profile SWITCH (tracked via ``ATLAS_PROFILE_APPLIED``),
           sources the prior profile asserted are reset to their service
@@ -952,8 +948,6 @@ class AtlasStarter:
           ``.env.example`` default, or (on a switch) the prior profile's value
           for the same key, unless ``.env.user`` or the consumer manifest pins
           it; any other operator-set value is kept with a notice (LOG_MAX_*).
-          Consumer-manifest ``env.values`` ``*_SOURCE`` keys count as explicit
-          (CLI flag > manifest > profile).
 
         Called from both the linear (--no-tui) path and the TUI wizard
         pipeline so profile configuration applies regardless of how Atlas is
@@ -1000,12 +994,6 @@ class AtlasStarter:
         # A *_SOURCE pinned in .env.user / ATLAS_ENV_USER_FILE wins too; the
         # overlay only guarded the profile's env, not its sources (#1391).
         explicit_vars.update(_env_user_source_vars(self))
-        for legacy_service, legacy_value in (
-            ("prometheus", explicit_prometheus),
-            ("grafana", explicit_grafana),
-        ):
-            if legacy_value is not None and legacy_service in by_name:
-                explicit_vars.add(by_name[legacy_service].sources.var)
 
         # ── sources: undo the prior profile's asserts on a SWITCH ────
         auto_vars: list[str] = []
@@ -7268,6 +7256,15 @@ def _invoker_path(path: Optional[Path]) -> Optional[Path]:
     return path.resolve()
 
 
+def _invoker_output_path(path: Optional[Path]) -> Optional[Path]:
+    """``_invoker_path`` for a file Atlas writes: only the parent directory is
+    resolved, so a symlink at the destination is replaced, never followed."""
+    if path is None:
+        return None
+    requested = Path(path).expanduser()
+    return _invoker_path(requested.parent) / requested.name
+
+
 def _export_failed_start_bundle(starter: "AtlasStarter", transcript, exit_code) -> None:
     """Preview, then write, the --support-bundle archive for a failed
     ``--no-tui`` start (#1057). A bundle problem never masks the start's own
@@ -8043,7 +8040,7 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
             sys.exit(2)
 
     starter = AtlasStarter()
-    starter.support_bundle_path = _invoker_path(support_bundle)
+    starter.support_bundle_path = _invoker_output_path(support_bundle)
     starter.base_port_auto_chosen = base_port_auto
     starter._cli_base_port_auto = base_port_auto
 
@@ -8591,8 +8588,6 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
                 project_name=project_name,
                 source_args=source_args,
                 profile=profile,
-                explicit_prometheus=prometheus_source,
-                explicit_grafana=grafana_source,
                 cloud_api_keys=cloud_api_keys,
                 user_model_selections=user_model_selections,
                 no_port_migrate=no_port_migrate,
@@ -8724,7 +8719,7 @@ def doctor_command(output_format: str, bundle_path, include_unlisted: bool) -> N
     """Run headless consumer preflight checks without starting services."""
     if include_unlisted and bundle_path is None:
         raise click.UsageError("--include-unlisted needs --bundle PATH")
-    bundle_path = _invoker_path(bundle_path)
+    bundle_path = _invoker_output_path(bundle_path)
     starter = AtlasStarter()
     # Materialize the consumer manifest's derived env (#451) before the checks
     # (which validate the assembled compose) so ${BACKEND_PLUGINS_DIR}-style
@@ -8739,7 +8734,10 @@ def doctor_command(output_format: str, bundle_path, include_unlisted: bool) -> N
         starter.materialize_consumer_env_for_preflight()
         bundled = _bundled_doctor_checks(starter, bundle_path, include_unlisted)
         results = bundled[1][0] if bundled else _run_consumer_doctor(starter)
-    ok = not any(result["status"] == "fail" for result in results)
+    # Only the bundle run reports a check it could not run (raised, timed
+    # out, never started) as ``unavailable``; plain doctor calls it ``fail``.
+    # Both exit non-zero, so --bundle never turns a failing preflight green.
+    ok = not any(result["status"] in ("fail", "unavailable") for result in results)
     payload = {"ok": ok, "checks": results}
 
     if output_format == "json":
@@ -9477,8 +9475,7 @@ def endpoints_export_command(
     if output_path:
         # Relative to where ./start.sh was run, like doctor --bundle: the
         # uv wrapper runs the bootstrapper from bootstrapper/.
-        requested = Path(output_path).expanduser()
-        out = _invoker_path(requested.parent) / requested.name
+        out = _invoker_output_path(Path(output_path))
         # Replace, never follow, a symlink at the destination: the export can
         # carry secrets (--with-secrets) and must not land on a link target.
         try:

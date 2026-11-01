@@ -415,7 +415,7 @@ async def test_healthy_weaviate_store_requires_durable_pgvector_shadow(monkeypat
     monkeypatch.setattr(store, "_store_pgvector", shadow)
 
     result = await store.store_embedding(
-        "fact-1", "hello", "user", "default", "observation", 1.0, {}
+        "fact-1", "hello", "user", "default", "observation", 1.0
     )
 
     assert result == "fact-1"
@@ -441,7 +441,7 @@ async def test_shadow_failure_fails_closed_so_caller_keeps_pending(monkeypatch):
 
     with pytest.raises(RuntimeError, match="shadow unavailable"):
         await store.store_embedding(
-            "fact-1", "hello", "user", "default", "observation", 1.0, {}
+            "fact-1", "hello", "user", "default", "observation", 1.0
         )
 
     assert store.backend == "weaviate"
@@ -506,7 +506,7 @@ async def test_healthy_weaviate_interval_is_immediately_recallable_after_outage(
 
     if operation == "store":
         await store.store_embedding(
-            fact_id, "hello", user_id, "default", "observation", 1.0, {}
+            fact_id, "hello", user_id, "default", "observation", 1.0
         )
     else:
         await store.update_embedding(fact_id, "hello", user_id=user_id)
@@ -667,7 +667,7 @@ async def test_weaviate_failback_requires_explicit_probe_and_is_concurrency_safe
 
     await store.store_embedding(
         "00000000-0000-4000-8000-000000000001",
-        "hello", "user", "default", "observation", 1.0, {},
+        "hello", "user", "default", "observation", 1.0,
     )
     assert probes == 0, "ordinary requests must not cause hidden failback probes"
     assert store.backend == "pgvector"
@@ -863,7 +863,7 @@ async def test_runtime_weaviate_outage_latches_pgvector_without_hidden_reprobes(
 
     for fact_id in ("fact-1", "fact-2"):
         assert await store.store_embedding(
-            fact_id, "content", "user", "default", "observation", 1.0, {}
+            fact_id, "content", "user", "default", "observation", 1.0
         ) is None
 
     assert weaviate.await_count == 1
@@ -896,7 +896,7 @@ async def test_runtime_fallback_marker_failure_does_not_write_pgvector(monkeypat
 
     with pytest.raises(RuntimeError, match="marker down"):
         await store.store_embedding(
-            "fact-1", "content", "user", "default", "observation", 1.0, {}
+            "fact-1", "content", "user", "default", "observation", 1.0
         )
 
     assert store.backend == "weaviate"
@@ -932,7 +932,7 @@ async def test_healthy_weaviate_writes_are_not_serialized_by_probe_barrier(monke
     writes = [
         asyncio.create_task(
             store.store_embedding(
-                fact_id, "x", "user", "default", "observation", 1.0, {}
+                fact_id, "x", "user", "default", "observation", 1.0
             )
         )
         for fact_id in ("fact-1", "fact-2")
@@ -975,7 +975,7 @@ async def test_pgvector_authoritative_operations_run_in_parallel(
     if operation == "store":
         calls = [
             store.store_embedding(
-                f"fact-{index}", "x", "user", "default", "observation", 1.0, {}
+                f"fact-{index}", "x", "user", "default", "observation", 1.0
             )
             for index in range(2)
         ]
@@ -1044,7 +1044,7 @@ async def test_stale_replica_store_fences_to_pgvector_before_weaviate(monkeypatc
     monkeypatch.setattr(store, "_store_pgvector", pgvector)
 
     result = await store.store_embedding(
-        "fact-1", "new", "user", "default", "observation", 1.0, {}
+        "fact-1", "new", "user", "default", "observation", 1.0
     )
 
     assert result is None
@@ -1077,7 +1077,7 @@ async def test_generation_change_during_store_writes_authoritative_pgvector(
     monkeypatch.setattr(store, "_mark_weaviate_dirty", mark)
 
     result = await store.store_embedding(
-        "fact-1", "new", "user", "default", "observation", 1.0, {}
+        "fact-1", "new", "user", "default", "observation", 1.0
     )
 
     assert result is None
@@ -1155,7 +1155,7 @@ async def test_waiting_pgvector_mutation_reenters_generation_fence(
 
     if operation == "store":
         result = await store.store_embedding(
-            "fact-1", "new", "user", "default", "observation", 1.0, {}
+            "fact-1", "new", "user", "default", "observation", 1.0
         )
     else:
         result = await store.update_embedding("fact-1", "new")
@@ -1226,96 +1226,6 @@ async def test_waiting_pgvector_deactivation_reenters_generation_fence(monkeypat
     await store.deactivate_embedding("fact-1", "fact-1")
 
     deactivate.assert_awaited_once_with("fact-1", "fact-1")
-    mark.assert_awaited_once()
-    assert store.backend == "pgvector"
-
-
-@pytest.mark.asyncio
-async def test_generation_change_during_delete_preserves_dirty_retirement(monkeypatch):
-    import memory_store
-
-    class Response:
-        status_code = 204
-
-    class Client:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *_args):
-            return None
-
-        async def delete(self, _url):
-            return Response()
-
-    store = memory_store.MemoryStore(
-        "postgresql://atlas", weaviate_url="http://weaviate", manage_schema=True
-    )
-    store.backend = "weaviate"
-    store.weaviate_state = "ready"
-    store._initialized = True
-    monkeypatch.setattr(memory_store.httpx, "AsyncClient", lambda **_kw: Client())
-    monkeypatch.setattr(
-        store,
-        "_get_weaviate_sync_state",
-        AsyncMock(side_effect=[(False, 70), (True, 71)]),
-    )
-    mark = AsyncMock()
-    monkeypatch.setattr(store, "_mark_weaviate_dirty", mark)
-
-    await store.delete_embedding("fact-1", "fact-1")
-
-    mark.assert_awaited_once()
-    assert store.backend == "pgvector"
-
-
-@pytest.mark.asyncio
-async def test_waiting_pgvector_delete_reenters_generation_fence(monkeypatch):
-    import memory_store
-
-    deleted = []
-
-    class Response:
-        status_code = 204
-
-    class Client:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *_args):
-            return None
-
-        async def delete(self, url):
-            deleted.append(url)
-            return Response()
-
-    store = memory_store.MemoryStore(
-        "postgresql://atlas", weaviate_url="http://weaviate", manage_schema=True
-    )
-    store.backend = "pgvector"
-    store.weaviate_state = "unavailable"
-    store._initialized = True
-
-    class FailbackBarrier:
-        async def __aenter__(self):
-            store.backend = "weaviate"
-            store.weaviate_state = "ready"
-
-        async def __aexit__(self, *_args):
-            return None
-
-    store._transition_lock = FailbackBarrier()
-    monkeypatch.setattr(memory_store.httpx, "AsyncClient", lambda **_kw: Client())
-    monkeypatch.setattr(
-        store,
-        "_get_weaviate_sync_state",
-        AsyncMock(side_effect=[(False, 90), (True, 91)]),
-    )
-    mark = AsyncMock()
-    monkeypatch.setattr(store, "_mark_weaviate_dirty", mark)
-
-    await store.delete_embedding("fact-1", "fact-1")
-
-    assert len(deleted) == 1
     mark.assert_awaited_once()
     assert store.backend == "pgvector"
 

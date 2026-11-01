@@ -95,7 +95,7 @@ Only `BACKEND_N8N_API_TOKEN` is route-scoped. The web and worker containers also
 
 **Hard dependencies** (`depends_on.required`): `supabase`, `redis`, `litellm`. Without LiteLLM, the AI Agent nodes fail.
 
-**Adaptive integrations** (`runtime_adaptive.n8n.adapts_to`): `stt_provider`, `tts_provider`, `doc_processor`, `tika`, `lightrag`, `hermes`, `crawl4ai`, `supavisor`. When one is `disabled`, its endpoint env var is empty, and workflow nodes that use it return 502 at run time.
+**Adaptive integrations** (`runtime_adaptive.n8n.adapts_to`): `stt_provider`, `tts_provider`, `doc_processor`, `tika`, `lightrag`, `hermes`, `crawl4ai`, `supavisor`. When one is `disabled`, its endpoint env var is empty. A node that builds its URL from that variable then fails with an invalid-URL error before it sends a request. Check for a blank value first.
 
 **Hermes wiring.** Workflows call Hermes with the HTTP Request node at `HERMES_ENDPOINT`. For Hermes → n8n, n8n's public REST API has no execute endpoint. Expose a Webhook-trigger workflow and have Hermes POST to its URL.
 

@@ -3,7 +3,8 @@
 This directory holds integration research: one opportunity file per researched service,
 one-pagers for candidate new services and the generated integration matrix.
 The first set was produced in the "Phase B" research run (§6). Its plans and
-specs live under [`docs/superpowers/`](../superpowers/).
+design spec are no longer in the tree. Read them from git history, for example
+`git show ebdc9d47^:docs/superpowers/plans/2026-05-18-cross-service-deps-phase-b.md`.
 
 ## 1. Layout
 

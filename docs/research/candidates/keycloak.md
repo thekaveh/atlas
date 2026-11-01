@@ -19,13 +19,13 @@ upstream: https://www.keycloak.org/
 Self-hosted OpenID Connect / OAuth2 / SAML identity provider that replaces the stack's ad-hoc per-service basic-auth with a single SSO layer fronted by Kong.
 
 ## 2. Problem it solves
-The stack has separate credential surfaces, including Supabase GoTrue, Kong dashboard basic-auth, JupyterHub PAM, MinIO, Neo4j, and the n8n owner account. It has no unified single sign-on. Kong already protects selected aliases, including Langfuse, TrueForge, and MLflow, with basic-auth and an ACL. Gateway ports bind to loopback by default; LAN access depends on `HOST_BIND_IP` and separate access controls.
+The stack has separate credential surfaces, including Supabase GoTrue, Kong dashboard basic-auth, the shared JupyterLab token (`JUPYTERHUB_TOKEN`), MinIO, Neo4j, and the n8n owner account. It has no unified single sign-on. Kong already protects selected aliases, including Langfuse, TrueForge, and MLflow, with basic-auth and an ACL. Gateway ports bind to loopback by default; LAN access depends on `HOST_BIND_IP` and separate access controls.
 
-Keycloak provides a single OIDC issuer that Kong's `openid-connect`-style flows (via the OSS-compatible community `kong-oidc` plugin or Kong's built-in `jwt` plugin pointed at Keycloak's JWKs) can validate, and that JupyterHub/Open WebUI/n8n/MinIO/Neo4j all natively support.
+Keycloak provides a single OIDC issuer that Kong's `openid-connect`-style flows (via the OSS-compatible community `kong-oidc` plugin or Kong's built-in `jwt` plugin pointed at Keycloak's JWKs) can validate, and that Open WebUI/n8n/MinIO/Neo4j all natively support.
 
 ## 3. Stack wiring sketch
 - kong → keycloak via `https://keycloak:8443/realms/atlas/.well-known/openid-configuration` (JWKs for the `jwt` plugin)
-- jupyterhub → keycloak via the official `oauthenticator` package (already a JupyterHub dep)
+- jupyterhub → keycloak via `oauthenticator`, only after Atlas replaces its single token-protected JupyterLab server with a real JupyterHub (see `services/jupyterhub/README.md` §9.2)
 - open-webui → keycloak via Open WebUI's `OAUTH_*` env vars
 - n8n → keycloak via n8n's SSO config (`N8N_SSO_*`)
 - minio → keycloak via MinIO's OIDC config (`MINIO_IDENTITY_OPENID_*`)

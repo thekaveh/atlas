@@ -147,7 +147,9 @@ class InfoBoxFooter(Static):
     def _counts(self) -> tuple[int, int, int, int, int]:
         pending = container = local = off = gpu = 0
         for s in self._services:
-            if s.pending:
+            # An off-track row is never asked about, so it counts as off even
+            # while its wizard step is unanswered.
+            if s.pending and not s.off_track:
                 pending += 1
             elif s.is_disabled:
                 off += 1

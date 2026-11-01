@@ -192,7 +192,6 @@ async def test_store_embedding_uses_fact_uuid_as_deterministic_weaviate_id(
         namespace="default",
         fact_type="observation",
         confidence=0.9,
-        metadata={},
     )
 
     assert object_id == "00000000-0000-4000-8000-000000000001"

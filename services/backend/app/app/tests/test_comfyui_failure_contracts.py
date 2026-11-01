@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import importlib.util
 import logging
+import math
 from pathlib import Path
 
 import httpx
@@ -1555,6 +1556,9 @@ def test_strength_and_size_inputs_are_validated_not_defaulted():
     assert cmc._strength("0.4") == 0.4
     assert cmc._strength(None) == 0.75
     assert cmc._strength(1.5) == 1.5  # clamped to 1.0 when building the graph
+    # An int too large for a float is clamped like JSON 1e400 (inf), not a 502.
+    assert cmc._strength(10**400) == math.inf
+    assert cmc._strength(-10**400) == -math.inf
     for bad in ("nope", "nan"):
         with pytest.raises(ValueError, match="strength"):
             cmc._strength(bad)
@@ -1636,6 +1640,9 @@ def test_non_json_upstream_and_infinite_sizes_are_not_reported_as_parser_text():
         _provider_run(html, lambda c: c._get_queue())
     with pytest.raises(ValueError, match="width must be an integer"):
         module._bounded_int(float("inf"), field="width", minimum=64, maximum=2048)
+    # A 401-digit JSON integer stays a Python int; float() overflowed (→ 502).
+    with pytest.raises(ValueError, match="cfg must be a number"):
+        module._bounded_float(10**400, field="cfg", minimum=0.0, maximum=100.0)
 
 
 from tests.test_async_jobs import _reload_main as _reload_async_main  # noqa: E402

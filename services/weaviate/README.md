@@ -34,6 +34,8 @@ Scripted changes: `./start.sh --weaviate-source <value>` and `--multi2vec-clip-s
 
 Text vectorization goes through the always-on **LiteLLM gateway** via the `text2vec-openai` module. Weaviate receives only `OPENAI_APIKEY`, set to `LITELLM_MASTER_KEY`. Whoever creates a collection (the Backend or a consumer) sets the LiteLLM base URL in `moduleConfig.text2vec-openai.baseURL`. Without it, `text2vec-openai` calls api.openai.com.
 
+Anonymous access is on, so any caller that reaches Weaviate can set a `baseURL` it controls and receive that key. Callers include local processes, Kong clients and backend-network containers. The key is also the LiteLLM admin UI password. Treat Weaviate access as LiteLLM master-key access. Do not widen `HOST_BIND_IP` or publish `weaviate.localhost` through a tunnel.
+
 Weaviate uses whatever embedding model LiteLLM serves: Ollama `nomic-embed-text` by default, or a cloud model. No separate `text2vec-ollama` wiring is needed. The default vectorizer is `none`. Each collection must name its vectorizer and `baseURL`, or supply its own vectors. Otherwise a `text2vec-openai` default would send the master key to api.openai.com. To add embedding models, see [LiteLLM Gateway](../litellm/README.md).
 
 ### 3.2. Multi2Vec CLIP module

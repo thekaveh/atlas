@@ -263,6 +263,27 @@ def test_changed_dockerfile_defers_base_to_final_image_scan() -> None:
     ) == ()
 
 
+def test_changed_manifest_scans_a_build_base_that_compose_also_deploys() -> None:
+    # minio-init runs the mc image directly, though backup/jenkins builds use
+    # it as a base, so its declaration change needs the required scan.
+    image = next(
+        row["default"]
+        for row in yaml.safe_load((ROOT / "services/minio/service.yml").read_text(encoding="utf-8"))["images"]
+        if row["var"] == "MINIO_INIT_IMAGE"
+    )
+    scans = container_security.load_changed_image_scans(
+        ROOT / "services",
+        [
+            "diff --git a/services/minio/service.yml b/services/minio/service.yml",
+            f'+    default: "{image}"',
+        ],
+    )
+    assert {(scan.image, scan.platform) for scan in scans} == {
+        (image, "linux/amd64"),
+        (image, "linux/arm64"),
+    }
+
+
 def test_changed_service_rename_scans_current_manifest(tmp_path: Path) -> None:
     service = tmp_path / "renamed"
     service.mkdir()
@@ -1466,6 +1487,18 @@ def test_container_security_rejects_broad_or_stale_exceptions(
     path.write_text(yaml.safe_dump(document), encoding="utf-8")
     with pytest.raises(ValueError, match=expected):
         container_security.load_exceptions(path, today=_TODAY)
+
+
+def test_build_exclusion_expiry_error_names_the_builds_row(tmp_path: Path) -> None:
+    path = tmp_path / "exclusions.yml"
+    row = {
+        "target": "services/x|Dockerfile",
+        "reason": "A reviewed reason that is long enough.",
+        "expired_at": "2026-11-3o",
+    }
+    path.write_text(yaml.safe_dump({"builds": [row]}), encoding="utf-8")
+    with pytest.raises(ValueError, match=r"builds\[0\]\.expired_at must be an ISO date"):
+        container_security.load_build_exclusions(path, today=_TODAY)
 
 
 def _workflow_sources() -> tuple[str, str]:

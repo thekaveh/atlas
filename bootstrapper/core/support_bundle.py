@@ -639,8 +639,12 @@ def export(
 
 
 def write_bundle(bundle: SupportBundle, destination: Path) -> Path:
-    """Write the archive owner-only, replacing ``destination`` atomically."""
-    path = Path(destination).expanduser().resolve()
+    """Write the archive owner-only, replacing ``destination`` atomically.
+
+    Only the parent directory is resolved: a symlink at ``destination`` is
+    replaced by the archive, never written through to its target."""
+    requested = Path(destination).expanduser()
+    path = requested.parent.resolve() / requested.name
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
     try:
