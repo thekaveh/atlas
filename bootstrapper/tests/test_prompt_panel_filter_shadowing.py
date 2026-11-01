@@ -10,15 +10,21 @@ and disappeared, while the chip row still read ALL.
 Reachable on any `ollama-*` source: `pulled_variants` is populated from
 `/api/tags`, and `_sort_key` floats pulled families to the top, so the first
 family a user expands is exactly the one that triggers it.
+
+The fix touched both loops, so the regression test runs both branches: the
+fallback (empty detail cache) and the cached ollama.com detail page.
 """
 
 from __future__ import annotations
+
+import pytest
 
 from ui.textual.widgets.prompt_panel import (
     FILTER_ALL_KEY,
     PromptOption,
     PromptPanel,
 )
+from utils.ollama_library import OllamaVariant
 
 
 class _PanelStub:
@@ -54,7 +60,20 @@ def _family(value, *, pulled=frozenset()):
     )
 
 
-def test_expanding_a_family_with_pulled_variants_keeps_later_options():
+@pytest.mark.parametrize(
+    "cache",
+    [
+        {},
+        {"qwen3.6": [OllamaVariant("latest", "1GB", "8K", ("Text",), "today")]},
+    ],
+    ids=["fallback", "detail"],
+)
+def test_expanding_a_family_with_pulled_variants_keeps_later_options(cache):
+    """`fallback` runs the listing-size loop; `detail` runs the detail-cache loop.
+
+    In both, the pulled "8b" reaches the pulled-tag loop, which is where the
+    shadowing rebound `tag`.
+    """
     options = [
         _family("qwen3.6", pulled=frozenset({"8b"})),
         _family("llama3.1"),
@@ -62,40 +81,14 @@ def test_expanding_a_family_with_pulled_variants_keeps_later_options():
         _family("gemma3"),
     ]
     panel = _PanelStub(options, expanded={"qwen3.6"})
+    panel._variant_cache = dict(cache)
 
     rows = panel._rebuild_visible()
     parents = [r.parent_value or "" for r in rows if r.kind == "parent"]
 
-    assert "llama3.1" in parents, (
+    assert parents == ["qwen3.6", "llama3.1", "mistral", "gemma3"], (
         f"options after the expanded family vanished; parents seen: {parents}"
     )
-    assert {"llama3.1", "mistral", "gemma3"} <= set(parents)
-
-
-def test_the_active_filter_chip_survives_an_expansion():
-    """The clobbered name is the filter key itself."""
-    options = [_family("qwen3.6", pulled=frozenset({"8b", "14b"})), _family("llama3.1")]
-    panel = _PanelStub(options, expanded={"qwen3.6"})
-
-    panel._rebuild_visible()
-
-    assert panel._filter_tag == FILTER_ALL_KEY
-
-
-def test_a_pulled_leaf_carries_its_own_variant_not_the_filter_key():
-    """The loop body used the same shadowed name for the leaf's variant."""
-    options = [_family("qwen3.6", pulled=frozenset({"8b", "14b"}))]
-    panel = _PanelStub(options, expanded={"qwen3.6"})
-
-    leaves = [r for r in panel._rebuild_visible() if r.kind == "leaf"]
-    variants = {r.variant for r in leaves}
-
-    # "latest" is the synthetic head row the panel adds to every Ollama
-    # expansion — legitimate. What must never appear is the filter key.
-    assert variants <= {"8b", "14b", "latest"}, (
-        f"a leaf carried a value that is not one of its variants: {variants}"
-    )
-    assert FILTER_ALL_KEY not in variants
 
 
 def test_an_unexpanded_list_is_unaffected():

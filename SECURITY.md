@@ -103,6 +103,13 @@ on their host.
   pins NeMo `3.0.0` and Transformers `5.16.1`. Atlas loads only the
   `PARAKEET_MODEL` chosen in process environment at startup. Transcription
   requests cannot supply or change a model repository.
+- Capped fsspec, Hydra and Zod advisories: **time-boxed exceptions**.
+  NeMo 3.0.0 and Lightning 2.4.0 hold the Parakeet GPU lock on fsspec
+  2024.12.0 and hydra-core 1.3.2, below their fixes. The n8n packages pin
+  Zod 3.25.76 in the community-node lock. Reachability is not proven. On
+  2026-10-29 the owner approved exceptions for PYSEC-2026-4217 and
+  PYSEC-2026-4221 until 2026-11-27, and for GHSA-mrhx-c7xc-m3w5 until
+  2026-11-28. `docs/maintenance/external-contract-ledger.md` records the review.
 - setuptools source-distribution exclusion bypass (CVE-2026-59890):
   **remediated**. Shipped compiled graphs and the Docling localhost lock now
   resolve setuptools 83.0.0 or newer.
@@ -125,7 +132,8 @@ if it is exposed.
 
 ## 7. Automated Scanning
 
-Two container-image gates run in `services-lint.yml` on every pull request:
+Two container-image gates run in `services-lint.yml` on every pull request.
+A scheduled workflow scans the whole fleet:
 
 - **`Build-validation (Dockerfile + requirements.txt installability)`** is a
   required check. Despite its name it builds no local Dockerfile. It verifies
@@ -134,20 +142,33 @@ Two container-image gates run in `services-lint.yml` on every pull request:
   images whose declarations changed in the pull request. That includes an
   image a Compose line now names by a different `${VAR}`. Local Dockerfile
   builds run in the Final-image scan below.
-- **`Final-image scan (local Compose and init images)`** builds every local
-  Compose and init image and fails on any HIGH or CRITICAL finding. A finding
-  does not stop the run. The job scans every image and fails at the end with
-  the list of images that did not pass. A Trivy error stops it at once.
+- **`Final-image scan (local Compose and init images)`** builds each local
+  Compose and init image. It fails on any fixable HIGH or CRITICAL finding
+  that `.trivyignore.yaml` does not except. Trivy runs with
+  `--ignore-unfixed`, so a finding with no released fix does not fail it.
+  A finding does not stop the run: the job fails at the end with the list of
+  images that did not pass.
+
+  An image build failure, a functional smoke failure or a Trivy error stops
+  the job at once. Later images are not scanned in that run.
 
   It reports on every run but is **not yet a required check** while the fleet
   still carries findings. Its promotion to the required set is tracked
   in #1002.
+- **`container-security`** (`.github/workflows/container-security.yml`) runs
+  weekly and on demand. It scans every manifest-owned image, the base images
+  of local builds and the reviewed remote build-context bases. These scans
+  fail on any HIGH or CRITICAL finding without an exception, including one
+  with no fix. It also builds and scans every local runtime image, gating
+  only fixable findings. A `coverage` dispatch reports which
+  `.trivyignore.yaml` rows each image uses instead of gating (#1289).
 
 Findings that cannot be fixed at the pinned version are excepted in
-`.trivyignore.yaml`. Every exception is scoped to an exact package version or
-path, carries a review statement, and expires. The scan refuses to run on a
-broad, duplicate, or stale entry. A test fails any statement that names no
-owning service.
+`.trivyignore.yaml`. Local-image scans skip findings with no released fix, so
+only remote images need exceptions for those. Every exception is scoped to an
+exact package version or path, carries a review statement, and expires. The
+scan refuses to run on a broad, duplicate, or stale entry. A test fails any
+statement that names no owning service.
 
 A package-version scope matches that version in every scanned image, not only
 the one its statement names. Reconciling each row against per-image scan

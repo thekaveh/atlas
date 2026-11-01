@@ -292,8 +292,8 @@ class _WizardApp(App):
         self.push_screen(self._screen)
 
 
-# M5: WizardScreen.__init__ opens /tmp/atlas-launch-*.log eagerly via
-# NamedTemporaryFile(delete=False) — every screen built via _screen() below
+# M5: WizardScreen.__init__ eagerly opens a session log in the private
+# session-log store via SessionLogTee — every screen built via _screen() below
 # leaks that fd + file unless closed and unlinked. Mirrors the close+unlink
 # pattern in test_tui_launch_log.py. Captured at construction time (not at
 # teardown): several tests here reassign scr._launch_log_path mid-test, so

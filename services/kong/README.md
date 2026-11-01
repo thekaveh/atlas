@@ -12,7 +12,7 @@ Kong runs DB-less (`KONG_DATABASE: "off"`) and loads one declarative file. It is
 
 - **Route generation**: each enabled service gets its routes.
 - **Disabled services**: a service with `*_SOURCE=disabled` gets no route.
-- **Health check (advisory)**: the generator probes localhost-sourced services and warns if they are down. It creates the route either way.
+- **Health check (advisory)**: the generator probes some localhost-sourced services (§4.3) and warns if they are down. It creates the route either way.
 
 `volumes/api/kong-dynamic.yml` is a generated runtime file, not a checked-in file. It is in `.gitignore` and reflects the resolved SOURCE state at the last `./start.sh`. A direct `docker compose up` from a clean checkout fails because the bind-mount source does not exist. Always start through `./start.sh`, which writes the file before it runs compose.
 
@@ -30,8 +30,8 @@ uv run --project bootstrapper python scripts/check-kong-routes.py
 - `/` on bare `localhost` → Atlas service directory and health dashboard
 - `/auth/v1/` → Supabase Auth service
 - `/rest/v1/` → Supabase API (PostgREST)
-- `/graphql/v1` → Supabase GraphQL
-- `/realtime/v1/` → Supabase Realtime
+- `/graphql/v1` → PostgREST `rpc/graphql`. The route exists but returns 404 because `pg_graphql` is not installed ([Supabase §4.4](../supabase/README.md#44-api-service-postgrest)).
+- `/realtime/v1/` → Supabase Realtime. The route exists but Realtime is not functional yet ([Supabase §4.5](../supabase/README.md#45-realtime-service)).
 - `/storage/v1/` → Supabase Storage (key-auth). `/storage/v1/object/public/`, `/storage/v1/object/sign/` and `/storage/v1/object/upload/sign/` carry CORS only. Browsers and outside services fetch public-bucket and signed URLs without an `apikey`; Storage enforces the bucket's public flag or the signed token.
 - `/pg/` → Supabase Meta service
 - `supabase-studio.localhost` → Supabase Studio dashboard
@@ -43,7 +43,7 @@ uv run --project bootstrapper python scripts/check-kong-routes.py
 
 Any other Host gets 404, so a public hostname does not reach Supabase by accident. A Host header with a port still matches. Matching is case-sensitive, so list hosts in lowercase. IPv6 literals cannot be listed.
 
-**Consumers.** The key-auth services also carry an `acl` that admits only the `anon` (`SUPABASE_ANON_KEY`) and `admin` (`SUPABASE_SERVICE_KEY`) groups, as upstream Supabase does. Another Kong key, such as `BACKEND_KONG_API_KEY`, gets 403 there.
+**Consumers.** The key-auth services also carry an `acl` that admits only the `anon` (`SUPABASE_ANON_KEY`) and `admin` (`SUPABASE_SERVICE_KEY`) groups, as upstream Supabase does. Another Kong key, such as `BACKEND_KONG_API_KEY`, gets 403 there. `BACKEND_KONG_API_KEY` must differ from both Supabase keys. Kong rejects a duplicate key-auth credential, so a match stops the start with `Failed to generate Kong configuration`.
 
 ### 3.2. Dynamic Routes (Based on SOURCE)
 
@@ -79,15 +79,18 @@ Kong 3.x has no global proxy-timeout setting, and its per-service default is 60 
 | Default (including n8n, so long webhooks are not cut off) | 300 s |
 | `docling-api` | `DOCLING_INFERENCE_TIMEOUT_SECONDS` + 30 s (930 s by default) |
 | `asset-baker` | `ASSET_BAKER_TIMEOUT_SECONDS` + 30 s (630 s by default) |
+| `asset-worker` | 3 × `ASSET_WORKER_TIMEOUT_SECONDS` + 60 s (960 s by default); one request runs inspect, validate and optimize |
 | Backend `api.localhost` | 3,630 s, or the Docling value + 30 s if larger. Backend requests wait on Docling or on a ComfyUI job of up to 3,600 s. |
 | Backend plugin services | the plugin's own values; the Backend value for any field the plugin does not set |
 | `litellm-gateway`, `ollama-api` | 630 s, for slow non-streaming completions |
+
+The `litellm-gateway` and `ollama-api` routes also set `response_buffering: false`, so streamed completions reach the client token by token. Kong's `location /` block overrides the server-level `KONG_NGINX_PROXY_PROXY_BUFFERING` setting.
 
 Kong retries only on connection errors (`KONG_NGINX_PROXY_PROXY_NEXT_UPSTREAM=error`). A request that times out on connect, send or read fails after one wait and is not re-sent.
 
 ### 4.3. Localhost Service Health Checks
 
-`check_localhost_service()` opens a TCP connection to each localhost-sourced service with a 2-second timeout. If it fails, the generator prints a warning and still creates the route. The route returns errors until the host service starts.
+`check_localhost_service()` opens a TCP connection with a 2-second timeout to the localhost-sourced ComfyUI, OpenClaw and Hermes dashboard upstreams. If it fails, the generator prints a warning and still creates the route. The route returns errors until the host service starts. Other localhost routes, such as Ollama, Weaviate, Neo4j, LightRAG and TEI, are created without this probe.
 
 ## 5. Authentication
 
@@ -152,11 +155,13 @@ Kong supports WebSocket connections for real-time services:
 }
 ```
 
+The generator emits this Realtime route, but Realtime refuses every connection today ([Supabase §4.5](../supabase/README.md#45-realtime-service)).
+
 ## 9. Configuration Generation Process
 
 1. **Startup**: `./start.sh` runs `generate_kong_configuration` after service configuration and dependency checks, and before LiteLLM configuration.
 2. **Environment parsing**: the generator reads SOURCE values from the parsed `.env`.
-3. **Health checks**: the generator probes localhost-sourced services and warns if they are down (§4.3).
+3. **Health checks**: the generator probes some localhost-sourced services and warns if they are down (§4.3).
 4. **Route generation**: only enabled services get routes.
 5. **File writing**: the configuration is written to `volumes/api/kong-dynamic.yml`.
 6. **Kong startup**: Kong loads the generated file from `/home/kong/kong.yml`.
@@ -166,6 +171,9 @@ Kong loads only the plugins named in `KONG_PLUGINS` (`services/kong/compose.yml`
 ## 10. Debugging Kong Configuration
 
 ### 10.1. View Generated Configuration
+
+Set `PROJECT_NAME` and `KONG_HTTP_PORT` in your shell to their values in the active env file (defaults `atlas` and `63000`).
+
 ```bash
 # Check what configuration was generated
 cat volumes/api/kong-dynamic.yml
@@ -201,15 +209,9 @@ curl -H "Host: spark-history.localhost" http://localhost:${KONG_HTTP_PORT}/
 curl -u "${DASHBOARD_USERNAME}:${DASHBOARD_PASSWORD}" -H "Host: trino.localhost" http://localhost:${KONG_HTTP_PORT}/
 curl -u "${DASHBOARD_USERNAME}:${DASHBOARD_PASSWORD}" -H "Host: redpanda.localhost" http://localhost:${KONG_HTTP_PORT}/
 curl -H "Host: airflow.localhost" http://localhost:${KONG_HTTP_PORT}/
-# Airflow REST API (same alias). 3.x is JWT-only — exchange password
-# for a token via /auth/token, then call /api/v2/ with Bearer auth:
-TOKEN=$(curl -fsS -X POST -H "Host: airflow.localhost" \
-  -H 'Content-Type: application/json' \
-  -d "{\"username\":\"admin\",\"password\":\"${AIRFLOW_ADMIN_PASSWORD}\"}" \
-  http://localhost:${KONG_HTTP_PORT}/auth/token | jq -r .access_token)
-curl -H "Host: airflow.localhost" -H "Authorization: Bearer $TOKEN" \
-  http://localhost:${KONG_HTTP_PORT}/api/v2/dags
 ```
+
+The Airflow REST API uses the same alias. Airflow 3.x accepts only JWT bearer tokens on `/api/v2/`. To get a token and call the API, use the Python block in the [Hermes README](../hermes/README.md) §8. It reads the password from the active env file and keeps it off the `curl` argv. That block ends by triggering a DAG run. To only check the route, replace its last request with a `GET` of `/api/v2/dags`.
 
 ## 11. Advanced Configuration
 
@@ -263,7 +265,7 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 ### 14.2. Debug Commands
 ```bash
 # Check Kong gateway status
-docker compose ps | grep kong
+docker ps --filter name=${PROJECT_NAME}-kong
 
 # View detailed Kong configuration
 docker exec ${PROJECT_NAME}-kong-api-gateway cat /home/kong/kong.yml
@@ -366,7 +368,7 @@ docker exec ${PROJECT_NAME}-kong-api-gateway kong health
 - **Per-consumer metrics** — *Why pursue:* the global `prometheus` plugin runs with `per_consumer: false`, so metrics cannot be split by API consumer. *Effort:* small.
 - **`opentelemetry` plugin** — *Why pursue:* emit OTLP spans for every gateway hop so requests through Kong → LiteLLM → Ollama can be stitched into a single trace. *Effort:* small.
 - **`jwt` plugin (replacing per-route basic-auth)** — *Why pursue:* validate JWTs against the Supabase GoTrue keys in `.env`. This would secure jupyter, n8n, openclaw and hermes without a new identity service. *Effort:* medium.
-- **`request-size-limiting` plugin** — *Why pursue:* ComfyUI and Docling routes accept arbitrarily large multipart uploads; a 100 MB cap at the gateway prevents accidental host OOM. *Effort:* small.
+- **`request-size-limiting` plugin** — *Why pursue:* Kong sets no request-body limit; each upstream enforces its own. Docling returns 413 above `DOCLING_MAX_FILE_SIZE` plus 1 MiB, and ComfyUI applies its `--max-upload-size` default. A gateway cap would give every route one edge limit, including routes without a limit of their own. *Effort:* small.
 - **`correlation-id` plugin** — *Why pursue:* inject `X-Request-ID` on ingress so backend/litellm/hermes logs become joinable across the request path. *Effort:* small.
 - **`ai-proxy` plugin** — *Why pursue:* Kong's AI Gateway normalizes OpenAI/Anthropic/Ollama request shapes at the edge, worth evaluating as a comparison (not replacement) for LiteLLM's role. *Effort:* large.
 - **`ai-prompt-guard` plugin** — *Why pursue:* regex allow/deny on prompt content at the gateway gives a defense-in-depth layer before LiteLLM. *Effort:* medium.

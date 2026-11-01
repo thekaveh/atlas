@@ -1,8 +1,7 @@
 """Tests for HF + civitai scrapers in comfyui_library.
 
 Uses fixture JSON committed at bootstrapper/tests/fixtures/comfyui/ so
-tests are hermetic. The live integration test (skip-if-no-network) lives
-in test_live_comfyui_catalog.py (added later, separate task).
+tests are hermetic.
 """
 from __future__ import annotations
 
@@ -50,6 +49,7 @@ def test_parse_hf_text2video():
 def test_parse_hf_text2speech():
     raw = _load("hf_text2speech_search.json")
     entries = _parse_hf_response(raw, category="voice_model")
+    assert len(entries) == 3
     for e in entries:
         assert e.category == "voice_model"
         assert e.target_dir == "voice"
@@ -69,6 +69,7 @@ def test_parse_hf_text2mesh():
 def test_parse_civitai_lora():
     raw = _load("civitai_models.json")
     entries = _parse_civitai_response(raw, category="lora")
+    assert len(entries) == 3
     for e in entries:
         assert e.category == "lora"
         assert e.source == "civitai"

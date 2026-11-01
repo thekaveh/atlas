@@ -131,11 +131,9 @@ rows:
     alias: asset-baker.localhost
     description: "Blender headless HP→LP bake API (voxel-remesh → decimate → Smart-UV → bake color+normal)."
 
-exports:
-  - name: ASSET_BAKER_ENDPOINT
-    consumers:
-      - backend
-      - comfyui
+# No in-stack service reads ASSET_BAKER_ENDPOINT; it is written to .env for
+# operators and downstream tooling only.
+exports: []
 
 runtime_sc:
   asset-baker:

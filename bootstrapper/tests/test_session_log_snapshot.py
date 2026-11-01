@@ -4,6 +4,7 @@ import threading
 
 import pytest
 
+from ui import session_log
 from ui.session_log import SessionLogConfig, SessionLogTee
 
 
@@ -50,9 +51,32 @@ def test_snapshot_selects_recent_contiguous_run_and_reports_gap(tmp_path):
         tee.close()
 
 
+def test_first_retired_segment_is_reported_as_a_history_gap(tmp_path):
+    """Retiring segment 1 alone already breaks contiguity with segment 0."""
+    tee = SessionLogTee(prefix="atlas-launch-boundary-", config=SessionLogConfig(
+        directory=str(tmp_path), segment_max_bytes=1024, max_segments=3))
+
+    def rotate_to(index):
+        for _ in range(400):
+            if tee._segment_index == index:
+                break
+            tee.write("numbered-line\n")
+        assert tee._segment_index == index and not tee.degraded
+        return tee.snapshot()
+
+    try:
+        contiguous = rotate_to(2)
+        assert not contiguous.history_omitted
+        assert contiguous.segment_indexes == (0, 1, 2)
+        gapped = rotate_to(3)
+        assert gapped.history_omitted
+        assert gapped.segment_indexes == (2, 3)
+    finally:
+        tee.close()
+
+
 def test_snapshot_read_budget_is_total_and_explicit(tee, monkeypatch):
     tee.write("café🙂 line\n" * 600)
-    from ui import session_log
     original = session_log.os.read
     requests, returned = [], []
 
@@ -88,7 +112,7 @@ def test_snapshot_path_loss_degrades_once_without_exporting_replacement(tee, whi
 def test_snapshot_after_close_does_not_reopen_paths(tee, monkeypatch):
     tee.write("closed evidence\n")
     tee.close()
-    monkeypatch.setattr(Path, "open", lambda *_a, **_k: pytest.fail("closed path reopened"))
+    monkeypatch.setattr(session_log.os, "open", lambda *_a, **_k: pytest.fail("closed path reopened"))
     assert tee.snapshot().error and not tee.snapshot().data
 
 
@@ -141,7 +165,6 @@ def test_snapshot_health_failure_callback_runs_outside_lock(tee):
 
 
 def test_raw_read_lifecycle_stays_inside_existing_fork_mutex(tee, monkeypatch):
-    from ui import session_log
     tee.write("bounded reader lifecycle\n")
     events = []
     descriptor = []

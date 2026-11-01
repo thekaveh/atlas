@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -55,8 +56,8 @@ def test_current_docs_do_not_reference_retired_external_locations() -> None:
 def test_hand_maintained_docs_do_not_duplicate_dynamic_service_counts() -> None:
     roadmap = (ROOT / "docs/ROADMAP.md").read_text(encoding="utf-8")
     service_readme = (ROOT / "services/README.md").read_text(encoding="utf-8")
-    assert "53 service families" not in roadmap
-    assert "53 manifests" not in service_readme
+    assert not re.search(r"\b\d+ service families\b", roadmap)
+    assert not re.search(r"\b\d+ manifests\b", service_readme)
 
 
 def test_multi2vec_docs_do_not_publish_unbenchmarked_performance_numbers() -> None:

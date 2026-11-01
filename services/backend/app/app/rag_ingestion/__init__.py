@@ -6,7 +6,8 @@ stores, and LightRAG; a downstream consumer declares a versioned
 ``rag_ingestion_profiles`` block and submits jobs headlessly. The engine records a
 durable, machine-readable job with per-phase status/counts/timing and actionable
 errors, capability-gates targets by enabled SOURCE, and is idempotent by
-consumer + profile revision + corpus digest.
+consumer, profile revision, corpus digest, embedding model and declared
+destinations.
 """
 from __future__ import annotations
 
@@ -20,6 +21,7 @@ from .models import (
 )
 from .profiles import ProfileNotFoundError, get_profile, load_profiles
 from .service import (
+    CollectionPublicationBusy,
     Deps,
     IngestionExecutionBusy,
     IngestionExecutionLeaseLost,
@@ -39,8 +41,12 @@ __all__ = [
     "get_profile",
     "load_profiles",
     "fail_abandoned_ingestion",
+    "note_rag_delivery",
+    "undo_rag_delivery",
+    "clear_rag_delivery",
     "run_rag_ingestion",
     "IngestionExecutionBusy",
+    "CollectionPublicationBusy",
     "IngestionExecutionLeaseLost",
     "ingestion_execution_lease_seconds",
 ]
@@ -49,6 +55,25 @@ __all__ = [
 def fail_abandoned_ingestion(ingestion_id: str, *, recovery_owner: str, reason: str) -> bool:
     """Synchronous entrypoint: mark a run the Celery task gave up on failed."""
     return asyncio.run(RagIngestionService().fail_abandoned(ingestion_id, recovery_owner, reason))
+
+
+def note_rag_delivery(ingestion_id: str, *, ttl_seconds: int) -> int:
+    """Count one Celery delivery of the job; see ``IngestionStore.note_delivery``."""
+    from .store import default_store
+
+    return default_store().note_delivery(ingestion_id, ttl_seconds)
+
+
+def undo_rag_delivery(ingestion_id: str) -> None:
+    from .store import default_store
+
+    default_store().undo_delivery(ingestion_id)
+
+
+def clear_rag_delivery(ingestion_id: str) -> None:
+    from .store import default_store
+
+    default_store().clear_delivery(ingestion_id)
 
 
 def run_rag_ingestion(

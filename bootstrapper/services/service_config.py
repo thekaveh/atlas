@@ -1,7 +1,5 @@
 """
 Service configuration generation based on YAML and SOURCE values.
-
-Python implementation of generate_service_environment() and related functions from start.sh.
 """
 
 import os
@@ -11,8 +9,8 @@ from typing import Dict, Any, Optional
 from urllib.parse import quote
 from core.config_parser import ConfigParser
 from core.endpoints_contract import _expand_interpolation
-from utils.atomic_write import atomic_write_text, render_env_assignment, set_env_assignment
-from utils.system import get_localhost_host, resolve_host_gateway_ip
+from utils.atomic_write import atomic_write_text, env_assignment_pattern, env_lines, render_env_assignment, set_env_assignment
+from utils.system import get_localhost_host, redis_service_url, resolve_host_gateway_ip
 
 
 # Same list as .env.example / compose: the backup contract requires
@@ -47,6 +45,66 @@ def _uri_component(env_file_vars: dict, name: str, default: str = '') -> str:
         env_file_vars.get(name, default), safe=''
     )
 
+
+def _shell_image_pin(var: str) -> str:
+    """Return a shell-exported image pin, or ''. The pin refresher skips these."""
+    return (os.environ.get(var) or '').strip()
+
+
+
+def synchronize_redis_uri_credentials(env_file_path, password: str, rewrite_password: bool = True) -> bool:
+    """Atomically publish a file credential's encoded twin and URL references.
+    An already-synchronized file is left untouched: a rewrite on every start
+    replaced the inode and invalidated every ConfigParser cache."""
+    if not env_file_path.exists():
+        print(f"❌ .env file not found: {env_file_path}")
+        return False
+    try:
+        with env_file_path.open(encoding="utf-8", newline="") as handle:
+            content = handle.read()
+        updated = _redis_uri_environment(content, password, rewrite_password)
+        if updated != content:
+            atomic_write_text(env_file_path, updated, mode=0o600)
+        return True
+    except Exception as e:
+        print(f"❌ Failed to update REDIS_PASSWORD / REDIS_PASSWORD_URI in .env file: {e}")
+        return False
+
+
+def _redis_uri_environment(content: str, password: str, rewrite_password: bool = True) -> str:
+    """Place a deterministic encoded twin before expanding dotenv consumers."""
+    bom = '\ufeff' if content.startswith('\ufeff') else ''
+    content = content[len(bom):]
+    newline = '\r\n' if '\r\n' in content else '\n'
+    if rewrite_password:
+        raw = render_env_assignment('REDIS_PASSWORD', password)
+        pattern = env_assignment_pattern('REDIS_PASSWORD')
+        if pattern.search(content):
+            content = pattern.sub(
+                lambda match: match.group(1) + f'REDIS_PASSWORD={raw}'
+                + ('\r' if match.group(0).endswith('\r') else ''), content,
+            )
+        else:
+            separator = '' if not content or content.endswith(('\r', '\n')) else newline
+            content += separator + f'REDIS_PASSWORD={raw}' + newline
+    twin = env_assignment_pattern('REDIS_PASSWORD_URI')
+    lines = [_redis_url_uri_password(line) for line in env_lines(content, keepends=True)
+             if not twin.fullmatch(line.rstrip('\r\n'))]
+    encoded = quote(password, safe='')
+    return bom + f'REDIS_PASSWORD_URI={encoded}' + newline + ''.join(lines)
+
+
+def _redis_url_uri_password(line: str) -> str:
+    """Upgrade only an expanding password token in Redis URL userinfo."""
+    if not env_assignment_pattern('REDIS_URL').match(line.rstrip('\r\n')):
+        return line
+    prefix, value = line.split('=', 1)
+    value = re.sub(
+        r'^(\s*"?(?i:rediss?)://[^/?#@]*:)\$\{REDIS_PASSWORD\}(@)',
+        lambda match: match.group(1) + '${REDIS_PASSWORD_URI}' + match.group(2),
+        value, count=1,
+    )
+    return prefix + '=' + value
 
 
 def _lightrag_neo4j_username(raw_env: Dict[str, str]) -> str:
@@ -128,7 +186,6 @@ class ServiceConfig:
     def generate_service_environment(self) -> Dict[str, str]:
         """
         Generate all service environment variables based on YAML configuration.
-        Replicates the generate_service_environment() function from start.sh.
 
         Returns:
             dict: Dictionary of environment variables to set
@@ -229,7 +286,7 @@ class ServiceConfig:
         env_vars.update(hermes_config)
 
         # Generate TEI Reranker configuration
-        tei_reranker_config = self._generate_tei_reranker_config()
+        tei_reranker_config = self._generate_tei_reranker_config(shared_env=env_vars)
         env_vars.update(tei_reranker_config)
 
         # Generate LightRAG configuration
@@ -472,11 +529,7 @@ class ServiceConfig:
         weaviate_url = self._resolved_host_url(weaviate_url)
         env_vars['WEAVIATE_URL'] = weaviate_url
         
-        # Weaviate's text2vec-openai / generative-openai modules talk to LiteLLM.
-        # The base URL goes into per-collection module configs (set by
-        # weaviate-init), not into Weaviate's startup env.
         env_file_vars = self.config_parser.parse_env_file()
-        env_vars['WEAVIATE_LITELLM_API_KEY'] = env_file_vars.get('LITELLM_MASTER_KEY', '')
 
         # Multi2Vec CLIP is optional. If its service is disabled/scaled to zero,
         # Weaviate must not enable the multi2vec-clip module or it will block
@@ -721,7 +774,7 @@ class ServiceConfig:
             # that's the container's host-bound port). The wizard writes the
             # user's host port to DOCLING_LOCALHOST_PORT; reading the wrong
             # var here silently strands the override (asymmetric-override
-            # class — see feedback_localhost_url_override_symmetry.md).
+            # class — docs/CONTRIBUTING-services.md §14.2).
             if source_value == 'docling-localhost':
                 current_env = self.config_parser.parse_env_file()
                 doc_port = current_env.get('DOCLING_LOCALHOST_PORT', '18159')
@@ -790,7 +843,7 @@ class ServiceConfig:
             # writes for host-side Hermes. Reading HERMES_API_PORT here would
             # always be the container's host-bound port, silently
             # stranding any port override — same asymmetric-override class
-            # as docling above (feedback_localhost_url_override_symmetry.md).
+            # as docling above (docs/CONTRIBUTING-services.md §14.2).
             hermes_port = current_env.get('HERMES_LOCALHOST_PORT', '8642')
             endpoint = f'http://{self.localhost_host}:{hermes_port}'
             env_vars['HERMES_ENDPOINT'] = endpoint
@@ -804,7 +857,7 @@ class ServiceConfig:
 
         return env_vars
 
-    def _generate_tei_reranker_config(self) -> Dict[str, str]:
+    def _generate_tei_reranker_config(self, shared_env: Optional[Dict[str, str]] = None) -> Dict[str, str]:
         """Resolve TEI Reranker endpoint, scale, and per-source image.
 
         For container-cpu, picks the arm64 image on arm64 hosts and the
@@ -814,22 +867,30 @@ class ServiceConfig:
         The default model (mxbai-rerank-base-v1) ships ONNX so both
         backends work; some models like bge-reranker-v2-m3 are safetensors-
         only AND too heavy for the arm64 candle backend's warmup path.
+
+        Each pin resolves from the shell export (the refresher skips it),
+        then this run's refreshed pin in ``shared_env``, then ``.env``.
         """
         import platform as _platform
         source_value = self.service_sources.get('TEI_RERANKER_SOURCE', 'disabled')
         env_vars: Dict[str, str] = {}
         current_env = self.config_parser.parse_env_file()
-        cpu_image = current_env.get(
+        shared = shared_env or {}
+
+        def _pin(var: str, default: str) -> str:
+            return _shell_image_pin(var) or shared.get(var) or current_env.get(var) or default
+
+        cpu_image = _pin(
             'TEI_RERANKER_CPU_IMAGE',
             'ghcr.io/huggingface/text-embeddings-inference:cpu-1.9'
             '@sha256:ad950d30878eceb72aaf32024d26fa2b1d04a75304fa0b4776b49aa1941fea07',
         )
-        cpu_arm64_image = current_env.get(
+        cpu_arm64_image = _pin(
             'TEI_RERANKER_CPU_ARM64_IMAGE',
             'ghcr.io/huggingface/text-embeddings-inference:cpu-arm64-latest'
             '@sha256:35c50d7494de22deecdb783b8f5b7e1d05765709bd90071b03469b9440d28656',
         )
-        gpu_image = current_env.get(
+        gpu_image = _pin(
             'TEI_RERANKER_GPU_IMAGE',
             'ghcr.io/huggingface/text-embeddings-inference:1.9'
             '@sha256:536efce2a0dc0acd0336d683ef1b81fcf900f76c8fb850e25a6d48a54a97df91',
@@ -928,7 +989,8 @@ class ServiceConfig:
                 `ray-container-gpu`, `disabled`).
             shared_env: Env vars accumulated by earlier generators + manifest
                 defaults. We read `RAY_IMAGE` / `RAY_GPU_IMAGE` from here (the
-                image-pin refresher seeds them). `RAY_WORKER_COUNT` is NOT in
+                image-pin refresher seeds them); a shell-exported pin wins,
+                because the refresher skips it. `RAY_WORKER_COUNT` is NOT in
                 shared_env (the pipeline builds env_vars fresh and never adds
                 it), so it is read from `.env` on disk — mirroring how
                 _generate_spark_config reads SPARK_WORKER_COUNT.
@@ -937,8 +999,8 @@ class ServiceConfig:
             Dict of resolved env-var assignments. The caller merges this into
             the .env-example output.
         """
-        cpu_image = shared_env.get("RAY_IMAGE", "rayproject/ray:2.56.0") or "rayproject/ray:2.56.0"
-        gpu_image = shared_env.get("RAY_GPU_IMAGE", "rayproject/ray:2.56.0-gpu") or "rayproject/ray:2.56.0-gpu"
+        cpu_image = _shell_image_pin("RAY_IMAGE") or shared_env.get("RAY_IMAGE") or "rayproject/ray:2.56.0"
+        gpu_image = _shell_image_pin("RAY_GPU_IMAGE") or shared_env.get("RAY_GPU_IMAGE") or "rayproject/ray:2.56.0-gpu"
 
         # Read RAY_WORKER_COUNT from disk (where the wizard/CLI persists the
         # user's --ray-worker-count) with a safe fallback to the manifest
@@ -1395,11 +1457,12 @@ class ServiceConfig:
                 "CELERY_BROKER_URL": "",
                 "CELERY_RESULT_BACKEND": "",
             }
+        redis_password = _uri_component(self.config_parser.parse_env_file(), 'REDIS_PASSWORD')
         return {
             "CELERY_WORKER_SCALE": "1",
             "FLOWER_SCALE": "1",
-            "CELERY_BROKER_URL": "redis://:${REDIS_PASSWORD}@redis:6379/4",
-            "CELERY_RESULT_BACKEND": "redis://:${REDIS_PASSWORD}@redis:6379/4",
+            "CELERY_BROKER_URL": redis_service_url("CELERY_BROKER_URL", redis_password),
+            "CELERY_RESULT_BACKEND": redis_service_url("CELERY_RESULT_BACKEND", redis_password),
         }
 
     def _generate_supavisor_config(self) -> dict:
@@ -1734,6 +1797,7 @@ class ServiceConfig:
         asset_baker_source = self.service_sources.get('ASSET_BAKER_SOURCE', 'disabled')
         asset_baker_config = self.get_service_config('asset-baker', asset_baker_source)
         env_vars['ASSET_BAKER_SCALE'] = str(asset_baker_config.get('scale', 0))
+        env_vars.update(self._creative_endpoint_vars(asset_worker_config, asset_baker_config))
 
         # Neo4j configuration
         neo4j_source = self.service_sources.get('NEO4J_GRAPH_DB_SOURCE', 'container')
@@ -1755,12 +1819,10 @@ class ServiceConfig:
             weaviate_config = self.get_service_config('weaviate', weaviate_source)
             env_vars['WEAVIATE_INIT_SCALE'] = str(weaviate_config.get('scale', 1))
         
-        # OLLAMA_PULL_SCALE: 1 only for in-stack ollama-container-* sources.
-        # Host-side Ollama (ollama-localhost) is not pull-controllable
-        # from the stack — sending /api/pull at the user's host Ollama
-        # would surprise them (for localhost, the operator must `ollama pull`
-        # manually).
-        # Source=none has no upstream at all.
+        # OLLAMA_PULL_SCALE: ollama-pull runs only for the in-stack
+        # ollama-container-* sources. For ollama-localhost the bootstrapper
+        # pulls the declared models on the host (start.py
+        # _finalize_ollama_localhost_models, #757); source none has no upstream.
         llm_source = self.service_sources.get('LLM_PROVIDER_SOURCE', 'ollama-container-cpu')
         if llm_source.startswith('ollama-container-'):
             env_vars['OLLAMA_PULL_SCALE'] = '1'
@@ -1826,6 +1888,31 @@ class ServiceConfig:
 
         return env_vars
     
+    def _creative_endpoint_vars(self, asset_worker_config: dict, asset_baker_config: dict) -> Dict[str, str]:
+        """Auto-managed endpoint vars of the asset and Blender MCP families.
+
+        The manifests declare them auto-managed, but nothing wrote them: .env
+        kept the blank default, so `./start.sh endpoints export` never emitted
+        ATLAS_ASSET_WORKER_CONTAINER_ENDPOINT. Each value now comes from the
+        active source's runtime_sc slice, as COMFYUI_ENDPOINT's does.
+        """
+        worker_env = asset_worker_config.get('environment', {})
+        baker_env = asset_baker_config.get('environment', {})
+        # Blender MCP is virtual and host-only; its runtime_sc key is
+        # `blender_mcp`. The tcp:// hint is resolved now, as the other host
+        # endpoints are: a raw `${...}` value would make every .env read print
+        # a preserved-reference warning.
+        blender_source = self.service_sources.get('BLENDER_MCP_SOURCE', 'disabled')
+        blender_env = self.get_service_config('blender_mcp', blender_source).get('environment', {})
+        return {
+            'ASSET_WORKER_ENDPOINT': worker_env.get('ASSET_WORKER_ENDPOINT', ''),
+            'ASSET_WORKER_MINIO_ENDPOINT': worker_env.get('ASSET_WORKER_MINIO_ENDPOINT', ''),
+            'ASSET_BAKER_ENDPOINT': baker_env.get('ASSET_BAKER_ENDPOINT', ''),
+            'ASSET_BAKER_MINIO_ENDPOINT': baker_env.get('ASSET_BAKER_MINIO_ENDPOINT', ''),
+            'BLENDER_MCP_ENDPOINT': self._resolved_host_url(
+                blender_env.get('BLENDER_MCP_ENDPOINT', '')),
+        }
+
     def _neo4j_bolt_uri(self, neo4j_source: str) -> str:
         """The source-aware Bolt URI NEO4J_URI carries, for other consumers."""
         neo4j_uri = self.get_service_config('neo4j-graph-db', neo4j_source).get(
@@ -1978,10 +2065,8 @@ class ServiceConfig:
             # Redis KV / doc-status URI.
             redis_source = sources.get('REDIS_SOURCE', 'container')
             if redis_source != 'disabled':
-                redis_password = lightrag_raw_env.get('REDIS_PASSWORD', '')
-                env_vars['LIGHTRAG_REDIS_URI'] = (
-                    f'redis://:{redis_password}@redis:6379/2'
-                )
+                redis_password = _uri_component(lightrag_raw_env, 'REDIS_PASSWORD')
+                env_vars['LIGHTRAG_REDIS_URI'] = redis_service_url('LIGHTRAG_REDIS_URI', redis_password)
             else:
                 env_vars['LIGHTRAG_REDIS_URI'] = ''
             _warn_lightrag_storage_gaps(env_vars, lightrag_raw_env)
@@ -1999,13 +2084,16 @@ class ServiceConfig:
             env_vars['LIGHTRAG_NEO4J_PASSWORD'] = ''
             env_vars['LIGHTRAG_REDIS_URI'] = ''
 
-        # Hermes-init capability wiring. Each *_INTERNAL_URL is read by
-        # init-hermes.sh and rendered into config.yaml as a tool/skill block
-        # — empty values cause init-hermes.sh's strip_block to omit the
-        # capability (per services/hermes/service.yml::runtime_adaptive
-        # .hermes-init.failure_mode). The contract here mirrors the env
-        # declarations at services/hermes/service.yml lines 169-173; missing
-        # an emission silently disables the capability with no warning.
+        # Hermes-init capability wiring. init-hermes.sh renders the TTS and STT
+        # *_INTERNAL_URL values into config.yaml blocks; SEARXNG_INTERNAL_URL
+        # only keeps the SEARCH block. strip_block omits a block whose URL is
+        # empty (per
+        # services/hermes/service.yml::runtime_adaptive.hermes-init
+        # .failure_mode). COMFYUI_INTERNAL_URL renders the ComfyUI host skill
+        # instead. LIGHTRAG_INTERNAL_URL is exported but not rendered. The
+        # contract mirrors the *_INTERNAL_URL `env:` declarations in
+        # services/hermes/service.yml; a missing emission silently disables
+        # the capability with no warning.
         hermes_source = sources.get('HERMES_SOURCE', 'container')
         hermes_container_up = (hermes_source == 'container')
 
@@ -2116,7 +2204,6 @@ class ServiceConfig:
     def update_env_file(self, env_vars: Dict[str, str], create_backup: bool = True) -> bool:
         """
         Update .env file with computed environment variables.
-        Replicates the update_env_file() function from start.sh.
         
         Args:
             env_vars: Dictionary of environment variables to set
@@ -2163,7 +2250,6 @@ class ServiceConfig:
     def check_comfyui_local_models(self, on_line=None) -> bool | None:
         """
         Check ComfyUI local models directory.
-        Replicates the ComfyUI local models check from start.sh.
 
         When `on_line` is provided (TUI mode), output routes through it as
         ``on_line(msg, level)`` — matching show_container_status_and_verify_ports

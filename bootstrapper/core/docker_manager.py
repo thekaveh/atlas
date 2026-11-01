@@ -138,11 +138,14 @@ class DockerManager:
         except RuntimeError:
             return False
 
-    # Minimum Compose version for the per-service modular layout. v2.20.3+ is
-    # the floor (top-level `include:` directive + cross-include depends_on
-    # merging). v2.26+ is documented as recommended because earlier 2.2x
-    # releases had several `include:` + `profiles:` interaction bugs.
-    MIN_COMPOSE_VERSION = (2, 20, 3)
+    # Minimum Compose version for the per-service modular layout. v2.23.1+ is
+    # the floor: v2.20.3 added the top-level `include:` directive and
+    # cross-include depends_on merging, and v2.23.1 added inline top-level
+    # `configs.content` (used by services/langfuse/compose.yml, which
+    # docker-compose.yml always includes). v2.26+ is documented as
+    # recommended because earlier 2.2x releases had several `include:` +
+    # `profiles:` interaction bugs.
+    MIN_COMPOSE_VERSION = (2, 23, 1)
     RECOMMENDED_COMPOSE_VERSION = (2, 26, 0)
 
     def check_compose_version(self) -> tuple[bool, str]:
@@ -689,30 +692,6 @@ class DockerManager:
         except Exception:
             return 1, "", "Error executing docker compose config", cmd
     
-    def remove_project_networks(self, project_name: str) -> bool:
-        """
-        Remove project-specific Docker networks.
-
-        Args:
-            project_name: Name of the project
-
-        Returns:
-            bool: True if successful or network doesn't exist
-        """
-        network_name = f"{project_name}-network"
-
-        try:
-            subprocess.run(
-                ['docker', 'network', 'rm', network_name],
-                capture_output=True,
-                check=False,
-                timeout=10,
-            )
-            # Return True even if network doesn't exist (exit code 1)
-            return True
-        except (subprocess.SubprocessError, OSError):
-            return False
-
     def get_compose_command_display(self) -> str:
         """
         Get the Docker compose command for display purposes.
@@ -1157,18 +1136,6 @@ class DockerManager:
         self._on_command(f"      Command: {' '.join(full_cmd)}")
         return self._stream_compose_command(full_cmd, on_line)
 
-    def stream_logs(self, on_line: Callable[[str], None]) -> int:
-        """
-        Run `docker compose logs -f` with stdout piped and forwarded line
-        by line to `on_line`. Replaces show_container_logs's passthrough
-        behavior when the Live region is active.
-
-        Blocks until the subprocess exits or the caller raises
-        KeyboardInterrupt; on Ctrl+C, sends SIGINT to the subprocess and
-        waits up to 3 s before SIGKILL so the user gets a clean detach.
-        """
-        return self.stream_compose(['logs', '-f'], on_line=on_line)
-
     def _report_interrupted_compose(self, project_name: str) -> None:
         """Tell the operator an aborted bring-up may still be building.
 
@@ -1199,71 +1166,3 @@ class DockerManager:
             # AttributeError covers proc.kill() being called on a
             # subprocess.Popen that crashed before assignment.
             return 1
-
-    def get_services_status(self) -> dict:
-        """
-        Run `docker compose ps --format json` and return a dict of
-        {service_name: state_string}, where state_string is one of
-        "running" | "starting" | "unhealthy" | "stopped".
-
-        Tolerates both line-delimited JSON (Compose ≥ 2.21) and the older
-        single-array shape. Failures (timeout, docker stopped, malformed
-        JSON) return an empty dict so the caller can fall back to .env
-        configured state without crashing.
-        """
-        import json
-
-        full_cmd = self._build_compose_command(['ps', '--format', 'json'])
-        try:
-            result = subprocess.run(
-                full_cmd,
-                cwd=str(self.root_dir),
-                capture_output=True,
-                text=True,
-                timeout=3,
-                check=False,
-                encoding="utf-8",
-                errors="replace",
-            )
-        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
-            return {}
-
-        if result.returncode != 0 or not result.stdout.strip():
-            return {}
-
-        # Try parsing as a single JSON array first; fall back to JSONL.
-        entries = []
-        try:
-            parsed = json.loads(result.stdout)
-            entries = parsed if isinstance(parsed, list) else [parsed]
-        except json.JSONDecodeError:
-            for line in result.stdout.splitlines():
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    entries.append(json.loads(line))
-                except json.JSONDecodeError:
-                    continue  # skip malformed lines, keep going
-
-        snapshot = {}
-        for e in entries:
-            service = e.get("Service") or e.get("Name") or ""
-            if not service:
-                continue
-            state = (e.get("State") or "").lower()
-            health = (e.get("Health") or "").lower()
-
-            if state == "running" and health in ("healthy", "", "none"):
-                snapshot[service] = "running"
-            elif health == "unhealthy":
-                snapshot[service] = "unhealthy"
-            elif health == "starting" or state in ("created", "restarting"):
-                snapshot[service] = "starting"
-            elif state == "exited":
-                snapshot[service] = "stopped"
-            else:
-                # Unknown state — show as starting so the user sees something
-                # is happening rather than a stale "off" dot.
-                snapshot[service] = "starting"
-        return snapshot

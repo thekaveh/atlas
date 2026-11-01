@@ -6,7 +6,7 @@ The stack uses a **per-service folder layout** under `services/<name>/`. Each se
 - `compose.yml` — Docker Compose fragment for that family's containers
 - optional subdirectories holding Dockerfiles, init scripts, source code, configuration files, snapshots, etc. — see the **Subdirectory naming convention** below
 
-The thin top-level `docker-compose.yml` merges fragments via Compose's native `include:` directive (requires Compose ≥ v2.20.3; v2.26+ recommended).
+The thin top-level `docker-compose.yml` merges fragments via Compose's native `include:` directive (requires Compose ≥ v2.23.1; v2.26+ recommended). Fragments may use inline top-level `configs.content`, which needs v2.23.1.
 
 <a id="1-tldr--the-60-second-checklist"></a>
 
@@ -187,7 +187,7 @@ Every user-configurable service has an `<SVC>_SOURCE` env var. The wizard reads 
     - The manifest-validator lint fails only when no prod-eligible option is left. Annotate each dev-only option yourself.
     - The matching Python predicate is `option_in_profile` in `bootstrapper/services/manifests.py`.
     - The profile bundles live in `bootstrapper/profiles.yml`: `default` and `prod` maps of `sources`, `env` and `host_bind_ip` that `apply_profile_overrides` applies at start. Consumers override fields with `profile_overrides:` in `atlas.consumer.yml` ([Reusing Atlas §6.1](operations/reusing-atlas.md#61-registering-a-parent-project-with-atlasconsumeryml)).
-- **`<SVC>_LOCALHOST_PORT` is the single source of truth.** If you offer `localhost`, declare `<SVC>_LOCALHOST_PORT` (an integer string, defaulting to the upstream host port). The URL is derived as `http://host.docker.internal:${<SVC>_LOCALHOST_PORT:-<default>}`. The in-container consumers (`runtime_sc.<svc>.localhost.environment`) and the Kong route generator (`bootstrapper/utils/kong_config_generator.py`) must read the same var. The wizard shows an inline port box on the `localhost` row. See also [Common gotchas](#14-common-gotchas--anti-patterns).
+- **`<SVC>_LOCALHOST_PORT` is the single source of truth.** If you offer `localhost`, declare `<SVC>_LOCALHOST_PORT` (an integer string, defaulting to the upstream host port). The URL is derived as `http://host.docker.internal:${<SVC>_LOCALHOST_PORT:-<default>}`. The in-container consumers (`runtime_sc.<svc>.localhost.environment`) and the Kong route generator (`bootstrapper/utils/kong_config_generator.py`) must read the same var. To show an inline port box on that row, add a `(display_name, option id)` entry to `LOCALHOST_PORT_WIRING` in `bootstrapper/wizard/model/state_builder.py`. See also [Common gotchas](#14-common-gotchas--anti-patterns).
 - **`runtime_sc` slice per source.** Every source variant declared in `sources.options` must have a matching `runtime_sc.<key>.<source>` slice. By convention each slice sets `scale`, `environment`, `deploy` and `extra_hosts`. The manifest validator reports a missing slice as `runtime_sc_missing_variant`, so a declared option cannot silently scale to 0.
 - **`auto_prefer:` (optional).** This enables `<SVC>_SOURCE: auto` in `atlas.consumer.yml`. The resolver picks the first entry whose `requires_capability` (`apple_silicon`, `nvidia_gpu`, `host_ollama`; probed by `bootstrapper/services/host_capabilities.py`) holds on the host and whose option the active profile offers.
     - Each id must be in `options[].id`. The last entry must have no `requires_capability`; it is the terminal fallback, usually the CPU container. The lint (`_check_auto_prefer_integrity`) enforces both rules.
@@ -563,15 +563,15 @@ Append the Qdrant entry to `sections` → `services` → `service-guides` → `c
 
 ```yaml
 - id: service-qdrant
-  number: '5.2.62'
-  title: Qdrant
+  number: 5.2.62
+  title: qdrant
   source: services/qdrant/README.md
   diagrams:
   - service-qdrant
 ```
 
-Here, `5.2.62` illustrates the next number after the current last guide, `5.2.61`.
-Use the actual next sequential sibling number when you add a service.
+Here, `5.2.62` stands for the next sequential number after the last `service-guides` child.
+Use the service folder name as the `title`, as the existing guide entries do.
 Keep existing page IDs and numbers unchanged; wiki page URLs derive from the stable IDs.
 
 Set the canonical README's first H1 to the same page number:
@@ -620,6 +620,7 @@ make docs-check
 **When to re-run each step:**
 
 - **`env_assembler`** — after any change to a manifest's `env:` block, port allocation, or source variants.
+- **Build-pin bumps** — when you change the shipped default of a pin listed in `RETIRED_DEFAULTS` (`bootstrapper/services/migrations/build_pin_refresh.py`), append the replaced value there. Startup then moves existing `.env` files off the old default.
 - **`generate_readme_topology`** — after any change to a manifest's `rows:`, `display_name`, `category`, or `alias`.
 - **Publication registration** — before building a new service page. Add its page and diagram entries to `docs/manifest.yaml`, then set the matching canonical H1.
 - **Top-level `docs/diagrams/architecture.html` and `architecture.svg`** — hand-authored masters. Update both when a band-level change occurs, such as a new category or a new gateway. After either master changes, run `python -m scripts.docs.render_diagrams` as shown above before `make docs-build`. Routine `data_flow.calls` edits flow into per-service diagrams via `bootstrapper.docs.regen`.
@@ -630,7 +631,7 @@ make docs-check
 
 **Prerequisite: Cairo.** Diagram rendering uses `cairosvg`, which needs the native Cairo library: `libcairo2` (Debian/Ubuntu) or `brew install cairo` (macOS). CI installs `libcairo2`.
 
-**Atlas hero art:** regenerate with `python bootstrapper/scripts/generate_logo.py` (needs `pip install pillow` + `chafa` on PATH); commit the refreshed `bootstrapper/ui/textual/assets/atlas_hero_*.json`. Not gated in CI.
+**Atlas hero art:** Run `uv run --project bootstrapper python bootstrapper/scripts/generate_logo.py` from the repository root. Install `chafa` first; `pngquant` is optional and keeps the profile and social PNGs under 1 MB. Commit the refreshed `atlas_hero_*.json` and `atlas_poster_*.json` files under `bootstrapper/ui/textual/assets/` and the three `assets/atlas-*.png` images. Not gated in CI.
 
 <a id="13-audit-script--ci-implications"></a>
 
@@ -680,7 +681,7 @@ Runs on `main` and `develop` are never cancelled.
 
 - *Bootstrapper and Backend suites (with containers)*: `validate_fragments`, ShellCheck, and the pull-request title and changelog checks. It also runs the 7,000+ bootstrapper tests (with the container-backed backup/restore tests and the coverage floor) and the backend suite (`services/backend/app/app/tests/`).
 - *Bootstrapper suite without Docker (fast)*: the whole suite with no Docker daemon, so a failing unit test turns red first.
-- *Bootstrapper suite on Python 3.10*: the full suite on the supported floor.
+- *Bootstrapper suite on Python 3.11*: the full suite on the supported floor.
 - *MCP and asset API tests*: those isolated suites.
 
 **Docs drift + audit scripts** runs, in the `audit-scripts` job:
@@ -695,7 +696,7 @@ Runs on `main` and `develop` are never cancelled.
 Run this representative local subset before pushing (from the repository root
 unless a subshell changes directory). The authoritative command list is
 `.github/workflows/services-lint.yml`, which also runs ShellCheck, isolated MCP
-and asset-service suites, and the bootstrapper suite under Python 3.10:
+and asset-service suites, and the bootstrapper suite under Python 3.11:
 
 ```bash
 (
@@ -707,8 +708,11 @@ and asset-service suites, and the bootstrapper suite under Python 3.10:
     --cov-report=term --cov-fail-under=69
 )                                                                                  # job 1 bootstrapper tests
 (
+  set -e
   cd services/backend/app/app
-  BACKEND_TEST_VENV="${TMPDIR:-/tmp}/atlas-backend-ci-venv"
+  BACKEND_TEST_ROOT="$(mktemp -d)"
+  trap 'rm -rf "$BACKEND_TEST_ROOT"' EXIT
+  BACKEND_TEST_VENV="$BACKEND_TEST_ROOT/venv"
   uv venv --python 3.12 "$BACKEND_TEST_VENV"
   VIRTUAL_ENV="$BACKEND_TEST_VENV" uv pip install \
     -r requirements.txt -r requirements-dev.txt -c requirements-test-locked.txt
@@ -778,7 +782,7 @@ adding a picker.
 
 ### 14.2. URL / localhost handling
 
-`<SVC>_LOCALHOST_PORT` is the single source of truth for localhost URLs — see [Decision 3](#7-decision-3--source-variants) for the full rule. The gotcha: the in-container consumer, the Kong route generator and the wizard's inline input must read the *same* PORT var. Otherwise they silently disagree about where the localhost upstream lives.
+`<SVC>_LOCALHOST_PORT` is the single source of truth for localhost URLs — see [Decision 3](#7-decision-3--source-variants) for the full rule. The gotcha: the in-container consumer, the Kong route generator and the wizard's `LOCALHOST_PORT_WIRING` entry must read the *same* PORT var. Otherwise they silently disagree about where the localhost upstream lives.
 
 - **Kong routes fronting browser SPAs need `preserve_host: True`.** Without it the SPA emits unreachable redirect URLs containing the internal Docker hostname.
 
@@ -800,7 +804,7 @@ adding a picker.
 
 ### 14.5. Topology / category gotchas
 
-- **A new service in a full category block trips the category-overflow lint.** The `infra` block (10 slots) is full. A new infra `*_PORT` needs a new block or a different category. `data` has 30 slots (Supabase alone uses 8) and `media` 20. Check current utilization before assuming there's room: `PYTHONPATH=bootstrapper python -c "from services.topology import get_topology; print(get_topology().port_defaults)"`.
+- **A new service in a full category block trips the category-overflow lint.** The `infra` block (10 slots) is full. A new infra `*_PORT` needs a new block or a different category. `data` has 30 slots (Supabase alone uses 8) and `media` 20. Check current utilization before assuming there's room: `PYTHONPATH=bootstrapper uv run --project bootstrapper python -c "from services.topology import get_topology; print(get_topology().port_defaults)"`.
 - **Renaming a `row.display_name` breaks tests that hardcode it.** `test_wizard_app_discovery.py` has an `EXPECTED_DISCOVERED` frozenset; update it when renaming.
 
 ### 14.6. Wizard discovery gotchas
@@ -848,6 +852,8 @@ Short walk-throughs for the modifications you'll do most often:
 ## 17. Cross-referencing sections in service READMEs
 
 Service READMEs follow a numbered convention (`## 1. Overview`, `## 2. Access`, …). The "Dependencies & Integrations" block sits at whatever section number N the README's structure places it — typically 5, but 7/9/12/14 in READMEs with extra pre-Deps content. The `bootstrapper/docs/regen.py` tool detects N and emits matching subsection numbering (`### N.1` through `### N.6`) inside the block.
+
+When a README has no such section, regen appends one after the last numbered `##` section. A README with no numbered sections gets section 5.
 
 **Never link to a sub-section by number across services.** "See section 5.4 in the backend README" breaks when a new pre-Deps section makes it 6.4. Always reference by heading text instead: "See *Future — Missing pair integrations* in the backend README."
 

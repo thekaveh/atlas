@@ -42,13 +42,35 @@ PLUGIN_INVENTORY: list[dict] = []
 # startup), so a hung download (flaky index, slow mirror, network partition)
 # would block the whole backend indefinitely with no request-level timeout to
 # rescue it. Bound it. Override via env for slow networks.
-try:
-    _PIP_INSTALL_TIMEOUT = int(os.getenv("BACKEND_PLUGINS_PIP_TIMEOUT_SECONDS", "300"))
-except ValueError:
-    # A non-numeric operator value (e.g. "300s") would otherwise crash the
-    # backend at import with a raw ValueError; fall back to the default.
-    # Mirrors fal_media_client.py's FAL_TIMEOUT_SECONDS parse guard.
-    _PIP_INSTALL_TIMEOUT = 300
+_PIP_TIMEOUT_ENV = "BACKEND_PLUGINS_PIP_TIMEOUT_SECONDS"
+_PIP_TIMEOUT_DEFAULT = 300
+
+
+def _pip_install_timeout_from_env() -> int:
+    """Return the plugin pip-install timeout in whole seconds.
+
+    A non-numeric value (e.g. "300s") or a non-positive one logs a warning
+    and falls back to 300 rather than failing backend import. A zero or
+    negative timeout would make every requirements install time out at
+    once and skip every plugin.
+    """
+    raw = os.getenv(_PIP_TIMEOUT_ENV, str(_PIP_TIMEOUT_DEFAULT))
+    try:
+        value = int(raw)
+    except ValueError:
+        value = 0
+    if value > 0:
+        return value
+    _log.warning(
+        "plugin seam: %s=%r is not a positive integer; using %d",
+        _PIP_TIMEOUT_ENV,
+        raw,
+        _PIP_TIMEOUT_DEFAULT,
+    )
+    return _PIP_TIMEOUT_DEFAULT
+
+
+_PIP_INSTALL_TIMEOUT = _pip_install_timeout_from_env()
 
 
 # Writable install target for plugin requirements (#559). The image runs as
@@ -335,6 +357,10 @@ def _router_path_error(router, manifest: PluginManifest | None, seen_prefixes: d
     return None
 
 
+#: Inventory error for a package that imports but exposes no ``router``.
+_NO_ROUTER = "package exposes no module-level router"
+
+
 def _load_plugins_from_dir(
     app,
     plugins_dir: Path,
@@ -405,28 +431,25 @@ def _load_plugins_from_dir(
         try:
             module = importlib.import_module(entry.name)
             router = getattr(module, "router", None)
-            if router is not None:
-                path_error = _router_path_error(router, manifest, seen_prefixes)
-                if path_error is not None:
-                    _log.error("plugin seam: %s; skipping plugin %r", path_error, entry.name)
-                    name = manifest.name if manifest else entry.name
-                    PLUGIN_INVENTORY.append(
-                        _inventory_entry(
-                            name, "skipped", manifest=manifest, error=path_error
-                        )
-                    )
-                    continue
-                auth_mode = manifest.auth if manifest is not None else "inherit"
-                dependencies = []
-                if auth_mode == "inherit":
-                    dependencies = [Depends(require_backend_principal)]
-                elif auth_mode == "key-auth":
-                    dependencies = [Depends(require_plugin_gateway_key)]
-                app.include_router(router, dependencies=dependencies)
-                if manifest is None:
-                    _claim_manifestless_paths(router, seen_prefixes, entry.name)
-                _log.info("plugin seam: loaded plugin %r", entry.name)
             name = manifest.name if manifest else entry.name
+            # Nothing mounted is not "loaded": GET /plugins and the streaming
+            # prefixes both trust that status.
+            path_error = _NO_ROUTER if router is None else _router_path_error(router, manifest, seen_prefixes)
+            if path_error is not None:
+                log = _log.warning if router is None else _log.error
+                log("plugin seam: %s; skipping plugin %r", path_error, entry.name)
+                PLUGIN_INVENTORY.append(_inventory_entry(name, "skipped", manifest=manifest, error=path_error))
+                continue
+            auth_mode = manifest.auth if manifest is not None else "inherit"
+            dependencies = []
+            if auth_mode == "inherit":
+                dependencies = [Depends(require_backend_principal)]
+            elif auth_mode == "key-auth":
+                dependencies = [Depends(require_plugin_gateway_key)]
+            app.include_router(router, dependencies=dependencies)
+            if manifest is None:
+                _claim_manifestless_paths(router, seen_prefixes, entry.name)
+            _log.info("plugin seam: loaded plugin %r", entry.name)
             PLUGIN_INVENTORY.append(_inventory_entry(name, "loaded", manifest=manifest))
         except Exception:  # one bad plugin must not crash the backend
             _log.exception("plugin seam: failed to load plugin %r", entry.name)

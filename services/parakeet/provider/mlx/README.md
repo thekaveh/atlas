@@ -10,7 +10,7 @@ This server wraps the pinned `parakeet-mlx==0.5.2` [aligned-result API](https://
 
 - `parakeet-mlx` is a batch transcription tool (processes files, outputs results)
 - The Atlas stack needs a persistent web server with REST API endpoints
-- Our services (n8n, open-web-ui, backend, etc.) expect OpenAI-compatible `/v1/audio/transcriptions` endpoint
+- Atlas consumers (Open WebUI, n8n, JupyterHub, Hermes) expect OpenAI-compatible `/v1/audio/transcriptions` endpoint
 
 ## 2. Quick Start
 
@@ -44,6 +44,11 @@ if it is missing or blank. Restart the native provider after changing its token.
 Keep the MLX virtual environment active when you return to the repository root.
 
 ```bash
+# The module entry point respects
+# PARAKEET_LOCALHOST_BIND_HOST and PARAKEET_LOCALHOST_PORT. Docker Desktop
+# containers reach this loopback bind through host.docker.internal. Linux
+# engines need the bridge IP or 0.0.0.0. The bearer token read below is
+# required.
 PARAKEET_API_TOKEN=$(
   PYTHONPATH=bootstrapper python - <<'PYTOKEN'
 import sys
@@ -54,16 +59,11 @@ if not token:
     sys.exit("Set a nonempty PARAKEET_API_TOKEN in the active Atlas env file.")
 print(token, end="")
 PYTOKEN
-) || exit 1
-export PARAKEET_API_TOKEN
-export PARAKEET_LOCALHOST_BIND_HOST=0.0.0.0
-export PARAKEET_LOCALHOST_PORT=63042
-
-# The module entry point respects
-# PARAKEET_LOCALHOST_BIND_HOST and PARAKEET_LOCALHOST_PORT. Atlas containers
-# reach this host service through host.docker.internal, so the integration
-# quickstart uses a non-loopback bind and requires the bearer token above.
-cd services/parakeet/provider
+) &&
+export PARAKEET_API_TOKEN &&
+export PARAKEET_LOCALHOST_BIND_HOST=127.0.0.1 &&
+export PARAKEET_LOCALHOST_PORT=63042 &&
+cd services/parakeet/provider &&
 python -m mlx.api_server
 ```
 
@@ -71,6 +71,11 @@ python -m mlx.api_server
 **Subsequent runs:** Reuse the cached download; model initialization still runs
 
 ### 2.3. Test
+
+Run these checks in a second terminal from the Atlas repository root. Activate
+the MLX virtual environment from §2.1 first
+(`. services/parakeet/provider/mlx/.venv/bin/activate`). Then repeat the
+`PARAKEET_API_TOKEN` assignment and its `export` from §2.2.
 
 ```bash
 # Health check
@@ -89,7 +94,7 @@ curl -X POST http://localhost:63042/v1/audio/transcriptions \
 |----------|---------|-------------|
 | `PARAKEET_MODEL` | `mlx-community/parakeet-tdt-0.6b-v3` | HuggingFace model ID |
 | `PARAKEET_LOCALHOST_PORT` | `63042` | Host port Atlas containers use for `parakeet-localhost`. |
-| `PARAKEET_LOCALHOST_BIND_HOST` | `127.0.0.1` | Listen address; use a non-loopback bind only when required for host-gateway access and keep bearer auth enabled. |
+| `PARAKEET_LOCALHOST_BIND_HOST` | `127.0.0.1` | Listen address. Keep `127.0.0.1` on Docker Desktop/macOS. Use a non-loopback bind only for remote clients, and keep bearer auth enabled. |
 | `PARAKEET_API_TOKEN` | (required) | Bearer token; must match the value in Atlas `.env`. |
 
 The upload, concurrency, timeout, authentication and CORS variables
@@ -97,9 +102,9 @@ The upload, concurrency, timeout, authentication and CORS variables
 server too. The [STT Provider README](../../../stt-provider/README.md) lists
 them with their defaults.
 
-The `0.0.0.0` integration bind is reachable from the local network as well as
-Docker's host gateway. Keep bearer authentication enabled and use the host
-firewall when the network is not trusted.
+A non-loopback bind such as `0.0.0.0` is reachable from the local network.
+Keep bearer authentication enabled and use the host firewall when the network
+is not trusted.
 
 ## 4. API Endpoints
 

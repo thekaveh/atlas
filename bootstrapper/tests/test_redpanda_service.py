@@ -120,7 +120,7 @@ def test_redpanda_compose_and_topic_init_contract() -> None:
     assert "REDPANDA_DEMO_TOPICS" in script
     assert "rpk topic create" in script
     assert "--if-not-exists" in script
-    assert "-X brokers=redpanda:9092" in script
+    assert 'BROKERS="redpanda:9092"' in script
 
     assert console["image"] == "${REDPANDA_CONSOLE_IMAGE:-docker.redpanda.com/redpandadata/console:v3.8.0}"
     assert console["ports"] == ["${HOST_BIND_IP-127.0.0.1:}${REDPANDA_CONSOLE_PORT}:8080"]
@@ -317,11 +317,14 @@ def test_blank_demo_topics_create_no_topic(tmp_path):
     compose = (root / "services/redpanda/compose.yml").read_text(encoding="utf-8")
     assert "${REDPANDA_DEMO_TOPICS-atlas_stream_events}" in compose
     rpk = tmp_path / "rpk"
-    rpk.write_text(f"#!/bin/sh\necho \"$3\" >> '{tmp_path / 'created'}'\n", encoding="utf-8")
+    rpk.write_text(f"#!/bin/sh\necho \"$*\" >> '{tmp_path / 'created'}'\n", encoding="utf-8")
     rpk.chmod(0o755)
     script = root / "services/redpanda/init/scripts/init-redpanda.sh"
     env = {"PATH": f"{tmp_path}:/usr/bin:/bin"}
     subprocess.run(["bash", str(script)], env={**env, "REDPANDA_DEMO_TOPICS": ""}, check=True)
     assert not (tmp_path / "created").exists()
     subprocess.run(["bash", str(script)], env=env, check=True)
-    assert (tmp_path / "created").read_text().split() == ["atlas_stream_events"]
+    # The full argv proves rpk targets the in-network broker, not its local default.
+    assert (tmp_path / "created").read_text().splitlines() == [
+        "topic create atlas_stream_events --if-not-exists -X brokers=redpanda:9092"
+    ]

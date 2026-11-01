@@ -404,3 +404,25 @@ def test_an_unreadable_image_does_not_echo_library_internals():
             needs_hosted_url=False,
         )
     assert "BytesIO" not in str(exc.value) and "0x" not in str(exc.value)
+
+
+def test_real_alpha_conditioning_preserves_content_on_neutral_rgb_canvas():
+    from PIL import Image
+
+    image = Image.new("RGBA", (6, 4), (0, 0, 0, 0))
+    image.paste((200, 30, 50, 255), (1, 1, 5, 3))
+    source = BytesIO()
+    image.save(source, format="PNG")
+    data = source.getvalue()
+
+    assert media_input.validate_raster_image(data, "image/png", len(data)) == ("image/png", "png")
+    assert media_input.has_transparency(data) is True
+    conditioned = media_input.composite_on_neutral_background(data, padding_ratio=0.5)
+    with Image.open(BytesIO(conditioned)) as result:
+        result.load()
+        assert result.format == "PNG" and result.mode == "RGB"
+        assert result.size == (8, 8)
+        assert result.getpixel((0, 0)) == media_input.NEUTRAL_BACKGROUND
+        assert result.getpixel((2, 3)) == (200, 30, 50)
+        assert result.getpixel((5, 4)) == (200, 30, 50)
+    assert media_input.has_transparency(conditioned) is False

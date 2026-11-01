@@ -18,7 +18,7 @@ There is **no MCP surface, by design**: this is a deterministic batch stage driv
 |---|---|---|
 | Direct API | `http://localhost:${ASSET_BAKER_PORT}` | Host-side FastAPI service when `ASSET_BAKER_SOURCE=container-cpu`. |
 | Kong alias | `http://asset-baker.localhost:${KONG_HTTP_PORT}` | Requires `./start.sh --setup-hosts`; generated only when the service is enabled. |
-| Internal API | `http://asset-baker:8096` | Used by sibling containers through `ASSET_BAKER_ENDPOINT`. |
+| Internal API | `http://asset-baker:8096` | `./start.sh` writes it to `ASSET_BAKER_ENDPOINT`. No sibling container calls it today. |
 | Health | `GET /health` | Returns `200` only when the configured Blender executable is available; otherwise returns `503`. |
 | Metrics | `GET /metrics` | Prometheus request counters and duration histograms; intentionally unauthenticated for in-network scraping. |
 
@@ -71,11 +71,23 @@ The image installs a **pinned, checksum-verified** headless Blender at build tim
 
 **Download source.** `download.blender.org` returns HTTP 403 to automated clients. The build therefore fetches from the official Blender **mirror network** and tries each mirror in turn: `ftp.nluug.nl`, `mirror.clarkson.edu`, `mirrors.ocf.berkeley.edu`, `mirrors.dotsrc.org`. The SHA-256 is verified whatever the host, so one mirror outage does not break the build. A clean `docker build` needs no developer cache. A build-time smoke step asserts that `blender --version` matches the pin.
 
-**Updating the pin.**
+**Updating the pin.** A local override changes only your `.env`. A shipped bump changes every file that holds the pin.
+
+For a local override:
 
 1. Download `blender-<version>-linux-x64.tar.xz` and `blender-<version>.sha256` from a mirror above.
-2. Set `ASSET_BAKER_BLENDER_VERSION` to the new version, in `.env` or the `service.yml` defaults.
-3. Set `ASSET_BAKER_BLENDER_SHA256` to its published checksum in the same place.
+2. Set `ASSET_BAKER_BLENDER_VERSION` in `.env` to the new version.
+3. Set `ASSET_BAKER_BLENDER_SHA256` in `.env` to its published checksum.
+
+For a shipped bump:
+
+1. Set both defaults in `services/asset-baker/service.yml`.
+2. Regenerate `.env.example` with `uv run --project bootstrapper python -m services.env_assembler`.
+3. Update the fallbacks in `services/asset-baker/compose.yml` and the `ARG` defaults in `services/asset-baker/app/Dockerfile`.
+4. Update `bootstrapper/tests/test_asset_baker_service.py` and `bootstrapper/tests/fixtures/rendered_config_baseline.yml`.
+5. Add the old version and checksum to `RETIRED_DEFAULTS` in `bootstrapper/services/migrations/build_pin_refresh.py`.
+
+Every `.env` holds its own copy of both pins, and backfill keeps non-blank values. Startup replaces a pin whose value is listed in `RETIRED_DEFAULTS` and keeps a local override.
 
 ## 4. API Contract
 
@@ -112,6 +124,8 @@ curl -H "Authorization: Bearer ${ASSET_BAKER_API_TOKEN}" \
 | `tex_size` | no | Baked BaseColor/Normal texture resolution (square). Defaults to `ASSET_BAKER_TEX_SIZE`. |
 | `canonical_size` | no | Canonical max-dimension normalization scale. Defaults to `ASSET_BAKER_CANONICAL_SIZE`. |
 | `mode` | no | `bake` (full HP→LP + texture bake, default) or `skip` (foliage bypass — normalize + export, no remesh/bake). |
+
+Invalid numeric parameters, including NaN and infinity, return `422` before baking or object-store access. This applies to multipart and JSON requests.
 
 ### 4.2. MinIO Referenced GLB
 
@@ -207,6 +221,7 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 ## 7. Troubleshooting
 
 - `400 Input must be a GLB file`: use a `.glb` filename and a binary GLB payload. Decompress EXT_meshopt GLBs to plain GLB first (Blender 4.3 can't import meshopt).
+- `400 Input must be a binary glTF 2.0 GLB`: the input failed a check in §4.1. Re-export it as GLB 2.0 with 4-byte-padded chunks: one JSON chunk, then an optional BIN chunk.
 - `422 baked color is black`: the mean-brightness QA gate fired — typically a `metallic=1` source (neutralized automatically, but check the source's textures) or dead UVs. The bake is refused rather than shipping a black asset.
 - Thin foliage fragments into shards: pass `mode=skip` (foliage bypass) — buildings/props bake, foliage skips.
 - `429 Bake worker is busy`: bounded concurrency (`ASSET_BAKER_CONCURRENCY`, default 1) rejected a concurrent bake; retry after the in-flight bake finishes.

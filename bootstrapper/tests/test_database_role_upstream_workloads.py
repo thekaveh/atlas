@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+import shutil
 import subprocess
 import time
 from urllib.parse import quote
@@ -23,6 +25,14 @@ from utils.key_generator import KeyGenerator
 REPO = Path(__file__).resolve().parents[2]
 REALTIME_IMAGE = "supabase/realtime:v2.112.0"
 STORAGE_IMAGE = "supabase/storage-api:v1.61.5"
+
+
+def _require_docker_cli() -> None:
+    """`compose config` needs only the CLI: fail closed in CI, skip locally."""
+    if shutil.which("docker") is None:
+        if os.environ.get("CI", "").lower() in {"1", "true", "yes"}:
+            pytest.fail("docker CLI is required to render the Studio Compose contract")
+        pytest.skip("docker CLI unavailable")
 
 
 def _run(*args: str, check: bool = True, timeout: int = 30):
@@ -189,6 +199,7 @@ def test_pinned_realtime_runs_migrations_and_serves_health_as_scoped_owner(
 def test_studio_render_preserves_complete_encoded_postgres_contract(
     tmp_path: Path,
 ) -> None:
+    _require_docker_cli()
     raw_user = "atlas:meta/@%?#"
     raw_read_only_user = "atlas:studio-read/@%?#"
     raw_password = "pw@:/%?# value"

@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import json
+import math
 import os
 import re
+from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from functools import lru_cache
 from pathlib import Path
@@ -510,8 +513,9 @@ class ConsumerConfig:
     rag_ingestion_file: GeneratedArtifact | None = None
     rag_ingestion_overlay: GeneratedArtifact | None = None
     lightrag_query_profiles: tuple[LightragQueryProfile, ...] = ()
-    # Generated LightRAG query-profile registry the backend reads at runtime, plus
-    # a compose overlay that bind-mounts it + points LIGHTRAG_QUERY_PROFILES_FILE.
+    # Generated LightRAG query-profile registry that a consumer Backend plugin can
+    # read, plus a compose overlay that bind-mounts it + points
+    # LIGHTRAG_QUERY_PROFILES_FILE.
     lightrag_query_profiles_file: GeneratedArtifact | None = None
     lightrag_query_profiles_overlay: GeneratedArtifact | None = None
     # #795: consumer-declared managed host processes. They run on the host, not
@@ -561,6 +565,44 @@ def _split_manifest_env(raw: str) -> list[str]:
             if item:
                 pieces.append(item)
     return pieces
+
+
+@contextmanager
+def consumer_manifest_cli_paths(paths: Iterable[str], *, restore_primary: bool = True):
+    """Keep explicit CLI paths lossless without changing legacy env lists."""
+    selected = list(paths)
+    selector = os.pathsep.join(selected)
+    primary = "ATLAS_CONSUMER_MANIFEST"
+    companion = "_ATLAS_CONSUMER_MANIFEST_CLI"
+    previous = {key: os.environ.get(key) for key in (primary, companion)}
+    os.environ[primary] = selector
+    os.environ[companion] = json.dumps({
+        "selector": selector, "paths": [path for path in selected if path],
+    })
+    try:
+        yield
+    finally:
+        for key, value in previous.items():
+            if key == primary and not restore_primary:
+                continue
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+
+def _consumer_manifest_env_paths() -> list[str]:
+    raw = os.environ.get("ATLAS_CONSUMER_MANIFEST", "")
+    try:
+        selection = json.loads(os.environ.get("_ATLAS_CONSUMER_MANIFEST_CLI", ""))
+    except (ValueError, RecursionError):
+        selection = None
+    if isinstance(selection, dict) and set(selection) == {"selector", "paths"}:
+        paths = selection["paths"]
+        if (selection["selector"] == raw and isinstance(paths, list)
+                and all(isinstance(path, str) and "\0" not in path for path in paths)):
+            return paths
+    return _split_manifest_env(raw)
 
 
 def _list_items(value: str, separator: str) -> list[str]:
@@ -616,8 +658,7 @@ def discover_consumer_manifest_paths(
     root = Path(root_dir)
     raw_paths = list(explicit_paths or [])
     if not raw_paths:
-        env_value = os.environ.get("ATLAS_CONSUMER_MANIFEST", "").strip()
-        raw_paths = _split_manifest_env(env_value) if env_value else []
+        raw_paths = _consumer_manifest_env_paths()
 
     base_dir = _invoker_relative_base(root)
     resolved: list[Path] = []
@@ -738,8 +779,7 @@ def _merge_profile_overrides_block(
                     if ks in sub and sub[ks] != vs:
                         raise ConsumerManifestError(
                             f"profile_overrides.{prof_name}.{fname}.{ks} has "
-                            f"conflicting consumer manifest values: {sub[ks]!r} "
-                            f"vs {vs!r} ({origin})"
+                            f"conflicting consumer manifest values ({origin})"
                         )
                     sub[ks] = vs
             else:
@@ -747,8 +787,7 @@ def _merge_profile_overrides_block(
                 if fname in bucket and bucket[fname] != vs:
                     raise ConsumerManifestError(
                         f"profile_overrides.{prof_name}.{fname} has conflicting "
-                        f"consumer manifest values: {bucket[fname]!r} vs {vs!r} "
-                        f"({origin})"
+                        f"consumer manifest values ({origin})"
                     )
                 bucket[fname] = vs
 
@@ -780,7 +819,7 @@ def _set_scalar(
     if key in env and env[key] != rendered:
         raise ConsumerManifestError(
             f"{key} has conflicting consumer manifest values: "
-            f"{origins[key]}={env[key]!r}, {origin}={rendered!r}"
+            f"{origins[key]}, {origin}"
         )
     env[key] = rendered
     origins[key] = origin
@@ -1322,13 +1361,17 @@ def _resolve_litellm_api_base(raw: str, *, alias: str, origin: str) -> str:
     if "${" in resolved or "$(" in resolved:
         raise ConsumerManifestError(
             f"litellm_models entry {alias!r} api_base has unresolved interpolation "
-            f"after template substitution: {resolved!r} ({origin})"
+            f"after template substitution ({origin})"
         )
-    parsed = urllib.parse.urlparse(resolved)
+    try:
+        parsed = urllib.parse.urlparse(resolved)
+    except ValueError:
+        raise ConsumerManifestError(
+            f"litellm_models entry {alias!r} api_base is not a valid URL ({origin})"
+        ) from None
     if parsed.scheme not in ("http", "https"):
         raise ConsumerManifestError(
-            f"litellm_models entry {alias!r} api_base must be an http(s) URL: "
-            f"{resolved!r} ({origin})"
+            f"litellm_models entry {alias!r} api_base must be an http(s) URL ({origin})"
         )
     if parsed.username or parsed.password or "@" in parsed.netloc:
         raise ConsumerManifestError(
@@ -1344,8 +1387,7 @@ def _resolve_litellm_api_base(raw: str, *, alias: str, origin: str) -> str:
     if parsed.query or parsed.fragment:
         raise ConsumerManifestError(
             f"litellm_models entry {alias!r} api_base may not contain a query string "
-            f"or fragment (credentials belong in api_key_var, not the URL): "
-            f"{resolved!r} ({origin})"
+            f"or fragment (credentials belong in api_key_var, not the URL) ({origin})"
         )
     allowed = _approved_litellm_hosts()
     if parsed.netloc not in allowed:
@@ -2103,7 +2145,7 @@ def _weaviate_class_name(collection_prefix: str, profile_name: str) -> str:
     class name the backend actually writes/reconciles."""
     return f"{collection_prefix}_{_RAG_CLASS_SANITIZE_RE.sub('_', profile_name)}"
 _RAG_CORPUS_SOURCES = frozenset({"mount", "minio"})
-_RAG_PARSERS = frozenset({"docling", "tika", "crawl4ai", "plain_text"})
+_RAG_PARSERS = frozenset({"docling", "tika", "plain_text"})
 _RAG_CHUNK_STRATEGIES = frozenset({"token", "recursive", "semantic"})
 _RAG_VECTOR_BACKENDS = frozenset({"weaviate"})
 _RAG_GRAPH_BACKENDS = frozenset({"lightrag"})
@@ -2249,10 +2291,17 @@ def _parse_host_health(raw: Any, *, name: str, origin: str) -> HealthProbe:
     expect = block.get("expect_json") or {}
     if not isinstance(expect, Mapping):
         raise ConsumerManifestError(f"{label}.expect_json must be a mapping ({origin})")
+    raw_timeout = block.get("timeout", 5.0)
     try:
-        timeout = float(block.get("timeout", 5.0))
-    except (TypeError, ValueError):
-        raise ConsumerManifestError(f"{label}.timeout must be a number ({origin})") from None
+        if isinstance(raw_timeout, bool):
+            raise ValueError
+        timeout = float(raw_timeout)
+        if not math.isfinite(timeout) or timeout <= 0:
+            raise ValueError
+    except (TypeError, ValueError, OverflowError):
+        raise ConsumerManifestError(
+            f"{label}.timeout must be a finite positive number ({origin})"
+        ) from None
     path = str(block.get("path") or "/")
     if not path.startswith("/"):
         # `health` became http://127.0.0.1:PORThealth (cycle 39).
@@ -2267,6 +2316,8 @@ def _parse_host_health(raw: Any, *, name: str, origin: str) -> HealthProbe:
 
 def _parse_host_port(raw: Any, *, name: str, origin: str) -> int:
     try:
+        if isinstance(raw, bool) or not isinstance(raw, (int, str)):
+            raise ValueError
         port = int(raw)
     except (TypeError, ValueError):
         raise ConsumerManifestError(
@@ -2866,10 +2917,10 @@ def render_rag_ingestion_overlay(profiles: Iterable[RagIngestionProfile]) -> str
 # for the single deployment-wide default: a profile bundles the per-query knobs a
 # caller picks by name for evaluation / UI flavors. Atlas validates + normalizes
 # each profile, hashes it to a stable ``revision``, and compiles one deterministic
-# JSON registry the backend reads at runtime plus a compose overlay that mounts it
-# and points ``LIGHTRAG_QUERY_PROFILES_FILE`` at it. All artifacts regenerate every
-# start, so a deployment with no profiles stays byte/behavior compatible and a
-# removed manifest drops only that consumer's profiles.
+# JSON registry that a consumer Backend plugin can read, plus a compose overlay
+# that mounts it and points ``LIGHTRAG_QUERY_PROFILES_FILE`` at it. All artifacts
+# regenerate every start, so a deployment with no profiles stays byte/behavior
+# compatible and a removed manifest drops only that consumer's profiles.
 #
 # Precedence (documented + carried in the artifact): a per-request query parameter
 # overrides the profile, which overrides the deployment ``LIGHTRAG_QUERY_*`` env
@@ -3174,7 +3225,7 @@ def _validate_lightrag_query_profiles_collisions(
 def compile_lightrag_query_profiles_file(
     profiles: Iterable[LightragQueryProfile],
 ) -> str:
-    """Render the deterministic JSON registry the backend reads at runtime.
+    """Render the deterministic JSON registry that a consumer Backend plugin can read.
 
     Carries a top-level ``precedence`` contract (request > profile > service env
     default) so a runtime consumer resolves an omitted bound against the deployment
@@ -3516,10 +3567,12 @@ def load_consumer_config(
         )
         all_host_services.extend(record_host_services)
         # Optional #411 integration (opt-in, not coupled): a profile with a
-        # litellm_alias becomes a consumer-owned LiteLLM row pointing at the
-        # backend's profile-aware OpenAI route. Merge those rows into the litellm
-        # accumulation so they are collision-checked with every other alias and
-        # attributed to this consumer for removal semantics.
+        # litellm_alias becomes a consumer-owned LiteLLM row on the Backend base
+        # URL. Atlas serves no /chat/completions there, so a consumer
+        # integration must (see LightragQueryProfile.to_litellm_alias). Merge
+        # those rows into the litellm accumulation so they are collision-checked
+        # with every other alias and attributed to this consumer for removal
+        # semantics.
         profile_aliases = [
             alias
             for alias in (p.to_litellm_alias() for p in record_lightrag_profiles)

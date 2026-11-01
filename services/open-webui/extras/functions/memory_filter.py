@@ -21,6 +21,8 @@ from typing import Optional
 
 # Backend MemoryMessage.content is a string of at most 20,000 characters.
 _MAX_CONTENT_CHARS = 20000
+# Backend MemoryExtractRequest accepts at most 100 formatted messages.
+_MAX_MESSAGES = 100
 
 
 def _message_text(content) -> str:
@@ -149,7 +151,7 @@ class Filter:
                 headers=self._backend_headers(),
                 json={
                     "user_id": user_id,
-                    "messages": formatted,
+                    "messages": formatted[-_MAX_MESSAGES:],
                     "namespace": "default",
                 },
                 timeout=self.valves.timeout,

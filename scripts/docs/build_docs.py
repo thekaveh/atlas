@@ -11,7 +11,7 @@ from pathlib import Path, PurePosixPath
 
 import yaml
 
-from .manifest import Manifest, Page, Section, load_manifest
+from .manifest import Manifest, Page, Section, load_manifest, validate_output_ids
 from .render_diagrams import render_all
 from .transforms import build_source_map, rewrite_for_surface
 
@@ -169,6 +169,7 @@ def _write_site_redirects(manifest: Manifest, destination: Path) -> None:
 
 
 def render_site(manifest: Manifest, repo_root: Path, destination: Path) -> None:
+    validate_output_ids(manifest)
     _reset_dir(destination)
     _render_pages(manifest, repo_root, destination, "site")
     for name in ("assets", "screenshots"):
@@ -184,6 +185,7 @@ def render_site(manifest: Manifest, repo_root: Path, destination: Path) -> None:
 
 
 def render_wiki(manifest: Manifest, repo_root: Path, destination: Path) -> None:
+    validate_output_ids(manifest)
     _reset_dir(destination)
     _render_pages(manifest, repo_root, destination, "wiki")
     for name in ("assets", "screenshots"):

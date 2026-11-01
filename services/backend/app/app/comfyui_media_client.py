@@ -28,7 +28,7 @@ from urllib.parse import SplitResult, quote, urlsplit
 
 import httpx
 
-from comfyui_client import ComfyUISubmissionUnknownError
+from comfyui_client import ComfyUISubmissionUnknownError, comfyui_max_image_bytes_from_env
 
 from media_input import (
     ImageInputError,
@@ -131,7 +131,7 @@ def _bounded_int(payload_value: Any, *, field: str, minimum: int, maximum: int) 
 def _bounded_float(payload_value: Any, *, field: str, minimum: float, maximum: float) -> float:
     try:
         value = float(payload_value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):  # a 401-digit JSON int
         raise ValueError(
             f"provider=comfyui {field} must be a number, got {payload_value!r}"
         ) from None
@@ -403,9 +403,7 @@ class ComfyUIMediaClient:
         # caller-supplied img2img source URL — same knob/default (20 MiB) the
         # ComfyUIClient.get_image_data path uses. Without it, a caller could
         # point the backend at an arbitrarily large URL and OOM the worker.
-        self.max_image_bytes = int(os.getenv("COMFYUI_MAX_IMAGE_BYTES", "20971520"))
-        if self.max_image_bytes <= 0:
-            raise ValueError("COMFYUI_MAX_IMAGE_BYTES must be positive")
+        self.max_image_bytes = comfyui_max_image_bytes_from_env()
         self.trusted_image_origins = _trusted_image_origins(
             os.getenv("COMFYUI_INIT_IMAGE_TRUSTED_ORIGINS", "")
         )
@@ -958,6 +956,13 @@ def _canonical_https_origin(parts: SplitResult) -> str:
     return f"https://{rendered_host}:{parts.port or 443}"
 
 
+def validate_comfyui_media_config() -> None:
+    """Fail startup on a malformed ComfyUI image setting, as validate_fal_config
+    does, instead of answering every ComfyUI media request with 400."""
+    comfyui_max_image_bytes_from_env()
+    _trusted_image_origins(os.getenv("COMFYUI_INIT_IMAGE_TRUSTED_ORIGINS", ""))
+
+
 def _trusted_image_origins(raw: str) -> frozenset[str]:
     if not raw.strip():
         return frozenset()
@@ -1001,11 +1006,14 @@ def _first_given(*values: Any) -> Any:
 
 def _strength(value: Any) -> float:
     """img2img strength; a non-number (or NaN) is a client error, not 0.75.
-    Out-of-range numbers are clamped to 0..1 by the caller."""
+    Out-of-range numbers are clamped to 0..1 by the caller, including an
+    integer too large for a float, which maps to +/-inf like JSON `1e400`."""
     if value is None:
         return 0.75
     try:
         strength = float(value)
+    except OverflowError:
+        strength = math.inf if value > 0 else -math.inf
     except (TypeError, ValueError):
         strength = math.nan
     if math.isnan(strength):

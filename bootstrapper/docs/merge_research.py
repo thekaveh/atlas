@@ -50,7 +50,10 @@ def _parse(text: str) -> tuple[dict, str] | None:
 def _scalar(value, *, in_flow: bool = False):
     """``value`` as written, quoted only when YAML would read it back as
     something else: an unquoted ` #` truncated it and `: ` made the file
-    unparseable on the next regen (2026-10-08 run, cycle 43)."""
+    unparseable on the next regen (2026-10-08 run, cycle 43). ``None`` is
+    written as ``null``: a bare ``None`` reads back as the string 'None'."""
+    if value is None:
+        return "null"
     if not isinstance(value, str):
         return value
     text = f"[{value}]" if in_flow else value

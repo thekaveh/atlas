@@ -45,8 +45,8 @@ Triggered from start.py::run_port_migration when needs_migration()
 returns True. After successful apply, call stamp_version() to update
 the sentinel to 4.
 
-Per project_env_read_inline_comment_bug.md: inline comments on blank-
-value lines silently break auto-gen; this migration strips them like
+Inline comments on blank-value lines silently break auto-gen (the
+comment reads as the value); this migration strips them like
 v1-v3 already do.
 """
 from __future__ import annotations

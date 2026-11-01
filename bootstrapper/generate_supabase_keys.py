@@ -2,7 +2,7 @@
 """
 Atlas - Supabase Key Generator
 
-Python implementation of generate_supabase_keys.sh with full feature parity.
+generate_supabase_keys.sh is a thin wrapper that runs this script.
 Cross-platform utility for generating Supabase JWT secrets and tokens.
 """
 
@@ -75,7 +75,7 @@ Examples:
 Cross-platform compatibility:
 - Works identically on Windows, macOS, and Linux
 - Crypto uses only the Python standard library (CLI surface uses click)
-- Preferred over the .sh sibling for portability (both are kept in sync)
+- generate_supabase_keys.sh is a thin wrapper that runs this script
 """
         print(usage_text)
         return

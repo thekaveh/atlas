@@ -37,7 +37,6 @@ from wizard.llm_steps import cloud_secret_title
 _KEY = "sk-test-DO-NOT-LEAK-0123456789"
 
 _OPENAI = CLOUD_PROVIDERS[0]
-_ANTHROPIC = CLOUD_PROVIDERS[1]
 _OPENROUTER = CLOUD_PROVIDERS[2]
 
 
@@ -207,18 +206,6 @@ def test_a_failure_reason_reaches_the_session_log(monkeypatch):
     sink: list[str] = []
     _discover_openai(monkeypatch, _raises(_http_error(401)), sink)
     assert any("401" in line for line in sink)
-
-
-# ─── Back-compat wrappers ───────────────────────────────────────────
-
-
-def test_list_wrappers_still_return_plain_model_lists(monkeypatch):
-    monkeypatch.setattr(urllib.request, "urlopen", _serves('{"data": [{"id": "gpt-5"}]}'))
-    assert [m.id for m in cm.list_openai_models(_KEY)] == ["gpt-5"]
-    monkeypatch.setattr(urllib.request, "urlopen", _raises(_http_error(401)))
-    assert cm.list_openai_models(_KEY) == []
-    assert cm.list_openrouter_models() == []
-    assert cm.list_anthropic_models(_KEY) == []
 
 
 # ─── Wizard captions ────────────────────────────────────────────────
@@ -528,3 +515,128 @@ def test_openai_speech_and_search_models_are_not_chat_picks(model_id):
 
     assert _openai_pass_filter(model_id) is False
     assert _openai_pass_filter("gpt-5") is True
+
+
+@pytest.mark.parametrize("description,expected", [
+    ({"unexpected": "object"}, ""), (["unexpected list"], ""), (7, ""),
+    (True, ""), (1.5, ""), (False, ""), (0, ""), ([], ""), ({}, ""),
+    (None, ""), ("", ""), ("A valid description", "A valid description"),
+    ("é" * 120, "é" * 120), ("é" * 121, "é" * 117 + "…"),
+])
+def test_openrouter_optional_description_remains_renderable(monkeypatch, description, expected):
+    """Malformed optional metadata cannot break an otherwise valid live row."""
+    import json
+
+    from core.config_parser import ConfigParser
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("cloud picker fixture must not construct or read config")
+
+    monkeypatch.setattr(ConfigParser, "__init__", forbidden)
+    monkeypatch.setattr(ConfigParser, "parse_env_file", forbidden)
+    payload = {"data": [{"id": "private/model", "name": "Private model", "description": description}]}
+    calls = []
+
+    def response(request, timeout):
+        calls.append((request.full_url, timeout))
+        return _Resp(json.dumps(payload).encode("utf-8"))
+
+    monkeypatch.setattr(urllib.request, "urlopen", response)
+    steps = build_cloud_steps({_OPENROUTER.source_var: "enabled"}, lambda _msg: None)
+    step = next(s for s in steps if s.title == cloud_models_title(_OPENROUTER.name))
+    options = step.options_provider({})
+    assert len(options) == 1
+    option = options[0]
+    assert option.value == "openrouter/private/model"
+    assert option.label == "Private model"
+    assert option.badges == [BADGE_LIVE]
+    _assert_openrouter_description_render(option, expected)
+    assert calls == [("https://openrouter.ai/api/v1/models", 5.0)]
+    assert "Live from the provider" in step.subtitle_provider(options)
+
+
+def _assert_openrouter_description_render(option, expected):
+    from ui.textual.widgets.option_row import OptionRow
+
+    row = OptionRow(option.label, hint=option.hint, badges=option.badges, multi=True)
+    rendered = row.render().plain
+    assert "Private model" in rendered
+    assert option.hint == expected
+    assert len(option.hint) <= 120
+    if expected:
+        assert "".join(expected.split()) in "".join(rendered.split())
+
+
+# ─── OpenRouter: a capped list and a keyless listing ────────────────
+
+
+def _openrouter_step():
+    steps = build_cloud_steps({_OPENROUTER.source_var: "enabled"}, lambda _m: None)
+    return next(s for s in steps if s.title == cloud_models_title(_OPENROUTER.name))
+
+
+def _capped_openrouter_listing(count: int) -> str:
+    """More rows than the default cap of 50, all sorting before the curated
+    labels, so the alphabetical cut keeps none of them except ``auto``."""
+    rows = [f'{{"id": "aaa/m{i:03d}", "name": "Aaa M{i:03d}"}}' for i in range(count)]
+    rows.append('{"id": "auto", "name": "Aa Auto"}')
+    return f'{{"data": [{",".join(rows)}]}}'
+
+
+def _badges_by_value(options):
+    """Every row's badges, grouped by model id, so a duplicate shows up."""
+    grouped: dict = {}
+    for option in options:
+        grouped.setdefault(option.value, []).append(option.badges)
+    return grouped
+
+
+def test_a_capped_openrouter_list_keeps_every_curated_model_selectable(monkeypatch):
+    """The 50-row cap is alphabetical, so it used to hide curated models
+    such as ``openrouter/openai/gpt-5`` and say nothing about the cut."""
+    monkeypatch.setattr(urllib.request, "urlopen", _serves(_capped_openrouter_listing(60)))
+    step = _openrouter_step()
+    options = step.options_provider({})
+    grouped = _badges_by_value(options)
+    cut = {r.value: [r.badges] for r in _curated_rows(_OPENROUTER.key)
+           if r.value != "openrouter/auto"}
+    assert sum(BADGE_LIVE in o.badges for o in options) == 50
+    assert grouped["openrouter/auto"] == [[BADGE_LIVE]]
+    assert "openrouter/openai/gpt-5" in cut
+    assert {value: grouped.get(value) for value in cut} == cut
+    assert all(BADGE_CATALOG in b[0] and BADGE_LIVE not in b[0] for b in cut.values())
+    caption = step.subtitle_provider(options)
+    assert "Live from the provider" in caption
+    assert "first 50 of 61" in caption
+
+
+def test_an_uncapped_openrouter_list_adds_no_curated_rows(monkeypatch):
+    monkeypatch.setattr(urllib.request, "urlopen", _serves(_capped_openrouter_listing(3)))
+    step = _openrouter_step()
+    options = step.options_provider({})
+    assert all(o.badges == [BADGE_LIVE] for o in options)
+    assert "first" not in step.subtitle_provider(options)
+
+
+def test_a_stale_fallback_reason_never_reaches_a_live_caption(monkeypatch):
+    monkeypatch.setattr(urllib.request, "urlopen", _serves(_capped_openrouter_listing(60)))
+    step = _openrouter_step()
+    live = step.options_provider({})
+    monkeypatch.setattr(urllib.request, "urlopen", _raises(_http_error(429)))
+    step.options_provider({})
+    caption = step.subtitle_provider(live)
+    assert "Live from the provider" in caption
+    assert "HTTP 429" not in caption
+    assert "first" not in caption
+
+
+def test_openrouter_live_caption_does_not_vouch_for_the_key(monkeypatch):
+    """OpenRouter lists models without the key, so a live list proves
+    nothing about it; a mistyped key must not read as accepted."""
+    monkeypatch.setattr(urllib.request, "urlopen", _serves('{"data": [{"id": "vendor/m1"}]}'))
+    step = _openrouter_step()
+    caption = step.subtitle_provider(step.options_provider({}))
+    assert "Live from the provider" in caption
+    assert "key not checked" in caption
+    assert "key accepted" not in caption
+    assert "key accepted" in _subtitle(cm.LIVE)

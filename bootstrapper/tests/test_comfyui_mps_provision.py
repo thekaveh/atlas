@@ -459,7 +459,7 @@ def test_provision_custom_node_head_drift_updates(tmp_path):
 
     assert r.ok
     assert r.provisioned == ["my-node"]  # "updated" outcome lands in provisioned
-    assert runs[0] == ["git", "-C", str(dest), "fetch", "origin", ref]
+    assert runs[0] == ["git", "-C", str(dest), "fetch", _node_dict("my-node")["repo"], ref]
     assert runs[1] == ["git", "-C", str(dest), "checkout", "--detach", ref]
 
 
@@ -820,3 +820,21 @@ def test_a_416_for_a_longer_part_refetches_instead_of_publishing_it(tmp_path):
     finally:
         server.shutdown()
         server.server_close()
+
+
+@pytest.mark.parametrize("checksum", ["", SHA])
+def test_download_assurance_message_matches_declared_checksum(tmp_path, checksum):
+    manager = _manager(tmp_path)
+    logs = []
+
+    result = manager.provision_models([_row(sha256=checksum)], log=logs.append)
+
+    assert result.ok and result.provisioned == ["vae/t.safetensors"]
+    if checksum:
+        assert logs[-1] == "✓ vae/t.safetensors downloaded and verified"
+    else:
+        assert "unverified" in logs[-1]
+        assert "downloaded and verified" not in logs[-1]
+    again = manager.provision_models([_row(sha256=checksum)], log=logs.append)
+    assert again.skipped == ["vae/t.safetensors"]
+    assert "verified" not in logs[-1]  # presence hit makes no new assurance claim

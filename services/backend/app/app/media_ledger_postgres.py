@@ -111,7 +111,7 @@ def _scope_lock_key(consumer: str, project: str) -> int:
 
 
 class PostgresLedgerStore:
-    """Durable ledger store. Connects on demand (no shared pool)."""
+    """Durable ledger store. Draws short-lived connections from the shared asyncpg pool."""
 
     def __init__(self, database_url: str) -> None:
         self._database_url = database_url
@@ -240,43 +240,28 @@ class PostgresLedgerStore:
             )
             return _row_to_record(row) if row else None
 
-    async def rekey(self, old_id: str, new_id: str) -> None:
-        async with self._acquire() as conn:
-            try:
-                await conn.execute(
-                    f"UPDATE {_TABLE} SET operation_id = $2, updated_at = now() "
-                    "WHERE operation_id = $1",
-                    old_id,
-                    new_id,
-                )
-            except Exception as exc:
-                if type(exc).__name__ == "UniqueViolationError":
-                    raise LedgerOperationCollisionError(
-                        f"media ledger operation id collision: {new_id}"
-                    ) from exc
-                raise
-
     async def totals(self, consumer: str, project: str) -> Tuple[float, float]:
         async with self._acquire() as conn:
             return await self._totals(conn, consumer, project)
 
     async def _totals(self, conn, consumer: str, project: str) -> Tuple[float, float]:
-        rows = await conn.fetch(
-            f"SELECT status, "
-            "COALESCE(final_cost_usd, estimated_cost_usd, 0) AS cost "
+        # Summed in the database: fetching every row of the scope (denials
+        # included) grew with its whole history, under the advisory lock.
+        row = await conn.fetchrow(
+            "SELECT "
+            "COALESCE(SUM(COALESCE(final_cost_usd, estimated_cost_usd, 0)) "
+            "FILTER (WHERE status = ANY($3::text[])), 0) AS reserved, "
+            "COALESCE(SUM(COALESCE(final_cost_usd, estimated_cost_usd, 0)) "
+            "FILTER (WHERE status = $4), 0) AS committed "
             f"FROM {_TABLE} WHERE consumer = $1 AND project = $2",
             consumer,
             project,
+            sorted(_RESERVED_STATES),
+            STATUS_COMMITTED,
         )
-        reserved = 0.0
-        committed = 0.0
-        for row in rows:
-            cost = float(row["cost"] or 0)
-            if row["status"] in _RESERVED_STATES:
-                reserved += cost
-            elif row["status"] == STATUS_COMMITTED:
-                committed += cost
-        return reserved, committed
+        if row is None:
+            return 0.0, 0.0
+        return float(row["reserved"] or 0), float(row["committed"] or 0)
 
     async def reserve_within_cap(
         self, record: LedgerRecord, cap: Optional[float]
@@ -285,7 +270,9 @@ class PostgresLedgerStore:
         async with self._acquire() as conn:
             async with conn.transaction():
                 await conn.execute(
-                    "SELECT pg_advisory_xact_lock($1)",
+                    # Typed and qualified: a planted public.pg_advisory_xact_lock(text)
+                    # would otherwise win the untyped parameter.
+                    "SELECT pg_catalog.pg_advisory_xact_lock($1::bigint)",
                     _scope_lock_key(record.consumer, record.project),
                 )
                 if cap is not None and record.estimated_cost_usd is not None:

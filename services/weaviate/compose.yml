@@ -17,8 +17,6 @@ services:
       # Embedding model — value is already fully-qualified (e.g. ollama/nomic-embed-text).
       # init-weaviate.sh writes it through unchanged into /shared/weaviate-config.env.
       LITELLM_EMBEDDING_MODEL: ${LITELLM_EMBEDDING_MODEL:-ollama/nomic-embed-text}
-      LITELLM_BASE_URL: http://litellm:4000
-      LITELLM_API_KEY: ${LITELLM_MASTER_KEY}
     volumes:
       - ./init/scripts:/scripts:ro
       - weaviate-shared-config:/shared

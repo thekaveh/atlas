@@ -26,6 +26,8 @@ Smaller terminals (**59×20**, **60×19** or less) use the linear stdout flow. T
 
 *At 120×44 the full logo, stack overview and work area are shown.*
 
+The stack overview ends with a count line of container, local, GPU and off services. `none` and off-track rows count as off, and an enabled FAL row counts as local. Cloud API and consumer counts follow. When a track is set, a `Track: <name>` line sits above the counts.
+
 The dark palette meets the WCAG 2.2 AA normal-text ratio of **4.5:1**; the faintest text measures 4.54:1. Selection and status also use cursor glyphs, checkbox text, icons and words, not color alone. The wizard is keyboard-operable; screen-reader support is not tested.
 
 The screenshots use the dark theme and Textual's headless renderer at the stated cell sizes. Fonts, emoji width and inline images vary between terminal emulators.
@@ -131,7 +133,7 @@ Each cloud provider gets two consecutive steps. The API-key step is always shown
 | a new key | Replaces the key and turns the provider on. |
 | `remove` | Deletes the key and turns the provider off. The only action that erases a credential. |
 
-`clear` is a synonym for `remove`. Matching ignores case and surrounding spaces.
+`clear` is a synonym for `remove`. Matching ignores case and surrounding spaces. While you type one of these words, the hint under the masked input names its action instead of a character count. If you type `enable` and no key is saved, the hint says there is no saved key to enable.
 
 Unchecking every model in the model step turns the provider off and keeps the key; the step heading says so.
 
@@ -147,7 +149,8 @@ The **fal.ai** key step (FAL Cloud Media, after ComfyUI) uses the same words for
 
 The caption above the list always names the source of the list. A listed model is therefore never mistaken for proof that your key works:
 
-- **`Live from the provider · key accepted · Space toggles, Enter confirms`.** The provider answered and these are its own models. Each row is badged `live`.
+- **`Live from the provider · key accepted · Space toggles, Enter confirms`.** The provider accepted your key and listed these models itself. Each row is badged `live`.
+- **`Live from the provider · key not checked (OpenRouter lists models without a key) · Space toggles, Enter confirms`.** OpenRouter's model list needs no key. A wrong key fails only on the first LiteLLM request.
 - **`Curated catalog · credentials unverified · <reason> · Esc re-enters the key and retries · Space toggles, Enter confirms`**. The provider did not answer usefully, so the list is the bundled catalog from `bootstrapper/utils/llm_catalog.py`. Each row is badged `catalog`. The reason is one of:
     - no API key was supplied
     - the provider rejected the key
@@ -157,6 +160,8 @@ The caption above the list always names the source of the list. A listed model i
     - the provider could not be reached
     - the provider's reply could not be read
     - the provider listed no usable models
+
+OpenRouter lists hundreds of models, so the wizard keeps the first 50 by name. The caption then starts `Live from the provider (first 50 of <total>)`. Curated OpenRouter models beyond that cut stay selectable, badged `catalog`.
 
 A rejected key, a timed-out request and an empty listing get three different captions. To recover, press **Esc** to return to the key step, correct the key, and press Enter. That clears the cached result and fetches again (§4.5). The key is never written to the caption or to the launch log.
 
@@ -175,7 +180,9 @@ After the cloud key/model pairs, the wizard asks for the **default model per rol
 1. **Chat / content** → `LITELLM_DEFAULT_MODEL`. The backend and Open WebUI use it when no model is named. It is pre-selected to your saved default if still offered, else to the highest-priority content-capable model in your selection.
 2. **Embedding** → `LITELLM_EMBEDDING_MODEL` and its dimension `LANGMEM_EMBEDDING_DIM`. For a curated model the wizard reads `dim:` from `services/*/models.yaml`. Backend and the Supabase memory migration use the same value. Every start re-derives the dimension if the catalog value changed (for example, `qwen3-embedding:0.6b` is 1024).
 
-    Existing 768-dimension deployments keep working. A 1024-, 1536- or 3072-dimension model starts a lossless expand, re-embed and validate rollout at the next start. Backend checks the model's real output before it accepts traffic. A custom model needs an explicit `LANGMEM_EMBEDDING_DIM` from 1 to 4,000 (pgvector's halfvec HNSW limit). The dimension step refuses `clear`, non-numbers and out-of-range values before launch. It refuses empty input when no dimension is saved; with a saved value, Enter keeps it.
+    Existing 768-dimension deployments keep working. A 1024-, 1536- or 3072-dimension model starts a lossless expand, re-embed and validate rollout at the next start. Backend checks the model's real output before it accepts traffic. A fact the embedding provider rejected keeps no vector and stays queued for the reconciler; it does not hold the rollout.
+
+    A custom model needs an explicit `LANGMEM_EMBEDDING_DIM` from 1 to 4,000 (pgvector's halfvec HNSW limit). The dimension step refuses `clear`, non-numbers and out-of-range values before launch. It refuses empty input when no dimension is saved; with a saved value, Enter keeps it.
 
 3. **Vision** → `LITELLM_VISION_MODEL`. The first option is **— none / skip —** because vision routing is optional. The step is skipped when no vision-capable model is selected.
 
@@ -199,7 +206,9 @@ Each row shows:
 
 **Custom nodes.** For container sources, Atlas installs only allowlisted nodes from `services/comfyui/custom-nodes.yaml`, at pinned commits and from hash-verified locks. Unknown, unallowlisted or unconstrained nodes are not installed; this currently includes 3D-Pack. The [ComfyUI README](../../services/comfyui/README.md) §6 gives the rules and the 3D-Pack reasons.
 
-**Search, chips and variants** work as in the Ollama picker (§4.2). The chips are `ALL image image-edit video audio 3d`. Hugging Face repositories with a common family root share one parent row. For example, `TRELLIS  ·  6 variants` holds all `microsoft--TRELLIS-*` and `gqk--TRELLIS-*` repositories. Selections are saved as full repository names. Single-entry families, civitai IDs, allowlist entries and custom entries stay flat.
+**Search, chips and variants** work as in the Ollama picker (§4.2). The chips are `ALL image image-edit video audio 3d`. Hugging Face repositories with a common family root share one parent row. For example, `TRELLIS  ·  6 variants` holds all `microsoft--TRELLIS-*` and `gqk--TRELLIS-*` repositories. Selections are saved as full repository names. Name search also matches the repository names inside a family row.
+
+Single-entry families, civitai IDs, allowlist entries and custom entries stay flat.
 
 The first open waits while file sizes load from Hugging Face: one request per repository, 10 at a time, each with a 15 s timeout. A failed size lookup shows `0.00 GB` and does not block the catalog.
 
@@ -327,7 +336,7 @@ After you confirm, the same screen switches from prompts to the launch phase:
 - During the one-shot init wait (a 900-second polling window), `Ctrl+C` stops further checks. An active status command keeps its 10-second timeout; an active log-tail command keeps its 20-second timeout. The wizard's cold-start volume removal (`down --volumes`) also stops on `Ctrl+C`; the notice then says volumes may already be removed.
 - Exit codes: `130` only when `Ctrl+C` interrupts a running launch. After the launch ends, `Ctrl+C` keeps its result (`0` started, `1` failed) and prints no notice.
 - A failed init container's error line includes up to 40 log lines when available. After cancellation, Atlas starts no log request.
-- To follow logs later, set `COMPOSE_PROJECT_NAME` as shown at the top of [Troubleshooting](troubleshooting.md), then run `docker compose logs -f <service>`.
+- To follow logs later, define the `atlas_compose` helper from the top of [Troubleshooting](troubleshooting.md), then run `atlas_compose logs -f <service>`.
 
 ### 9.1. Recovery without deleting data
 
@@ -374,8 +383,8 @@ Of these four exit actions, only cold stop deletes data, and only after the seco
 | `1` / `2` | Jump to the Setup / Logs tab (Logs only after launch begins) |
 | `Shift+Tab` | Cycle to the previous tab |
 | `a` `e` `w` `i` | After launch: show all log lines, errors, warnings or info |
-| `s` | Logs tab: open the filter-by-source picker |
-| `y` / `Y` | After launch: copy the visible log lines / the session log's first segment |
+| `s` | Logs tab: open the filter-by-source picker. In it, `↑` `↓` move, `Space` toggles and `Esc` applies. |
+| `y` / `Y` | After launch: copy the visible log lines / up to the last 2 MiB of the session log's first segment |
 | `Ctrl+R` | Review the full warning on a destructive step (§7.1) |
 | `Ctrl+O` | Review the whole command, every service's details and every answered decision (§10.1, §10.2) |
 | `Ctrl+S` / `Ctrl+X` (twice) | After launch: stop / cold stop (§9.2) |
@@ -388,7 +397,7 @@ The command summary shows at most four rows. The service table shows a row's sou
 Press **Ctrl+O** for a full-screen, read-only view, available down to the 60×20 floor. It has three pages during setup and two after launch. **Tab** moves to the next page and **Shift+Tab** to the previous one:
 
 - **Command** lists the generated `./start.sh` command, one flag per line, in copyable shell form. Scroll with `↑` `↓` `PgUp` `PgDn`.
-- **Services** lists every service. Moving with `↑` `↓` shows that service's card, the same text as its tooltip.
+- **Services** lists every service. Moving with `↑` `↓` shows that service's card, the same text as its tooltip. An off-track service's card reads `Source  disabled (off-track)`, like its table row, and lists the `.env` value as `Stored source`.
 - **Decisions** (setup only) lists every answered step, in wizard order, with its current answer (§10.2).
 
 Press **y** to copy the command through OSC 52; a terminal without OSC 52 leaves the clipboard unchanged. A flag named like a secret (password, secret, token or key) shows and copies as `'<set>'`. **Esc**, `Ctrl+O` or `q` closes the view with your step, cursor and selections unchanged. On Decisions the search box has focus, so `q` and `y` are typed there; use Esc or `Ctrl+O` to close. The command summary's border shows `ctrl+o details`.
@@ -447,7 +456,7 @@ The TUI needs three Python libraries, all declared in `bootstrapper/pyproject.to
 - **rich** — styled text inside Textual widgets, and the `--no-tui` pre-launch summary table.
 - **textual-image** — the splash poster, drawn with the terminal's image protocol where supported.
 
-Python ≥ 3.10 is required. The linear stdout flow runs instead when stdin is not a TTY, the terminal is smaller than 60×20, or you pass `--no-tui`. It prints a pre-launch summary table and streams `docker compose` output.
+Python ≥ 3.11 is required. The linear stdout flow runs instead when stdin is not a TTY, the terminal is smaller than 60×20, or you pass `--no-tui`. It prints a pre-launch summary table and streams `docker compose` output.
 
 If you pass no configuration flag (§13) and no `--track`, the linear flow asks for a track on stdin. It then writes out-of-track services to `.env` as `disabled`. Without a terminal (cron, systemd, CI, `ssh` without `-t`), it takes `gen-ai-rag` without asking. Scripted runs should therefore pass `--track all` (no filtering) or `--track <key>`.
 
@@ -466,11 +475,11 @@ BRAND_REPO_URL=https://github.com/thekaveh/atlas
 BRAND_LOGO_FILE=
 ```
 
-Empty values fall back to the canonical defaults (encoded in `bootstrapper/wizard/model/state.py::AppState`). See `.env.example` for the latest documented block.
+Empty values fall back to the canonical defaults (encoded in `bootstrapper/wizard/model/state.py::AppState`). See `.env.example` for the latest documented block. Values display as plain text, so square brackets show exactly as typed.
 
 ### 15.1. Block-art logo (`BRAND_LOGO_FILE`)
 
-The ASCII block-art logo in the brand panel and the `--no-tui` banner defaults to **ATLAS** (an [ANSI-Shadow](https://patorjk.com/software/taag/#p=display&f=ANSI%20Shadow) figlet). To replace it, point `BRAND_LOGO_FILE` at a text file; leave it empty to keep ATLAS. Generate art with any figlet tool, for example `figlet -f "ANSI Shadow" "My Brand"`.
+The ASCII block-art logo in the brand panel and the `--no-tui` banner defaults to **ATLAS** (an [ANSI-Shadow](https://patorjk.com/software/taag/#p=display&f=ANSI%20Shadow) figlet). To replace it, point `BRAND_LOGO_FILE` at a UTF-8 text file; leave it empty to keep ATLAS. A missing, unreadable or non-UTF-8 file also keeps ATLAS. Generate art with any figlet tool, for example `figlet -f "ANSI Shadow" "My Brand"`.
 
 `bootstrapper/utils/brand_logo.py` documents the file layout: a wide lockup, plus an optional narrow version after a `---` line for small terminals. Both the TUI and the banner read it.
 
@@ -482,7 +491,7 @@ The wizard discovers every configurable service from its `services/<name>/servic
 
 | Service | Options |
 |---------|---------|
-| LiteLLM Gateway | locked / always-on (no choice; mandatory front door for every LLM consumer) |
+| LiteLLM Gateway | locked / always-on (no choice; default front door for Atlas-managed LLM consumers) |
 | LLM Engine (Ollama upstream) | ollama-container-cpu, ollama-container-gpu, ollama-localhost, none |
 | ComfyUI | container-cpu, container-gpu, localhost, managed-localhost-mps, disabled |
 | Weaviate | container, localhost, disabled |

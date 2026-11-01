@@ -40,7 +40,7 @@ sources_consulted:
   - Why valuable: Hermes-agent is the stack's tool-using agent runtime; researchers want to drive it from a notebook (chain prompts, inspect intermediate tool calls) without going through Open WebUI.
   - Mechanism sketch: Hermes is already a `litellm` model alias (`hermes-agent`), so reachable today via the existing `OPENAI_API_BASE`. Add `HERMES_AGENT_MODEL=hermes-agent` env hint + a sample notebook (`07_hermes_agent.ipynb`).
   - Effort: small (env hint + notebook; no new wire).
-  - Risks / open questions: Hermes self-loop guard (see `reference_hermes_provider_config.md`) — notebook must use `hermes-agent`, not raw upstream.
+  - Risks / open questions: Hermes self-loop guard (see the [Hermes README](../../../services/hermes/README.md)) — notebook must use `hermes-agent`, not raw upstream.
   - Confidence: high (LiteLLM gateway path is already proven from open-webui).
 
 - **jupyterhub ↔ local-deep-researcher**

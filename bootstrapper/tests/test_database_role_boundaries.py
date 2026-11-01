@@ -600,17 +600,6 @@ def _wait_for_disposable_postgres(container: str, admin_password: str) -> None:
     )
 
 
-def _add_exception_note(exc: BaseException, note: str) -> None:
-    if hasattr(exc, "add_note"):
-        exc.add_note(note)
-        return
-    notes = getattr(exc, "__notes__", None)
-    if notes is None:
-        notes = []
-        exc.__notes__ = notes
-    notes.append(note)
-
-
 def _inspect_disposable_resource(kind: str, name: str) -> dict | None:
     inspected = _run("docker", kind, "inspect", name, check=False, timeout=10)
     if inspected.returncode == 0:
@@ -712,13 +701,13 @@ def _cleanup_disposable_postgres(
             )
             note = f"Disposable database-role cleanup could not be proven: {detail}"
             if deferred_error is not None:
-                _add_exception_note(deferred_error, note)
+                deferred_error.add_note(note)
                 seed_harness.raise_deferred_cleanup_error(
                     primary_error, deferred_error
                 )
                 return
             else:
-                _add_exception_note(errors[0][1], note)
+                errors[0][1].add_note(note)
                 raise errors[0][1]
         deferred_error = seed_harness.sleep_for_cleanup(0.1, deferred_error)
 
@@ -772,13 +761,13 @@ def _cleanup_disposable_role_client(
             )
             note = f"Disposable database-role client cleanup could not be proven: {detail}"
             if deferred_error is not None:
-                _add_exception_note(deferred_error, note)
+                deferred_error.add_note(note)
                 seed_harness.raise_deferred_cleanup_error(
                     primary_error, deferred_error
                 )
                 return
             else:
-                _add_exception_note(failures[0][1], note)
+                failures[0][1].add_note(note)
                 raise failures[0][1]
         deferred_error = seed_harness.sleep_for_cleanup(0.1, deferred_error)
 

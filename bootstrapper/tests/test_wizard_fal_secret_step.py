@@ -228,7 +228,6 @@ def test_fal_resolves_every_intent_exactly_like_a_cloud_provider():
             cloud = resolve_cloud_provider(
                 provider_key="openai", secret_value=secret,
                 selected_models=None, existing_key_set=existing_key_set,
-                existing_source="disabled",
             )
             assert resolve_secret_verdict(
                 secret, existing_key_set=existing_key_set,
@@ -415,3 +414,60 @@ def test_back_onto_an_answered_key_step_names_the_pending_action(restored, expec
 
     step = replace(build_fal_secret_step(_SAVED, _noop)[0], restored_input_value=restored)
     assert _secret_input_hint(step).startswith(expected)
+
+
+def _live_secret_hint(typed, env):
+    """The hint and committed value after typing ``typed`` into the masked
+    key input of a mounted wizard."""
+    import asyncio
+
+    from textual.app import App
+    from ui.textual.screens.wizard_screen import WizardScreen
+
+    step = build_fal_secret_step(env, _noop)[0]
+    screen = WizardScreen(steps=[step], services=[], no_splash=True)
+
+    class _App(App):
+        def on_mount(self) -> None:
+            self.push_screen(screen)
+
+    async def scenario():
+        async with _App().run_test(size=(140, 44)) as pilot:
+            await pilot.pause()
+            screen._prompt._secret_input.value = typed
+            await pilot.pause()
+            return (
+                str(screen._prompt._secret_hint.render()),
+                screen._prompt.selected_option.value,
+            )
+
+    try:
+        return asyncio.run(scenario())
+    finally:
+        screen._close_launch_log_tee()
+        path = screen._launch_log_path
+        if path is not None:
+            path.unlink(missing_ok=True)
+
+
+@pytest.mark.parametrize(
+    ("typed", "env", "expected", "committed"),
+    [
+        ("remove", _SAVED, "pending removal", SECRET_CLEAR),
+        ("clear", _SAVED, "pending removal", SECRET_CLEAR),
+        ("disable", _SAVED, "pending: turned off, key kept", SECRET_DISABLE),
+        ("enable", _SAVED, "pending: enabled with the saved key", SECRET_ENABLE),
+        ("Remove", _SAVED, "pending removal", SECRET_CLEAR),
+        ("enable", {}, "no saved key to enable", SECRET_ENABLE),
+        ("fal-new-key", _SAVED, "✓ 11 chars entered", "fal-new-key"),
+    ],
+)
+def test_typing_a_control_word_names_the_pending_action(typed, env, expected, committed):
+    """The input is masked, so the live hint is the only feedback. Typing
+    "remove", "disable" or "enable" used to read "✓ N chars entered", as if
+    it were a key, while Enter committed the control sentinel."""
+    hint, value = _live_secret_hint(typed, env)
+    assert hint.startswith(expected), hint
+    assert value == committed
+    if typed != "fal-new-key":
+        assert "chars entered" not in hint

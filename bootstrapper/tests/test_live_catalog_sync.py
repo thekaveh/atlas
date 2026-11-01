@@ -23,9 +23,10 @@ proxy) and assert the user-facing invariants of the current architecture:
     family matches what /api/tags actually returns. Covers the
     screenshot bug where per-leaf status didn't reflect host state.
 
-Tests skip cleanly when the stack isn't up — they're meant for
-``./start.sh``-after development cycles, not CI machines without
-Docker.
+Tests are opt-in: set ``ATLAS_LIVE_STACK=1`` to run them against the
+running stack. They're meant for ``./start.sh``-after development
+cycles, not CI machines without Docker, and still skip cleanly when
+the stack isn't up.
 
 Network / timing:
   * The /api/tags fetch uses a 3s timeout; failures count as "stack
@@ -50,6 +51,14 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 ENV_FILE = REPO_ROOT / ".env"
+
+pytestmark = [
+    pytest.mark.live,
+    pytest.mark.skipif(
+        os.environ.get("ATLAS_LIVE_STACK") != "1",
+        reason="set ATLAS_LIVE_STACK=1 to test the running stack",
+    ),
+]
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -89,12 +98,13 @@ def _http_get_json(url: str, *, headers=None, timeout: float = 3.0):
 
 def _ollama_upstream_url() -> str:
     """Return the URL that litellm-init / the wizard would query for
-    /api/tags. Localhost mode is hardcoded to 11434 in the wizard;
-    container and `none` sources return empty (no host-side upstream
-    to probe)."""
+    /api/tags. Localhost mode uses OLLAMA_LOCALHOST_PORT, defaulting to
+    11434 like the wizard and the Ollama manifest; container and `none`
+    sources return empty (no host-side upstream to probe)."""
     src = _read_env_var("LLM_PROVIDER_SOURCE")
     if "localhost" in src:
-        return "http://localhost:11434"
+        port = _read_env_var("OLLAMA_LOCALHOST_PORT") or "11434"
+        return f"http://localhost:{port}"
     return ""
 
 
@@ -122,8 +132,8 @@ def _query_litellm_models() -> list[str] | None:
     """Return LiteLLM /v1/models IDs, or None when the proxy isn't
     reachable. Reads the master key from .env for auth."""
     key = _read_env_var("LITELLM_MASTER_KEY")
-    port = _read_env_var("LITELLM_PORT") or "63012"
-    if not key:
+    port = _read_env_var("LITELLM_PORT")
+    if not key or not port:
         return None
     data = _http_get_json(
         f"http://localhost:{port}/v1/models",
@@ -153,7 +163,7 @@ def _skip_unless_stack_up():
     if litellm_models is None:
         pytest.skip(
             "LiteLLM proxy unreachable on localhost:LITELLM_PORT — "
-            "stack not up, or LITELLM_MASTER_KEY missing from .env"
+            "stack not up, or LITELLM_MASTER_KEY or LITELLM_PORT unset in .env"
         )
     return host_tags, litellm_models
 
@@ -177,6 +187,13 @@ def test_every_host_ollama_model_is_published_by_litellm():
     publishes them in (sorted by catalog vs by /api/tags) doesn't
     matter.
     """
+    # Compose defaults an unset or empty value to true; init.py's truthy set.
+    auto_import = _read_env_var("OLLAMA_AUTO_IMPORT_LOCAL_MODELS").lower() or "true"
+    if auto_import not in ("true", "1", "yes", "on", "enabled"):
+        pytest.skip(
+            "OLLAMA_AUTO_IMPORT_LOCAL_MODELS is not true; host-only tags "
+            "are intentionally unpublished"
+        )
     host_tags, litellm_models = _skip_unless_stack_up()
 
     # The wizard / Ollama publishes some models without a tag
@@ -215,8 +232,8 @@ def test_litellm_doesnt_advertise_phantom_ollama_models():
     litellm-init time. A stale model would persist only if it's still
     in OLLAMA_USER_MODELS or OLLAMA_CUSTOM_MODELS (env-level overrides
     the operator controls) — there is no DB table to clean up.
-    The test is informational — it doesn't fail on stale rows but
-    surfaces them in the pytest output for the operator to triage.
+    The test fails and lists any unexplained names for the operator
+    to triage.
     """
     host_tags, litellm_models = _skip_unless_stack_up()
 
@@ -292,9 +309,8 @@ def test_wizard_options_provider_pulled_variants_matches_live_ollama():
     the wizard would either pre-check models that don't exist or fail
     to pre-check models that do.
 
-    Tagged as a ``slow`` test because it makes two live HTTP calls
-    (Ollama /api/tags + ollama.com/library scrape, ~5s on a cold run).
-    Skips when the stack isn't up.
+    It makes two live HTTP calls (Ollama /api/tags + ollama.com/library
+    scrape, ~5s on a cold run). Skips when the stack isn't up.
     """
     host_tags, _ = _skip_unless_stack_up()
     host_set = set(host_tags)

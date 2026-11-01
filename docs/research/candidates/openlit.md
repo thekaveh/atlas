@@ -88,8 +88,9 @@ Reconsider OpenLIT only when all of these are true:
   explicit.
 
 ## 8. Future service contract if adopted
-- **Tracks:** `observability`, `gen-ai-eng`, `gen-ai-rag`, `ml-eng`, and `all`;
-  avoid `data-eng` unless a concrete ML/data observability workflow needs it.
+- **Tracks:** roadmap label `observability`; proposed runtime keys `gen-ai-eng`,
+  `gen-ai-rag`, `ml-eng`, and `all` from the [runtime track registry](../../../bootstrapper/tracks.yml).
+  `observability` is not a runtime track key. Avoid `data-eng` unless a concrete ML/data observability workflow needs it.
 - **Category:** choose deliberately between `infra` and `agents`. It is an
   observability backend if Atlas uses it as telemetry infrastructure; it is an
   AI-engineering app if Atlas exposes the OpenLIT UI as a workflow surface.

@@ -737,7 +737,7 @@ def _pytest_commands(workflow: dict) -> dict[str, list[str]]:
 SUITE_INVOCATIONS = {
     "--cov-fail-under=69": ["lint"],  # the bootstrapper coverage floor, once
     "--cov-fail-under=79": ["lint"],  # the Backend suite
-    "uv run --python 3.10 --isolated --locked --group dev pytest tests/": ["python-floor"],
+    "uv run --python 3.11 --isolated --locked --group dev pytest tests/": ["python-floor"],
     "test_mcp_servers_framework.py": ["component-tests"],
     "-m pytest tests/ -q -W error": ["lint"],  # the Backend suite
     "cd services/asset-worker/app": ["component-tests"],
@@ -765,24 +765,24 @@ def test_every_suite_invocation_survives_the_split() -> None:
 
     assert {fragment: [job for job, command in flat if fragment in command]
             for fragment in SUITE_INVOCATIONS} == SUITE_INVOCATIONS
-    assert pythons == {"lint": ["3.12"], "unit-fast": ["3.12"], "python-floor": ["3.10"],
+    assert pythons == {"lint": ["3.12"], "unit-fast": ["3.12"], "python-floor": ["3.11"],
                        "component-tests": ["3.12"]}
     assert (set(events), events["pull_request"]["branches"], events["push"]["branches"]) == (
         {"pull_request", "push"}, ["main", "develop"], ["main", "develop"])
 
 
 def test_python_floor_runs_the_full_suite_with_the_images_lint_pulls() -> None:
-    """AC5: the 3.10 floor is the whole suite, not a subset, and its
+    """AC5: the 3.11 floor is the whole suite, not a subset, and its
     Docker-backed tests find the same pinned images locally."""
     jobs = _services_lint()["jobs"]
     pull = "Pull exact backup integration images"
     floor = {step.get("name"): step for step in jobs["python-floor"]["steps"]}
     lint = {step.get("name"): step for step in jobs["lint"]["steps"]}
-    command = " ".join(floor["Run bootstrapper tests on Python 3.10"]["run"].split())
+    command = " ".join(floor["Run bootstrapper tests on Python 3.11"]["run"].split())
 
     assert floor[pull] == lint[pull]
     assert command == (
-        "uv run --python 3.10 --isolated --locked --group dev pytest tests/ -q "
+        "uv run --python 3.11 --isolated --locked --group dev pytest tests/ -q "
         "--ignore=tests/test_fragment_equivalence.py --ignore=tests/test_source_permutations.py"
     )
 
@@ -1076,7 +1076,10 @@ def test_final_image_scan_passes_when_every_image_is_clean(tmp_path: Path) -> No
 def _compose_deps_lint():
     import importlib.util
 
-    sys.path.insert(0, str(ROOT / "scripts"))
+    # The lint script imports ``bounded_subprocess`` by bare name. Registering
+    # the already-imported module avoids prepending scripts/ to sys.path, whose
+    # ``docs`` package would shadow bootstrapper/docs for later tests.
+    sys.modules.setdefault("bounded_subprocess", bounded_subprocess)
     spec = importlib.util.spec_from_file_location(
         "check_compose_source_deps", ROOT / "scripts/check-compose-source-deps.py"
     )
@@ -1098,6 +1101,29 @@ def test_compose_deps_lint_ignores_a_local_env_file(tmp_path, monkeypatch) -> No
     monkeypatch.setattr(lint, "run_bounded", fake_run)
     lint.load_compose()
     assert calls[0][2:4] == ["--env-file", str(ROOT / ".env.example")]
+
+
+def test_compose_deps_lint_forwards_errors_only_for_the_example_env(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    """A failed render of the non-secret .env.example shows compose's error;
+    a caller-supplied --env-file keeps it redacted."""
+    lint = _compose_deps_lint()
+    error = 'service "backend" refers to undefined volume secret-token'
+    monkeypatch.setattr(
+        lint,
+        "run_bounded",
+        lambda args, **_kwargs: subprocess.CompletedProcess(args, 1, stdout="", stderr=error + "\n"),
+    )
+    for env_file, shown in ((lint.ENV_FILE, True), (tmp_path / "local.env", False)):
+        with pytest.raises(SystemExit) as raised:
+            lint.load_compose(env_file)
+        err = capsys.readouterr().err
+        assert raised.value.code == 2
+        assert "FAIL load_compose: `docker compose config` exited 1" in err
+        assert (error in err) is shown, err
+        assert ("output follows:" in err) is shown, err
+        assert ("subprocess output redacted" in err) is not shown, err
 
 
 def test_compose_deps_lint_flags_unreviewed_edges_into_replaceable_services() -> None:

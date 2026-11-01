@@ -13,10 +13,8 @@ from bootstrapper.docs.sitegen.model import load_docs_model
 from bootstrapper.docs.sitegen.pages import (
     architecture_pages, reference_index, reference_pages, track_index,
 )
-# Retain the broad renderer aliases for existing direct Python callers.
-from bootstrapper.docs.sitegen.pages import static_pages
 from bootstrapper.services.manifest_validator import VALIDATOR_RULES
-from bootstrapper.docs.sitegen.services import service_catalog, service_pages
+from bootstrapper.docs.sitegen.services import service_catalog
 from scripts.docs.license_inventory import (
     PAGE as LICENSE_INVENTORY_PAGE,
     load_inventory,
@@ -108,7 +106,8 @@ def render_plan_archive_line(repo_root: Path) -> str:
     return (
         "- [plans](plans/) and [specs](specs/): point-in-time implementation "
         f"plans and specs dated {first.isoformat()} through {last.isoformat()}. "
-        "CHANGELOG entries link the relevant artifacts."
+        "The CHANGELOG links only a few of these files, and not every record "
+        "led to a change."
     )
 
 

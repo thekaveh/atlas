@@ -270,7 +270,7 @@ def test_backend_installs_celery_trace_propagation() -> None:
     requirements = (
         SERVICES / "backend" / "app" / "app" / "requirements.txt"
     ).read_text(encoding="utf-8")
-    assert "opentelemetry-instrumentation-celery>=0.51b0" in requirements
+    assert "opentelemetry-instrumentation-celery>=0.66b1" in requirements
 
 
 def test_celery_otel_call_is_owned_by_the_manifest_and_architecture_docs() -> None:

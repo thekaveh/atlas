@@ -20,8 +20,8 @@ class LocalhostValidator:
         # All single-engine services read their *_LOCALHOST_PORT override
         # (the same var runtime_sc, Kong's _localhost_url, and
         # service_config read) so a user-set port doesn't produce a false
-        # "not detected" warning — the asymmetric-override class tracked
-        # in feedback_localhost_url_override_symmetry.md.
+        # "not detected" warning — the asymmetric-override class in
+        # docs/CONTRIBUTING-services.md §14.2.
         'LLM_PROVIDER_SOURCE': {
             'source_values': ['ollama-localhost'],
             'check_type': 'http',
@@ -97,7 +97,7 @@ class LocalhostValidator:
         },
         # NOTE: these three localhost-source services follow the same
         # asymmetric-override pattern documented in
-        # feedback_localhost_url_override_symmetry.md. The probe MUST use
+        # docs/CONTRIBUTING-services.md §14.2. The probe MUST use
         # the user-overridable `<X>_LOCALHOST_PORT` (which the wizard
         # writes), NOT the container's host-bound port var
         # (DOC_PROCESSOR_PORT / OPENCLAW_GATEWAY_PORT / HERMES_API_PORT).

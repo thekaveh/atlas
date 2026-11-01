@@ -15,6 +15,12 @@ import requests
 from pydantic import BaseModel, Field
 
 
+# Backend MemoryMessage.content and MemoryRecallRequest.query limits, as in
+# memory_filter: longer input got a 422 reported as "try again later".
+_MAX_CONTENT_CHARS = 20000
+_MAX_QUERY_CHARS = 4000
+
+
 # Module level, not a Tools method: Open WebUI 0.6.32 offers every Tools
 # method not prefixed `__` to the model, and this one returns the bearer token.
 def _backend_headers() -> dict[str, str]:
@@ -120,7 +126,7 @@ class _Blocking:
                     "user_id": user_id,
                     "query": query,
                     "namespace": "default",
-                    "limit": self.valves.max_recall_results,
+                    "limit": max(1, min(self.valves.max_recall_results, 100)),
                     "min_confidence": 0.5,
                 },
                 timeout=self.valves.timeout,
@@ -272,6 +278,7 @@ class Tools:
         :param conversation: The conversation text to extract memories from
         :return: Extracted memory facts
         """
+        conversation = str(conversation or "").strip()[:_MAX_CONTENT_CHARS]
         return await asyncio.to_thread(_Blocking.remember, self, conversation, __user__)
 
     async def recall(self, query: str, __user__: dict | None = None) -> str:
@@ -282,6 +289,7 @@ class Tools:
         :param query: The topic or question to recall memories about
         :return: Relevant memory facts
         """
+        query = str(query or "").strip()[:_MAX_QUERY_CHARS]
         return await asyncio.to_thread(_Blocking.recall, self, query, __user__)
 
     async def forget(self, memory_id: str, __user__: dict | None = None) -> str:

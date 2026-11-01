@@ -158,7 +158,10 @@ async def acquire_bounded(pool):
     """Check a connection out of ``pool`` within the saturation deadline.
 
     Raises :class:`PoolSaturatedError` when every slot stays busy past
-    ``_POOL_ACQUIRE_TIMEOUT_SECONDS``. The caller owns the returned connection
+    ``_POOL_ACQUIRE_TIMEOUT_SECONDS``. asyncpg's acquire deadline also covers
+    opening a new connection, so a timeout while the pool is below its
+    maximum size is a connectivity failure: it raises ``TimeoutError`` and
+    does not count as saturation. The caller owns the returned connection
     and must release it to ``pool``.
     """
     started = asyncio.get_running_loop().time()
@@ -168,9 +171,17 @@ async def acquire_bounded(pool):
         # misclassified as saturation.
         conn = await pool.acquire(timeout=_POOL_ACQUIRE_TIMEOUT_SECONDS)
     except (asyncio.TimeoutError, TimeoutError) as exc:
+        size = getattr(pool, "get_size", lambda: -1)()
+        max_size = getattr(pool, "get_max_size", None)
+        if max_size is not None and 0 <= size < max_size():
+            # get_size counts connected holders only: a free slot at the
+            # deadline means a connection was still being opened.
+            raise TimeoutError(
+                "PostgreSQL connection not established within "
+                f"{_POOL_ACQUIRE_TIMEOUT_SECONDS:g}s"
+            ) from exc
         if _POOL_SATURATED_TOTAL is not None:
             _POOL_SATURATED_TOTAL.inc()
-        size = getattr(pool, "get_size", lambda: -1)()
         idle = getattr(pool, "get_idle_size", lambda: -1)()
         raise PoolSaturatedError(
             deadline=_POOL_ACQUIRE_TIMEOUT_SECONDS, size=size, free=idle

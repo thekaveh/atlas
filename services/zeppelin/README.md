@@ -143,6 +143,8 @@ ZEPPELIN_DB_PASSWORD=              # auto-generated
 
 Use it as a template for your own notebooks.
 
+Zeppelin derives a note's id and list name from its file name, `<name>_<id>.zpln`. Each bundled note's JSON `id` matches that id, so the UI can run it. The note list shows `spark` and `iceberg_advanced`. A new note file must follow the same pattern.
+
 `services/zeppelin/notebooks/iceberg_advanced_sql.zpln` is the opt-in
 standalone Spark counterpart to JupyterHub's Spark Connect advanced smoke,
 covering Iceberg's MERGE/branching/streaming/maintenance surface. Its
@@ -177,6 +179,8 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 | Interpreter process isolation and HA | not-supported | documented | All interpreters run in one Zeppelin container with injected lakehouse credentials; Atlas configures neither per-user sandboxing nor a replicated notebook control plane. |
 
 ## 7. Troubleshooting
+
+Set `PROJECT_NAME` in your shell to the value in `.env` (default `atlas`) before you run these commands.
 
 - **Spark interpreter says "no master URL"** — the container and the `spark` interpreter must both use `spark://spark-master:7077`. Check the container with `docker exec ${PROJECT_NAME}-zeppelin env | grep SPARK_MASTER`, and check `spark.master` in the interpreter settings. Rerun `./start.sh` to restore both, because `zeppelin-init` re-seeds the interpreter.
 - **First `%spark` cell after stack-up errors with "connection refused"** — Zeppelin waits for `spark-master` to be healthy and `spark-init` to complete. A cold Spark worker or a freshly restarted interpreter can still need a few seconds before it accepts driver and executor traffic. Confirm `spark.master=spark://spark-master:7077` in the `spark` interpreter settings, then re-run the cell once the Spark master UI shows a live worker.

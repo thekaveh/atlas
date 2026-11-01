@@ -45,6 +45,7 @@ from .capabilities_resolver import (
 )
 from .capabilities_section_writer import (
     CapabilitySectionError,
+    _next_section_position,
     _preserve_heading_aliases,
     upsert_capabilities_section,
 )
@@ -158,14 +159,19 @@ def _extract_future_blocks(deps_text: str) -> dict[str, str]:
 
 
 def _detect_position(readme_text: str) -> int:
-    """Detect the section number of the existing Dependencies & Integrations
-    heading. Defaults to 5 (canonical slot) if absent or unnumbered."""
+    """Detect the section number for the Dependencies & Integrations block.
+
+    An existing header keeps its number (5 if unnumbered). A missing section
+    is appended by `_upsert_section`, so it takes the number after the last
+    numbered `##` section. A README with no numbered sections gets the
+    canonical slot 5."""
     # Fence-aware, matching `_slice_deps_section`. A fenced EXAMPLE of the
     # header would otherwise dictate the subsection numbering of the real one.
     m = _search_outside_fences(DEPS_HEADER_RE, readme_text, 0, _fenced_spans(readme_text))
-    if m and m.group(1):
-        return int(m.group(1))
-    return 5
+    if m:
+        return int(m.group(1)) if m.group(1) else 5
+    following = _next_section_position(readme_text)
+    return following if following > 1 else 5
 
 
 def _drop_closed_candidates(body: str, closed: frozenset[str]) -> str:

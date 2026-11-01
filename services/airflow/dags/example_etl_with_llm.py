@@ -54,7 +54,7 @@ default_args = {
 
 
 def spark_smoke(**_ctx):
-    """Confirm spark://spark-master:7077 + sc://spark-connect:15002 are reachable.
+    """Confirm the Spark Connect sidecar at sc://spark-connect:15002 answers.
 
     Uses Spark Connect (modern gRPC client) — no JAR submission, no
     cluster-mode dependencies. Prints the Spark Connect server version.
@@ -145,11 +145,11 @@ with DAG(
 #     a venv-equipped PythonOperator. The pattern below wraps a chain in
 #     a plain Python callable.
 #
-# import os
 # from langchain_core.runnables import RunnablePassthrough
 # from langchain_openai import ChatOpenAI
 #
 # def run_chain(**_ctx):
+#     conn = OpenAIHook.get_connection("litellm_default")
 #     llm = ChatOpenAI(
 #         # Use the SAME model id clients pass through the LiteLLM proxy:
 #         # `ollama/qwen3.8:latest` (registered by litellm-init). The
@@ -157,8 +157,8 @@ with DAG(
 #         # adapter name (config.yaml litellm_params.model), NOT what
 #         # clients use to call /v1/chat/completions.
 #         model="ollama/qwen3.8:latest",
-#         base_url="http://litellm:4000/v1",
-#         api_key=os.environ["LITELLM_MASTER_KEY"],
+#         base_url=conn.host,
+#         api_key=conn.password,
 #     )
 #     chain = RunnablePassthrough() | llm
 #     return chain.invoke({"input": "Reply with the single word 'ok'."})

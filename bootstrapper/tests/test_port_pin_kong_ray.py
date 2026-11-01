@@ -10,8 +10,8 @@ alphabetically. Two ports are load-bearing across the stack:
   default landing summary and in linked docs.
 
 Both hold today only because Kong and Ray sort early enough by the
-combined topo-rank + alphabetical tie-break. The convention documented
-in project memory (`project_infra_slot_pin_kong_ray.md`) is that every
+combined topo-rank + alphabetical tie-break. The convention (spelled out
+in services/grafana/service.yml's depends_on comment) is that every
 new infra-band service must add `kong` and `ray` to its
 `depends_on.required`, forcing them to sort BEFORE that service and
 preserving the 63000 / 63002 invariant.
@@ -52,7 +52,7 @@ def test_kong_http_port_is_63000(real_topology) -> None:
         "route in the docs and every wizard message assumes this value. "
         "If a new infra-band service is missing `kong` from its "
         "`depends_on.required`, the alphabetical tie-break will displace "
-        "Kong from slot 0. See project_infra_slot_pin_kong_ray.md."
+        "Kong from slot 0. Add `kong` to that service's depends_on.required."
     )
 
 
@@ -62,5 +62,5 @@ def test_ray_dashboard_port_is_63002(real_topology) -> None:
         "landing summary and linked docs both encode this value. If a "
         "new infra-band service is missing `ray` from its "
         "`depends_on.required`, the alphabetical tie-break will displace "
-        "Ray from slot 2. See project_infra_slot_pin_kong_ray.md."
+        "Ray from slot 2. Add `ray` to that service's depends_on.required."
     )

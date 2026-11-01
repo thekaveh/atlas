@@ -12,6 +12,7 @@
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
       "id": 1,
+      "fieldConfig": { "defaults": { "unit": "suffix:cores" }, "overrides": [] },
       "targets": [
         { "expr": "sum by (container) (label_replace(rate(container_cpu_usage_seconds_total{id=~\".*docker[-/][0-9a-f]{64}(\\\\.scope)?\"}[5m]), \"container\", \"$1\", \"id\", \".*docker[-/]([0-9a-f]{12}).*\"))", "refId": "A" }
       ]
@@ -22,6 +23,7 @@
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
       "id": 2,
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
       "targets": [
         { "expr": "sum by (container) (label_replace(container_memory_working_set_bytes{id=~\".*docker[-/][0-9a-f]{64}(\\\\.scope)?\"}, \"container\", \"$1\", \"id\", \".*docker[-/]([0-9a-f]{12}).*\"))", "refId": "A" }
       ]
@@ -32,6 +34,7 @@
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
       "id": 3,
+      "fieldConfig": { "defaults": { "unit": "Bps" }, "overrides": [] },
       "targets": [
         { "expr": "sum by (container) (label_replace(rate(container_fs_reads_bytes_total{id=~\".*docker[-/][0-9a-f]{64}(\\\\.scope)?\"}[5m]), \"container\", \"$1\", \"id\", \".*docker[-/]([0-9a-f]{12}).*\"))", "refId": "A" }
       ]
@@ -42,6 +45,7 @@
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
       "id": 4,
+      "fieldConfig": { "defaults": { "unit": "Bps" }, "overrides": [] },
       "targets": [
         { "expr": "sum by (container) (label_replace(rate(container_fs_writes_bytes_total{id=~\".*docker[-/][0-9a-f]{64}(\\\\.scope)?\"}[5m]), \"container\", \"$1\", \"id\", \".*docker[-/]([0-9a-f]{12}).*\"))", "refId": "A" }
       ]
@@ -64,6 +68,7 @@
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
       "id": 6,
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
       "targets": [
         { "expr": "node_filesystem_avail_bytes{fstype!~\"tmpfs|overlay\"}", "refId": "A" }
       ]

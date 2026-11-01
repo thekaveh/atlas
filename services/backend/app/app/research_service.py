@@ -361,11 +361,11 @@ class ResearchService:
                         error_message = 'Research worker lease expired'
                     WHERE (
                         status = 'pending'
-                        AND created_at < now() - ($1 * interval '1 second')
+                        AND created_at < now() - ($1::double precision * interval '1 second')
                     ) OR (
                         status = 'running'
                         AND COALESCE(heartbeat_at, started_at, updated_at, created_at)
-                            < now() - ($1 * interval '1 second')
+                            < now() - ($1::double precision * interval '1 second')
                     )
                     RETURNING id
                 """, self.lease_seconds)

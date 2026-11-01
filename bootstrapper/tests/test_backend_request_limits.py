@@ -181,6 +181,72 @@ def test_media_rule_authenticates_before_reading_any_body():
     assert app.bodies == []
 
 
+def test_upload_rule_authenticates_with_its_own_check_before_any_body_read():
+    """A multipart rule with authenticate=True refuses an anonymous caller
+    before FastAPI's parser can spool the body (2026-10-30 cycle 1)."""
+    from starlette.exceptions import HTTPException
+
+    app = _Recorder()
+    sent = []
+    default_calls = []
+
+    async def send(message):
+        sent.append(message)
+
+    async def default_check(scope):  # pragma: no cover - must never be called
+        default_calls.append(scope)
+
+    async def deny(scope):
+        raise HTTPException(status_code=401, detail="nope")
+
+    async def receive():  # pragma: no cover - must never be called
+        raise AssertionError("body must not be read before authentication")
+
+    rule = limits.BodyLimitRule(
+        method="POST",
+        path="/storage/upload",
+        max_bytes=200,
+        authenticate=True,
+        authenticator=deny,
+    )
+    middleware = _middleware(app, rules=[rule], authenticate=default_check)
+    _run(middleware(_http_scope(path="/storage/upload"), receive, send))
+    assert _sent_status(sent) == 401
+    assert app.bodies == []
+    assert default_calls == []
+
+
+def test_rule_authenticator_overrides_the_middleware_default():
+    from starlette.exceptions import HTTPException
+
+    app = _Recorder()
+    sent = []
+    seen = []
+
+    async def send(message):
+        sent.append(message)
+
+    async def deny_by_default(scope):
+        raise HTTPException(status_code=403, detail="default scope refused")
+
+    async def allow(scope):
+        seen.append(scope["path"])
+
+    rule = limits.BodyLimitRule(
+        method="POST",
+        path="/documents/extract",
+        max_bytes=200,
+        authenticate=True,
+        authenticator=allow,
+    )
+    middleware = _middleware(app, rules=[rule], authenticate=deny_by_default)
+    receive = _chunked_receive([b"x" * 150])  # over default 64, under rule 200
+    _run(middleware(_http_scope(path="/documents/extract"), receive, send))
+    assert _sent_status(sent) == 200
+    assert seen == ["/documents/extract"]
+    assert b"".join(app.bodies) == b"x" * 150
+
+
 def test_get_requests_and_unruled_paths_without_default_pass_through_identically():
     app = _Recorder()
 

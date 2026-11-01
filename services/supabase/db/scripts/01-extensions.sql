@@ -25,7 +25,10 @@ BEGIN
 END
 $$;
 
--- Required for logical replication used by Realtime
+-- pgcrypto (cryptographic functions). The pinned supabase/postgres image
+-- already installs it in schema `extensions`, so this statement is a no-op
+-- there. No Atlas script calls a pgcrypto function. Realtime's logical
+-- replication needs wal_level=logical, not pgcrypto (see 07-functions.sql).
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 -- Add any other required extensions here

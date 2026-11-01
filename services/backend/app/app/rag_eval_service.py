@@ -20,8 +20,6 @@ MetricName = Literal[
     "context_recall",
 ]
 
-_REFERENCE_METRICS = {"context_precision", "context_recall"}
-
 # Central per-metric evidence requirements: (needs_retrieved_contexts,
 # needs_reference). A metric is evaluable for a record only when the record
 # carries the evidence the metric needs; otherwise it is reported as

@@ -9,19 +9,15 @@ lockstep on KEY OWNERSHIP. This test asserts:
   1. Every UPPER_CASE=... key in `.env.example` is claimed by exactly one
      manifest (either as an `env:` entry, a `sources.var`, or an
      `images[].var`).
-  2. Every non-auto_managed, non-secret env var declared in a manifest
-     appears in `.env.example`.
+  2. Every non-auto_managed, non-bootstrapper_only env var declared in a
+     manifest appears in `.env.example`.
   3. Every UPPER_CASE key in `.env.example` is owned by exactly one manifest
      (no duplicates).
 
-Why not assemble .env.example from manifests outright (the original G1
-plan)? Main's `.env.example` carries hundreds of lines of carefully
-hand-crafted explanatory comments per section that the assembler can't
-faithfully reproduce. This test gets the same drift-detection guarantee
-without losing that prose.
-
-If this test fails: either add the var to the appropriate manifest's
-`env:` block, or remove it from `.env.example` if it's truly obsolete.
+If this test fails: declare or remove the var in the owning
+services/<name>/service.yml, then regenerate `.env.example` from the repo
+root with `uv run --project bootstrapper python -m services.env_assembler`.
+Never edit `.env.example` by hand; it is a generated file.
 """
 
 from __future__ import annotations
@@ -85,18 +81,22 @@ def test_every_env_example_key_has_a_manifest_owner():
     orphans = keys - declared
     assert not orphans, (
         f"{len(orphans)} env-example keys with no manifest owner. "
-        f"Either declare in the appropriate services/<name>/service.yml "
-        f"env: block, or remove from .env.example: {sorted(orphans)}"
+        f"Declare each in the owning services/<name>/service.yml env: block, "
+        f"or drop it from that manifest, then regenerate .env.example with "
+        f"`uv run --project bootstrapper python -m services.env_assembler`: "
+        f"{sorted(orphans)}"
     )
 
 
 def test_every_non_auto_managed_manifest_var_is_in_env_example():
-    """Every env var a manifest declares (excluding auto_managed) should be
-    discoverable in .env.example — either as an active KEY=... line OR as a
-    commented-out `# KEY=...` documenting an optional override.
+    """Every env var a manifest declares (excluding auto_managed and
+    bootstrapper_only) should be discoverable in .env.example — either as
+    an active KEY=... line OR as a commented-out `# KEY=...` documenting an
+    optional override.
 
     Covers three manifest sources:
-      - `env:` entries (modulo `auto_managed: true`)
+      - `env:` entries (modulo `auto_managed: true` and
+        `bootstrapper_only: true`)
       - `images:` entries (no auto_managed concept — they're always
         user-overridable image tags)
       - `sources.var` (the source-selector env var)

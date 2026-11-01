@@ -2,11 +2,9 @@
 
 Run separately in each already installed provider model environment (no pytest):
     <python> -B services/docling/provider/tests/test_document_metadata.py \
-        --expected-core 2.89.0
-    <python> -B services/docling/provider/tests/test_document_metadata.py \
-        --expected-core 2.99.0
+        --expected-core 2.104.0
 
-A missing or different core version fails. The 2.89 model-only closure qualifies
+A missing or different core version fails. The 2.104 model-only closure qualifies
 pinned model/renderer behavior, not the full GPU installation or inference.
 """
 
@@ -123,7 +121,7 @@ def serialized_content(document, output_format):
     exporter = {
         "markdown": document.export_to_markdown,
         "html": document.export_to_html,
-        "doctags": document.export_to_document_tokens,
+        "doctags": document.export_to_doctags,
     }[output_format]
     return exporter()
 
@@ -282,7 +280,7 @@ def packaging_probe(layout, mode):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--expected-core", required=True, choices=("2.89.0", "2.99.0"))
+    parser.add_argument("--expected-core", required=True, choices=("2.104.0",))
     parser.add_argument("--packaging-child", choices=("native", "direct", "flat"))
     parser.add_argument("--mode", choices=("gpu", "localhost"))
     arguments = parser.parse_args()
@@ -290,7 +288,7 @@ if __name__ == "__main__":
     actual_core = importlib.metadata.version("docling-core")
     if actual_core != EXPECTED_CORE:
         raise SystemExit(f"Expected docling-core {EXPECTED_CORE}; installed {actual_core}")
-    print(f"ACTUAL_CORE={actual_core}; GPU pin=2.89.0; localhost pin=2.99.0", flush=True)
+    print(f"ACTUAL_CORE={actual_core}; expected={EXPECTED_CORE}", flush=True)
     if arguments.packaging_child:
         packaging_probe(arguments.packaging_child, arguments.mode)
     else:

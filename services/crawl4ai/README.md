@@ -3,6 +3,8 @@
 ## 1. Overview
 Crawl4AI is a local, token-protected web extraction API. It renders pages in a browser so Atlas services can summarize, ingest or index them. Atlas pins `unclecode/crawl4ai:0.9.0`. Its API is secure by default: every endpoint except `GET /health` requires `CRAWL4AI_API_TOKEN`.
 
+Crawl4AI is licensed under Apache-2.0 with an added attribution requirement. Every distribution, publication or public use must credit Crawl4AI. See the crawl4ai row in the [license inventory](../../docs/reference/license-inventory.md).
+
 ## 2. Access
 - Direct URL: `http://localhost:${CRAWL4AI_PORT}`
 - Kong URL: `http://crawl4ai.localhost:${KONG_HTTP_PORT}`
@@ -22,7 +24,7 @@ Missing, empty or whitespace-only values stop the example before curl.
 The loader preserves usable bytes and replaces inherited shell values. Repeat the setup after configuration changes.
 
 ```bash
-if ! crawl4ai_values="$(PYTHONPATH=bootstrapper uv run --project bootstrapper python - <<'PYTHON'
+if crawl4ai_values="$(PYTHONPATH=bootstrapper uv run --project bootstrapper python - <<'PYTHON'
 import base64
 import shlex
 from core.config_parser import ConfigParser
@@ -44,12 +46,13 @@ for name, value in exports.items():
     print(f"export {name}={shlex.quote(value)}")
 PYTHON
 )"; then
-  exit 1
+  eval "$crawl4ai_values"
+  curl -H "Proxy-Authorization: Basic $CRAWL4AI_BASIC_AUTH" \
+       -H "Authorization: Bearer $CRAWL4AI_API_TOKEN" \
+       "http://crawl4ai.localhost:${KONG_HTTP_PORT}/health"
+else
+  false  # Report the refusal without closing this shell.
 fi
-eval "$crawl4ai_values"
-curl -H "Proxy-Authorization: Basic $CRAWL4AI_BASIC_AUTH" \
-     -H "Authorization: Bearer $CRAWL4AI_API_TOKEN" \
-     "http://crawl4ai.localhost:${KONG_HTTP_PORT}/health"
 ```
 
 The service permits `/health` without bearer authentication.

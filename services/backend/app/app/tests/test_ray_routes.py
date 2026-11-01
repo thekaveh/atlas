@@ -287,3 +287,92 @@ def test_ray_job_token_fails_closed_when_unset(monkeypatch, token):
         with pytest.raises(HTTPException) as exc:
             asyncio.run(ray_routes._require_ray_job_token(credentials))
         assert exc.value.status_code == 503
+
+
+@pytest.fixture
+def offline_ray_routes(offline_ray_dashboard):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    import ray_routes
+
+    app = FastAPI()
+    app.include_router(ray_routes.router)
+    return TestClient(app, raise_server_exceptions=False), offline_ray_dashboard
+
+
+@pytest.mark.parametrize("outcome", [
+    "connection", "chunked", "decoding", "timeout", "malformed-json", "missing-field", "wrong-id",
+])
+def test_actual_sdk_ambiguous_submit_returns_reconciliation_504(offline_ray_routes, outcome):
+    client, dashboard = offline_ray_routes
+    dashboard.outcome = outcome
+    submission_id = "raysubmit_" + outcome.replace("-", "_")
+    response = client.post("/api/ray/jobs/submit", headers=RAY_HEADERS,
+                           json={"entrypoint": "echo synthetic", "submission_id": submission_id})
+    assert response.status_code == 504, response.text
+    detail = response.json()["detail"]
+    assert submission_id in detail
+    # Unusable 200 replies are ambiguous too, so the detail must not claim
+    # that Ray never answered.
+    assert "did not confirm acceptance" in detail and "did not answer" not in detail
+    assert f"GET /api/ray/jobs/{submission_id}" in detail
+    assert "DELETE" in detail and "do not resubmit blindly" in detail
+    assert dashboard.accepted == [submission_id]
+    assert [method for method, url, _ in dashboard.calls if "/api/jobs/" in url] == ["POST"]
+
+
+@pytest.mark.parametrize("outcome, status", [
+    ("success", 200), ("rejected", 500), ("duplicate", 409),
+])
+def test_actual_sdk_submit_route_retains_explicit_outcomes(offline_ray_routes, outcome, status):
+    client, dashboard = offline_ray_routes
+    dashboard.outcome = outcome
+    response = client.post("/api/ray/jobs/submit", headers=RAY_HEADERS,
+                           json={"entrypoint": "echo synthetic", "submission_id": "raysubmit_control"})
+    assert response.status_code == status, response.text
+    if outcome == "success":
+        assert response.json() == {"job_id": "raysubmit_control"}
+    elif outcome == "duplicate":
+        assert "raysubmit_control" in response.json()["detail"]
+        assert "status or stop endpoint" in response.json()["detail"]
+
+
+@pytest.mark.parametrize("stage", ["version", "packages"])
+def test_actual_sdk_preflight_route_is_503_without_submission(offline_ray_routes, monkeypatch, stage):
+    from ray.job_submission import JobSubmissionClient
+
+    client, dashboard = offline_ray_routes
+    dashboard.preflight = "/api/" + stage
+    if stage == "packages":
+        monkeypatch.setattr(JobSubmissionClient, "_upload_working_dir_if_needed",
+                            lambda client, env: client._package_exists("gcs://synthetic.zip"))
+    response = client.post("/api/ray/jobs/submit", headers=RAY_HEADERS,
+                           json={"entrypoint": "echo synthetic", "submission_id": "raysubmit_preflight"})
+    assert response.status_code == 503, response.text
+    assert dashboard.accepted == []
+    assert all(method != "POST" for method, _, _ in dashboard.calls)
+
+
+@pytest.mark.parametrize("failure, status", [
+    ("ConnectionError", 503), ("ConnectTimeout", 504),
+])
+def test_actual_sdk_status_and_stop_map_a_lost_dashboard(offline_ray_routes, monkeypatch, failure, status):
+    """The cached SDK client met a refused dashboard (ray-head restarted after
+    the first /api/ray call): status and stop answer 503, not 500. A
+    ConnectTimeout is also a ConnectionError, and it must stay a 504."""
+    import requests
+
+    client, dashboard = offline_ray_routes
+
+    def lost_dashboard(method, url, **kwargs):
+        if url.endswith("/api/version"):
+            return dashboard.request(method, url, **kwargs)
+        raise getattr(requests.exceptions, failure)("synthetic refused connection")
+
+    monkeypatch.setattr(requests, "request", lost_dashboard)
+    for method in ("GET", "DELETE"):
+        response = client.request(method, "/api/ray/jobs/raysubmit_x", headers=RAY_HEADERS)
+        assert response.status_code == status, (method, response.text)
+        detail = response.json()["detail"]
+        assert "did not answer" in detail
+        assert status == 503 or "raysubmit_x" in detail

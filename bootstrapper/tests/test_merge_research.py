@@ -202,6 +202,17 @@ def test_emitted_frontmatter_round_trips_values_yaml_would_misread():
     assert "slug: dagster\n" in text
 
 
+def test_emitted_frontmatter_round_trips_null_values():
+    """A validator-accepted `decided:` null on a proposed candidate was written
+    as `None` and read back as the string 'None', which then failed the date
+    check on the next regen."""
+    from docs.merge_research import _emit_frontmatter, _parse
+
+    fm = {"decided": None, "lifecycle": "proposed", "notes": ["a", None]}
+    parsed, body = _parse(_emit_frontmatter(fm) + "body")
+    assert (parsed, body) == (fm, "body")
+
+
 def _public_record(**changes):
     import yaml
 

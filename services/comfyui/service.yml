@@ -128,13 +128,16 @@ env:
     default: "~/Documents/ComfyUI/models"
   - name: COMFYUI_USER_MODELS
     default: ""
-    description: "Comma-separated catalog model names picked in the wizard or with --comfyui-models. Read by services/comfyui/init/scripts/download_models.sh, and by the managed-MPS host provisioner, which downloads the same set into COMFYUI_MPS_MODELS_PATH."
+    description: "Comma-separated catalog model names picked in the wizard or with --comfyui-models. Empty activates the catalog's essential models. The bootstrapper resolves the set into volumes/comfyui/active-models.tsv, which comfyui-init downloads. The managed-MPS host provisioner downloads the same set into COMFYUI_MPS_MODELS_PATH."
   - name: COMFYUI_CUSTOM_MODELS_FILE
     default: "/custom-models.yaml"
     description: "Path to the ComfyUI custom-models sidecar YAML (user-authored models not in the curated catalog). Read by comfyui_resolver when generating the download manifest, and by the wizard's model picker."
   - name: COMFYUI_CUSTOM_NODES_FILE
     default: "/custom-nodes.yaml"
     description: "Path list (os.pathsep-joined) of pinned custom-node allowlist files. The shipped services/comfyui/custom-nodes.yaml is always included; consumer manifests append custom_nodes.comfyui entries, which are always active. The bootstrapper maps selected models' requires_custom_node values through it into active-custom-nodes.tsv."
+  - name: COMFYUI_DOWNLOAD_TOTAL_TIMEOUT_SECONDS
+    default: "7200"
+    description: "Per-file comfyui-init download bound in seconds (1-604800). A timed-out file restarts from zero on the next start. The 26 GB Krea 2 file needs about 29 Mbit/s at the default."
   - name: COMFYUI_INIT_SCALE
     description: "Set by ./start.sh; do not edit. 1 runs the comfyui-init model download for container-* sources, 0 for localhost, managed-localhost-mps and disabled."
     auto_managed: true
@@ -263,8 +266,9 @@ runtime_adaptive:
   comfyui-init:
     adapts_to: comfyui
     # (no environment_adaptation: the old COMFYUI_HOST_URL entry was a
-    # dead promise — download_models.sh reads only PG vars +
-    # COMFYUI_MODELS_PATH, and compose never injected it.)
+    # dead promise — download_models.sh reads COMFYUI_MODELS_PATH,
+    # COMFYUI_MANIFEST_TSV and the COMFYUI_DOWNLOAD_* bounds, not PG vars,
+    # and compose never injected it.)
     environment_adaptation: {}
     extra_hosts_adaptation: inherit from comfyui
 

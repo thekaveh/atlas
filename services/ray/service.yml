@@ -76,7 +76,7 @@ env:
     description: "Optional override for the Ray dashboard URL the backend's job client uses. Empty = derive from RAY_ADDRESS (http://ray-head:8265)."
   - name: RAY_HEAD_MEMORY_LIMIT
     default: 4g
-    description: "Memory limit for ray-head (deploy.resources.limits.memory). The head runs the GCS, dashboard and object directory; 4g is safe on a 32 GB host. The shm_size=8gb /dev/shm allocation is separate from this cap."
+    description: "Memory limit for ray-head (deploy.resources.limits.memory). The head runs the GCS, dashboard and object directory; 4g is safe on a 32 GB host. The /dev/shm object store (shm_size=8gb) counts against this cap."
   - name: RAY_HEAD_CPU_LIMIT
     default: "2.0"
     description: "Container CPU limit for ray-head (deploy.resources.limits.cpus). GCS + dashboard coordination rarely needs more than 1 core; 2.0 leaves room for brief spikes."

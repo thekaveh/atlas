@@ -73,8 +73,3 @@ CLOUD_PROVIDERS: Tuple[CloudProvider, ...] = (
         user_models_var="OPENROUTER_USER_MODELS",
     ),
 )
-
-
-def all_providers() -> Tuple[CloudProvider, ...]:
-    """All cloud providers, in canonical user-facing order."""
-    return CLOUD_PROVIDERS

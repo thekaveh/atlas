@@ -17,8 +17,12 @@ import threading
 import time
 import uuid
 
+# One source for the per-session defaults and the shared v1 store caps:
+# five groups at the default budget. Changing them changes that contract.
+SEGMENT_MAX_BYTES = 32 * 1024 * 1024
+MAX_SEGMENTS = 3
 MAX_GROUPS = 5
-MAX_PAYLOAD_BYTES = 5 * 3 * 32 * 1024 * 1024
+MAX_PAYLOAD_BYTES = MAX_GROUPS * MAX_SEGMENTS * SEGMENT_MAX_BYTES
 RECORD_BYTES = 1024
 LOCK_OFFSET = 4096
 COORDINATOR = '.coordinator'
@@ -370,16 +374,16 @@ def _group_paths(store, base):
 def _inventory(store):
     leases, payload = {}, set()
     for path in store.iterdir():
-        if path.name == COORDINATOR:
-            continue
-        identity(path)
         base = path.name.removesuffix('.lease')
         if path.name.endswith('.lease') and BASE_RE.fullmatch(base):
             leases[base] = path
         elif re.fullmatch(r'atlas-launch-[A-Za-z0-9_-]+\.log(?:\.\d+)?', path.name):
             payload.add(path.name.split('.log')[0] + '.log')
         else:
-            raise OSError('unknown file in session-log store')
+            # The coordinator and foreign files, such as a Finder .DS_Store,
+            # are never charged or deleted, so they cannot block admission.
+            continue
+        identity(path)
     if payload - leases.keys():
         raise OSError('unleased session-log payload')
     if len(leases) > MAX_GROUPS:

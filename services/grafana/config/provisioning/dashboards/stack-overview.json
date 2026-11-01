@@ -12,6 +12,7 @@
       "type": "stat",
       "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
       "id": 1,
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }] } }, "overrides": [] },
       "targets": [
         { "expr": "sum(up)", "refId": "A" }
       ]
@@ -22,18 +23,20 @@
       "type": "stat",
       "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
       "id": 2,
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 1 }] } }, "overrides": [] },
       "targets": [
         { "expr": "sum(1 - up)", "refId": "A" }
       ]
     },
     {
       "datasource": { "type": "prometheus", "uid": "Prometheus" },
-      "title": "HTTP request rate (Backend)",
+      "title": "HTTP request rate (FastAPI services, by job)",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
       "id": 3,
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
       "targets": [
-        { "expr": "sum(rate(http_requests_total[5m])) by (job)", "refId": "A" }
+        { "expr": "sum(rate(http_requests_total[5m])) by (job)", "legendFormat": "{{job}}", "refId": "A" }
       ]
     },
     {
@@ -42,6 +45,7 @@
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
       "id": 4,
+      "fieldConfig": { "defaults": { "unit": "percent" }, "overrides": [] },
       "targets": [
         { "expr": "100 - (avg by (instance) (rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)", "refId": "A" }
       ]
@@ -52,6 +56,7 @@
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
       "id": 5,
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
       "targets": [
         { "expr": "node_memory_MemAvailable_bytes", "refId": "A" }
       ]
@@ -62,6 +67,7 @@
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
       "id": 6,
+      "fieldConfig": { "defaults": { "unit": "suffix:cores" }, "overrides": [] },
       "targets": [
         { "expr": "topk(10, sum by (container) (label_replace(rate(container_cpu_usage_seconds_total{id=~\".*docker[-/][0-9a-f]{64}(\\\\.scope)?\"}[5m]), \"container\", \"$1\", \"id\", \".*docker[-/]([0-9a-f]{12}).*\")))", "refId": "A" }
       ]

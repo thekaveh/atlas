@@ -32,6 +32,10 @@ from tests.seed_harness import (
     raise_deferred_cleanup_error,
     sleep_for_cleanup,
 )
+# Fixture import: the docker-free settings-copy drill reuses its native cluster.
+from tests.test_database_role_configuration_regressions import (  # noqa: F401
+    native_ownership_postgres,
+)
 
 
 REPO = Path(__file__).resolve().parents[2]
@@ -63,17 +67,6 @@ POSTGRES_CREATE_TIMEOUT = 60
 MANIFEST_HMAC_KEY = "a" * 64
 DEPLOYMENT_ID = "atlas-test-deployment"
 RESTORE_OWNER_LABEL = "com.atlas.restore-safety-token"
-
-
-def _add_exception_note(exc: BaseException, note: str) -> None:
-    if hasattr(exc, "add_note"):
-        exc.add_note(note)
-        return
-    notes = getattr(exc, "__notes__", None)
-    if notes is None:
-        notes = []
-        exc.__notes__ = notes
-    notes.append(note)
 
 
 def _run(*args: str, check: bool = True, timeout: int = COMMAND_TIMEOUT, **kwargs):
@@ -188,10 +181,10 @@ def _report_disposable_cleanup_failures(
     )
     note = f"Disposable PostgreSQL cleanup could not be proven: {detail}"
     if primary is not None:
-        _add_exception_note(primary, note)
+        primary.add_note(note)
         return
     cleanup_error = failures[0][1]
-    _add_exception_note(cleanup_error, note)
+    cleanup_error.add_note(note)
     raise cleanup_error
 
 
@@ -547,7 +540,7 @@ def _write_restore_sidecar(
         "FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
         "WHERE c.relkind IN ('r', 'p') "
         "AND n.nspname NOT IN ('pg_catalog', 'information_schema') "
-        "AND n.nspname !~ '^pg_toast' ORDER BY n.nspname, c.relname",
+        "AND n.nspname !~ '^pg_' ORDER BY n.nspname, c.relname",
     ).stdout
     tables = fixture_dir / "postgres.tables"
     tables.write_text(inventory, encoding="utf-8")
@@ -1779,6 +1772,9 @@ def test_successful_cutover_preserves_database_settings_acl_and_attributes(
         f'ALTER DATABASE "{target}" CONNECTION LIMIT 23; '
         f'ALTER DATABASE "{target}" SET statement_timeout TO \'7s\'; '
         f'ALTER ROLE "{reader}" IN DATABASE "{target}" SET lock_timeout TO \'3s\'; '
+        # List settings are stored identifier-quoted; a copy must not re-quote them.
+        f'ALTER DATABASE "{target}" SET search_path = "$user", public, extensions; '
+        f'ALTER ROLE "{reader}" IN DATABASE "{target}" SET search_path = \'\'; '
         f'REVOKE CONNECT ON DATABASE "{target}" FROM PUBLIC; '
         f'GRANT CONNECT, TEMP ON DATABASE "{target}" TO "{reader}"',
     )
@@ -1792,6 +1788,13 @@ def test_successful_cutover_preserves_database_settings_acl_and_attributes(
         "FROM pg_database d JOIN pg_tablespace t ON t.oid=d.dattablespace "
         f"WHERE datname = '{target}'",
     ).stdout.strip()
+    settings_query = (
+        "SELECT COALESCE(r.rolname, ''), unnest(setconfig) FROM pg_db_role_setting s "
+        "JOIN pg_database d ON d.oid=s.setdatabase "
+        "LEFT JOIN pg_roles r ON r.oid=s.setrole "
+        f"WHERE d.datname='{target}' ORDER BY 1, 2"
+    )
+    settings_before = disposable_postgres.sql("template1", settings_query).stdout
     _write_client_fakes(tmp_path)
     _dump_database(disposable_postgres, tmp_path, source)
     _write_restore_sidecar(disposable_postgres, tmp_path, source, target)
@@ -1816,12 +1819,53 @@ def test_successful_cutover_preserves_database_settings_acl_and_attributes(
         "template1",
         f"SELECT has_database_privilege('public', '{target}', 'CONNECT')",
     ).stdout.strip() == "f"
-    settings = disposable_postgres.sql(
-        "template1",
-        "SELECT COALESCE(r.rolname, ''), unnest(setconfig) FROM pg_db_role_setting s "
-        "JOIN pg_database d ON d.oid=s.setdatabase "
-        "LEFT JOIN pg_roles r ON r.oid=s.setrole "
-        f"WHERE d.datname='{target}' ORDER BY 1, 2",
-    ).stdout
+    settings = disposable_postgres.sql("template1", settings_query).stdout
+    assert settings == settings_before
     assert "statement_timeout=7s" in settings
     assert f"{reader}|lock_timeout=3s" in settings
+    assert '|search_path="$user", public, extensions' in settings
+    assert f'{reader}|search_path=""' in settings
+
+
+class TestNativeDatabaseSettingsCopy:
+    """Run the restore's settings-copy SQL on a native cluster, without Docker."""
+
+    @pytest.fixture(autouse=True)
+    def clean_disposable_databases(self) -> Iterator[None]:
+        # Overrides the module fixture, which would require Docker PostgreSQL.
+        yield
+
+    def test_list_valued_settings_copy_byte_identically(
+        self, native_ownership_postgres
+    ) -> None:
+        script = (REPO / "services/backup/init/scripts/restore-postgres.sh").read_text()
+        start = script.index("SELECT format(\n  CASE WHEN s.setrole = 0")
+        copy_settings = script[start:script.index("\\gexec", start) + len("\\gexec")]
+        sql = native_ownership_postgres
+        library = "l" * 70  # longer than NAMEDATALEN: must not pass through as an identifier
+        setup = sql(
+            'CREATE ROLE reader; CREATE ROLE "Mixed""Writer"; '
+            "CREATE DATABASE source_db; CREATE DATABASE copy_db; "
+            'ALTER DATABASE source_db SET search_path = "$user", public, "we,ird"; '
+            "ALTER DATABASE source_db SET temp_tablespaces = ''; "
+            "ALTER DATABASE source_db SET statement_timeout = '7s'; "
+            "ALTER DATABASE source_db SET session_preload_libraries = "
+            f"'{library}', '$libdir/plugins/x'; "
+            "ALTER ROLE reader IN DATABASE source_db SET search_path = ''; "
+            'ALTER ROLE "Mixed""Writer" IN DATABASE source_db '
+            "SET search_path = '', public, 'Mixed Case', 'a, b';"
+        )
+        assert setup.returncode == 0, setup.stderr
+        copied = sql(f"\\set temp_db copy_db\n\\set target_db source_db\n{copy_settings}\n")
+        assert copied.returncode == 0, copied.stderr
+        query = (
+            "SELECT COALESCE(r.rolname, ''), unnest(setconfig) FROM pg_db_role_setting s "
+            "JOIN pg_database d ON d.oid=s.setdatabase LEFT JOIN pg_roles r ON r.oid=s.setrole "
+            "WHERE d.datname = '{}' ORDER BY 1, 2"
+        )
+        source = sql(query.format("source_db"))
+        copy = sql(query.format("copy_db"))
+        assert source.returncode == 0 and copy.returncode == 0, source.stderr + copy.stderr
+        assert '|search_path="$user", public, "we,ird"' in source.stdout
+        assert 'reader|search_path=""' in source.stdout
+        assert copy.stdout == source.stdout

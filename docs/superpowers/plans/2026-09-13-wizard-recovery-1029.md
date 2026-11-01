@@ -1,6 +1,6 @@
 # Wizard Recovery (#1029) Implementation Plan
 
-> **Status: archived plan** — dated 2026-09-13; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+> **Status: archived plan** — dated 2026-09-13; a point-in-time record kept for archaeology, not current guidance. It landed in `0b0d56cb` (#1068), which has no CHANGELOG entry.
 
 > **For agentic workers:** Execute sequentially with executing-plans and a separate code review. The campaign directive authorizes implementation and both PR merges without another approval checkpoint.
 

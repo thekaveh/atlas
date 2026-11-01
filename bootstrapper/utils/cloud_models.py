@@ -18,10 +18,6 @@ from ``llm_catalog.py`` **and says so on screen** — see #1180; the
 older shape returned a bare ``[]`` for every failure, so the picker
 showed the catalog under a caption claiming a live listing.
 
-``list_openai_models`` / ``list_anthropic_models`` /
-``list_openrouter_models`` remain as thin wrappers returning just the
-models, for callers that do not need the provenance.
-
 Filtering rationale per provider:
 
 * **OpenAI** — ``/v1/models`` returns 50–150 entries including
@@ -334,13 +330,6 @@ def discover_openai_models(api_key: str, timeout: float = 5.0,
     )
 
 
-def list_openai_models(api_key: str, timeout: float = 5.0,
-                       on_warn: Optional[WarnFn] = None) -> list[ModelInfo]:
-    """Models only. Empty on any failure — see :func:`discover_openai_models`
-    when the caller needs to know which failure."""
-    return discover_openai_models(api_key, timeout, on_warn).models
-
-
 # ─── Anthropic ───────────────────────────────────────────────────────
 
 def discover_anthropic_models(api_key: str, timeout: float = 5.0,
@@ -392,13 +381,6 @@ def _anthropic_models(rows: list) -> list[ModelInfo]:
     return out
 
 
-def list_anthropic_models(api_key: str, timeout: float = 5.0,
-                          on_warn: Optional[WarnFn] = None) -> list[ModelInfo]:
-    """Models only. Empty on any failure — see
-    :func:`discover_anthropic_models` when the caller needs to know which."""
-    return discover_anthropic_models(api_key, timeout, on_warn).models
-
-
 # ─── OpenRouter ──────────────────────────────────────────────────────
 
 def discover_openrouter_models(timeout: float = 5.0, cap: int = 50,
@@ -446,16 +428,11 @@ def _openrouter_models(rows: list) -> list[ModelInfo]:
         # response format ever includes the prefix already.
         oid = rid if rid.startswith("openrouter/") else f"openrouter/{rid}"
         label = r.get("name") or oid
-        desc = r.get("description") or ""
-        if isinstance(desc, str) and len(desc) > 120:
+        desc = r.get("description")
+        if not isinstance(desc, str):
+            desc = ""
+        if len(desc) > 120:
             desc = desc[:117] + "\u2026"
         out.append(ModelInfo(id=oid, label=str(label), description=desc))
     out.sort(key=lambda m: m.label.lower())
     return out
-
-
-def list_openrouter_models(timeout: float = 5.0, cap: int = 50,
-                           on_warn: Optional[WarnFn] = None) -> list[ModelInfo]:
-    """Models only. Empty on any failure — see
-    :func:`discover_openrouter_models` when the caller needs to know which."""
-    return discover_openrouter_models(timeout, cap, on_warn).models

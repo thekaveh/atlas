@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import subprocess
 import sys
 from types import SimpleNamespace
 
@@ -11,10 +12,26 @@ from tests.three_surface_test_utils import surface_text
 
 
 ROOT = Path(__file__).resolve().parents[2]
+_RAGAS_ALLOWED_DIRS = ("services/backend/app/app/", "services/jupyterhub/build/")
 
 
 def _read(path: str) -> str:
     return (ROOT / path).read_text(encoding="utf-8")
+
+
+def _other_requirement_manifests() -> list[str]:
+    """Tracked requirement manifests outside the two ragas-owning services.
+
+    git's default pathspec lets `*` cross `/`, so this also reaches
+    services/requirements-init-locked.txt.
+    """
+    listed = subprocess.check_output(
+        ["git", "ls-files", "-z", "--", "services/*requirements*.txt"], cwd=ROOT
+    ).decode("utf-8")
+    return [
+        path for path in listed.split("\0")
+        if path and not path.startswith(_RAGAS_ALLOWED_DIRS)
+    ]
 
 
 def test_ragas_dependency_is_limited_to_backend_and_jupyterhub_surfaces() -> None:
@@ -28,16 +45,10 @@ def test_ragas_dependency_is_limited_to_backend_and_jupyterhub_surfaces() -> Non
     assert "langchain-community>=0.3.0,<0.4" in jupyter_requirements
     assert "requirements-test-locked.txt" in workflow
 
-    for unexpected_path in (
-        "services/docling/app/requirements.txt",
-        "services/lightrag/build/requirements.txt",
-        "services/n8n/requirements.txt",
-        "services/langfuse/requirements.txt",
-    ):
-        path = ROOT / unexpected_path
-        if path.exists():
-            text = path.read_text(encoding="utf-8").lower()
-            assert "ragas" not in text
+    other_manifests = _other_requirement_manifests()
+    assert other_manifests, "no other tracked requirement manifests were found"
+    offenders = [path for path in other_manifests if "ragas" in _read(path).lower()]
+    assert offenders == []
 
 
 def test_ragas_notebook_and_docs_register_backend_runtime_contract() -> None:

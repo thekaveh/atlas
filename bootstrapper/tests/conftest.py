@@ -10,11 +10,28 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import re
 import shlex
+import signal
 from typing import Any
 
 import pytest
 import yaml
+
+
+def _ignore_in_pytest_only(signum, frame):
+    """Stand-in for an inherited SIG_IGN on HUP/INT.
+
+    ``nohup`` and ``cmd &`` start pytest with these ignored, and exec keeps an
+    ignored signal ignored, so the signal probes' traps never fire. exec resets
+    a Python handler to SIG_DFL, so probes can trap again while pytest still
+    ignores the signal."""
+
+
+def pytest_configure(config):
+    for sig in (signal.SIGHUP, signal.SIGINT):
+        if signal.getsignal(sig) is signal.SIG_IGN:
+            signal.signal(sig, _ignore_in_pytest_only)
 
 
 @pytest.fixture(autouse=True)
@@ -40,6 +57,98 @@ def _no_real_project_stop(monkeypatch):
     monkeypatch.setattr(
         "core.docker_manager.DockerManager.are_project_containers_running", lambda self: False
     )
+
+
+@pytest.fixture(autouse=True)
+def _no_inherited_env_file_selection(monkeypatch):
+    """Never let a test resolve or rewrite the operator's selected env file.
+
+    ConfigParser prefers an exported ATLAS_ENV_FILE or GENAI_ENV_FILE over
+    ``root/.env``, so writer tests seeded in tmp_path rewrote the shell's real
+    file: Supabase JWT keys and DB passwords, with no backup (2026-10-31 run).
+    The overlay and consumer-manifest selectors are cleared for hermetic reads.
+    A test that needs one of these sets it itself."""
+    for name in (
+        "ATLAS_ENV_FILE",
+        "GENAI_ENV_FILE",
+        "ATLAS_ENV_USER_FILE",
+        "ATLAS_CONSUMER_MANIFEST",
+        "_ATLAS_CONSUMER_MANIFEST_CLI",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+
+_ENV_EXAMPLE_KEYS = frozenset(re.findall(
+    r"^([A-Z_][A-Z0-9_]*)=",
+    (Path(__file__).resolve().parents[2] / ".env.example").read_text(encoding="utf-8"),
+    re.M,
+))
+
+
+@pytest.fixture(autouse=True)
+def _no_inherited_operator_settings(monkeypatch):
+    """Clear exported ``.env.example`` variables from the test environment.
+
+    An exported value wins over the env file in
+    ``core/port_manager.py::_host_bind_ip``, ``utils/system.py::compose_env``
+    and docker compose interpolation. An operator's shell (HOST_BIND_IP,
+    PROJECT_NAME, REDIS_PASSWORD) therefore changed test results. A test that
+    needs one of these sets it itself."""
+    for name in _ENV_EXAMPLE_KEYS & os.environ.keys():
+        monkeypatch.delenv(name, raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _private_session_log_store(monkeypatch, tmp_path_factory):
+    """Keep WizardScreen's launch-log tee out of the developer's real store.
+
+    Building a real WizardScreen opens a session-log tee in the default
+    per-user store, and its retention pass deletes the oldest real
+    ``./start.sh`` launch logs. Tests that patch ``tempfile.gettempdir`` or
+    pass an explicit directory still get the store they asked for."""
+    import tempfile
+
+    from ui import session_log_retention as retention
+
+    real_resolve, real_gettempdir = retention.resolve_store, tempfile.gettempdir
+    root = tmp_path_factory.getbasetemp() / "session-log-parent"
+    root.mkdir(exist_ok=True)
+
+    def resolve(parent):
+        if not parent and tempfile.gettempdir is real_gettempdir:
+            parent = root
+        return real_resolve(parent)
+
+    monkeypatch.setattr(retention, "resolve_store", resolve)
+
+
+@pytest.fixture
+def forbid_host_side_effects(monkeypatch):
+    """Fail the test if it builds the real starter or config parser, spawns
+    a process, or opens a socket.
+
+    Tests that drive host diagnostics through explicit doubles request this
+    to prove nothing private on the developer's machine is read or reached.
+    """
+    import socket
+    import subprocess
+
+    import start
+    from core.config_parser import ConfigParser
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Use explicit doubles, not real host config, processes or network")
+
+    for owner, name in (
+        (start.AtlasStarter, "__init__"),
+        (ConfigParser, "__init__"),
+        (ConfigParser, "parse_env_file"),
+        (subprocess, "Popen"),
+        (socket.socket, "connect"),
+        (socket.socket, "bind"),
+        (socket, "getaddrinfo"),
+    ):
+        monkeypatch.setattr(owner, name, forbidden)
 
 
 @pytest.fixture

@@ -40,12 +40,15 @@ generator would emit.
 
 A changed service diagram also needs its PNG,
 `docs/diagrams/img/service-<name>.png`, re-rendered. `render_diagrams`
-re-renders every missing or stale PNG. Run it (or `make docs-build`) before
-`make docs-check`, which fails on a stale PNG:
+re-renders every missing or stale PNG. Run it before `make docs-check`,
+which fails on a stale PNG:
 
 ```bash
 uv run --project bootstrapper python -m scripts.docs.render_diagrams
 ```
+
+`make docs-build` re-renders PNGs only when at least one is missing. When
+every PNG is present, it stops on a stale one.
 
 Per-service diagrams are rendered by `bootstrapper/docs/diagram_renderer.py`.
 Edit that file to change the rendered shape; manifest field changes alone

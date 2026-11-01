@@ -19,7 +19,13 @@ services:
       API_JWT_SECRET: ${SUPAVISOR_API_JWT_SECRET}
       METRICS_JWT_SECRET: ${SUPAVISOR_METRICS_JWT_SECRET}
       REGION: local
-      ERL_AFLAGS: -proto_dist inet_tcp
+      # Single node: epmd and Erlang distribution listen on loopback only.
+      # They otherwise bind 0.0.0.0 and accept the cookie baked into the
+      # public image, so any backend-network co-tenant could run code here as
+      # root and read VAULT_ENC_KEY and the admin DB password. v2.9.5 has no
+      # gen_rpc, so GEN_RPC_SOCKET_IP (set for Realtime) is not needed.
+      ERL_AFLAGS: "-proto_dist inet_tcp -kernel inet_dist_use_interface {127,0,0,1}"
+      ERL_EPMD_ADDRESS: 127.0.0.1
       POSTGRES_HOST: supabase-db
       POSTGRES_PORT: 5432
       POSTGRES_DB: ${SUPABASE_DB_NAME}

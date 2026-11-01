@@ -230,6 +230,28 @@ def test_spend_read_is_scoped_to_consumer(monkeypatch):
     assert beta["records"] == []  # no leakage across consumers
 
 
+def test_spend_read_without_project_covers_every_project(monkeypatch):
+    # An omitted project is an all-projects read, not the "default" project.
+    main = _fresh_main(monkeypatch, budget_enabled=True, default_cap=10.0)
+    from fastapi.testclient import TestClient
+
+    async def seed():
+        for operation_id, project in (("op-a", "a"), ("op-b", "b")):
+            await main.MEDIA_BUDGET_ENGINE.reserve(
+                operation_id=operation_id, consumer="acme", project=project,
+                provider="fal", model="fal-ai/trellis", modality="image_to_3d",
+                estimated_cost_usd=0.05,
+            )
+
+    asyncio.run(seed())
+    response = TestClient(main.app).get("/media/spend", params={"consumer": "acme"})
+    assert response.status_code == 200
+    spend = response.json()
+    assert spend["project"] is None
+    assert spend["cap_usd"] is None
+    assert sorted(r["project"] for r in spend["records"]) == ["a", "b"]
+
+
 def test_attach_failure_does_not_500_and_retains_reservation(monkeypatch):
     # The provider call succeeded, so a ledger re-key hiccup must retain the
     # reservation and a durable attach intent rather than undercount paid work.
@@ -312,6 +334,112 @@ def test_state_persistence_failure_retains_spend_after_cancel_request(monkeypatc
     }
     spend = client.get("/media/spend", params={"consumer": "acme"}).json()
     assert spend["reserved_usd"] == 0.05
+
+
+@pytest.fixture(params=[True, False], ids=["budget-enabled", "budget-disabled"])
+def unpersisted_comfyui_submission(monkeypatch, request):
+    main = _fresh_main(monkeypatch, budget_enabled=request.param, default_cap=10.0)
+    monkeypatch.setenv("COMFYUI_SOURCE", "container-cpu")
+
+    async def submit(**kwargs):
+        assert kwargs["route"][0] == "comfyui"
+        return {
+            "operation_id": "comfyui-unpersisted", "status": "queued",
+            "provider": "comfyui", "model": "local-model", "modality": "image",
+            "cost_usd": 0.0, "provenance": {}, "artifacts": [],
+        }
+
+    async def fail_create(_operation):
+        raise RuntimeError("synthetic operation persistence failure")
+
+    monkeypatch.setattr(main, "_submit_media_provider", submit)
+    monkeypatch.setattr(main.MEDIA_OPERATION_STORE, "create", fail_create)
+    monkeypatch.setattr(main, "_MEDIA_STATE_PERSIST_DELAYS", (0,))
+    request = main.MediaGenerateRequest(
+        provider="comfyui", modality="image", model="local-model",
+        input={"prompt": "p"}, consumer="acme",
+    )
+    principal = main.BackendPrincipal(kind="service", subject="test")
+    return main, request, principal
+
+
+@pytest.mark.parametrize("outcome", [True, False, RuntimeError("cancel unavailable")])
+def test_unpersisted_comfyui_submission_requests_targeted_cancel(
+    monkeypatch, unpersisted_comfyui_submission, outcome
+):
+    from fastapi import HTTPException
+
+    main, request, principal = unpersisted_comfyui_submission
+    calls = []
+
+    async def cancel(**kwargs):
+        calls.append(kwargs)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+    monkeypatch.setattr(main, "_cancel_media_provider", cancel)
+
+    async def scenario():
+        with pytest.raises(HTTPException) as captured:
+            await main.submit_media_generation(request, _direct_http_request(), principal)
+        assert captured.value.status_code == 503
+        assert captured.value.detail["provider_operation_id"] == "comfyui-unpersisted"
+        assert captured.value.detail["manual_reconciliation_required"] is True
+        assert captured.value.detail["recovery_ledger_ids"] == ["comfyui-unpersisted"]
+        assert captured.value.detail["provider_cancellation_requested"] is (outcome is True)
+        assert calls == [{
+            "provider": "comfyui", "operation_id": "comfyui-unpersisted",
+            "modality": "image", "model": "local-model",
+        }]
+        assert await main.MEDIA_OPERATION_STORE.get("comfyui-unpersisted") is None
+        record = await main.MEDIA_BUDGET_ENGINE.store.get("comfyui-unpersisted")
+        assert record is not None
+        assert record.reason == main.media_ledger.AMBIGUOUS_RECOVERY_REASON
+        assert record.status == (
+            "submitted" if main.MEDIA_BUDGET_ENGINE.config.enabled else "reserved"
+        )
+
+    asyncio.run(scenario())
+
+
+def test_unpersisted_comfyui_cancel_finishes_despite_repeated_caller_cancellation(
+    monkeypatch, unpersisted_comfyui_submission
+):
+    main, request, principal = unpersisted_comfyui_submission
+    started, release = asyncio.Event(), asyncio.Event()
+    calls = []
+
+    async def cancel(**kwargs):
+        calls.append(kwargs)
+        started.set()
+        await release.wait()
+        return True
+
+    monkeypatch.setattr(main, "_cancel_media_provider", cancel)
+
+    async def scenario():
+        submission = asyncio.create_task(main.submit_media_generation(
+            request, _direct_http_request(), principal
+        ))
+        await asyncio.wait_for(started.wait(), timeout=1)
+        submission.cancel()
+        await asyncio.sleep(0)
+        submission.cancel()
+        assert submission.done() is False
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await submission
+        assert len(calls) == 1
+        assert calls[0]["operation_id"] == "comfyui-unpersisted"
+        record = await main.MEDIA_BUDGET_ENGINE.store.get("comfyui-unpersisted")
+        assert record is not None
+        assert record.reason == main.media_ledger.AMBIGUOUS_RECOVERY_REASON
+        assert record.status == (
+            "submitted" if main.MEDIA_BUDGET_ENGINE.config.enabled else "reserved"
+        )
+
+    asyncio.run(scenario())
 
 
 def test_disabled_budget_persistence_failure_creates_reconcilable_row(monkeypatch):
@@ -634,17 +762,19 @@ def test_lost_operation_state_ack_can_sync_ledger_fallback_winner(monkeypatch):
     operation = asyncio.run(main.MEDIA_OPERATION_STORE.get("fal-3d-9"))
     provider_terminal = dict(operation["last_payload"])
     provider_terminal["status"] = "succeeded"
-    asyncio.run(
+    _, moved = asyncio.run(
         main.MEDIA_OPERATION_STORE.transition_payload(
-            "fal-3d-9", provider_terminal, expected_status="queued"
+            "fal-3d-9", provider_terminal, expected_status="submitted"
         )
     )
+    assert moved is True
     synced = client.post(
         "/media/operations/fal-3d-9/reconcile", json={"outcome": "release"}
     )
     assert synced.status_code == 200
     assert synced.json()["status"] == "failed"
     operation = asyncio.run(main.MEDIA_OPERATION_STORE.get("fal-3d-9"))
+    assert operation["reconciled"] is True
     assert operation["last_payload"]["provenance"][
         "manual_reconciliation_outcome"
     ] == "release"
@@ -696,10 +826,10 @@ def test_reconcile_commits_on_successful_poll(monkeypatch):
 
 def test_cancellation_mid_submit_persists_ambiguous_reservation(monkeypatch):
     # A request cancelled mid-submit (uvicorn graceful shutdown / client
-    # disconnect) raises asyncio.CancelledError — a BaseException the
-    # ``except Exception`` handlers cannot catch. The finally must still release
-    # the reservation so a durably committed RESERVED row is not stranded
-    # against the consumer's cap (which would eventually 402 legit requests).
+    # disconnect) raises asyncio.CancelledError after the provider call may
+    # have started. FAL may already have accepted the work, so the reservation
+    # is retained under its local id with a submission_unknown record for
+    # operator reconciliation.
     main = _fresh_main(monkeypatch, budget_enabled=True, default_cap=10.0)
     _CapturingFalClient.captured = {}
     monkeypatch.setattr(main, "FalClient", _CapturingFalClient, raising=False)
@@ -1995,6 +2125,54 @@ def test_operator_can_settle_a_user_cancelled_fal_job_fal_never_resolves(monkeyp
     assert record.status == main.media_ledger.STATUS_RELEASED
 
 
+def test_reconcile_completes_a_pending_attach_before_settling(monkeypatch):
+    """A reconcile that went terminal before the pending attach left the row
+    keyed by its reservation id: the release missed it, every later poll
+    returned 409 and the reservation stayed held for good."""
+    main = _fresh_main(monkeypatch, budget_enabled=True, default_cap=10.0)
+    monkeypatch.setattr(main, "FalClient", _CapturingFalClient, raising=False)
+    original_attach = main.MEDIA_BUDGET_ENGINE.attach_operation
+
+    async def fail_attach(*_args, **_kwargs):
+        raise RuntimeError("simulated attach failure")
+
+    async def _running(*, provider, operation_id, modality, model):
+        return {"operation_id": operation_id, "provider": provider,
+                "modality": modality, "model": model, "status": "running"}
+
+    monkeypatch.setattr(main.MEDIA_BUDGET_ENGINE, "attach_operation", fail_attach)
+    monkeypatch.setattr(main, "_poll_media_provider", _running)
+    from fastapi.testclient import TestClient
+
+    client = TestClient(main.app)
+    assert _submit(client).status_code == 202
+    operation = asyncio.run(main.MEDIA_OPERATION_STORE.get("fal-3d-9"))
+    assert operation["last_payload"]["provenance"]["ledger_attach_pending"] is True
+    cancelled = client.post("/media/operations/fal-3d-9/cancel")
+    assert cancelled.json()["status"] == "cancellation_requested", cancelled.json()
+
+    unavailable = client.post(
+        "/media/operations/fal-3d-9/reconcile", json={"outcome": "release"}
+    )
+    assert unavailable.status_code == 503, unavailable.json()
+    operation = asyncio.run(main.MEDIA_OPERATION_STORE.get("fal-3d-9"))
+    assert operation["last_payload"]["status"] == "cancellation_requested"
+    assert operation["last_payload"]["provenance"]["ledger_attach_pending"] is True
+
+    monkeypatch.setattr(main.MEDIA_BUDGET_ENGINE, "attach_operation", original_attach)
+    settled = client.post("/media/operations/fal-3d-9/reconcile", json={"outcome": "release"})
+    assert settled.status_code == 200 and settled.json()["status"] == "failed", settled.json()
+    spend = client.get("/media/spend", params={"consumer": "acme"}).json()
+    assert spend["reserved_usd"] == 0.0
+    assert [row["status"] for row in spend["records"]] == ["released"]
+    record = asyncio.run(main.MEDIA_BUDGET_ENGINE.store.get("fal-3d-9"))
+    assert record.status == main.media_ledger.STATUS_RELEASED
+    polled = client.get("/media/operations/fal-3d-9")
+    assert polled.status_code == 200 and polled.json()["status"] == "failed", polled.json()
+    pending = asyncio.run(main.MEDIA_OPERATION_STORE.pending_ledger_intent_page())
+    assert "fal-3d-9" not in [row["operation_id"] for row in pending.records]
+
+
 def test_timed_out_fal_job_keeps_its_reservation_after_a_recovered_attach(monkeypatch):
     """The reservation is tracked once a failed submit-time attach is
     recovered, although the operation's budget_tracked flag stays False."""
@@ -2074,7 +2252,14 @@ def _fal_sdk(monkeypatch, status_reply, result=None):
             return status_reply()
 
         async def result(self, model, request_id):
+            if isinstance(result, BaseException):
+                raise result
             return result
+
+        async def subscribe(self, model, *, arguments, start_timeout, client_timeout):
+            if start_timeout <= 1:  # fal-client's add_timeout_header, before any request
+                raise ValueError("Timeout must be greater than 1 seconds")
+            return await self.result(model, "fal-1")
 
     monkeypatch.setitem(sys.modules, "fal_client", SimpleNamespace(AsyncClient=FakeAsyncClient))
     from fal_media_client import FalClient
@@ -2117,6 +2302,43 @@ def test_unknown_fal_queue_status_is_a_provider_error_not_a_caller_error(monkeyp
     with pytest.raises(main.HTTPException) as raised:
         asyncio.run(main._poll_media_operation_or_raise(operation, "fal-1"))
     assert raised.value.status_code == 502
+
+
+def _unreadable_fal_reply():
+    import json
+
+    return json.JSONDecodeError("Expecting value", "<html>gateway</html>", 0)
+
+
+def test_an_unreadable_fal_result_is_a_provider_error_not_a_caller_error(monkeypatch):
+    class Completed:
+        error = None
+
+    _fal_sdk(monkeypatch, Completed, _unreadable_fal_reply())
+    main = _fresh_main(monkeypatch, budget_enabled=False)
+    operation = {"provider": "fal", "modality": "image", "model": "fal-ai/flux/dev"}
+
+    with pytest.raises(main.HTTPException) as raised:
+        asyncio.run(main._poll_media_operation_or_raise(operation, "fal-1"))
+    assert raised.value.status_code == 502
+    assert "Expecting value" not in str(raised.value.detail)
+
+
+@pytest.mark.parametrize("timeout_seconds, expected", [(120, 502), (1, 400)])
+def test_the_legacy_fal_route_blames_only_the_caller_for_caller_errors(
+    monkeypatch, timeout_seconds, expected
+):
+    """An unreadable FAL reply is a 502. The SDK's own pre-request rejection
+    of a start timeout <= 1 s stays the caller's 400."""
+    _fal_sdk(monkeypatch, lambda: None, _unreadable_fal_reply())
+    main = _fresh_fal_main(monkeypatch, fal_source="enabled", fal_api_key="fal-key")
+    from fastapi.testclient import TestClient
+
+    response = TestClient(main.app).post(
+        "/comfyui/generate", json={"prompt": "a cat", "timeout_seconds": timeout_seconds}
+    )
+    assert response.status_code == expected, response.json()
+    assert "Expecting value" not in response.text
 
 
 @pytest.mark.parametrize("result", [{"preview": {"url": "https://cdn/p.png"}}, {}])

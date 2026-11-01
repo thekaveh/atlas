@@ -11,13 +11,16 @@ Related operator pages:
 - [Access and Credentials](access-and-credentials.md): login details and secrets.
 - [Expected Startup Warnings](expected-startup-warnings.md): expected log lines and conditions that need operator action.
 - [Reusing Atlas](reusing-atlas.md) and [Submodule Usage](submodule-usage.md): Atlas inside a parent project.
-- [Troubleshooting](../TROUBLESHOOTING.md): recovery steps for failed starts.
+- [Quick Start Troubleshooting](../quick-start/troubleshooting.md): recovery steps for failed starts.
+- [Sudo Recovery](../TROUBLESHOOTING.md): fixes for a launch or stop that ran under `sudo`.
 
 ## 1. Runtime Commands
 
-Each line below is a complete command. None of them deletes data or edits the
-host; §1.1 lists the commands that do. The `--consumer` lines need an
-`atlas.consumer.yml` file in the current directory.
+Each line below is a complete command. Starts and env backfill can update local
+configuration. A start can also provision or launch enabled managed host
+services (§8). Section 1.1 highlights destructive actions and explicit host
+cleanup. The `--consumer` lines need an `atlas.consumer.yml` file in the current
+directory.
 
 ```bash
 ./start.sh
@@ -173,14 +176,16 @@ a log excerpt into one local `.tar.gz` you can attach to an issue. A relative
   log excerpt shows its first and last 20 lines, since the pane already holds
   that log. Ctrl+Q waits until the bundle is written.
 
-The file is created owner-only (`0600`). **Atlas does not upload the bundle.**
+The file is created owner-only (`0600`). A symlink at `PATH` is replaced, not
+followed. **Atlas does not upload the bundle.**
 While checks run, Python socket connections outside loopback or a Unix socket
 are refused in every thread.
 
 A check that exceeds the collection budget is reported as `unavailable`; its
-thread can keep running. The guard stays active until all check threads finish,
-even after collection returns. A check that never finishes keeps the guard
-active for that process.
+thread can keep running. Like a failed check, an `unavailable` check makes
+`doctor --bundle` exit non-zero. The guard stays active until all check
+threads finish, even after collection returns. A check that never finishes
+keeps the guard active for that process.
 
 The guard does not cover subprocesses such as `docker compose config` or DNS
 lookups. A check that probes a non-local address reports that it could not
@@ -193,6 +198,8 @@ the bundle's generation time, so archive metadata carries no user or host names.
 
 `bundle.json` contains:
 
+- `ok`: `false` when any check failed or was `unavailable`. A `warn` or
+  `skipped` check keeps it `true`.
 - `checks`: every doctor check, `id` / `status` / `message` / `available`.
   `skipped` checks (for example, the service is disabled) are recorded, not
   dropped. So are `unavailable` checks (it raised, ran past the time budget, or

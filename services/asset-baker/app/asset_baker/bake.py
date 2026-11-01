@@ -325,7 +325,7 @@ def process(src, outdir):
     return {
         "glb": glb, "basecolor": basecolor, "normal": normal, "mode": "bake",
         "faces_in": faces_in, "tris_out": tris_out, "shells_kept": shells_kept,
-        "color_mean": round(mb, 4), "duration_s": round(time.time() - t0, 2),
+        "color_mean": mb, "duration_s": round(time.time() - t0, 2),
     }
 
 

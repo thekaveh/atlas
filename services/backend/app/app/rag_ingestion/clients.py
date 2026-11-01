@@ -19,6 +19,28 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
+from urllib.parse import urlsplit, urlunsplit
+
+
+def ingestion_runtime_context(profile, weaviate, lightrag) -> List[tuple[str, str, bool]]:
+    """Declared destinations, independent from physical-class write fencing.
+
+    Credentials, query auth and fragments do not select an ingestion target.
+    Retain the endpoint host, path and port; the clients trim trailing slashes.
+    Availability is configured capability, not a network readiness probe.
+    """
+    context = []
+    for backend, declared, client in (
+        ("weaviate", profile.vector_targets, weaviate),
+        ("lightrag", profile.graph_targets, lightrag),
+    ):
+        if declared:
+            parsed = urlsplit(client.endpoint)
+            endpoint = urlunsplit((
+                parsed.scheme, parsed.netloc.rsplit("@", 1)[-1], parsed.path.rstrip("/"), "", "",
+            ))
+            context.append((backend, endpoint, bool(client.available())))
+    return context
 
 
 class CorpusPathError(ValueError):
@@ -497,7 +519,7 @@ class ParserAdapter:
                         return ParsedDocument(name=file.name, text=str(text), parser=parser)
                     errors.append(f"{parser}: returned empty content")
                     continue
-                # crawl4ai and any future parser: not wired yet → fall through.
+                # Any parser the manifest loader does not allow: not wired.
                 errors.append(f"{parser}: not available")
             except Exception as exc:  # noqa: BLE001 - try the next parser
                 errors.append(f"{parser}: {exc}")
@@ -573,12 +595,29 @@ class Embedder:
 
 # ─── vector store (Weaviate) ─────────────────────────────────────────
 
+def is_definitive_rejection(exc: BaseException) -> bool:
+    """True when the upstream answered with a 4xx status.
+
+    ``WeaviateClient`` sends one request at a time and raises only after a
+    response arrived, so none of that call's requests can still land. A 5xx,
+    a timeout or a dropped connection stays uncertain.
+    """
+    import httpx
+
+    return isinstance(exc, httpx.HTTPStatusError) and 400 <= exc.response.status_code < 500
+
+
 class WeaviateClient:
     """Idempotent class creation + object writes, mirroring memory_store's REST
     shapes. Vectors are supplied client-side (class vectorizer = ``none``)."""
 
     def __init__(self, url: Optional[str] = None) -> None:
         self._url = (url if url is not None else os.getenv("WEAVIATE_URL", "")).rstrip("/")
+
+    @property
+    def endpoint(self) -> str:
+        """Configured base URL; part of the ingestion job identity."""
+        return self._url
 
     def available(self) -> bool:
         return bool(self._url.strip())
@@ -641,20 +680,18 @@ class WeaviateClient:
                 client, {"class": class_name, **existing.json()}, embedding
             ):
                 return False
-            resp = await client.post(
-                f"{self._url}/v1/schema",
-                json={
-                    "class": class_name,
-                    **({"description": description} if description else {}),
-                    "vectorizer": "none",
-                    "properties": [
-                        {"name": "content", "dataType": ["text"]},
-                        {"name": "source", "dataType": ["text"]},
-                        {"name": "profile", "dataType": ["text"]},
-                        {"name": "chunkIndex", "dataType": ["int"]},
-                    ],
-                },
-            )
+            schema = {
+                "class": class_name,
+                **({"description": description} if description else {}),
+                "vectorizer": "none",
+                "properties": [
+                    {"name": "content", "dataType": ["text"]},
+                    {"name": "source", "dataType": ["text"]},
+                    {"name": "profile", "dataType": ["text"]},
+                    {"name": "chunkIndex", "dataType": ["int"]},
+                ],
+            }
+            resp = await client.post(f"{self._url}/v1/schema", json=schema)
             if resp.status_code == 422:
                 # Creation can race another worker, but 422 also represents
                 # malformed schemas. Re-read to distinguish those outcomes.
@@ -663,6 +700,15 @@ class WeaviateClient:
                 )
                 if confirmed.status_code != 200:
                     resp.raise_for_status()
+                if existing.status_code != 200 and not await self._keep_existing_class(
+                    client, {"class": class_name, **confirmed.json()}, embedding
+                ):
+                    # The first read failed (e.g. a transient 503), so the
+                    # identity was never checked (#1364). The class held other
+                    # vectors and has been dropped: create it for this run's.
+                    recreated = await client.post(f"{self._url}/v1/schema", json=schema)
+                    recreated.raise_for_status()
+                    return True
             elif resp.status_code != 200:
                 resp.raise_for_status()
         return existing.status_code == 200
@@ -864,6 +910,11 @@ class LightRagClient:
             pipeline_status_timeout
         )
 
+    @property
+    def endpoint(self) -> str:
+        """Configured base URL; part of the ingestion job identity."""
+        return self._endpoint
+
     def available(self) -> bool:
         return bool(self._endpoint.strip())
 
@@ -940,3 +991,32 @@ class LightRagClient:
             resp.raise_for_status()
             data = resp.json()
         return bool(data.get("busy", False))
+
+
+# ─── orchestrator dependencies ───────────────────────────────────────
+
+class Deps:
+    """Injectable upstream clients. Defaults read env; tests pass fakes."""
+
+    def __init__(
+        self,
+        corpus: Optional[CorpusReader] = None,
+        parser: Optional[ParserAdapter] = None,
+        embedder: Optional[Embedder] = None,
+        weaviate: Optional[WeaviateClient] = None,
+        lightrag: Optional[LightRagClient] = None,
+        poll_interval: float = 2.0,
+        drain_backoff_base: float = 1.0,
+        drain_backoff_max: float = 15.0,
+    ) -> None:
+        self.corpus = corpus or CorpusReader()
+        self.parser = parser or ParserAdapter()
+        self.embedder = embedder or Embedder()
+        self.weaviate = weaviate or WeaviateClient()
+        self.lightrag = lightrag or LightRagClient()
+        self.poll_interval = poll_interval
+        # Bounded exponential backoff (seconds) applied between consecutive
+        # transient `pipeline_status` failures during drain (#673). Steady-state
+        # polling of a *reachable* busy pipeline still uses ``poll_interval``.
+        self.drain_backoff_base = drain_backoff_base
+        self.drain_backoff_max = drain_backoff_max

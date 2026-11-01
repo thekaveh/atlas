@@ -12,6 +12,7 @@ from typing import Optional, Dict
 from urllib.parse import quote
 
 from core.config_parser import ConfigParser
+from services.service_config import synchronize_redis_uri_credentials
 from utils.atomic_write import atomic_write_text, create_private_backup, render_env_assignment, set_env_assignment
 
 
@@ -95,33 +96,25 @@ class KeyGenerator:
         "LANGFUSE_DB_NAME",
         "TRUEFORGE_DB_NAME",
         "MLFLOW_DB_NAME",
-        "LABEL_STUDIO_DB_NAME",
     )
 
     SCOPED_DATABASE_CREDENTIAL_VARS = (
         ("SUPABASE_AUTH_DB_USER", "SUPABASE_AUTH_DB_PASSWORD"),
         ("SUPABASE_STORAGE_DB_USER", "SUPABASE_STORAGE_DB_PASSWORD"),
         ("SUPABASE_API_DB_USER", "SUPABASE_API_DB_PASSWORD"),
-        ("SUPABASE_REALTIME_DB_USER", "SUPABASE_REALTIME_DB_PASSWORD"),
         ("SUPABASE_META_DB_USER", "SUPABASE_META_DB_PASSWORD"),
         ("SUPABASE_STUDIO_DB_USER", "SUPABASE_META_DB_PASSWORD"),
         ("POSTGRES_EXPORTER_DB_USER", "POSTGRES_EXPORTER_DB_PASSWORD"),
         ("SUPAVISOR_DB_ADMIN_USER", "SUPAVISOR_DB_ADMIN_PASSWORD"),
         ("BACKEND_DB_USER", "BACKEND_DB_PASSWORD"),
-        ("N8N_DB_USER", "N8N_DB_PASSWORD"),
         ("OPEN_WEBUI_DB_USER", "OPEN_WEBUI_DB_PASSWORD"),
         ("LIGHTRAG_DB_USER", "LIGHTRAG_DB_PASSWORD"),
         ("LITELLM_DB_USER", "LITELLM_DB_PASSWORD"),
         ("AIRFLOW_DB_USER", "AIRFLOW_DB_PASSWORD"),
-        ("AIRFLOW_ATLAS_DB_USER", "AIRFLOW_ATLAS_DB_PASSWORD"),
         ("LANGFUSE_DB_USER", "LANGFUSE_DB_PASSWORD"),
         ("TRUEFORGE_DB_USER", "TRUEFORGE_DB_PASSWORD"),
         ("MLFLOW_DB_USER", "MLFLOW_DB_PASSWORD"),
-        ("LABEL_STUDIO_DB_USER", "LABEL_STUDIO_DB_PASSWORD"),
-        ("ICEBERG_DB_USER", "ICEBERG_DB_PASSWORD"),
-        ("MCP_POSTGRES_DB_USER", "MCP_POSTGRES_DB_PASSWORD"),
         ("JUPYTER_DB_USER", "JUPYTER_DB_PASSWORD"),
-        ("ZEPPELIN_DB_USER", "ZEPPELIN_DB_PASSWORD"),
     )
 
     # `.env.example` ships placeholders for credential vars whose canonical
@@ -140,6 +133,7 @@ class KeyGenerator:
         # rewrites it as a side effect so it is rotation-covered.
         "GRAPH_DB_AUTH": "neo4j/neo4j_password",
         "REDIS_PASSWORD": "redis_password",
+        "REDIS_PASSWORD_URI": "redis_password",
         "DASHBOARD_PASSWORD": "kong_password",
         "OPEN_WEB_UI_ADMIN_PASSWORD": "admin",
         "OPEN_WEB_UI_SECRET_KEY": "secret",
@@ -147,9 +141,10 @@ class KeyGenerator:
     PLACEHOLDER_DEFAULTS.update(
         dict.fromkeys(SCOPED_DATABASE_PASSWORD_VARS, "atlas-db-password")
     )
+    # Only the declared DSN twins exist; see SCOPED_DATABASE_CREDENTIAL_VARS.
     PLACEHOLDER_DEFAULTS.update(
         dict.fromkeys(
-            (f"{password_var}_URI" for password_var in SCOPED_DATABASE_PASSWORD_VARS),
+            (f"{password_var}_URI" for _user_var, password_var in SCOPED_DATABASE_CREDENTIAL_VARS),
             "atlas-db-password",
         )
     )
@@ -788,14 +783,17 @@ class KeyGenerator:
 
     def generate_and_update_redis_password(self, force: bool = False) -> bool:
         """Rotate `REDIS_PASSWORD` only when absent or still the `redis_password`
-        placeholder. `REDIS_URL` is a `${REDIS_PASSWORD}`-interpolated
-        compose-time expansion so no separate sync is required. Rotating a
+        placeholder, and synchronize its encoded URI companion. Rotating a
         live Redis without restart-with-`--requirepass` breaks every active
         consumer connection mid-flight.
         """
-        if not force and not self._is_placeholder_or_empty('REDIS_PASSWORD'):
-            return True
-        return self.update_env_key('REDIS_PASSWORD', self.generate_password())
+        password = self.get_current_env_value('REDIS_PASSWORD')
+        rewrite_password = force or self._is_placeholder_or_empty('REDIS_PASSWORD')
+        if rewrite_password:
+            password = self.generate_password()
+        return synchronize_redis_uri_credentials(
+            self.env_file_path, password, rewrite_password=rewrite_password,
+        )
 
     def generate_and_update_kong_dashboard_password(self, force: bool = False) -> bool:
         """Rotate Kong's `DASHBOARD_PASSWORD` only when absent or still the
@@ -866,9 +864,9 @@ class KeyGenerator:
         return self.update_env_key('OPEN_WEB_UI_ADMIN_PASSWORD', self.generate_password())
 
     def generate_grafana_admin_password(self) -> str:
-        """Grafana admin password — 32-char URL-safe random. Mirrors the
-        LiteLLM master-key strength. Persisted to .env on first run; rotating
-        is a deliberate operator action.
+        """Grafana admin password — 32-char URL-safe random (24 bytes).
+        Persisted to .env on first run; rotating is a deliberate operator
+        action.
         """
         return _cli_safe_token_urlsafe(24)
 
@@ -1368,6 +1366,7 @@ class KeyGenerator:
                 != self.PLACEHOLDER_DEFAULTS.get('GRAPH_DB_AUTH')
             )
         results['REDIS_PASSWORD'] = self.generate_and_update_redis_password(force=False)
+        results['REDIS_PASSWORD_URI'] = results['REDIS_PASSWORD']
         results['DASHBOARD_PASSWORD'] = self.generate_and_update_kong_dashboard_password(force=False)
         results['BACKEND_KONG_API_KEY'] = self.generate_and_update_backend_kong_api_key(force=False)
         results['BACKEND_INTERNAL_API_TOKEN'] = (

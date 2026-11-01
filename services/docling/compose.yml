@@ -22,7 +22,6 @@ services:
               capabilities: [gpu]
     environment:
       DOCLING_DEVICE: ${DOCLING_GPU_DEVICE:-cuda}
-      DOCLING_MODEL_PATH: /models
       DOCLING_OUTPUT_FORMAT: ${DOCLING_OUTPUT_FORMAT:-markdown}
       DOCLING_USE_OCR: ${DOCLING_USE_OCR:-auto}
       DOCLING_TABLE_MODE: ${DOCLING_TABLE_MODE:-accurate}
@@ -41,6 +40,7 @@ services:
       HF_TOKEN: ${HUGGING_FACE_HUB_TOKEN}
     volumes:
       - doc-processor-gpu-cache:/root/.cache/huggingface
+      # Unused by Docling; kept so cold cleanup still removes them.
       - doc-processor-models:/models
       - doc-processor-output:/output
     ports:

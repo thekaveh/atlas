@@ -9,7 +9,13 @@ img2img produce a correct artifact end-to-end against a managed host).
 Run locally:
     ATLAS_COMFYUI_LIVE_ENDPOINT=http://localhost:8188 \\
         ATLAS_COMFYUI_LIVE_MODEL=krea2-turbo-bf16 \\
+        COMFYUI_MANIFEST_PATH="$(git rev-parse --show-toplevel)/volumes/comfyui/selected-models.yaml" \\
         .venv/bin/python -m pytest tests/test_comfyui_media_live.py -q
+
+A catalog name such as ``krea2-turbo-bf16`` resolves to its bundle filenames
+only through that manifest, and only when ``COMFYUI_USER_MODELS`` selects it.
+Without it, the name reaches UNETLoader verbatim and matches no installed file.
+A physical filename such as ``krea2_turbo_bf16.safetensors`` needs no manifest.
 """
 import asyncio
 import base64

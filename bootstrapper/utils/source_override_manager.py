@@ -18,7 +18,6 @@ class SourceOverrideManager:
             config_parser: ConfigParser instance for file operations
         """
         self.config_parser = config_parser
-        self.applied_overrides = {}
         
         # Map CLI argument names to environment variable names
         self.source_mapping = {
@@ -153,7 +152,6 @@ class SourceOverrideManager:
 
         # Update .env file with overrides (silent — shown in summary table)
         if self.update_env_file(overrides):
-            self.applied_overrides = overrides
             return True
 
         return False
@@ -259,30 +257,3 @@ class SourceOverrideManager:
         except Exception as e:
             print(f"❌ Failed to apply SOURCE overrides: {e}")
             return False
-    
-    def show_override_summary(self):
-        """Display summary of applied SOURCE overrides."""
-        if self.applied_overrides:
-            print("\n📋 Active SOURCE Overrides:")
-            for var, value in self.applied_overrides.items():
-                print(f"  • {var}: {value}")
-        else:
-            print("\n📋 No SOURCE overrides active (using .env defaults)")
-    
-    def get_applied_overrides(self) -> Dict[str, str]:
-        """
-        Get dictionary of applied overrides.
-        
-        Returns:
-            dict: Currently applied SOURCE overrides
-        """
-        return self.applied_overrides.copy()
-    
-    def has_overrides(self) -> bool:
-        """
-        Check if any overrides are currently applied.
-        
-        Returns:
-            bool: True if overrides are active, False otherwise
-        """
-        return bool(self.applied_overrides)

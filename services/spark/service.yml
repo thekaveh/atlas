@@ -122,7 +122,7 @@ runtime_sc:
   # apache/spark images don't use SPARK_MODE — each role is started by an
   # explicit `/opt/spark/bin/spark-class` command in compose.yml. The env
   # blocks below mirror what compose.yml's `environment:` declares per
-  # service (dual-write per project_runtime_sc_vs_compose_env_dual_write.md).
+  # service (dual-write: compose is the injection point).
   spark-master:
     container:
       scale: 1

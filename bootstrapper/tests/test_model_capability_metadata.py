@@ -944,3 +944,53 @@ def test_wizard_cloud_models_verdict_matches_projected_alias(
         True, [{"LITELLM_EMBEDDING_MODEL": "shared-embed", "LANGMEM_EMBEDDING_DIM": str(dimension or 3072)}],
         False, current["OPENAI_API_KEY"] if secret == "<KEEP>" or models == "" else secret,
     )
+
+
+@pytest.mark.usefixtures("forbid_host_side_effects")
+@pytest.mark.parametrize("answer", [10**400, -(10**400)], ids=["large-positive", "large-negative"])
+def test_json_probe_overflow_answer_is_unsupported(answer):
+    import start
+
+    post = lambda *_: (200, _REPLY(json.dumps({"answer": answer})))
+    assert start.probe_json(post, "private-model") == "unsupported"
+
+
+@pytest.mark.usefixtures("forbid_host_side_effects")
+@pytest.mark.parametrize("answer", [10**400, -(10**400)], ids=["large-positive", "large-negative"])
+def test_json_probe_overflow_actual_cli_reports_and_stores_verdict(tmp_path, monkeypatch, answer):
+    import requests
+    from click.testing import CliRunner
+
+    import start
+
+    entry = next(entry for entry in llm_catalog.ollama_entries() if entry.capabilities.get("structured_output"))
+    alias = f"ollama/{entry.name}"
+    parser = SimpleNamespace(root_dir=tmp_path, parse_env_file=lambda: {"LITELLM_PORT": "65000"})
+    monkeypatch.setattr(start, "AtlasStarter", lambda: SimpleNamespace(config_parser=parser))
+    sent = []
+    def post(url, **kwargs):
+        sent.append(url)
+        response = requests.Response()
+        response.status_code = 200
+        response._content = json.dumps(_REPLY(json.dumps({"answer": answer}))).encode()
+        return response
+    monkeypatch.setattr(requests, "post", post)
+    result = CliRunner().invoke(start.main, ["models", "probe", "--model", alias, "--kind", "json"])
+    assert result.exit_code == 1 and not isinstance(result.exception, OverflowError)
+    assert "json: unsupported" in result.output and "FAIL: declared by the catalog" in result.output
+    assert sent == ["http://127.0.0.1:65000/v1/chat/completions"]
+    stored = json.loads((tmp_path / start.PROBE_RESULTS_FILE).read_text())
+    assert len(stored) == 1 and next(iter(stored.values()))["results"]["json"] == "unsupported"
+
+
+@pytest.mark.usefixtures("forbid_host_side_effects")
+@pytest.mark.parametrize(("content", "expected"), [
+    ('{"answer": 1e400}', "unsupported"), ('{"answer": -1e400}', "unsupported"),
+    ('{"answer": "nan"}', "unsupported"), ('{"answer": "Infinity"}', "unsupported"),
+    ('{"answer": []}', "unsupported"), ('{invalid', "unsupported"),
+    ('{"answer": "4"}', "supported"), ('{"answer": "4.0"}', "supported"),
+])
+def test_json_probe_overflow_keeps_existing_numeric_policy(content, expected):
+    import start
+
+    assert start.probe_json(lambda *_: (200, _REPLY(content)), "private-model") == expected

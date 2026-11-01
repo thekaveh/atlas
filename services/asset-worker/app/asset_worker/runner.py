@@ -6,7 +6,7 @@ import subprocess
 from pathlib import Path
 
 from .models import PostprocessParams
-from .normalizer import NormalizationWorkLimitError, normalize_glb
+from .normalizer import NormalizationValueError, NormalizationWorkLimitError, normalize_glb
 
 
 class GltfTransformError(RuntimeError):
@@ -28,7 +28,7 @@ def run_gltf_transform(input_path: Path, output_path: Path, params: PostprocessP
         )
     try:
         normalize_glb(input_path, normalized, params)
-    except NormalizationWorkLimitError as exc:
+    except (NormalizationWorkLimitError, NormalizationValueError) as exc:
         raise GltfTransformError(str(exc), kind="failed") from exc
 
     try:

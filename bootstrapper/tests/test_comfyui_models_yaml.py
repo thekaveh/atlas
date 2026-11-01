@@ -178,6 +178,34 @@ def test_dead_audioldm_root_artifact_is_not_offered_anywhere():
     assert dead_name not in fallback and dead_url not in fallback
 
 
+def test_dead_fallback_artifacts_are_not_offered_anywhere():
+    """Fallback URLs that returned 404/401 on 2026-11-01 must not come back.
+
+    A selected fallback row is required, so a dead URL fails comfyui-init.
+    """
+    dead_names = ("bad-hands-5", "cogvideox-5b-Q4_K_S")
+    dead_urls = (
+        "https://huggingface.co/Lykon/dreamshaper-8/resolve/main/DreamShaper_8_pruned.safetensors",
+        "https://huggingface.co/embed/bad-hands-5/resolve/main/bad-hands-5.pt",
+        "https://huggingface.co/city96/CogVideoX-5b-gguf/resolve/main/CogVideoX-5b-Q4_K_S.gguf",
+        "https://huggingface.co/TencentARC/InstantMesh/resolve/main/diffusion_pytorch_model.safetensors",
+    )
+    curated = _YAML_PATH.read_text(encoding="utf-8")
+    fallback = (
+        _REPO_ROOT / "bootstrapper/utils/data/comfyui_catalog_fallback.json"
+    ).read_text(encoding="utf-8")
+    for dead in dead_names + dead_urls:
+        assert dead not in curated and dead not in fallback, dead
+
+
+def test_fallback_gguf_rows_target_a_gguf_loader_folder():
+    """ComfyUI-GGUF lists diffusion_models/unet only, never checkpoints."""
+    gguf = [e for e in list_fallback() if e.url.endswith(".gguf")]
+    assert gguf
+    for entry in gguf:
+        assert entry.target_dir != "checkpoints", entry.name
+
+
 def test_library_rejects_mutable_curated_catalog_even_without_schema_runner(
     monkeypatch, tmp_path
 ):

@@ -98,7 +98,9 @@ def test_prod_profile_respects_explicit_observability_source(tmp_path):
     with no explicit flag, is still defaulted ON."""
     env_body = "HOST_BIND_IP=\nLOG_MAX_SIZE=\nLOG_MAX_FILE=\nPROMETHEUS_SOURCE=disabled\nGRAFANA_SOURCE=disabled\n"
     starter = _make_starter(tmp_path, env_body)
-    ok = starter.apply_profile_overrides("prod", explicit_prometheus="disabled")
+    # The flag is recorded by apply_source_overrides, which runs first.
+    assert starter.apply_source_overrides(prometheus_source="disabled")
+    ok = starter.apply_profile_overrides("prod")
     assert ok
     out = (tmp_path / ".env").read_text(encoding="utf-8")
     assert "PROMETHEUS_SOURCE=disabled" in out

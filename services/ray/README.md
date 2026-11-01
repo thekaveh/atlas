@@ -17,12 +17,17 @@ Active when `RAY_SOURCE ∈ {ray-container-cpu, ray-container-gpu}`. Authenticat
 | GCS (internal cluster controller) | `localhost:${RAY_GCS_PORT}` host-side; `ray-head:6379` inside the network | Unauthenticated; host mapping is loopback only. |
 | Backend REST jobs API | `http://localhost:${BACKEND_PORT}/api/ray/jobs/submit` etc. | Bearer token from `RAY_JOB_API_TOKEN` |
 
-The backend reaches Ray through the dashboard's HTTP job API, never Ray Client. It sets `RAY_API_SERVER_ADDRESS` to the dashboard URL. Otherwise the Ray SDK resolves `RAY_ADDRESS=ray://…` through `ray.init`, which fails on the backend's newer Python. Every SDK call, including the client's construction-time version probe, has a transport timeout. When the dashboard does not answer the probe or `/api/cluster_status`, the routes return `503`; no job request was sent.
+The backend reaches Ray through the dashboard's HTTP job API, never Ray Client. It sets `RAY_API_SERVER_ADDRESS` to the dashboard URL. Otherwise the Ray SDK resolves `RAY_ADDRESS=ray://…` through `ray.init`, which fails on the backend's newer Python.
+
+Every SDK call, including the client's construction-time version probe, has a transport timeout. When the dashboard does not answer the probe or `/api/cluster_status`, the routes return `503`; no job request was sent. Job status and stop also return `503` when the dashboard refuses or drops the connection.
 
 `POST /api/ray/jobs/submit` requires a stable `submission_id` using the
-Ray-compatible `raysubmit_` prefix and letters, digits, or underscores. Reuse
-that ID after an ambiguous response: Atlas returns `409` when it already exists,
-and the existing `GET`/`DELETE .../{job_id}` routes reconcile or stop it.
+Ray-compatible `raysubmit_` prefix and letters, digits, or underscores. After an
+ambiguous response, use that ID with the existing `GET`/`DELETE .../{job_id}`
+routes to inspect or stop the job. A duplicate submission with that ID returns `409`.
+
+Connection loss, timeout, or an unusable success reply after submission returns `504`, with acceptance unknown.
+Atlas does not retry the submission automatically. Reconcile using the same ID before considering another submission.
 
 ## 3. Configuration
 
@@ -83,14 +88,17 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 
 ## 6. Troubleshooting
 
-Before the container checks, run this preflight from the Atlas repository root with Python 3.10 or later.
+Before the container checks, run this preflight from the Atlas repository root.
+It uses the bootstrapper environment, which requires Python 3.11 or later. Install `uv` before you run it.
 Use the running stack's Docker context and active env file; keep its `ATLAS_ENV_FILE` setting.
+
 The preflight finds the Ray head container by Compose labels, including when its name retains mixed-case spelling.
 It stops for an absent or invalid file, a failed Docker query, or a lookup without exactly one container.
+On failure, `RAY_HEAD_CONTAINER` stays empty, so the commands below refuse to run.
 
 ```bash
 RAY_HEAD_CONTAINER=$(
-  PYTHONPATH=bootstrapper python3 - <<'PYPROJECT'
+  PYTHONPATH=bootstrapper uv run --project bootstrapper python - <<'PYPROJECT'
 import subprocess
 import sys
 from core.config_parser import ConfigParser
@@ -113,12 +121,11 @@ if len(containers) != 1:
     sys.exit(f"Expected one Ray head container; found {len(containers)}.")
 print(containers[0], end="")
 PYPROJECT
-) || exit 1
-export RAY_HEAD_CONTAINER
+) && export RAY_HEAD_CONTAINER
 ```
 
-- **Head container exits immediately with "Bus error" or "/dev/shm too small"** — Check the head logs for the reported cause. Inspect the effective shared-memory size with `docker inspect "${RAY_HEAD_CONTAINER}" | grep ShmSize`. Compare the object-store size with shared memory and the container memory limit. Small shared memory can cause temporary-directory backing; large stores can fail the check described in §4.
-- **Workers stuck "starting"** — they `depends_on: ray-head: service_healthy`. The head's `start_period: 60s` allows up to 60s before health checks count. If still stuck after 2 minutes, check the head's healthcheck output: `docker exec "${RAY_HEAD_CONTAINER}" wget -qO- http://localhost:8265/api/version` (the image ships wget, not curl).
+- **Head container exits immediately with "Bus error" or "/dev/shm too small"** — Check the head logs for the reported cause. Inspect the effective shared-memory size with `docker inspect "${RAY_HEAD_CONTAINER:?}" | grep ShmSize`. Compare the object-store size with shared memory and the container memory limit. Small shared memory can cause temporary-directory backing; large stores can fail the check described in §4.
+- **Workers stuck "starting"** — they `depends_on: ray-head: service_healthy`. The head's `start_period: 60s` allows up to 60s before health checks count. If still stuck after 2 minutes, check the head's healthcheck output: `docker exec "${RAY_HEAD_CONTAINER:?}" wget -qO- http://localhost:8265/api/version` (the image ships wget, not curl).
 - **`ray.init("ray://…")` fails with a version mismatch** — Ray Client needs the same `ray` version and the same Python minor version on both sides. `rayproject/ray:2.56.0` runs Python 3.10. From the host, use Python 3.10 with `ray>=2.56.0,<2.57`. The JupyterHub kernel runs Python 3.13, so `07_ray_cluster.ipynb` fails at `ray.init()` (open issue #1374). From a notebook, use the Ray Jobs REST API instead:
 
     ```python

@@ -45,10 +45,3 @@ class HealthResponse(BaseModel):
     backend: str
     device: str
     models_loaded: List[str] = []
-
-
-class ModelInfo(BaseModel):
-    """Information about available models"""
-    id: str
-    name: str
-    description: Optional[str] = None

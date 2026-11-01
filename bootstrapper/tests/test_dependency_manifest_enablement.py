@@ -343,3 +343,27 @@ def test_a_disabled_supabase_subservice_does_not_disable_the_database(tmp_path):
     assert dm.get_service_scale("supabase-meta") == 0
     for name in ("supabase", "supabase-db", "supabase-db-init"):
         assert dm.get_service_scale(name) == 1, name
+
+
+def test_parakeet_follows_its_own_container_not_the_stt_row(tmp_path):
+    """'parakeet' is a manifest name, not a container; its one container is
+    parakeet-gpu. It fell back to STT_PROVIDER_SCALE, which is 1 whenever
+    Speaches serves STT, so the dependency check listed Parakeet as connected
+    for six services while it was off (2026-11-01 run, cycle 3)."""
+    dm = _make_dm(
+        tmp_path,
+        "STT_PROVIDER_SOURCE=speaches-container-cpu\nSTT_PROVIDER_SCALE=1\n"
+        "PARAKEET_GPU_SCALE=0\nSPEACHES_SCALE=1\n",
+    )
+    assert dm.get_service_scale("parakeet") == 0
+    assert dm.get_service_scale("speaches") == 1
+
+
+def test_a_manifest_name_that_is_a_container_keeps_its_own_scale(tmp_path):
+    """The alias must not reach redis or litellm: each is both a manifest
+    name and a container, and its only declared replica var belongs to a
+    sibling (the exporter, the init). Reading it turned off an always-on
+    Redis whenever observability was off."""
+    dm = _make_dm(tmp_path, "REDIS_EXPORTER_SCALE=0\nLITELLM_INIT_SCALE=0\n")
+    assert dm.get_service_scale("redis") == 1
+    assert dm.get_service_scale("litellm") == 1

@@ -45,27 +45,32 @@ class RayControlPlaneTimeoutError(RuntimeError):
     retry of a side effect.
     """
 
-    def __init__(self, operation: str, job_id: Optional[str] = None):
+    def __init__(
+        self, operation: str, job_id: Optional[str] = None, message: Optional[str] = None
+    ):
         self.operation = operation
         self.job_id = job_id
         suffix = f" for {job_id!r}" if job_id else ""
-        super().__init__(
+        super().__init__(message or (
             f"Ray control plane did not answer {operation}{suffix} within "
             f"{_RAY_CONNECT_TIMEOUT_SECONDS:g}s connect / "
             f"{_RAY_READ_TIMEOUT_SECONDS:g}s read"
-        )
+        ))
 
 
 class RaySubmissionAmbiguousError(RayControlPlaneTimeoutError):
-    """Submission transport timed out AFTER the request was sent.
+    """A submission attempt returned no usable acceptance confirmation.
 
-    A timeout does not prove the server rejected the job: acceptance is
-    ambiguous, and the stable caller-supplied submission_id is the
+    Transport loss or an unusable reply does not prove rejection. Acceptance
+    is ambiguous, and the stable caller-supplied submission_id is the
     reconciliation handle (poll status or stop with the same id).
     """
 
     def __init__(self, submission_id: str):
-        super().__init__("job submission", submission_id)
+        super().__init__(
+            "job submission", submission_id,
+            message=f"Ray control plane did not confirm job submission for {submission_id!r}",
+        )
         self.submission_id = submission_id
 
 
@@ -122,6 +127,56 @@ def _transport_timeouts() -> tuple:
             requests.exceptions.Timeout)
 
 
+def _connection_failures() -> tuple:
+    """A refused or dropped dashboard connection on a cached SDK client.
+
+    Catch it AFTER ``_transport_timeouts()``: ConnectTimeout subclasses both
+    ConnectionError and Timeout and stays a 504.
+    """
+    from requests import exceptions
+
+    return (exceptions.ConnectionError,)
+
+
+def _submission_transport_failures() -> tuple:
+    """Failures that can lose an accepted POST's response, excluding bad URLs."""
+    from requests import exceptions
+
+    return (exceptions.ConnectionError, exceptions.Timeout,
+            exceptions.ChunkedEncodingError, exceptions.ContentDecodingError)
+
+
+def _validate_submission_response(response, submission_id: str) -> None:
+    """Check the pinned SDK's successful envelope before it decodes it again."""
+    from ray.dashboard.modules.job.common import JobSubmitResponse
+
+    submitted = JobSubmitResponse(**response.json())
+    if (submitted.submission_id != submission_id
+            or not isinstance(submitted.job_id, str) or not submitted.job_id):
+        raise ValueError("Ray returned an unusable job submission response")
+
+
+def _request_with_submission_outcome(request, method, endpoint, kwargs):
+    """Keep acceptance uncertainty local to the actual job POST and its id."""
+    submission_id = None
+    if (method, endpoint) == ("POST", "/api/jobs/"):
+        submission_id = (kwargs.get("json_data") or {}).get("submission_id")
+    try:
+        response = request(method, endpoint, **kwargs)
+    except _submission_transport_failures() as exc:
+        if submission_id:
+            raise RaySubmissionAmbiguousError(submission_id) from exc
+        if endpoint == "/api/version" or endpoint.startswith("/api/packages/"):
+            raise RayUnavailableError("Ray submission preflight did not answer") from exc
+        raise
+    if submission_id and response.status_code == 200:
+        try:
+            _validate_submission_response(response, submission_id)
+        except (ValueError, TypeError) as exc:
+            raise RaySubmissionAmbiguousError(submission_id) from exc
+    return response
+
+
 def _bind_transport_deadline(client) -> None:
     """Inject a default transport timeout at the pinned SDK boundary.
 
@@ -145,7 +200,7 @@ def _bind_transport_deadline(client) -> None:
             "timeout",
             (_RAY_CONNECT_TIMEOUT_SECONDS, _RAY_READ_TIMEOUT_SECONDS),
         )
-        return original(method, endpoint, **kwargs)
+        return _request_with_submission_outcome(original, method, endpoint, kwargs)
 
     client._do_request = bounded
 
@@ -209,6 +264,8 @@ class RayClient:
                 metadata=submission.metadata or {},
                 submission_id=submission.submission_id,
             )
+        except RaySubmissionAmbiguousError:
+            raise
         except _transport_timeouts() as exc:
             # Sent but unanswered: acceptance is AMBIGUOUS. Never resubmit
             # blindly — hand back the stable id for reconciliation.
@@ -232,12 +289,8 @@ class RayClient:
             }
         except _transport_timeouts() as exc:
             raise RayControlPlaneTimeoutError("job status fetch", job_id) from exc
-
-    def get_job_logs(self, job_id: str) -> str:
-        try:
-            return self._ensure_client().get_job_logs(job_id)
-        except _transport_timeouts() as exc:
-            raise RayControlPlaneTimeoutError("job log fetch", job_id) from exc
+        except _connection_failures() as exc:
+            raise RayUnavailableError(f"Ray dashboard at {self._addr} did not answer") from exc
 
     def stop_job(self, job_id: str) -> bool:
         try:
@@ -247,15 +300,15 @@ class RayClient:
             # repeat with the same id and can neither duplicate nor lose the
             # accepted job.
             raise RayControlPlaneTimeoutError("job stop", job_id) from exc
+        except _connection_failures() as exc:
+            raise RayUnavailableError(f"Ray dashboard at {self._addr} did not answer") from exc
 
     def cluster_status(self) -> dict:
         # Hits the Ray dashboard's /api/cluster_status directly over the internal
         # backend-network (container-to-container); the Ray dashboard has no auth.
-        # The backend's own Kong route (backend-api) is behind key-auth + ACL ONLY
-        # when the operator sets BACKEND_KONG_AUTH=key-auth (default: disabled) —
-        # see kong_config_generator.generate_backend_service. Operators exposing
-        # the stack should set it to gate the Ray job-submission surface
-        # (/api/ray/jobs/submit runs an arbitrary shell entrypoint on the cluster).
+        # Its only caller is GET /api/ray/cluster/status.
+        # ray_routes._require_ray_job_token gates every /api/ray route with
+        # RAY_JOB_API_TOKEN (fail closed), whatever BACKEND_KONG_AUTH is.
         import urllib.request, json
         self._ensure_client()
         try:

@@ -49,6 +49,8 @@ To fix it, configure a workflow under Admin Settings → Images (for example fro
 
 **Memory extraction** runs after the reply, in two daemon workers with a four-job queue. When the queue is full, the job is skipped with a short diagnostic. A Backend non-success response counts as an extraction failure. Chat replies never wait for extraction.
 
+The `min_messages` filter valve (default 4) is the minimum chat length before a job starts. Each job sends the non-empty text of the last `min_messages` messages; `0` sends the whole chat. The Backend's `MemoryExtractRequest` limit caps a job at the newest 100 messages, each clipped to 20,000 characters. The Memory Assistant tool clips `remember` text to 20,000 characters and `recall` queries to 4,000 characters, the Backend request limits.
+
 The tool and function folders are mounted read-only; `open-webui-init` registers them through the API.
 
 ### 4.4. Speech-to-text authentication
@@ -94,12 +96,15 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 
 ## 6. Troubleshooting
 
+Replace `<project>` with `PROJECT_NAME` from `.env` (default `atlas`).
+
 ```bash
 # Check service status
-docker compose ps open-web-ui
+docker ps --all --filter "name=^<project>-open-web"
 
 # Check logs
-docker compose logs -f open-web-ui open-webui-init
+docker logs -f <project>-open-web-ui
+docker logs <project>-open-webui-init
 ```
 
 For general startup and routing issues, see [Troubleshooting](../../docs/quick-start/troubleshooting.md).
@@ -147,7 +152,7 @@ For general startup and routing issues, see [Troubleshooting](../../docs/quick-s
 <a id="54-future-missing-pair-integrations"></a>
 <a id="54-future--missing-pair-integrations"></a>
 
-- **open-webui ↔ searxng** — *Why:* Open WebUI consumes SearXNG as a first-class web-search provider for in-chat grounding, but the stack only wires SearXNG to local-deep-researcher today. *Mechanism:* `ENABLE_WEB_SEARCH=true` + `WEB_SEARCH_ENGINE=searxng` + `SEARXNG_QUERY_URL=http://searxng:8080/search?q=<query>&format=json`. *Effort:* small. *Confidence:* high.
+- **open-webui ↔ searxng** — *Why:* Open WebUI can use SearXNG as a web-search provider for in-chat grounding. Atlas wires SearXNG to Hermes, mcp-servers, n8n, JupyterHub and Local Deep Researcher, not to Open WebUI. *Mechanism:* `ENABLE_WEB_SEARCH=true` + `WEB_SEARCH_ENGINE=searxng` + `SEARXNG_QUERY_URL=http://searxng:8080/search?q=<query>&format=json`. *Effort:* small. *Confidence:* high.
 - **open-webui ↔ jupyterhub** — *Why:* Open WebUI ships a Jupyter-backed code-execution engine. It runs LLM-emitted Python in a real kernel with persistent state, instead of the in-browser Pyodide sandbox. *Mechanism:* `CODE_EXECUTION_ENGINE=jupyter` + `CODE_EXECUTION_JUPYTER_URL=http://jupyterhub:8888` + `CODE_EXECUTION_JUPYTER_AUTH=token` (mirror for `CODE_INTERPRETER_*`). *Effort:* medium. *Confidence:* high.
 - **open-webui ↔ minio** — *Why:* Chat uploads, generated images and TTS audio live in a Docker volume and vanish on `--cold`. Open WebUI supports S3 storage natively, and MinIO is already in the stack. *Mechanism:* `STORAGE_PROVIDER=s3` + `S3_ENDPOINT_URL=http://minio:9000` + `S3_BUCKET_NAME=openwebui` with MinIO credentials, plus an `mc mb` init step. *Effort:* small. *Confidence:* high.
 - **open-webui ↔ n8n** — *Why:* n8n workflows could appear in chat as Open WebUI Tools. Users could then trigger automations ("email this summary", "create a Jira ticket") without writing Python. *Mechanism:* register an OpenAPI tool server pointing at an n8n webhook that serves `openapi.json` (via a workflow-to-schema wrapper). *Effort:* medium. *Confidence:* medium.

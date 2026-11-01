@@ -358,3 +358,49 @@ def test_a_real_pointer_over_the_border_sets_the_hover():
     hovered, cleared = asyncio.run(scenario())
     assert hovered == BrandPanel.TAB_LOGS, f"pointer over Logs set {hovered!r}"
     assert cleared is None, f"hover stuck after leaving the border row: {cleared!r}"
+
+
+# ─── brand text is display text, never markup ────────────────────────
+
+
+def _bracketed_panel(tagline: str = "Atlas [beta]") -> BrandPanel:
+    return BrandPanel(tagline=tagline, author="Lab [x]", license="MIT")
+
+
+@pytest.mark.parametrize("tabs", [False, True], ids=["byline-only", "tabs"])
+def test_bracketed_brand_text_renders_verbatim(tabs: bool):
+    """BRAND_* values reach Textual's border title/subtitle, which parse
+    markup: unescaped, ``[beta]`` and ``[x]`` were silently dropped."""
+    panel = _bracketed_panel()
+
+    async def scenario():
+        async with _App(panel).run_test(size=(140, 12)) as pilot:
+            await pilot.pause()
+            if tabs:
+                panel.set_tabs(BrandPanel.TAB_SETUP, enabled=True)
+                await pilot.pause()
+            return (
+                panel._border_title.plain,
+                panel._border_subtitle.plain,
+                _bottom_border(pilot.app),
+            )
+
+    title, subtitle, row = asyncio.run(scenario())
+
+    assert title == " Atlas [beta] ", title
+    assert "by Lab [x]" in subtitle, subtitle
+    assert "by Lab [x]" in row, row
+    if tabs:
+        assert "Setup" in row and "Logs" in row, row
+
+
+def test_a_stray_closing_tag_in_the_tagline_does_not_break_the_mount():
+    """``[/]`` used to raise MarkupError from on_mount, killing the wizard."""
+    panel = _bracketed_panel(tagline="a [/] b")
+
+    async def scenario():
+        async with _App(panel).run_test(size=(140, 12)) as pilot:
+            await pilot.pause()
+            return panel._border_title.plain
+
+    assert asyncio.run(scenario()) == " a [/] b "

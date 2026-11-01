@@ -451,6 +451,39 @@ def test_regen_adds_capabilities_for_supported_docs_and_is_idempotent(tmp_path: 
     assert readme.read_bytes() == first
 
 
+@pytest.mark.parametrize(
+    ("last_section", "deps_position"),
+    [(6, 7), (1, 2)],
+    ids=["six-numbered-sections", "one-numbered-section"],
+)
+def test_regen_appends_missing_deps_section_after_last_numbered_section(
+    tmp_path: Path, last_section: int, deps_position: int
+):
+    from docs.regen import _process
+    from scripts.docs.heading_quality import heading_number_findings
+
+    service_dir = tmp_path / "comfyui"
+    service_dir.mkdir()
+    readme = service_dir / "README.md"
+    sections = "".join(
+        f"## {number}. Section {number}\n\nBody.\n\n"
+        for number in range(1, last_section + 1)
+    )
+    readme.write_text(f"# ComfyUI\n\n{sections}", encoding="utf-8")
+
+    assert _process("comfyui", tmp_path, False, True, False) == 0
+    text = readme.read_text(encoding="utf-8")
+    assert f"\n## {deps_position}. Dependencies & Integrations\n" in text
+    assert f"\n### {deps_position}.1. " in text
+    assert f"\n## {deps_position + 1}. Capabilities & limitations\n" in text
+    assert "## 5. Dependencies & Integrations" not in text
+    assert heading_number_findings(text) == []
+
+    first = readme.read_bytes()
+    assert _process("comfyui", tmp_path, False, True, False) == 0
+    assert readme.read_bytes() == first
+
+
 def test_regen_explicitly_skips_only_multi2vec_clip_pointer(tmp_path: Path):
     from docs.regen import _process
 

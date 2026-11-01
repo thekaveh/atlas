@@ -161,8 +161,8 @@ def test_service_config_update_preserves_file_mode(tmp_path, monkeypatch):
 
 
 def test_service_config_update_is_atomic_no_tmp_left(tmp_path, monkeypatch):
-    """The tmp + os.replace write must not leave a secrets-bearing
-    `.env.tmp` behind on success."""
+    """The tmp + os.replace write must not leave any secrets-bearing
+    temporary file beside `.env` on success."""
     env = tmp_path / ".env"
     env.write_text("SOME_SECRET=old\n", encoding="utf-8")
     monkeypatch.setenv("ATLAS_ENV_FILE", str(env))
@@ -170,7 +170,7 @@ def test_service_config_update_is_atomic_no_tmp_left(tmp_path, monkeypatch):
 
     sc = ServiceConfig()
     assert sc.update_env_file({"SOME_SECRET": "new"}, create_backup=False) is True
-    assert not (tmp_path / ".env.tmp").exists()
+    assert sorted(p.name for p in tmp_path.iterdir()) == [".env"]
 
 
 def test_parse_env_file_quote_and_hash_semantics(tmp_path, monkeypatch):
@@ -243,7 +243,14 @@ def _writers():
             {"SUPABASE_JWT_SECRET": "new-value"}, create_backup=False
         )
 
-    return [key_generator, supabase_keys, service_config]
+    def source_override_manager(root):
+        from utils.source_override_manager import SourceOverrideManager
+
+        SourceOverrideManager(ConfigParser(str(root))).update_env_file(
+            {"SUPABASE_JWT_SECRET": "new-value"}
+        )
+
+    return [key_generator, supabase_keys, service_config, source_override_manager]
 
 
 @pytest.mark.parametrize("write", _writers(), ids=lambda w: w.__name__)
@@ -257,6 +264,66 @@ def test_each_writer_rewrites_an_export_line_instead_of_appending(tmp_path, writ
     assignments = [line for line in text.splitlines() if "SUPABASE_JWT_SECRET=" in line]
     assert assignments == ["export SUPABASE_JWT_SECRET=new-value"]
     assert ConfigParser(str(tmp_path)).parse_env_file()["SUPABASE_JWT_SECRET"] == "new-value"
+
+
+@pytest.mark.parametrize("write", _writers(), ids=lambda w: w.__name__)
+def test_each_writer_leaves_env_owner_only(tmp_path, write):
+    """The .env holds secrets, so every writer forces 0o600. Seeding at 0o644
+    catches a writer that drops `mode=0o600`, since the atomic writer would
+    otherwise keep the existing mode. The unterminated last line survives."""
+    import stat
+
+    env = tmp_path / ".env"
+    env.write_text("SUPABASE_JWT_SECRET=old-value\nOPENAI_API_KEY=sk-x", encoding="utf-8")
+    env.chmod(0o644)
+
+    write(tmp_path)
+
+    assert stat.S_IMODE(env.stat().st_mode) == 0o600
+    assert "OPENAI_API_KEY=sk-x" in env.read_text(encoding="utf-8").splitlines()
+
+
+def _start_writers():
+    def merge_overrides(starter):
+        starter._merge_env_file_overrides({"X": "1"})
+
+    def remove_by_prefix(starter):
+        starter._remove_env_keys_by_prefix("ATLAS_STORE_")
+
+    def migration_marker(starter):
+        import start
+
+        start._prepare_migration_marker(starter.config_parser.env_file_path)
+
+    return [merge_overrides, remove_by_prefix, migration_marker]
+
+
+@pytest.mark.parametrize("write", _start_writers(), ids=lambda w: w.__name__)
+def test_each_start_writer_leaves_env_owner_only(tmp_path, monkeypatch, write):
+    """`doctor`, `compose validate` and `env backfill` reach these writers
+    without the start-time chmod, so each must force 0o600 itself."""
+    import stat
+
+    import start
+
+    monkeypatch.delenv("ATLAS_ENV_FILE", raising=False)
+    monkeypatch.delenv("GENAI_ENV_FILE", raising=False)
+    env = tmp_path / ".env"
+    env.write_text(
+        "SUPABASE_JWT_SECRET=old-value\nATLAS_STORE_A=1\n"
+        "BOOTSTRAPPER_PORT_LAYOUT_VERSION=1\nBOOTSTRAPPER_PORT_LAYOUT_VERSION=2\n",
+        encoding="utf-8",
+    )
+    env.chmod(0o644)
+    before = env.read_text(encoding="utf-8")
+    starter = start.AtlasStarter.__new__(start.AtlasStarter)
+    starter.config_parser = ConfigParser(str(tmp_path))
+
+    write(starter)
+
+    assert env.read_text(encoding="utf-8") != before  # the writer ran
+    assert stat.S_IMODE(env.stat().st_mode) == 0o600
+    assert "SUPABASE_JWT_SECRET=old-value" in env.read_text(encoding="utf-8").splitlines()
 
 
 def test_set_env_assignment_appends_only_when_the_key_is_absent():
@@ -275,3 +342,67 @@ def test_a_byte_order_mark_does_not_rename_the_first_key(tmp_path, monkeypatch):
     env = ConfigParser(str(tmp_path)).parse_env_file()
 
     assert list(env) == ["PROJECT_NAME", "BASE_PORT"]
+
+
+def _database_orchestrator():
+    import importlib.util
+    import sys
+
+    path = Path(__file__).resolve().parents[2] / "services/backup/database_orchestrator.py"
+    spec = importlib.util.spec_from_file_location("atlas_env_seam_database_orchestrator", path)
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_database_orchestrator_reads_the_custom_env_file(tmp_path, monkeypatch):
+    """The host backup/restore entry points read only <repo>/.env, so a
+    consumer whose config lives outside the checkout was refused or, with a
+    stale checkout .env, silently aimed at the wrong project."""
+    module = _database_orchestrator()
+    (tmp_path / ".env").write_text("PROJECT_NAME=stale\n", encoding="utf-8")
+    (tmp_path / "config").mkdir()
+    custom = tmp_path / "config/prod.env"
+    custom.write_text("PROJECT_NAME=prod\nBACKUP_SOURCE=container\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path / "config")
+    monkeypatch.setenv("ATLAS_ENV_FILE", "config/prod.env")  # anchored at the checkout
+
+    assert module._env_file_values(tmp_path) == {"PROJECT_NAME": "prod", "BACKUP_SOURCE": "container"}
+    configuration = module.DatabaseConfiguration(tmp_path, {}, "a" * 32)
+    assert configuration.env_file == custom.resolve()
+    coordinator = object.__new__(module.DatabaseCoordinator)
+    coordinator.compose_env_file = configuration.env_file
+    assert coordinator.compose_argv("ps", "-q") == [
+        "docker", "compose", "--env-file", str(custom.resolve()), "ps", "-q",
+    ]
+
+
+def test_database_orchestrator_default_env_file_adds_no_compose_flag(tmp_path, monkeypatch):
+    module = _database_orchestrator()
+    monkeypatch.delenv("ATLAS_ENV_FILE", raising=False)
+    monkeypatch.delenv("GENAI_ENV_FILE", raising=False)
+    (tmp_path / ".env").write_text("PROJECT_NAME=local\n", encoding="utf-8")
+
+    assert module._env_file_values(tmp_path) == {"PROJECT_NAME": "local"}
+    configuration = module.DatabaseConfiguration(tmp_path, {}, "a" * 32)
+    assert configuration.env_file is None
+    coordinator = object.__new__(module.DatabaseCoordinator)
+    coordinator.compose_env_file = configuration.env_file
+    assert coordinator.compose_argv("ps") == ["docker", "compose", "ps"]
+
+
+def test_database_orchestrator_honors_the_genai_alias_and_refuses_a_missing_file(
+    tmp_path, monkeypatch, capsys
+):
+    module = _database_orchestrator()
+    monkeypatch.delenv("ATLAS_ENV_FILE", raising=False)
+    custom = tmp_path / "legacy.env"
+    custom.write_text("PROJECT_NAME=legacy\n", encoding="utf-8")
+    monkeypatch.setenv("GENAI_ENV_FILE", str(custom))
+    assert module._env_file_values(tmp_path) == {"PROJECT_NAME": "legacy"}
+    assert "GENAI_ENV_FILE is deprecated" in capsys.readouterr().err
+
+    monkeypatch.setenv("ATLAS_ENV_FILE", str(tmp_path / "missing.env"))
+    with pytest.raises(module.ContractError, match="missing env file"):
+        module._env_file_values(tmp_path)

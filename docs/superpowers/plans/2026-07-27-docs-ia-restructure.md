@@ -72,8 +72,30 @@ Canonical homes to link to (confirmed generated/canonical): quick-start → `doc
 
 - [ ] **Step 2: Rewrite README to the thin structure**
 
-Keep: the `# Atlas` hero (title, tagline, poster, top architecture SVG, wizard screenshot); a single `## Quick start` with the 30-second command block (`./start.sh`) + a one-line pointer to the wizard/quick-start pages; the `<!-- TOPOLOGY:BEGIN -->…END -->` block VERBATIM (do not touch between the markers) under a `## Service topology` heading; a short `## What is Atlas` (2–3 sentence factual overview — no marketing adjectives); a `## Documentation` link-map (bulleted links to the canonical pages from Step 1, mirroring `docs/README.md`); and the `## Contributing` / `## License` / `## Support` boilerplate.
-Remove: §1.1 endpoint/port list (→ link to ports-routes), §1.2/§5.1 CLI combos (→ source-configuration), §1.3/§8 troubleshooting (→ TROUBLESHOOTING), §1.4 wizard prose (→ wizard page), §1.5/§2-tracklist (→ tracks), §3.4 SOURCE matrix (→ source-values), §4 service tables (→ services), §5.2/§6 access+GPU+reuse prose (→ deployment pages), §7.1 project tree (moved in Task 1), §9 hand-curated doc index (→ collapse into the new `## Documentation` map). Target ≤ 200 lines.
+Keep:
+
+- the `# Atlas` hero (title, tagline, poster, top architecture SVG, wizard screenshot);
+- a single `## Quick start` with the 30-second command block (`./start.sh`) + a one-line pointer to the wizard/quick-start pages;
+- the `<!-- TOPOLOGY:BEGIN -->…END -->` block VERBATIM (do not touch between the markers) under a `## Service topology` heading;
+- a short `## What is Atlas` (2–3 sentence factual overview — no marketing adjectives);
+- a `## Documentation` link-map (bulleted links to the canonical pages from Step 1, mirroring `docs/README.md`);
+- and the `## Contributing` / `## License` / `## Support` boilerplate.
+
+Remove:
+
+- §1.1 endpoint/port list (→ link to ports-routes),
+- §1.2/§5.1 CLI combos (→ source-configuration),
+- §1.3/§8 troubleshooting (→ TROUBLESHOOTING),
+- §1.4 wizard prose (→ wizard page),
+- §1.5/§2-tracklist (→ tracks),
+- §3.4 SOURCE matrix (→ source-values),
+- §4 service tables (→ services),
+- §5.2/§6 access+GPU+reuse prose (→ deployment pages),
+- §7.1 project tree (moved in Task 1),
+- §9 hand-curated doc index (→ collapse into the new `## Documentation` map).
+
+Target ≤ 200 lines.
+
 Every retained sentence must be factual and grounded; no diagram-narration captions (the two old image captions were already fixed in PR #1 — keep them terse); no marketing adjectives.
 
 - [ ] **Step 3: Renumber, rebuild, verify ALL gates**

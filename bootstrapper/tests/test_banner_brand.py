@@ -15,8 +15,10 @@ from utils.banner import BannerDisplay
 _DEFAULT_AUTHOR = "Developed by Kaveh Razavi"
 _DEFAULT_REPO = "https://github.com/thekaveh/atlas"
 _DEFAULT_LICENSE = "Apache License 2.0"
+# The services/globals/service.yml BRAND_TAGLINE default, as the wizard uses.
 _DEFAULT_TAGLINE = (
     "A self-hosted, source-configurable, multi-disciplinary engineering platform"
+    " — gen-AI, ML, and data."
 )
 
 
@@ -85,3 +87,32 @@ def test_brand_credits_survive_unreadable_env(monkeypatch):
 def test_brand_tagline_survives_unreadable_env(monkeypatch):
     _patch_env(monkeypatch, RuntimeError("unreadable .env"))
     assert BannerDisplay()._brand_tagline() == _DEFAULT_TAGLINE
+
+
+def test_brand_tagline_fallback_matches_the_manifest_default(monkeypatch):
+    import yaml
+
+    from core.config_parser import ConfigParser
+
+    manifest = yaml.safe_load(
+        (ConfigParser().root_dir / "services/globals/service.yml").read_text(encoding="utf-8")
+    )
+    default = next(v["default"] for v in manifest["env"] if v["name"] == "BRAND_TAGLINE")
+    _patch_env(monkeypatch, {"BRAND_TAGLINE": ""})
+    assert BannerDisplay()._brand_tagline() == default == _DEFAULT_TAGLINE
+
+
+def test_compact_banner_shows_brand_name(monkeypatch):
+    _patch_env(monkeypatch, {"BRAND_NAME": "Acme"})
+    lines = BannerDisplay().get_ascii_art_compact()
+    assert "Acme" in lines[1] and "Atlas" not in lines[1]
+    assert {len(line) for line in lines} == {37}
+
+
+def test_compact_banner_default_is_unchanged_and_long_names_fit(monkeypatch):
+    _patch_env(monkeypatch, {})
+    assert BannerDisplay().get_ascii_art_compact()[1] == "║              Atlas                ║"
+    _patch_env(monkeypatch, {"BRAND_NAME": "X" * 60})
+    lines = BannerDisplay().get_ascii_art_compact()
+    assert {len(line) for line in lines} == {37}
+    assert lines[1].startswith("║ X") and lines[1].endswith("X ║")

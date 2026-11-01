@@ -20,8 +20,8 @@ The services are integrated, not only co-located. Kong routes every `*.localhost
 
 Before you start, install:
 
-- Docker with Docker Compose v2.20.3 or newer (v2.26+ recommended).
-- `uv`, or Python 3.10 or newer.
+- Docker with Docker Compose v2.23.1 or newer (v2.26+ recommended).
+- `uv`, or Python 3.11 or newer.
 - Git.
 
 The wizard preselects the `gen-ai-rag` track: chat UI, workflow automation, vector and graph databases, private web search, and deep research on a CPU Ollama engine. The `all` track (the `.env.example` defaults) adds ComfyUI, JupyterHub, Hermes, MinIO, speech-to-text, text-to-speech and CLIP. Measured setup time, memory and disk per track are not published yet; larger tracks need more of each.
@@ -170,7 +170,7 @@ _Engine-only manifests (speaches, chatterbox) are not listed — they're selecte
 
 [![Atlas architecture: clients reach the Kong gateway, which fronts apps, agents, the LLM core, media services and data stores, plus opt-in compute and observability](./docs/diagrams/architecture.svg)](./docs/diagrams/architecture.svg)
 
-*Kong routes services with declared host aliases; loopback-only interfaces such as Zeppelin bypass the gateway.*
+*Kong routes services with declared host aliases; loopback-only interfaces such as Zeppelin bypass the gateway. The diagram covers the major tiers and selected services; the table above lists every routed family.*
 
 Full port + Kong-route detail: [docs/reference/ports-routes.md](docs/reference/ports-routes.md) and [docs/operations/ports-and-routes.md](docs/operations/ports-and-routes.md). Per-service documentation: [docs/services.md](docs/services.md).
 

@@ -9,11 +9,7 @@ import hashlib
 from pathlib import Path
 import shutil
 import tempfile
-
-try:
-    import tomllib
-except ModuleNotFoundError:  # Python 3.10
-    import tomli as tomllib
+import tomllib
 
 import yaml
 
@@ -45,13 +41,17 @@ RUNTIME_PYPROJECT = LOCK_INPUTS / "runtime-pyproject.toml"
 RUNTIME_UV_LOCK = LOCK_INPUTS / "runtime.uv.lock"
 RUNTIME_REQUIREMENTS = SERVICE / "build/config/runtime-requirements.lock"
 UPSTREAM_URL = "https://github.com/langchain-ai/local-deep-researcher.git"
-BUILD_DEPENDENCIES = ("setuptools==83.0.0", "wheel==0.47.0")
+BUILD_DEPENDENCIES = ("setuptools==84.1.0", "wheel==0.47.0")
 SECURITY_DEPENDENCIES = (
-    "aiohttp>=3.14.3",
+    "aiohttp>=3.14.4",
     "anyio>=4.14.2",
+    "certifi>=2026.10.19",
     "click>=8.3.3",
     "langchain-classic>=1.0.7",
+    "langgraph-api>=0.15.9 ; python_full_version >= '3.11'",
+    "langgraph-sdk>=0.4.6",
     "langsmith>=0.8.18",
+    "opentelemetry-api>=1.45.1 ; python_full_version >= '3.11'",
     "pyjwt>=2.15.1",
     "soupsieve>=2.8.4",
     "urllib3>=2.8.0",

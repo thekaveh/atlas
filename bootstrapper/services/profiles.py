@@ -239,7 +239,7 @@ def profile_launch_sources(services_info, profile, config_parser, pinned) -> dic
         mname_by_var = {m.sources.var: m.name for m in load_manifests(root_dir / "services") if m.sources is not None}
     except Exception:  # noqa: BLE001 - manifest errors surface elsewhere
         return {}
-    sources = _launch_profile_sources(config_parser)
+    sources = launch_profile_source_map(config_parser)
     out = {}
     for svc in services_info:
         var = getattr(svc, "env_var_name", "")
@@ -249,7 +249,7 @@ def profile_launch_sources(services_info, profile, config_parser, pinned) -> dic
     return out
 
 
-def _launch_profile_sources(config_parser) -> dict[str, dict[str, str]]:
+def launch_profile_source_map(config_parser) -> dict[str, dict[str, str]]:
     """The per-profile sources apply_profile_overrides uses: the platform
     bundles merged with the consumer manifest's profile_overrides (consumer
     wins per key). The platform map alone showed a source the consumer had

@@ -415,7 +415,7 @@ async def test_healthy_weaviate_store_requires_durable_pgvector_shadow(monkeypat
     monkeypatch.setattr(store, "_store_pgvector", shadow)
 
     result = await store.store_embedding(
-        "fact-1", "hello", "user", "default", "observation", 1.0, {}
+        "fact-1", "hello", "user", "default", "observation", 1.0
     )
 
     assert result == "fact-1"
@@ -441,7 +441,7 @@ async def test_shadow_failure_fails_closed_so_caller_keeps_pending(monkeypatch):
 
     with pytest.raises(RuntimeError, match="shadow unavailable"):
         await store.store_embedding(
-            "fact-1", "hello", "user", "default", "observation", 1.0, {}
+            "fact-1", "hello", "user", "default", "observation", 1.0
         )
 
     assert store.backend == "weaviate"
@@ -473,7 +473,7 @@ async def test_healthy_weaviate_interval_is_immediately_recallable_after_outage(
 
         async def fetch(self, query, *_args):
             assert shadow_written, "pgvector fallback must see the healthy shadow"
-            assert "ORDER BY embedding::vector(3)" in query
+            assert "ORDER BY embedding::public.vector(3)" in query
             assert "embedding_model = $5" in query
             assert "embedding_generation = 1" in query
             return [
@@ -506,7 +506,7 @@ async def test_healthy_weaviate_interval_is_immediately_recallable_after_outage(
 
     if operation == "store":
         await store.store_embedding(
-            fact_id, "hello", user_id, "default", "observation", 1.0, {}
+            fact_id, "hello", user_id, "default", "observation", 1.0
         )
     else:
         await store.update_embedding(fact_id, "hello", user_id=user_id)
@@ -553,18 +553,36 @@ async def test_runtime_identity_and_completion_bind_full_model_and_dimension(
     assert await store._ensure_weaviate_identity() is False
     assert await store._complete_weaviate_rebuild(27) is True
 
-    assert "ensure_memory_weaviate_identity($1, $2)" in calls[0][0]
+    assert "ensure_memory_weaviate_identity($1::text, $2::integer)" in calls[0][0]
     assert calls[0][1] == ("openai/text-embedding-3-small", 1536)
-    assert "complete_memory_weaviate_rebuild($1, $2, $3)" in calls[1][0]
+    assert (
+        "complete_memory_weaviate_rebuild($1::bigint, $2::text, $3::integer)"
+        in calls[1][0]
+    )
     assert calls[1][1] == (27, "openai/text-embedding-3-small", 1536)
+
+
+def test_per_user_lock_resolves_nothing_through_public():
+    # Roles with CREATE on public could plant public.hashtextextended(text,
+    # integer), a closer match for an untyped `0` than pg_catalog's bigint
+    # form, and it would run as the Backend role (CVE-2018-1058 pattern).
+    import memory_service
+
+    assert memory_service._USER_LOCK_SQL == (
+        "SELECT pg_catalog.pg_advisory_xact_lock("
+        "pg_catalog.hashtextextended($1::text, 0::bigint))"
+    )
 
 
 @pytest.mark.parametrize(
     ("dimension", "expected_expression"),
     [
-        (768, "embedding::vector(768) <=> $1::vector(768)"),
-        (1536, "embedding::vector(1536) <=> $1::vector(1536)"),
-        (3072, "embedding::halfvec(3072) <=> $1::halfvec(3072)"),
+        (768, "embedding::public.vector(768) OPERATOR(public.<=>) "
+              "$1::public.vector(768)"),
+        (1536, "embedding::public.vector(1536) OPERATOR(public.<=>) "
+               "$1::public.vector(1536)"),
+        (3072, "embedding::public.halfvec(3072) OPERATOR(public.<=>) "
+               "$1::public.halfvec(3072)"),
     ],
 )
 @pytest.mark.asyncio
@@ -597,7 +615,7 @@ async def test_pgvector_query_uses_selected_dimension_and_index_expression(
     )
 
     assert expected_expression in queries[0]
-    assert f"vector_dims(embedding) = {dimension}" in queries[0]
+    assert f"public.vector_dims(embedding) = {dimension}" in queries[0]
     assert "embedding_model = $5" in queries[0]
     assert "embedding_generation = 1" in queries[0]
     assert "vector(768)" not in queries[0] if dimension != 768 else True
@@ -667,7 +685,7 @@ async def test_weaviate_failback_requires_explicit_probe_and_is_concurrency_safe
 
     await store.store_embedding(
         "00000000-0000-4000-8000-000000000001",
-        "hello", "user", "default", "observation", 1.0, {},
+        "hello", "user", "default", "observation", 1.0,
     )
     assert probes == 0, "ordinary requests must not cause hidden failback probes"
     assert store.backend == "pgvector"
@@ -863,7 +881,7 @@ async def test_runtime_weaviate_outage_latches_pgvector_without_hidden_reprobes(
 
     for fact_id in ("fact-1", "fact-2"):
         assert await store.store_embedding(
-            fact_id, "content", "user", "default", "observation", 1.0, {}
+            fact_id, "content", "user", "default", "observation", 1.0
         ) is None
 
     assert weaviate.await_count == 1
@@ -896,7 +914,7 @@ async def test_runtime_fallback_marker_failure_does_not_write_pgvector(monkeypat
 
     with pytest.raises(RuntimeError, match="marker down"):
         await store.store_embedding(
-            "fact-1", "content", "user", "default", "observation", 1.0, {}
+            "fact-1", "content", "user", "default", "observation", 1.0
         )
 
     assert store.backend == "weaviate"
@@ -932,7 +950,7 @@ async def test_healthy_weaviate_writes_are_not_serialized_by_probe_barrier(monke
     writes = [
         asyncio.create_task(
             store.store_embedding(
-                fact_id, "x", "user", "default", "observation", 1.0, {}
+                fact_id, "x", "user", "default", "observation", 1.0
             )
         )
         for fact_id in ("fact-1", "fact-2")
@@ -975,7 +993,7 @@ async def test_pgvector_authoritative_operations_run_in_parallel(
     if operation == "store":
         calls = [
             store.store_embedding(
-                f"fact-{index}", "x", "user", "default", "observation", 1.0, {}
+                f"fact-{index}", "x", "user", "default", "observation", 1.0
             )
             for index in range(2)
         ]
@@ -1044,7 +1062,7 @@ async def test_stale_replica_store_fences_to_pgvector_before_weaviate(monkeypatc
     monkeypatch.setattr(store, "_store_pgvector", pgvector)
 
     result = await store.store_embedding(
-        "fact-1", "new", "user", "default", "observation", 1.0, {}
+        "fact-1", "new", "user", "default", "observation", 1.0
     )
 
     assert result is None
@@ -1077,7 +1095,7 @@ async def test_generation_change_during_store_writes_authoritative_pgvector(
     monkeypatch.setattr(store, "_mark_weaviate_dirty", mark)
 
     result = await store.store_embedding(
-        "fact-1", "new", "user", "default", "observation", 1.0, {}
+        "fact-1", "new", "user", "default", "observation", 1.0
     )
 
     assert result is None
@@ -1155,7 +1173,7 @@ async def test_waiting_pgvector_mutation_reenters_generation_fence(
 
     if operation == "store":
         result = await store.store_embedding(
-            "fact-1", "new", "user", "default", "observation", 1.0, {}
+            "fact-1", "new", "user", "default", "observation", 1.0
         )
     else:
         result = await store.update_embedding("fact-1", "new")
@@ -1226,96 +1244,6 @@ async def test_waiting_pgvector_deactivation_reenters_generation_fence(monkeypat
     await store.deactivate_embedding("fact-1", "fact-1")
 
     deactivate.assert_awaited_once_with("fact-1", "fact-1")
-    mark.assert_awaited_once()
-    assert store.backend == "pgvector"
-
-
-@pytest.mark.asyncio
-async def test_generation_change_during_delete_preserves_dirty_retirement(monkeypatch):
-    import memory_store
-
-    class Response:
-        status_code = 204
-
-    class Client:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *_args):
-            return None
-
-        async def delete(self, _url):
-            return Response()
-
-    store = memory_store.MemoryStore(
-        "postgresql://atlas", weaviate_url="http://weaviate", manage_schema=True
-    )
-    store.backend = "weaviate"
-    store.weaviate_state = "ready"
-    store._initialized = True
-    monkeypatch.setattr(memory_store.httpx, "AsyncClient", lambda **_kw: Client())
-    monkeypatch.setattr(
-        store,
-        "_get_weaviate_sync_state",
-        AsyncMock(side_effect=[(False, 70), (True, 71)]),
-    )
-    mark = AsyncMock()
-    monkeypatch.setattr(store, "_mark_weaviate_dirty", mark)
-
-    await store.delete_embedding("fact-1", "fact-1")
-
-    mark.assert_awaited_once()
-    assert store.backend == "pgvector"
-
-
-@pytest.mark.asyncio
-async def test_waiting_pgvector_delete_reenters_generation_fence(monkeypatch):
-    import memory_store
-
-    deleted = []
-
-    class Response:
-        status_code = 204
-
-    class Client:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *_args):
-            return None
-
-        async def delete(self, url):
-            deleted.append(url)
-            return Response()
-
-    store = memory_store.MemoryStore(
-        "postgresql://atlas", weaviate_url="http://weaviate", manage_schema=True
-    )
-    store.backend = "pgvector"
-    store.weaviate_state = "unavailable"
-    store._initialized = True
-
-    class FailbackBarrier:
-        async def __aenter__(self):
-            store.backend = "weaviate"
-            store.weaviate_state = "ready"
-
-        async def __aexit__(self, *_args):
-            return None
-
-    store._transition_lock = FailbackBarrier()
-    monkeypatch.setattr(memory_store.httpx, "AsyncClient", lambda **_kw: Client())
-    monkeypatch.setattr(
-        store,
-        "_get_weaviate_sync_state",
-        AsyncMock(side_effect=[(False, 90), (True, 91)]),
-    )
-    mark = AsyncMock()
-    monkeypatch.setattr(store, "_mark_weaviate_dirty", mark)
-
-    await store.delete_embedding("fact-1", "fact-1")
-
-    assert len(deleted) == 1
     mark.assert_awaited_once()
     assert store.backend == "pgvector"
 
@@ -1745,7 +1673,9 @@ async def test_failback_rebuild_syncs_active_and_retired_without_holding_db_io(
     import memory_store
 
     connection_held = False
-    fetches = 0
+    fetch_args = []
+    clears = []
+    retired = []
     stale_cleanups = []
     rows = [
         {
@@ -1773,12 +1703,15 @@ async def test_failback_rebuild_syncs_active_and_retired_without_holding_db_io(
     ]
 
     class Conn:
-        async def fetch(self, *_args):
-            nonlocal fetches
-            fetches += 1
-            return rows if fetches == 1 else []
+        async def fetch(self, query, *args):
+            # The snapshot carries the intent flag, so a pending active
+            # fact can also have its pgvector shadow repaired.
+            assert "vector_sync_pending" in query
+            fetch_args.append(args)
+            return rows if len(fetch_args) == 1 else []
 
-        async def execute(self, *_args):
+        async def execute(self, query, *args):
+            clears.append((" ".join(query.split()), args))
             return "UPDATE 1"
 
     @asynccontextmanager
@@ -1795,8 +1728,9 @@ async def test_failback_rebuild_syncs_active_and_retired_without_holding_db_io(
         assert not connection_held
         return "00000000-0000-4000-8000-000000000001"
 
-    async def retire(*_args):
+    async def retire(*args):
         assert not connection_held
+        retired.append(args)
 
     async def cleanup(fact_id, *, keep_id):
         assert not connection_held
@@ -1818,6 +1752,72 @@ async def test_failback_rebuild_syncs_active_and_retired_without_holding_db_io(
             "00000000-0000-4000-8000-000000000001",
         )
     ]
+    # Retired facts are deactivated in Weaviate, not left isActive=true.
+    assert retired == [("00000000-0000-4000-8000-000000000002", "legacy-2")]
+    # Each applied intent is drained with an updated_at guard, so a
+    # concurrent edit keeps its pending intent.
+    assert [args for _query, args in clears] == [
+        (rows[0]["id"], "00000000-0000-4000-8000-000000000001", "v1"),
+        (rows[1]["id"], "legacy-2", "v2"),
+    ]
+    for query, _args in clears:
+        assert "SET vector_sync_pending = false" in query
+        assert "WHERE id = $1 AND updated_at = $3" in query
+    assert fetch_args == [(None,), (rows[1]["id"],)]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("superseded", [False, True], ids=["cleared", "superseded"])
+async def test_failback_rebuild_repairs_pending_pgvector_shadow_before_clear(
+    monkeypatch, superseded,
+):
+    """A pending active fact may hold a NULL or stale pgvector shadow. The
+    rebuild re-embeds it before draining the intent; a superseded shadow
+    write leaves the fact pending so the completion CAS refuses."""
+    import memory_store
+
+    fact_id = "00000000-0000-4000-8000-000000000001"
+    row = {
+        "id": fact_id, "user_id": "00000000-0000-4000-8000-000000000010",
+        "namespace": "default", "content": "edited", "fact_type": "observation",
+        "confidence": 1.0, "is_active": True, "weaviate_id": None,
+        "updated_at": "v1", "vector_sync_pending": True,
+    }
+    events = []
+
+    class Conn:
+        async def fetch(self, _query, *args):
+            return [row] if args == (None,) else []
+
+        async def execute(self, query, *args):
+            events.append(("timestamp-clear", args))
+
+    @asynccontextmanager
+    async def acquire(_url):
+        yield Conn()
+
+    async def shadow(written_id, content, *, mark_dirty=True):
+        events.append(("pgvector", written_id, content, mark_dirty))
+        if superseded:
+            raise memory_store.MemoryEmbeddingWriteSuperseded("edited")
+
+    async def clear(_conn, cleared_row, weaviate_id):
+        events.append(("content-clear", cleared_row["id"], weaviate_id))
+
+    store = memory_store.MemoryStore("postgresql://atlas", weaviate_url="http://weaviate")
+    monkeypatch.setattr(memory_store, "acquire_conn", acquire)
+    monkeypatch.setattr(memory_store, "_clear_active_vector_intent", clear)
+    monkeypatch.setattr(store, "_store_weaviate", AsyncMock(
+        side_effect=lambda *_a: events.append(("weaviate",)) or fact_id))
+    monkeypatch.setattr(store, "_delete_stale_weaviate_objects", AsyncMock())
+    monkeypatch.setattr(store, "_store_pgvector", shadow)
+
+    await store._sync_weaviate_from_postgres()
+
+    expected = [("weaviate",), ("pgvector", fact_id, "edited", False)]
+    if not superseded:
+        expected.append(("content-clear", fact_id, fact_id))
+    assert events == expected
 
 
 @pytest.mark.asyncio
@@ -2014,6 +2014,175 @@ async def test_schema_backfill_failure_preserves_old_vector_and_does_not_contrac
     monkeypatch.setattr(memory_store, "acquire_conn", acquire)
 
     with pytest.raises(RuntimeError, match="provider unavailable"):
+        await store._ensure_pgvector_schema_contract()
+
+    assert not any("SET embedding" in query for query, _args in calls)
+    assert not any("contract_memory" in query for query, _args in calls)
+
+
+@pytest.mark.asyncio
+async def test_schema_backfill_leaves_pending_null_vectors_to_the_reconciler(
+    monkeypatch,
+):
+    """A fact the provider rejected at write time stays a NULL vector with
+    pending sync intent. Selecting it for backfill re-sent it on every start,
+    and its rejection failed backend initialization on every restart."""
+    import memory_store
+
+    queries = []
+
+    class Conn:
+        async def fetchrow(self, *_args):
+            return {
+                "active_dimension": 768,
+                "target_dimension": 1536,
+                "phase": "backfill",
+                "pgvector_active_model": "ollama/nomic-embed-text",
+                "pgvector_target_model": "ollama/nomic-embed-text",
+                "pgvector_active_generation": 1,
+                "pgvector_target_generation": 2,
+            }
+
+        async def fetch(self, query, *_args):
+            queries.append(query)
+            return []
+
+        async def execute(self, query, *_args):
+            queries.append(query)
+            return "SELECT 1"
+
+    @asynccontextmanager
+    async def acquire(_url):
+        yield Conn()
+
+    store = memory_store.MemoryStore(
+        "postgresql://atlas", embedding_dimension=1536, manage_schema=True
+    )
+    generate = AsyncMock()
+    monkeypatch.setattr(store, "_generate_embedding", generate)
+    monkeypatch.setattr(memory_store, "acquire_conn", acquire)
+
+    await store._ensure_pgvector_schema_contract()
+
+    selector = " ".join(queries[0].split())
+    assert "WHERE (embedding IS NULL AND NOT vector_sync_pending)" in selector
+    assert (
+        "OR (embedding IS NOT NULL AND (public.vector_dims(embedding) <> 1536"
+        in selector
+    )
+    generate.assert_not_awaited()
+    assert "contract_memory_embedding_contract" in queries[-1]
+
+
+def _backfill_state_conn(rows, calls):
+    """A backfill-phase connection: hands out ``rows`` pages, records writes."""
+
+    class Conn:
+        async def fetchrow(self, *_args):
+            return {
+                "active_dimension": 768,
+                "target_dimension": 1536,
+                "phase": "backfill",
+                "pgvector_active_model": "ollama/nomic-embed-text",
+                "pgvector_target_model": "ollama/nomic-embed-text",
+                "pgvector_active_generation": 1,
+                "pgvector_target_generation": 2,
+            }
+
+        async def fetch(self, *_args):
+            return rows.pop(0)
+
+        async def execute(self, query, *args):
+            calls.append((" ".join(query.split()), args))
+            return "UPDATE 1"
+
+    @asynccontextmanager
+    async def acquire(_url):
+        yield Conn()
+
+    return acquire
+
+
+def _calls_with(calls, needle):
+    return [(query, args) for query, args in calls if needle in query]
+
+
+def _embedding_http_error(status: int, body: str):
+    import httpx
+
+    request = httpx.Request("POST", "http://litellm:4000/v1/embeddings")
+    return httpx.HTTPStatusError(
+        "x", request=request, response=httpx.Response(status, text=body, request=request)
+    )
+
+
+@pytest.mark.asyncio
+async def test_schema_backfill_defers_a_row_the_provider_rejects(monkeypatch, caplog):
+    """A re-embed after a model or dimension change sent every old-contract
+    vector to the provider; one per-row 4xx (here: over the context length)
+    aborted initialization, and with it Backend startup, on every restart.
+    The rejected fact now keeps no vector and stays pending for the reconciler.
+    The same holds for a retired fact whose vector the reconciler left NULL."""
+    import memory_store
+
+    rejected = {"id": "00000000-0000-4000-8000-000000000001", "content": "too long"}
+    accepted = {"id": "00000000-0000-4000-8000-000000000002", "content": "fine"}
+    calls = []
+    monkeypatch.setattr(
+        memory_store, "acquire_conn", _backfill_state_conn([[rejected, accepted], []], calls)
+    )
+
+    store = memory_store.MemoryStore(
+        "postgresql://atlas", embedding_dimension=1536, manage_schema=True
+    )
+    monkeypatch.setattr(store, "_generate_embedding", AsyncMock(side_effect=[
+        _embedding_http_error(400, "input exceeds the context length"), [0.1] * 1536,
+    ]))
+
+    with caplog.at_level("WARNING", logger="memory_store"):
+        await store._ensure_pgvector_schema_contract()
+
+    [(deferred, deferred_args)] = _calls_with(calls, "SET embedding = NULL, vector_sync_pending = true")
+    assert deferred_args == (rejected["id"], "too long", store.embedding_model)
+    assert "(embedding IS NULL AND NOT vector_sync_pending)" in deferred
+    assert "pgvector_target_generation = 2" in deferred
+    [(_written, written_args)] = _calls_with(calls, "SET embedding = $1::public.vector(1536)")
+    assert written_args[1] == accepted["id"]
+    assert "contract_memory_embedding_contract" in calls[-1][0]
+    assert rejected["id"] in caplog.text
+    assert "HTTPStatusError" in caplog.text
+    assert "too long" not in caplog.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status, body", [
+    (401, "unauthorized"),
+    (404, "not found"),
+    (429, "rate limited"),
+    (400, "model not found: ollama/nomic-embed-text"),
+    (500, "internal error"),
+])
+async def test_schema_backfill_still_aborts_on_systematic_provider_failure(
+    monkeypatch, status, body,
+):
+    import httpx
+    import memory_store
+
+    calls = []
+    monkeypatch.setattr(
+        memory_store,
+        "acquire_conn",
+        _backfill_state_conn([[{"id": "fact-1", "content": "first"}], []], calls),
+    )
+    store = memory_store.MemoryStore(
+        "postgresql://atlas", embedding_dimension=1536, manage_schema=True
+    )
+    monkeypatch.setattr(
+        store, "_generate_embedding",
+        AsyncMock(side_effect=_embedding_http_error(status, body)),
+    )
+
+    with pytest.raises(httpx.HTTPStatusError):
         await store._ensure_pgvector_schema_contract()
 
     assert not any("SET embedding" in query for query, _args in calls)
@@ -2310,20 +2479,27 @@ async def test_vectorizer_write_failure_keeps_a_pgvector_shadow_then_raises():
 
 
 @pytest.mark.asyncio
-async def test_systematic_vectorizer_failures_halt_reconcile_without_raising(monkeypatch):
-    """Recall runs reconcile: a vectorizer failing every row must not retry 100 rows."""
+@pytest.mark.parametrize("failure", ["weaviate_vectorizer", "direct_embedder_model"])
+async def test_systematic_vectorizer_failures_halt_reconcile_without_raising(monkeypatch, failure):
+    """Recall runs reconcile: a vectorizer failing every row must not retry 100 rows.
+    The direct LiteLLM call that serves pgvector halts on the same error."""
     import httpx
     import memory_service as mod
 
     calls = {"n": 0}
-    request = httpx.Request("POST", "http://weaviate/v1/objects")
+    status, url, text = {
+        "weaviate_vectorizer": (500, "http://weaviate/v1/objects", "update vector: remote client failed"),
+        "direct_embedder_model": (
+            400, "http://litellm:4000/v1/embeddings", "Invalid model name passed in model=x"),
+    }[failure]
+    request = httpx.Request("POST", url)
 
     class VectorizerFailingStore:
         async def update_embedding(self, **_kwargs):
             calls["n"] += 1
             raise httpx.HTTPStatusError(
                 "x", request=request,
-                response=httpx.Response(500, text="update vector: remote client failed", request=request),
+                response=httpx.Response(status, text=text, request=request),
             )
 
     class FakeConn:
@@ -2672,6 +2848,39 @@ def test_a_completed_research_run_is_not_cancelled_by_its_own_heartbeat():
     assert outcome == "finished" and state["deleted"], (outcome, state)
 
 
+def test_a_late_research_failure_cannot_overwrite_a_cancelled_session():
+    """A late remote response cannot revive a cancelled or expired session:
+    the failure write moves only a pending or running session."""
+    from research_client import ResearchStatus
+    from research_service import ResearchService
+
+    calls = []
+
+    class Conn:
+        async def fetchrow(self, query, *params):
+            calls.append((query, params))
+            return None  # the session is already terminal
+
+        async def execute(self, query, *params):
+            calls.append((query, params))
+
+        async def close(self):
+            pass
+
+    async def connection(*, bounded=True):
+        return Conn()
+
+    service = object.__new__(ResearchService)
+    service._get_db_connection = connection
+    assert asyncio.run(service._record_research_failure("s1", "late")) is False
+
+    [(query, params)] = calls  # no research_logs row for a terminal session
+    assert "status IN ($5, $6)" in query
+    assert params[0] == ResearchStatus.FAILED.value
+    assert params[2:] == ("late", "s1", ResearchStatus.PENDING.value,
+                          ResearchStatus.RUNNING.value)
+
+
 def test_recall_applies_min_confidence_inside_the_vector_query(monkeypatch):
     """Recall asked the vector store for `limit` hits and dropped low-confidence
     ones afterwards, so low-confidence neighbours took the slots and recall
@@ -2876,15 +3085,30 @@ class _ReconcileFacts:
         return [dict(r) for r in rows[:100]]
 
     async def execute(self, query, *args):
-        key, vector_id, stamp = args
         if self.clear_error:
             raise self.clear_error
+        if "WITH vector_owner AS MATERIALIZED" in query:
+            assert "AND fact.updated_at = vector_owner.updated_at" in query
+            return self._clear_vector_owner(args)
+        key, vector_id, stamp = args
         assert "AND updated_at = $3" in query
         row = self.rows[key]
         if stamp is not None and row["updated_at"] == stamp:
             row["vector_sync_pending"] = False
             return "UPDATE 1"
         return "UPDATE 0"
+
+    def _clear_vector_owner(self, args):
+        key, _vector_id, *expected = args
+        row = self.rows[key]
+        actual = [row[field] for field in (
+            "user_id", "namespace", "content", "fact_type", "confidence"
+        )]
+        if (actual != expected or not row["is_active"] or not row["vector_sync_pending"]
+                or row["updated_at"] is None):
+            return "UPDATE 0"
+        row["vector_sync_pending"] = False
+        return "UPDATE 1"
 
     async def close(self):
         self.closed += 1
@@ -2930,6 +3154,35 @@ async def _bounded_reconcile(service, conn, **kwargs):
     assert len(conn.queries) - queries <= 3
     assert len(service._rejected_rows()) <= 10_000
     return result
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("change", [
+    None, ("content", "newer"), ("fact_type", "instruction"),
+    ("confidence", 0.5), ("is_active", False), ("namespace", "other"),
+    ("user_id", UUID(int=3)),
+])
+async def test_reconcile_owns_current_vector_state_after_embedding_trigger(change):
+    service = _reconcile_service()
+    row = _reconcile_fact(1, content="valid")
+    conn = _ReconcileFacts([row])
+    original = service.store.update_embedding
+
+    async def trigger_then_change(**kwargs):
+        vector_id = await original(**kwargs)
+        # Every real embedding UPDATE invokes the shipped updated_at trigger.
+        row["updated_at"] += timedelta(seconds=1)
+        if change is not None:
+            field, value = change
+            row[field] = value
+            row["updated_at"] += timedelta(seconds=1)
+        return vector_id
+
+    service.store.update_embedding = trigger_then_change
+    assert await service._reconcile_pending_vectors(conn=conn) == 1
+    assert row["vector_sync_pending"] is (change is not None)
+    assert service.store.attempts == [row["id"]]
+    assert row["updated_at"] > _RECONCILE_TIME
 
 
 @pytest.mark.asyncio
@@ -3156,7 +3409,12 @@ async def test_reconcile_serializes_pages_and_acquires_owned_connection_inside_l
 
 @asynccontextmanager
 async def _postgres_reconcile_facts(rows):
-    """Opt-in scan/clear SQL fixture; no vector/trigger/auth/RLS qualification."""
+    """Opt-in scan/clear SQL fixture; no vector/trigger/auth/RLS qualification.
+
+    ATLAS_TEST_MEMORY_RECONCILE_POSTGRES_URL must name a disposable database.
+    The fixture creates the scanned memory_facts columns when the table is
+    absent, mirroring services/supabase/db/scripts/14-backend-memory.sql.
+    """
     import os
     import asyncpg
     url = os.environ.get("ATLAS_TEST_MEMORY_RECONCILE_POSTGRES_URL")
@@ -3168,6 +3426,24 @@ async def _postgres_reconcile_facts(rows):
     for row in rows:
         row["id"], row["user_id"] = uuid4(), user
     try:
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS public.memory_facts (
+                id UUID PRIMARY KEY,
+                user_id UUID,
+                namespace VARCHAR(100) NOT NULL DEFAULT 'default',
+                content TEXT NOT NULL,
+                fact_type VARCHAR(50) NOT NULL DEFAULT 'observation'
+                    CHECK (fact_type IN ('observation', 'preference', 'instruction',
+                                         'relationship', 'event')),
+                confidence FLOAT DEFAULT 1.0 CHECK (confidence >= 0.0 AND confidence <= 1.0),
+                weaviate_id VARCHAR(255),
+                vector_sync_pending BOOLEAN NOT NULL DEFAULT false,
+                is_active BOOLEAN DEFAULT true,
+                updated_at TIMESTAMPTZ DEFAULT now()
+            )
+            """
+        )
         await conn.copy_records_to_table("memory_facts", schema_name="public",
             columns=columns, records=[tuple(row[c] for c in columns) for row in rows])
         yield conn
@@ -3278,6 +3554,34 @@ async def test_reconcile_postgres_competing_edit_preserves_guarded_pending_inten
         assert service.store.actions == [("update", row["id"])] * 2
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("vector_edit", [False, True], ids=["trigger-only", "content-edit"])
+async def test_reconcile_postgres_clear_follows_embedding_trigger_version(vector_edit):
+    service = _reconcile_service()
+    row = _reconcile_fact(1, content="valid")
+    async with _postgres_reconcile_facts([row]) as conn:
+        original = service.store.update_embedding
+
+        async def embedding_write(**kwargs):
+            vector_id = await original(**kwargs)
+            # The fixture installs no trigger: advance the version as the shipped one does.
+            await conn.execute("UPDATE public.memory_facts SET updated_at = updated_at"
+                               " + interval '1 second' WHERE id=$1", row["id"])
+            if vector_edit:
+                await conn.execute("UPDATE public.memory_facts SET content='newer',"
+                                   " updated_at = updated_at + interval '1 second'"
+                                   " WHERE id=$1", row["id"])
+            return vector_id
+
+        service.store.update_embedding = embedding_write
+        assert await service._reconcile_pending_vectors(conn=conn) == 1
+        stored = await conn.fetchrow(
+            "SELECT vector_sync_pending, weaviate_id FROM public.memory_facts WHERE id=$1",
+            row["id"])
+        assert stored["vector_sync_pending"] is vector_edit
+        assert stored["weaviate_id"] == (None if vector_edit else "new-vector")
+
+
 def _assert_cache_validation_bound(conn):
     for sql, args in conn.queries:
         if "AS cached" in sql:
@@ -3384,3 +3688,51 @@ async def test_reconcile_mixed_failure_streak_halts_and_preserves_unhandled_tail
     assert await _bounded_reconcile(service, conn) == len(rows) - len(outcomes)
     assert service.store.attempts[len(outcomes)] == UUID(int=len(outcomes)+1)
     assert service._vector_reconcile_upper is None
+
+
+@pytest.mark.asyncio
+async def test_extract_facts_post_commit_pool_saturation_still_reports_completed(
+    monkeypatch, caplog
+):
+    """The facts and session are committed before the vector bookkeeping. A
+    pool-saturation error there used to surface as a Retry-After 503, so a
+    client retry stored every extracted fact a second time."""
+    import logging
+
+    import memory_service
+    from db_connection import PoolSaturatedError
+
+    from tests.test_memory_failure_contracts import (
+        _FakeExtractionConnection, _extraction_service, _weaviate_id_updates,
+    )
+
+    executed: list = []
+    service = _extraction_service(
+        monkeypatch, executed, store_embedding=AsyncMock(return_value="weaviate-1")
+    )
+    acquired = []
+
+    @asynccontextmanager
+    async def acquire(_url="", **_kw):
+        acquired.append(_url)
+        # Session insert, then the fact transaction; then the bookkeeping.
+        if len(acquired) > 2:
+            raise PoolSaturatedError(deadline=5.0, size=10, free=0)
+        yield _FakeExtractionConnection(executed)
+
+    monkeypatch.setattr(memory_service, "acquire_conn", acquire)
+
+    with caplog.at_level(logging.WARNING):
+        result = await service.extract_facts(
+            user_id="00000000-0000-4000-8000-000000000002",
+            messages=[{"role": "user", "content": "I like tea"}],
+            conversation_id="00000000-0000-4000-8000-000000000003",
+        )
+
+    assert result["status"] == "completed"
+    assert result["facts_extracted"] == 1
+    assert [fact["content"] for fact in result["facts"]] == ["user likes tea"]
+    assert len(acquired) == 3
+    assert not _weaviate_id_updates(executed)
+    assert "Post-commit vector state update deferred" in caplog.text
+    assert "error_type=PoolSaturatedError" in caplog.text

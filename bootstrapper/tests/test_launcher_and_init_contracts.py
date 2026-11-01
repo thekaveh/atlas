@@ -1,16 +1,23 @@
 """Contracts in shell entrypoints that no Python test otherwise covers.
 
-Static assertions: these files are dispatched by `./start.sh` long before any
-Python runs, and exercising them for real means building virtualenvs and
-starting containers. Both defects below were reproduced end-to-end by hand
-(a stale venv refusing to upgrade `click`, and a container exiting 0 with an
-empty `model.default`); these keep the fix from silently regressing.
+Mostly static assertions: these files are dispatched by `./start.sh` long
+before any Python runs, and exercising them for real means building
+virtualenvs and starting containers. Both defects below were reproduced
+end-to-end by hand (a stale venv refusing to upgrade `click`, and a container
+exiting 0 with an empty `model.default`); these keep the fix from silently
+regressing. The Hermes default-model selection block is executed directly,
+with `log` and `litellm_get` stubbed, so no HTTP request or container runs.
 """
 
 from __future__ import annotations
 
+import os
 import re
+import shutil
+import subprocess
 from pathlib import Path
+
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 RUN_SH = REPO_ROOT / "bootstrapper" / "_run.sh"
@@ -55,6 +62,18 @@ def test_the_system_python_fallback_detects_a_stale_venv():
     assert '--constraint "$BOOTSTRAPPER_LOCK"' in source
 
 
+def test_the_system_python_fallback_installs_only_the_locked_closure():
+    """Installing "$SELF_DIR" built the source tree into a wheel.
+
+    That copied tests/, utils/, scripts/ and docs/ into site-packages as
+    top-level packages and fetched an unpinned build backend.
+    """
+    source = RUN_SH.read_text(encoding="utf-8")
+    line = next(line for line in source.splitlines() if "pip install" in line)
+    assert '--requirement "$BOOTSTRAPPER_LOCK"' in line
+    assert '"$SELF_DIR"' not in line
+
+
 def test_the_system_python_fallback_has_a_content_sensitive_posix_stamp():
     source = RUN_SH.read_text(encoding="utf-8")
     want = source[source.index("WANT_STAMP=") : source.index("HAVE_STAMP=")]
@@ -73,7 +92,7 @@ def test_the_fallback_does_not_regate_python_version_on_a_refresh():
     a hard launch failure.
     """
     source = RUN_SH.read_text(encoding="utf-8")
-    gate = source.index("Atlas requires Python 3.10 or newer")
+    gate = source.index("Atlas requires Python 3.11 or newer")
     guard = source.rindex('if [ "$VENV_USABLE" = "0" ]; then', 0, gate)
     assert guard < gate, "the version gate escaped the not-usable branch"
     # A pure STAMP refresh (venv usable, declaration changed) must not reach it
@@ -86,7 +105,40 @@ def test_urllib3_is_import_checked():
     assert re.search(r"REQUIRED_IMPORTS=.*urllib3", RUN_SH.read_text(encoding="utf-8"))
 
 
-def test_hermes_init_fails_when_no_default_model_resolves():
+_HERMES_SELECTION_START = 'if [[ -z "${HERMES_DEFAULT_MODEL}" ]]; then'
+_EMPTY_MODEL_INFO = '{"data":[]}'
+
+
+def _run_hermes_selection(available_ids: str, model_info: str = _EMPTY_MODEL_INFO):
+    """Run init-hermes.sh's real default-model selection block, unchecked."""
+    if not shutil.which("bash") or not shutil.which("jq"):
+        pytest.skip("Hermes initializer selection requires bash and jq")
+    source = HERMES_INIT.read_text(encoding="utf-8")
+    selection = _HERMES_SELECTION_START + source.split(_HERMES_SELECTION_START, 1)[1].split(
+        "export TTS_INTERNAL_URL=", 1
+    )[0]
+    harness = (
+        "set -euo pipefail\n"
+        "log() { :; }\n"
+        'litellm_get() { test "$1" = /model/info; printf \'%s\' "$MODEL_INFO"; }\n'
+        + selection + '\nprintf "%s" "$HERMES_DEFAULT_MODEL"\n'
+    )
+    env = {
+        **os.environ, "HERMES_DEFAULT_MODEL": "",
+        "available_ids": available_ids, "MODEL_INFO": model_info,
+    }
+    return subprocess.run(
+        ["bash", "-c", harness], env=env, capture_output=True, text=True,
+        timeout=5, check=False,
+    )
+
+
+@pytest.mark.parametrize(
+    "available_ids",
+    ["", "hermes-agent\nlightrag\nollama/nomic-embed-text"],
+    ids=["empty-catalog", "only-self-and-embedding-routes"],
+)
+def test_hermes_init_fails_when_no_default_model_resolves(available_ids):
     """It warned and exited 0, contradicting its own header contract.
 
     `model.default` empty means every Hermes request 500s — while hermes's
@@ -94,19 +146,39 @@ def test_hermes_init_fails_when_no_default_model_resolves():
     reports HEALTHY with nothing working. The header states the script "Exits
     non-zero on any unexpected condition so docker compose surfaces the failure
     instead of letting hermes start with a broken config."
-    """
-    source = HERMES_INIT.read_text(encoding="utf-8")
-    marker = "could not resolve a default model"
-    assert marker in source, "the failure branch was renamed — re-check this test"
 
-    tail = source[source.index(marker):]
-    # `exit 1` must come before the config is rendered
-    exit_at = tail.index("exit 1")
-    render_at = tail.find("wrote ")
-    assert render_at == -1 or exit_at < render_at
-    assert "log \"⚠ could not auto-select a default model" not in source, (
-        "the warn-and-continue path is back"
+    Executes the branch: a text-order check still passed when this exit
+    became `exit 0`, because it found the later template-missing `exit 1`.
+    """
+    result = _run_hermes_selection(available_ids)
+
+    assert result.returncode == 1, result
+    assert result.stdout == ""
+
+
+def test_hermes_init_has_no_warn_and_continue_path():
+    """Static half of the check above; it runs on hosts without jq too."""
+    assert "log \"⚠ could not auto-select a default model" not in HERMES_INIT.read_text(
+        encoding="utf-8"
+    ), "the warn-and-continue path is back"
+
+
+@pytest.mark.parametrize(
+    "skipped", ["hermes-agent", "lightrag", "ollama/nomic-embed-text", "ollama/bge-m3"],
+)
+def test_hermes_fallback_skips_self_routes_and_embedders(skipped):
+    """Hermes routing to itself or to lightrag loops; an embedder 500s every request.
+
+    `ollama/bge-m3` has no `embed` in its name, so only its LiteLLM
+    `model_info.mode` keeps it out.
+    """
+    model_info = (
+        '{"data":[{"model_name":"ollama/bge-m3","model_info":{"mode":"embedding"}}]}'
     )
+    result = _run_hermes_selection(f"{skipped}\nollama/chat:latest", model_info)
+
+    assert result.returncode == 0, result
+    assert result.stdout == "ollama/chat:latest"
 
 
 def test_a_failed_security_floor_refresh_fails_closed():

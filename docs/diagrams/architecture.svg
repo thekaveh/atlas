@@ -79,8 +79,10 @@
 
   <!-- LiteLLM routing to Ollama, vLLM Metal, and cloud upstreams -->
   <line x1="305" y1="574" x2="325" y2="574" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
-  <path d="M 305 574 C 390 525, 490 525, 575 574" fill="none" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrow-amber)" opacity="0.8"/>
-  <path d="M 305 574 C 485 610, 690 610, 825 574" fill="none" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrow-amber)" opacity="0.8"/>
+  <g opacity="0.8">
+    <path data-source="LiteLLM Gateway" data-target="vLLM Metal" d="M 295 548 L 295 530 L 660 530 L 660 548" fill="none" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
+    <path data-source="LiteLLM Gateway" data-target="Cloud Providers" d="M 295 548 L 295 530 L 940 530 L 940 548" fill="none" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#arrow-amber)"/>
+  </g>
 
   <!-- Selected current media calls: Open WebUI to STT; Backend to ComfyUI -->
   <path d="M 200 360 L 75 380 L 75 650 L 200 650 L 200 668" fill="none" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#arrow-cyan)" opacity="0.5"/>

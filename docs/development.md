@@ -94,13 +94,13 @@ To fix the numbers in every tracked file, run `python scripts/number-markdown-he
 
 ### 3.3. Prose length
 
-The `prose_length` probe of `scripts/check-docs-drift.py` applies STE length limits. It checks the README and every hand-written page in `docs/manifest.yaml` except the CHANGELOG and the ROADMAP:
+The `prose_length` probe of `scripts/check-docs-drift.py` applies STE length limits. It checks the README and every hand-written page in `docs/manifest.yaml` except the CHANGELOG:
 
 - A sentence has at most 25 words. A numbered step has at most 20 words.
 - A paragraph, list item or table cell has at most 75 words and 6 sentences.
 - In `services/*/service.yml`, an env `description` has at most 40 words and no `#NNN` issue number. Each sentence of a capability `note` has at most 25 words.
 
-`.docs-prose-baseline.json` records the current violation count of each file. A count must not go up. When your change lowers a count, run `python scripts/check-docs-drift.py --write-prose-baseline` and commit the new baseline. The command refuses to raise a count unless you add `--allow-prose-increase`. A paragraph that contains `<!-- lint-ok -->` is exempt.
+`.docs-prose-baseline.json` records the current violation count of each file. A count must not go up. When your change lowers a count, run `uv run --project bootstrapper python scripts/check-docs-drift.py --write-prose-baseline` and commit the new baseline. The command refuses to raise a count unless you add `--allow-prose-increase`. A paragraph that contains `<!-- lint-ok -->` is exempt.
 
 ### 3.4. Refresh local previews
 
@@ -131,11 +131,11 @@ atlas/
 │   ├── tools/                 # validate_fragments manifest lint, generate_readme_topology
 │   └── start.py / stop.py     # Entry points
 ├── services/                  # 58 service.yml manifests + 3 doc-only folders (representative subset shown below; see services/ for the full list)
-│   ├── globals/               # Project-wide vars (PROJECT_NAME, BASE_PORT, BRAND_*, tier ordering)
+│   ├── globals/               # Project-wide vars (PROJECT_NAME, BASE_PORT, BRAND_*, informational tiers)
 │   ├── supabase/              # supabase-db, db-init, meta, storage, auth, api, realtime, studio
 │   │   ├── service.yml        # Manifest: env vars, source variants, deps, runtime_sc slice
 │   │   ├── compose.yml        # Compose fragment for the family
-│   │   └── db/                # SQL init scripts + snapshots (bind-mounted into supabase-db-init)
+│   │   └── db/                # SQL init scripts (bind-mounted read-only into supabase-db-init)
 │   ├── litellm/               # LiteLLM gateway + init
 │   │   ├── service.yml
 │   │   ├── compose.yml

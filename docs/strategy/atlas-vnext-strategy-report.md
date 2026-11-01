@@ -5,8 +5,13 @@
 > of the current repository. The core slices of its five first-wave
 > recommendations have since shipped, while planned follow-ups such as Docling
 > MCP remain tracked; several inventory counts and current-tense gap statements
-> below are intentionally historical. See the [current roadmap](../ROADMAP.md)
-> and generated [service catalog](../services.md) for present status.
+> below are intentionally historical.
+>
+> Edits through July 16, 2026 refreshed the Section 2 track registry,
+> `data-eng` membership and scrape-job count. They also recorded the July 3
+> Trino, Redpanda and trading-kit status changes and the July 4 deferral
+> decisions. See the [current roadmap](../ROADMAP.md) and generated
+> [service catalog](../services.md) for present status.
 
 ## 1. Executive Summary
 
@@ -72,7 +77,7 @@ Atlas already has a coherent platform grammar. The repo does not read like an ac
 
 - **LLM observability, trace correlation, and evaluation loops lag behind the stack's service breadth.** Atlas has solid infrastructure observability today: the README and roadmap document a shipped Prometheus + Grafana bundle with 15 scrape jobs and 7 starter dashboards. But the same repo evidence is explicit that this is not the whole story. `docs/ROADMAP.md` positions Langfuse as the missing LLM-specific layer for traces, prompts, evals, and cost attribution, and both the roadmap and the Prometheus/Grafana READMEs mark Loki, Tempo, and OpenTelemetry as future work. In other words, Atlas can observe containers and system metrics better than it can observe cross-service LLM behavior.
 
-- **The stack's breadth still risks onboarding overload without a dashboard and stronger guided paths.** The repo inventory for this report pass includes 35 service manifests spread across six categories, while the route docs enumerate a long list of hostnames, direct ports, and auth modes. The wizard and tracks help, and that is a real mitigation, but the user still needs to understand a substantial amount of infrastructure vocabulary to orient themselves. The current docs are good; the experience is still cognitively dense.
+- **The stack's breadth still risks onboarding overload without a dashboard and stronger guided paths.** The repo inventory for this report pass includes 34 service manifests spread across six categories, while the route docs enumerate a long list of hostnames, direct ports, and auth modes. The wizard and tracks help, and that is a real mitigation, but the user still needs to understand a substantial amount of infrastructure vocabulary to orient themselves. The current docs are good; the experience is still cognitively dense.
 
 - **Vertical-track ambition is only partly productized.** The roadmap frames 3D/game-generation, financial/trading-AI, and RAG-enhancement as strategic tracks, and `bootstrapper/tracks.yml` now exposes a guarded `trading` track for read-only notebook research. The larger gap remains: heavier vertical engines still need onboarding-ready product modes, clearer safety boundaries, and service integrations before they become default experiences.
 
@@ -95,7 +100,11 @@ External competitor research, checked on July 2, 2026, suggests Atlas does not h
 
 ### 3.2. Local Workbenches And Install UX
 
-The local AI workbench market is moving toward compressed time-to-value. [Open WebUI](https://docs.openwebui.com/) already combines an offline-first self-hosted interface with Docker, Python, Kubernetes, and native desktop install paths, and its getting-started docs call out plugins, tool calling, RAG, Open Terminal, and agent connections directly in the onboarding path. [Ollama](https://docs.ollama.com/api/introduction) and [LM Studio](https://lmstudio.ai/docs/developer/core/server) do a similar thing one layer lower: they make local inference feel like a clean product with a predictable local API and compatibility endpoints instead of a system-integration project. [Jan](https://github.com/janhq/jan) packages that same local-first model story into a desktop app with custom assistants, a local OpenAI-compatible server, and MCP support, while [AnythingLLM](https://docs.useanything.com/) bundles agents, API access, browser tooling, chat modes, and vector-database controls into one opinionated application.
+The local AI workbench market is moving toward compressed time-to-value. [Open WebUI](https://docs.openwebui.com/) combines an offline-first self-hosted interface with Docker, Python, Kubernetes and native desktop install paths. Its getting-started docs introduce plugins, tool calling, RAG, Open Terminal and agent connections during onboarding.
+
+[Ollama](https://docs.ollama.com/api/introduction) and [LM Studio](https://lmstudio.ai/docs/developer/core/server) simplify the model-serving layer. They present local inference as a product with a predictable local API and compatibility endpoints, reducing the integration work.
+
+[Jan](https://github.com/janhq/jan) packages that local-first model story as a desktop app with custom assistants, a local OpenAI-compatible server and MCP support. [AnythingLLM](https://docs.useanything.com/) combines agents, API access, browser tooling, chat modes and vector-database controls in one opinionated application.
 
 [Pinokio](https://desktop.pinokio.co/) sharpens a different user expectation: AI apps should be discoverable and one-click installable, more like a curated launcher ecosystem than a repo you hand-configure. Atlas is much stronger once the user wants an integrated environment rather than one app, but it is still weaker than this category on first impressions, app discovery, and "it just works" local ergonomics. The strategic implication is straightforward: Atlas needs a stronger default workbench surface and curated install bundles before it tries to market its full breadth.
 

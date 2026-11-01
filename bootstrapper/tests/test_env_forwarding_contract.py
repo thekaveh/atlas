@@ -52,6 +52,9 @@ FORWARDING_EXCEPTIONS: dict[str, str] = {
     "MLFLOW_ENDPOINT": "endpoint export; JupyterHub gets a literal tracking URI",
     "OPENCLAW_ENDPOINT": "endpoint export; no in-stack consumer",
     "VERBA_ENDPOINT": "endpoint export; no in-stack consumer",
+    "ASSET_WORKER_ENDPOINT": "endpoint export (ATLAS_ASSET_WORKER_CONTAINER_ENDPOINT); no in-stack consumer",
+    "ASSET_BAKER_ENDPOINT": "endpoint export; no in-stack consumer",
+    "BLENDER_MCP_ENDPOINT": "host MCP-client hint (tcp://); virtual family, no container",
     "TRUEFORGE_ENDPOINT": "endpoint export; no in-stack consumer yet (#1159)",
     "LLM_GRAPH_BUILDER_ENDPOINT": "endpoint export; no in-stack consumer",
     "LLM_GRAPH_BUILDER_BACKEND_ENDPOINT": "endpoint export; no in-stack consumer",
@@ -64,13 +67,8 @@ FORWARDING_EXCEPTIONS: dict[str, str] = {
     # -- families without containers (virtual/engine manifests)
     "STT_PROVIDER_SCALE": "virtual engine family; no container to scale",
     "TTS_PROVIDER_SCALE": "virtual engine family; no container to scale",
+    "TTS_PROVIDER_PORT": "wizard display slot mirrored from SPEACHES_PORT or CHATTERBOX_PORT; no container reads it",
     "VLLM_METAL_SCALE": "managed-localhost family; no container to scale",
-    # -- consumed through service_config's weaviate module wiring, not
-    #    compose interpolation
-    "WEAVIATE_LITELLM_API_KEY": (
-        "manifest-declared, folded into weaviate module configuration by "
-        "service_config (see service_config.py, weaviate module wiring)"
-    ),
 }
 
 
@@ -89,8 +87,12 @@ def _generated_keys() -> set[str]:
     from services.service_config import ServiceConfig
 
     parser = ConfigParser(str(ROOT))
+    parser.env_file_path = ROOT / ".env.example"  # committed defaults, never the operator's .env
     config = ServiceConfig(parser)
     config.yaml_config = parser.load_yaml_config()
+    # generate_service_environment() calls load_config(), which re-reads SOURCE values from
+    # the env file and would discard the source sets assigned below.
+    config.load_config = lambda: True
 
     def generate(sources: dict[str, str]) -> set[str]:
         config.service_sources = dict(sources)

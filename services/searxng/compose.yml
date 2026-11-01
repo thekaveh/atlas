@@ -37,7 +37,8 @@ services:
       options:
         max-size: "${LOG_MAX_SIZE:-10m}"
         max-file: "${LOG_MAX_FILE:-3}"
-    # No depends_on: searxng runs with `valkey.url: false` in
+    # No depends_on: searxng runs with `valkey.url: false`, inherited
+    # from the image defaults through `use_default_settings` in
     # config/settings.yml (no redis/valkey usage) — the old
     # redis:service_healthy gate was pure startup coupling.
 

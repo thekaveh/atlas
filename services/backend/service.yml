@@ -28,7 +28,7 @@ capabilities:
   - name: "Adaptive proxy environment placeholders"
     status: stubbed
     verification: documented
-    note: "STT, TTS, document-provider, Neo4j, and Hermes variables are injected for planned paths. No general Backend proxy or Hermes/Neo4j consumer uses all of those settings today."
+    note: "STT, TTS, Neo4j, and Hermes variables are injected for planned paths. No general Backend proxy or Hermes/Neo4j consumer uses all of those settings today."
   - name: "Backend horizontal availability"
     status: not-supported
     verification: documented
@@ -149,7 +149,7 @@ env:
     description: "Ledger/recovery store: 'postgres' (durable, media_spend_ledger table) or 'memory' (process-local, non-durable — testing/ephemeral). Ambiguous FAL submissions use it for recovery even when budget enforcement is disabled."
   - name: MEDIA_BUDGET_CURRENCY
     default: USD
-    description: "Currency label recorded on media spend ledger rows."
+    description: "Currency label recorded on media spend ledger rows. Use 1 to 8 characters; a longer value stops the Backend at startup."
   - name: MEDIA_BUDGET_DEFAULT_USD
     default: ""
     description: "Default per-consumer/project spend cap in USD. Empty = no default cap (ledger records without hard-stop). Per-consumer overrides go in MEDIA_BUDGET_CONSUMER_CAPS."
@@ -211,7 +211,7 @@ env:
     description: "Auto-generated Open WebUI bearer accepted only by memory and legacy ComfyUI routes used by bundled server-side tools and functions."
   - name: BACKEND_PLUGINS_PIP_TIMEOUT_SECONDS
     default: 300
-    description: "Timeout in seconds for `pip install` of backend plugin requirements (plugin_seam) at startup. The install runs at backend import time, so an unbounded hang would block startup; raise for slow networks."
+    description: "Timeout in seconds for `pip install` of backend plugin requirements at startup. A hang blocks Backend startup, so raise it for slow networks. A non-numeric or non-positive value logs a warning and uses 300."
   - name: BACKEND_PLUGINS_SITE_DIR
     default: /tmp/atlas-plugins-site
     description: "Writable directory for plugin requirements (`pip --target`), prepended to sys.path before plugins load; site-packages is root-owned. If it cannot be created, pip installs untargeted. Emptied at each start; a custom directory only once it has the .atlas-plugin-site marker."
@@ -342,7 +342,11 @@ runtime_adaptive:
       RAGAS_EMBEDDINGS_MODEL: ${RAGAS_EMBEDDINGS_MODEL}
       LIGHTRAG_ENDPOINT: ${LIGHTRAG_ENDPOINT}
       LIGHTRAG_API_KEY: ${LIGHTRAG_API_KEY}
-      OTEL_COLLECTOR_ENDPOINT: ${OTEL_COLLECTOR_ENDPOINT}
+      # Mirrors what compose.yml injects for tracing: the OTLP/HTTP endpoint
+      # under the OpenTelemetry SDK name, plus the Atlas enable switch.
+      # OTEL_COLLECTOR_ENDPOINT reaches no container.
+      ATLAS_OTEL_ENABLED: ${ATLAS_OTEL_ENABLED}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_COLLECTOR_OTLP_HTTP_ENDPOINT}
     extra_hosts_adaptation: inherit from llm_provider
 
 runtime_deps:

@@ -100,6 +100,18 @@ def test_confirm_raises_when_finished_but_not_success():
             confirm_driver_status_via_rest(_DRIVER_ID)
 
 
+# Spark's REST status servlet sets success = "submission found", so a failed
+# driver replies with its terminal driverState and success=true.
+@pytest.mark.parametrize("payload", [
+    *({"action": "SubmissionStatusResponse", "driverState": s, "success": True} for s in ("FAILED", "ERROR", "KILLED")),
+    {"action": "SubmissionStatusResponse", "success": False},
+])
+def test_confirm_raises_on_realistic_failure_replies(payload):
+    with patch("urllib.request.urlopen", return_value=_mock_response(payload)):
+        with pytest.raises(RuntimeError, match="did not finish"):
+            confirm_driver_status_via_rest(_DRIVER_ID)
+
+
 def test_confirm_uses_correct_rest_url():
     with patch("urllib.request.urlopen", return_value=_mock_response(_FINISHED)) as m:
         confirm_driver_status_via_rest(_DRIVER_ID, rest_host="spark-master")

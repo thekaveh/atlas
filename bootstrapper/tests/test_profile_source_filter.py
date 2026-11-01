@@ -89,10 +89,9 @@ def _build_steps(profile=None):
     """Helper: call _build_steps_and_rows with the given profile."""
     from ui.textual.integration import _build_steps_and_rows
     from core.config_parser import ConfigParser
-    from utils.hosts_manager import HostsManager
     cp = ConfigParser()
     steps, _, _, _, _, _ = _build_steps_and_rows(
-        cp, HostsManager(),
+        cp,
         track_key=None,
         overridden_services=frozenset(),
         profile=profile,
@@ -257,10 +256,9 @@ def test_cli_pinned_track_and_profile_survive_launch_pruning():
     )
     from ui.textual.screens.wizard_screen import prune_skip_hidden_selections
     from core.config_parser import ConfigParser
-    from utils.hosts_manager import HostsManager
 
     steps, *_ = _build_steps_and_rows(
-        ConfigParser(), HostsManager(),
+        ConfigParser(),
         track_key="gen-ai-rag",
         overridden_services=frozenset(),
         profile="prod",

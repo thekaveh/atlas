@@ -32,7 +32,7 @@ env:
     description: "Docker Compose project name: the prefix for containers, volumes and networks, and the `docker compose -p` namespace. start.sh and stop.sh both read it. `./start.sh --project <name>` (or -p) writes it here. Use a unique name for a submodule consumer."
   - name: BASE_PORT
     default: 63000
-    description: "Base port. Every service's *_PORT derives from this + a fixed offset."
+    description: "Base port for allocated stack ports. Each uses this plus a fixed offset. Native host-service port settings with `_LOCALHOST_` in their names stay independent."
   - name: HOST_BIND_IP
     default: "127.0.0.1:"
     description: "Published-port interface prefix (trailing colon). Default 127.0.0.1: is host-only; 0.0.0.0: is for deliberate remote access. Existing .env files with HOST_BIND_IP= are upgraded by backfill. Empty binds all interfaces except Ray, Zeppelin, mcp-servers, Supabase DB, Docling, Parakeet. LAN Supabase routes: KONG_SUPABASE_EXTRA_HOSTS."
@@ -42,19 +42,19 @@ env:
     description: "Set by ./start.sh for the container runtime: host-gateway on Docker, the literal gateway IP on Podman. If you write .env without ./start.sh, use host-gateway on Docker, or the real bridge IP on rootless setups."
   # Branding (TUI wizard)
   - name: BRAND_NAME
-    description: "Wizard branding: the brand name shown by the wizard and --no-tui banner. Empty uses the Atlas default."
+    description: "Wizard branding: the brand name shown by the wizard and the compact (narrow-terminal) --no-tui banner. Empty uses the Atlas default."
     default: "Atlas"
   - name: BRAND_TAGLINE
     description: "Wizard branding: the tagline shown by the wizard and --no-tui banner. Empty uses the Atlas default."
     default: "A self-hosted, source-configurable, multi-disciplinary engineering platform — gen-AI, ML, and data."
   - name: BRAND_VERSION
-    description: "Wizard branding: the version shown by the wizard and --no-tui banner. Empty uses the Atlas default."
+    description: "Wizard branding: the version shown by the wizard. Empty uses the Atlas default."
     default: "0.1.0"
   - name: BRAND_AUTHOR
     description: "Wizard branding: the author shown by the wizard and --no-tui banner. Empty uses the Atlas default."
     default: "Kaveh Razavi"
   - name: BRAND_AUTHOR_EMAIL
-    description: "Wizard branding: the author email shown by the wizard and --no-tui banner. Empty uses the Atlas default."
+    description: "Wizard branding: the author email shown by the wizard. Empty uses the Atlas default."
     default: "kaveh.razavi@gmail.com"
   - name: BRAND_LICENSE
     description: "Wizard branding: the license shown by the wizard and --no-tui banner. Empty uses the Atlas default."
@@ -77,14 +77,13 @@ env:
 
   # GPU + production-tuning vars — system-wide knobs not owned by any one
   # service. NVIDIA_VISIBLE_DEVICES is read by every GPU-aware container
-  # (parakeet, speaches, chatterbox, docling). Most PROD_ENV_* are reserved
-  # deploy.resources cap defaults NOT yet consumed by any compose fragment
-  # (the generic CPUS/MEM_LIMIT pair and the BACKEND/N8N pairs — backend / n8n
-  # run unbounded; wiring them is a deferred prod-profile follow-up). The
-  # EXCEPTION is PROD_ENV_COMFYUI_CPUS / PROD_ENV_COMFYUI_MEM_LIMIT, which ARE
-  # live — comfyui's container-gpu runtime_sc slice caps deploy.resources with
-  # them (services/comfyui/service.yml). comfyui's CPU variant caps separately
-  # via COMFYUI_CPU_LIMIT / COMFYUI_MEMORY_LIMIT in services/comfyui/compose.yml.
+  # (parakeet, speaches, chatterbox, docling). Every PROD_ENV_* is a reserved
+  # deploy.resources cap default NOT yet consumed by any compose fragment
+  # (backend / n8n run unbounded; wiring them is a deferred prod-profile
+  # follow-up). PROD_ENV_COMFYUI_* appear only in comfyui's container-gpu
+  # runtime_sc slice, which reaches no compose file. Every comfyui container
+  # source is capped by COMFYUI_CPU_LIMIT / COMFYUI_MEMORY_LIMIT in
+  # services/comfyui/compose.yml.
   - name: NVIDIA_VISIBLE_DEVICES
     default: all
     description: "Host-side GPU visibility. Forwarded into every NVIDIA-runtime container."
@@ -107,10 +106,10 @@ env:
     description: "Reserved n8n memory cap. No compose fragment reads it yet; n8n runs unbounded."
     default: 2g
   - name: PROD_ENV_COMFYUI_CPUS
-    description: "CPU limit (cores) for ComfyUI with COMFYUI_SOURCE=container-gpu. The CPU variant uses COMFYUI_CPU_LIMIT instead."
+    description: "Reserved ComfyUI CPU cap (cores). No compose fragment reads it; ComfyUI container sources use COMFYUI_CPU_LIMIT."
     default: 2
   - name: PROD_ENV_COMFYUI_MEM_LIMIT
-    description: "Memory limit for ComfyUI with COMFYUI_SOURCE=container-gpu. The CPU variant uses COMFYUI_MEMORY_LIMIT instead."
+    description: "Reserved ComfyUI memory cap. No compose fragment reads it; ComfyUI container sources use COMFYUI_MEMORY_LIMIT."
     default: 4g
 
   - name: LOG_MAX_SIZE
@@ -137,9 +136,10 @@ rows: []
 # ─────────────────────────────────────────────────────────
 # Bootstrapper runtime data (migrated from the legacy
 # bootstrapper/service-configs.yml). Slice owned by this
-# manifest — stack-wide dependency tiers (data → init → core → app).
-# Synthesized into the runtime dict by
-# bootstrapper/services/sc_synthesizer.py.
+# manifest — an informational grouping of containers by tier
+# (data → init → core → app). sc_synthesizer.py copies it into the
+# runtime dict and the validator checks each name, but nothing reads it
+# at runtime: Compose depends_on orders startup.
 # ─────────────────────────────────────────────────────────
 runtime_dependency_tiers:
   data_tier:

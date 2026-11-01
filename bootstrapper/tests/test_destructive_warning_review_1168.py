@@ -48,11 +48,6 @@ CONSEQUENCES = (
 SAFE_CHOICE = "No — keep existing data"
 
 
-class _HostsManager:
-    def __getattr__(self, _name):
-        return lambda *a, **k: False
-
-
 class _App(App):
     def __init__(self, screen: WizardScreen) -> None:
         super().__init__()
@@ -77,7 +72,7 @@ def _cleanup():
 
 def _cold_start_step() -> PromptStep:
     """The actual destructive step the wizard builds — not a fixture."""
-    steps, *_ = I._build_steps_and_rows(ConfigParser(), _HostsManager())
+    steps, *_ = I._build_steps_and_rows(ConfigParser())
     return next(s for s in steps if s.title.startswith("Cold start"))
 
 

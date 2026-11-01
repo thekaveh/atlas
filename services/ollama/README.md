@@ -8,7 +8,7 @@ For `ollama-localhost`, Ollama must already listen on the host at `OLLAMA_LOCALH
 
 ## 1. Overview
 
-Ollama is the local LLM engine behind the always-on **LiteLLM gateway**. The default consumers do **not** call Ollama directly: Backend, Open WebUI, n8n, JupyterHub, Local Deep Researcher, OpenClaw, [Hermes Agent](../hermes/README.md) and Weaviate vectorization. They read `LITELLM_BASE_URL` + `LITELLM_API_KEY`, and LiteLLM routes each request to the configured Ollama upstream. See [LiteLLM Gateway](../litellm/README.md) for the consumer-facing surface.
+Ollama is the local LLM engine behind the always-on **LiteLLM gateway**. The default consumers do **not** call Ollama directly: Backend, Open WebUI, n8n, JupyterHub, Local Deep Researcher, OpenClaw, [Hermes Agent](../hermes/README.md) and Weaviate vectorization. They call the LiteLLM gateway at `http://litellm:4000`, and LiteLLM routes each request to the configured Ollama upstream. See [LiteLLM Gateway](../litellm/README.md) for the consumer-facing surface.
 
 An operator can point a [LightRAG](../lightrag/README.md) role binding at Ollama directly. That role then bypasses LiteLLM and its catalog request defaults.
 
@@ -68,7 +68,7 @@ For `ollama-localhost`, Atlas cannot set either; the host daemon owns them. Decl
 
 **Concurrency floor for a host daemon.** On `ollama-localhost`, Atlas cannot set the daemon's environment; you own it. Ollama's default is **one** parallel slot, and it queues extra concurrent requests silently. A consumer that needs eight slots is then correct but slow, with nothing in any log. Set `OLLAMA_PARALLEL_MIN` to the slots your workload needs. `./start.sh doctor` reads the daemon's `OLLAMA_NUM_PARALLEL`, fails the check below the floor, and prints the `launchctl` fix.
 
-The check works only on macOS, where the daemon inherits `launchctl setenv`. Elsewhere, the daemon's environment depends on how it was started, with no single readable source. The check then reports `skipped` and never warns.
+The check works only on macOS, where the daemon inherits `launchctl setenv`. Elsewhere, the daemon's environment depends on how it was started, with no single readable source. The check then reports `skipped` and never warns. On macOS, the check also reports `skipped` when `launchctl` holds no value, for example when the variable is set only in a brew services plist.
 
 LiteLLM resolves the upstream URL from `LITELLM_OLLAMA_UPSTREAM` (set automatically by the bootstrapper based on `LLM_PROVIDER_SOURCE`). Consumers should never reference `LITELLM_OLLAMA_UPSTREAM` directly.
 
@@ -148,16 +148,18 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 | Declared model provisioning | partial | tested | Selected and custom models are pulled for container and localhost sources, but per-model failures are non-fatal and can leave a registered model unavailable until retried. |
 | Parallelism and residency tuning | partial | tested | Atlas applies parallel slots, loaded-model limits, KV-cache quantization, flash attention, and keep-alive to containers; host daemons remain operator-owned with macOS-only advisory probes. |
 | Authenticated raw Ollama administration | not-supported | documented | The raw ollama.localhost Kong alias is CORS-only and exposes native model-management APIs without Atlas authentication; restrict network access or use an authentication proxy. |
-| Deploy-resource environment override | stubbed | documented | OLLAMA_DEPLOY_RESOURCES is projected by service configuration, but the Compose fragment does not consume it; CPU and GPU reservations come from typed source runtime data. |
+| Deploy-resource environment override | stubbed | documented | OLLAMA_DEPLOY_RESOURCES is projected by service configuration, but the Compose fragment does not consume it. The fragment has no GPU device reservation, so ollama-container-gpu reaches a GPU only when the Docker default runtime is nvidia. |
 
 ## 7. Troubleshooting
 
+Set `PROJECT_NAME` in your shell to the value in `.env` (default `atlas`) before you run these commands.
+
 ```bash
 # Check Ollama container status
-docker compose ps ollama
+docker ps --all --filter "name=^${PROJECT_NAME}-ollama$"
 
 # Check Ollama logs
-docker compose logs -f ollama
+docker logs -f "${PROJECT_NAME}-ollama"
 
 # Verify LiteLLM can reach Ollama (from inside the network). The LiteLLM image has
 # no curl. For ollama-localhost, use the LITELLM_OLLAMA_UPSTREAM URL from .env.
@@ -205,9 +207,9 @@ _No upstream calls._
 Note: backend, open-webui, n8n, jupyterhub, local-deep-researcher, hermes and weaviate all reach Ollama through LiteLLM. These pairs cover gaps where the LiteLLM proxy hides Ollama-native surface (model management, runtime introspection, private GGUF import).
 
 - **ollama ↔ backend** — *Why:* backend has no view of Ollama runtime state. `/api/ps` exposes loaded models, VRAM footprint, TTL; `/api/show` exposes capabilities and Modelfile. An admin endpoint turns "is the model warm?" from a guess into a fact. *Mechanism:* backend reads `OLLAMA_ENDPOINT` and calls `GET ${OLLAMA_ENDPOINT}/api/ps` + `/api/show`; new `/admin/llm/status` route. *Effort:* small. *Confidence:* high.
-- **ollama ↔ jupyterhub** — *Why:* notebooks doing model research want raw `/api/pull`, `/api/create`, `/api/show`, embeddings, and structured-output `format` — none of which round-trip cleanly through LiteLLM. *Mechanism:* inject `OLLAMA_HOST=http://ollama:11434` into singleuser env; pre-install `ollama` Python client. *Effort:* small. *Confidence:* high.
+- **ollama ↔ jupyterhub** — *Why:* notebooks doing model research want raw `/api/pull`, `/api/create`, `/api/show`, embeddings, and structured-output `format` — none of which round-trip cleanly through LiteLLM. *Mechanism:* inject `OLLAMA_HOST=http://ollama:11434` into the `jupyterhub` container environment; the notebook image already installs the `ollama` Python client. *Effort:* small. *Confidence:* high.
 - **ollama ↔ minio** — *Why:* `ollama-pull` only fetches from the public registry. Private GGUFs (licensed, fine-tuned, air-gapped) cannot enter the stack today; MinIO is provisioned for artifacts. *Mechanism:* new `ollama-import` init step reading `OLLAMA_MINIO_BUCKET` keys, streaming each GGUF to `/root/.ollama/blobs`, then `POST /api/create` with a generated `FROM ./blob` Modelfile. *Effort:* medium. *Confidence:* medium.
-- **ollama ↔ n8n** — *Why:* n8n workflows call LiteLLM but cannot drive `/api/pull`. So "nightly, ensure `qwen3:8b` is pulled" or "on webhook, hot-swap a model" cannot be authored. *Mechanism:* ship an n8n credential pointing at `http://ollama:11434`; n8n's HTTP Request node handles streaming `pull` progress lines. *Effort:* small. *Confidence:* medium.
+- **ollama ↔ n8n** — *Why:* bundled n8n workflows reach models only through LiteLLM, and none uses Ollama's model-management API. An HTTP Request node can already call `http://ollama:11434/api/pull` without authentication when an `ollama-container-*` source runs. *Mechanism:* pass `LITELLM_OLLAMA_UPSTREAM` to n8n and ship an example workflow that calls `/api/pull` there and handles the streamed progress lines. *Effort:* small. *Confidence:* medium.
 
 ### 8.5. Future — Candidate new services
 

@@ -117,6 +117,43 @@ def test_stdout_is_clean_json_through_system_python(tmp_path: Path) -> None:
     assert "📦" in result.stderr
 
 
+def test_uv_branch_installs_only_the_runtime_dependency_set(tmp_path: Path) -> None:
+    """The uv branch must not sync the dev group (pytest, mkdocs, radon, ...)
+    into the operator launcher venv; the pip branch installs only the locked
+    runtime set, and the two branches must agree."""
+    sh = shutil.which("sh")
+    dirname = shutil.which("dirname")
+    if not (sh and dirname):
+        pytest.skip("requires sh and dirname on PATH")
+
+    run_sh = tmp_path / "_run.sh"
+    shutil.copy(_RUN_SH, run_sh)
+    recorded = tmp_path / "uv-argv"
+    tool_bin = tmp_path / "uv-bin"
+    tool_bin.mkdir()
+    fake_uv = tool_bin / "uv"
+    fake_uv.write_text(
+        f"#!/bin/sh\nfor arg in \"$@\"; do printf '%s\\n' \"$arg\"; done > {shlex.quote(str(recorded))}\n",
+        encoding="utf-8",
+    )
+    fake_uv.chmod(0o755)
+    env = {
+        **os.environ,
+        "PATH": os.pathsep.join((str(tool_bin), os.path.dirname(sh), os.path.dirname(dirname))),
+    }
+    result = subprocess.run(
+        [sh, str(run_sh), "probe.py", "--flag"],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+
+    assert result.returncode == 0, result.stderr
+    argv = recorded.read_text(encoding="utf-8").splitlines()
+    assert argv[:2] == ["run", "--no-dev"], argv
+    assert argv[-2:] == ["probe.py", "--flag"], argv
+
+
 def test_system_python_fallback_runs_real_start_help(tmp_path: Path) -> None:
     sh = shutil.which("sh")
     dirname = shutil.which("dirname")
@@ -140,3 +177,64 @@ def test_system_python_fallback_runs_real_start_help(tmp_path: Path) -> None:
     assert result.returncode == 0, result.stderr
     assert "Usage:" in result.stdout
     assert "ModuleNotFoundError" not in result.stderr
+
+
+@pytest.mark.parametrize(
+    "scenario",
+    [(10, 10, False, False, False), (11, 10, True, False, False),
+     (10, 11, True, True, False), (10, 11, False, True, True)],
+)
+def test_fallback_checks_existing_interpreter_before_reuse(
+    tmp_path: Path, scenario: tuple[int, int, bool, bool, bool],
+) -> None:
+    """A cached dependency stamp must not keep an unsupported interpreter alive."""
+    venv_minor, system_minor, accepted, repaired, kept_old = scenario
+    run_sh = tmp_path / "_run.sh"
+    shutil.copy(_RUN_SH, run_sh)
+    for name in ("pyproject.toml", "requirements-locked.txt"):
+        shutil.copy(_RUN_SH.parent / name, tmp_path / name)
+    venv = _bootstrapper_python_wrapper(tmp_path, self_dir=tmp_path)
+    fake_python = '''#!{interpreter}
+import os, pathlib, sys
+minor = int(os.environ["TEST_SYSTEM_MINOR"] if pathlib.Path(sys.argv[0]).name == "python3"
+            else pathlib.Path(os.environ["TEST_MINOR_FILE"]).read_text())
+args = sys.argv[1:]
+if args[0] == "-c":
+    if "sys.version_info" in args[1]:
+        exec(args[1].replace("sys.version_info", repr((3, minor))))
+    raise SystemExit(0)
+if args[:2] == ["-m", "venv"]:
+    if os.environ["TEST_KEEP_OLD"] != "1":
+        pathlib.Path(os.environ["TEST_MINOR_FILE"]).write_text(str(minor))
+    pathlib.Path(os.environ["TEST_REPAIR_FILE"]).touch()
+elif args[:2] == ["-m", "pip"]:
+    pathlib.Path(os.environ["TEST_INSTALL_FILE"]).touch()
+else:
+    print("entrypoint-ran")
+'''.format(interpreter=sys.executable)
+    (venv / "bin" / "python").write_text(fake_python, encoding="utf-8")
+    sh, dirname = shutil.which("sh"), shutil.which("dirname")
+    assert sh and dirname
+    path = _path_without_uv(tmp_path, sh, dirname)
+    (tmp_path / "system-bin" / "python3").write_text(fake_python, encoding="utf-8")
+    minor_file, repair_file, install_file = (
+        tmp_path / name for name in ("minor", "repair", "install")
+    )
+    minor_file.write_text(str(venv_minor), encoding="utf-8")
+    result = subprocess.run(
+        [sh, str(run_sh), "probe.py"], capture_output=True, text=True, timeout=20,
+        env={**os.environ, "PATH": path, "ATLAS_BOOTSTRAPPER_VENV": str(venv),
+             "TEST_SYSTEM_MINOR": str(system_minor), "TEST_MINOR_FILE": str(minor_file),
+             "TEST_REPAIR_FILE": str(repair_file), "TEST_INSTALL_FILE": str(install_file),
+             "TEST_KEEP_OLD": str(int(kept_old))},
+    )
+    assert result.returncode == (0 if accepted else 1), result.stderr
+    assert ("entrypoint-ran" in result.stdout) is accepted
+    assert repair_file.exists() is repaired
+    assert install_file.exists() is (repaired and accepted)
+    # A refusal names the floor. `python3 -m venv` keeps an old interpreter
+    # link, so that refusal also names the one-step fix: delete it and rerun.
+    assert (
+        "Atlas requires Python 3.11 or newer" in result.stderr,
+        f"Delete {venv} and rerun" in result.stderr,
+    ) == (not accepted, kept_old), result.stderr

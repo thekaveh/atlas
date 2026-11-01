@@ -133,12 +133,11 @@ def test_network_failure_returns_empty_list(monkeypatch):
     assert ol.list_library_entries(timeout=1.0) == []
 
 
-def test_min_plausible_entries_threshold_below_fixture_count():
-    """The fixture intentionally has fewer cards than a real page —
-    guards that MIN_PLAUSIBLE_ENTRIES (the fallback trigger consumed
-    by wizard/llm_steps.py) stays well below both the curated
-    fallback's ~5 entries and a real page's 200+, so this test's own
-    fixture size doesn't accidentally cross it and mask a future
-    regression.
+def test_min_plausible_entries_threshold_sits_between_fallback_and_real_page():
+    """MIN_PLAUSIBLE_ENTRIES (consumed at wizard/llm_steps.py:398 and
+    scripts/upstream_drift_watch.py:406) must exceed the curated
+    fallback's ~5 entries and this 6-card fixture. It must also stay
+    well below a real page's 200+, so a healthy scrape never trips the
+    degraded-catalog notice.
     """
     assert 5 < ol.MIN_PLAUSIBLE_ENTRIES < 200

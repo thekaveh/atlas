@@ -12,7 +12,7 @@ This service exists so image-to-3D providers, Blender and external pipelines, an
 |---|---|---|
 | Direct API | `http://localhost:${ASSET_WORKER_PORT}` | Host-side FastAPI service when `ASSET_WORKER_SOURCE=container`. |
 | Kong alias | `http://asset-worker.localhost:${KONG_HTTP_PORT}` | Requires `./start.sh --setup-hosts`; generated only when the service is enabled. |
-| Internal API | `http://asset-worker:8095` | Used by sibling containers through `ASSET_WORKER_ENDPOINT`. |
+| Internal API | `http://asset-worker:8095` | `./start.sh` writes it to `ASSET_WORKER_ENDPOINT`; `./start.sh endpoints export` emits it as `ATLAS_ASSET_WORKER_CONTAINER_ENDPOINT`. No sibling container calls it today. |
 | Health | `GET /health` | Returns `200` only when the configured glTF-Transform executable is available; otherwise returns `503`. |
 | Metrics | `GET /metrics` | Prometheus request counters and duration histograms; intentionally unauthenticated for in-network scraping. |
 
@@ -24,7 +24,7 @@ Every route except `GET /health` and `GET /metrics` requires `Authorization: Bea
 |---|---:|---|
 | `ASSET_WORKER_SOURCE` | `disabled` | Enables the containerized worker when set to `container`. |
 | `ASSET_WORKER_IMAGE` | `python:3.12.9-slim` | Base image for the local build. |
-| `ASSET_WORKER_GLTF_TRANSFORM_VERSION` | `4.5.1` | Expected pinned `@gltf-transform/cli` lock version. An override is a validation guard and must match both `package.json` and `package-lock.json`; update those files together when refreshing the dependency. |
+| `ASSET_WORKER_GLTF_TRANSFORM_VERSION` | `4.5.1` | Expected pinned `@gltf-transform/cli` lock version. The build stops unless it matches both `package.json` and `package-lock.json`; update those files together when refreshing the dependency. Every `.env` holds a copy. Startup replaces a copy that still holds an earlier shipped default and keeps any other value (§7). A shipped bump adds the old default to `RETIRED_DEFAULTS` in `bootstrapper/services/migrations/build_pin_refresh.py`. |
 | `ASSET_WORKER_MAX_UPLOAD_MB` | `200` | Maximum uploaded or MinIO-referenced GLB size in MiB. Raw multipart reception permits 1 MiB additional framing; oversized bodies return `413` before parsing. |
 | `ASSET_WORKER_UPLOAD_TIMEOUT_SECONDS` | `300` | Complete multipart reception deadline in seconds. Must be finite and positive; expiry returns `408`. Excludes conversion and reference requests. |
 | `ASSET_WORKER_MAX_NORMALIZATION_VERTICES` | `250000` | Maximum decoded POSITION entries across distinct supported referenced accessor indices. Exceeding the limit returns `422` before decoding. |
@@ -75,6 +75,8 @@ The complete reception deadline starts after authentication and admission. Progr
 The default is 300 seconds; increase `ASSET_WORKER_UPLOAD_TIMEOUT_SECONDS` for slower links. Invalid values return a configuration `500` before reception.
 Converter timeouts remain separate and return `504`. Reference requests do not use the upload reception deadline.
 
+The Kong route's read/write timeout is 3 × `ASSET_WORKER_TIMEOUT_SECONDS` + 60 s. It covers all three converter commands, so the gateway does not cut a long request.
+
 An admitted upload occupies a mutation slot through reception, parsing, conversion, response completion, and form cleanup. Busy requests return `429` before reading the body.
 Retry after the active request finishes or its reception deadline expires. A cancelled request during conversion retains its slot until owned work and cleanup finish.
 
@@ -87,6 +89,9 @@ Inputs (uploaded or MinIO-referenced) must be self-contained binary glTF 2.0 fil
 
 - a `.gltf` JSON file, whatever its name;
 - a GLB whose JSON chunk does not parse;
+- a GLB whose header has a version other than 2 or a length that differs from the file size;
+- a GLB with a truncated chunk header, or a chunk length that is not a multiple of 4 or runs past the file end;
+- a GLB with more than one JSON chunk, or a BIN chunk that is not the second chunk;
 - a `buffers[].uri` or `images[].uri` that is not a `data:` URI.
 
 These checks run before any converter. A converter would resolve such a URI against the container filesystem or network and embed what it reads. Asset Baker applies the same rules.
@@ -104,15 +109,19 @@ curl -H "Authorization: Bearer ${ASSET_WORKER_API_TOKEN}" \
 | Field | Required | Notes |
 |---|---:|---|
 | `file` | yes | Raw `.glb` file. |
-| `target_height_m` | no | Target height after normalization when `normalize_axis=height`. |
-| `target_width_m` | no | Target max horizontal width after normalization when `normalize_axis=width`. |
+| `target_height_m` | no | Finite positive target height after normalization when `normalize_axis=height`. |
+| `target_width_m` | no | Finite positive target max horizontal width after normalization when `normalize_axis=width`. |
 | `normalize_axis` | no | `height` or `width`; default `height`. |
 | `up_axis` | no | Orientation policy. `keep` (default) trusts +Y-up and only scales, centers and grounds. `auto` searches small pitch/roll tilts for the minimum bounding-box volume; it never rotates a model already within a few degrees of Y-up. `x`/`y`/`z` rotates that axis to +Y (a proper rotation, never a mirror). Only `POSITION` data changes; normals, tangents and node transforms are not rotated or applied. |
-| `simplify_ratio` | no | glTF-Transform simplification ratio, greater than `0` and up to `1`. Without it (and without `collider_decimation`), no simplification runs. |
+| `simplify_ratio` | no | Target fraction of vertices to keep, greater than `0` and up to `1`. The glTF-Transform optimizer stops early at its default error limit (`--simplify-error 0.0001`, 0.01% of mesh extent), so the output can keep more vertices. Without it (and without `collider_decimation`), no simplification runs. |
 | `draco` | no | Enables Draco mesh compression. |
 | `meshopt` | no | Meshopt mesh compression. Default `true`; Draco takes precedence when `draco=true`. Pass `meshopt=false` for an uncompressed mesh, for example to re-import into Blender. |
 | `ktx2` | no | Requests KTX2 texture compression; otherwise WebP is used. KTX2 needs the KTX-Software `ktx` binary, which the stock image does not include, so the request is rejected with `422` there. |
-| `collider_decimation` | no | Ratio for collider decimation, used as the simplification ratio when `simplify_ratio` is absent (same range). |
+| `collider_decimation` | no | Ratio for collider decimation, used as the simplification ratio when `simplify_ratio` is absent (same range and error limit). |
+
+Invalid numeric parameters, including NaN and infinity, return `422` before conversion or object-store access. This applies to multipart and JSON requests.
+
+Normalized coordinates must fit finite glTF float32 values. Geometry that exceeds this range returns `422` before conversion.
 
 ### 4.2. MinIO Referenced GLB
 
@@ -199,7 +208,9 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 
 - `422 Normalization exceeds the <limit> decoded POSITION-entry limit`: reduce the referenced POSITION workload or raise the positive operator setting within available resources.
 - `400 Input must be a GLB file`: use a `.glb` filename and binary GLB payload.
+- `400 Input must be a binary glTF 2.0 GLB`: the input failed a check in §4.1. Re-export it as GLB 2.0 with 4-byte-padded chunks: one JSON chunk, then an optional BIN chunk.
 - `gltf-transform validate` failure: inspect the raw provider output; invalid GLB input is rejected before storage.
+- Build stops with `asset-worker glTF version mismatch`: `ASSET_WORKER_GLTF_TRANSFORM_VERSION` in `.env` differs from the lock files. The message names `package.json`, but the stale value is usually in `.env`. Blank it (startup refills it from `.env.example`) or copy the `.env.example` value, then rerun `./start.sh`.
 - `401 Invalid Asset Worker bearer token`: pass `Authorization: Bearer ${ASSET_WORKER_API_TOKEN}`.
 - `403 Input bucket is not allowed`: add the intended bucket to `ASSET_WORKER_ALLOWED_INPUT_BUCKETS`; do not broaden the list to unrelated or private buckets.
 - Dependency check fails with "Asset Worker requires MinIO": the container waits on `minio` and `minio-init`, and the `gen-ai-creative` track leaves MinIO off. Add `--minio-source container` (for example `./start.sh --track gen-ai-creative --asset-worker-source container --minio-source container`), declare `MINIO_SOURCE: container` in a consumer manifest, or disable Asset Worker.

@@ -145,7 +145,6 @@ class ProseLimits:
     para_sentences: int = 6
 
 
-PROSE_RULES = ("sentence", "step", "para_words", "para_sentences")
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+(?=[A-Z`*\[(])")
 _LIST_ITEM = re.compile(r"^\s*(?:[-*+]|(\d+)[.)])\s+")
 _GENERATED_BEGIN = ("<!-- BEGIN GENERATED", "<!-- TOPOLOGY:BEGIN")
@@ -267,7 +266,6 @@ def prose_counts(findings) -> dict[str, int]:
 
 # Manifest prose feeds .env.example, docs/reference/env-vars.md and the
 # generated capability tables, so its limits are checked at the source.
-MANIFEST_RULES = ("env_description", "env_issue_ref", "capability_note")
 _ISSUE_REF = re.compile(r"(?<![\w&/])#\d{2,5}\b")
 
 

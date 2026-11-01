@@ -322,9 +322,10 @@ def _check_tier_members(manifests: list[Manifest]) -> list[ValidationIssue]:
     """Every name in runtime_dependency_tiers must be a declared container.
 
     Globals owns `runtime_dependency_tiers:` (data_tier, init_tier, core_services,
-    app_tier). Each entry there must match some manifest's containers[] — otherwise
-    the dependency manager will silently skip a dangling tier member (which was
-    the actual XTTS retirement bug post-Tier-3 move).
+    app_tier). The list is informational: nothing reads it at runtime, and
+    Compose depends_on orders startup. Each entry must still match some
+    manifest's containers[], so a retired container (XTTS after the Tier-3
+    move) cannot linger as a stale entry.
     """
     known_containers: set[str] = set()
     for m in manifests:

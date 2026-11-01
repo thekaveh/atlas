@@ -83,14 +83,14 @@ Atlas organizes 58 service families. Its configurable services are grouped into 
 
 <div class="atlas-home__quickstart" markdown="1">
 
-Install Docker with Docker Compose v2.20.3 or newer, `uv` or Python 3.10 or newer, and Git. Clone the repository, then run the commands from its root:
+Install Docker with Docker Compose v2.23.1 or newer, `uv` or Python 3.11 or newer, and Git. Clone the repository, then run the commands from its root:
 
 ```bash
 git clone https://github.com/thekaveh/atlas && cd atlas
 ./start.sh
 ```
 
-`./start.sh` opens the interactive wizard. `./start.sh --track gen-ai-rag` sets the track and skips that question. A source, model or key flag, such as `--llm-provider-source ollama-container-gpu`, skips the wizard. So do launch flags such as `--base-port` and `--detach`. Atlas then launches what `.env` holds, not a track's subset. Full flow, flags and troubleshooting: <a class="atlas-home__quickstart-link" href="quick-start/index.md">Quick Start</a>.
+`./start.sh` opens the interactive wizard. `./start.sh --track gen-ai-rag` sets the track and skips that question. A source, model or key flag, such as `--llm-provider-source ollama-container-gpu`, skips the wizard. So do launch flags such as `--base-port` and `--detach`. Atlas then launches what `.env` holds, not a track's subset; add `--track <key>` to apply one. Full flow, flags and troubleshooting: <a class="atlas-home__quickstart-link" href="quick-start/index.md">Quick Start</a>.
 </div>
 
 ## 3. Platform Topology
@@ -99,7 +99,7 @@ git clone https://github.com/thekaveh/atlas && cd atlas
 
 ![Atlas platform topology: entrypoints, Kong gateway, apps and agents, LLM core, data stores, and cloud-provider boundary](diagrams/img/atlas-platform.png)
 
-<p class="atlas-home__caption">Kong routes every declared *.localhost host; LiteLLM is the default model path for Atlas-managed consumers, with explicit native-provider overrides where supported.</p>
+<p class="atlas-home__caption">Kong routes every declared *.localhost host; LiteLLM is the default model path for Atlas-managed consumers, with explicit native-provider overrides where supported. The diagram covers the major tiers and selected services; the <a href="services.md">service catalog</a> lists every family.</p>
 
 </div>
 

@@ -51,7 +51,8 @@ services:
       AWS_SECRET_ACCESS_KEY: ${MINIO_MLFLOW_SECRET_KEY}
       AWS_DEFAULT_REGION: ${MINIO_REGION:-us-east-1}
       # Mirror `mlflow server`'s internal environment contract so Atlas can
-      # wrap the upstream ASGI app and deny the unfixed AI Gateway SSRF routes.
+      # wrap the upstream ASGI app and keep the unused AI Gateway routes closed
+      # (defence in depth; 3.16.1 fixes CVE-2026-64849 and CVE-2026-71211).
       _MLFLOW_SERVER_FILE_STORE: postgresql://${MLFLOW_DB_USER_URI:?MLFLOW_DB_USER_URI is required}:${MLFLOW_DB_PASSWORD_URI:?MLFLOW_DB_PASSWORD_URI is required}@supabase-db:5432/${MLFLOW_DB_NAME_URI:?MLFLOW_DB_NAME_URI is required}
       _MLFLOW_SERVER_REGISTRY_STORE: postgresql://${MLFLOW_DB_USER_URI:?MLFLOW_DB_USER_URI is required}:${MLFLOW_DB_PASSWORD_URI:?MLFLOW_DB_PASSWORD_URI is required}@supabase-db:5432/${MLFLOW_DB_NAME_URI:?MLFLOW_DB_NAME_URI is required}
       _MLFLOW_SERVER_ARTIFACT_ROOT: mlflow-artifacts:/

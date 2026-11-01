@@ -83,6 +83,9 @@ class _FakePool:
     def get_size(self):
         return self.max_size
 
+    def get_max_size(self):
+        return self.max_size
+
     def get_idle_size(self):
         return self.max_size - self.in_use
 
@@ -317,6 +320,60 @@ def test_saturated_pool_fails_within_the_acquisition_deadline():
     assert "postgresql://" not in str(exc)  # never the DSN
     assert elapsed < 1.0
     _reset_pools()
+
+
+class _TimedOutPool:
+    """asyncpg stand-in whose acquire deadline expires. ``size`` counts only
+    connected holders, as asyncpg's ``Pool.get_size`` does."""
+
+    def __init__(self, *, size, max_size):
+        self.size = size
+        self.max_size = max_size
+
+    async def acquire(self, timeout=None):
+        raise asyncio.TimeoutError()
+
+    def get_size(self):
+        return self.size
+
+    def get_max_size(self):
+        return self.max_size
+
+    def get_idle_size(self):
+        return 0
+
+
+class _Counter:
+    def __init__(self):
+        self.value = 0
+
+    def inc(self):
+        self.value += 1
+
+
+def test_timeout_with_every_slot_connected_and_busy_is_saturation():
+    import db_connection
+    from db_connection import PoolSaturatedError, acquire_bounded
+
+    counter = _Counter()
+    with patch.object(db_connection, "_POOL_SATURATED_TOTAL", counter):
+        with pytest.raises(PoolSaturatedError, match="size=10, free=0"):
+            _run(acquire_bounded(_TimedOutPool(size=10, max_size=10)))
+    assert counter.value == 1
+
+
+def test_timeout_while_a_connection_is_still_opening_is_a_database_error():
+    """asyncpg's acquire deadline also covers connect(): a stalled connect
+    below max_size is a connectivity failure, not saturation."""
+    import db_connection
+    from db_connection import PoolSaturatedError, acquire_bounded
+
+    counter = _Counter()
+    with patch.object(db_connection, "_POOL_SATURATED_TOTAL", counter):
+        with pytest.raises(TimeoutError, match="not established") as exc:
+            _run(acquire_bounded(_TimedOutPool(size=1, max_size=10)))
+    assert not isinstance(exc.value, PoolSaturatedError)
+    assert counter.value == 0
 
 
 def test_timed_out_acquisition_leaks_no_slot():

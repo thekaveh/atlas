@@ -1,6 +1,6 @@
 # Plugin WebSocket Key Authentication Design
 
-> **Status: archived spec** — dated 2026-08-25; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+> **Status: archived spec** — dated 2026-08-25; a point-in-time record kept for archaeology, not current guidance. It landed in `f0d23980` (#977), which has no CHANGELOG entry.
 
 ## 1. Problem
 

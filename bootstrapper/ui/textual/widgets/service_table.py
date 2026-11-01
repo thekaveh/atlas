@@ -39,6 +39,9 @@ from utils.source_availability import source_has_endpoint
 
 from .. import palette as P
 
+# What an off-track row's source cell shows, whatever .env stores (spec §5.2 #5).
+OFF_TRACK_SOURCE_LABEL = "disabled (off-track)"
+
 
 @dataclass
 class ServiceRow:
@@ -67,10 +70,6 @@ class ServiceRow:
     # the services this one depends on. Shown as their own card rows.
     source_options: list[str] = field(default_factory=list)
     depends_on: list[str] = field(default_factory=list)
-
-    @property
-    def is_changed(self) -> bool:
-        return bool(self.default_source) and self.source != self.default_source
 
 
 def _fit(text: str, width: int) -> str:
@@ -152,6 +151,44 @@ def _alias_url(r: ServiceRow) -> str:
     if p:
         return f"http://{alias}:{p}"
     return f"http://{alias}"
+
+
+def _extra_endpoints(r: ServiceRow) -> list[tuple[str, str]]:
+    """The row's extra card endpoints (MinIO's S3 URLs), under the same
+    availability rule as ``_alias_url``: a source without an endpoint
+    advertises none."""
+    return list(r.tooltip_extra) if source_has_endpoint(r.source or "") else []
+
+
+def _source_pairs(r: ServiceRow) -> list[tuple[str, str]]:
+    """The card's leading ``Source`` row(s).
+
+    An off-track row shows the fate the table row shows: the active track
+    force-disables it whatever .env stores, so the stored value is labelled
+    as such instead of reading as the active source.
+    """
+    if not r.off_track:
+        return [("Source", r.source or "—")]
+    pairs = [("Source", OFF_TRACK_SOURCE_LABEL)]
+    if r.source:
+        pairs.append(("Stored source", r.source))
+    return pairs
+
+
+def minio_s3_endpoints(env: dict, kong_port: str) -> list[tuple[str, str]]:
+    """S3 API endpoints for the MinIO Console hover card.
+
+    Derived from ``env`` and ``kong_port`` so callers that re-derive ports
+    for a new base port pass their synthetic env and get matching URLs. A
+    blank port omits its pair rather than showing a guessed default.
+    """
+    pairs: list[tuple[str, str]] = []
+    s3_port = (env.get("MINIO_PORT") or "").strip()
+    if s3_port:
+        pairs.append(("S3 API", f"http://localhost:{s3_port}"))
+    if kong_port:
+        pairs.append(("S3 (Kong)", f"http://s3.minio.localhost:{kong_port}"))
+    return pairs
 
 
 class ServiceTable(Widget):
@@ -253,7 +290,11 @@ class ServiceTable(Widget):
 
         port_max = max(self.MIN_PORT, _maxlen((_port_label(r) or "—") for r in rows))
         name_max = max(self.MIN_NAME, _maxlen(r.name for r in rows))
-        src_max = max(self.MIN_SOURCE, _maxlen((r.source or "—") for r in rows))
+        # Measure what the cell renders: an off-track row shows its label.
+        src_max = max(self.MIN_SOURCE, _maxlen(
+            (OFF_TRACK_SOURCE_LABEL if r.off_track else (r.source or "—"))
+            for r in rows
+        ))
         alias_max = max(
             self.MIN_ALIAS_URL,
             _maxlen((_alias_url(r) or "—") for r in rows),
@@ -313,8 +354,10 @@ class ServiceTable(Widget):
         # Pending-state branch: row decided by the user has not been confirmed yet.
         # All "decided" columns collapse to em-dashes / placeholders; the dot
         # switches to a hollow yellow ◌. Locked rows can never be pending so we
-        # don't need to coordinate with the lock branch.
-        if r.pending:
+        # don't need to coordinate with the lock branch. An off-track row is
+        # never asked about and is force-disabled at launch, so it skips this
+        # branch and renders "disabled (off-track)" (spec §5.2 #5).
+        if r.pending and not r.off_track:
             slot.append("◌", style=P.WARN)
             slot.append("  ")
             if r.configurable:
@@ -368,12 +411,9 @@ class ServiceTable(Widget):
         slot.append(" ")
         # 5) Source — full variant name. Color tracks the source-state
         # ● dot via `style_for_source_choice` so localhost variants
-        # render in the same light blue as the dot itself. (Previously
-        # this branch applied WARN/yellow when `r.is_changed`, which
-        # made a user-picked localhost variant look orange instead of
-        # blue. "Changed from default" is a transient state that the
-        # wizard's command preview already surfaces; the source column
-        # is reserved for steady-state semantics.)
+        # render in the same light blue as the dot itself. The source
+        # column shows steady-state semantics only; the wizard's command
+        # preview surfaces "changed from default".
         # off-track rows render as "disabled (off-track)" per spec §5.2 #5:
         # their effective fate is disabled regardless of the actual source
         # value stored in .env. The actual source is preserved in r.source;
@@ -381,7 +421,7 @@ class ServiceTable(Widget):
         source_style = P.style_for_source_choice(r.source)
         source_label = r.source or "—"
         if r.off_track:
-            source_label = "disabled (off-track)"
+            source_label = OFF_TRACK_SOURCE_LABEL
             source_style = f"dim {source_style}"
         slot.append(_fit(source_label, source_w), style=source_style)
         slot.append(sep)
@@ -488,7 +528,7 @@ class ServiceTable(Widget):
     @staticmethod
     def _tooltip_pairs(row: ServiceRow) -> list[tuple[str, str]]:
         """The (label, value) rows shown in a service's hover card."""
-        pairs: list[tuple[str, str]] = [("Source", row.source or "—")]
+        pairs = _source_pairs(row)
         if row.source_options:
             pairs.append(("Source options", ", ".join(row.source_options)))
         if row.depends_on:
@@ -500,7 +540,7 @@ class ServiceTable(Widget):
         port = (row.port or "").lstrip(":").strip()
         if port and port != "—":
             pairs.append(("Local", f"localhost:{port}"))
-        pairs.extend(row.tooltip_extra)
+        pairs.extend(_extra_endpoints(row))
         return pairs
 
     @staticmethod
@@ -531,11 +571,12 @@ def service_card(row: ServiceRow) -> Text:
         card.append(label.ljust(label_w), style=P.TEXT_MUTED)
         card.append("  ")
         if label == "Source options" and row.source_options:
-            # Accent the selected/active source; dim the rest.
+            # Accent the selected/active source; dim the rest. An off-track
+            # row has no active source, so nothing is accented.
             for i, opt in enumerate(row.source_options):
                 if i:
                     card.append(", ", style=P.TEXT_MUTED)
-                if opt == row.source:
+                if opt == row.source and not row.off_track:
                     card.append(opt, style=f"bold {P.ACCENT}")
                 else:
                     card.append(opt, style=P.TEXT_MUTED)

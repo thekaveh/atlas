@@ -80,11 +80,14 @@ updates:
       # above the server's version produces a protobuf/gRPC skew that
       # breaks every DAG cell with an opaque deserialization error. Bump
       # only in lockstep with services/spark/service.yml::images.default
-      # (the SPARK_IMAGE pin).
+      # (the SPARK_IMAGE pin). The same rule covers the Spark Connect thin
+      # client, pyspark-client, pinned to the same tag in
+      # services/jupyterhub/build/requirements.txt (notebook 09_spark_connect).
       - dependency-name: "pyspark"
-      # fastapi >=0.137 pulls starlette 1.x, whose new internal
-      # `_IncludedRouter` class trips prometheus-fastapi-instrumentator
-      # (its routing iterator assumes every router has a `.path` attr).
+      - dependency-name: "pyspark-client"
+      # fastapi 0.137 added an internal `_IncludedRouter` route class that
+      # trips prometheus-fastapi-instrumentator (its route iterator
+      # assumes every route has a `.path` attr).
       # Hold the ceiling below 0.137 until the upstream instrumentator
       # ships a fix. See PR #88 CI failure on fastapi 0.137.0 +
       # starlette 1.3.1 + prometheus-fastapi-instrumentator 8.0.0.

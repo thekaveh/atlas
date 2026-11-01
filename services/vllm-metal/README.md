@@ -133,6 +133,15 @@ Install verifies the API import before it accepts the repaired environment.
 Stop and status act on the whole process group, so worker
 subprocesses cannot survive their server.
 
+An optional live smoke checks that the managed process serves its model on its
+recorded port. It reads the real `~/.atlas/vllm-metal` state, so it skips
+unless you opt in:
+
+```bash
+ATLAS_VLLM_METAL_LIVE=1 \
+  uv run --project bootstrapper pytest bootstrapper/tests/test_vllm_metal_manager.py -m live -q
+```
+
 ## 5. Architecture & wiring
 
 ```

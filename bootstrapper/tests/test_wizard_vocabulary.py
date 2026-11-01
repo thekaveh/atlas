@@ -24,13 +24,8 @@ from core.config_parser import ConfigParser
 from ui.textual import integration as I
 
 
-class _HostsManager:
-    def __getattr__(self, _name):
-        return lambda *a, **k: False
-
-
 def _steps():
-    steps, *_ = I._build_steps_and_rows(ConfigParser(), _HostsManager())
+    steps, *_ = I._build_steps_and_rows(ConfigParser())
     return steps
 
 

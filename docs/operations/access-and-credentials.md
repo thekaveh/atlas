@@ -54,7 +54,7 @@ A Kong gate applies only through the `*.localhost` alias. The service's direct p
 | Hermes dashboard | `hermes.localhost` | Atlas-generated secret | Kong dashboard basic-auth. No container dashboard host port is published. Backend-network peers remain unauthenticated in insecure mode. | `services/hermes/README.md` |
 | Spark | `spark.localhost`, `spark-history.localhost` | No login | Master and History Server UIs are open. | `services/spark/README.md` |
 | Zeppelin | direct `localhost:${ZEPPELIN_PORT}` (no Kong alias) | No login | Loopback-bound. | `services/zeppelin/README.md` |
-| Weaviate | `weaviate.localhost` | No login | Anonymous access is enabled. | `services/weaviate/README.md` |
+| Weaviate | `weaviate.localhost` | No login | Anonymous access is enabled. Weaviate holds `LITELLM_MASTER_KEY` and sends it to any `text2vec-openai` base URL a caller sets. Weaviate access therefore exposes the LiteLLM master key. | `services/weaviate/README.md` |
 | ComfyUI | `comfyui.localhost` | No login | | `services/comfyui/README.md` |
 | SearXNG | `search.localhost` | No login | Kong rate-limits it; that is not authentication. | `services/searxng/README.md` |
 | Local Deep Researcher | `research.localhost` | No login | | `services/local-deep-researcher/README.md` |

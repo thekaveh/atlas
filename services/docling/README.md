@@ -20,6 +20,11 @@ setup, configuration and integration.
   or device configuration returns `503 unavailable`; health reports the
   converter only and does not claim lazily loaded model artifacts.
 
+**Model cache volume.** The GPU provider downloads its layout and table models
+into the `<project>-doc-gpu-cache` volume. The `<project>-doc-models` and
+`<project>-doc-output` volumes are mounted but unused. They stay declared so
+that cold cleanup still removes them on hosts that ran docling-gpu.
+
 **JSON image references.** Uploaded Docling JSON keeps embedded images. Both
 providers ignore filesystem paths, `file:` URIs and unsupported image schemes
 before enrichment or export. Only `data:`, `http:` and `https:` references

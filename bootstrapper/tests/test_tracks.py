@@ -11,17 +11,13 @@ from tracks import (
     Track,
     TrackRegistry,
     load_tracks,
-    compute_always_on,
+    ALWAYS_ON_SERVICE_KEYS,
     is_in_track,
     normalize_service_key,
     format_track_list,
     UnknownTrackServiceError,
     TracksLoadError,
 )
-
-
-REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-TRACKS_YML = REPO_ROOT / "bootstrapper" / "tracks.yml"
 
 
 # ─── load_tracks ─────────────────────────────────────────────────────
@@ -119,11 +115,13 @@ def test_load_tracks_duplicate_key_raises(tmp_path: Path):
         "tracks": [
             {"key": "foo", "display_name": "First", "description": "d",
              "services": ["weaviate"]},
+            # A real services/ folder key, so only the duplicate guard can
+            # reject this file (an unknown service would raise instead).
             {"key": "foo", "display_name": "Second", "description": "d",
-             "services": ["neo4j-graph-db"]},
+             "services": ["neo4j"]},
         ]
     }))
-    with pytest.raises(Exception, match="duplicate"):
+    with pytest.raises(TracksLoadError, match="duplicate track key 'foo'"):
         load_tracks(p)
 
 
@@ -211,15 +209,14 @@ def test_normalize_service_key_virtual_manifests():
     assert normalize_service_key("doc_processor") == "doc-processor"
 
 
-# ─── compute_always_on ──────────────────────────────────────────────
+# ─── always-on tier ─────────────────────────────────────────────────
 
-def test_compute_always_on_returns_canonical_set():
+def test_registry_always_on_is_the_canonical_set():
     """The three services that survive ServiceDiscovery filtering and
     must be exempt from track-skip predicates."""
-    from core.config_parser import ConfigParser
-    cp = ConfigParser()
-    aon = compute_always_on(cp)
-    assert aon == frozenset({"llm-provider", "prometheus", "grafana"})
+    assert load_tracks().always_on == ALWAYS_ON_SERVICE_KEYS == frozenset(
+        {"llm-provider", "prometheus", "grafana"}
+    )
 
 
 # ─── is_in_track ────────────────────────────────────────────────────
@@ -296,8 +293,7 @@ def test_every_track_service_resolves_via_source_override_manager():
     Without this guard, a future tracks.yml edit that adds a new
     service without a matching CLI/source_mapping seam would compile
     cleanly, ship green CI, and leak the off-track service into
-    every track-restricted launch. Same shipping-class risk as
-    project_post_merge_env_staleness.md class A.
+    every track-restricted launch: a defect that CI cannot see.
     """
     from core.config_parser import ConfigParser
     from utils.source_override_manager import SourceOverrideManager
@@ -328,8 +324,7 @@ def test_every_track_service_resolves_via_source_override_manager():
         f"{sorted(missing)}. Add them to bootstrapper/utils/"
         f"source_override_manager.py::SourceOverrideManager.source_mapping "
         f"(plus the matching Click @option, _flag_values entry, and "
-        f"wizard collector lambda — see project memory "
-        f"project_cli_source_flag_three_seams.md)."
+        f"wizard collector lambda — see docs/CONTRIBUTING-services.md §11.4)."
     )
 
 

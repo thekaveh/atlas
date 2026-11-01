@@ -21,11 +21,12 @@ Catalog data lives in YAML files rather than in this module:
     a section map)
 
 Path resolution (host vs container):
-  1. ``ATLAS_MODELS_DIR`` env var, if set.
+  1. ``ATLAS_MODELS_DIR`` env var, if set. The litellm-init container sets
+     it to ``/atlas-models``, which holds the flat ``<svc>-models.yaml``
+     files that ``_find_yaml`` resolves.
   2. ``<repo_root>/services`` (detected as three parents above this file:
      bootstrapper/utils/llm_catalog.py → bootstrapper/utils → bootstrapper
      → repo_root; then repo_root/services).
-  3. ``/catalog`` (container bind-mount target).
 
 After loading, the module exposes the same public API as the former
 hardcoded version:
@@ -38,8 +39,9 @@ hardcoded version:
   • ``all_catalog_entries()``
 
 To add a model: add an entry to the relevant YAML file.
-To remove one: delete the entry (it stays in DB row history but won't
-be re-UPSERTed).
+To remove one: delete the entry. The next litellm-init run stops
+registering it, unless a user selection or custom list still names it
+(then it is synthesized as an uncurated model).
 
 Maintenance cadence
 -------------------
@@ -132,9 +134,8 @@ def _find_models_dir() -> Path:
     ollama-models.yaml) and litellm/models.yaml (or litellm-models.yaml).
 
     Search order:
-      1. ATLAS_MODELS_DIR env var
+      1. ATLAS_MODELS_DIR env var (litellm-init sets /atlas-models)
       2. <repo_root>/services  (repo_root = 3 parents above this file)
-      3. /catalog              (container bind-mount target)
     """
     env_dir = os.environ.get("ATLAS_MODELS_DIR")
     if env_dir:
@@ -143,7 +144,7 @@ def _find_models_dir() -> Path:
     # bootstrapper/utils/llm_catalog.py  → parent = utils/ → parent = bootstrapper/
     # → parent = repo_root
     repo_root = Path(__file__).resolve().parent.parent.parent
-    candidates = [repo_root / "services", Path("/catalog")]
+    candidates = [repo_root / "services"]
     for candidate in candidates:
         if candidate.is_dir():
             return candidate

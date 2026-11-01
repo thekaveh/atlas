@@ -306,26 +306,29 @@ def test_http_request_timeout_is_absolute_during_trickled_response():
             "N8N_SEED_BASE_URL": f"http://127.0.0.1:{server.server_address[1]}",
             "N8N_SEED_HTTP_TIMEOUT_MS": "60",
         }
-        started = time.monotonic()
+        # Time the request inside Node, after the module loads, so the bound
+        # covers the timeout under test and not interpreter cold start.
         result = subprocess.run(
             [
                 node,
                 "-e",
-                f"require({str(SEEDER)!r}).request('GET', '/trickle').then(r => "
-                "process.stdout.write(String(r.status)))",
+                f"const s = require({str(SEEDER)!r}); const t = Date.now(); "
+                "s.request('GET', '/trickle').then(r => "
+                "process.stdout.write(r.status + ' ' + (Date.now() - t)))",
             ],
             env=env,
             capture_output=True,
             text=True,
-            timeout=2,
+            timeout=10,
             check=False,
         )
-        elapsed = time.monotonic() - started
         server.shutdown()
 
     assert result.returncode == 0
-    assert result.stdout == "0"
-    assert elapsed < 0.8
+    status, elapsed_ms = result.stdout.split()
+    # An idle-only timeout would let the 1.2 s trickle finish with 200.
+    assert status == "0"
+    assert int(elapsed_ms) < 600
 
 
 @pytest.mark.parametrize(

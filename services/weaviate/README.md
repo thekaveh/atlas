@@ -34,6 +34,8 @@ Scripted changes: `./start.sh --weaviate-source <value>` and `--multi2vec-clip-s
 
 Text vectorization goes through the always-on **LiteLLM gateway** via the `text2vec-openai` module. Weaviate receives only `OPENAI_APIKEY`, set to `LITELLM_MASTER_KEY`. Whoever creates a collection (the Backend or a consumer) sets the LiteLLM base URL in `moduleConfig.text2vec-openai.baseURL`. Without it, `text2vec-openai` calls api.openai.com.
 
+Anonymous access is on, so any caller that reaches Weaviate can set a `baseURL` it controls and receive that key. Callers include local processes, Kong clients and backend-network containers. The key is also the LiteLLM admin UI password. Treat Weaviate access as LiteLLM master-key access. Do not widen `HOST_BIND_IP` or publish `weaviate.localhost` through a tunnel.
+
 Weaviate uses whatever embedding model LiteLLM serves: Ollama `nomic-embed-text` by default, or a cloud model. No separate `text2vec-ollama` wiring is needed. The default vectorizer is `none`. Each collection must name its vectorizer and `baseURL`, or supply its own vectors. Otherwise a `text2vec-openai` default would send the master key to api.openai.com. To add embedding models, see [LiteLLM Gateway](../litellm/README.md).
 
 ### 3.2. Multi2Vec CLIP module
@@ -90,12 +92,12 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 
 ## 6. Troubleshooting
 
-Run the `docker compose` commands from the repository root. Add `-p "$PROJECT_NAME"` if the checkout directory name differs from `PROJECT_NAME`.
+`atlas_compose` is the Compose helper from [Troubleshooting](../../docs/quick-start/troubleshooting.md). Define it first and run it from the repository root. Set `WEAVIATE_PORT` in your shell to its value in the active env file (default `63030`).
 
 ```bash
 # Check the three containers: weaviate-init must exit 0 before weaviate starts
-docker compose ps -a weaviate-init weaviate multi2vec-clip
-docker compose logs weaviate-init weaviate
+atlas_compose ps -a weaviate-init weaviate multi2vec-clip
+atlas_compose logs weaviate-init weaviate
 
 # Readiness from the host (container mode)
 curl -fsS http://localhost:${WEAVIATE_PORT}/v1/.well-known/ready
@@ -153,7 +155,7 @@ For general startup and routing issues, see [Troubleshooting](../../docs/quick-s
 
 - **weaviate ↔ doc-processor** — The [Backend ingestion engine](../backend/README.md) already supports Docling extraction, shared chunking, LiteLLM embeddings and explicit-vector Weaviate writes (`vectorizer=none`). Use `POST /api/rag/ingestions` with a [consumer profile](../../docs/reference/consumer-manifest.md#11-rag_ingestion_profiles) for that path. *Remaining:* ship an n8n example for a `Document` collection vectorized by `text2vec-openai` through LiteLLM. *Mechanism:* read Docling JSON, chunk it, then `POST /v1/batch/objects`. *Effort:* medium. *Confidence:* high.
 - **weaviate ↔ n8n** — *Why:* n8n already receives `WEAVIATE_URL`. No shipped example workflow uses n8n's Weaviate node to ingest webhook payloads, search, and feed retrieval into the AI Agent nodes. *Mechanism:* seed an example workflow driving the n8n Weaviate node → `http://weaviate:8080` (REST) or gRPC on `:50051`. *Effort:* small. *Confidence:* high.
-- **weaviate ↔ hermes** — *Why:* Hermes has no long-term memory or retrieval tool. A Weaviate-backed memory skill lets Hermes recall past sessions, store tool outputs, and do semantic lookup over user docs. *Mechanism:* Hermes custom skill posts/queries via the Weaviate Python client to `http://weaviate:8080` with hybrid search; collection seeded by `weaviate-init`. *Effort:* medium. *Confidence:* medium.
+- **weaviate ↔ hermes** — *Why:* Hermes persists memories in `hermes-data` but has no Atlas-wired Weaviate retrieval. A Weaviate-backed memory skill could add semantic lookup across sessions, tool outputs and user documents. *Mechanism:* Hermes custom skill posts/queries via the Weaviate Python client to `http://weaviate:8080` with hybrid search; collection seeded by `weaviate-init`. *Effort:* medium. *Confidence:* medium.
 - **weaviate ↔ comfyui** — *Why:* ComfyUI generates images but they're write-only artifacts on disk. CLIP-vectorizing them into Weaviate enables similarity search over the user's own generation history ("more like this"). *Mechanism:* ComfyUI custom node or n8n post-execution hook → `POST /v1/objects` to a `Generation` collection vectorized by `multi2vec-clip` (already enabled). *Effort:* medium. *Confidence:* medium.
 
 ### 7.5. Future — Candidate new services

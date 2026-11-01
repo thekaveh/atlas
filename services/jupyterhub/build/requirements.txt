@@ -20,6 +20,8 @@ langchain-community>=0.3.0,<0.4
 # notebook 02_langchain_rag imports it directly (ModuleNotFoundError
 # at cell 1 without this pin).
 langchain-openai>=0.2.0
+# Keep the fixed v3 streaming identifier handling across lock refreshes.
+langgraph-sdk>=0.4.6
 # openai was previously only transitive (via llama-index); notebook
 # 01_litellm_basics imports it directly — pin it explicitly.
 openai>=1.40.0
@@ -46,6 +48,16 @@ requests>=2.33.0
 # unreachability exception.
 cryptography>=50.0.0,<51
 
+# Security floors for already-present notebook/runtime dependencies.
+# aiohttp also requires yarl>=1.25.1; keep the OTel family aligned in the lock.
+aiohttp>=3.14.4
+Authlib>=1.9.1
+banks>=2.5.1
+dnspython>=2.9.0
+filelock>=4.2.1
+msgpack==1.2.3  # exact input to the reviewed pip vendoring refresh
+opentelemetry-api>=1.45.1
+
 # Configuration and Utils
 python-dotenv>=1.2.3
 pyyaml>=6.0.1
@@ -53,8 +65,8 @@ pyyaml>=6.0.1
 # Data Science (already in base image, but ensuring versions)
 pandas>=2.2.0
 numpy>=1.26.0
-Pillow>=12.3.0
-setuptools>=83.0.0
+Pillow>=13.0.0
+setuptools>=84.1.0
 
 # Financial research kit - read-only market data and paper portfolio notebooks.
 # Keep live-trading/exchange-key workflows out of this image slice; see
@@ -72,11 +84,11 @@ ccxt==4.5.64
 # Lakehouse clients
 # Keep boto3/s3fs aligned through botocore + fsspec to avoid slow resolver
 # backtracking and to stay compatible with the notebook ML dependency set.
-boto3==1.35.36
-botocore==1.35.36
-aiobotocore==2.15.2
-s3fs==2024.9.0
-fsspec==2024.9.0
+boto3==1.36.3
+botocore==1.36.3
+aiobotocore==2.19.0
+s3fs==2026.6.0
+fsspec==2026.6.0
 pyiceberg[s3fs]==0.11.1
 pyarrow==23.0.1
 duckdb==1.5.5
@@ -93,7 +105,7 @@ jupyter-server-proxy>=4.1.0
 # The pinned upstream Python 3.13 image predates fixes now required by the
 # final-image vulnerability gate. Keep these direct so the image does not
 # silently fall back to the older base-image copies.
-brotli==1.2.0
+brotli==1.2.1
 jupyterlab==4.6.4
 jupyterlab-git==0.54.1
 notebook==7.6.3
@@ -103,9 +115,11 @@ wheel==0.46.2
 # 6.5.9: GHSA-3hv7-mjh2-fv65 (unbounded query-string fields),
 # GHSA-c2m8-h5v5-343r (StaticFileHandler path read) and GHSA-chx6-46f5-w4vp
 # (curl client decompression bomb).
-tornado>=6.5.9
-# PYSEC-2026-3785 through PYSEC-2026-3788, transitive via jupyterlab-git.
-gitpython>=3.1.59
+# 6.6 also fixes folded-header/chunked-body DoS and redirect-host validation.
+tornado>=6.6
+# Transitive via jupyterlab-git. 3.1.59 fixed PYSEC-2026-3785 through
+# PYSEC-2026-3788; the 3.2.1 floor takes the later GitPython security fixes.
+gitpython>=3.2.1
 
 # Deep Learning — PyTorch core
 torch==2.13.0
@@ -113,13 +127,13 @@ torchvision==0.28.0
 
 # Deep Learning — higher-level frameworks
 torchmetrics==1.4.2
-# 3.16.0 is outside the affected range of PYSEC-2026-3865 / CVE-2026-71211
+# 3.17.2 is outside the affected range of PYSEC-2026-3865 / CVE-2026-71211
 # (the MLflow AI Gateway api_base SSRF): GHSA-h7x2-h6g9-p789 records
-# introduced 3.13.0, last_affected 3.15.2, and was re-evaluated on 2026-09-10,
-# after 3.16.0 shipped on 2026-09-04. The notebook uses only the tracking
-# client against the separately deployed MLflow service, so this is a client
-# pin and moves independently of that service's own image pin.
-mlflow==3.16.0
+# introduced 3.13.0, last_affected 3.15.2. It also includes the FileStore
+# trace-path and 3.17.0 scorer/autolog fixes. The notebook uses only the
+# tracking client against the separately deployed MLflow service, so this is a
+# client pin and moves independently of that service's own image pin.
+mlflow==3.17.2
 
 # Graph Neural Networks (PyG). torch-geometric is a pure-Python wheel on PyPI
 # and runs on its native fallbacks, so the image no longer depends on the
@@ -147,14 +161,11 @@ pyspark-client==4.1.2
 # pulls language-model deps used by the ml-lab notebooks that `import nnx`.
 thekaveh-nnx[lm]==0.2.3
 python-louvain  # `community` module — community_detection-karate notebook
-# nltk 3.10.3 carries PYSEC-2026-3740 with no fixed release: the advisory's
-# affected range ends at last_affected 3.10.3, the same release that closed
-# PYSEC-2026-3733..3741. Reaching it needs a caller-controlled model path.
-# install_nlp_assets.py resolves the VADER lexicon from a build-time constant
-# and nlp-assets.toml integrity-locks it, so no artifact location is ever
-# operator- or request-supplied. Atlas maintainers own re-review by 2026-11-27.
-nltk>=3.10.3  # SentimentIntensityAnalyzer; VADER is integrity-locked by nlp-assets.toml
+# NLTK 3.10.4 guards caller-controlled model paths (PYSEC-2026-3740).
+# VADER still loads only the integrity-locked asset from install_nlp_assets.py
+# and nlp-assets.toml.
+nltk>=3.10.4  # SentimentIntensityAnalyzer; VADER is integrity-locked by nlp-assets.toml
 spacy  # tokenizer + lemmatizer; model integrity-locked by nlp-model-requirements.txt and nlp-assets.toml
 torchao>=0.17  # transitive via nnx.quantize_int8 + nnx.qat_train_step_factory — quantization-mnist notebook
 prettytable  # nnx Utils.print_table renderer — used by 14 of 29 notebooks
-fastmcp==3.4.4  # MCP client toolkit — matches services/mcp-servers runtime (#598, #600)
+fastmcp==3.4.10  # MCP client toolkit — matches services/mcp-servers runtime (#598, #600)

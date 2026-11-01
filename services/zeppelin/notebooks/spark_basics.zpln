@@ -1,4 +1,5 @@
 {
+  "id": "basics",
   "paragraphs": [
     {
       "title": "Spark version",
@@ -8,7 +9,7 @@
     },
     {
       "title": "Markdown — intro",
-      "text": "%md\n# Spark + MinIO + Postgres + Trino quickstart\n\nThis notebook confirms the core integrations are wired:\n1. `%spark` — Scala against the in-stack cluster\n2. S3A read/write via MinIO (`s3a://spark-history/...`)\n3. `%trino` — JDBC metadata query when `TRINO_SOURCE=container`\n4. JDBC read against Supabase Postgres\n",
+      "text": "%md\n# Spark + MinIO + Postgres + Trino quickstart\n\nThis notebook confirms the core integrations are wired:\n1. `%spark` — Scala against the in-stack cluster\n2. S3A read/write via MinIO (`s3a://spark-history/...`)\n3. `%trino` — JDBC metadata query when `TRINO_SOURCE=container`\n4. JDBC read against Supabase Postgres, after the one-time `postgres` interpreter setup in services/zeppelin/README.md §4\n",
       "user": "anonymous",
       "config": {"editorSetting": {"language": "markdown"}}
     },

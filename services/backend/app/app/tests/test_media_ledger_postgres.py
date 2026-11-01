@@ -113,7 +113,7 @@ def test_append_inserts_all_columns():
 
 
 def test_reserve_within_cap_admits_under_cap():
-    conn = FakeConn(fetch_rows=[])  # no prior spend
+    conn = FakeConn(fetchrow_result={"reserved": 0, "committed": 0})  # no prior spend
     with _acquire_patch(conn):
         admitted = _run(_store(conn).reserve_within_cap(_record(cost=0.05), cap=10.0))
 
@@ -125,7 +125,7 @@ def test_reserve_within_cap_admits_under_cap():
 
 def test_reserve_within_cap_denies_over_cap_without_insert():
     # Prior committed spend of 9.99 leaves < 0.05 under a 10.0 cap.
-    conn = FakeConn(fetch_rows=[{"status": "committed", "cost": 9.99}])
+    conn = FakeConn(fetchrow_result={"reserved": 0, "committed": 9.99})
     with _acquire_patch(conn):
         admitted = _run(_store(conn).reserve_within_cap(_record(cost=0.05), cap=10.0))
 
@@ -135,21 +135,28 @@ def test_reserve_within_cap_denies_over_cap_without_insert():
     assert conn.inserted() == []
 
 
-def test_totals_splits_reserved_and_committed():
-    conn = FakeConn(
-        fetch_rows=[
-            {"status": "reserved", "cost": 0.05},
-            {"status": "submitted", "cost": 0.03},
-            {"status": "committed", "cost": 0.10},
-            {"status": "released", "cost": 0.99},  # ignored
-            {"status": "denied", "cost": 0.99},  # ignored
-        ]
-    )
+def test_totals_splits_reserved_and_committed_in_one_aggregate():
+    """The scope's rows were fetched and summed in Python, so every budget
+    check grew with the scope's whole history, denial rows included."""
+    from decimal import Decimal
+
+    conn = FakeConn(fetchrow_result={"reserved": Decimal("0.08"), "committed": Decimal("0.10")})
     with _acquire_patch(conn):
         reserved, committed = _run(_store(conn).totals("acme", "default"))
 
-    assert round(reserved, 6) == 0.08
-    assert round(committed, 6) == 0.10
+    assert (reserved, committed) == (0.08, 0.10)
+    [(kind, sql, args)] = conn.calls
+    assert kind == "fetchrow"
+    assert "SUM(COALESCE(final_cost_usd, estimated_cost_usd, 0))" in sql
+    assert "FILTER (WHERE status = ANY($3::text[]))" in sql
+    assert "FILTER (WHERE status = $4)" in sql
+    assert args == ("acme", "default", [STATUS_RESERVED, STATUS_SUBMITTED], "committed")
+
+
+def test_totals_of_an_empty_scope_are_zero():
+    conn = FakeConn(fetchrow_result={"reserved": 0, "committed": 0})
+    with _acquire_patch(conn):
+        assert _run(_store(conn).totals("acme", "default")) == (0.0, 0.0)
 
 
 def test_get_maps_row_to_record():
@@ -179,16 +186,6 @@ def test_get_maps_row_to_record():
     assert rec.operation_id == "op-9"
     assert rec.final_cost_usd == 0.05
     assert rec.artifact_refs == ("https://cdn/x.glb",)
-
-
-def test_rekey_updates_operation_id():
-    conn = FakeConn()
-    with _acquire_patch(conn):
-        _run(_store(conn).rekey("resv-1", "prov-1"))
-
-    updates = [s for s in conn.executed_sql() if "UPDATE public.media_spend_ledger" in s]
-    assert updates and "operation_id = $2" in updates[0]
-    assert conn.calls[0][2] == ("resv-1", "prov-1")
 
 
 def test_settle_if_reserved_uses_atomic_status_predicate():
@@ -234,19 +231,44 @@ def test_prune_exempts_all_unsettled_reservations_and_ages_terminal_disposition(
     assert len(args) == 2
 
 
-def test_rekey_translates_unique_violation_to_domain_collision():
-    class UniqueViolationError(Exception):
-        pass
+class UniqueViolationError(Exception):
+    """Named like asyncpg's, which the store recognises by type name."""
 
-    class CollisionConn(FakeConn):
-        async def execute(self, sql, *args):
-            raise UniqueViolationError("duplicate key")
 
+class _RaisingConn(FakeConn):
+    def __init__(self, error):
+        super().__init__()
+        self._error = error
+
+    async def execute(self, sql, *args):
+        raise self._error
+
+    async def fetchrow(self, sql, *args):
+        raise self._error
+
+
+@pytest.mark.parametrize("call", [
+    lambda store: store.append(_record()),
+    lambda store: store.attach_if_reserved("reservation", "provider-op"),
+])
+def test_unique_violation_becomes_a_domain_collision(call):
     from media_ledger import LedgerOperationCollisionError
 
-    with _acquire_patch(CollisionConn()):
+    with _acquire_patch(_RaisingConn(UniqueViolationError("duplicate key"))):
         with pytest.raises(LedgerOperationCollisionError):
-            _run(_store(None).rekey("reservation", "provider-op"))
+            _run(call(_store(None)))
+
+
+@pytest.mark.parametrize("call", [
+    lambda store: store.append(_record()),
+    lambda store: store.attach_if_reserved("reservation", "provider-op"),
+])
+def test_other_database_errors_propagate_unchanged(call):
+    error = RuntimeError("connection reset")
+    with _acquire_patch(_RaisingConn(error)):
+        with pytest.raises(RuntimeError) as raised:
+            _run(call(_store(None)))
+    assert raised.value is error
 
 
 def test_clear_attach_protection_is_conditional_and_field_scoped():

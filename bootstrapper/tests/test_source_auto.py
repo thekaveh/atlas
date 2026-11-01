@@ -209,6 +209,14 @@ def test_non_auto_and_base_port_pass_through(monkeypatch):
     assert r2 == {"COMFYUI_SOURCE": "disabled"}
 
 
+def test_non_source_auto_value_is_not_a_sentinel(monkeypatch):
+    """DOCLING_USE_OCR=auto is a documented value, not a ``*_SOURCE`` sentinel."""
+    _patch_caps(monkeypatch, _caps())
+    s = _starter({})
+    r = s._resolve_auto_source_overrides({"DOCLING_USE_OCR": "auto"})
+    assert (r, s.banner.messages) == ({"DOCLING_USE_OCR": "auto"}, [])
+
+
 def test_quiet_mode_emits_no_banner(monkeypatch):
     _patch_caps(monkeypatch, _caps(apple_silicon=True))
     s = _starter({"COMFYUI_SOURCE": "container-cpu"})
@@ -343,3 +351,16 @@ def test_auto_sources_check_registered_in_doctor():
     import start
 
     assert start._doctor_check_auto_sources in start.DOCTOR_CHECKS
+
+
+def test_doctor_ignores_a_non_source_auto_value():
+    import start
+
+    s = start.AtlasStarter.__new__(start.AtlasStarter)
+    s.config_parser = NS(
+        parse_env_file=lambda: {"DOCLING_USE_OCR": "auto"},
+        load_consumer_config=lambda: NS(env_overrides={"DOCLING_USE_OCR": "auto"}),
+    )
+    s.root_dir = REPO_ROOT
+    result = start._doctor_check_auto_sources(s)
+    assert (result["status"], result["message"]) == ("pass", "No <SVC>_SOURCE: auto declarations.")

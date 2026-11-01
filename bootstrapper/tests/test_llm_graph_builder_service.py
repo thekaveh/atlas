@@ -48,7 +48,7 @@ def test_llm_graph_builder_manifest_admission_contract() -> None:
     }
     assert manifest["depends_on"]["required"] == ["neo4j", "litellm", "kong"]
     assert set(manifest["depends_on"]["optional"]) >= {"minio", "docling"}
-    # minio + docling are future integration points (README §5, §10.4), not
+    # minio + docling are future integration points (README §5, §11.4), not
     # current runtime calls — the compose wires only GCS + neo4j + litellm. They
     # remain in depends_on.optional as future-ready ordering hints but are not in
     # data_flow.calls (which drives the Current-Downstream deps table).
@@ -200,6 +200,33 @@ def test_llm_graph_builder_scale_endpoint_and_dependency_gate() -> None:
             "ollama/llama3.1,http://litellm:4000/v1,${LITELLM_MASTER_KEY}"
         ),
     }
+
+
+@pytest.mark.parametrize(
+    ("env", "model"),
+    [
+        pytest.param(
+            {"LLM_GRAPH_BUILDER_LLM_MODEL": "openai/override", "LITELLM_DEFAULT_MODEL": "ollama/llama3.1"},
+            "openai/override",
+            id="explicit-override-wins",
+        ),
+        pytest.param({"LITELLM_DEFAULT_MODEL": "ollama/llama3.1"}, "ollama/llama3.1", id="litellm-default"),
+        pytest.param({}, "gpt-4o-mini", id="built-in-fallback"),
+    ],
+)
+def test_llm_graph_builder_model_follows_documented_precedence(env, model) -> None:
+    """service.yml: empty LLM_GRAPH_BUILDER_LLM_MODEL uses
+    LITELLM_DEFAULT_MODEL, then gpt-4o-mini."""
+    sc = ServiceConfig(config_parser=MagicMock())
+    sc.config_parser.parse_env_file.return_value = env
+    sc.service_sources = {
+        "LLM_GRAPH_BUILDER_SOURCE": "container",
+        "NEO4J_GRAPH_DB_SOURCE": "container",
+    }
+
+    assert sc._generate_llm_graph_builder_config()["LLM_GRAPH_BUILDER_LITELLM_MODEL_CONFIG"] == (
+        f"{model},http://litellm:4000/v1,${{LITELLM_MASTER_KEY}}"
+    )
 
 
 def test_llm_graph_builder_compose_contract() -> None:

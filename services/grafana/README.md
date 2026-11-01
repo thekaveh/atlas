@@ -57,6 +57,8 @@ The provisioned datasource reads `${PROMETHEUS_ENDPOINT}`. When Prometheus is `d
 | `n8n.json` | n8n | Executions per minute, p50/p95 duration, active workflows, execution-data writes, uptime |
 | `app-tier.json` | App tier (Weaviate + MinIO) | Weaviate request rate and query p95, MinIO S3 request rate and cluster usage |
 
+Panels state their units. Stat and bar-gauge panels do not use the Grafana default of red at 80. They show one fixed colour, and the Stack Overview `Targets DOWN` stat turns red when any target is down. The Stack Overview `HTTP request rate (FastAPI services, by job)` panel shows one series per scrape job. The jobs are the Backend, and the Asset Worker and Asset Baker when they run.
+
 All dashboards reference the Prometheus datasource by UID `Prometheus`, set explicitly in `provisioning/datasources/prometheus.yml`.
 
 ## 5. Capabilities & limitations
@@ -75,7 +77,9 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 ## 6. Troubleshooting
 
 - **"Datasource unreachable" on every panel** — Prometheus is `disabled`; Grafana runs, but its Prometheus datasource has no target. Set `PROMETHEUS_SOURCE=container` in `.env` and re-run `./start.sh`. The datasource URL is interpolated at provisioning time, so a Grafana restart is required after changing `PROMETHEUS_ENDPOINT`.
-- **Admin login rejected** — check `GRAFANA_ADMIN_PASSWORD` in `.env`. The bootstrapper generates it only when the value is empty (first run). Grafana reads the value only when it first creates its database in the `grafana-data` volume, so editing `.env` afterwards does not change the stored password. Apply a new one with `docker exec ${PROJECT_NAME}-grafana grafana cli admin reset-admin-password "$GRAFANA_ADMIN_PASSWORD"` after updating `.env`, or remove the `grafana-data` volume to start over.
+- **Admin login rejected** — check `GRAFANA_ADMIN_PASSWORD` in `.env`. The bootstrapper generates it only when the value is empty (first run). Grafana reads the value only when it first creates its database in the `grafana-data` volume, so editing `.env` afterwards does not change the stored password.
+
+    Set `PROJECT_NAME` and `GRAFANA_ADMIN_PASSWORD` in your shell to their values in the active env file. Then apply the new password with `docker exec ${PROJECT_NAME}-grafana grafana cli admin reset-admin-password "$GRAFANA_ADMIN_PASSWORD"`, or remove the `grafana-data` volume to start over.
 - **Stack Overview "Targets DOWN" is never 0** — the scrape list is static, so disabled services count as down. By default these are `asset-worker` and `asset-baker`; narrower tracks add n8n, Weaviate, MinIO and others. Check Prometheus' Targets page before you treat the number as an outage.
 - **Dashboards missing** — Grafana's provisioner watches the directory every 30s (`updateIntervalSeconds: 30`). If a dashboard JSON has a syntax error, Grafana logs it under "Provisioning errors" and skips the file.
 - **Redirect URL contains internal `grafana` hostname instead of `grafana.localhost`** — Kong's `preserve_host: True` flag must be set on the Grafana route. The route generator handles this; verify with `curl -I http://grafana.localhost:${KONG_HTTP_PORT}` (default 63000).

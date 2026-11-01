@@ -37,7 +37,7 @@ When MLflow is enabled, `supabase-db-init` creates its Postgres database and rol
 - proxied artifacts under `s3://${MINIO_BUCKET_MLFLOW}`;
 - S3-compatible access through MinIO at `http://minio:9000`.
 
-JupyterHub receives `MLFLOW_TRACKING_URI=http://mlflow:5000` when MLflow is enabled, and its image includes the MLflow Python client (`mlflow==3.16.0`). `11_financial_research_kit.ipynb` logs to MLflow when this variable is set.
+JupyterHub receives `MLFLOW_TRACKING_URI=http://mlflow:5000` when MLflow is enabled, and its image includes the MLflow Python client (`mlflow==3.17.2`). The notebook client pin moves independently of the tracking server image (`ghcr.io/mlflow/mlflow:v3.16.1`). `11_financial_research_kit.ipynb` logs to MLflow when this variable is set.
 
 Minimal notebook smoke:
 

@@ -73,6 +73,57 @@ def test_finance_helper_computes_paper_portfolio_without_exchange_side_effects()
     assert summary["unrealized_pnl"] == pytest.approx(100.0)
     assert summary["positions"][0]["weight"] == pytest.approx(6400.0 / 10600.0)
     assert summary["positions"][1]["unrealized_pnl"] == pytest.approx(-300.0)
+    assert summary["unrealized_pnl_pct"] == pytest.approx(100.0 / 10500.0)
+
+
+_LONG_AND_SHORT = [
+    {"symbol": "L", "quantity": 1, "cost_basis": 100.0},
+    {"symbol": "S", "quantity": -1, "cost_basis": 100.0},
+]
+
+
+def test_finance_helper_signs_a_losing_short_by_its_pnl() -> None:
+    """A losing short reported +10 % and weight 1.0."""
+    helper = _load_helper()
+
+    short = helper.paper_portfolio_summary(
+        positions=[{"symbol": "X", "quantity": -1, "cost_basis": 100.0}],
+        marks={"X": 110.0},
+    )
+    row = short["positions"][0]
+    assert row["unrealized_pnl"] == pytest.approx(-10.0)
+    assert row["unrealized_pnl_pct"] == pytest.approx(-0.1)
+    assert row["weight"] == pytest.approx(-1.0)
+    assert short["unrealized_pnl_pct"] == pytest.approx(-0.1)
+
+
+def test_finance_helper_weights_mixed_positions_by_gross_exposure() -> None:
+    """A long plus an equal short reported zero weights."""
+    helper = _load_helper()
+
+    mixed = helper.paper_portfolio_summary(
+        positions=_LONG_AND_SHORT, marks={"L": 110.0, "S": 110.0}
+    )
+    long_row, short_row = mixed["positions"]
+    assert mixed["total_market_value"] == pytest.approx(0.0)
+    assert mixed["total_cost_basis"] == pytest.approx(0.0)
+    assert long_row["unrealized_pnl_pct"] == pytest.approx(0.1)
+    assert short_row["unrealized_pnl_pct"] == pytest.approx(-0.1)
+    assert long_row["weight"] == pytest.approx(0.5)
+    assert short_row["weight"] == pytest.approx(-0.5)
+    assert mixed["unrealized_pnl"] == pytest.approx(0.0)
+    assert mixed["unrealized_pnl_pct"] == pytest.approx(0.0)
+
+
+def test_finance_helper_total_percentage_uses_the_gross_cost_basis() -> None:
+    """A net-zero cost basis reported a zero total percentage for a real loss."""
+    helper = _load_helper()
+
+    hedged_loss = helper.paper_portfolio_summary(
+        positions=_LONG_AND_SHORT, marks={"L": 90.0, "S": 110.0}
+    )
+    assert hedged_loss["unrealized_pnl"] == pytest.approx(-20.0)
+    assert hedged_loss["unrealized_pnl_pct"] == pytest.approx(-20.0 / 200.0)
 
 
 def test_financial_research_notebook_is_registered_and_guarded() -> None:

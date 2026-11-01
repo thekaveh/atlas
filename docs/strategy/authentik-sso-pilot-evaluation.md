@@ -11,7 +11,7 @@ The first implementation should be optional, disabled by default, and reversible
 Atlas currently has a fragmented auth model:
 
 - Open WebUI has its own user/account flow.
-- JupyterHub has notebook-user auth and optional token behavior.
+- JupyterHub runs one shared JupyterLab server protected by a single token (`JUPYTERHUB_TOKEN`); it has no per-user login.
 - n8n has first-owner setup and its own credential store.
 - MinIO has root/user policies and optional OIDC support.
 - Neo4j has its own database credentials and optional OIDC settings.
@@ -102,7 +102,7 @@ Open WebUI:
 
 JupyterHub:
 
-- Native OIDC is plausible through JupyterHub authenticator plugins, but it affects notebook user identity, volumes, and permissions.
+- Native OIDC first needs a real JupyterHub with an authenticator, because Atlas runs one token-protected JupyterLab server (see `services/jupyterhub/README.md` §9.2). That change affects notebook user identity, volumes and permissions.
 - Do not migrate notebook auth in the first slice.
 - Future work needs explicit user-volume mapping and admin recovery guidance.
 

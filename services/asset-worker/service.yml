@@ -114,11 +114,9 @@ rows:
     alias: asset-worker.localhost
     description: "glTF post-processing API for upright, normalized, optimized GLB assets."
 
-exports:
-  - name: ASSET_WORKER_ENDPOINT
-    consumers:
-      - backend
-      - comfyui
+# No in-stack service reads ASSET_WORKER_ENDPOINT; downstream consumers get it
+# from `./start.sh endpoints export` as ATLAS_ASSET_WORKER_CONTAINER_ENDPOINT.
+exports: []
 
 runtime_sc:
   asset-worker:

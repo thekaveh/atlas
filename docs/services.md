@@ -29,7 +29,7 @@ The *Support* column comes from each family's manifest `support:` block. Tiers a
 
 | Service | Title | Support | Tracks | SOURCE | Default | Values | Start order |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| [backend](../services/backend/README.md) | Backend API (FastAPI) | experimental | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | BACKEND_SOURCE | container | - | supabase, redis, litellm |
+| [backend](../services/backend/README.md) | Backend API (FastAPI) | experimental | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | BACKEND_SOURCE | container | container | supabase, redis, litellm |
 | [jenkins](../services/jenkins/README.md) | Jenkins (Maven Spark app builder) | experimental | all, data-eng | JENKINS_SOURCE | disabled | container, disabled | minio |
 | [jupyterhub](../services/jupyterhub/README.md) | JupyterHub (DS/ML + LLM notebooks) | experimental | all, data-eng, gen-ai-eng, ml-eng, trading | JUPYTERHUB_SOURCE | container | container, disabled | supabase, redis, litellm |
 | [label-studio](../services/label-studio/README.md) | Label Studio (dataset review + annotation) | experimental | all, ml-eng | LABEL_STUDIO_SOURCE | disabled | container, disabled | supabase, minio |

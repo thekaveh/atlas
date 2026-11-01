@@ -12,6 +12,8 @@ Supavisor speaks the Postgres wire protocol on transaction port `6543` inside th
 
 There is no Kong alias for Supavisor. The management API is also internal-only, because it is not a browser dashboard.
 
+Supavisor is an Erlang node, and the image ships one fixed release cookie. Atlas binds its epmd and Erlang distribution listeners to the container's loopback (`ERL_AFLAGS` `inet_dist_use_interface`, `ERL_EPMD_ADDRESS`). Other containers on `backend-network` reach only the management API on port 4000 and the pooler on port 6543.
+
 ## 3. Configuration
 
 Set `SUPAVISOR_SOURCE=container` to enable the pooler. Leave `SUPAVISOR_SOURCE=disabled` for the default direct-Postgres behavior.

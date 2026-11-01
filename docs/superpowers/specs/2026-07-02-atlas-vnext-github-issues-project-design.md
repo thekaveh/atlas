@@ -1,6 +1,6 @@
 # Atlas vNext GitHub Issues And Project Design
 
-> **Status: archived spec** — dated 2026-07-02; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+> **Status: archived spec** — dated 2026-07-02; a point-in-time record kept for archaeology, not current guidance. Its outcome is the GitHub labels, Project and issues it created; it has no CHANGELOG entry.
 
 ## 1. Goal
 

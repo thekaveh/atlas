@@ -17,17 +17,23 @@ import httpx
 
 from db_connection import acquire_conn, connect_postgres
 from memory_models import _validate_consolidation_action
-from memory_reconciliation import _fetch_pending_vector_page, _refresh_rejected_vector_rows
-from memory_store import (
-    _VECTORIZER_SYSTEMATIC_TEXT,
-    MemoryStore,
-    _to_uuid,
-    _weaviate_vectorizer_failure,
-    _weaviate_vectorizer_row_rejection,
+from memory_reconciliation import (
+    _clear_pending_vector_intent, _fetch_pending_vector_page,
+    _is_row_rejection, _refresh_rejected_vector_rows,
+    _weaviate_vectorizer_failure, _weaviate_vectorizer_row_rejection,
 )
+from memory_store import MemoryStore, _to_uuid
 
 logger = logging.getLogger("memory_service")
 
+# Per-user write lock. Schema-qualified with exact argument types, matching
+# 14-backend-memory.sql: roles with CREATE on public could plant
+# public.hashtextextended(text, integer), a closer match for `0` than
+# pg_catalog's (text, bigint), and it would run as the Backend role.
+_USER_LOCK_SQL = (
+    "SELECT pg_catalog.pg_advisory_xact_lock("
+    "pg_catalog.hashtextextended($1::text, 0::bigint))"
+)
 
 
 
@@ -66,10 +72,15 @@ def _counts_toward_reconcile_halt(exc: BaseException, target_signal: bool) -> bo
     """Target failures halt the pass; so do systematic vectorizer failures
     (Weaviate up, embedding provider failing every row), which never raise.
     A vectorizer 4xx that rejects one fact's content is per-row: counting it
-    let three such rows at the head of the queue stall every later pass."""
+    let three such rows at the head of the queue stall every later pass.
+    A direct-embedder or target 4xx that is not a row's own rejection (403,
+    404, an invalid model, an exhausted budget) hits every row, so it counts
+    too: the pgvector path otherwise paid 100 failing calls per recall."""
     if target_signal:
         return True
-    return _weaviate_vectorizer_failure(exc) and not _weaviate_vectorizer_row_rejection(exc)
+    if _weaviate_vectorizer_failure(exc):
+        return not _weaviate_vectorizer_row_rejection(exc)
+    return isinstance(exc, httpx.HTTPStatusError) and not _is_row_rejection(exc)
 
 
 def _is_target_health_signal(exc: BaseException) -> bool:
@@ -194,27 +205,6 @@ def _deletion_report(state, store=None) -> Dict[str, Any]:
         ),
         "restore": "PUT /memory/{memory_id} with is_active=true reactivates the fact",
     }
-
-
-def _is_row_rejection(exc: BaseException) -> bool:
-    """A failure caused by this row's content: a 4xx from the embedder or the
-    target that is not auth, missing model, timeout or back-pressure. Database
-    restarts, a not-yet-registered model or a superseded write hit every row
-    and recover by themselves, so remembering them hid rows until a restart
-    (2026-10-08 run, cycle 24)."""
-    if _weaviate_vectorizer_failure(exc):
-        return _weaviate_vectorizer_row_rejection(exc)
-    if not isinstance(exc, httpx.HTTPStatusError):
-        return False
-    response = getattr(exc, "response", None)
-    status = getattr(response, "status_code", None)
-    if status is None or not 400 <= status < 500 or status in {401, 403, 404, 408, 429}:
-        return False
-    try:
-        body = response.text
-    except Exception:  # noqa: BLE001 - unreadable body: not classifiable
-        return False
-    return not _VECTORIZER_SYSTEMATIC_TEXT.search(body or "")
 
 
 def _remember_rejected(rejected: dict, row, exc: BaseException) -> None:
@@ -461,7 +451,7 @@ Extract the facts as JSON:"""
             async with self._acquire() as conn:
                 async with conn.transaction():
                     await conn.execute(
-                        "SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))",
+                        _USER_LOCK_SQL,
                         # asyncpg's text codec accepts only str, not UUID.
                         str(user_uuid),
                     )
@@ -563,7 +553,6 @@ Extract the facts as JSON:"""
                     namespace=namespace,
                     fact_type=fact["fact_type"],
                     confidence=fact["confidence"],
-                    metadata={},
                 )
                 embedding_stored = True
             except Exception as exc:
@@ -572,44 +561,55 @@ Extract the facts as JSON:"""
                     fact["id"],
                     type(exc).__name__,
                 )
-            async with self._acquire() as conn:
-                if embedding_stored:
-                    # The embedding belongs to this exact canonical vector state.
-                    # A concurrent update/delete/consolidation advances updated_at
-                    # and keeps its newer pending intent for the reconciler.
-                    await conn.execute(
-                        """
-                        WITH embedding_owner AS MATERIALIZED (
-                            SELECT updated_at
-                            FROM public.memory_facts
-                            WHERE id = $2 AND vector_sync_pending = true
-                              AND content = $3 AND fact_type = $4
-                              AND confidence = $5 AND is_active = true
+            # The facts and the completed session are already committed, and
+            # each INSERT set vector_sync_pending. A failure here only defers
+            # the vector to the reconciler; surfacing it (a pool-saturation 503
+            # with Retry-After) made a client retry store every fact twice.
+            try:
+                async with self._acquire() as conn:
+                    if embedding_stored:
+                        # The embedding belongs to this exact canonical vector state.
+                        # A concurrent update/delete/consolidation advances updated_at
+                        # and keeps its newer pending intent for the reconciler.
+                        await conn.execute(
+                            """
+                            WITH embedding_owner AS MATERIALIZED (
+                                SELECT updated_at
+                                FROM public.memory_facts
+                                WHERE id = $2 AND vector_sync_pending = true
+                                  AND content = $3 AND fact_type = $4
+                                  AND confidence = $5 AND is_active = true
+                            )
+                            UPDATE public.memory_facts AS fact
+                            SET weaviate_id = $1, vector_sync_pending = false
+                            FROM embedding_owner
+                            WHERE fact.id = $2 AND fact.vector_sync_pending = true
+                              AND fact.updated_at = embedding_owner.updated_at
+                            """,
+                            weaviate_id,
+                            fact_uuid,
+                            fact["content"],
+                            fact["fact_type"],
+                            fact["confidence"],
                         )
-                        UPDATE public.memory_facts AS fact
-                        SET weaviate_id = $1, vector_sync_pending = false
-                        FROM embedding_owner
-                        WHERE fact.id = $2 AND fact.vector_sync_pending = true
-                          AND fact.updated_at = embedding_owner.updated_at
-                        """,
-                        weaviate_id,
-                        fact_uuid,
-                        fact["content"],
-                        fact["fact_type"],
-                        fact["confidence"],
-                    )
-                else:
-                    # Embedding was not durably stored (store_embedding raised).
-                    # A None id is a successful pgvector-authoritative write, not
-                    # a failure. Flag only exceptions so _reconcile_pending_vectors
-                    # — which only selects vector_sync_pending = true — retries it
-                    # on a later recall/consolidate. Without this the fact would
-                    # keep weaviate_id=NULL with vector_sync_pending=false and stay
-                    # invisible to semantic recall permanently.
-                    await conn.execute(
-                        "UPDATE public.memory_facts SET vector_sync_pending = true WHERE id = $1",
-                        fact_uuid,
-                    )
+                    else:
+                        # Embedding was not durably stored (store_embedding raised).
+                        # A None id is a successful pgvector-authoritative write, not
+                        # a failure. Flag only exceptions so _reconcile_pending_vectors
+                        # — which only selects vector_sync_pending = true — retries it
+                        # on a later recall/consolidate. Without this the fact would
+                        # keep weaviate_id=NULL with vector_sync_pending=false and stay
+                        # invisible to semantic recall permanently.
+                        await conn.execute(
+                            "UPDATE public.memory_facts SET vector_sync_pending = true WHERE id = $1",
+                            fact_uuid,
+                        )
+            except Exception as exc:
+                logger.warning(
+                    "Post-commit vector state update deferred for fact %s (error_type=%s)",
+                    fact["id"],
+                    type(exc).__name__,
+                )
 
         return {
             "session_id": session_id,
@@ -761,30 +761,6 @@ Extract the facts as JSON:"""
             type(exc).__name__,
         )
 
-    @staticmethod
-    async def _clear_pending_flag(conn, row, new_weaviate_id) -> None:
-        """Clear vector_sync_pending, guarded on the updated_at we read.
-
-        If a concurrent update_memory changed this fact after we read it — and
-        re-flagged it for the NEW content — an unguarded clear would wipe that
-        flag against our now-stale vector write, stranding the newer content
-        unreconciled with the flag false (permanent divergence). Guarding makes
-        the clear a no-op in that case, so a later pass picks it up.
-        """
-        await conn.execute(
-            """
-            UPDATE public.memory_facts
-            SET vector_sync_pending = false,
-                weaviate_id = COALESCE($2, weaviate_id),
-                updated_at = now()
-            WHERE id = $1 AND vector_sync_pending = true
-              AND updated_at = $3
-            """,
-            row["id"],
-            new_weaviate_id,
-            row["updated_at"],
-        )
-
     async def _sync_one_row(self, row):
         """Push one fact's vector, or retire it. Returns the new weaviate id.
 
@@ -836,9 +812,12 @@ Extract the facts as JSON:"""
             if not target_failure:
                 _remember_rejected(rejected, row, exc)
             return False, exc if target_failure else None
-        # Preserve the optimistic updated_at guard: a concurrent edit keeps
-        # its durable pending intent even if this older vector write succeeds.
-        await self._clear_pending_flag(conn, row, new_weaviate_id)
+        # Active rows clear only while they still hold the vector-bearing
+        # fields just written; retired rows keep the updated_at guard. A
+        # concurrent edit keeps its durable pending intent, but a
+        # content-preserving delete and restore that another process
+        # reconciles in between is not detected.
+        await _clear_pending_vector_intent(conn, row, new_weaviate_id)
         if row["id"] in rejected and rejected[row["id"]] == row["updated_at"]:
             del rejected[row["id"]]
         return True, None
@@ -913,11 +892,13 @@ Extract the facts as JSON:"""
             )
             if active_count <= self.max_facts:
                 return 0
+            # Oldest by creation: vector sync, backfill and failback rewrite
+            # updated_at, so it cannot rank fact age.
             expired_rows = await conn.fetch(
                 """
                 SELECT id, updated_at FROM public.memory_facts
                 WHERE user_id = $1 AND is_active = true
-                ORDER BY updated_at ASC
+                ORDER BY created_at ASC NULLS FIRST, id ASC
                 LIMIT $2
                 """,
                 user_uuid,
@@ -1105,7 +1086,7 @@ Extract the facts as JSON:"""
                             # otherwise supersede X by Y and Y by X, both under
                             # READ COMMITTED, leaving neither fact active.
                             await conn.execute(
-                                "SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))",
+                                _USER_LOCK_SQL,
                                 str(uid),
                             )
                             # Deactivate every source and write its audit record
@@ -1317,7 +1298,7 @@ Extract the facts as JSON:"""
         that is inactive now (re-read, not the pre-lock snapshot) when the
         user is at LANGMEM_MAX_FACTS_PER_USER."""
         await conn.execute(
-            "SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))",
+            _USER_LOCK_SQL,
             str(user_uuid),
         )
         currently_active = await conn.fetchval(

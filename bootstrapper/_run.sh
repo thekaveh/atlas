@@ -30,19 +30,22 @@ if command -v uv >/dev/null 2>&1; then
     # Banner to stderr: stdout must stay clean so `<script> --format json`
     # (e.g. `doctor --format json`) is directly parseable without a shim (#650).
     echo "📦 Using uv for dependency management..." >&2
-    exec uv run --directory "$SELF_DIR" "$SCRIPT_REL" "$@"
+    # --no-dev: the launcher needs only the runtime dependencies, the same set
+    # the system-Python branch installs. The dev group (test and docs
+    # toolchain) stays opt-in: `uv sync --group dev`, as CI does.
+    exec uv run --no-dev --directory "$SELF_DIR" "$SCRIPT_REL" "$@"
 elif command -v python3 >/dev/null 2>&1; then
     echo "📦 Using system Python (install uv for better dependency management)..." >&2
     BOOTSTRAPPER_VENV="${ATLAS_BOOTSTRAPPER_VENV:-$SELF_DIR/.venv}"
     VENV_PYTHON="$BOOTSTRAPPER_VENV/bin/python"
     BOOTSTRAPPER_LOCK="$SELF_DIR/requirements-locked.txt"
+    PYTHON_SUPPORTED='import sys; raise SystemExit(sys.version_info < (3, 11))'
     REQUIRED_IMPORTS="import click, jsonschema, PIL, requests, rich, textual, textual_image, urllib3, yaml"
 
     # Fingerprint the DEPENDENCY DECLARATION, not the module list. The guard
     # used to be presence-only: if those modules imported at ANY version, the
-    # install was skipped forever. So the security floors in pyproject.toml —
-    # click>=8.3.3 (command-injection advisory), urllib3>=2.7.0
-    # (CVE-2026-44431/44432), pillow>=12.3.0 — were never applied to an
+    # install was skipped forever. So the security floors declared in
+    # pyproject.toml (click, urllib3, pillow) were never applied to an
     # existing venv, and the two dispatch branches produced materially
     # different dependency states from identical inputs (the uv branch
     # re-resolves against uv.lock every run). A new dependency added to
@@ -65,10 +68,12 @@ elif command -v python3 >/dev/null 2>&1; then
         HAVE_STAMP="$(cat "$DEPS_STAMP" 2>/dev/null || true)"
     fi
 
-    # Does the venv already satisfy every import? Along with the content stamp,
-    # this decides whether a locked refresh is required; failures always close.
+    # Does the venv meet the Python floor and satisfy every import? The stamp
+    # also decides whether a locked refresh is required; failures always close.
     VENV_USABLE=0
-    if [ -x "$VENV_PYTHON" ] && "$VENV_PYTHON" -c "$REQUIRED_IMPORTS" >/dev/null 2>&1; then
+    if [ -x "$VENV_PYTHON" ] \
+        && "$VENV_PYTHON" -c "$PYTHON_SUPPORTED" >/dev/null 2>&1 \
+        && "$VENV_PYTHON" -c "$REQUIRED_IMPORTS" >/dev/null 2>&1; then
         VENV_USABLE=1
     fi
 
@@ -91,8 +96,8 @@ elif command -v python3 >/dev/null 2>&1; then
             else
                 echo "Creating Atlas bootstrapper environment at $BOOTSTRAPPER_VENV..." >&2
             fi
-            if ! python3 -c 'import sys; raise SystemExit(sys.version_info < (3, 10))'; then
-                echo "❌ Atlas requires Python 3.10 or newer." >&2
+            if ! python3 -c "$PYTHON_SUPPORTED"; then
+                echo "❌ Atlas requires Python 3.11 or newer." >&2
                 exit 1
             fi
             if ! python3 -m venv "$BOOTSTRAPPER_VENV"; then
@@ -100,10 +105,22 @@ elif command -v python3 >/dev/null 2>&1; then
                 echo "   Install the Python venv module or install uv, then retry." >&2
                 exit 1
             fi
+            # venv creation can retain an older bin/python symlink. Never
+            # install into or launch an interpreter below the supported floor.
+            if ! "$VENV_PYTHON" -c "$PYTHON_SUPPORTED"; then
+                echo "❌ Atlas requires Python 3.11 or newer." >&2
+                echo "   The existing environment still has an unsupported interpreter." >&2
+                echo "   Delete $BOOTSTRAPPER_VENV and rerun this command to recreate it." >&2
+                echo "   Or create a fresh environment and select it with ATLAS_BOOTSTRAPPER_VENV," >&2
+                echo "   or install uv, then retry." >&2
+                exit 1
+            fi
         else
             echo "Refreshing Atlas bootstrapper dependencies (declaration changed)..." >&2
         fi
-        if "$VENV_PYTHON" -m pip install --disable-pip-version-check --upgrade --constraint "$BOOTSTRAPPER_LOCK" "$SELF_DIR"; then
+        # The scripts run from this directory, so install only the locked
+        # runtime closure, not the bootstrapper itself (no build-backend fetch).
+        if "$VENV_PYTHON" -m pip install --disable-pip-version-check --upgrade --constraint "$BOOTSTRAPPER_LOCK" --requirement "$BOOTSTRAPPER_LOCK"; then
             # Stamp only AFTER a successful install, so a failed run retries.
             printf '%s\n' "$WANT_STAMP" > "$DEPS_STAMP" 2>/dev/null || true
         else
@@ -119,7 +136,7 @@ else
     echo "" >&2
     echo "  Install one of:" >&2
     echo "    • uv (recommended):  https://github.com/astral-sh/uv" >&2
-    echo "    • Python 3.10+:      https://www.python.org/downloads/" >&2
+    echo "    • Python 3.11+:      https://www.python.org/downloads/" >&2
     echo "" >&2
     echo "  Then re-run the script that invoked this dispatcher." >&2
     exit 127

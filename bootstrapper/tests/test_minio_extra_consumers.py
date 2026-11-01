@@ -187,66 +187,70 @@ def test_minio_extra_consumers_are_declared_in_manifest_compose_and_env_example(
     assert "MINIO_EXTRA_CONSUMERS=" in ENV_EXAMPLE.read_text(encoding="utf-8")
 
 
-def test_minio_init_provisions_parent_owned_extra_consumer_bucket(tmp_path: Path) -> None:
+# Fake mc: logs every call and captures, at call time, each named policy and
+# each service account's inline --policy file (init-minio.sh deletes it next).
+_FAKE_MC = r"""#!/bin/sh
+printf '%s\n' "$*" >>"$MC_LOG"
+case "$1 $2 $3 $4" in
+  "admin policy create local") cp "$6" "$MC_CAPTURE/named-$5.json" ;;
+  "admin policy info local") exit 1 ;;
+  "admin user svcacct info") [ "${FAKE_SVCACCT_EXISTS:-}" = 1 ]; exit $? ;;
+  "admin user svcacct add"|"admin user svcacct edit")
+    access=; policy=; prev=
+    [ "$4" = edit ] && access=$6
+    for arg in "$@"; do
+      case "$prev" in --access-key) access=$arg ;; --policy) policy=$arg ;; esac
+      prev=$arg
+    done
+    [ -z "$policy" ] || cp "$policy" "$MC_CAPTURE/inline-$access.json"
+    ;;
+esac
+exit 0
+"""
+
+
+def _run_minio_init(tmp_path: Path, overrides: dict[str, str]) -> tuple[subprocess.CompletedProcess[str], str]:
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
-    command_log = tmp_path / "mc.log"
-    asset_policy = tmp_path / "asset-worker-policy.json"
-    ingest_policy = tmp_path / "asset-ingest-policy.json"
     stub = bin_dir / "mc"
-    stub.write_text(
-        f"""#!/bin/sh
-printf '%s\\n' "$*" >> {command_log}
-if [ "$1 $2 $3 $4 $5" = "admin policy create local asset-worker-policy" ]; then
-  cp "$6" {asset_policy}
-fi
-if [ "$1 $2 $3 $4 $5" = "admin policy create local asset-ingest-policy" ]; then
-  cp "$6" {ingest_policy}
-fi
-if [ "$1 $2 $3 $4" = "admin policy info local" ]; then
-  exit 1
-fi
-if [ "$1 $2 $3 $4" = "admin user svcacct info" ]; then
-  exit 1
-fi
-exit 0
-""",
-        encoding="utf-8",
-    )
+    stub.write_text(_FAKE_MC, encoding="utf-8")
     stub.chmod(0o755)
-
+    capture = tmp_path / "capture"
+    capture.mkdir()
+    command_log = tmp_path / "mc.log"
     env = os.environ.copy()
     env.update(BUILT_IN_CONSUMER_ENV)
-    env.update(
-        {
-            "PATH": f"{bin_dir}{os.pathsep}{env['PATH']}",
-            "MINIO_EXTRA_CONSUMERS": (
-                "daydreams:MINIO_BUCKET_DAYDREAMS:"
-                "MINIO_DAYDREAMS_ACCESS_KEY:MINIO_DAYDREAMS_SECRET_KEY"
-            ),
-            "MINIO_BUCKET_DAYDREAMS": "daydreams-artifacts",
-            "MINIO_DAYDREAMS_ACCESS_KEY": "daydreams-ak",
-            "MINIO_DAYDREAMS_SECRET_KEY": "daydreams-sk",
-            "ASSET_WORKER_MINIO_BUCKET": "custom-worker-output",
-        }
-    )
+    env.update({"PATH": f"{bin_dir}{os.pathsep}{env['PATH']}", "MC_LOG": str(command_log),
+                "MC_CAPTURE": str(capture), **overrides})
+    result = subprocess.run(["/bin/sh", str(MINIO_INIT)], env=env, text=True, capture_output=True, check=False)
+    return result, command_log.read_text(encoding="utf-8") if command_log.exists() else ""
 
-    result = subprocess.run(
-        ["/bin/sh", str(MINIO_INIT)],
-        env=env,
-        text=True,
-        capture_output=True,
-        check=False,
-    )
+
+_DAYDREAMS_ENV = {
+    "MINIO_EXTRA_CONSUMERS": (
+        "daydreams:MINIO_BUCKET_DAYDREAMS:"
+        "MINIO_DAYDREAMS_ACCESS_KEY:MINIO_DAYDREAMS_SECRET_KEY"
+    ),
+    "MINIO_BUCKET_DAYDREAMS": "daydreams-artifacts",
+    "MINIO_DAYDREAMS_ACCESS_KEY": "daydreams-ak",
+    "MINIO_DAYDREAMS_SECRET_KEY": "daydreams-sk",
+}
+
+
+def _policy(tmp_path: Path, name: str) -> dict:
+    return json.loads((tmp_path / "capture" / name).read_text(encoding="utf-8"))
+
+
+def test_minio_init_provisions_parent_owned_extra_consumer_bucket(tmp_path: Path) -> None:
+    result, log = _run_minio_init(tmp_path, {**_DAYDREAMS_ENV, "ASSET_WORKER_MINIO_BUCKET": "custom-worker-output"})
 
     assert result.returncode == 0, result.stderr + result.stdout
-    log = command_log.read_text(encoding="utf-8")
     assert "mb --ignore-existing local/daydreams-artifacts" in log
     assert "admin policy create local daydreams-policy" in log
     assert "admin user svcacct add local minioadmin --access-key daydreams-ak" in log
     assert "--secret-key daydreams-sk" in log
     assert "mb --ignore-existing local/custom-worker-output" in log
-    policy = json.loads(asset_policy.read_text(encoding="utf-8"))
+    policy = _policy(tmp_path, "named-asset-worker-policy.json")
     output_statement = next(
         statement
         for statement in policy["Statement"]
@@ -261,12 +265,60 @@ exit 0
         if statement["Action"] == ["s3:GetObject"]
     )
     assert input_statement["Resource"] == ["arn:aws:s3:::raw-assets/*"]
-    ingest = json.loads(ingest_policy.read_text(encoding="utf-8"))
+    ingest = _policy(tmp_path, "named-asset-ingest-policy.json")
     assert any(
         "s3:PutObject" in statement["Action"]
         and statement["Resource"] == ["arn:aws:s3:::raw-assets/*"]
         for statement in ingest["Statement"]
     )
+
+
+def _assert_scoped_inline_grants(tmp_path: Path, log: str, verb: str) -> None:
+    """The named policy is never attached: each key's inline --policy is its grant.
+    Without it a key inherits its parent's (MINIO_ROOT_USER) access."""
+    svcacct = [line for line in log.splitlines() if line.startswith(f"admin user svcacct {verb} ")]
+    accesses = [value for key, value in BUILT_IN_CONSUMER_ENV.items() if key.endswith("_ACCESS_KEY")]
+    assert len(svcacct) == len(accesses) + 1
+    assert all(" --policy /tmp/" in line for line in svcacct), svcacct
+    for access in accesses:
+        consumer = access.removesuffix("-ak")
+        assert _policy(tmp_path, f"inline-{access}.json") == _policy(tmp_path, f"named-{consumer}-policy.json")
+    daydreams = _policy(tmp_path, "inline-daydreams-ak.json")
+    assert [statement["Resource"] for statement in daydreams["Statement"]] == [
+        ["arn:aws:s3:::daydreams-artifacts/*"], ["arn:aws:s3:::daydreams-artifacts"],
+    ]
+
+
+@pytest.mark.parametrize("existing", [False, True], ids=["create", "refresh"])
+def test_minio_service_accounts_carry_their_scoped_inline_policy(tmp_path: Path, existing: bool) -> None:
+    result, log = _run_minio_init(tmp_path, {**_DAYDREAMS_ENV, "FAKE_SVCACCT_EXISTS": "1" if existing else ""})
+
+    assert result.returncode == 0, result.stderr + result.stdout
+    _assert_scoped_inline_grants(tmp_path, log, "edit" if existing else "add")
+    if existing:
+        assert "admin user svcacct edit local daydreams-ak --secret-key daydreams-sk --policy /tmp/daydreams-policy.json" in log
+        assert "svcacct add " not in log
+    # /tmp is shared with concurrent test runs, so check the cleanup statically.
+    assert 'rm -f "$policy_file"' in MINIO_INIT.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("case", [
+    ("daydreams:MINIO_BUCKET_DAYDREAMS", {}, "invalid consumer entry"),
+    ("daydreams:MINIO_BUCKET_DAYDREAMS:MINIO_DAYDREAMS_ACCESS_KEY:MINIO_DAYDREAMS_SECRET_KEY",
+     {"MINIO_DAYDREAMS_SECRET_KEY": ""}, "(MINIO_BUCKET_DAYDREAMS/MINIO_DAYDREAMS_ACCESS_KEY/MINIO_DAYDREAMS_SECRET_KEY)"),
+    ("daydreams:MINIO_BUCKET_DAYDREAMS:MINIO_DAYDREAMS_ACCESS_KEY:MINIO_DAYDREAMS_SECRET_KEY:MINIO_BUCKET_UNSET_RW",
+     {}, "(MINIO_BUCKET_UNSET_RW)"),
+    ("daydreams:MINIO_BUCKET_DAYDREAMS:MINIO_DAYDREAMS_ACCESS_KEY:MINIO_DAYDREAMS_SECRET_KEY::MINIO_BUCKET_UNSET_RO",
+     {}, "(MINIO_BUCKET_UNSET_RO)"),
+], ids=["short-entry", "missing-secret", "missing-writable-bucket", "missing-read-only-bucket"])
+def test_minio_init_fails_closed_on_an_incomplete_consumer(tmp_path: Path, case) -> None:
+    entry, overrides, message = case
+    result, log = _run_minio_init(tmp_path, {**_DAYDREAMS_ENV, "MINIO_EXTRA_CONSUMERS": entry, **overrides})
+
+    assert result.returncode == 1, result.stdout
+    assert message in result.stderr
+    assert "--access-key daydreams-ak" not in log
+    assert "provisioning complete" not in result.stdout
 
 
 def test_docs_cover_parent_owned_minio_extra_consumers() -> None:

@@ -8,7 +8,7 @@
 # enumerated here. Cloud-provider toggles (cloud_openai, etc.) never
 # reach the track-skip predicate because they're collected via dedicated
 # secret-input steps, not as regular wizard sources. LLM Engine, Prometheus,
-# and Grafana are listed in tracks.py::compute_always_on() as the
+# and Grafana are listed in tracks.py::ALWAYS_ON_SERVICE_KEYS as the
 # canonical "asked in every track" set.
 #
 # `services: "*"` is the "all" sentinel — no filtering is applied.

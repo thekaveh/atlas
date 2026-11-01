@@ -104,7 +104,7 @@
 | MEDIA_INPUT_MAX_PIXELS | backend | 40000000 | Maximum decoded or conditioned image pixel count. Dimensions are checked before full Pillow conversion to bound decompression and canvas memory. |
 | MEDIA_BUDGET_ENABLED | backend | false | Enables media spend accounting and budget enforcement. When off, ordinary operations record no spend rows and enforce no caps; ambiguous FAL submissions still create a recovery row. |
 | MEDIA_BUDGET_STORE | backend | postgres | Ledger/recovery store: 'postgres' (durable, media_spend_ledger table) or 'memory' (process-local, non-durable — testing/ephemeral). Ambiguous FAL submissions use it for recovery even when budget enforcement is disabled. |
-| MEDIA_BUDGET_CURRENCY | backend | USD | Currency label recorded on media spend ledger rows. |
+| MEDIA_BUDGET_CURRENCY | backend | USD | Currency label recorded on media spend ledger rows. Use 1 to 8 characters; a longer value stops the Backend at startup. |
 | MEDIA_BUDGET_DEFAULT_USD | backend |  | Default per-consumer/project spend cap in USD. Empty = no default cap (ledger records without hard-stop). Per-consumer overrides go in MEDIA_BUDGET_CONSUMER_CAPS. |
 | MEDIA_BUDGET_CONSUMER_CAPS | backend |  | Optional JSON map of per-scope caps, keyed by 'consumer' or 'consumer:project', e.g. {"rag-showcase":25,"rag-showcase:demo":5}. Overrides MEDIA_BUDGET_DEFAULT_USD for matching scopes. A 'consumer' key still caps each project separately, and user callers choose the project name, so it is not a per-user total. |
 | MEDIA_DISABLED_PROVIDERS | backend |  | Comma-separated media providers to kill-switch off (e.g. 'fal', 'comfyui'). A disabled provider hard-stops its own submissions (/media/generate, /comfyui/generate and /comfyui/workflow, whether or not MEDIA_BUDGET_ENABLED is set) without downing the gateway or other providers. |
@@ -123,7 +123,7 @@
 | BACKEND_N8N_API_TOKEN | backend |  | Auto-generated n8n bearer accepted only by the research, memory-automation, legacy ComfyUI, and storage-upload routes used by bundled workflows. |
 | BACKEND_NOTEBOOK_API_TOKEN | backend |  | Auto-generated bearer token exposed to JupyterHub and accepted only by stateless backend document extraction, chunking, and RAG evaluation routes. |
 | BACKEND_OPEN_WEBUI_API_TOKEN | backend |  | Auto-generated Open WebUI bearer accepted only by memory and legacy ComfyUI routes used by bundled server-side tools and functions. |
-| BACKEND_PLUGINS_PIP_TIMEOUT_SECONDS | backend | 300 | Timeout in seconds for `pip install` of backend plugin requirements (plugin_seam) at startup. The install runs at backend import time, so an unbounded hang would block startup; raise for slow networks. |
+| BACKEND_PLUGINS_PIP_TIMEOUT_SECONDS | backend | 300 | Timeout in seconds for `pip install` of backend plugin requirements at startup. A hang blocks Backend startup, so raise it for slow networks. A non-numeric or non-positive value logs a warning and uses 300. |
 | BACKEND_PLUGINS_SITE_DIR | backend | /tmp/atlas-plugins-site | Writable directory for plugin requirements (`pip --target`), prepended to sys.path before plugins load; site-packages is root-owned. If it cannot be created, pip installs untargeted. Emptied at each start; a custom directory only once it has the .atlas-plugin-site marker. |
 | LANGMEM_ENABLED | backend | true | Enables the Backend memory service in backend and celery-worker. false makes memory operations fail with "LangMem memory service is disabled". |
 | LANGMEM_MEMORY_NAMESPACE | backend | default | Default memory namespace (passed as LANGMEM_NAMESPACE to backend and celery-worker). A request that names its own namespace overrides it. |
@@ -156,7 +156,7 @@
 | BACKUP_S3_SESSION_TOKEN | backup |  | Optional S3 security token for temporary credentials. |
 | BACKUP_S3_TLS_VERIFY | backup | true | Verify HTTPS certificates. false is valid only with an https endpoint and explicitly enables the MinIO client's insecure certificate mode. |
 | BACKUP_S3_ALIAS_URL | backup |  | Deprecated pre-M11 endpoint variable accepted only as a migration fallback when BACKUP_S3_ENDPOINT remains at its local default. |
-| BACKUP_COMMAND_TIMEOUT_SECONDS | backup | 900 | Positive per-command deadline in seconds for package install, database, archive, and S3 operations. |
+| BACKUP_COMMAND_TIMEOUT_SECONDS | backup | 900 | Positive per-command deadline in seconds, at most 86400, for each database, archive, digest and S3 command. A whole orchestrated backup run gets three times this value, at least 900 s. |
 | BACKUP_RESTORE_GLOBAL_TIMEOUT_SECONDS | backup | 28800 | Finite active-restore deadline; must exceed BACKUP_COMMAND_TIMEOUT_SECONDS. Hard-kill grace covers three bounded commands plus 60 seconds for compensation and exact lock cleanup. |
 | BACKUP_MANIFEST_HMAC_KEY | backup |  | Required operator-supplied 64-hex HMAC-SHA-256 key for trusted backup manifests; preserve it outside the backup bucket for disaster recovery. |
 | BACKUP_DEPLOYMENT_ID | backup |  | Required stable operator-supplied deployment identity bound into every trusted backup manifest. |
@@ -238,9 +238,10 @@
 | COMFYUI_STORAGE_BUCKET | comfyui | comfyui-images | Reserved bucket name for the (currently inert) COMFYUI_UPLOAD_TO_SUPABASE placeholder; unused until an output-upload node is wired. |
 | COMFYUI_MODELS_PATH | comfyui | /opt/ComfyUI/models | Not interpolated by any compose file: comfyui-init sets its own COMFYUI_MODELS_PATH=/models, and the comfyui container mounts models at /opt/ComfyUI/models. |
 | COMFYUI_LOCAL_MODELS_PATH | comfyui | ~/Documents/ComfyUI/models | Host models directory of an existing ComfyUI install. With COMFYUI_SOURCE=localhost, ./start.sh warns when it is missing. The comfyui container mounts it read-only at /host_models, which nothing reads. |
-| COMFYUI_USER_MODELS | comfyui |  | Comma-separated catalog model names picked in the wizard or with --comfyui-models. Read by services/comfyui/init/scripts/download_models.sh, and by the managed-MPS host provisioner, which downloads the same set into COMFYUI_MPS_MODELS_PATH. |
+| COMFYUI_USER_MODELS | comfyui |  | Comma-separated catalog model names picked in the wizard or with --comfyui-models. Empty activates the catalog's essential models. The bootstrapper resolves the set into volumes/comfyui/active-models.tsv, which comfyui-init downloads. The managed-MPS host provisioner downloads the same set into COMFYUI_MPS_MODELS_PATH. |
 | COMFYUI_CUSTOM_MODELS_FILE | comfyui | /custom-models.yaml | Path to the ComfyUI custom-models sidecar YAML (user-authored models not in the curated catalog). Read by comfyui_resolver when generating the download manifest, and by the wizard's model picker. |
 | COMFYUI_CUSTOM_NODES_FILE | comfyui | /custom-nodes.yaml | Path list (os.pathsep-joined) of pinned custom-node allowlist files. The shipped services/comfyui/custom-nodes.yaml is always included; consumer manifests append custom_nodes.comfyui entries, which are always active. The bootstrapper maps selected models' requires_custom_node values through it into active-custom-nodes.tsv. |
+| COMFYUI_DOWNLOAD_TOTAL_TIMEOUT_SECONDS | comfyui | 7200 | Per-file comfyui-init download bound in seconds (1-604800). A timed-out file restarts from zero on the next start. The 26 GB Krea 2 file needs about 29 Mbit/s at the default. |
 | COMFYUI_INIT_SCALE | comfyui |  | Set by ./start.sh; do not edit. 1 runs the comfyui-init model download for container-* sources, 0 for localhost, managed-localhost-mps and disabled. |
 | COMFYUI_SCALE | comfyui |  | Set by ./start.sh from COMFYUI_SOURCE; do not edit. 1 runs the comfyui container for container-cpu and container-gpu, 0 otherwise. |
 | COMFYUI_ENDPOINT | comfyui |  | Resolved per COMFYUI_SOURCE. Read by backend, celery, open-webui, jupyterhub and downstream overlays; hermes receives it as COMFYUI_INTERNAL_URL. Consumer pattern: MY_URL: ${MY_URL:-${COMFYUI_ENDPOINT:-http://comfyui:18188}} |
@@ -271,13 +272,13 @@
 | DOCLING_AUTH_MODE | docling | required | Provider authentication mode: required (default) or disabled for an explicit emergency/local rollback. |
 | DOCLING_CORS_ORIGINS | docling |  | Optional comma-separated browser origin allowlist. Empty disables CORS; wildcard is invalid while authentication is required. |
 | DOCLING_INFERENCE_TIMEOUT_SECONDS | docling | 900 | Finite conversion and lazy-load deadline in seconds (1-3600). A timeout returns 504 and then exits the provider process for restart. |
-| DOCLING_LOCALHOST_BIND_HOST | docling | 127.0.0.1 | Native Docling listen address. Set another interface explicitly only when remote access is intended. |
+| DOCLING_LOCALHOST_BIND_HOST | docling | 127.0.0.1 | Native Docling listen address. Keep 127.0.0.1 on Docker Desktop. On Linux engines, containers reach the host through the Docker bridge, not loopback. There, bind the bridge IP, or 0.0.0.0 with DOCLING_AUTH_MODE=required. |
 | DOCLING_ADAPTER_MAX_JOBS | docling | 2 | Maximum outstanding LightRAG adapter jobs, reserved before multipart parsing. |
 | DOCLING_ADAPTER_RESULT_TTL_SECONDS | docling | 900 | Seconds a completed LightRAG adapter result may remain before verified artifact cleanup begins; the job slot stays occupied and cleanup is retried if deletion fails. |
 | DOCLING_ADAPTER_MAX_RESULT_BYTES | docling | 104857600 | Maximum ZIP result bytes streamed from Docling to adapter storage before the job fails safely. |
 | DOCLING_ADAPTER_UPSTREAM_MAX_ATTEMPTS | docling | 3 | Total bounded Docling request attempts when the provider returns HTTP 429. |
 | DOCLING_ADAPTER_DOWNLOAD_TIMEOUT_SECONDS | docling | 300 | Positive maximum seconds for one result transmission; expiry starts verified artifact cleanup, and the adapter slot is released only after deletion succeeds. |
-| DOCLING_ADAPTER_TMPFS_SIZE | docling | 512m | Size of the adapter's bounded temporary-storage mount. It must cover MAX_JOBS times the larger of upload + 1 MiB multipart overhead or upload + result limit, plus at least 64 MiB staging headroom. Startup fails if capacity is smaller. |
+| DOCLING_ADAPTER_TMPFS_SIZE | docling | 512m | Size of the adapter's bounded temporary-storage mount. It must cover MAX_JOBS × max(2 × upload + 1 MiB, upload + result limit), plus at least 64 MiB staging headroom. Startup fails if capacity is smaller. |
 | DOCLING_ADAPTER_SCALE | docling |  | Derived adapter replica count; one only when both LightRAG and Docling are enabled. |
 | DOCLING_ADAPTER_UPSTREAM_ENDPOINT | docling |  | Authenticated internal bundle route selected for the adapter; never exposed to LightRAG. |
 | DOCLING_ENABLE_FORMULAS | docling | true | Enables formula enrichment in the Docling pipeline: true (default) or false; other values fail. |
@@ -292,20 +293,20 @@
 | FAL_SOURCE | fal | disabled | Enables fal.ai as the backend provider for simple media generation routes. |
 | FAL_API_KEY | fal |  | fal.ai API key. Required only when FAL_SOURCE=enabled. The backend also exposes it to fal-client as FAL_KEY. |
 | FAL_MODEL | fal | fal-ai/flux/dev | Default fal.ai model endpoint used by the media gateway for text-to-image generation. |
-| FAL_IMAGE_TO_3D_MODEL | fal | fal-ai/trellis | Default fal.ai endpoint id for the media gateway's image_to_3d modality. Must resolve to a verified registry entry (Hunyuan3D / TRELLIS / Tripo / Rodin); TRELLIS is the MIT-licensed default. |
+| FAL_IMAGE_TO_3D_MODEL | fal | fal-ai/trellis | Default fal.ai endpoint id for the media gateway's image_to_3d modality. Must resolve to a verified registry entry (Hunyuan3D / TRELLIS / Tripo / Rodin); TRELLIS is the MIT-licensed default. With FAL_SOURCE=enabled, another value stops the Backend at startup. |
 | FAL_MODEL_LICENSE | fal | fal/provider-terms | License or terms marker returned in normalized media operation responses when provider-specific model licensing is not more specific. |
 | FAL_TIMEOUT_SECONDS | fal | 120 | Finite Backend timeout budget for FAL media submit/poll operations and the compatibility route. Must be greater than zero and at most 3600 seconds. |
 | FAL_OUTPUT_FORMAT | fal | jpeg | Requested output format for compatible fal.ai image models: jpeg or png. |
 | FAL_ENABLE_SAFETY_CHECKER | fal | true | Whether to request the provider-side safety checker for compatible fal.ai image models. |
 | PROJECT_NAME | globals | atlas | Docker Compose project name: the prefix for containers, volumes and networks, and the `docker compose -p` namespace. start.sh and stop.sh both read it. `./start.sh --project <name>` (or -p) writes it here. Use a unique name for a submodule consumer. |
-| BASE_PORT | globals | 63000 | Base port. Every service's *_PORT derives from this + a fixed offset. |
+| BASE_PORT | globals | 63000 | Base port for allocated stack ports. Each uses this plus a fixed offset. Native host-service port settings with `_LOCALHOST_` in their names stay independent. |
 | HOST_BIND_IP | globals | 127.0.0.1: | Published-port interface prefix (trailing colon). Default 127.0.0.1: is host-only; 0.0.0.0: is for deliberate remote access. Existing .env files with HOST_BIND_IP= are upgraded by backfill. Empty binds all interfaces except Ray, Zeppelin, mcp-servers, Supabase DB, Docling, Parakeet. LAN Supabase routes: KONG_SUPABASE_EXTRA_HOSTS. |
 | HOST_GATEWAY_IP | globals |  | Set by ./start.sh for the container runtime: host-gateway on Docker, the literal gateway IP on Podman. If you write .env without ./start.sh, use host-gateway on Docker, or the real bridge IP on rootless setups. |
-| BRAND_NAME | globals | Atlas | Wizard branding: the brand name shown by the wizard and --no-tui banner. Empty uses the Atlas default. |
+| BRAND_NAME | globals | Atlas | Wizard branding: the brand name shown by the wizard and the compact (narrow-terminal) --no-tui banner. Empty uses the Atlas default. |
 | BRAND_TAGLINE | globals | A self-hosted, source-configurable, multi-disciplinary engineering platform — gen-AI, ML, and data. | Wizard branding: the tagline shown by the wizard and --no-tui banner. Empty uses the Atlas default. |
-| BRAND_VERSION | globals | 0.1.0 | Wizard branding: the version shown by the wizard and --no-tui banner. Empty uses the Atlas default. |
+| BRAND_VERSION | globals | 0.1.0 | Wizard branding: the version shown by the wizard. Empty uses the Atlas default. |
 | BRAND_AUTHOR | globals | Kaveh Razavi | Wizard branding: the author shown by the wizard and --no-tui banner. Empty uses the Atlas default. |
-| BRAND_AUTHOR_EMAIL | globals | kaveh.razavi@gmail.com | Wizard branding: the author email shown by the wizard and --no-tui banner. Empty uses the Atlas default. |
+| BRAND_AUTHOR_EMAIL | globals | kaveh.razavi@gmail.com | Wizard branding: the author email shown by the wizard. Empty uses the Atlas default. |
 | BRAND_LICENSE | globals | Apache License 2.0 | Wizard branding: the license shown by the wizard and --no-tui banner. Empty uses the Atlas default. |
 | BRAND_REPO_URL | globals | https://github.com/thekaveh/atlas | Wizard branding: the repository URL shown by the wizard and --no-tui banner. Empty uses the Atlas default. |
 | BRAND_LOGO_FILE | globals |  | Optional path to a block-art logo that replaces the built-in ATLAS lockup in the wizard and --no-tui banner. Empty keeps ATLAS. Keep it 6 rows tall. File format: docs/quick-start/interactive-setup-wizard.md (Brand Customization). |
@@ -317,8 +318,8 @@
 | PROD_ENV_BACKEND_MEM_LIMIT | globals | 2g | Reserved backend memory cap. No compose fragment reads it yet; the backend runs unbounded. |
 | PROD_ENV_N8N_CPUS | globals | 1 | Reserved n8n CPU cap (cores). No compose fragment reads it yet; n8n runs unbounded. |
 | PROD_ENV_N8N_MEM_LIMIT | globals | 2g | Reserved n8n memory cap. No compose fragment reads it yet; n8n runs unbounded. |
-| PROD_ENV_COMFYUI_CPUS | globals | 2 | CPU limit (cores) for ComfyUI with COMFYUI_SOURCE=container-gpu. The CPU variant uses COMFYUI_CPU_LIMIT instead. |
-| PROD_ENV_COMFYUI_MEM_LIMIT | globals | 4g | Memory limit for ComfyUI with COMFYUI_SOURCE=container-gpu. The CPU variant uses COMFYUI_MEMORY_LIMIT instead. |
+| PROD_ENV_COMFYUI_CPUS | globals | 2 | Reserved ComfyUI CPU cap (cores). No compose fragment reads it; ComfyUI container sources use COMFYUI_CPU_LIMIT. |
+| PROD_ENV_COMFYUI_MEM_LIMIT | globals | 4g | Reserved ComfyUI memory cap. No compose fragment reads it; ComfyUI container sources use COMFYUI_MEMORY_LIMIT. |
 | LOG_MAX_SIZE | globals | 10m | Per-container json-file log max size (Docker logging option). |
 | LOG_MAX_FILE | globals | 3 | Per-container json-file log file count (Docker logging option). |
 | BOOTSTRAPPER_PORT_LAYOUT_VERSION | globals | 5 | Env-migration sentinel. A missing value or one below 5 runs the chained migrations up to v5. They cover port layout, URL to PORT, ComfyUI model set, stale Ollama model cleanup and Weaviate backup-filesystem. Fresh .env files are v5. |
@@ -346,7 +347,7 @@
 | HERMES_GID | hermes | 10000 | Container group ID; hermes-init chowns hermes-data to HERMES_UID:HERMES_GID. |
 | HERMES_LOCALHOST_PORT | hermes | 8642 | Host port for the Hermes API in the localhost source variant. Consumed by HERMES_ENDPOINT (in-container clients call this). Defaults to Hermes' native API port. |
 | HERMES_LOCALHOST_DASHBOARD_PORT | hermes | 9119 | Host port of the Hermes dashboard for HERMES_SOURCE=localhost; the hermes.localhost Kong route targets it. Default: the native dashboard port. The wizard edits only HERMES_LOCALHOST_PORT, so set this one in .env. |
-| HERMES_INIT_SOURCE | hermes | container | Auto-managed by hermes. Container/disabled. |
+| HERMES_INIT_SOURCE | hermes | container | Init-container selector listed in the SOURCE matrix (container or disabled). No code reads it: HERMES_INIT_SCALE follows HERMES_SOURCE. |
 | HERMES_INIT_SCALE | hermes |  | Set by ./start.sh from HERMES_SOURCE; do not edit. 1 runs hermes-init only for the container source, else 0. |
 | HERMES_SCALE | hermes |  | Set by ./start.sh from HERMES_SOURCE; do not edit. 1 runs the hermes container only for the container source, else 0. |
 | HERMES_ENDPOINT | hermes |  | Resolved per HERMES_SOURCE. Consumed by n8n, jupyterhub, LiteLLM model_list; also env-pre-wired for backend + openclaw (not yet exercised). |
@@ -403,7 +404,6 @@
 | LABEL_STUDIO_SCALE | label-studio |  | Set by ./start.sh from LABEL_STUDIO_SOURCE; do not edit. 1 runs label-studio, 0 does not. |
 | LABEL_STUDIO_INIT_SCALE | label-studio |  | Set by ./start.sh from LABEL_STUDIO_SOURCE; do not edit. 1 runs label-studio-init, 0 does not. |
 | LABEL_STUDIO_DB_NAME | label-studio | label_studio | Postgres database for Label Studio. Supabase db-init (05-scoped-roles.sh) creates it. |
-| LABEL_STUDIO_DB_NAME_URI | label-studio | label_studio | Bootstrapper-synchronized percent-encoded LABEL_STUDIO_DB_NAME for DSN path components. |
 | LABEL_STUDIO_DB_USER | label-studio | label_studio | Scoped Postgres login that owns LABEL_STUDIO_DB_NAME. Supabase db-init (05-scoped-roles.sh) creates it. |
 | LABEL_STUDIO_DB_PASSWORD | label-studio | atlas-db-password | Auto-generated Postgres password for the dedicated Label Studio database role. |
 | LABEL_STUDIO_USERNAME | label-studio | admin@atlas.local | Initial Label Studio admin email passed to upstream USERNAME. |
@@ -518,8 +518,8 @@
 | LITELLM_DB_PASSWORD | litellm | atlas-db-password | Auto-generated password for the owner of LiteLLM's dedicated database. |
 | LITELLM_DB_USER_URI | litellm | litellm | Bootstrapper-synchronized percent-encoded LITELLM_DB_USER for DSN userinfo. |
 | LITELLM_DB_PASSWORD_URI | litellm | atlas-db-password | Bootstrapper-synchronized percent-encoded LITELLM_DB_PASSWORD for DSN userinfo. |
-| LITELLM_EMBEDDING_MODEL | litellm | ollama/nomic-embed-text | Default embedding model used by weaviate-init when computing collection vectorizers. |
-| LITELLM_DEFAULT_MODEL | litellm | ollama/qwen3.8:latest | Optional default chat model passed to LangMem (backend). |
+| LITELLM_EMBEDDING_MODEL | litellm | ollama/nomic-embed-text | Stack-wide embedding model id, set with LANGMEM_EMBEDDING_DIM by the embedding picker. Backend memory and RAG, Celery, Weaviate init, LightRAG init, JupyterHub, Verba and the database seed read it. |
+| LITELLM_DEFAULT_MODEL | litellm | ollama/qwen3.8:latest | Stack-wide default chat model id, resolved from the model catalog. Backend, Celery, JupyterHub, n8n, LightRAG init, Verba and Local Deep Researcher read it. |
 | LITELLM_VISION_MODEL | litellm | ollama/qwen3.8:latest | Default vision-capable model (resolved from the model catalog; forward-looking — no consumer routes on it yet). |
 | LITELLM_BASE_URL | litellm |  | In-network URL consumers point at (backend, n8n, jupyterhub, open-webui). |
 | LITELLM_IMAGE | litellm | ghcr.io/berriai/litellm:v1.83.14-stable.patch.2 | Container image for `litellm`. |
@@ -561,7 +561,7 @@
 | LOCAL_DEEP_RESEARCHER_SOURCE | local-deep-researcher | container | Deployment source for Local Deep Researcher: container or disabled. |
 | LOCAL_DEEP_RESEARCHER_PORT | local-deep-researcher | 63097 | Host port for the Local Deep Researcher LangGraph API (in-container 2024). |
 | LOCAL_DEEP_RESEARCHER_REF | local-deep-researcher | 38f769f84380f2065de76021ac7c5215f88aa39e | Full upstream local-deep-researcher commit SHA materialized into the managed repo volume. Update deliberately after compatibility validation; runtime startup never follows a branch. |
-| LOCAL_DEEP_RESEARCHER_LANGGRAPH_CLI_VERSION | local-deep-researcher | 0.4.31 | Exact langgraph-cli[inmem] version used to serve the pinned source tree. |
+| LOCAL_DEEP_RESEARCHER_LANGGRAPH_CLI_VERSION | local-deep-researcher | 0.4.32 | Exact langgraph-cli[inmem] version used to serve the pinned source tree. |
 | LOCAL_DEEP_RESEARCHER_UPSTREAM_LOCK_SHA256 | local-deep-researcher | 26fc35ac377836de6628e5f7b180944c4d4bd50a5e9f0200bd6e663f20e35c1a | SHA-256 digest of uv.lock at LOCAL_DEEP_RESEARCHER_REF; startup rejects a source tree whose lock does not match. |
 | LOCAL_DEEP_RESEARCHER_LOOPS | local-deep-researcher | 3 | Maximum web research loops per run, passed as MAX_WEB_RESEARCH_LOOPS. |
 | LOCAL_DEEP_RESEARCHER_SEARCH_API | local-deep-researcher | searxng | Web search backend, passed as SEARCH_API. Default searxng. |
@@ -588,10 +588,10 @@
 | MINIO_SOURCE | minio | container | MinIO deployment source: container or disabled. |
 | MINIO_PORT | minio | 63020 | Host port for the MinIO S3 API (in-container listen port is 9000). |
 | MINIO_CONSOLE_PORT | minio | 63021 | Host port for the MinIO admin console (in-container listen port is 9001). |
-| MINIO_ROOT_USER | minio | minioadmin | MinIO root username. minio-init, airflow and backup also receive it; consumer services use their own scoped access keys. |
+| MINIO_ROOT_USER | minio | minioadmin | MinIO root username. minio-init, airflow, spark-init and backup also receive it; consumer services use their own scoped access keys. |
 | MINIO_ROOT_PASSWORD | minio |  | Auto-generated by bootstrapper KeyGenerator.generate_minio_root_password(). |
 | MINIO_REGION | minio | us-east-1 | S3 region MinIO reports. Clients such as iceberg-rest, jupyterhub, langfuse, label-studio and the asset services use it as their S3 region. |
-| MINIO_INIT_SOURCE | minio | container | Auto-managed by minio. Container/disabled. |
+| MINIO_INIT_SOURCE | minio | container | Init-container selector listed in the SOURCE matrix (container or disabled). No code reads it: MINIO_INIT_SCALE follows MINIO_SOURCE. |
 | MINIO_SCALE | minio |  | Set by ./start.sh from MINIO_SOURCE; do not edit. 1 runs the minio container, 0 does not. |
 | MINIO_INIT_SCALE | minio |  | Set by ./start.sh from MINIO_SOURCE; do not edit. 1 runs the minio-init container, 0 does not. |
 | MINIO_ENDPOINT | minio |  | In-network URL (S3 API). |
@@ -668,6 +668,11 @@
 | N8N_SEED_HTTP_TIMEOUT_MS | n8n | 10000 | Absolute deadline in milliseconds for each consumer workflow seeder HTTP operation; must be positive. |
 | N8N_SEED_COMMAND_TIMEOUT_MS | n8n | 120000 | Deadline in milliseconds for each consumer workflow n8n CLI operation; must be positive. |
 | N8N_SEED_MAX_RESPONSE_BYTES | n8n | 1048576 | Maximum bytes accepted from one consumer workflow seeder HTTP response; must be positive. |
+| N8N_METRICS | n8n | true | Serves Prometheus /metrics on n8n and n8n-worker. The endpoint is unauthenticated on N8N_PORT and the n8n.localhost route. Prometheus scrapes it when enabled. |
+| N8N_METRICS_PREFIX | n8n | n8n_ | Prefix of every n8n metric name. The shipped Grafana n8n dashboard queries the n8n_ prefix. |
+| N8N_METRICS_INCLUDE_DEFAULT_METRICS | n8n | true | Adds the Node.js process and runtime metrics to n8n's /metrics output. |
+| N8N_METRICS_INCLUDE_WORKFLOW_ID_LABEL | n8n | true | Labels n8n workflow metrics with the workflow ID. |
+| N8N_METRICS_INCLUDE_EXECUTION_DATA_METRICS | n8n | true | Exports execution-data write metrics. Upstream n8n defaults it off; without it the Grafana execution-data panel shows no data. |
 | N8N_SCALE | n8n |  | Set by ./start.sh from N8N_SOURCE; do not edit. 1 runs the n8n container, 0 does not. |
 | N8N_WORKER_SCALE | n8n |  | Set by ./start.sh from N8N_SOURCE; do not edit. 1 runs the n8n-worker container, 0 does not. |
 | N8N_INIT_SCALE | n8n |  | Set by ./start.sh from N8N_SOURCE; do not edit. 1 runs the n8n-init container, 0 does not. |
@@ -704,7 +709,7 @@
 | OLLAMA_FLASH_ATTENTION | ollama | 1 | Enables Ollama's flash-attention path. Current Ollama enables it automatically where supported. Atlas pins it because OLLAMA_KV_CACHE_TYPE quantization has no effect without it. Set 0 to force it off. |
 | OLLAMA_KEEP_ALIVE | ollama |  | Time Ollama keeps a model loaded after its last use (5m, 1h, or -1 for forever); empty uses Ollama's 5m default. Container-* sources only. -1 keeps every loaded model in RAM until reverted and the daemon restarts. |
 | OLLAMA_MODELS_RESIDENT_MIN | ollama |  | Advisory, ollama-localhost only: how many models a workload needs resident at once. ./start.sh doctor reports a failure when the daemon's OLLAMA_MAX_LOADED_MODELS is lower. Empty declares no expectation. A LightRAG run with separate extract, embed and keyword models needs 3. |
-| OLLAMA_PARALLEL_MIN | ollama |  | Advisory, ollama-localhost only: the concurrent-request floor a consumer needs. ./start.sh doctor warns when the daemon's OLLAMA_NUM_PARALLEL is lower. Empty declares no expectation. Ollama's default of 1 slot silently serializes a multi-agent consumer. |
+| OLLAMA_PARALLEL_MIN | ollama |  | Advisory, ollama-localhost only: the concurrent-request floor a consumer needs. ./start.sh doctor reports a failure when the daemon's OLLAMA_NUM_PARALLEL is lower. Empty declares no expectation. Ollama's default of 1 slot silently serializes a multi-agent consumer. |
 | LLM_PROVIDER_IMAGE | ollama | ollama/ollama:0.30.11 | Container image for `ollama`. |
 | OLLAMA_PULL_IMAGE | ollama | alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6 | Container image for `ollama-pull`. |
 | OPEN_WEB_UI_SOURCE | open-webui | container | Open WebUI deployment source: container or disabled. |
@@ -722,10 +727,10 @@
 | OPEN_WEB_UI_REDIS_DB | open-webui | 2 | Redis database index for Open WebUI's websocket manager. LightRAG shares db 2 by default. |
 | OPEN_WEB_UI_MODEL_CACHE_TTL | open-webui | 300 | Seconds Open WebUI caches the model list (MODELS_CACHE_TTL). |
 | OPEN_WEB_UI_ENABLE_IMAGE_GENERATION | open-webui | true | Set by bootstrapper: true unless COMFYUI_SOURCE=disabled, so Open WebUI hides its ComfyUI image toggle when there is no ComfyUI. Open WebUI keeps the value saved in its database once an admin edits the Images settings. |
-| OPEN_WEB_UI_TTS_ENGINE | open-webui |  | Set by bootstrapper when speaches/chatterbox are enabled. |
+| OPEN_WEB_UI_TTS_ENGINE | open-webui |  | Set by ./start.sh: openai when TTS_PROVIDER_SOURCE is not disabled, else empty. Passed as AUDIO_TTS_ENGINE. |
 | OPEN_WEB_UI_STT_ENGINE | open-webui |  | Set by ./start.sh: openai when STT_PROVIDER_SOURCE is not disabled, else empty. Passed as AUDIO_STT_ENGINE. |
-| OPEN_WEB_UI_TTS_MODEL | open-webui |  | Model name Open WebUI sends to /v1/audio/speech. Empty = engine default. |
-| OPEN_WEB_UI_TTS_VOICE | open-webui |  | Voice id. Empty = engine default. |
+| OPEN_WEB_UI_TTS_MODEL | open-webui |  | Set by ./start.sh from TTS_PROVIDER_SOURCE; do not edit. SPEACHES_TTS_MODEL (Kokoro if blank) for Speaches, chatterbox-tts-1 for Chatterbox, else empty. Passed to Open WebUI as AUDIO_TTS_MODEL and to hermes-init. Open WebUI admin, Audio overrides it for Open WebUI only. |
+| OPEN_WEB_UI_TTS_VOICE | open-webui |  | Set by ./start.sh from TTS_PROVIDER_SOURCE; do not edit. af_heart for Speaches, alloy for Chatterbox, else empty. Passed to Open WebUI as AUDIO_TTS_VOICE and to hermes-init. Open WebUI admin, Audio overrides it for Open WebUI only. |
 | OPEN_WEB_UI_TTS_API_URL | open-webui |  | Set by ./start.sh from TTS_ENDPOINT plus /v1, or empty. Passed as AUDIO_TTS_OPENAI_API_BASE_URL. |
 | OPEN_WEB_UI_STT_API_URL | open-webui |  | Set by ./start.sh from STT_ENDPOINT plus /v1, or empty. Passed as AUDIO_STT_OPENAI_API_BASE_URL. |
 | OPEN_WEB_UI_SCALE | open-webui |  | Set by ./start.sh from OPEN_WEB_UI_SOURCE; do not edit. 1 runs the open-web-ui container, 0 does not. |
@@ -753,7 +758,7 @@
 | ATLAS_OTEL_ENABLED | otel-collector |  | Boolean string consumed by backend and LiteLLM tracing toggles. |
 | OTEL_COLLECTOR_IMAGE | otel-collector | otel/opentelemetry-collector-contrib:0.154.0 | Container image for `otel-collector`. |
 | STT_PROVIDER_SOURCE | parakeet | speaches-container-cpu | Speech-to-text engine: speaches-container-cpu, speaches-container-gpu, parakeet-container-gpu, parakeet-localhost, whisper-cpp-localhost or disabled. Drives STT_ENDPOINT and the engine scales. |
-| STT_PROVIDER_PORT | parakeet | 63055 | Wizard display slot. Real per-engine ports live on their own manifests (`PARAKEET_*`, `SPEACHES_*`, etc.). |
+| STT_PROVIDER_PORT | parakeet | 63055 | Host port for the Parakeet GPU container (in-container 8000), also shown by the wizard. When a Speaches source is active, the bootstrapper sets it to `SPEACHES_PORT`. Each engine keeps its own port settings (for example, `PARAKEET_*` and `SPEACHES_*`). |
 | STT_PROVIDER_SCALE | parakeet |  | Set by ./start.sh; do not edit. 1 when a container engine serves speech-to-text, else 0. The wizard uses it to colour the STT row. |
 | PARAKEET_MODEL | parakeet | nvidia/parakeet-tdt-0.6b-v3 | Model the Parakeet GPU container loads (NeMo model ID), passed as PARAKEET_MODEL. |
 | PARAKEET_GPU_DEVICE | parakeet | cuda | Torch device for the Parakeet GPU container, passed as PARAKEET_DEVICE. |
@@ -792,7 +797,7 @@
 | RAY_WORKER_SCALE | ray |  | Resolved by the bootstrapper from RAY_WORKER_COUNT when source is ray-container-{cpu,gpu}; 0 otherwise. |
 | RAY_ADDRESS | ray |  | Resolved per source: `ray://ray-head:10001` for container sources, empty for disabled. Injected into the backend + jupyterhub containers via their compose environment blocks. |
 | RAY_DASHBOARD_URL | ray |  | Optional override for the Ray dashboard URL the backend's job client uses. Empty = derive from RAY_ADDRESS (http://ray-head:8265). |
-| RAY_HEAD_MEMORY_LIMIT | ray | 4g | Memory limit for ray-head (deploy.resources.limits.memory). The head runs the GCS, dashboard and object directory; 4g is safe on a 32 GB host. The shm_size=8gb /dev/shm allocation is separate from this cap. |
+| RAY_HEAD_MEMORY_LIMIT | ray | 4g | Memory limit for ray-head (deploy.resources.limits.memory). The head runs the GCS, dashboard and object directory; 4g is safe on a 32 GB host. The /dev/shm object store (shm_size=8gb) counts against this cap. |
 | RAY_HEAD_CPU_LIMIT | ray | 2.0 | Container CPU limit for ray-head (deploy.resources.limits.cpus). GCS + dashboard coordination rarely needs more than 1 core; 2.0 leaves room for brief spikes. |
 | RAY_WORKER_MEMORY_LIMIT | ray | 4g | Container memory limit per ray-worker (deploy.resources.limits.memory). Workers run tasks and actors; 4 g per replica is a modest OOM fence on a 32 GB host with the default 2 workers. Raise for large in-memory datasets. |
 | RAY_WORKER_CPU_LIMIT | ray | 2.0 | Container CPU limit per ray-worker (deploy.resources.limits.cpus). 2.0 cores per worker. Raise if workers need more parallelism; lower if the host is saturated. |
@@ -802,8 +807,9 @@
 | REDIS_MAXMEMORY | redis | 0 | Redis memory cap, e.g. 512mb. 0 means unlimited: Redis grows until the container is OOM-killed and loses in-flight queue state. A cap lets REDIS_MAXMEMORY_POLICY shed recomputable data instead. Size it to about 75% of the container memory budget. |
 | REDIS_MAXMEMORY_POLICY | redis | volatile-lru | volatile-lru evicts TTL keys, including LiteLLM cache and ordinary media records (seven-day default). Budget-tracked in-flight records, unresolved submissions and pending ledger intents persist until settlement. Without TTL keys, writes fail with OOM. |
 | REDIS_PORT | redis | 63025 | Host port. Container port is always 6379. |
-| REDIS_PASSWORD | redis | redis_password | Used by Redis consumers, including n8n queues, litellm cache, open-webui websocket storage, and backend state and queues. The default is for fresh-install convenience only; rotate before any deployment. |
-| REDIS_URL | redis | redis://:${REDIS_PASSWORD}@redis:6379/0 | Default connection string (database 0, also n8n's queue and LiteLLM's cache). Consumers that need another DB index build their own URL: open-webui and lightrag share /2, jupyterhub uses /3. Compose substitutes REDIS_PASSWORD. |
+| REDIS_PASSWORD | redis | redis_password | Used by Redis consumers, including n8n queues, litellm cache, open-webui websocket storage, and backend state and queues. The default is for fresh-install convenience only; rotate before any deployment. Compose refuses a blank value, which would disable Redis authentication. |
+| REDIS_PASSWORD_URI | redis | redis_password | Startup keeps this percent-encoded REDIS_PASSWORD in sync for URI userinfo. Separate password fields use the raw value. |
+| REDIS_URL | redis | redis://:${REDIS_PASSWORD_URI}@redis:6379/0 | Default connection string (database 0, also n8n's queue and LiteLLM's cache). Consumers that need another DB index build their own URL: open-webui and lightrag share /2, jupyterhub uses /3, celery /4, trueforge /5. Compose substitutes REDIS_PASSWORD_URI. |
 | REDIS_EXPORTER_PORT | redis | 63026 | Host port for redis-exporter (in-container 9121). Sidecar gated by PROMETHEUS_SOURCE. |
 | REDIS_EXPORTER_SCALE | redis |  | Set by _generate_prometheus_config() to 1 when PROMETHEUS_SOURCE=container, 0 otherwise. |
 | REDIS_IMAGE | redis | redis:7.2.14-alpine | Bumping the redis version: change this default and rerun ./start.sh. |
@@ -943,7 +949,7 @@
 | TEI_RERANKER_MAX_CLIENT_BATCH_SIZE | tei-reranker | 32 | Maximum inputs per client request TEI accepts (--max-client-batch-size). |
 | TEI_RERANKER_MEMORY_LIMIT | tei-reranker | 4g | Container memory limit for tei-reranker (deploy.resources.limits.memory). |
 | TEI_RERANKER_CPU_LIMIT | tei-reranker | 2.0 | Container CPU limit for tei-reranker (deploy.resources.limits.cpus). |
-| TEI_RERANKER_HF_CACHE_DIR | tei-reranker | /data | In-container Hugging Face cache (HF_HOME). The default /data is the tei-reranker-data volume, so models persist across restarts. |
+| TEI_RERANKER_HF_CACHE_DIR | tei-reranker | /data | In-container model cache passed to TEI as HUGGINGFACE_HUB_CACHE. The default /data is the tei-reranker-data volume, so models persist across restarts; another path persists only if you mount a volume there. |
 | TEI_RERANKER_SCALE | tei-reranker |  | Set by ./start.sh from TEI_RERANKER_SOURCE; do not edit. 1 runs tei-reranker for container-cpu and container-gpu, 0 otherwise. |
 | TEI_RERANKER_ENDPOINT | tei-reranker |  | Resolved per TEI_RERANKER_SOURCE. Exposes TEI's rerank endpoint to compatible consumers. |
 | TEI_RERANKER_IMAGE_RESOLVED | tei-reranker |  | Image picked per source variant (CPU vs GPU). |
@@ -1009,13 +1015,12 @@
 | WEAVIATE_SOURCE | weaviate | container | Deployment source for Weaviate: container (default), localhost or disabled. |
 | WEAVIATE_PORT | weaviate | 63030 | Host port for the Weaviate REST API (in-container 8080), bound to HOST_BIND_IP (loopback by default). |
 | WEAVIATE_GRPC_PORT | weaviate | 63031 | Host port for the Weaviate gRPC API (in-container 50051), bound to HOST_BIND_IP (loopback by default). |
-| WEAVIATE_INIT_SOURCE | weaviate | container | Auto-managed by weaviate. Container/disabled. |
+| WEAVIATE_INIT_SOURCE | weaviate | container | Init-container selector listed in the SOURCE matrix (container or disabled). No code reads it: WEAVIATE_INIT_SCALE follows WEAVIATE_SOURCE. |
 | MULTI2VEC_CLIP_SOURCE | weaviate | container-cpu | Options: container-cpu, container-gpu, disabled. container-gpu sets ENABLE_CUDA=1, but Compose reserves no GPU device yet. The CLIP container then fails to start; use container-cpu. |
 | WEAVIATE_ENABLE_MODULES | weaviate | text2vec-openai,text2vec-ollama,multi2vec-clip,generative-openai,generative-ollama,backup-filesystem | Weaviate module list (ENABLE_MODULES). ./start.sh adds or removes multi2vec-clip to match MULTI2VEC_CLIP_SOURCE and keeps any other modules you list. |
 | CLIP_INFERENCE_API | weaviate | http://multi2vec-clip:8080 | URL Weaviate uses for the multi2vec-clip module. ./start.sh empties it when MULTI2VEC_CLIP_SOURCE=disabled. |
 | MULTI2VEC_CLIP_SIGLIP2_IMAGE | weaviate | semitechnologies/multi2vec-clip:google-siglip2-so400m-patch16-512-1.5.1 | Opt-in SigLIP 2 image reference for MULTI2VEC_CLIP_IMAGE. Produces 1152-d vectors; revectorize or create new Weaviate collections before switching. |
 | WEAVIATE_URL | weaviate |  | Resolved per WEAVIATE_SOURCE. Consumed by n8n, backend, jupyterhub. |
-| WEAVIATE_LITELLM_API_KEY | weaviate |  | Mirror of LITELLM_MASTER_KEY for Weaviate's vectorizer auth. |
 | WEAVIATE_SCALE | weaviate |  | Set by ./start.sh from WEAVIATE_SOURCE; do not edit. 1 runs weaviate for container, 0 otherwise. |
 | WEAVIATE_INIT_SCALE | weaviate |  | Set by ./start.sh from WEAVIATE_SOURCE; do not edit. 1 runs weaviate-init with a container Weaviate, 0 otherwise. |
 | CLIP_SCALE | weaviate |  | Computed from MULTI2VEC_CLIP_SOURCE. |
