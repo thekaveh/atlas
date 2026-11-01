@@ -237,9 +237,14 @@ class FalClient:
             init_image=None,
         )
 
-        result = await self._call_async_with_timeout(
-            self._subscribe, arguments
-        )
+        try:
+            result = await self._call_async_with_timeout(
+                self._subscribe, arguments
+            )
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            # Narrow on purpose: the SDK's own pre-request ValueError (a start
+            # timeout <= 1 s) is the caller's and stays a 400.
+            raise FalUpstreamError("FAL returned a response the SDK could not parse") from exc
         request_id = (
             result.get("request_id")
             or result.get("requestId")
@@ -381,9 +386,13 @@ class FalClient:
         normalized_status = self._normalize_status(status_payload)
         result_payload: Dict[str, Any] = {}
         if normalized_status == "succeeded":
-            result_payload = await self._call_async_with_timeout(
-                self._result, self.model, operation_id
-            )
+            try:
+                result_payload = await self._call_async_with_timeout(
+                    self._result, self.model, operation_id
+                )
+            except ValueError as exc:
+                # An unreadable body (JSONDecodeError) or a re-poll's unknown status.
+                raise FalUpstreamError(f"FAL returned a result the SDK could not parse: {exc}") from exc
 
         raw = {
             "status": self._object_to_dict(status_payload),

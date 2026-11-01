@@ -18,6 +18,7 @@ import io
 import json
 import os
 import platform
+import shutil
 import subprocess
 import tarfile
 import threading
@@ -1308,9 +1309,15 @@ def test_blank_state_dir_falls_back_and_removal_never_reaches_cwd_home_or_repo(t
     (work / "keep").mkdir(parents=True)
     monkeypatch.chdir(work)
     repo = Path(mod.__file__).resolve().parents[2]
-    for target in (Path("."), work.parent, Path.home(), repo, Path("/")):
-        with pytest.raises(VllmMetalError, match="refusing to remove"):
-            remove_state_directory(target, ("state", VllmMetalError))
+
+    def refuse(path, *_a, **_k):
+        raise AssertionError(f"guard let shutil.rmtree reach {path}")
+
+    with monkeypatch.context() as guarded:
+        guarded.setattr(shutil, "rmtree", refuse)  # a guard regression must not delete
+        for target in (Path("."), work.parent, Path.home(), repo, Path("/")):
+            with pytest.raises(VllmMetalError, match="refusing to remove"):
+                remove_state_directory(target, ("state", VllmMetalError))
     assert (work / "keep").is_dir()
     remove_state_directory(work / "keep", ("state", VllmMetalError))  # a real state dir still goes
     assert not (work / "keep").exists()

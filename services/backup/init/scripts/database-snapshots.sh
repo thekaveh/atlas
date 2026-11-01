@@ -116,21 +116,6 @@ weaviate_request() {
   }
 }
 
-weaviate_json_uint() {
-  database_json_file=$1
-  database_json_key=$2
-  database_json_flat="$(tr -d ' \t\r\n' <"${database_json_file}")"
-  database_json_needle="\"${database_json_key}\":"
-  case "${database_json_flat}" in *"${database_json_needle}"*) ;; *) return 1 ;; esac
-  database_json_after=${database_json_flat#*"${database_json_needle}"}
-  database_json_value=${database_json_after%%,*}
-  database_json_value=${database_json_value%%\}*}
-  case "${database_json_value}" in ''|*[!0-9]*) return 1 ;; esac
-  database_json_rest=${database_json_after#"${database_json_value}"}
-  case "${database_json_rest}" in *"${database_json_needle}"*) return 1 ;; esac
-  printf '%s' "${database_json_value}"
-}
-
 weaviate_json_string() {
   database_json_file=$1
   database_json_key=$2

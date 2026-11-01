@@ -19,7 +19,7 @@ h2>=4.4.1  # CVE-2026-71554 (HTTP/2 duplicate-Host smuggling; patch bump)
 # The 6.21.2 floor also closes CVE-2026-113786 (crafted PDFs reach arbitrary
 # image parsers), CVE-2026-113789..113795 (memory, infinite loops) and
 # CVE-2026-115572/115580/115585 (long runtimes; first fixed in 6.21.2).
-pypdf>=6.21.2  # CVE-2026-84309/84310/84311 and CVE-2026-102993..103000 (parser DoS: long runtimes, unbounded memory)
+pypdf>=6.21.4  # CVE-2026-84309/84310/84311, CVE-2026-102993..103000 and CVE-2026-119203..119209 (parser DoS: long runtimes, unbounded memory)
 python-multipart>=0.0.31
 prometheus-fastapi-instrumentator>=7.0.0
 opentelemetry-api>=1.45.1

@@ -46,6 +46,8 @@ LITELLM_DEFAULT_MODEL=ollama/qwen3.8:latest  # the one model every step uses
 
 **Required dependencies** (`depends_on.required`): `searxng` (search) and `litellm` (summaries). LDR connects to no database. The **backend** (`research_service.py`) calls this server over HTTP and stores research sessions in `public.research_*`; the Supabase dependency belongs to the backend.
 
+**SearXNG gate.** When `SEARXNG_SOURCE=disabled`, `./start.sh` auto-disables LDR. It sets `LOCAL_DEEP_RESEARCHER_SCALE=0` and prints a warning, and the start continues. This also applies to runs that request `duckduckgo` search. Enable SearXNG to use LDR.
+
 **Full-page mode.** `LOCAL_DEEP_RESEARCHER_FULL_PAGE_MODE` sets `FETCH_FULL_PAGE`. `disabled` keeps search snippets only. `builtin` uses upstream's own page fetch. `crawl4ai` sends each URL to [Crawl4AI](../crawl4ai/README.md); startup fails if `CRAWL4AI_SOURCE` is not `container`.
 
 **Pinned source.** `LOCAL_DEEP_RESEARCHER_REF` must be a full commit SHA. Startup checks the upstream `uv.lock` against `LOCAL_DEEP_RESEARCHER_UPSTREAM_LOCK_SHA256`. It then installs from Atlas's hashed lock `build/config/runtime-requirements.lock`. A mismatch stops startup before the source tree is replaced.

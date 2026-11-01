@@ -160,7 +160,7 @@ The client imports credentials through a private per-run `0600` configuration fi
 
 **Deadlines.** Each value is a canonical positive decimal integer, with no leading zeroes.
 
-- `BACKUP_COMMAND_TIMEOUT_SECONDS` (default 900, maximum 86,400) ends any single package-install, PostgreSQL, archive, digest, sidecar-parse or S3 command.
+- `BACKUP_COMMAND_TIMEOUT_SECONDS` (default 900, maximum 86,400) ends any single PostgreSQL, archive, digest, sidecar-parse or S3 command.
 - `BACKUP_RESTORE_GLOBAL_TIMEOUT_SECONDS` (default 28,800 = eight hours, maximum 604,800 = seven days) bounds active restore work and the lock-holder lifetime. It must exceed the command deadline.
 - On global timeout the trap receives `TERM`. The hard-kill grace is three command deadlines plus 60 seconds. It covers the foreground command remainder, one cutover compensation or drop command, and lock-session termination.
 - The host orchestrator bounds a whole backup run at `max(3 × BACKUP_COMMAND_TIMEOUT_SECONDS, 900)` seconds, because the run chains dumps, the snapshot wait and uploads.

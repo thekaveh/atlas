@@ -418,21 +418,3 @@ class HostsManager:
         else:
             self._log("  • ❌ Failed to remove hosts entries", "error")
             return False
-
-    def check_hosts_status(self) -> None:
-        """
-        Check and display the status of Atlas hosts entries.
-        Used by start.py to show hosts status.
-        """
-        if not self.hosts_file_path or not Path(self.hosts_file_path).exists():
-            self._log("  • ⚠️  Cannot access hosts file", "warning")
-            self._log("    Manual setup may be required for subdomain access", "warning")
-            return
-
-        missing = self.check_missing_hosts()
-
-        if missing:
-            self._log(f"  • Missing hosts entries: {', '.join(missing)}", "warning")
-            self._log("    Run with --setup-hosts to add them automatically", "info")
-        else:
-            self._log("  • ✅ All required hosts entries are present", "success")

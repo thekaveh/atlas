@@ -6,6 +6,7 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 from urllib.parse import quote, unquote, urlsplit
@@ -197,6 +198,10 @@ def test_scoped_uri_paths_never_interpolate_raw_database_names() -> None:
 def test_hostile_database_names_round_trip_through_rendered_dsn_paths(
     tmp_path: Path,
 ) -> None:
+    if shutil.which("docker") is None:
+        if os.environ.get("CI", "").lower() in {"1", "true", "yes"}:
+            pytest.fail("docker CLI is required to render the hostile-name Compose contract")
+        pytest.skip("docker CLI unavailable")
     raw_database = "atlas /?#% database"
     source = (REPO / ".env.example").read_text(encoding="utf-8")
     for name in (

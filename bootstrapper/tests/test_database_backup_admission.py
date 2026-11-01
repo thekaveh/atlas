@@ -1,4 +1,4 @@
-"""Host backup admission, the one-shot container guard, and CommandRunner launch and signal ownership."""
+"""Host backup admission, prepared restore-plan admission, the one-shot container guard, and CommandRunner launch and signal ownership."""
 
 from __future__ import annotations
 
@@ -470,3 +470,54 @@ def test_command_launch_preserves_already_recorded_outer_signal(launch_state):
     assert result.stdout == "compensation completed\n"
     assert str(outer.interruption) == "received signal 15"
     _assert_launch_environment_restored(state)
+
+
+# --- prepared restore-plan admission ----------------------------------------
+# parse_prepared_plan is the trust boundary between the in-container prepare
+# step and the host restore that mounts /restore/<artifact_stage>. Each
+# negative changes one field of a valid plan, so it reaches one branch.
+_PLAN_TOKEN, _PLAN_TIMESTAMP, _PLAN_BACKUP_ID = "a" * 32, "20260830_010203", "b" * 32
+_PLAN_SNAPSHOT = f"atlas-{_PLAN_TIMESTAMP}-{_PLAN_BACKUP_ID}"
+
+
+def _restore_plan(**fields):
+    values = {
+        "backup_timestamp": _PLAN_TIMESTAMP, "restore_token": _PLAN_TOKEN,
+        "backup_id": _PLAN_BACKUP_ID, "neo4j_state": "complete",
+        "weaviate_state": "disabled", "artifact_stage": f"restore-{_PLAN_TOKEN}",
+        "weaviate_snapshot_id": "disabled", **fields,
+    }
+    body = " ".join(f"{key}={value}" for key, value in values.items() if value is not None)
+    return f"ATLAS_DATABASE_RESTORE_PLAN {body}\n"
+
+
+@pytest.mark.parametrize(
+    ("stdout", "message"),
+    [
+        pytest.param(_restore_plan(artifact_stage=f"restore-{'c' * 32}"), "invalid artifact stage", id="other-run-stage"),
+        pytest.param(_restore_plan(artifact_stage="../escape"), "invalid artifact stage", id="escaping-stage"),
+        pytest.param(_restore_plan() * 2, "exactly one plan marker", id="duplicate-marker"),
+        pytest.param("prepared\n", "exactly one plan marker", id="missing-marker"),
+        pytest.param(_restore_plan(weaviate_state="complete"), "invalid snapshot id", id="complete-without-snapshot"),
+        pytest.param(_restore_plan(weaviate_snapshot_id=_PLAN_SNAPSHOT), "invalid snapshot id", id="disabled-with-snapshot"),
+        pytest.param(_restore_plan(neo4j_state="partial"), "invalid state", id="partial-state"),
+        pytest.param(_restore_plan(backup_timestamp="20260830_010204"), "identity correlation", id="other-timestamp"),
+        pytest.param(_restore_plan(extra="1"), "exact plan fields", id="extra-field"),
+        pytest.param(_restore_plan(weaviate_snapshot_id=None), "exact plan fields", id="missing-field"),
+    ],
+)
+def test_prepared_plan_parser_rejects_each_uncorrelated_field(stdout, message):
+    module = _module()
+    with pytest.raises(module.ContractError, match=message):
+        module.parse_prepared_plan(stdout, token=_PLAN_TOKEN, timestamp=_PLAN_TIMESTAMP)
+
+
+def test_prepared_plan_parser_accepts_a_complete_weaviate_snapshot():
+    module = _module()
+    stdout = _restore_plan(weaviate_state="complete", weaviate_snapshot_id=_PLAN_SNAPSHOT)
+    assert module.parse_prepared_plan(stdout, token=_PLAN_TOKEN, timestamp=_PLAN_TIMESTAMP) == {
+        "backup_timestamp": _PLAN_TIMESTAMP, "restore_token": _PLAN_TOKEN,
+        "backup_id": _PLAN_BACKUP_ID, "neo4j_state": "complete",
+        "weaviate_state": "complete", "artifact_stage": f"restore-{_PLAN_TOKEN}",
+        "weaviate_snapshot_id": _PLAN_SNAPSHOT,
+    }

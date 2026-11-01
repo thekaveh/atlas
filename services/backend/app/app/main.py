@@ -39,6 +39,7 @@ from comfyui_media_client import ComfyUIMediaClient, validate_comfyui_media_conf
 from fal_media_client import (
     FalClient,
     FalSubmissionAmbiguousError,
+    FalUpstreamError,
     fal_timeout_seconds_from_env,
     preflight_media_operation,
     validate_fal_config,
@@ -3462,7 +3463,7 @@ async def _poll_media_operation_or_raise(operation: dict, operation_id: str) -> 
         )
     except HTTPException:
         raise
-    except ValueError as e:  # FAL's unknown-status ValueError is FalUpstreamError: 502
+    except ValueError as e:  # FAL parse failures arrive as FalUpstreamError (502)
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(e),
@@ -4226,6 +4227,11 @@ async def generate_image(request: ComfyUIGenerateRequest):
             raise HTTPException(
                 status_code=status.HTTP_504_GATEWAY_TIMEOUT,
                 detail="FAL image generation timed out; cancellation was requested",
+            ) from exc
+        except FalUpstreamError as exc:
+            # FAL's unreadable reply is a provider fault, not the caller's.
+            raise _unexpected_error(
+                "Generate image with FAL", exc, status_code=status.HTTP_502_BAD_GATEWAY
             ) from exc
         except ValueError as exc:
             raise HTTPException(

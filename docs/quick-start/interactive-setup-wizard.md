@@ -133,7 +133,7 @@ Each cloud provider gets two consecutive steps. The API-key step is always shown
 | a new key | Replaces the key and turns the provider on. |
 | `remove` | Deletes the key and turns the provider off. The only action that erases a credential. |
 
-`clear` is a synonym for `remove`. Matching ignores case and surrounding spaces.
+`clear` is a synonym for `remove`. Matching ignores case and surrounding spaces. While you type one of these words, the hint under the masked input names its action instead of a character count. If you type `enable` and no key is saved, the hint says there is no saved key to enable.
 
 Unchecking every model in the model step turns the provider off and keeps the key; the step heading says so.
 
@@ -397,7 +397,7 @@ The command summary shows at most four rows. The service table shows a row's sou
 Press **Ctrl+O** for a full-screen, read-only view, available down to the 60×20 floor. It has three pages during setup and two after launch. **Tab** moves to the next page and **Shift+Tab** to the previous one:
 
 - **Command** lists the generated `./start.sh` command, one flag per line, in copyable shell form. Scroll with `↑` `↓` `PgUp` `PgDn`.
-- **Services** lists every service. Moving with `↑` `↓` shows that service's card, the same text as its tooltip.
+- **Services** lists every service. Moving with `↑` `↓` shows that service's card, the same text as its tooltip. An off-track service's card reads `Source  disabled (off-track)`, like its table row, and lists the `.env` value as `Stored source`.
 - **Decisions** (setup only) lists every answered step, in wizard order, with its current answer (§10.2).
 
 Press **y** to copy the command through OSC 52; a terminal without OSC 52 leaves the clipboard unchanged. A flag named like a secret (password, secret, token or key) shows and copies as `'<set>'`. **Esc**, `Ctrl+O` or `q` closes the view with your step, cursor and selections unchanged. On Decisions the search box has focus, so `q` and `y` are typed there; use Esc or `Ctrl+O` to close. The command summary's border shows `ctrl+o details`.
@@ -475,11 +475,11 @@ BRAND_REPO_URL=https://github.com/thekaveh/atlas
 BRAND_LOGO_FILE=
 ```
 
-Empty values fall back to the canonical defaults (encoded in `bootstrapper/wizard/model/state.py::AppState`). See `.env.example` for the latest documented block.
+Empty values fall back to the canonical defaults (encoded in `bootstrapper/wizard/model/state.py::AppState`). See `.env.example` for the latest documented block. Values display as plain text, so square brackets show exactly as typed.
 
 ### 15.1. Block-art logo (`BRAND_LOGO_FILE`)
 
-The ASCII block-art logo in the brand panel and the `--no-tui` banner defaults to **ATLAS** (an [ANSI-Shadow](https://patorjk.com/software/taag/#p=display&f=ANSI%20Shadow) figlet). To replace it, point `BRAND_LOGO_FILE` at a text file; leave it empty to keep ATLAS. Generate art with any figlet tool, for example `figlet -f "ANSI Shadow" "My Brand"`.
+The ASCII block-art logo in the brand panel and the `--no-tui` banner defaults to **ATLAS** (an [ANSI-Shadow](https://patorjk.com/software/taag/#p=display&f=ANSI%20Shadow) figlet). To replace it, point `BRAND_LOGO_FILE` at a UTF-8 text file; leave it empty to keep ATLAS. A missing, unreadable or non-UTF-8 file also keeps ATLAS. Generate art with any figlet tool, for example `figlet -f "ANSI Shadow" "My Brand"`.
 
 `bootstrapper/utils/brand_logo.py` documents the file layout: a wide lockup, plus an optional narrow version after a `---` line for small terminals. Both the TUI and the banner read it.
 

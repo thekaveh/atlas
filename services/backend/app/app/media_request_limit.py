@@ -153,9 +153,6 @@ class RequestLimitMiddleware:
         self._streaming_prefixes = tuple(p.rstrip("/") for p in policy.streaming_prefixes)
         self._streaming_auth = {p.rstrip("/"): fn for p, fn in policy.streaming_auth.items()}
 
-    def _streams(self, path: str) -> bool:
-        return self._stream_prefix(path) is not None
-
     def _stream_prefix(self, path: str) -> Optional[str]:
         return next((p for p in self._streaming_prefixes if path == p or path.startswith(p + "/")), None)
 

@@ -331,6 +331,30 @@ def test_search_focused_digit_keys_land_in_the_input_not_a_tab_switch():
     )
 
 
+def test_search_focused_arrow_keys_still_walk_the_option_list():
+    """``move`` is whitelisted while search has focus: up/down are not
+    printable, so ``check_action`` alone decides whether they reach the list."""
+    scr = _multiselect_screen()
+
+    async def scenario():
+        async with _App(scr).run_test(size=(140, 44)) as pilot:
+            await pilot.pause()
+            scr._prompt.focus_search()
+            await pilot.pause()
+            assert scr._prompt.has_search_focus()
+            allowed = scr.check_action("move", (1,))
+            before = scr._prompt._selected_index
+            await pilot.press("down")
+            await pilot.pause()
+            return allowed, before, scr._prompt._selected_index, scr._prompt.has_search_focus()
+
+    allowed, before, after, still_searching = asyncio.run(scenario())
+
+    assert allowed is True
+    assert after == before + 1, "down must move the highlight while the search box has focus"
+    assert still_searching, "moving the highlight must not take focus from the search box"
+
+
 def test_logs_written_while_setup_is_active_are_not_lost():
     """The Logs body stays mounted, so a failure during launch is still in the
     pane when the user switches over."""

@@ -619,6 +619,35 @@ def test_redis_twin_precedes_only_expanding_password_templates(tmp_path, url, ex
     assert content.count("REDIS_PASSWORD_URI=") == 1
 
 
+def test_redis_password_append_starts_its_own_line_after_unterminated_last_line(tmp_path):
+    """An absent REDIS_PASSWORD is generated and appended; a .env whose last
+    line has no newline must not get the assignment glued onto it."""
+    from urllib.parse import quote
+    from core.config_parser import ConfigParser
+
+    env = tmp_path / ".env"
+    env.write_bytes(b"A=1")
+    assert KeyGenerator(str(tmp_path)).generate_and_update_redis_password()
+    lines = env.read_bytes().decode("utf-8").splitlines()
+    assert "A=1" in lines
+    assert sum(line.startswith("REDIS_PASSWORD=") for line in lines) == 1
+    values = ConfigParser(str(tmp_path)).parse_env_file()
+    assert values["A"] == "1"
+    assert values["REDIS_PASSWORD"] not in ("", "redis_password")
+    assert values["REDIS_PASSWORD_URI"] == quote(values["REDIS_PASSWORD"], safe="")
+
+
+def test_redis_placeholder_rotation_keeps_crlf_on_the_rewritten_line(tmp_path):
+    env = tmp_path / ".env"
+    env.write_bytes(b"REDIS_PASSWORD=redis_password\r\nB=2\r\n")
+    assert KeyGenerator(str(tmp_path)).generate_and_update_redis_password()
+    content = env.read_bytes().decode("utf-8")
+    assert "REDIS_PASSWORD=redis_password" not in content
+    lines = content.splitlines(keepends=True)
+    assert len(lines) == 3
+    assert all(line.endswith("\r\n") and "\r" not in line[:-2] for line in lines), lines
+
+
 @pytest.mark.parametrize("original", ["synthetic%2Fsecret", "redis_password"])
 def test_redis_sync_failure_keeps_file_atomic(tmp_path, monkeypatch, original):
     env = _seed_env(tmp_path, "REDIS_PASSWORD=" + original + "\nREDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0\n")

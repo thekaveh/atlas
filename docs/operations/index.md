@@ -198,6 +198,8 @@ the bundle's generation time, so archive metadata carries no user or host names.
 
 `bundle.json` contains:
 
+- `ok`: `false` when any check failed or was `unavailable`. A `warn` or
+  `skipped` check keeps it `true`.
 - `checks`: every doctor check, `id` / `status` / `message` / `available`.
   `skipped` checks (for example, the service is disabled) are recorded, not
   dropped. So are `unavailable` checks (it raised, ran past the time budget, or

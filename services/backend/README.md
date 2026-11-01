@@ -106,7 +106,9 @@ LANGMEM_EMBEDDING_DIM=768
 
 `LANGMEM_AUTO_CONSOLIDATE` and `LANGMEM_CONSOLIDATION_INTERVAL` are reserved. No scheduler reads them yet (§8.6).
 
-**Extraction.** The LLM call runs outside the database transaction. Accepted facts and the completed session then commit atomically. A per-user lock enforces `LANGMEM_MAX_FACTS_PER_USER`. A failed extraction records a terminal failed session, not partial facts. The LangMem extraction module's docstring documents the full transaction and lock sequence.
+**Extraction.** The LLM call runs outside the database transaction. Accepted facts and the completed session then commit atomically. A per-user lock enforces `LANGMEM_MAX_FACTS_PER_USER`. A failed extraction records a terminal failed session, not partial facts. `extract_facts` in `memory_service.py` takes a per-user Postgres advisory transaction lock, then counts active facts and inserts new ones.
+
+**Retention.** Consolidation deactivates a user's oldest excess facts, ordered by creation time. It ignores `updated_at`, which vector sync, embedding backfill and failback also rewrite.
 
 LLM confidence scores are clamped to `0..1`. Null, nonnumeric, NaN and unconvertible integer scores use `0.8` without discarding other facts.
 
@@ -236,7 +238,7 @@ MEDIA_LEDGER_RECOVERY_MAX_CYCLES=4
 
 **Operations and artifacts.**
 
-- `POST /media/generate` takes `provider`, `modality`, `model` and `input`. It sends image and image-to-3D work to FAL, and image work to the managed or localhost ComfyUI host. It returns `202` with an operation id.
+- `POST /media/generate` takes `provider`, `modality`, `model` and `input`. It sends image and image-to-3D work to FAL, and image work to the enabled ComfyUI source. It returns `202` with an operation id.
 - `GET /media/operations/{operation_id}` returns normalized status and artifacts.
 - `POST /media/operations/{operation_id}/cancel` requests cancellation. The budget reservation is held until a terminal state is confirmed.
 - `artifact_url` is an absolute CDN URL for FAL. For ComfyUI it is a gateway-relative Backend path, so resolve it against your own base URL before you fetch it.
@@ -280,7 +282,7 @@ MEDIA_LEDGER_RECOVERY_MAX_CYCLES=4
 **Legacy ComfyUI routes.**
 
 - `GET /comfyui/image/{filename}` serves the n8n and Open WebUI automation callers.
-- `POST /comfyui/generate` uses FAL when `FAL_SOURCE=enabled`, and ComfyUI otherwise. With FAL it returns `409` while media budgets are enabled, because it reserves no budget, and `504` on a FAL timeout.
+- `POST /comfyui/generate` uses FAL when `FAL_SOURCE=enabled`, and ComfyUI otherwise. With FAL it returns `409` while media budgets are enabled, because it reserves no budget. It returns `504` on a FAL timeout and `502` when FAL's reply cannot be parsed.
 - If ComfyUI may have queued a prompt without confirming it, `/comfyui/generate` and `/comfyui/workflow` return `504`. Check `/comfyui/queue` before you retry, because a retry can render twice.
 - Only a connection failure returns a retryable `503`. After a prompt is queued, a timeout or a lost history poll returns `504` with its `prompt_id`.
 - `GET /comfyui/health` returns ComfyUI's `system_stats` only to n8n, Open WebUI and service callers. A user token gets the status alone.

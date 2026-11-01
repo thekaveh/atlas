@@ -267,3 +267,34 @@ def test_source_options_highlights_active_source():
         if seg == "none":   # an inactive option must NOT be accented
             assert "#7dcfff" not in style
     assert active_accented, "active source option should be accent + bold"
+
+
+def test_off_track_card_shows_the_effective_source_like_the_table_row():
+    """The table row reads 'disabled (off-track)', but the hover card and the
+    ctrl+o review (#1179) showed the stored source as active, so the two
+    surfaces disagreed about a service the track will force-disable."""
+    from ui.textual.widgets.service_table import service_card
+
+    row = _row("n8n", source="container", port=":63018", alias="n8n.localhost",
+               alias_port="63002", off_track=True,
+               source_options=("container", "localhost", "disabled"))
+    pairs = ServiceTable._tooltip_pairs(row)
+    assert pairs[0] == ("Source", "disabled (off-track)")
+    assert ("Stored source", "container") in pairs
+    assert ("Source", "container") not in pairs
+
+    card = service_card(row)
+    options_at = card.plain.index("container, localhost")
+    for span in card.spans:
+        if span.start <= options_at < span.end:
+            assert "bold" not in str(span.style), (
+                "an off-track row has no active source to accent"
+            )
+
+
+def test_on_track_card_is_unchanged():
+    row = _row("n8n", source="container", source_options=("container", "localhost"))
+    assert ServiceTable._tooltip_pairs(row)[:2] == [
+        ("Source", "container"),
+        ("Source options", "container, localhost"),
+    ]

@@ -113,11 +113,9 @@ def assemble_env_example(
     # default stack is qwen3.8:latest for both content and vision.
     #
     # NOTE: LITELLM_EMBEDDING_MODEL is deliberately NOT overridden here.
-    # Its static default (ollama/nomic-embed-text, 768-dim) must stay fixed
-    # because the public.memory_facts.embedding vector(768) pgvector column
-    # is dimension-locked to nomic-embed-text.  Switching dimension would
-    # silently corrupt all stored embeddings.  See model_resolver.py for the
-    # full rationale.
+    # Its static default (ollama/nomic-embed-text, 768-dim) stays fixed so it
+    # matches the default LANGMEM_EMBEDDING_DIM (768). Another model must come
+    # with its own dimension: see model_resolver.embedding_dimension_contract.
     text = _apply_model_resolver_defaults(text)
 
     # ── Ollama user-models pre-fill ───────────────────────────────────────

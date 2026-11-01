@@ -378,14 +378,15 @@ class OptionRow(Widget):
         # pre-feature layout for every non-Ollama caller.
         sizes: tuple[str, ...] | None = None,
         pulls: int = 0,
-        # Tags within ``sizes`` that the user has explicitly checked
-        # via the variant picker (or pre-checked from default-active
-        # in .env). When non-empty, the line-2 size column renders
-        # those variants in ``P.OK`` instead of the default muted
-        # colour, so a row checked with specific variants reads as
-        # "qwen3 with 8b + 14b highlighted" at a glance. Empty set
-        # means the row is either unchecked or checked-bare (default
-        # :latest pull) — line 2 stays uniformly muted.
+        # Tags within ``sizes`` that are in the per-tag checked set
+        # (checked on the expanded variant rows, or pre-checked from
+        # default-active in .env). When non-empty, the line-2 size
+        # column renders those variants in ``P.OK`` instead of the
+        # default muted colour, so a row checked with specific
+        # variants reads as "qwen3 with 8b + 14b highlighted" at a
+        # glance. Empty set means the row is either unchecked or
+        # checked-bare (default :latest pull) — line 2 stays
+        # uniformly muted.
         checked_variants: frozenset[str] | None = None,
         # Expand-tree state for the Ollama multiselect: ``"collapsed"``
         # / ``"expanded"`` (the row is a multi-variant parent and the
@@ -456,18 +457,6 @@ class OptionRow(Widget):
         if value == self.checked:
             return
         self.checked = value
-        self.refresh()
-
-    def set_checked_variants(self, value: frozenset[str]) -> None:
-        """Update which size variants render highlighted on line 2.
-
-        Called after the variant-picker popup confirms — the row stays
-        in place but its line-2 colouring updates to reflect the new
-        per-tag selection.
-        """
-        if value == self.checked_variants:
-            return
-        self.checked_variants = value
         self.refresh()
 
     # ─── render ─────────────────────────────────────────────────────────

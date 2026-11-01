@@ -347,7 +347,7 @@ def test_readers_do_not_inherit_cluster_wide_read_privileges(
     assert memberships.stdout.splitlines() == []
 
 
-@pytest.mark.parametrize(("reader", "password"), READERS)
+@pytest.mark.parametrize(("reader", "password"), READERS, ids=[reader for reader, _ in READERS])
 def test_each_reader_is_denied_auth_and_every_dedicated_database(
     disposable_postgres: DisposablePostgres,
     reader: str,
@@ -368,7 +368,7 @@ def test_each_reader_is_denied_auth_and_every_dedicated_database(
         assert connection.returncode != 0, f"{reader} connected to {database}"
 
 
-@pytest.mark.parametrize(("reader", "password"), READERS)
+@pytest.mark.parametrize(("reader", "password"), READERS, ids=[reader for reader, _ in READERS])
 def test_each_reader_receives_only_owner_specific_future_relation_reads(
     disposable_postgres: DisposablePostgres,
     reader: str,

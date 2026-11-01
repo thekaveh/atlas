@@ -79,6 +79,31 @@ def test_n8n_default_community_packages_are_exactly_locked() -> None:
         assert metadata.get("integrity"), path
 
 
+def test_n8n_locked_node_specs_match_every_default_site() -> None:
+    """Dependabot bumps only package.json and the lock. A default that drifts
+    from LOCKED_SPECS takes the bare `npm install` path, without the lock and
+    its axios/sharp overrides."""
+    import re
+
+    n8n = REPO_ROOT / "services" / "n8n"
+    script = (n8n / "init" / "scripts" / "install-nodes.sh").read_text(encoding="utf-8")
+    locked = re.search(r'^LOCKED_SPECS="([^"]+)"$', script, re.MULTILINE).group(1)
+    manifest = yaml.safe_load((n8n / "service.yml").read_text(encoding="utf-8"))
+    default = next(e["default"] for e in manifest["env"] if e["name"] == "N8N_INIT_NODES")
+    compose = yaml.safe_load((n8n / "compose.yml").read_text(encoding="utf-8"))["services"]
+    package = json.loads((n8n / "init" / "config" / "package.json").read_text(encoding="utf-8"))
+    hint = (
+        "A bump must update LOCKED_SPECS, the service.yml and compose defaults and "
+        "package.json together, then regenerate .env.example, env-vars.md and the "
+        "rendered-config golden. Keep the outgoing LOCKED_SPECS on install-nodes.sh's "
+        "locked-path list too: persisted .env files keep the old default."
+    )
+    assert default == locked, hint
+    assert compose["n8n-init"]["environment"]["N8N_INIT_NODES"] == f"${{N8N_INIT_NODES:-{locked}}}", hint
+    for name, version in (spec.rsplit("@", 1) for spec in locked.split(",")):
+        assert package["dependencies"].get(name) == version, hint
+
+
 def test_local_deep_researcher_litellm_poll_has_per_attempt_timeout() -> None:
     script = (
         REPO_ROOT

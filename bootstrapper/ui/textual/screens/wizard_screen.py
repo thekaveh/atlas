@@ -4355,8 +4355,7 @@ class _NullSink:
     Returning a bare ``lambda`` from ``__getattr__`` (the previous behavior)
     handled ``banner.foo()`` but crashed on ``banner.console.print(...)`` with
     ``'function' object has no attribute 'print'`` — the pipeline reaches the
-    latter via ``starter.banner.console.print(...)`` (e.g. the embedding
-    dimension warning in ``apply_user_model_selections``).
+    latter via ``starter.banner.console.print(...)``.
     """
 
     def __call__(self, *args, **kwargs): return None
@@ -4424,10 +4423,6 @@ class _NullBanner:
             level = {"warning": "warn", "success": "ok"}.get(level, level)
             self._sink(str(message), str(level or "info"))
     def show_section_header(self, *args, **kwargs) -> None: ...
-    def show_subsection_header(self, *args, **kwargs) -> None: ...
-    def log(self, *args, **kwargs) -> None: ...
-    def status(self, *args, **kwargs) -> None: ...
-    def section(self, *args, **kwargs) -> None: ...
     # Undefined attributes (e.g. ``console``) resolve to a sink that swallows
     # both further attribute access and calls — see _NullSink.
     def __getattr__(self, name): return _NULL_SINK

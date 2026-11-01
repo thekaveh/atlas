@@ -342,7 +342,11 @@ runtime_adaptive:
       RAGAS_EMBEDDINGS_MODEL: ${RAGAS_EMBEDDINGS_MODEL}
       LIGHTRAG_ENDPOINT: ${LIGHTRAG_ENDPOINT}
       LIGHTRAG_API_KEY: ${LIGHTRAG_API_KEY}
-      OTEL_COLLECTOR_ENDPOINT: ${OTEL_COLLECTOR_ENDPOINT}
+      # Mirrors what compose.yml injects for tracing: the OTLP/HTTP endpoint
+      # under the OpenTelemetry SDK name, plus the Atlas enable switch.
+      # OTEL_COLLECTOR_ENDPOINT reaches no container.
+      ATLAS_OTEL_ENABLED: ${ATLAS_OTEL_ENABLED}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_COLLECTOR_OTLP_HTTP_ENDPOINT}
     extra_hosts_adaptation: inherit from llm_provider
 
 runtime_deps:

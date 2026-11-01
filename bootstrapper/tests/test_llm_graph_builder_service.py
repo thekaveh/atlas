@@ -202,6 +202,33 @@ def test_llm_graph_builder_scale_endpoint_and_dependency_gate() -> None:
     }
 
 
+@pytest.mark.parametrize(
+    ("env", "model"),
+    [
+        pytest.param(
+            {"LLM_GRAPH_BUILDER_LLM_MODEL": "openai/override", "LITELLM_DEFAULT_MODEL": "ollama/llama3.1"},
+            "openai/override",
+            id="explicit-override-wins",
+        ),
+        pytest.param({"LITELLM_DEFAULT_MODEL": "ollama/llama3.1"}, "ollama/llama3.1", id="litellm-default"),
+        pytest.param({}, "gpt-4o-mini", id="built-in-fallback"),
+    ],
+)
+def test_llm_graph_builder_model_follows_documented_precedence(env, model) -> None:
+    """service.yml: empty LLM_GRAPH_BUILDER_LLM_MODEL uses
+    LITELLM_DEFAULT_MODEL, then gpt-4o-mini."""
+    sc = ServiceConfig(config_parser=MagicMock())
+    sc.config_parser.parse_env_file.return_value = env
+    sc.service_sources = {
+        "LLM_GRAPH_BUILDER_SOURCE": "container",
+        "NEO4J_GRAPH_DB_SOURCE": "container",
+    }
+
+    assert sc._generate_llm_graph_builder_config()["LLM_GRAPH_BUILDER_LITELLM_MODEL_CONFIG"] == (
+        f"{model},http://litellm:4000/v1,${{LITELLM_MASTER_KEY}}"
+    )
+
+
 def test_llm_graph_builder_compose_contract() -> None:
     compose = _compose()["services"]
     backend = compose["llm-graph-builder-backend"]

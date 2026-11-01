@@ -46,6 +46,11 @@ def _uri_component(env_file_vars: dict, name: str, default: str = '') -> str:
     )
 
 
+def _shell_image_pin(var: str) -> str:
+    """Return a shell-exported image pin, or ''. The pin refresher skips these."""
+    return (os.environ.get(var) or '').strip()
+
+
 
 def synchronize_redis_uri_credentials(env_file_path, password: str, rewrite_password: bool = True) -> bool:
     """Atomically publish a file credential's encoded twin and URL references.
@@ -281,7 +286,7 @@ class ServiceConfig:
         env_vars.update(hermes_config)
 
         # Generate TEI Reranker configuration
-        tei_reranker_config = self._generate_tei_reranker_config()
+        tei_reranker_config = self._generate_tei_reranker_config(shared_env=env_vars)
         env_vars.update(tei_reranker_config)
 
         # Generate LightRAG configuration
@@ -852,7 +857,7 @@ class ServiceConfig:
 
         return env_vars
 
-    def _generate_tei_reranker_config(self) -> Dict[str, str]:
+    def _generate_tei_reranker_config(self, shared_env: Optional[Dict[str, str]] = None) -> Dict[str, str]:
         """Resolve TEI Reranker endpoint, scale, and per-source image.
 
         For container-cpu, picks the arm64 image on arm64 hosts and the
@@ -862,22 +867,30 @@ class ServiceConfig:
         The default model (mxbai-rerank-base-v1) ships ONNX so both
         backends work; some models like bge-reranker-v2-m3 are safetensors-
         only AND too heavy for the arm64 candle backend's warmup path.
+
+        Each pin resolves from the shell export (the refresher skips it),
+        then this run's refreshed pin in ``shared_env``, then ``.env``.
         """
         import platform as _platform
         source_value = self.service_sources.get('TEI_RERANKER_SOURCE', 'disabled')
         env_vars: Dict[str, str] = {}
         current_env = self.config_parser.parse_env_file()
-        cpu_image = current_env.get(
+        shared = shared_env or {}
+
+        def _pin(var: str, default: str) -> str:
+            return _shell_image_pin(var) or shared.get(var) or current_env.get(var) or default
+
+        cpu_image = _pin(
             'TEI_RERANKER_CPU_IMAGE',
             'ghcr.io/huggingface/text-embeddings-inference:cpu-1.9'
             '@sha256:ad950d30878eceb72aaf32024d26fa2b1d04a75304fa0b4776b49aa1941fea07',
         )
-        cpu_arm64_image = current_env.get(
+        cpu_arm64_image = _pin(
             'TEI_RERANKER_CPU_ARM64_IMAGE',
             'ghcr.io/huggingface/text-embeddings-inference:cpu-arm64-latest'
             '@sha256:35c50d7494de22deecdb783b8f5b7e1d05765709bd90071b03469b9440d28656',
         )
-        gpu_image = current_env.get(
+        gpu_image = _pin(
             'TEI_RERANKER_GPU_IMAGE',
             'ghcr.io/huggingface/text-embeddings-inference:1.9'
             '@sha256:536efce2a0dc0acd0336d683ef1b81fcf900f76c8fb850e25a6d48a54a97df91',
@@ -976,7 +989,8 @@ class ServiceConfig:
                 `ray-container-gpu`, `disabled`).
             shared_env: Env vars accumulated by earlier generators + manifest
                 defaults. We read `RAY_IMAGE` / `RAY_GPU_IMAGE` from here (the
-                image-pin refresher seeds them). `RAY_WORKER_COUNT` is NOT in
+                image-pin refresher seeds them); a shell-exported pin wins,
+                because the refresher skips it. `RAY_WORKER_COUNT` is NOT in
                 shared_env (the pipeline builds env_vars fresh and never adds
                 it), so it is read from `.env` on disk — mirroring how
                 _generate_spark_config reads SPARK_WORKER_COUNT.
@@ -985,8 +999,8 @@ class ServiceConfig:
             Dict of resolved env-var assignments. The caller merges this into
             the .env-example output.
         """
-        cpu_image = shared_env.get("RAY_IMAGE", "rayproject/ray:2.56.0") or "rayproject/ray:2.56.0"
-        gpu_image = shared_env.get("RAY_GPU_IMAGE", "rayproject/ray:2.56.0-gpu") or "rayproject/ray:2.56.0-gpu"
+        cpu_image = _shell_image_pin("RAY_IMAGE") or shared_env.get("RAY_IMAGE") or "rayproject/ray:2.56.0"
+        gpu_image = _shell_image_pin("RAY_GPU_IMAGE") or shared_env.get("RAY_GPU_IMAGE") or "rayproject/ray:2.56.0-gpu"
 
         # Read RAY_WORKER_COUNT from disk (where the wizard/CLI persists the
         # user's --ray-worker-count) with a safe fallback to the manifest
@@ -2072,13 +2086,16 @@ class ServiceConfig:
             env_vars['LIGHTRAG_NEO4J_PASSWORD'] = ''
             env_vars['LIGHTRAG_REDIS_URI'] = ''
 
-        # Hermes-init capability wiring. Each *_INTERNAL_URL is read by
-        # init-hermes.sh and rendered into config.yaml as a tool/skill block
-        # — empty values cause init-hermes.sh's strip_block to omit the
-        # capability (per services/hermes/service.yml::runtime_adaptive
-        # .hermes-init.failure_mode). The contract here mirrors the env
-        # declarations at services/hermes/service.yml lines 169-173; missing
-        # an emission silently disables the capability with no warning.
+        # Hermes-init capability wiring. init-hermes.sh renders the TTS and STT
+        # *_INTERNAL_URL values into config.yaml blocks; SEARXNG_INTERNAL_URL
+        # only keeps the SEARCH block. strip_block omits a block whose URL is
+        # empty (per
+        # services/hermes/service.yml::runtime_adaptive.hermes-init
+        # .failure_mode). COMFYUI_INTERNAL_URL renders the ComfyUI host skill
+        # instead. LIGHTRAG_INTERNAL_URL is exported but not rendered. The
+        # contract mirrors the *_INTERNAL_URL `env:` declarations in
+        # services/hermes/service.yml; a missing emission silently disables
+        # the capability with no warning.
         hermes_source = sources.get('HERMES_SOURCE', 'container')
         hermes_container_up = (hermes_source == 'container')
 

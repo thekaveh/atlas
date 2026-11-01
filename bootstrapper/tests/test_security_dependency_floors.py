@@ -809,6 +809,8 @@ def test_asset_worker_toolchain_uses_an_audited_npm_lock() -> None:
 
     assert package["dependencies"]["@gltf-transform/cli"] == "4.5.1"
     assert package["overrides"]["sharp"] == "0.35.5"
+    # Clears GHSA-3g3m-2fjr-6pw4 (glob 10) and GHSA-g3hv-75wg-m249 (minimatch 9).
+    assert package["overrides"]["glob"] == "14.0.3"
     assert "package-lock.json" in dockerfile
     assert "npm ci --omit=dev" in dockerfile
     assert "npm install -g" not in dockerfile

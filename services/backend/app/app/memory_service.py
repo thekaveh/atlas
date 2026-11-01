@@ -879,11 +879,13 @@ Extract the facts as JSON:"""
             )
             if active_count <= self.max_facts:
                 return 0
+            # Oldest by creation: vector sync, backfill and failback rewrite
+            # updated_at, so it cannot rank fact age.
             expired_rows = await conn.fetch(
                 """
                 SELECT id, updated_at FROM public.memory_facts
                 WHERE user_id = $1 AND is_active = true
-                ORDER BY updated_at ASC
+                ORDER BY created_at ASC NULLS FIRST, id ASC
                 LIMIT $2
                 """,
                 user_uuid,

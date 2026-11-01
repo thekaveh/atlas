@@ -7,6 +7,10 @@ services:
         BASE_IMAGE: ${JUPYTERHUB_IMAGE}
     container_name: ${PROJECT_NAME}-jupyterhub
     restart: unless-stopped
+    # startup.sh replaces the base image's tini ENTRYPOINT, so Docker's init
+    # runs as PID 1 instead. It forwards signals and reaps processes orphaned
+    # by kernel restarts or closed terminals; jupyter lab never reaps them.
+    init: true
     deploy:
       replicas: ${JUPYTERHUB_SCALE:-1}
     depends_on:
@@ -123,6 +127,7 @@ services:
     # flags VS Code (and any other remote Jupyter client) needs.
     #
     # Full launch chain after this override (see README §10.3):
+    #   PID 1      = docker-init                 (compose `init: true`; reaps orphans)
     #   ENTRYPOINT = /usr/local/bin/startup.sh   (our wrapper; exec "$@")
     #   CMD        = [the list below]
     #   →  startup.sh start-notebook.sh <flags>

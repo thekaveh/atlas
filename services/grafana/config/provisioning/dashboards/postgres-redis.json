@@ -33,6 +33,7 @@
       "type": "bargauge",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
       "id": 3,
+      "fieldConfig": { "defaults": { "unit": "bytes", "color": { "mode": "fixed", "fixedColor": "blue" } }, "overrides": [] },
       "targets": [
         { "expr": "topk(10, pg_stat_user_tables_table_size_bytes)", "refId": "A" }
       ]
@@ -43,6 +44,7 @@
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
       "id": 4,
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] },
       "targets": [
         { "expr": "redis_memory_used_bytes", "refId": "A" }
       ]
@@ -53,6 +55,7 @@
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
       "id": 5,
+      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
       "targets": [
         { "expr": "rate(redis_commands_processed_total[5m])", "refId": "A" }
       ]
@@ -63,6 +66,7 @@
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
       "id": 6,
+      "fieldConfig": { "defaults": { "unit": "percentunit" }, "overrides": [] },
       "targets": [
         { "expr": "rate(redis_keyspace_hits_total[5m]) / (rate(redis_keyspace_hits_total[5m]) + rate(redis_keyspace_misses_total[5m]))", "refId": "A" }
       ]

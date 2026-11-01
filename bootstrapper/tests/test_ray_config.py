@@ -133,3 +133,27 @@ def test_worker_count_disk_overrides_shared_env():
                     "RAY_GPU_IMAGE": "rayproject/ray:2.56.0-gpu"},
     )
     assert out["RAY_WORKER_SCALE"] == "6"
+
+
+def test_shell_exported_gpu_pin_reaches_ray_image(monkeypatch):
+    """Regression: the pin refresher skips a shell-exported RAY_GPU_IMAGE, so
+    shared_env lacks it and the hardcoded default used to win."""
+    monkeypatch.delenv("RAY_IMAGE", raising=False)
+    monkeypatch.setenv("RAY_GPU_IMAGE", "example/my-ray-gpu:pinned")
+    sc = _service_config_instance()
+    out = sc._generate_ray_config(
+        source_value="ray-container-gpu",
+        shared_env={"RAY_IMAGE": "rayproject/ray:2.56.0"},
+    )
+    assert out["RAY_IMAGE"] == "example/my-ray-gpu:pinned"
+
+
+def test_shell_exported_cpu_pin_reaches_ray_image(monkeypatch):
+    monkeypatch.delenv("RAY_GPU_IMAGE", raising=False)
+    monkeypatch.setenv("RAY_IMAGE", "example/my-ray:pinned")
+    sc = _service_config_instance()
+    out = sc._generate_ray_config(
+        source_value="ray-container-cpu",
+        shared_env={"RAY_GPU_IMAGE": "rayproject/ray:2.56.0-gpu"},
+    )
+    assert out["RAY_IMAGE"] == "example/my-ray:pinned"

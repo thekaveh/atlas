@@ -538,7 +538,7 @@ def build_bundle(request: BundleRequest, *, now: datetime.datetime | None = None
         "context": redactor.value(request.context),
         "host": {"system": platform.system(), "machine": platform.machine(),
                  "python": platform.python_version()},
-        "ok": not any(check["status"] == "fail" for check in checks),
+        "ok": not any(check["status"] in ("fail", "unavailable") for check in checks),
         "checks": checks,
         "findings": _findings(redactor.value(request.checks), checks, config),
         "config": config,

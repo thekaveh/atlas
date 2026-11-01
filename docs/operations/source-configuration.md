@@ -162,7 +162,7 @@ Each row lists the options from the service's `service.yml` `sources:` block; **
 | `LIGHTRAG_SOURCE` | `container`, `localhost`†, **`disabled`** | `container` stores data in Supabase pgvector, Neo4j and Redis. If one is disabled, LightRAG fails to start unless its `LIGHTRAG_*_STORAGE` names an in-process class. `localhost` uses `LIGHTRAG_LOCALHOST_PORT` (default `63068`). | [LightRAG](../../services/lightrag/README.md) |
 | `LLM_GRAPH_BUILDER_SOURCE` | `container`, **`disabled`** | Neo4j LLM Graph Builder (pinned source build). | [LLM Graph Builder](../../services/llm-graph-builder/README.md) |
 | `LLM_PROVIDER_SOURCE` | **`ollama-container-cpu`**, `ollama-container-gpu`, `ollama-localhost`†, `none` | Ollama upstream for LiteLLM. See §4.1.1. | [Ollama](../../services/ollama/README.md) |
-| `LOCAL_DEEP_RESEARCHER_SOURCE` | **`container`**, `disabled` | LangGraph research agent. | [Local Deep Researcher](../../services/local-deep-researcher/README.md) |
+| `LOCAL_DEEP_RESEARCHER_SOURCE` | **`container`**, `disabled` | LangGraph research agent. Requires `SEARXNG_SOURCE=container`; otherwise the start auto-disables it with a warning. | [Local Deep Researcher](../../services/local-deep-researcher/README.md) |
 | `LOKI_SOURCE` | `container`, **`disabled`** | Local queryable log store. | [Loki](../../services/loki/README.md) |
 | `MCP_SERVERS_SOURCE` | `container`, **`disabled`** | Read-only Postgres, Neo4j and SearXNG tools over Streamable HTTP at `/mcp` (`mcp.localhost`). Requires `NEO4J_GRAPH_DB_SOURCE=container` and `SEARXNG_SOURCE=container`. Tool output is untrusted. | [MCP Servers](../../services/mcp-servers/README.md) |
 | `MINIO_SOURCE` | **`container`**, `disabled` | S3-compatible object storage with scoped per-consumer buckets. See §4.3.3. | [MinIO](../../services/minio/README.md) |
@@ -264,6 +264,8 @@ FAL_MODEL=fal-ai/flux/dev
 - `POST /media/generate` is the provider-neutral route for FAL image and image-to-3D generation (TRELLIS, Hunyuan3D, Tripo, Rodin). Use its `input.provider_arguments` for other FAL endpoints. The backend's `/docs` endpoint serves the contract.
 
 ## 5. Configuration Patterns
+
+The patterns that pass `--searxng-source disabled` also stop Local Deep Researcher. The start auto-disables it with a warning, because it searches only through SearXNG.
 
 ### 5.1. Development Setup
 Best for local development with minimal resources:

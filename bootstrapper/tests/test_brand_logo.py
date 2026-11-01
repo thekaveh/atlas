@@ -31,6 +31,20 @@ def test_all_blank_file_falls_back_to_atlas(tmp_path):
     assert brand_logo.resolve({"BRAND_LOGO_FILE": str(f)})[0] == brand_logo.ATLAS_FULL
 
 
+def test_undecodable_file_falls_back_to_atlas(tmp_path):
+    """A non-UTF-8 file (CP437 art, a PNG) must not crash the banner or TUI."""
+    expected = (
+        brand_logo.ATLAS_FULL,
+        brand_logo.ATLAS_COMPACT,
+        brand_logo.width_threshold(brand_logo.ATLAS_FULL),
+    )
+    for name, body in (("cp437.txt", b"\xdb\xdb\xdb ART\n"),
+                       ("logo.png", b"\x89PNG\r\n\x1a\n")):
+        f = tmp_path / name
+        f.write_bytes(body)
+        assert brand_logo.resolve({"BRAND_LOGO_FILE": str(f)}) == expected
+
+
 def test_custom_file_with_separator_splits_full_and_compact(tmp_path):
     f = tmp_path / "logo.txt"
     f.write_text("FULL-ROW-1\nFULL-ROW-22\n---\nCMP1\nCMP2\n", encoding="utf-8")

@@ -790,42 +790,6 @@ class SourceValidator:
             print("   at services/<service>/service.yml under `sources.options`.")
         else:
             print("✅ All SOURCE values are valid")
-    
-    def get_service_source_options(self, service_var: str) -> List[str]:
-        """
-        Get valid SOURCE options for a specific service variable.
-        
-        Args:
-            service_var: SOURCE variable name
-            
-        Returns:
-            list: List of valid SOURCE values
-        """
-        if not self.yaml_config:
-            self.load_yaml_config()
-            
-        # Get mappings dynamically from YAML
-        service_mapping = self.get_service_mapping_from_yaml()
-        adaptive_services = self.get_adaptive_services_from_yaml()
-        
-        if service_var in adaptive_services:
-            # Check for explicit source options first
-            adaptive_sources = self._get_adaptive_service_sources(service_var)
-            if not adaptive_sources:
-                # Also check source_configurable
-                sk = service_mapping.get(service_var)
-                if sk:
-                    adaptive_sources = self.get_valid_sources_for_service(sk)
-            if adaptive_sources:
-                return sorted(list(adaptive_sources))
-            return ['container']
-
-        service_key = service_mapping.get(service_var)
-        if not service_key:
-            return []
-
-        valid_sources = self.get_valid_sources_for_service(service_key)
-        return sorted(list(valid_sources))
 
 
 def _missing_option_requires(sources, service_sources: Dict[str, str], env_vars: Dict[str, str]) -> List[str]:

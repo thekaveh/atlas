@@ -182,6 +182,22 @@ def test_doctor_archive_preserves_supported_active_env_origins(tmp_path, monkeyp
     assert secret not in json.dumps(body) + result.output
 
 
+def test_bundle_ok_agrees_with_doctor_for_an_unavailable_check():
+    """doctor exits 1 on an `unavailable` check; bundle.json must not say ok."""
+    from core import support_bundle as sb
+
+    def raising(_):
+        raise RuntimeError("x")
+
+    results, _notes = sb.run_checks([raising], None, sb.BundleLimits())
+    body = sb.build_bundle(sb.BundleRequest(env={}, checks=results)).body
+    assert results[0]["status"] == "unavailable"
+    assert body["ok"] is False and body["checks"][0]["available"] is False
+    for status in ("warn", "skipped"):
+        check = {"id": "c", "status": status, "message": "m"}
+        assert sb.build_bundle(sb.BundleRequest(env={}, checks=[check])).body["ok"] is True
+
+
 def _assert_bundle_base_port_origin(body, expected):
     entry = next(entry for entry in body["config"] if entry["key"] == "BASE_PORT")
     assert entry["origin"] == expected and expected in entry["action"]

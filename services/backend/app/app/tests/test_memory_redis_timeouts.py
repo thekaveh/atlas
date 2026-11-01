@@ -3,6 +3,9 @@
 Split from test_async_jobs.py to keep that module inside the maintenance
 ledger's 600-logical-line ceiling; the ownership/fencing behavior these
 transport bounds protect stays pinned there.
+
+The live-Redis tests at the end run the lease compare-and-set scripts
+themselves. They skip unless ATLAS_TEST_REDIS_URL names disposable database 15.
 """
 
 from __future__ import annotations
@@ -103,3 +106,69 @@ def test_hung_redis_returns_within_the_transport_bound(monkeypatch):
                 pass
         listener.close()
 
+
+# ---------------------------------------------------------------------------
+# Execution-lease compare-and-set scripts against a live Redis
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def live_lease(monkeypatch):
+    """A unique task id on the disposable Redis; only its lease key is touched."""
+    from uuid import uuid4
+
+    from redis import Redis
+
+    import celery_app
+    from tests.conftest import disposable_redis_url
+
+    url = disposable_redis_url()
+    monkeypatch.setenv("CELERY_BROKER_URL", url)
+    task_id = f"lease-test-{uuid4()}"
+    key = celery_app._memory_execution_key(task_id)
+    client = Redis.from_url(url, decode_responses=True)
+    client.delete(key)
+    try:
+        yield task_id, key, client
+    finally:
+        client.delete(key)
+        client.close()
+
+
+def test_a_live_lease_admits_only_its_owners_recovery(live_lease):
+    import celery_app
+
+    task_id, key, client = live_lease
+    assert celery_app.claim_memory_execution(task_id, "a") == ("claimed", None)
+    assert celery_app.claim_memory_execution(task_id, "b") == ("busy", None)
+    assert celery_app.claim_memory_execution(task_id, "c", recovery_owner="x") == ("busy", None)
+    assert client.get(key) == "running:a"
+
+    assert celery_app.claim_memory_execution(task_id, "b", recovery_owner="a") == ("claimed", None)
+    assert client.get(key) == "running:b"
+    assert 0 < client.ttl(key) <= celery_app.memory_execution_lease_seconds()
+
+
+def test_only_the_lease_owner_completes_or_releases_it(live_lease):
+    import celery_app
+
+    task_id, key, client = live_lease
+    result = {"facts_expired": 1}
+    assert celery_app.claim_memory_execution(task_id, "a") == ("claimed", None)
+    assert celery_app.complete_memory_execution(task_id, "z", result) is False
+    assert celery_app.release_memory_execution(task_id, "z") is False
+    assert client.get(key) == "running:a"
+
+    assert celery_app.complete_memory_execution(task_id, "a", result) is True
+    assert celery_app.claim_memory_execution(task_id, "b") == ("done", result)
+    assert celery_app.release_memory_execution(task_id, "a") is False
+    assert client.get(key).startswith("done:")
+
+
+def test_the_owner_release_frees_the_lease(live_lease):
+    import celery_app
+
+    task_id, key, client = live_lease
+    assert celery_app.claim_memory_execution(task_id, "a") == ("claimed", None)
+    assert celery_app.release_memory_execution(task_id, "a") is True
+    assert client.exists(key) == 0
+    assert celery_app.claim_memory_execution(task_id, "b") == ("claimed", None)

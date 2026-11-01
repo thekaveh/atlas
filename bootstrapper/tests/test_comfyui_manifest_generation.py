@@ -552,13 +552,12 @@ class TestGeneratorSkipsWhenDisabled:
 
 
 # ---------------------------------------------------------------------------
-# #905: consumer custom_nodes union semantics through _write_custom_nodes_tsv
+# #905: consumer custom_nodes union semantics through write()
 # ---------------------------------------------------------------------------
 
 class TestConsumerCustomNodesUnion:
     """Integration coverage for the #905 union semantics as they surface through
-    ``_write_custom_nodes_tsv`` (the generator's ``active-custom-nodes.tsv``
-    output).
+    ``write`` (the generator's ``active-custom-nodes.tsv`` output).
 
     The resolver-level unit tests (``active_custom_nodes`` model-gating vs.
     ``from_consumer`` unconditional) live in ``test_comfyui_custom_nodes.py``;

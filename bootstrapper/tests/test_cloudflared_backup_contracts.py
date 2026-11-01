@@ -279,6 +279,10 @@ def test_backup_compose_passes_source_to_runner() -> None:
 
 
 def _render_backup_service(tmp_path: Path, overrides: dict[str, str]) -> dict:
+    if shutil.which("docker") is None:
+        if os.environ.get("CI", "").lower() in {"1", "true", "yes"}:
+            pytest.fail("docker CLI is required to render the backup Compose contract")
+        pytest.skip("docker CLI unavailable")
     env_text = (REPO / ".env.example").read_text(encoding="utf-8")
     values = dict(overrides)
     rendered_lines: list[str] = []
@@ -631,6 +635,13 @@ def test_local_s3_mode_refuses_to_send_minio_root_credentials_to_remote_endpoint
         ("https://[:::]", "true", "us-east-1", "BACKUP_S3_ENDPOINT"),
         ("https://[127.0.0.1]", "true", "us-east-1", "BACKUP_S3_ENDPOINT"),
         ("https://999.1.2.3", "true", "us-east-1", "BACKUP_S3_ENDPOINT"),
+        ("https://256.1.2.3", "true", "us-east-1", "BACKUP_S3_ENDPOINT"),
+        ("https://1.2.3", "true", "us-east-1", "BACKUP_S3_ENDPOINT"),
+        ("https://1.2.3.4.5", "true", "us-east-1", "BACKUP_S3_ENDPOINT"),
+        ("https://-s3.example.test", "true", "us-east-1", "BACKUP_S3_ENDPOINT"),
+        ("https://s3-.example.test", "true", "us-east-1", "BACKUP_S3_ENDPOINT"),
+        ("https://[12345::1]", "true", "us-east-1", "BACKUP_S3_ENDPOINT"),
+        ("https://[1:2:3:4::5:6:7:8]", "true", "us-east-1", "BACKUP_S3_ENDPOINT"),
         ("https://a..b", "true", "us-east-1", "BACKUP_S3_ENDPOINT"),
         (f"https://{'a' * 64}.example", "true", "us-east-1", "BACKUP_S3_ENDPOINT"),
         (f"https://{'a.' * 126}aa", "true", "us-east-1", "BACKUP_S3_ENDPOINT"),
@@ -675,6 +686,8 @@ def test_backup_rejects_invalid_s3_endpoint_tls_and_region_before_io(
         "http://127.0.0.1:9000",
         "http://[2001:db8::1]:9000",
         "https://[::1]",
+        "https://255.1.2.3",
+        "https://[1:2:3::6:7:8]",
     ],
 )
 def test_backup_accepts_deliberate_s3_origin_forms(tmp_path: Path, endpoint: str) -> None:

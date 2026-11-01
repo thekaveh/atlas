@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import re
 import shlex
 import signal
 from typing import Any
@@ -74,6 +75,26 @@ def _no_inherited_env_file_selection(monkeypatch):
         "ATLAS_CONSUMER_MANIFEST",
         "_ATLAS_CONSUMER_MANIFEST_CLI",
     ):
+        monkeypatch.delenv(name, raising=False)
+
+
+_ENV_EXAMPLE_KEYS = frozenset(re.findall(
+    r"^([A-Z_][A-Z0-9_]*)=",
+    (Path(__file__).resolve().parents[2] / ".env.example").read_text(encoding="utf-8"),
+    re.M,
+))
+
+
+@pytest.fixture(autouse=True)
+def _no_inherited_operator_settings(monkeypatch):
+    """Clear exported ``.env.example`` variables from the test environment.
+
+    An exported value wins over the env file in
+    ``core/port_manager.py::_host_bind_ip``, ``utils/system.py::compose_env``
+    and docker compose interpolation. An operator's shell (HOST_BIND_IP,
+    PROJECT_NAME, REDIS_PASSWORD) therefore changed test results. A test that
+    needs one of these sets it itself."""
+    for name in _ENV_EXAMPLE_KEYS & os.environ.keys():
         monkeypatch.delenv(name, raising=False)
 
 

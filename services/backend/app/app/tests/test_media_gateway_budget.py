@@ -802,10 +802,10 @@ def test_reconcile_commits_on_successful_poll(monkeypatch):
 
 def test_cancellation_mid_submit_persists_ambiguous_reservation(monkeypatch):
     # A request cancelled mid-submit (uvicorn graceful shutdown / client
-    # disconnect) raises asyncio.CancelledError — a BaseException the
-    # ``except Exception`` handlers cannot catch. The finally must still release
-    # the reservation so a durably committed RESERVED row is not stranded
-    # against the consumer's cap (which would eventually 402 legit requests).
+    # disconnect) raises asyncio.CancelledError after the provider call may
+    # have started. FAL may already have accepted the work, so the reservation
+    # is retained under its local id with a submission_unknown record for
+    # operator reconciliation.
     main = _fresh_main(monkeypatch, budget_enabled=True, default_cap=10.0)
     _CapturingFalClient.captured = {}
     monkeypatch.setattr(main, "FalClient", _CapturingFalClient, raising=False)
@@ -2180,7 +2180,14 @@ def _fal_sdk(monkeypatch, status_reply, result=None):
             return status_reply()
 
         async def result(self, model, request_id):
+            if isinstance(result, BaseException):
+                raise result
             return result
+
+        async def subscribe(self, model, *, arguments, start_timeout, client_timeout):
+            if start_timeout <= 1:  # fal-client's add_timeout_header, before any request
+                raise ValueError("Timeout must be greater than 1 seconds")
+            return await self.result(model, "fal-1")
 
     monkeypatch.setitem(sys.modules, "fal_client", SimpleNamespace(AsyncClient=FakeAsyncClient))
     from fal_media_client import FalClient
@@ -2223,6 +2230,43 @@ def test_unknown_fal_queue_status_is_a_provider_error_not_a_caller_error(monkeyp
     with pytest.raises(main.HTTPException) as raised:
         asyncio.run(main._poll_media_operation_or_raise(operation, "fal-1"))
     assert raised.value.status_code == 502
+
+
+def _unreadable_fal_reply():
+    import json
+
+    return json.JSONDecodeError("Expecting value", "<html>gateway</html>", 0)
+
+
+def test_an_unreadable_fal_result_is_a_provider_error_not_a_caller_error(monkeypatch):
+    class Completed:
+        error = None
+
+    _fal_sdk(monkeypatch, Completed, _unreadable_fal_reply())
+    main = _fresh_main(monkeypatch, budget_enabled=False)
+    operation = {"provider": "fal", "modality": "image", "model": "fal-ai/flux/dev"}
+
+    with pytest.raises(main.HTTPException) as raised:
+        asyncio.run(main._poll_media_operation_or_raise(operation, "fal-1"))
+    assert raised.value.status_code == 502
+    assert "Expecting value" not in str(raised.value.detail)
+
+
+@pytest.mark.parametrize("timeout_seconds, expected", [(120, 502), (1, 400)])
+def test_the_legacy_fal_route_blames_only_the_caller_for_caller_errors(
+    monkeypatch, timeout_seconds, expected
+):
+    """An unreadable FAL reply is a 502. The SDK's own pre-request rejection
+    of a start timeout <= 1 s stays the caller's 400."""
+    _fal_sdk(monkeypatch, lambda: None, _unreadable_fal_reply())
+    main = _fresh_fal_main(monkeypatch, fal_source="enabled", fal_api_key="fal-key")
+    from fastapi.testclient import TestClient
+
+    response = TestClient(main.app).post(
+        "/comfyui/generate", json={"prompt": "a cat", "timeout_seconds": timeout_seconds}
+    )
+    assert response.status_code == expected, response.json()
+    assert "Expecting value" not in response.text
 
 
 @pytest.mark.parametrize("result", [{"preview": {"url": "https://cdn/p.png"}}, {}])

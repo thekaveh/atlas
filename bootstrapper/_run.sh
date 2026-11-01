@@ -118,7 +118,9 @@ elif command -v python3 >/dev/null 2>&1; then
         else
             echo "Refreshing Atlas bootstrapper dependencies (declaration changed)..." >&2
         fi
-        if "$VENV_PYTHON" -m pip install --disable-pip-version-check --upgrade --constraint "$BOOTSTRAPPER_LOCK" "$SELF_DIR"; then
+        # The scripts run from this directory, so install only the locked
+        # runtime closure, not the bootstrapper itself (no build-backend fetch).
+        if "$VENV_PYTHON" -m pip install --disable-pip-version-check --upgrade --constraint "$BOOTSTRAPPER_LOCK" --requirement "$BOOTSTRAPPER_LOCK"; then
             # Stamp only AFTER a successful install, so a failed run retries.
             printf '%s\n' "$WANT_STAMP" > "$DEPS_STAMP" 2>/dev/null || true
         else

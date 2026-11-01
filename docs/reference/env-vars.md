@@ -156,7 +156,7 @@
 | BACKUP_S3_SESSION_TOKEN | backup |  | Optional S3 security token for temporary credentials. |
 | BACKUP_S3_TLS_VERIFY | backup | true | Verify HTTPS certificates. false is valid only with an https endpoint and explicitly enables the MinIO client's insecure certificate mode. |
 | BACKUP_S3_ALIAS_URL | backup |  | Deprecated pre-M11 endpoint variable accepted only as a migration fallback when BACKUP_S3_ENDPOINT remains at its local default. |
-| BACKUP_COMMAND_TIMEOUT_SECONDS | backup | 900 | Positive per-command deadline in seconds for package install, database, archive, and S3 operations. |
+| BACKUP_COMMAND_TIMEOUT_SECONDS | backup | 900 | Positive per-command deadline in seconds, at most 86400, for each database, archive, digest and S3 command. A whole orchestrated backup run gets three times this value, at least 900 s. |
 | BACKUP_RESTORE_GLOBAL_TIMEOUT_SECONDS | backup | 28800 | Finite active-restore deadline; must exceed BACKUP_COMMAND_TIMEOUT_SECONDS. Hard-kill grace covers three bounded commands plus 60 seconds for compensation and exact lock cleanup. |
 | BACKUP_MANIFEST_HMAC_KEY | backup |  | Required operator-supplied 64-hex HMAC-SHA-256 key for trusted backup manifests; preserve it outside the backup bucket for disaster recovery. |
 | BACKUP_DEPLOYMENT_ID | backup |  | Required stable operator-supplied deployment identity bound into every trusted backup manifest. |

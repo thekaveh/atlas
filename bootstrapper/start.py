@@ -2307,7 +2307,7 @@ class AtlasStarter:
 
         Returns a list of ``(section_name, entries)`` where entries is
         a list of ``(context_comments, key, value)``. Section name
-        comes from the most recent ``# ============`` banner block.
+        comes from the most recent ``# ────`` banner (legacy ``# ====`` too).
         Context comments are the contiguous comment lines immediately
         preceding the variable (an inline description like
         ``# Required when COMFYUI_SOURCE=localhost:``),
@@ -2315,8 +2315,8 @@ class AtlasStarter:
         backfill doesn't drag unrelated commentary along.
         """
         # Match the 3-line section banner pattern in .env.example.
-        # env_assembler emits box-drawing `─` (U+2500) — the canonical
-        # form after PR #X. Legacy `=` bars are also tolerated for
+        # env_assembler emits box-drawing `─` (U+2500), the canonical
+        # form. Legacy `=` bars are also tolerated for
         # backwards-compat with hand-edited `.env.example` files.
         #
         # Example match:
@@ -6946,11 +6946,19 @@ def _doctor_check_base_port(starter: "AtlasStarter") -> dict:
     except Exception as exc:  # pragma: no cover - defensive
         return _doctor_result("base-port", "skipped", f"Could not read .env: {exc}")
     raw = (env.get("BASE_PORT", "") or "").strip()
+    project = starter.config_parser.get_project_name()
+    if raw.lower() == "auto":
+        return _doctor_result(
+            "base-port",
+            "pass",
+            f"BASE_PORT auto / project '{project}': ./start.sh allocates a free "
+            f"non-default block at launch.",
+            details={"base_port": "auto", "project_name": project},
+        )
     try:
         base_port = int(raw) if raw else DEFAULT_BASE_PORT
     except ValueError:
         base_port = DEFAULT_BASE_PORT
-    project = starter.config_parser.get_project_name()
     details = {"base_port": base_port, "project_name": project}
     problem = _base_port_problem(raw, starter)
     if problem:
@@ -8360,8 +8368,8 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
         starter.active_track = track
         starter.active_track_overrides = frozenset(overridden_services)
 
-        # Detect legacy `external` source values left in .env from versions
-        # before PR #(observability bundle). These options have been removed
+        # Detect legacy `external` source values left in .env from older
+        # versions. These options have been removed
         # pending a stack-wide authenticated-remote design; users must
         # switch to `container` or `disabled` (or `none` for LLM_PROVIDER_SOURCE).
         # Reuses _existing_env parsed above — nothing writes .env in between.
@@ -8379,8 +8387,9 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
                 + "\n".join(f"     {k}={v}" for k, v in _found)
                 + "\n\n   The `external` / `ollama-external` / `ray-external` source "
                   "variants were removed pending a stack-wide authenticated-remote "
-                  "design.\n   See docs/CHANGELOG.md → [Unreleased] → Removed for "
-                  "migration. Switch each to `container` (or `disabled` / `none`)\n"
+                  "design.\n   See docs/CHANGELOG.md, v0.1.0 section, \"Removed "
+                  "(breaking) — `external` source variants stack-wide\" for\n"
+                  "   migration. Switch each to `container` (or `disabled` / `none`)\n"
                   "   and re-run.\n",
                 file=sys.stderr,
             )

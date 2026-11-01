@@ -1694,6 +1694,7 @@ def test_start_clears_a_recycled_pid_record_instead_of_refusing(tmp_path):
 # Generic-framework cases live here, beside the ComfyUI case that motivated
 # them, so the framework test module stays under the module-size signal.
 import os  # noqa: E402
+import signal  # noqa: E402
 import sys  # noqa: E402
 
 from services.managed_host import ManagedHostError  # noqa: E402
@@ -1739,6 +1740,8 @@ def test_start_replaces_a_recycled_pid_record_without_signalling_its_holder(
     manager = running_service
     manager.state_dir.mkdir(parents=True, exist_ok=True)
     stranger = _stranger()
+    # The spy swallows every signal to the stranger, its own cleanup included.
+    real_kill = os.kill
     signalled = _spy_signals_to(monkeypatch, stranger.pid)
     try:
         manager.pid_file.write_text(
@@ -1756,7 +1759,7 @@ def test_start_replaces_a_recycled_pid_record_without_signalling_its_holder(
         assert stranger.poll() is None, "start() touched the process holding the recycled pid"
         assert signalled == []
     finally:
-        stranger.kill()
+        real_kill(stranger.pid, signal.SIGKILL)
         stranger.wait()
 
 

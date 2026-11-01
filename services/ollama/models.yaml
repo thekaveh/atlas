@@ -29,11 +29,11 @@ content:
     request_defaults: {think: false}
     recommended_roles: [extract, keyword, query, judge]
 # `dim:` is the model's output vector dimension. The wizard pre-selects the
-# embedding model whose dim matches the consumer's required dimension — the
-# backend memory_facts vector(768) column (model_resolver.MEMORY_FACTS_EMBEDDING_DIM).
+# embedding model whose dim matches the 768-dim backward-compatible default
+# (model_resolver.MEMORY_FACTS_EMBEDDING_DIM).
 # So nomic-embed-text (dim 768) is the auto-matched default; list-order is only a
 # tiebreaker among same-dim models. Selecting qwen3-embedding:0.6b (dim 1024)
-# derives LANGMEM_EMBEDDING_DIM=1024 and the memory migration rolls the column
+# derives LANGMEM_EMBEDDING_DIM=1024 and the Backend re-embeds memory_facts
 # to it. See bootstrapper/utils/model_resolver.embedding_dimension_contract.
 embeddings:
   - name: nomic-embed-text

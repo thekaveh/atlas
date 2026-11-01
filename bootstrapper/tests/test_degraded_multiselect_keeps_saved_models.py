@@ -104,6 +104,28 @@ def test_launch_prune_drops_skip_hidden_step_commits():
     assert "COMFYUI_USER_MODELS" not in repr(result)
 
 
+def test_launch_prune_keeps_commits_when_the_skip_predicate_raises():
+    """A buggy skip predicate means "don't skip": the step's answer and the
+    secondary value it owns both survive to launch."""
+    from ui.textual.screens.wizard_screen import prune_skip_hidden_selections
+    from ui.textual.widgets.prompt_panel import SecondaryNumberInput
+
+    def broken_predicate(_selections):
+        raise RuntimeError("synthetic predicate failure")
+
+    step = PromptStep(
+        title="Ray", step_index=1, step_total=1, heading="Ray",
+        options=[PromptOption(
+            "container", "Container",
+            secondary_number=SecondaryNumberInput("RAY_WORKER_COUNT", default_value=2),
+        )],
+        skip_if_prev=broken_predicate,
+    )
+    selections = {"Ray": "container", "__secondary__:RAY_WORKER_COUNT": "7"}
+
+    assert prune_skip_hidden_selections([step], selections) == selections
+
+
 # ────────────────────────────────────────────────────────────────────────────
 # Fallback-catalog notice row (bug: ollama.com/library markup drift made
 # list_library_entries() return ~0 entries, and the wizard silently fell

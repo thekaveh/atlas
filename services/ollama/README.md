@@ -8,7 +8,7 @@ For `ollama-localhost`, Ollama must already listen on the host at `OLLAMA_LOCALH
 
 ## 1. Overview
 
-Ollama is the local LLM engine behind the always-on **LiteLLM gateway**. The default consumers do **not** call Ollama directly: Backend, Open WebUI, n8n, JupyterHub, Local Deep Researcher, OpenClaw, [Hermes Agent](../hermes/README.md) and Weaviate vectorization. They read `LITELLM_BASE_URL` + `LITELLM_API_KEY`, and LiteLLM routes each request to the configured Ollama upstream. See [LiteLLM Gateway](../litellm/README.md) for the consumer-facing surface.
+Ollama is the local LLM engine behind the always-on **LiteLLM gateway**. The default consumers do **not** call Ollama directly: Backend, Open WebUI, n8n, JupyterHub, Local Deep Researcher, OpenClaw, [Hermes Agent](../hermes/README.md) and Weaviate vectorization. They call the LiteLLM gateway at `http://litellm:4000`, and LiteLLM routes each request to the configured Ollama upstream. See [LiteLLM Gateway](../litellm/README.md) for the consumer-facing surface.
 
 An operator can point a [LightRAG](../lightrag/README.md) role binding at Ollama directly. That role then bypasses LiteLLM and its catalog request defaults.
 

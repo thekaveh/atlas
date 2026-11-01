@@ -12,6 +12,7 @@
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
       "id": 1,
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
       "targets": [
         { "expr": "sum(rate(litellm_requests_metric_total[5m])) by (model)", "refId": "A" }
       ]
@@ -32,6 +33,7 @@
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
       "id": 3,
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
       "targets": [
         { "expr": "histogram_quantile(0.50, sum(rate(litellm_request_total_latency_metric_bucket[5m])) by (le, model))", "refId": "P50" },
         { "expr": "histogram_quantile(0.95, sum(rate(litellm_request_total_latency_metric_bucket[5m])) by (le, model))", "refId": "P95" },
@@ -54,6 +56,7 @@
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 16 },
       "id": 5,
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
       "targets": [
         { "expr": "sum(rate(litellm_proxy_failed_requests_metric_total[5m])) by (requested_model, exception_class)", "refId": "A" }
       ]

@@ -2597,7 +2597,7 @@ def test_doctor_base_port_matches_what_start_does(raw, status):
 
     starter = SimpleNamespace(
         config_parser=SimpleNamespace(
-            parse_env_file=lambda: {"BASE_PORT": raw}, get_project_name=lambda: "atlas",
+            parse_env_file=lambda: {"BASE_PORT": raw}, get_project_name=lambda: "rag-showcase",
         ),
         port_manager=PortManager(),
     )

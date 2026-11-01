@@ -132,11 +132,20 @@ runtime_sc:
       deploy: {}
       extra_hosts: []
 
+# The LDR compose service waits for a healthy searxng (depends_on), so SearXNG
+# is a hard requirement even when SEARCH_API names another backend. With
+# SEARXNG_SOURCE=disabled, check_service_dependencies reports this rule and the
+# auto-resolve zeroes LOCAL_DEEP_RESEARCHER_SCALE; the start continues with a
+# warning. A plain
+# `requires` (not conditional_requires or a ValueError gate) keeps documented
+# `--searxng-source disabled` commands working.
 runtime_deps:
   local-deep-researcher:
+    requires:
+    - searxng
+    error_message: "Local Deep Researcher searches through SearXNG; Atlas auto-disables it while SEARXNG_SOURCE=disabled. Enable SearXNG to use it."
     optional:
     - neo4j-graph-db
-    - searxng
     - n8n
     - weaviate
     - parakeet

@@ -80,7 +80,7 @@ include:
   - services/zeppelin/compose.yml
   - services/airflow/compose.yml
 
-  # On-demand backup runner (disabled by default; invoke via docker compose run)
+  # On-demand backup runner (disabled by default; invoke via services/backup/run-consistent-backup.sh)
   - services/backup/compose.yml
 
   # Public edge (outbound tunnel to Cloudflare; disabled by default)

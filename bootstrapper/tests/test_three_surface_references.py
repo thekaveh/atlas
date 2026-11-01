@@ -417,7 +417,7 @@ def test_focused_reference_renderers_preserve_metadata_tables(
 
 def test_sitegen_namespaces_expose_the_package_and_live_renderers():
     exports = ["DocsModel", "ServicePage", "SourceSurface", "TrackPage", "load_docs_model",
-               "csv_or_dash", "numbered_nav", "table", "atlas_css", "copy_artifacts", "theme_artifacts"]
+               "csv_or_dash", "table"]
     for namespace in ("docs.sitegen", "bootstrapper.docs.sitegen"):
         package = importlib.import_module(namespace)
         pages = importlib.import_module(f"{namespace}.pages")

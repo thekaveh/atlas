@@ -2763,6 +2763,39 @@ def test_a_completed_research_run_is_not_cancelled_by_its_own_heartbeat():
     assert outcome == "finished" and state["deleted"], (outcome, state)
 
 
+def test_a_late_research_failure_cannot_overwrite_a_cancelled_session():
+    """A late remote response cannot revive a cancelled or expired session:
+    the failure write moves only a pending or running session."""
+    from research_client import ResearchStatus
+    from research_service import ResearchService
+
+    calls = []
+
+    class Conn:
+        async def fetchrow(self, query, *params):
+            calls.append((query, params))
+            return None  # the session is already terminal
+
+        async def execute(self, query, *params):
+            calls.append((query, params))
+
+        async def close(self):
+            pass
+
+    async def connection(*, bounded=True):
+        return Conn()
+
+    service = object.__new__(ResearchService)
+    service._get_db_connection = connection
+    assert asyncio.run(service._record_research_failure("s1", "late")) is False
+
+    [(query, params)] = calls  # no research_logs row for a terminal session
+    assert "status IN ($5, $6)" in query
+    assert params[0] == ResearchStatus.FAILED.value
+    assert params[2:] == ("late", "s1", ResearchStatus.PENDING.value,
+                          ResearchStatus.RUNNING.value)
+
+
 def test_recall_applies_min_confidence_inside_the_vector_query(monkeypatch):
     """Recall asked the vector store for `limit` hits and dropped low-confidence
     ones afterwards, so low-confidence neighbours took the slots and recall

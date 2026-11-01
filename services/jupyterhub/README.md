@@ -245,6 +245,8 @@ The image `ENTRYPOINT` (`build/scripts/startup.sh`, set in `services/jupyterhub/
 - `--ServerApp.allow_remote_access=True`: admits connections from the Docker bridge network.
 - `--ServerApp.disable_check_xsrf=False`: keeps CSRF protection on (the Jupyter default, listed explicitly).
 
+Compose also sets `init: true`, so Docker's init process runs as PID 1. It reaps processes orphaned by kernel restarts or closed terminals.
+
 `JUPYTERHUB_TOKEN` is the access control. Do not set `JUPYTER_ALLOW_ORIGIN` to `*`. With `*`, a page on any other localhost port can use the browser's Jupyter cookie to open a terminal websocket. To admit one browser origin, set `JUPYTER_ALLOW_ORIGIN` to that exact origin in `.env` and restart. Jupyter compares the value as one string, so a comma-separated list matches no origin.
 
 ### 10.4. Notebook layout: where files live

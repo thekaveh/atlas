@@ -126,7 +126,7 @@ Each start re-scrapes Hugging Face and civitai. A selected model that the scrape
 
 If two selected models would be saved at the same path, the first wins, and the start warns and continues.
 
-The files under `volumes/comfyui/` are **gitignored runtime artifacts**. Each non-`disabled` start rewrites them; do not edit or commit them. A normal start therefore leaves the checkout, and a consumer's Atlas submodule, clean. Tracked marker files (`.gitkeep` and a short README) keep the directory on fresh clones, because the backend bind-mounts it read-only. The catalog you edit is `services/comfyui/models.yaml`.
+The files under `volumes/comfyui/` are **gitignored runtime artifacts**. Each non-`disabled` start rewrites them; do not edit or commit them. A normal start therefore leaves the checkout, and a consumer's Atlas submodule, clean. A tracked README keeps the directory on fresh clones, because the backend bind-mounts it read-only. The catalog you edit is `services/comfyui/models.yaml`.
 
 CLI alternative (works for all non-disabled sources):
 ```bash

@@ -169,9 +169,9 @@ The reviewed inventory contains:
 
 Inputs are attempted on both `linux/amd64` and `linux/arm64` unless the manifest declares an explicit single architecture. This is currently producing 147 isolated image-platform scans. Scheduled scan failures expose unsupported registry variants instead of silently omitting them.
 
-Required CI fetches and parses the pinned remote Dockerfiles, verifies their reviewed base digests, and scans those bases when remote inputs change. It also builds and scans every hosted-runner-supported local runtime image, then immediately removes it.
+The required Build-validation job fetches and parses the pinned remote Dockerfiles, verifies their reviewed base digests, and scans those bases when remote inputs change. It builds no local Dockerfile. The Final-image scan job builds and scans every hosted-runner-supported local runtime image, then removes it. That job reports on every run but is not a required check (#1002).
 
-Local final-image scans fail every fixable High/Critical finding. Vendor-unfixed findings remain visible in the scheduled complete scan and automatically become gating when a fix appears.
+Local final-image scans fail every fixable High/Critical finding. Vendor-unfixed findings remain visible in the scheduled complete scan and automatically fail the local-image scans when a fix appears.
 
 A fixable finding may be deferred only by an exact package/path exception. The exception needs a substantive reason and a review horizon of at most 90 days.
 
@@ -181,7 +181,7 @@ The executable inventory, remote-source contract and reviewed final-build exclus
 - `.trivyignore.yaml` and `.container-scan-exclusions.yml`.
 - `scripts.container_security` and `scripts.upstream_drift_watch`.
 
-The former multi-architecture deferral is closed by explicit dual-platform attempts, not registry discovery. The scheduled matrix is capped at four concurrent jobs. Required builds reclaim each loaded image and its BuildKit cache before proceeding, bounding runner disk use.
+The former multi-architecture deferral is closed by explicit dual-platform attempts, not registry discovery. The scheduled matrix is capped at four concurrent jobs. The Final-image scan and the scheduled local-image scan reclaim each loaded image and its BuildKit cache before proceeding, bounding runner disk use.
 
 ### 7.2. LLM Graph Builder base-image evidence
 

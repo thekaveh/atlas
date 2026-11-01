@@ -581,7 +581,6 @@ services:
       TIKA_MAX_FILE_SIZE: '52428800'
       TIKA_TIMEOUT_SECONDS: '30'
       TTS_ENDPOINT: ''
-      WEAVIATE_ENABLED: 'true'
       WEAVIATE_URL: ''
     extra_hosts:
     - host.docker.internal=
@@ -801,7 +800,6 @@ services:
       TIKA_ENDPOINT: ''
       TIKA_MAX_FILE_SIZE: '52428800'
       TIKA_TIMEOUT_SECONDS: '30'
-      WEAVIATE_ENABLED: 'true'
       WEAVIATE_URL: ''
     extra_hosts:
     - host.docker.internal=
@@ -1569,6 +1567,7 @@ services:
       interval: 30s
       retries: 3
       start_period: 30s
+    init: true
     labels:
       com.atlas.category: application
       com.atlas.service: jupyterhub

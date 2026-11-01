@@ -52,7 +52,7 @@ The stack orchestrates repository-defined containerized and virtual service fami
 - Wizard model: locked LiteLLM tile + selectable LLM Engine (single-select Ollama upstream: `ollama-container-cpu/gpu`, `ollama-localhost`, `none`) + three multi-enable Cloud tiles (OpenAI, Anthropic, OpenRouter).
 - Bootstrapper auto-generates `LITELLM_MASTER_KEY` on first start and refuses to start when no upstream is configured (engine=none + vLLM Metal disabled + all cloud disabled).
 - Persistence: dedicated `litellm` database on the existing Supabase Postgres (Prisma migrations run automatically). Redis used for response cache + rate-limit state.
-- The default Atlas-managed consumer path (Backend, Open WebUI, n8n, JupyterHub, Local Deep Researcher, OpenClaw Gateway, Weaviate) reads `LITELLM_BASE_URL` + `LITELLM_API_KEY`; documented native-provider overrides remain explicit exceptions. Documented backup option: Portkey AI Gateway.
+- The default consumer path (Backend, Open WebUI, n8n, JupyterHub, Local Deep Researcher, OpenClaw Gateway, Weaviate) addresses `http://litellm:4000` with `LITELLM_MASTER_KEY`. Documented native-provider overrides remain explicit exceptions. Documented backup option: Portkey AI Gateway. No single setting switches the gateway, so a swap changes each `litellm:4000` reference.
 
 **LangMem persistent memory**
 
@@ -433,7 +433,7 @@ Consumed by (services that would call Karakeep):
 **Crawl4AI — LLM-friendly web crawler** — Shipped
 
 - Playwright-based crawler purpose-built for LLM ingestion: clean Markdown output, structured extraction strategies, sitemap traversal, JavaScript-rendered page support
-- Apache-2.0 with an added attribution requirement: every distribution, publication or public use must credit Crawl4AI. The [license inventory](reference/license-inventory.md) records it as conditional. Firecrawl-self-hosted (AGPL-3.0) is incompatible with this stack's permissive boilerplate posture
+- Apache-2.0 with an added attribution requirement: every distribution, publication or public use must credit Crawl4AI. The [license inventory](reference/license-inventory.md) records it as conditional. Firecrawl self-hosted (AGPL-3.0, larger worker footprint) is deferred; see [Candidate decisions](reference/candidate-decisions.md#candidate-firecrawl).
 - Fills the web-ingestion gap for both RAG (article corpora) and trading-AI (filings / news / sentiment scrape) use-cases
 - Lighter than running a full Browserless cluster for one-shot scrapes; pair them when both batch crawl and persistent sessions are needed
 
@@ -1477,7 +1477,6 @@ Consumed by (services that would call LiveKit):
 The following candidates were evaluated and explicitly *not* recommended at this time. Recording them prevents the same suggestions from cycling back into roadmap discussions.
 
 - **A1111 (Automatic1111) / Forge as a default SD UI** — stagnant or fork-only as of 2026 relative to ComfyUI and InvokeAI. ComfyUI remains the existing default; InvokeAI fills the canvas / inpaint gap.
-- **Firecrawl self-hosted** — AGPL-3.0 license contaminates the stack's permissive boilerplate posture. Crawl4AI (Apache-2.0 with an attribution requirement) is the choice for web crawling.
 - **Helicone** — entered maintenance mode in early 2026; Langfuse is the actively-developed equivalent with native LiteLLM callback support.
 - **Vaultwarden as a secrets manager** — Vaultwarden is a Bitwarden-compatible *password* vault, not a secrets manager. Infisical (or HashiCorp Vault for enterprise scenarios) is the right layer.
 - **Logseq / Trilium / AppFlowy / AFFiNE as "Obsidian-as-a-service"** — all client-centric or 5+ container database-backed stacks. For an LLM/RAG stack the value is files RAG can read; SilverBullet's files-on-disk model is the right fit, with Karakeep and Paperless-ngx covering capture and archive.

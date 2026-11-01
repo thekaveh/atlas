@@ -746,17 +746,6 @@ class CommandRunner:
             raise ContractError(f"volume ownership verification failed: {name}")
         return record
 
-    def _owned_container(self, name: str) -> bool:
-        record = self._inspect_json("container", name)
-        labels = record.get("Config", {}).get("Labels") if record else None
-        return bool(
-            record
-            and record.get("Name", "").lstrip("/") == name
-            and isinstance(labels, dict)
-            and labels.get(OWNER_LABEL) == self.token
-            and labels.get(SCOPE_LABEL) == self.scope
-        )
-
     def _resource_tracking(self, kind: str) -> tuple[set[str], dict[str, int]]:
         if kind == "container":
             return self.containers, self.container_create_timeouts

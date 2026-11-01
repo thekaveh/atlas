@@ -29,7 +29,7 @@ Overlay precedence is `.env.example` baseline, generated or existing `.env`, sib
 The backend's provider-neutral media API is `POST /media/generate`, `GET /media/operations/{operation_id}` and `POST /media/operations/{operation_id}/cancel`. Requests choose `provider`, `modality` and `model`:
 
 - `provider=fal`: `modality=image` and `modality=image_to_3d` (verified TRELLIS, Hunyuan3D, Tripo and Rodin endpoints).
-- `provider=comfyui`: `modality=image`, on the managed or local ComfyUI host.
+- `provider=comfyui`: `modality=image`, on any enabled ComfyUI source.
 
 Provider API keys stay in the backend. Responses normalize status, artifacts, cost, license and provenance. The `artifact_url` depends on the provider. For `fal` it is absolute (a hosted CDN URL). For `comfyui` it is gateway-relative: `/media/operations/{operation_id}/artifacts/{index}`, an owner-checked backend path. Consumers MUST resolve a relative `artifact_url` (one that starts with `/` and has no `http(s)://` scheme) against their gateway or backend base URL.
 

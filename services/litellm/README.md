@@ -2,7 +2,7 @@
 
 ## 1. Overview
 
-LiteLLM is the always-on OpenAI-compatible front door for every LLM provider in the stack. The default consumers (Backend, Open WebUI, n8n, JupyterHub, Local Deep Researcher, OpenClaw, Weaviate vectorization) use **one URL** and **one API key**: `LITELLM_BASE_URL` and `LITELLM_API_KEY`. LiteLLM routes each request to the upstream for its model name. Services with a documented native-provider override, such as LightRAG role bindings, can bypass this path.
+LiteLLM is the always-on OpenAI-compatible front door for every LLM provider in the stack. The default consumers (Backend, Open WebUI, n8n, JupyterHub, Local Deep Researcher, OpenClaw, Weaviate vectorization) use **one gateway** (`http://litellm:4000`) and **one key** (`LITELLM_MASTER_KEY`). LiteLLM routes each request to the upstream for its model name. Services with a documented native-provider override, such as LightRAG role bindings, can bypass this path.
 
 To open the dashboard or call the API, see §5 Access. To check a running gateway, see §10 Smoke tests.
 
@@ -273,7 +273,7 @@ curl -s -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
   -d '{"model":"ollama/nomic-embed-text","input":"hi"}'
 
 # Cache and spend audit
-redis-cli -h localhost -p ${REDIS_PORT} -a "$REDIS_PASSWORD" --scan --pattern "litellm*"
+REDISCLI_AUTH="$REDIS_PASSWORD" redis-cli -h 127.0.0.1 -p "${REDIS_PORT}" --scan --pattern 'litellm*'
 psql -h localhost -p ${SUPABASE_DB_PORT} -U supabase_admin \
   -d "${LITELLM_DB_NAME:-litellm}" \
   -c "SELECT * FROM \"LiteLLM_SpendLogs\"
@@ -287,7 +287,9 @@ psql -h localhost -p ${SUPABASE_DB_PORT} -U supabase_admin \
 
 ## 12. Backup option
 
-If LiteLLM stops being a fit (license change, security incident, project drift), [Portkey AI Gateway](https://github.com/Portkey-ai/gateway) (Apache-2.0) is the documented fallback. The default consumers read `LITELLM_BASE_URL` and `LITELLM_API_KEY`, so the swap happens there. Migrate any native-provider overrides separately.
+If LiteLLM stops being a fit (license change, security incident, project drift), [Portkey AI Gateway](https://github.com/Portkey-ai/gateway) (Apache-2.0) is the documented fallback. No single setting switches the gateway. Compose fragments, init scripts and templates address `http://litellm:4000` directly, and startup resets `LITELLM_BASE_URL` in `.env` to that value.
+
+A swap must change each of these places; `git grep -n "litellm:4000"` lists them. Existing Weaviate collections also store the address in `moduleConfig.text2vec-openai.baseURL`. Migrate any native-provider overrides separately.
 
 ## 13. Built-in `lightrag` model
 

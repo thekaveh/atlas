@@ -409,11 +409,6 @@ def _path_names(tree: ast.Module) -> _PathNames:
     )
 
 
-def _sys_module_names(tree: ast.Module) -> set:
-    """Local names bound to the `sys` module (`import sys [as s]`)."""
-    return set(_imported_module_names(tree, "sys"))
-
-
 # `typing_extensions` is the standard spelling for anything supporting older
 # runtimes, and re-exports the identical flag.
 _TYPING_MODULES = ("typing", "typing_extensions")

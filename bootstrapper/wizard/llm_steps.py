@@ -1310,7 +1310,7 @@ def build_default_model_steps(
     # ── Step 2: default embedding model ──────────────────────────────
     def _embed_options(selections: dict) -> List[PromptOption]:
         # Auto-match: stable-sort so embedding models whose declared dim equals
-        # the consumer's required dimension (memory_facts vector(768)) come
+        # the 768-dim default (MEMORY_FACTS_EMBEDDING_DIM) come
         # first — index 0 is the wizard's pre-selected default. Catalog/selection
         # order is preserved as the tiebreaker within each dim group, and models
         # with no declared dim sort after the matching ones.

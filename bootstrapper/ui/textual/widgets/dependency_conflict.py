@@ -57,18 +57,6 @@ class DependencyConflict(Widget):
         self.body = body
         self.actions = actions or []
 
-    def update_conflict(
-        self,
-        *,
-        title: str | None = None,
-        body: str | None = None,
-        actions: list[ConflictAction] | None = None,
-    ) -> None:
-        if title is not None: self.title = title
-        if body is not None: self.body = body
-        if actions is not None: self.actions = actions
-        self.refresh()
-
     def render(self) -> Text:
         out = Text()
         out.append("⚠ ", style=P.ERR_SOFT)

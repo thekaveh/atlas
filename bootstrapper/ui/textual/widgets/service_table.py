@@ -161,6 +161,21 @@ def _extra_endpoints(r: ServiceRow) -> list[tuple[str, str]]:
     return list(r.tooltip_extra) if source_has_endpoint(r.source or "") else []
 
 
+def _source_pairs(r: ServiceRow) -> list[tuple[str, str]]:
+    """The card's leading ``Source`` row(s).
+
+    An off-track row shows the fate the table row shows: the active track
+    force-disables it whatever .env stores, so the stored value is labelled
+    as such instead of reading as the active source.
+    """
+    if not r.off_track:
+        return [("Source", r.source or "—")]
+    pairs = [("Source", "disabled (off-track)")]
+    if r.source:
+        pairs.append(("Stored source", r.source))
+    return pairs
+
+
 def minio_s3_endpoints(env: dict, kong_port: str) -> list[tuple[str, str]]:
     """S3 API endpoints for the MinIO Console hover card.
 
@@ -513,7 +528,7 @@ class ServiceTable(Widget):
     @staticmethod
     def _tooltip_pairs(row: ServiceRow) -> list[tuple[str, str]]:
         """The (label, value) rows shown in a service's hover card."""
-        pairs: list[tuple[str, str]] = [("Source", row.source or "—")]
+        pairs = _source_pairs(row)
         if row.source_options:
             pairs.append(("Source options", ", ".join(row.source_options)))
         if row.depends_on:
@@ -556,11 +571,12 @@ def service_card(row: ServiceRow) -> Text:
         card.append(label.ljust(label_w), style=P.TEXT_MUTED)
         card.append("  ")
         if label == "Source options" and row.source_options:
-            # Accent the selected/active source; dim the rest.
+            # Accent the selected/active source; dim the rest. An off-track
+            # row has no active source, so nothing is accented.
             for i, opt in enumerate(row.source_options):
                 if i:
                     card.append(", ", style=P.TEXT_MUTED)
-                if opt == row.source:
+                if opt == row.source and not row.off_track:
                     card.append(opt, style=f"bold {P.ACCENT}")
                 else:
                     card.append(opt, style=P.TEXT_MUTED)

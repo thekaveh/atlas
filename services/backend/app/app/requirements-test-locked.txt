@@ -65,7 +65,7 @@ instructor==1.15.4
 jinja2==3.1.6
 jiter==0.14.0
 joblib==1.5.3
-joserfc==1.7.4
+joserfc==1.7.7
 json-repair==0.61.7
 jsonpatch==1.33
 jsonpointer==3.1.1
@@ -137,7 +137,7 @@ pydantic-core==2.46.4
 pydantic-settings==2.14.2
 pygments==2.20.0
 pyjwt==2.15.1
-pypdf==6.21.2
+pypdf==6.21.4
 pytest==9.1.1
 pytest-asyncio==1.4.0
 pytest-cov==7.1.0

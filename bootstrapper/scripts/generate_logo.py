@@ -225,9 +225,11 @@ def main() -> None:
     _optimize_png(SOCIAL)
     print(f"wrote {SOCIAL.relative_to(REPO)} ({SOCIAL.stat().st_size // 1024} KB)")
 
-    # Block-art cell-grids of the landscape POSTER (with wordmark) for the
-    # splash fallback on terminals that can't paint inline images in a TUI
-    # (Warp). Pure-text at runtime, so it never queries the terminal / crashes.
+    # Block-art cell-grids of the landscape POSTER (with wordmark). Not read
+    # at runtime: the splash fallback uses the atlas_hero_* grids (#183).
+    # They stay committed as a latent alternative (CHANGELOG 2026-06-20);
+    # AtlasHero(prefix="atlas_poster") renders them. Pure text, so they never
+    # query the terminal.
     poster_img = Image.open(POSTER).convert("RGB")
     paspect = poster_img.height / poster_img.width
     ptmp = OUT_DIR / "_tmp_poster_grid.png"

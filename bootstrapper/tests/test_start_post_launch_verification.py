@@ -261,6 +261,25 @@ def test_one_shot_times_out_when_not_terminal(monkeypatch):
     assert failures == [("n8n-init", "timed out waiting for terminal state (Up)")]
 
 
+def test_one_shot_never_listed_is_reported_as_timed_out(monkeypatch):
+    from core.docker_manager import DockerManager
+
+    dm = DockerManager()
+    monkeypatch.setattr(dm, "_compose_ps_json", lambda _s: ([], None))
+    assert dm.failed_one_shot_services(["n8n-init"], timeout_seconds=0, poll_interval_seconds=0) == [
+        ("n8n-init", "timed out waiting for terminal state (container not observed yet)")]
+
+
+def test_one_shot_persistent_ps_failure_is_reported(monkeypatch):
+    from core.docker_manager import DockerManager
+
+    dm = DockerManager()
+    monkeypatch.setattr(dm, "_compose_ps_json", lambda _s: ([], "docker compose ps failed"))
+    monkeypatch.setattr("core.process_runner.sleep_unless_stopped", lambda *_a: None)
+    assert dm.failed_one_shot_services(["n8n-init"], timeout_seconds=0, poll_interval_seconds=0) == [
+        ("n8n-init", "docker compose ps failed")]
+
+
 def test_blender_live_child_cannot_adopt_foreign_tcp_listener(
     tmp_path, monkeypatch,
 ):

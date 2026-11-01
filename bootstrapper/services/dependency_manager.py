@@ -504,25 +504,3 @@ class DependencyManager:
             list: List of violation dictionaries
         """
         return self.dependency_violations.copy()
-        
-    def print_dependency_results(self) -> None:
-        """Print dependency check results to console."""
-        if self.dependency_violations:
-            print("[ERROR] Service dependency violations found:")
-            for violation in self.dependency_violations:
-                print(f"   {violation['error_message']}")
-        else:
-            print("[OK] All service dependencies satisfied")
-            
-    def get_dependency_info(self, service_name: str) -> Dict:
-        """
-        Get dependency information for a specific service.
-        
-        Args:
-            service_name: Name of the service
-            
-        Returns:
-            dict: Dependency information (requires, optional, messages)
-        """
-        dependencies = self.get_service_dependencies()
-        return dependencies.get(service_name, {})

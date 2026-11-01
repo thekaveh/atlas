@@ -57,6 +57,8 @@ The provisioned datasource reads `${PROMETHEUS_ENDPOINT}`. When Prometheus is `d
 | `n8n.json` | n8n | Executions per minute, p50/p95 duration, active workflows, execution-data writes, uptime |
 | `app-tier.json` | App tier (Weaviate + MinIO) | Weaviate request rate and query p95, MinIO S3 request rate and cluster usage |
 
+Panels state their units. Stat and bar-gauge panels do not use the Grafana default of red at 80. They show one fixed colour, and the Stack Overview `Targets DOWN` stat turns red when any target is down. The Stack Overview `HTTP request rate (FastAPI services, by job)` panel shows one series per scrape job. The jobs are the Backend, and the Asset Worker and Asset Baker when they run.
+
 All dashboards reference the Prometheus datasource by UID `Prometheus`, set explicitly in `provisioning/datasources/prometheus.yml`.
 
 ## 5. Capabilities & limitations

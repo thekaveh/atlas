@@ -22,6 +22,7 @@
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
       "id": 2,
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
       "targets": [
         { "expr": "histogram_quantile(0.95, sum(rate(n8n_workflow_execution_duration_seconds_bucket[5m])) by (le))", "refId": "p95" },
         { "expr": "histogram_quantile(0.50, sum(rate(n8n_workflow_execution_duration_seconds_bucket[5m])) by (le))", "refId": "p50" }
@@ -33,6 +34,7 @@
       "type": "stat",
       "gridPos": { "h": 4, "w": 6, "x": 0, "y": 8 },
       "id": 3,
+      "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "blue" } }, "overrides": [] },
       "targets": [
         { "expr": "max(n8n_active_workflow_count)", "refId": "A" }
       ]
@@ -43,6 +45,7 @@
       "type": "stat",
       "gridPos": { "h": 4, "w": 6, "x": 6, "y": 8 },
       "id": 4,
+      "fieldConfig": { "defaults": { "color": { "mode": "fixed", "fixedColor": "blue" } }, "overrides": [] },
       "targets": [
         { "expr": "sum(rate(n8n_execution_data_writes_total[5m]))", "refId": "A" }
       ]
@@ -53,6 +56,7 @@
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
       "id": 5,
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
       "targets": [
         { "expr": "time() - n8n_process_start_time_seconds{job=\"n8n\"}", "refId": "A" }
       ]

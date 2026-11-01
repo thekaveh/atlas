@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
 from click.testing import CliRunner
 from tests.three_surface_test_utils import surface_text
 
@@ -71,6 +72,44 @@ def test_env_backfill_cli_is_headless_idempotent_and_reports_keys(tmp_path, monk
     assert second.exit_code == 0, second.output
     assert (tmp_path / ".env").read_text(encoding="utf-8") == after_first
     assert "No env changes needed" in second.output
+
+
+@pytest.mark.parametrize(
+    ("env_text", "message"),
+    [
+        pytest.param(None, "Failed to fill blank values", id="blank-fill"),
+        pytest.param(
+            "PROJECT_NAME=atlas\nEXISTING=user-value\nBLANK_SECRET=password\n",
+            "Failed to backfill",
+            id="append",
+        ),
+    ],
+)
+def test_env_backfill_cli_exits_1_when_the_env_write_fails(
+    tmp_path, monkeypatch, env_text, message,
+) -> None:
+    """reusing-atlas.md publishes exit 1 for a write failure; consumer CI
+    must not get exit 0 after .env was left unwritten."""
+    import start as start_module
+
+    _write_env_pair(tmp_path)
+    if env_text is not None:
+        # No blank key, so only the append write runs.
+        (tmp_path / ".env").write_text(env_text, encoding="utf-8")
+    _patch_starter_paths(monkeypatch, tmp_path)
+
+    def refuse_write(*_args, **_kwargs):
+        raise OSError("synthetic write refusal")
+
+    monkeypatch.setattr(start_module, "atomic_write_text", refuse_write)
+    before = (tmp_path / ".env").read_bytes()
+
+    result = CliRunner().invoke(start_module.main, ["env", "backfill"])
+
+    assert result.exit_code == 1, result.output
+    assert isinstance(result.exception, SystemExit), result.exception
+    assert (tmp_path / ".env").read_bytes() == before
+    assert message in result.output
 
 
 def test_compose_validate_cli_uses_user_overlays_and_reports_success(

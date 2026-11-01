@@ -2,7 +2,7 @@
 
 In the first minute after `./start.sh`, some warnings and one-shot ERROR lines describe expected conditions. They can come from library noise, intentional defaults, or one-time startup races. Some library messages cannot be suppressed without a fork.
 
-Use the rows below to decide whether your deployment needs action, and check service health separately. A listed message does not establish healthy services or production-safe settings. In particular, the wildcard Open WebUI CORS default needs an explicit origin list for production (§1.2).
+Use the rows below to decide whether your deployment needs action, and check service health separately. A listed message does not establish healthy services or production-safe settings. In particular, production needs an explicit Open WebUI CORS origin list, and only a Compose overlay can set it (§1.2).
 
 If you see a warning *not* on this list, that's a real signal — start there.
 
@@ -29,7 +29,7 @@ If you see a warning *not* on this list, that's a real signal — start there.
 | Service | Message | Why |
 |---|---|---|
 | `atlas-hermes` | `WARNING gateway.run: No user allowlists configured. All unauthorized users will be denied. Set GATEWAY_ALLOW_ALL_USERS=true ... or configure platform allowlists ...` | Hermes is secure-by-default — operator must explicitly opt in (per-platform allowlists or `GATEWAY_ALLOW_ALL_USERS=true`). |
-| `atlas-open-web-ui` | `WARNING: CORS_ALLOW_ORIGIN IS SET TO '*' - NOT RECOMMENDED FOR PRODUCTION DEPLOYMENTS.` | Dev default; production stacks should set an explicit origin list. |
+| `atlas-open-web-ui` | `WARNING: CORS_ALLOW_ORIGIN IS SET TO '*' - NOT RECOMMENDED FOR PRODUCTION DEPLOYMENTS.` | Open WebUI's own default; Atlas does not pass `CORS_ALLOW_ORIGIN` from `.env`. For production, set it in a [Compose overlay](../reference/consumer-manifest.md#5-compose_overlays) or a [`services/_user/` overlay](../CONTRIBUTING-services.md#21-services_user-overlay-slot-downstream-submodule-consumers). List every browser origin, separated by semicolons, for example `http://chat.localhost:63000;http://localhost:63096`. |
 
 ### 1.3. Unavoidable startup races
 

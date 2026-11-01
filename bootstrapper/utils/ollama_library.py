@@ -48,12 +48,13 @@ Why scrape?
   descending; we still apply our own numeric sort downstream as defence
   against the query-param being removed or renamed upstream.
 
-Failure mode: any network / parse error, or a parse that yields
-implausibly few entries (see ``MIN_PLAUSIBLE_ENTRIES``), returns an
-empty list and the caller falls back to the curated
-``OLLAMA_DEFAULT_CATALOG`` — and now says so where the user can see it
-(the wizard step surfaces a fallback notice; see ``llm_steps.py``). No
-exceptions escape this module.
+Failure mode: a network, timeout or HTTP error returns an empty list.
+So does markup drift that matches no model card. The wizard then
+substitutes the curated ``OLLAMA_DEFAULT_CATALOG`` and shows a fallback
+notice. A parse with fewer
+than ``MIN_PLAUSIBLE_ENTRIES`` entries is returned unchanged;
+``wizard/llm_steps.py`` keeps those rows and prepends a degraded-catalog
+notice. No exceptions escape this module.
 """
 
 from __future__ import annotations
@@ -74,7 +75,8 @@ _LIBRARY_URL = "https://ollama.com/library?sort=popular"
 # markup change that breaks the parser (yielding a near-empty result)
 # is detected instead of silently masquerading as "Ollama only has a
 # handful of models". Consumed by ``wizard/llm_steps.py`` to decide
-# whether to surface a degraded-catalog notice to the user.
+# whether to surface a degraded-catalog notice to the user, and by
+# ``scripts/upstream_drift_watch.py`` as its required entry count.
 MIN_PLAUSIBLE_ENTRIES = 20
 
 # Anchor regexes for the structured parser. Re-anchored 2026-08 on the

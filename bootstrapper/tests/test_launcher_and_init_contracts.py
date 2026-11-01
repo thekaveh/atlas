@@ -55,6 +55,18 @@ def test_the_system_python_fallback_detects_a_stale_venv():
     assert '--constraint "$BOOTSTRAPPER_LOCK"' in source
 
 
+def test_the_system_python_fallback_installs_only_the_locked_closure():
+    """Installing "$SELF_DIR" built the source tree into a wheel.
+
+    That copied tests/, utils/, scripts/ and docs/ into site-packages as
+    top-level packages and fetched an unpinned build backend.
+    """
+    source = RUN_SH.read_text(encoding="utf-8")
+    line = next(line for line in source.splitlines() if "pip install" in line)
+    assert '--requirement "$BOOTSTRAPPER_LOCK"' in line
+    assert '"$SELF_DIR"' not in line
+
+
 def test_the_system_python_fallback_has_a_content_sensitive_posix_stamp():
     source = RUN_SH.read_text(encoding="utf-8")
     want = source[source.index("WANT_STAMP=") : source.index("HAVE_STAMP=")]

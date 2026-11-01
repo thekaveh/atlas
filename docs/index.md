@@ -90,7 +90,7 @@ git clone https://github.com/thekaveh/atlas && cd atlas
 ./start.sh
 ```
 
-`./start.sh` opens the interactive wizard. `./start.sh --track gen-ai-rag` sets the track and skips that question. A source, model or key flag, such as `--llm-provider-source ollama-container-gpu`, skips the wizard. So do launch flags such as `--base-port` and `--detach`. Atlas then launches what `.env` holds, not a track's subset. Full flow, flags and troubleshooting: <a class="atlas-home__quickstart-link" href="quick-start/index.md">Quick Start</a>.
+`./start.sh` opens the interactive wizard. `./start.sh --track gen-ai-rag` sets the track and skips that question. A source, model or key flag, such as `--llm-provider-source ollama-container-gpu`, skips the wizard. So do launch flags such as `--base-port` and `--detach`. Atlas then launches what `.env` holds, not a track's subset; add `--track <key>` to apply one. Full flow, flags and troubleshooting: <a class="atlas-home__quickstart-link" href="quick-start/index.md">Quick Start</a>.
 </div>
 
 ## 3. Platform Topology

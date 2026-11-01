@@ -93,10 +93,15 @@ Also in this range: 160 fixes, 75 documentation, 4 build and ci, 42 maintenance,
 
 <!-- END GENERATED RELEASE NOTES -->
 
-### 1.2. Fixed — 2026-11-01 — Overnight maintenance: doctor bundles, consumer endpoints, RAG guards, gateway timeouts and docs
+### 1.2. Fixed — 2026-11-01 — Overnight maintenance: advisories, doctor bundles, consumer endpoints, RAG guards, gateway timeouts and docs
 
 - **Breaking.**
     - `rag_ingestion_profiles[].parser_order` no longer accepts `crawl4ai`. The Backend never had a crawl4ai parser, so those profiles ran `plain_text` on every file. Loading one now fails with the `invalid parser(s)` error.
+- **Security.**
+    - The Backend, Airflow, JupyterHub and MCP servers locks move `joserfc` to 1.7.7. This clears GHSA-jpxq-7h8p-2q76 (CVE-2026-119283) and GHSA-9pg5-8c7x-5hfx (CVE-2026-119284).
+    - The Asset Worker npm toolchain overrides `glob` to 14.0.3, which resolves `minimatch` 11.0.3. This clears GHSA-3g3m-2fjr-6pw4 and GHSA-g3hv-75wg-m249.
+    - The n8n community-node lock moves `follow-redirects` to 1.16.2. This clears GHSA-mrwp-f3q8-3g9p.
+    - The Backend locks move `pypdf` to 6.21.4, which clears CVE-2026-119203 to CVE-2026-119209. JupyterHub moves `pyasn1` to 0.6.5, which clears CVE-2026-119194 to CVE-2026-119197.
 - **Bootstrapper and CLI.**
     - `./start.sh doctor --bundle PATH` exits non-zero when a check raises, times out or never starts, as plain `doctor` does. The bundle reports that check as `unavailable`.
     - Support bundles replace a symlink at `PATH`. They no longer write through it to the link's target.
@@ -106,28 +111,55 @@ Also in this range: 160 fixes, 75 documentation, 4 build and ci, 42 maintenance,
     - Kong's `asset-worker.localhost` route waits 3 × `ASSET_WORKER_TIMEOUT_SECONDS` + 60 s, 960 s by default. Before, Kong returned `504` after 300 s while the worker kept running.
     - In the wizard, an off-track service that was never asked shows `disabled (off-track)` and counts as off, not pending.
     - The MinIO Console card's S3 URLs follow a base-port change. They are hidden when MinIO is disabled.
+    - A support bundle's `bundle.json` reports `ok: false` when a check is `unavailable`. This matches the `doctor --bundle` exit status.
+    - Without uv, the system-Python fallback installs only `bootstrapper/requirements-locked.txt`. It no longer builds the source tree into a wheel or fetches an unpinned build backend.
+    - A `BRAND_LOGO_FILE` that is not UTF-8 shows the built-in ATLAS art. Before, it crashed the `--no-tui` banner and the TUI brand panel.
+    - The `doctor` base-port check passes when `.env` has `BASE_PORT=auto`.
+    - The exit message for a legacy `external` source value names the correct CHANGELOG entry.
+    - With `SEARXNG_SOURCE=disabled`, the start warns and sets `LOCAL_DEEP_RESEARCHER_SCALE=0`. Before, Local Deep Researcher ran without its search backend, and every research run failed.
+    - The TEI reranker image follows a refreshed manifest pin on the first start. A shell-exported `TEI_RERANKER_*_IMAGE`, `RAY_IMAGE` or `RAY_GPU_IMAGE` takes precedence.
+    - In the wizard, `BRAND_*` text shows exactly as typed. Bracketed text no longer disappears, and a stray `[/]` no longer crashes the wizard.
+    - In a masked API-key step, typing `remove`, `clear`, `disable` or `enable` shows the pending action, not a character count.
+    - An off-track service's details card shows `disabled (off-track)` and lists the `.env` value as `Stored source`.
+    - The backup wizard option points to `services/backup/run-consistent-backup.sh`.
 - **Backend.**
     - With `FAL_SOURCE=enabled`, an unknown or unverified `FAL_IMAGE_TO_3D_MODEL` stops startup. Before, every `image_to_3d` request without `model` returned `400`.
     - With `provider=comfyui`, an integer `cfg` or `guidance_scale` too large for a float returns `400`, not `502`. An oversized `strength` is clamped.
     - A zero, negative or non-numeric `BACKEND_PLUGINS_PIP_TIMEOUT_SECONDS` logs a warning and uses 300 s. Before, zero or a negative value skipped every plugin.
     - When a Weaviate schema read fails and the create returns `422`, RAG ingestion recreates a class recorded for another embedding model. Before, the class took vectors from both models.
     - On the Redis state store, the ingestion status returns `[]`, not `{}`, for `parser_order`, `vector_targets` and `graph_targets`.
+    - LangMem retention expires a user's oldest excess facts by creation time. Vector sync, backfill and failback rewrite `updated_at`, so they no longer change which facts expire.
+    - A FAL result that the SDK cannot parse returns `502`, not `400` with the parser text. This covers `GET /media/operations/{id}` and `POST /comfyui/generate`.
 - **Services.**
     - The welcome README in a new JupyterHub work volume uses `LITELLM_DEFAULT_MODEL` in its Quick Start.
     - The commented LangChain example in the Airflow sample DAG reads the LiteLLM URL and key from the `litellm_default` connection. Before, the example failed with `KeyError`.
+    - Grafana panels state their units. Stat and bar-gauge panels no longer turn red at 80, and `Targets DOWN` turns red when a target is down.
+    - The Stack Overview panel `HTTP request rate (Backend)` is now `HTTP request rate (FastAPI services, by job)`. Its query also covers the Asset Worker and Asset Baker.
+    - JupyterHub runs with `init: true`, so an init process reaps orphaned kernel and terminal processes.
+    - The Backend and Celery worker no longer receive the unused, always-`true` `WEAVIATE_ENABLED` variable.
 - **Tooling and tests.**
     - The Build-validation image scan covers a changed manifest image that a Compose service runs directly, even when a local Dockerfile also uses it as a base.
     - `scripts/check-docs-drift.py` skips the gitignored `.audit/`, `.pytest_cache/` and `node_modules/` directories.
     - Bootstrapper tests give the same result under `nohup`. Backup tests no longer leave `/tmp/atlas-backup-*` directories.
     - Unused code is removed: `MemoryStore.delete_embedding`, `N8nClient.get_execution` and several unused parameters.
+    - More unused code is removed: `bootstrapper/docs/sitegen/theme.py`, `rendering.numbered_nav`, 13 bootstrapper methods and three Backend and backup helpers.
+    - `scripts/check-kong-routes.py` also ignores the deprecated `GENAI_ENV_FILE`. The `scripts/release_notes.py` help describes its changelog and title modes.
+    - Bootstrapper tests clear exported `.env.example` variables, so an operator's shell does not change results. The state-dir removal-guard test cannot delete real directories.
+    - New tests cover the restore-plan parser branches, `env backfill` write failures, S3 endpoint boundaries, failed Spark drivers and the n8n community-node pin sites.
 - **Docs.**
     - The Weaviate README and the Access and Credentials page disclose that Weaviate allows anonymous access and holds `LITELLM_MASTER_KEY`. That key is also the LiteLLM admin UI password.
     - The cloud-providers README says the `CLOUD_*_SOURCE` switches gate only LiteLLM routes. Hermes and LLM Graph Builder still receive raw provider keys.
     - The MinIO and Spark READMEs list `spark-init` as a holder of the MinIO root credentials.
     - The STT Provider, n8n, Verba, Iceberg REST, Supabase, Asset Worker and Backend READMEs, the ROADMAP Langfuse entry and the contributor guides are corrected.
+    - The LiteLLM README Redis check passes the password through `REDISCLI_AUTH`. The LiteLLM and Ollama READMEs and the ROADMAP say a gateway swap changes each `http://litellm:4000` reference.
+    - The Expected Startup Warnings page says how to set an Open WebUI CORS origin list. The docs landing page says `--track` still applies when a flag skips the wizard.
+    - The ROADMAP records Firecrawl as deferred. The Backend and FAL READMEs say `provider=comfyui` serves any enabled ComfyUI source, and FAL has no video or audio route.
+    - The external-contract ledger, the integration-claims ledger, the Authentik SSO evaluation and the Redpanda, ComfyUI, Backup and Grafana READMEs are corrected.
 - **Upgrade notes.**
     - Remove `crawl4ai` from every consumer manifest `parser_order`.
     - With FAL enabled, check that `FAL_IMAGE_TO_3D_MODEL` names a verified registry entry.
+    - The next start recreates the JupyterHub container for `init: true`.
+    - With SearXNG disabled, the start now disables Local Deep Researcher. Enable SearXNG to keep it.
 
 ### 1.3. Fixed — 2026-10-31 — Overnight maintenance: secrets, startup checks, memory re-embedding, restores, test isolation and docs
 
