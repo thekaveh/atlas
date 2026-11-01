@@ -1,6 +1,6 @@
 # Atlas vNext Strategy Report Design
 
-> **Status: archived spec** — dated 2026-07-02; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+> **Status: archived spec** — dated 2026-07-02; a point-in-time record kept for archaeology, not current guidance. It landed in `649d31a2` (#187), which has no CHANGELOG entry.
 
 ## 1. Purpose
 

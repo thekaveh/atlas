@@ -71,3 +71,15 @@ def test_tools_classes_expose_only_intended_model_tools() -> None:
             and n.name.startswith("_") and not n.name.startswith("__")
         ]
         assert leaked == [], f"{path.name}: {leaked}"
+
+
+def test_research_tool_errors_name_the_service_and_real_timeout() -> None:
+    # The tool calls Local Deep Researcher, never the Backend, and its
+    # messages printed "(15 minutes)" whatever the timeout valve said.
+    text = (TOOLS_DIR / "research_tool.py").read_text(encoding="utf-8")
+
+    assert "check if the backend is running" not in text
+    assert "(15 minutes)" not in text
+    assert "increase timeout in settings" not in text
+    assert "Cannot connect to Local Deep Researcher" in text
+    assert "timeout=_THREAD_TIMEOUT_S" in text

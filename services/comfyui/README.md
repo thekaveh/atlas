@@ -222,6 +222,8 @@ curl -X POST http://localhost:${COMFYUI_PORT}/prompt \
   --data-binary @services/comfyui/workflows/krea2-turbo-api.json
 ```
 
+`COMFYUI_PORT` is the published port of the container sources. Under `localhost`, use `COMFYUI_LOCALHOST_PORT` (default `8000`). Under `managed-localhost-mps`, use `COMFYUI_MPS_LOCALHOST_PORT` (default `8188`). Set the variable in your shell to its value in the active env file.
+
 ### 8.4. License and deployment obligations
 
 The weights use the pinned [Krea 2 Community License](https://huggingface.co/krea/Krea-2-Turbo/blob/1161245028ef398cd0a951101b2bbf486464f841/LICENSE.pdf). The `krea/Krea-2-Turbo` repository is gated: Hugging Face shows the file only after you sign in and accept its terms. Commercial use at or above **$1,000,000 USD ($1M) in company-wide annual revenue** requires an enterprise license. Deployments must also implement reasonable and appropriate **content filtering**. The license states no seat-count threshold.
@@ -364,9 +366,11 @@ The DiT checkpoint (`checkpoints/hunyuan3d-dit-v2.safetensors`) is pinned to rev
 [`workflows/hunyuan3d-2-image-to-glb-api.json`](https://github.com/thekaveh/atlas/blob/main/services/comfyui/workflows/hunyuan3d-2-image-to-glb-api.json) is an API-ready single-image → shape example. It uses only ComfyUI-core nodes: `ImageOnlyCheckpointLoader` → `CLIPVisionEncode` → `Hunyuan3Dv2Conditioning` → `KSampler` → `VAEDecodeHunyuan3D` → `VoxelToMeshBasic` → `SaveGLB`. It needs **no custom node** and no CUDA sparse kernels. `SaveGLB` writes a shape-only `.glb`. Put an input image at ComfyUI's `input/example.png` (or edit node `2`), then:
 
 ```bash
-curl -XPOST "$COMFYUI_ENDPOINT/prompt" -H 'content-type: application/json' \
+curl -XPOST "http://localhost:${COMFYUI_PORT}/prompt" -H 'content-type: application/json' \
   --data-binary @services/comfyui/workflows/hunyuan3d-2-image-to-glb-api.json
 ```
+
+This URL reaches the container sources. Under `managed-localhost-mps`, use `http://localhost:${COMFYUI_MPS_LOCALHOST_PORT}` (default `8188`). Under `localhost`, use `http://localhost:${COMFYUI_LOCALHOST_PORT}` (default `8000`). Set the variable in your shell to its value in the active env file.
 
 ### 10.4. License
 

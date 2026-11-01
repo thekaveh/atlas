@@ -65,9 +65,13 @@ def _baseline_python_files() -> list[Path]:
 
 
 def _extended_python_files() -> list[Path]:
-    """Cover every other tracked Python surface without raising core ceilings."""
+    """Cover every other tracked Python surface without raising core ceilings.
+
+    Untracked, non-ignored files count too, as in the tracked-file count, so
+    a new module is measured before it is staged rather than after.
+    """
     tracked = subprocess.run(
-        ["git", "ls-files", "*.py"],
+        ["git", "ls-files", "--cached", "--others", "--exclude-standard", "--", "*.py"],
         cwd=ROOT,
         check=True,
         capture_output=True,

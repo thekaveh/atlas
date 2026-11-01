@@ -473,7 +473,7 @@ async def test_healthy_weaviate_interval_is_immediately_recallable_after_outage(
 
         async def fetch(self, query, *_args):
             assert shadow_written, "pgvector fallback must see the healthy shadow"
-            assert "ORDER BY embedding::vector(3)" in query
+            assert "ORDER BY embedding::public.vector(3)" in query
             assert "embedding_model = $5" in query
             assert "embedding_generation = 1" in query
             return [
@@ -553,18 +553,36 @@ async def test_runtime_identity_and_completion_bind_full_model_and_dimension(
     assert await store._ensure_weaviate_identity() is False
     assert await store._complete_weaviate_rebuild(27) is True
 
-    assert "ensure_memory_weaviate_identity($1, $2)" in calls[0][0]
+    assert "ensure_memory_weaviate_identity($1::text, $2::integer)" in calls[0][0]
     assert calls[0][1] == ("openai/text-embedding-3-small", 1536)
-    assert "complete_memory_weaviate_rebuild($1, $2, $3)" in calls[1][0]
+    assert (
+        "complete_memory_weaviate_rebuild($1::bigint, $2::text, $3::integer)"
+        in calls[1][0]
+    )
     assert calls[1][1] == (27, "openai/text-embedding-3-small", 1536)
+
+
+def test_per_user_lock_resolves_nothing_through_public():
+    # Roles with CREATE on public could plant public.hashtextextended(text,
+    # integer), a closer match for an untyped `0` than pg_catalog's bigint
+    # form, and it would run as the Backend role (CVE-2018-1058 pattern).
+    import memory_service
+
+    assert memory_service._USER_LOCK_SQL == (
+        "SELECT pg_catalog.pg_advisory_xact_lock("
+        "pg_catalog.hashtextextended($1::text, 0::bigint))"
+    )
 
 
 @pytest.mark.parametrize(
     ("dimension", "expected_expression"),
     [
-        (768, "embedding::vector(768) <=> $1::vector(768)"),
-        (1536, "embedding::vector(1536) <=> $1::vector(1536)"),
-        (3072, "embedding::halfvec(3072) <=> $1::halfvec(3072)"),
+        (768, "embedding::public.vector(768) OPERATOR(public.<=>) "
+              "$1::public.vector(768)"),
+        (1536, "embedding::public.vector(1536) OPERATOR(public.<=>) "
+               "$1::public.vector(1536)"),
+        (3072, "embedding::public.halfvec(3072) OPERATOR(public.<=>) "
+               "$1::public.halfvec(3072)"),
     ],
 )
 @pytest.mark.asyncio
@@ -597,7 +615,7 @@ async def test_pgvector_query_uses_selected_dimension_and_index_expression(
     )
 
     assert expected_expression in queries[0]
-    assert f"vector_dims(embedding) = {dimension}" in queries[0]
+    assert f"public.vector_dims(embedding) = {dimension}" in queries[0]
     assert "embedding_model = $5" in queries[0]
     assert "embedding_generation = 1" in queries[0]
     assert "vector(768)" not in queries[0] if dimension != 768 else True
@@ -1685,7 +1703,10 @@ async def test_failback_rebuild_syncs_active_and_retired_without_holding_db_io(
     ]
 
     class Conn:
-        async def fetch(self, _query, *args):
+        async def fetch(self, query, *args):
+            # The snapshot carries the intent flag, so a pending active
+            # fact can also have its pgvector shadow repaired.
+            assert "vector_sync_pending" in query
             fetch_args.append(args)
             return rows if len(fetch_args) == 1 else []
 
@@ -1743,6 +1764,60 @@ async def test_failback_rebuild_syncs_active_and_retired_without_holding_db_io(
         assert "SET vector_sync_pending = false" in query
         assert "WHERE id = $1 AND updated_at = $3" in query
     assert fetch_args == [(None,), (rows[1]["id"],)]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("superseded", [False, True], ids=["cleared", "superseded"])
+async def test_failback_rebuild_repairs_pending_pgvector_shadow_before_clear(
+    monkeypatch, superseded,
+):
+    """A pending active fact may hold a NULL or stale pgvector shadow. The
+    rebuild re-embeds it before draining the intent; a superseded shadow
+    write leaves the fact pending so the completion CAS refuses."""
+    import memory_store
+
+    fact_id = "00000000-0000-4000-8000-000000000001"
+    row = {
+        "id": fact_id, "user_id": "00000000-0000-4000-8000-000000000010",
+        "namespace": "default", "content": "edited", "fact_type": "observation",
+        "confidence": 1.0, "is_active": True, "weaviate_id": None,
+        "updated_at": "v1", "vector_sync_pending": True,
+    }
+    events = []
+
+    class Conn:
+        async def fetch(self, _query, *args):
+            return [row] if args == (None,) else []
+
+        async def execute(self, query, *args):
+            events.append(("timestamp-clear", args))
+
+    @asynccontextmanager
+    async def acquire(_url):
+        yield Conn()
+
+    async def shadow(written_id, content, *, mark_dirty=True):
+        events.append(("pgvector", written_id, content, mark_dirty))
+        if superseded:
+            raise memory_store.MemoryEmbeddingWriteSuperseded("edited")
+
+    async def clear(_conn, cleared_row, weaviate_id):
+        events.append(("content-clear", cleared_row["id"], weaviate_id))
+
+    store = memory_store.MemoryStore("postgresql://atlas", weaviate_url="http://weaviate")
+    monkeypatch.setattr(memory_store, "acquire_conn", acquire)
+    monkeypatch.setattr(memory_store, "_clear_active_vector_intent", clear)
+    monkeypatch.setattr(store, "_store_weaviate", AsyncMock(
+        side_effect=lambda *_a: events.append(("weaviate",)) or fact_id))
+    monkeypatch.setattr(store, "_delete_stale_weaviate_objects", AsyncMock())
+    monkeypatch.setattr(store, "_store_pgvector", shadow)
+
+    await store._sync_weaviate_from_postgres()
+
+    expected = [("weaviate",), ("pgvector", fact_id, "edited", False)]
+    if not superseded:
+        expected.append(("content-clear", fact_id, fact_id))
+    assert events == expected
 
 
 @pytest.mark.asyncio
@@ -1991,7 +2066,10 @@ async def test_schema_backfill_leaves_pending_null_vectors_to_the_reconciler(
 
     selector = " ".join(queries[0].split())
     assert "WHERE (embedding IS NULL AND NOT vector_sync_pending)" in selector
-    assert "OR (embedding IS NOT NULL AND (vector_dims(embedding) <> 1536" in selector
+    assert (
+        "OR (embedding IS NOT NULL AND (public.vector_dims(embedding) <> 1536"
+        in selector
+    )
     generate.assert_not_awaited()
     assert "contract_memory_embedding_contract" in queries[-1]
 
@@ -2068,7 +2146,7 @@ async def test_schema_backfill_defers_a_row_the_provider_rejects(monkeypatch, ca
     assert deferred_args == (rejected["id"], "too long", store.embedding_model)
     assert "(embedding IS NULL AND NOT vector_sync_pending)" in deferred
     assert "pgvector_target_generation = 2" in deferred
-    [(_written, written_args)] = _calls_with(calls, "SET embedding = $1::vector(1536)")
+    [(_written, written_args)] = _calls_with(calls, "SET embedding = $1::public.vector(1536)")
     assert written_args[1] == accepted["id"]
     assert "contract_memory_embedding_contract" in calls[-1][0]
     assert rejected["id"] in caplog.text

@@ -8,17 +8,27 @@ through restore-databases.sh in test_database_volume_backup_contracts.py).
 from __future__ import annotations
 
 from pathlib import Path
+import hashlib
+import io
 import os
 import secrets
 import shutil
 import subprocess
 import re
+import sys
+import tarfile
 import uuid
 
 import pytest
 import yaml
 
 from tests.test_database_backup_repair_contracts import _shell_function
+from tests.test_database_volume_backup_contracts import (
+    NEO4J_VERSION,
+    WEAVIATE_VERSION,
+    _resign_metadata,
+    _signed_database_publication,
+)
 
 from tests.test_database_backup_live_integration import (
     PREVIOUS_WEAVIATE_IMAGE,
@@ -333,3 +343,139 @@ def test_restore_prepare_refuses_an_existing_private_stage(tmp_path: Path):
         assert not (tmp_path / "mc.log").exists()
     finally:
         shutil.rmtree(root)
+
+
+# --- restore-databases.sh refuses unsafe archive members before extraction ---
+_LINK_REFUSED = "unsafe archive link type or target"
+
+
+def _add_member(archive: tarfile.TarFile, name: str, kind: bytes = tarfile.REGTYPE, linkname: str = ""):
+    info = tarfile.TarInfo(name)
+    info.type, info.linkname = kind, linkname
+    data = b"payload" if kind == tarfile.REGTYPE else b""
+    info.size = len(data)
+    archive.addfile(info, io.BytesIO(data))
+
+
+def _member_archive(path: Path, case: str) -> Path:
+    with tarfile.open(path, "w:gz") as archive:
+        if case in {"safe", "hardlink"}:
+            _add_member(archive, "dir", tarfile.DIRTYPE)
+            _add_member(archive, "dir/file")
+        if case == "hardlink":
+            _add_member(archive, "dir/hard", tarfile.LNKTYPE, "dir/file")
+        elif case == "symlink":
+            _add_member(archive, "dir/link", tarfile.SYMTYPE, "/etc/passwd")
+        elif case in {"../escape", "/abs/escape"}:
+            _add_member(archive, case)
+    return path
+
+
+@pytest.mark.parametrize("case", [
+    ("symlink", 65, _LINK_REFUSED), ("hardlink", 65, _LINK_REFUSED),
+    ("../escape", 65, "unsafe archive path"), ("/abs/escape", 65, "unsafe archive path"),
+    ("empty", 65, "empty archive"), ("safe", 0, None),
+], ids=["symlink", "hardlink", "parent-escape", "absolute", "empty", "safe"])
+def test_safe_archive_refuses_links_escapes_and_empty_archives(tmp_path: Path, case):
+    """A signed archive is still checked member by member before extraction."""
+    name, status, message = case
+    archive = _member_archive(tmp_path / "snapshot.tar.gz", name)
+    script = (
+        'run_bounded() { "$@"; }\n' + _shell_function(RESTORE_DATABASES, "safe_archive")
+        + 'safe_archive "$1" "$2"\n'
+    )
+    result = subprocess.run(
+        ["sh", "-c", script, "sh", str(archive), str(tmp_path / "listing")],
+        text=True, capture_output=True, check=False, timeout=10,
+    )
+    assert result.returncode == status, result.stderr
+    if message:
+        assert message in result.stderr
+    else:
+        assert result.stderr == ""
+
+
+def _rebind_metadata(path: Path, fields: dict[str, str], key: bytes) -> None:
+    text = path.read_text(encoding="utf-8")
+    for field, value in fields.items():
+        text, count = re.subn(rf"^{field}=.*$", f"{field}={value}", text, flags=re.M)
+        assert count == 1, field
+    path.write_text(text, encoding="utf-8")
+    _resign_metadata(path, key)
+
+
+def _publish_symlinked_weaviate_snapshot(s3_root: Path, timestamp: str, key_hex: str) -> None:
+    """A correctly signed publication whose Weaviate archive carries a symlink."""
+    weaviate_id = _signed_database_publication(
+        s3_root, timestamp, key_hex, (NEO4J_VERSION, WEAVIATE_VERSION)
+    )
+    key = bytes.fromhex(key_hex)
+    complete = s3_root / "atlas-backups" / timestamp / "databases.complete"
+    manifest = complete.parent / ("b" * 32) / "databases.manifest"
+    archive = manifest.parent / "weaviate.snapshot.tar.gz"
+    with tarfile.open(archive, "w:gz") as tar:
+        tar.add(s3_root / "fixture" / weaviate_id, arcname=weaviate_id)
+        _add_member(tar, f"{weaviate_id}/escape", tarfile.SYMTYPE, "/etc/passwd")
+    _rebind_metadata(manifest, {
+        "weaviate_archive_sha256": hashlib.sha256(archive.read_bytes()).hexdigest(),
+        "weaviate_archive_bytes": str(archive.stat().st_size),
+    }, key)
+    _rebind_metadata(complete, {
+        "manifest_sha256": hashlib.sha256(manifest.read_bytes()).hexdigest(),
+        "manifest_bytes": str(manifest.stat().st_size),
+    }, key)
+
+
+def _signed_restore_fake_bin(tmp_path: Path) -> Path:
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    (fake_bin / "timeout").write_text('#!/bin/sh\nshift 5\nexec "$@"\n', encoding="utf-8")
+    (fake_bin / "mc").write_text(
+        "#!/bin/sh\n"
+        "case \"$1 $2\" in 'alias import') exit 0;; esac\n"
+        "[ \"$1\" = cat ] || exit 22\n"
+        "path=${2#s3/}\ncat \"$S3_FIXTURE_ROOT/$path\"\n",
+        encoding="utf-8",
+    )
+    (fake_bin / "setsid").write_text(
+        f"#!{sys.executable}\nimport os, sys\nos.setsid()\nos.execvp(sys.argv[1], sys.argv[1:])\n",
+        encoding="utf-8",
+    )
+    for executable in fake_bin.iterdir():
+        executable.chmod(0o755)
+    return fake_bin
+
+
+def test_restore_refuses_a_signed_weaviate_archive_with_a_symlink(tmp_path: Path):
+    """Pins the safe_archive call: the HMAC authenticates content, not member types."""
+    timestamp, key_hex = "20260830_010203", "6" * 64
+    s3_root = tmp_path / "s3"
+    _publish_symlinked_weaviate_snapshot(s3_root, timestamp, key_hex)
+    fake_bin = _signed_restore_fake_bin(tmp_path)
+    token = secrets.token_hex(16)
+    restore_root = Path(f"/tmp/atlas-database-restore-test-{token}")
+    restore_root.mkdir(mode=0o700)
+    (restore_root / ".restore-owner").write_text(token, encoding="utf-8")
+    env = {
+        **os.environ, "PATH": f"{fake_bin}:{os.environ.get('PATH', '')}",
+        "S3_FIXTURE_ROOT": str(s3_root), "BACKUP_TIMESTAMP": timestamp,
+        "BACKUP_MANIFEST_HMAC_KEY": key_hex, "BACKUP_DEPLOYMENT_ID": "atlas-test",
+        "BACKUP_BUCKET": "atlas-backups", "BACKUP_S3_MODE": "external",
+        "BACKUP_S3_ENDPOINT": "https://s3.example.test", "BACKUP_S3_ACCESS_KEY": "access",
+        "BACKUP_S3_SECRET_KEY": "secret", "BACKUP_COMMAND_TIMEOUT_SECONDS": "5",
+        "BACKUP_DATABASE_QUIESCE_TIMEOUT_SECONDS": "5",
+        "BACKUP_MAX_DATABASE_ARCHIVE_BYTES": "1048576",
+        "BACKUP_RESTORE_TOKEN": token, "DATABASE_RESTORE_ROOT": str(restore_root),
+    }
+    try:
+        result = subprocess.run(
+            ["sh", str(RESTORE_DATABASES), "prepare"], env=env,
+            text=True, capture_output=True, check=False, timeout=30,
+        )
+        assert result.returncode == 65, result.stderr
+        assert _LINK_REFUSED in result.stderr
+        assert not (restore_root / f"restore-{token}").exists()
+        assert not any(path.is_symlink() for path in restore_root.rglob("*"))
+        assert not Path(f"/tmp/atlas-database-restore-{token}").exists()
+    finally:
+        shutil.rmtree(restore_root)

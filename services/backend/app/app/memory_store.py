@@ -17,6 +17,7 @@ import httpx
 from db_connection import acquire_conn
 from memory_reconciliation import (  # noqa: F401 - re-exported for callers and tests
     WeaviateQueryError,
+    _clear_active_vector_intent,
     _is_row_rejection,
     _weaviate_vectorizer_failure,
     _weaviate_vectorizer_row_rejection,
@@ -286,7 +287,8 @@ class MemoryStore:
                 rows = await conn.fetch(
                     """
                     SELECT id, user_id, namespace, content, fact_type,
-                           confidence, is_active, weaviate_id, updated_at
+                           confidence, is_active, weaviate_id, updated_at,
+                           vector_sync_pending
                     FROM public.memory_facts
                     WHERE ($1::uuid IS NULL OR id > $1::uuid)
                     ORDER BY id
@@ -297,39 +299,58 @@ class MemoryStore:
             if not rows:
                 return
             for row in rows:
-                fact_id = str(row["id"])
                 if row["is_active"]:
-                    weaviate_id = await self._store_weaviate(
-                        fact_id,
-                        row["content"],
-                        str(row["user_id"]),
-                        row["namespace"],
-                        row["fact_type"],
-                        row["confidence"],
-                    )
-                    await self._delete_stale_weaviate_objects(
-                        fact_id, keep_id=weaviate_id
-                    )
+                    await self._rebuild_active_row(row)
                 else:
                     await self._deactivate_weaviate(
-                        fact_id, row.get("weaviate_id") or fact_id
+                        str(row["id"]), row.get("weaviate_id") or str(row["id"])
                     )
-                # Drain the exact durable intent just applied. If a concurrent
-                # edit changes updated_at, this guarded clear is a no-op and
-                # the generation CAS forces another rebuild pass.
-                async with acquire_conn(self.database_url) as conn:
-                    await conn.execute(
-                        """
-                        UPDATE public.memory_facts
-                        SET vector_sync_pending = false,
-                            weaviate_id = CASE WHEN is_active THEN $2 ELSE weaviate_id END
-                        WHERE id = $1 AND updated_at = $3
-                        """,
-                        row["id"],
-                        fact_id if row["is_active"] else row.get("weaviate_id"),
-                        row["updated_at"],
-                    )
+                    await self._clear_rebuilt_intent(row, row.get("weaviate_id"))
                 last_id = row["id"]
+
+    async def _rebuild_active_row(self, row) -> None:
+        """Write one active fact to Weaviate, then drain its rebuild intent.
+
+        A pending fact may also lack a current pgvector shadow: a failed shadow
+        write leaves it NULL or embedded from older content. Re-embed it before
+        the clear, so the intent covers both stores.
+        """
+        fact_id = str(row["id"])
+        weaviate_id = await self._store_weaviate(
+            fact_id, row["content"], str(row["user_id"]), row["namespace"],
+            row["fact_type"], row["confidence"],
+        )
+        await self._delete_stale_weaviate_objects(fact_id, keep_id=weaviate_id)
+        if not row.get("vector_sync_pending"):
+            await self._clear_rebuilt_intent(row, fact_id)
+            return
+        try:
+            await self._store_pgvector(fact_id, row["content"], mark_dirty=False)
+        except MemoryEmbeddingWriteSuperseded:
+            # A concurrent edit owns the fact now. It stays pending, so the
+            # completion CAS refuses and the next pass retries it.
+            return
+        # The shadow UPDATE's trigger advanced updated_at, so the snapshot
+        # guard would match nothing; capture the version by its fields.
+        async with acquire_conn(self.database_url) as conn:
+            await _clear_active_vector_intent(conn, row, weaviate_id)
+
+    async def _clear_rebuilt_intent(self, row, weaviate_id: Optional[str]) -> None:
+        """Drain the exact durable intent just applied. If a concurrent edit
+        changes updated_at, this guarded clear is a no-op and the generation
+        CAS forces another rebuild pass."""
+        async with acquire_conn(self.database_url) as conn:
+            await conn.execute(
+                """
+                UPDATE public.memory_facts
+                SET vector_sync_pending = false,
+                    weaviate_id = CASE WHEN is_active THEN $2 ELSE weaviate_id END
+                WHERE id = $1 AND updated_at = $3
+                """,
+                row["id"],
+                weaviate_id,
+                row["updated_at"],
+            )
 
     async def _get_weaviate_sync_state(
         self, *, include_pending: bool = True
@@ -371,7 +392,7 @@ class MemoryStore:
             row = await conn.fetchrow(
                 """
                 WITH ensured AS MATERIALIZED (
-                    SELECT public.ensure_memory_weaviate_identity($1, $2)
+                    SELECT public.ensure_memory_weaviate_identity($1::text, $2::integer)
                 )
                 SELECT weaviate_synced_model, weaviate_synced_dimension
                 FROM public.memory_embedding_schema_state, ensured
@@ -393,7 +414,8 @@ class MemoryStore:
         async with acquire_conn(self.database_url) as conn:
             return bool(
                 await conn.fetchval(
-                    "SELECT public.complete_memory_weaviate_rebuild($1, $2, $3)",
+                    "SELECT public.complete_memory_weaviate_rebuild("
+                    "$1::bigint, $2::text, $3::integer)",
                     generation,
                     self.embedding_model,
                     self.embedding_dimension,
@@ -497,7 +519,10 @@ class MemoryStore:
     def _distance_expression(self, parameter: str = "$1") -> str:
         dimension = self.embedding_dimension
         cast = "vector" if dimension <= 2000 else "halfvec"
-        return f"embedding::{cast}({dimension}) <=> {parameter}::{cast}({dimension})"
+        return (
+            f"embedding::public.{cast}({dimension}) OPERATOR(public.<=>) "
+            f"{parameter}::public.{cast}({dimension})"
+        )
 
     async def _ensure_pgvector_schema_contract(self) -> None:
         """Resume an optimistic backfill without holding DB across provider I/O."""
@@ -569,7 +594,7 @@ class MemoryStore:
                     FROM public.memory_facts
                     WHERE (embedding IS NULL AND NOT vector_sync_pending)
                        OR (embedding IS NOT NULL
-                           AND (vector_dims(embedding) <> {self.embedding_dimension}
+                           AND (public.vector_dims(embedding) <> {self.embedding_dimension}
                                 OR embedding_model IS DISTINCT FROM $1
                                 OR embedding_generation <> {target_generation}))
                     ORDER BY id
@@ -584,7 +609,8 @@ class MemoryStore:
 
         async with acquire_conn(self.database_url) as conn:
             await conn.execute(
-                "SELECT public.contract_memory_embedding_contract($1, $2, $3)",
+                "SELECT public.contract_memory_embedding_contract("
+                "$1::text, $2::integer, $3::bigint)",
                 self.embedding_model,
                 self.embedding_dimension,
                 target_generation,
@@ -613,12 +639,12 @@ class MemoryStore:
             result = await conn.execute(
                 f"""
                 UPDATE public.memory_facts
-                SET embedding = $1::vector({self.embedding_dimension}),
+                SET embedding = $1::public.vector({self.embedding_dimension}),
                     embedding_model = $4,
                     embedding_generation = {target_generation}
                 WHERE id = $2 AND content = $3
                   AND (embedding IS NULL OR
-                       vector_dims(embedding) <> {self.embedding_dimension} OR
+                       public.vector_dims(embedding) <> {self.embedding_dimension} OR
                        embedding_model IS DISTINCT FROM $4 OR
                        embedding_generation <> {target_generation})
                   AND EXISTS (
@@ -653,7 +679,7 @@ class MemoryStore:
                 WHERE id = $1 AND content = $2
                   AND ((embedding IS NULL AND NOT vector_sync_pending) OR
                        (embedding IS NOT NULL AND
-                        (vector_dims(embedding) <> {self.embedding_dimension} OR
+                        (public.vector_dims(embedding) <> {self.embedding_dimension} OR
                          embedding_model IS DISTINCT FROM $3 OR
                          embedding_generation <> {target_generation})))
                   AND EXISTS (
@@ -984,11 +1010,12 @@ class MemoryStore:
                     await conn.fetchval(
                         "SELECT public.mark_memory_weaviate_dirty()"
                     )
-                # `$1::vector` binds the literal as text so Postgres runs the
-                # vector input function; asyncpg has no native vector codec.
+                # `$1::public.vector` binds the literal as text so Postgres
+                # runs the vector input function; asyncpg has no native vector
+                # codec. Qualified, so a planted public type cannot win.
                 result = await conn.execute(
                     f"UPDATE public.memory_facts SET embedding = "
-                    f"$1::vector({self.embedding_dimension}), "
+                    f"$1::public.vector({self.embedding_dimension}), "
                     f"embedding_model = $4, "
                     f"embedding_generation = {self._pgvector_generation} "
                     f"WHERE id = $2 AND content = $3{target_guard}",
@@ -1161,7 +1188,7 @@ class MemoryStore:
                   AND namespace = $3
                   AND is_active = true
                   AND embedding IS NOT NULL
-                  AND vector_dims(embedding) = {self.embedding_dimension}
+                  AND public.vector_dims(embedding) = {self.embedding_dimension}
                   AND embedding_model = $5
                   AND embedding_generation = {self._pgvector_generation}
                   AND confidence >= $6

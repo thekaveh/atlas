@@ -1,6 +1,6 @@
 # Documentation Header Restructure (nativ-grade) — Design
 
-> **Status: archived spec** — dated 2026-07-30; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+> **Status: archived spec** — dated 2026-07-30; a point-in-time record kept for archaeology, not current guidance. It landed in `975f5d30` (#887), which has no CHANGELOG entry.
 
 - **Date:** 2026-07-30
 - **Status:** Draft (awaiting review)

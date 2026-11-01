@@ -45,6 +45,7 @@ from services.migrations.migration_v5 import (
     needs_migration as _needs_v5,
     stamp_version as _stamp_v5,
 )
+from services.migrations.build_pin_refresh import refresh as _refresh_build_pins
 
 
 def _format_today() -> str:
@@ -638,6 +639,29 @@ def _declared_sources(values: dict) -> dict:
     """The ``*_SOURCE`` entries of a consumer manifest's env, which the auto
     port probe must see before they reach .env (#1391)."""
     return {key: value for key, value in values.items() if key.endswith("_SOURCE") and value}
+
+
+#: The ConsumerRecord field each plugin/sidecar-derived env key comes from.
+_DERIVED_KEY_FIELDS = (
+    ("BACKEND_PLUGINS_DIR", "backend_plugins"),
+    ("COMFYUI_CUSTOM_MODELS_FILE", "comfyui_sidecars"),
+    ("COMFYUI_CUSTOM_NODES_FILE", "comfyui_custom_node_files"),
+    ("OLLAMA_CUSTOM_MODELS", "ollama_models"),
+)
+
+
+def _derived_env_origins(consumer_config) -> Dict[str, str]:
+    """The manifest that derives each plugin/sidecar key (#1057 origins).
+
+    ``env_origins`` covers only ``env.values`` and ``env.file`` keys, so a
+    derived key looked like a ``.env`` value. The last manifest that declares
+    the field wins."""
+    return {
+        key: str(record.manifest_path)
+        for record in consumer_config.consumers
+        for key, attribute in _DERIVED_KEY_FIELDS
+        if getattr(record, attribute)
+    }
 
 
 def _cli_source_overrides(params: dict) -> dict:
@@ -1447,7 +1471,9 @@ class AtlasStarter:
                 continue
             origins.update(dict.fromkeys(keys, str(overlay)))
         try:
-            origins.update(self.config_parser.load_consumer_config().env_origins)
+            consumer = self.config_parser.load_consumer_config()
+            origins.update(consumer.env_origins)
+            origins.update(_derived_env_origins(consumer))
         except Exception:  # noqa: BLE001 - a broken manifest has its own check
             pass
         return origins
@@ -1703,15 +1729,17 @@ class AtlasStarter:
            re-resolves — still host-correct.
 
         Runs before source validation, so the validator only ever sees
-        concrete ids. Vars set to ``auto`` that match no manifest sources
-        block are left untouched — the validator then rejects the literal
+        concrete ids. ``*_SOURCE`` vars set to ``auto`` that match no manifest
+        sources block are left untouched — the validator then rejects the literal
         ``auto`` with its normal valid-options error, keeping the mistake
-        loud rather than silently dropped.
+        loud rather than silently dropped. Other keys (``DOCLING_USE_OCR``)
+        may hold ``auto`` as a value and pass through.
         """
         auto_keys = [
             key
             for key, value in overrides.items()
-            if key != "BASE_PORT" and str(value).strip().lower() == "auto"
+            # Only a *_SOURCE key is a sentinel: DOCLING_USE_OCR=auto is a value.
+            if key.endswith("_SOURCE") and str(value).strip().lower() == "auto"
         ]
         if not auto_keys:
             return overrides
@@ -2006,6 +2034,26 @@ class AtlasStarter:
             return self.validate_persisted_project_name()
         return True
 
+    def _refresh_retired_build_pins(self) -> None:
+        """Move a build pin that still holds a retired shipped default to the
+        ``.env.example`` value (``services/migrations/build_pin_refresh.py``).
+        An operator's own value stays; a failure warns and the start goes on."""
+        try:
+            changes, backup = _refresh_build_pins(
+                Path(self.config_parser.env_file_path),
+                Path(self.config_parser.env_example_path),
+                # A pin an overlay or consumer manifest set this run is theirs.
+                frozenset(getattr(self, "_env_user_keys", None) or ()),
+            )
+        except (OSError, UnicodeError) as exc:
+            self.banner.show_status_message(f"Could not refresh retired build pins: {exc}", "warning")
+            return
+        for key, old, new in changes:
+            self.banner.show_status_message(
+                f"Refreshed {key} from the retired default {old} to {new} (backup: {backup.name})",
+                "info",
+            )
+
     def backfill_missing_env_vars(self) -> bool:
         """Append variables present in ``.env.example`` but missing from
         the user's ``.env`` (preserving every existing nonblank value).
@@ -2031,12 +2079,17 @@ class AtlasStarter:
         nonblank values and pre-existing comments stay put). Auto-managed
         keys with empty defaults in the example (passwords, access keys)
         are appended blank; the
-        cold-start secret-generation step fills them later.
+        cold-start secret-generation step fills them later. The one
+        exception is a build pin still on a retired shipped default
+        (``_refresh_retired_build_pins``).
         """
         env_file_path = self.config_parser.env_file_path
         env_example_path = self.config_parser.env_example_path
         if not env_file_path.exists() or not env_example_path.exists():
             return True  # Nothing to backfill against.
+        # The one non-blank value backfill changes: a build pin still on a
+        # default an earlier Atlas shipped, which the new image rejects.
+        self._refresh_retired_build_pins()
 
         try:
             example_text = _read_env_backfill_text(env_example_path)
@@ -5294,18 +5347,19 @@ def _print_env_backfill_summary(
         for key, prior in before.items()
         if key in after and not prior and bool(after[key])
     )
-    if not added and not filled:
+    # Backfill changes a non-blank value only to refresh a retired build pin.
+    refreshed = sorted(key for key, prior in before.items() if prior and after.get(key, prior) != prior)
+    if not added and not filled and not refreshed:
         click.echo(f"No env changes needed: {env_path}")
         return
 
     section_by_key = _env_example_section_by_key(env_example_path)
     grouped: dict[str, list[str]] = {}
-    for key in added:
-        section = section_by_key.get(key, "(unsectioned)")
-        grouped.setdefault(section, []).append(f"{key} (added)")
-    for key in filled:
-        section = section_by_key.get(key, "(unsectioned)")
-        grouped.setdefault(section, []).append(f"{key} (filled blank)")
+    for keys, label in ((added, "added"), (filled, "filled blank"),
+                        (refreshed, "refreshed retired default")):
+        for key in keys:
+            section = section_by_key.get(key, "(unsectioned)")
+            grouped.setdefault(section, []).append(f"{key} ({label})")
 
     click.echo(f"Env backfill updated {env_path}:")
     for section in sorted(grouped):
@@ -6996,7 +7050,7 @@ def _doctor_check_auto_sources(starter: "AtlasStarter") -> dict:
     declared = sorted(
         key
         for key, value in (consumer_config.env_overrides or {}).items()
-        if key != "BASE_PORT" and str(value).strip().lower() == "auto"
+        if key.endswith("_SOURCE") and str(value).strip().lower() == "auto"
     )
     if not declared:
         return _doctor_result(
@@ -7271,6 +7325,23 @@ def _invoker_output_path(path: Optional[Path]) -> Optional[Path]:
         return None
     requested = Path(path).expanduser()
     return _invoker_path(requested.parent) / requested.name
+
+
+def _invoker_file_option(ctx, param, value):
+    """Click callback for a file Atlas writes: reject a directory where the
+    file will be written (the invoker's directory), not in this cwd."""
+    resolved = _invoker_output_path(value)
+    if resolved is not None and resolved.is_dir():
+        raise click.BadParameter(f"{resolved} is a directory")
+    return value
+
+
+def _invoker_input_file_option(ctx, param, value):
+    """Click callback for a file Atlas reads: reject a directory, resolved
+    against the invoker's directory as the option help says."""
+    if value and _invoker_path(Path(value)).is_dir():
+        raise click.BadParameter(f"{value} is a directory")
+    return value
 
 
 def _export_failed_start_bundle(starter: "AtlasStarter", transcript, exit_code) -> None:
@@ -7555,7 +7626,7 @@ def _prompt_for_track(registry, *, max_attempts: int = 5) -> str:
                    'when running Atlas as a submodule so you do not collide with a '
                    'base Atlas stack.')
 @click.option('--consumer', 'consumer_manifests', multiple=True,
-              type=click.Path(exists=False, dir_okay=False),
+              type=click.Path(exists=False),
               help='Path to an atlas.consumer.yml manifest in a parent project. '
                    'May be passed multiple times. Relative paths resolve from '
                    'the directory that invoked start.sh.')
@@ -7621,7 +7692,8 @@ def _prompt_for_track(registry, *, max_attempts: int = 5) -> str:
                    'in .env. Pass "" to clear. Unknown names skip with warning '
                    '(comfyui-init logs unknown names at start).')
 @click.option('--comfyui-custom-models-file',
-              type=click.Path(exists=False, dir_okay=False),
+              type=click.Path(exists=False),
+              callback=_invoker_input_file_option,
               help='Path to a sidecar custom-models.yaml. Default: '
                    'services/comfyui/custom-models.yaml. Override to point at '
                    'a file outside the repo (e.g. /etc/atlas/my-models.yaml).')
@@ -7827,7 +7899,8 @@ def _prompt_for_track(registry, *, max_attempts: int = 5) -> str:
                    'consumer manifest may name its default via `profile:`. '
                    'Does not bypass the wizard.')
 @click.option('--support-bundle', 'support_bundle',
-              type=click.Path(dir_okay=False, path_type=Path), default=None,
+              type=click.Path(path_type=Path), default=None,
+              callback=_invoker_file_option,
               help='If the start fails after its preflight checks (Docker/'
                    'Compose availability, --setup-hosts, legacy sources), '
                    'show and then write a redacted support '
@@ -8712,8 +8785,9 @@ def compose_validate_command() -> None:
 @click.option(
     "--bundle",
     "bundle_path",
-    type=click.Path(dir_okay=False, path_type=Path),
+    type=click.Path(path_type=Path),
     default=None,
+    callback=_invoker_file_option,
     help="Also write a redacted support bundle (.tar.gz) to PATH, after showing "
     "its full contents. Collection is local, offline and time-bounded; "
     "redaction is best-effort.",

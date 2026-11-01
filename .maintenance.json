@@ -14,7 +14,7 @@
       "bootstrapper/**/*.py",
       "services/backend/app/app/**/*.py"
     ],
-    "extended_python_scope": "Every other tracked *.py file; core scope remains governed by the original immutable ceilings.",
+    "extended_python_scope": "Every other tracked or untracked (non-ignored) *.py file; core scope remains governed by the original immutable ceilings.",
     "baseline_snapshot": {
       "radon_grade_c_or_worse": 428,
       "radon_grade_e_or_worse": 23,

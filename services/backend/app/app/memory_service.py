@@ -26,6 +26,14 @@ from memory_store import MemoryStore, _to_uuid
 
 logger = logging.getLogger("memory_service")
 
+# Per-user write lock. Schema-qualified with exact argument types, matching
+# 14-backend-memory.sql: roles with CREATE on public could plant
+# public.hashtextextended(text, integer), a closer match for `0` than
+# pg_catalog's (text, bigint), and it would run as the Backend role.
+_USER_LOCK_SQL = (
+    "SELECT pg_catalog.pg_advisory_xact_lock("
+    "pg_catalog.hashtextextended($1::text, 0::bigint))"
+)
 
 
 
@@ -443,7 +451,7 @@ Extract the facts as JSON:"""
             async with self._acquire() as conn:
                 async with conn.transaction():
                     await conn.execute(
-                        "SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))",
+                        _USER_LOCK_SQL,
                         # asyncpg's text codec accepts only str, not UUID.
                         str(user_uuid),
                     )
@@ -1078,7 +1086,7 @@ Extract the facts as JSON:"""
                             # otherwise supersede X by Y and Y by X, both under
                             # READ COMMITTED, leaving neither fact active.
                             await conn.execute(
-                                "SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))",
+                                _USER_LOCK_SQL,
                                 str(uid),
                             )
                             # Deactivate every source and write its audit record
@@ -1290,7 +1298,7 @@ Extract the facts as JSON:"""
         that is inactive now (re-read, not the pre-lock snapshot) when the
         user is at LANGMEM_MAX_FACTS_PER_USER."""
         await conn.execute(
-            "SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))",
+            _USER_LOCK_SQL,
             str(user_uuid),
         )
         currently_active = await conn.fetchval(

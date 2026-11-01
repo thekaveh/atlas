@@ -23,7 +23,17 @@ from typing import Any, Dict, List, Optional
 
 from shared_state import StateStoreUnavailable, backend_state_store_mode, redis_url
 
-from .models import IngestionRecord, weaviate_class_name
+from .models import (
+    DISPATCH_ACCEPTED,
+    DISPATCH_DISPATCHING,
+    DISPATCH_PREPARED,
+    STATUS_CANCELLED,
+    STATUS_COMPLETED,
+    STATUS_FAILED,
+    STATUS_PENDING,
+    IngestionRecord,
+    weaviate_class_name,
+)
 
 _DEFAULT_TTL_SECONDS = 7 * 24 * 3600
 _MIN_TTL_SECONDS = 60
@@ -306,7 +316,7 @@ class InMemoryIngestionStore(IngestionStore):
             if current_blob:
                 current = IngestionRecord.from_dict(json.loads(current_blob))
                 reusable = current.is_dedup_candidate
-                if current.status == "completed":
+                if current.status == STATUS_COMPLETED:
                     targets = current.publication_targets
                     reusable = reusable and targets is not None and (
                         targets == record.publication_targets
@@ -377,13 +387,13 @@ class InMemoryIngestionStore(IngestionStore):
                 return None
             record = IngestionRecord.from_dict(json.loads(blob))
             claim_matches = (
-                record.dispatch_state == "prepared" and owner is None
+                record.dispatch_state == DISPATCH_PREPARED and owner is None
             ) or (
-                record.dispatch_state == "dispatching"
+                record.dispatch_state == DISPATCH_DISPATCHING
                 and record.dispatch_owner == owner
             )
-            if record.status == "pending" and claim_matches:
-                record.status = "failed"
+            if record.status == STATUS_PENDING and claim_matches:
+                record.status = STATUS_FAILED
                 record.updated_at = updated_at
                 record.errors.append(dict(error))
                 self._save_locked(record)
@@ -399,17 +409,17 @@ class InMemoryIngestionStore(IngestionStore):
                 return False
             record = IngestionRecord.from_dict(json.loads(blob))
             reclaimable = (
-                record.dispatch_state == "dispatching"
+                record.dispatch_state == DISPATCH_DISPATCHING
                 and (
                     record.dispatch_claimed_at is None
                     or record.dispatch_claimed_at <= stale_before
                 )
             )
-            if record.status != "pending" or not (
-                record.dispatch_state == "prepared" or reclaimable
+            if record.status != STATUS_PENDING or not (
+                record.dispatch_state == DISPATCH_PREPARED or reclaimable
             ):
                 return False
-            record.dispatch_state = "dispatching"
+            record.dispatch_state = DISPATCH_DISPATCHING
             record.dispatch_owner = owner
             record.dispatch_claimed_at = updated_at
             record.updated_at = updated_at
@@ -426,11 +436,11 @@ class InMemoryIngestionStore(IngestionStore):
                 return None
             record = IngestionRecord.from_dict(json.loads(blob))
             if (
-                record.status not in {"failed", "cancelled"}
-                and record.dispatch_state == "dispatching"
+                record.status not in {STATUS_FAILED, STATUS_CANCELLED}
+                and record.dispatch_state == DISPATCH_DISPATCHING
                 and record.dispatch_owner == owner
             ):
-                record.dispatch_state = "accepted"
+                record.dispatch_state = DISPATCH_ACCEPTED
                 record.dispatch_job_id = job_id
                 record.dispatch_owner = None
                 record.dispatch_claimed_at = None
@@ -730,6 +740,7 @@ end
 return blob
 """
 
+    # The Lua state literals in the dispatch scripts mirror models.DISPATCH_*/STATUS_*.
     _DISPATCH_FAILED_SCRIPT = """
 local blob = redis.call('GET', KEYS[1])
 if not blob then return false end

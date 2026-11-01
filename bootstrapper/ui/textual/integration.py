@@ -1352,7 +1352,10 @@ def run_setup_flow(
 ) -> int:
     """Run wizard + pipeline + docker compose all in ONE Textual screen.
 
-    Returns exit code: 0 on success / cancellation.
+    Returns 0 when the launch succeeds (a later detach or Ctrl+C keeps 0),
+    or when the user quits with Esc or Ctrl+Q before launching. Returns 1
+    when the launch fails, including after a detach. Returns 130 when
+    Ctrl+C interrupts before a launch result is recorded.
     """
     from .widgets import BrandInfo
     from .screens.wizard_screen import GuardedQuitMixin, WizardScreen, teardown_blocks_exit
@@ -1507,7 +1510,9 @@ def run_launch_flow(
     flags so the user gets the same in-screen pipeline + log streaming
     UX as the wizard path.
 
-    Returns exit code: 0 on detach, non-zero on interrupt.
+    Returns 0 when the launch succeeds (a later detach or Ctrl+C keeps 0).
+    Returns 1 when the launch fails, including after a detach. Returns 130
+    when Ctrl+C interrupts before a launch result is recorded.
     """
     from .widgets import BrandInfo
     from .screens.wizard_screen import (

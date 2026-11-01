@@ -181,9 +181,8 @@ services:
   # /opt/airflow/dags are never parsed, the UI shows zero DAGs, and no
   # DAG runs schedule. Confirmed against the Airflow 3 upgrade guide
   # ("The Dag processor must now be started independently, even for
-  # local or development setups") and upstream's reference compose at
-  # and the 3.3.2 reference deployment, which ships an
-  # `airflow-dag-processor` service.
+  # local or development setups") and the 3.3.2 reference deployment,
+  # which ships an `airflow-dag-processor` service.
   airflow-dag-processor:
     build:
       context: ./build

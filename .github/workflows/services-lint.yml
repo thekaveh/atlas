@@ -659,10 +659,14 @@ jobs:
           # build contexts and is refreshed whenever a floating upstream tag moves.
           # Feeding that churn into the changed-image set re-scanned all 69
           # manifest-owned image/platform pairs for an edit that changes no image
-          # Atlas ships, so the baseline is filtered out here. Every service
-          # manifest, compose fragment, and Dockerfile still triggers a scan, and
-          # the `builds:` exclusions remain gated by container_security's own
-          # schema, expiry, and horizon checks.
+          # Atlas ships, so the baseline is filtered out here. A manifest or
+          # compose change schedules the images its changed lines name (all owned
+          # images for a rename); any change to a service with a commit-pinned
+          # GitHub build context also rescans the reviewed remote bases. A
+          # Dockerfile change otherwise only re-validates its build contract here;
+          # the non-required final-image-scan job builds and scans it. The
+          # `builds:` exclusions remain gated by container_security's own schema,
+          # expiry, and horizon checks.
           git diff --unified=0 --no-color "$BASE_SHA" "$GITHUB_SHA" -- \
             'services/*/service.yml' 'services/*/compose.yml' \
             'services/**/Dockerfile' \

@@ -271,6 +271,32 @@ def test_content_step_excludes_embedding_models():
     assert "ollama/nomic-embed-text:latest" in embed_values, embed_values
 
 
+def test_custom_ollama_models_are_offered_as_defaults():
+    """LiteLLM registers OLLAMA_CUSTOM_MODELS, but the default pickers read
+    only the models step: a custom-only selection skipped every step."""
+    from wizard.llm_steps import (
+        LLM_DEFAULT_CONTENT_TITLE,
+        LLM_DEFAULT_EMBED_DIM_TITLE,
+        LLM_DEFAULT_EMBED_TITLE,
+        OLLAMA_CUSTOM_TITLE,
+        build_default_model_steps,
+    )
+
+    env = {**_default_env(), "OLLAMA_USER_MODELS": ""}
+    steps = {s.title: s for s in build_default_model_steps(env)}
+    selections = {**_ollama_selections(""), OLLAMA_CUSTOM_TITLE: "llama3.3, mxbai-embed-large"}
+
+    content = steps[LLM_DEFAULT_CONTENT_TITLE]
+    assert not content.skip_if_prev(selections)
+    assert [o.value for o in content.options_provider(selections)] == ["ollama/llama3.3"]
+    embed = steps[LLM_DEFAULT_EMBED_TITLE]
+    assert not embed.skip_if_prev(selections)
+    # The saved LITELLM_EMBEDDING_MODEL stays listed with its "saved" badge.
+    assert "ollama/mxbai-embed-large" in [o.value for o in embed.options_provider(selections)]
+    selections[LLM_DEFAULT_EMBED_TITLE] = "ollama/mxbai-embed-large"
+    assert not steps[LLM_DEFAULT_EMBED_DIM_TITLE].skip_if_prev(selections)
+
+
 # ── test 3: embedding step default_value + caveat text ──────────────────────
 
 def test_embed_step_default_value_and_caveat():

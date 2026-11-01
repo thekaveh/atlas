@@ -89,6 +89,9 @@ def test_cold_start_cleanup_fails_when_consumer_overlays_were_dropped(tmp_path, 
         return 0
 
     monkeypatch.setattr(manager, "stream_compose", down)
+    # No surviving volumes, so only the overlay flag can fail the cleanup
+    # (and the real `docker volume ls` never runs).
+    monkeypatch.setattr(manager, "_project_volume_names", lambda _project: [])
     assert manager.perform_cold_start_cleanup() is False
 
 

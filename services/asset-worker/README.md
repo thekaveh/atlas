@@ -24,7 +24,7 @@ Every route except `GET /health` and `GET /metrics` requires `Authorization: Bea
 |---|---:|---|
 | `ASSET_WORKER_SOURCE` | `disabled` | Enables the containerized worker when set to `container`. |
 | `ASSET_WORKER_IMAGE` | `python:3.12.9-slim` | Base image for the local build. |
-| `ASSET_WORKER_GLTF_TRANSFORM_VERSION` | `4.5.1` | Expected pinned `@gltf-transform/cli` lock version. An override is a validation guard and must match both `package.json` and `package-lock.json`; update those files together when refreshing the dependency. |
+| `ASSET_WORKER_GLTF_TRANSFORM_VERSION` | `4.5.1` | Expected pinned `@gltf-transform/cli` lock version. The build stops unless it matches both `package.json` and `package-lock.json`; update those files together when refreshing the dependency. Every `.env` holds a copy. Startup replaces a copy that still holds an earlier shipped default and keeps any other value (§7). A shipped bump adds the old default to `RETIRED_DEFAULTS` in `bootstrapper/services/migrations/build_pin_refresh.py`. |
 | `ASSET_WORKER_MAX_UPLOAD_MB` | `200` | Maximum uploaded or MinIO-referenced GLB size in MiB. Raw multipart reception permits 1 MiB additional framing; oversized bodies return `413` before parsing. |
 | `ASSET_WORKER_UPLOAD_TIMEOUT_SECONDS` | `300` | Complete multipart reception deadline in seconds. Must be finite and positive; expiry returns `408`. Excludes conversion and reference requests. |
 | `ASSET_WORKER_MAX_NORMALIZATION_VERTICES` | `250000` | Maximum decoded POSITION entries across distinct supported referenced accessor indices. Exceeding the limit returns `422` before decoding. |
@@ -210,6 +210,7 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 - `400 Input must be a GLB file`: use a `.glb` filename and binary GLB payload.
 - `400 Input must be a binary glTF 2.0 GLB`: the input failed a check in §4.1. Re-export it as GLB 2.0 with 4-byte-padded chunks: one JSON chunk, then an optional BIN chunk.
 - `gltf-transform validate` failure: inspect the raw provider output; invalid GLB input is rejected before storage.
+- Build stops with `asset-worker glTF version mismatch`: `ASSET_WORKER_GLTF_TRANSFORM_VERSION` in `.env` differs from the lock files. The message names `package.json`, but the stale value is usually in `.env`. Blank it (startup refills it from `.env.example`) or copy the `.env.example` value, then rerun `./start.sh`.
 - `401 Invalid Asset Worker bearer token`: pass `Authorization: Bearer ${ASSET_WORKER_API_TOKEN}`.
 - `403 Input bucket is not allowed`: add the intended bucket to `ASSET_WORKER_ALLOWED_INPUT_BUCKETS`; do not broaden the list to unrelated or private buckets.
 - Dependency check fails with "Asset Worker requires MinIO": the container waits on `minio` and `minio-init`, and the `gen-ai-creative` track leaves MinIO off. Add `--minio-source container` (for example `./start.sh --track gen-ai-creative --asset-worker-source container --minio-source container`), declare `MINIO_SOURCE: container` in a consumer manifest, or disable Asset Worker.

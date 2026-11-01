@@ -115,11 +115,13 @@ def test_load_tracks_duplicate_key_raises(tmp_path: Path):
         "tracks": [
             {"key": "foo", "display_name": "First", "description": "d",
              "services": ["weaviate"]},
+            # A real services/ folder key, so only the duplicate guard can
+            # reject this file (an unknown service would raise instead).
             {"key": "foo", "display_name": "Second", "description": "d",
-             "services": ["neo4j-graph-db"]},
+             "services": ["neo4j"]},
         ]
     }))
-    with pytest.raises(Exception, match="duplicate"):
+    with pytest.raises(TracksLoadError, match="duplicate track key 'foo'"):
         load_tracks(p)
 
 

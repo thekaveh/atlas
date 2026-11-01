@@ -39,6 +39,9 @@ from utils.source_availability import source_has_endpoint
 
 from .. import palette as P
 
+# What an off-track row's source cell shows, whatever .env stores (spec §5.2 #5).
+OFF_TRACK_SOURCE_LABEL = "disabled (off-track)"
+
 
 @dataclass
 class ServiceRow:
@@ -166,7 +169,7 @@ def _source_pairs(r: ServiceRow) -> list[tuple[str, str]]:
     """
     if not r.off_track:
         return [("Source", r.source or "—")]
-    pairs = [("Source", "disabled (off-track)")]
+    pairs = [("Source", OFF_TRACK_SOURCE_LABEL)]
     if r.source:
         pairs.append(("Stored source", r.source))
     return pairs
@@ -287,7 +290,11 @@ class ServiceTable(Widget):
 
         port_max = max(self.MIN_PORT, _maxlen((_port_label(r) or "—") for r in rows))
         name_max = max(self.MIN_NAME, _maxlen(r.name for r in rows))
-        src_max = max(self.MIN_SOURCE, _maxlen((r.source or "—") for r in rows))
+        # Measure what the cell renders: an off-track row shows its label.
+        src_max = max(self.MIN_SOURCE, _maxlen(
+            (OFF_TRACK_SOURCE_LABEL if r.off_track else (r.source or "—"))
+            for r in rows
+        ))
         alias_max = max(
             self.MIN_ALIAS_URL,
             _maxlen((_alias_url(r) or "—") for r in rows),
@@ -414,7 +421,7 @@ class ServiceTable(Widget):
         source_style = P.style_for_source_choice(r.source)
         source_label = r.source or "—"
         if r.off_track:
-            source_label = "disabled (off-track)"
+            source_label = OFF_TRACK_SOURCE_LABEL
             source_style = f"dim {source_style}"
         slot.append(_fit(source_label, source_w), style=source_style)
         slot.append(sep)

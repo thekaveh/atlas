@@ -64,10 +64,12 @@ env:
     auto_managed: true
 
 depends_on:
-  # ORDERING-ONLY: settings.yml runs with `valkey.url: false` (no
-  # redis/valkey traffic) and the compose-level startup gate was
-  # removed as dead coupling. The manifest entry stays because the
-  # topology slot allocator derives port positions from depends_on —
+  # ORDERING-ONLY: searxng runs with `valkey.url: false`, inherited
+  # from the image defaults through `use_default_settings` in
+  # settings.yml (no redis/valkey traffic), and the compose-level
+  # startup gate was removed as dead coupling. The manifest entry
+  # stays because the topology slot allocator derives port positions
+  # from depends_on —
   # dropping it renumbers COMFYUI_PORT and every later slot, breaking
   # existing .env files. Treat as display/slot pinning, not a runtime
   # dependency.

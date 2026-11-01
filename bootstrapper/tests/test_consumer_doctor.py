@@ -2512,6 +2512,21 @@ def test_custom_models_flag_resolves_against_the_invoking_directory(tmp_path, mo
     assert resolved.split(os.pathsep) == [str((tmp_path / "a.yaml").resolve()), "/abs/b.yaml"]
 
 
+def test_custom_models_file_option_rejects_a_directory(tmp_path, monkeypatch) -> None:
+    """dir_okay=False judged the bootstrapper's cwd; the callback judges the
+    invoking directory instead and still keeps a directory out."""
+    import click
+
+    import start as start_module
+
+    (tmp_path / "models").mkdir()
+    monkeypatch.setenv("ATLAS_INVOKER_CWD", str(tmp_path))
+    with pytest.raises(click.BadParameter):
+        start_module._invoker_input_file_option(None, None, "./models")
+    assert start_module._invoker_input_file_option(None, None, "./m.yaml") == "./m.yaml"
+    assert start_module._invoker_input_file_option(None, None, None) is None
+
+
 def test_preflight_base_port_override_recomputes_service_ports(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

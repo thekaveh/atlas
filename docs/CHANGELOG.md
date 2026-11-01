@@ -101,6 +101,8 @@ Also in this range: 160 fixes, 75 documentation, 4 build and ci, 42 maintenance,
     - The Backend, Airflow, JupyterHub and MCP servers locks move `joserfc` to 1.7.7. This clears GHSA-jpxq-7h8p-2q76 (CVE-2026-119283) and GHSA-9pg5-8c7x-5hfx (CVE-2026-119284).
     - The Asset Worker npm toolchain overrides `glob` to 14.0.3, which resolves `minimatch` 11.0.3. This clears GHSA-3g3m-2fjr-6pw4 and GHSA-g3hv-75wg-m249.
     - The n8n community-node lock moves `follow-redirects` to 1.16.2. This clears GHSA-mrwp-f3q8-3g9p.
+    - Backend and Celery SQL schema-qualifies pgvector, advisory-lock calls and `public` routines, with exact argument types. A function planted in `public` by another role can no longer take over these calls.
+    - Support bundles fully redact a known secret that contains `;`, `,`, `&`, a quote or a space after `KEY=`, `KEY:` or `--password`. Before, the part after the delimiter leaked.
     - The Backend locks move `pypdf` to 6.21.4, which clears CVE-2026-119203 to CVE-2026-119209. JupyterHub moves `pyasn1` to 0.6.5, which clears CVE-2026-119194 to CVE-2026-119197.
 - **Bootstrapper and CLI.**
     - `./start.sh doctor --bundle PATH` exits non-zero when a check raises, times out or never starts, as plain `doctor` does. The bundle reports that check as `unavailable`.
@@ -130,6 +132,13 @@ Also in this range: 160 fixes, 75 documentation, 4 build and ci, 42 maintenance,
     - The minimum Docker Compose version is now 2.23.1, not 2.20.3. The Langfuse fragment uses inline `configs.content`, so older versions already failed with a schema error. `./start.sh` and `./stop.sh` now stop on them with the upgrade message.
     - Kong config generation refuses a `BACKEND_KONG_API_KEY` equal to a Supabase key. Before, Kong rejected the duplicate credential and the whole gateway went down.
     - Key generation no longer writes 14 unused `*_DB_USER_URI` and `*_DB_PASSWORD_URI` keys to `.env`. Existing copies stay; nothing reads them.
+    - Each start and `./start.sh env backfill` moves a build pin that still holds a default an earlier Atlas shipped to the current default. Before, Local Deep Researcher restarted in a loop and the Asset Worker build failed after an upgrade.
+    - Support-bundle origins name the consumer manifest field for keys it derives, such as `OLLAMA_CUSTOM_MODELS` and `BACKEND_PLUGINS_DIR`.
+    - `--bundle`, `--support-bundle` and `--comfyui-custom-models-file` check for a directory relative to where `./start.sh` ran, not `bootstrapper/`.
+    - A consumer manifest that sets a non-SOURCE key to `auto` no longer gets a false source-validation warning.
+    - On the Kong root dashboard, one disabled sub-row no longer marks its whole service disabled. This removes false dependency warnings for Supabase Studio and Multi2Vec CLIP.
+    - The wizard's default chat, embedding and vision pickers offer the models typed into `Ollama · additional models to pull`.
+    - In the wizard, the Logs-tab source picker works from the keyboard, and with `ATLAS_SPLASH=1` any key only skips the splash. The SOURCE column fits `disabled (off-track)`.
     - The bundled offline ComfyUI catalog no longer lists two files that do not exist. Two rows point at corrected files, and the Flux GGUF model downloads to `diffusion_models`.
     - `COMFYUI_DOWNLOAD_TOTAL_TIMEOUT_SECONDS` (default 7200) now reaches comfyui-init and sets the per-file download bound.
     - `bootstrapper.docs.regen` numbers a new Dependencies & Integrations section after the README's last numbered section.
@@ -145,8 +154,10 @@ Also in this range: 160 fixes, 75 documentation, 4 build and ci, 42 maintenance,
     - After ComfyUI queues a prompt, a bad `/history` reply returns `502` with `detail.prompt_id`. Callers can poll or cancel that prompt instead of queueing a duplicate.
     - The memory vector reconcile stops after 3 consecutive embedder failures on both vector paths. Before, the pgvector path made up to 100 failing calls per request.
     - In the default Redis mode, `GET /media/operations` keeps empty JSON arrays. Before, they turned into `{}` after the first status change.
-    - With a cached Ray SDK client, a refused or dropped dashboard connection makes job status, logs and stop return `503`, not `500`.
+    - With a cached Ray SDK client, a refused or dropped dashboard connection makes job status and stop return `503`, not `500`.
     - A RAG delivery refused by a publication guard clears the lost-delivery count. Before, two separate worker kills could fail the job.
+    - The memory failback rebuild re-embeds a pending fact's pgvector copy before it clears the pending flag.
+    - The `GET /media/spend` API description no longer says `consumer` is required.
 - **Services.**
     - The welcome README in a new JupyterHub work volume uses `LITELLM_DEFAULT_MODEL` in its Quick Start.
     - The commented LangChain example in the Airflow sample DAG reads the LiteLLM URL and key from the `litellm_default` connection. Before, the example failed with `KeyError`.
@@ -168,8 +179,10 @@ Also in this range: 160 fixes, 75 documentation, 4 build and ci, 42 maintenance,
     - Notebook `04_supabase_data` lists Storage buckets through its read-only database login. Before, the anon-key call failed and Run All stopped.
     - `atlas_finance.paper_portfolio_summary` signs short and mixed positions correctly. A losing short now shows a negative percentage.
     - The n8n metrics switches are declared in `.env.example` with unchanged defaults. `GRAFANA_ADMIN_PASSWORD` and `LIGHTRAG_NEO4J_PASSWORD` are marked secret.
+    - The Open WebUI Memory Assistant clips input to the Backend limits, and the Research Assistant names Local Deep Researcher when it cannot connect.
+    - The `OPEN_WEB_UI_TTS_*` and `OPEN_WEB_UI_STT_ENGINE` settings are marked auto-managed, because each start rewrites them.
 - **Tooling and tests.**
-    - The Build-validation image scan covers a changed manifest image that a Compose service runs directly, even when a local Dockerfile also uses it as a base.
+    - The Build-validation image scan covers a changed manifest image that a Compose service runs directly. It does so even when a local Dockerfile also uses that image as a base.
     - `scripts/check-docs-drift.py` skips the gitignored `.audit/`, `.pytest_cache/` and `node_modules/` directories.
     - Bootstrapper tests give the same result under `nohup`. Backup tests no longer leave `/tmp/atlas-backup-*` directories.
     - Unused code is removed: `MemoryStore.delete_embedding`, `N8nClient.get_execution` and several unused parameters.
@@ -199,6 +212,9 @@ Also in this range: 160 fixes, 75 documentation, 4 build and ci, 42 maintenance,
     - The Expected Startup Warnings page lists the `REDIS_URL` reference warning and explains the JupyterHub sudo warning correctly.
     - The Backend README lists the accepted `/media/generate` input keys and says `GET /workflows` needs `N8N_API_KEY`. The Parakeet-MLX quickstarts bind to `127.0.0.1`.
     - The ROADMAP, the generated SOURCE matrix, the Kong, Ray, Airflow and Prometheus READMEs and older CHANGELOG entries are corrected.
+    - The submodule integration example connects the parent application with a scoped login role, not `supabase_admin`.
+    - The Loki and OpenTelemetry Collector READMEs say the stock wiring exports traces only. The Asset Worker, Asset Baker and Local Deep Researcher READMEs explain build-pin updates.
+    - The ComfyUI, JupyterHub, n8n and Trino READMEs, the Diagram Authoring page, the ROADMAP and 28 archived plan banners are corrected.
 - **Upgrade notes.**
     - Remove `crawl4ai` from every consumer manifest `parser_order`.
     - With FAL enabled, check that `FAL_IMAGE_TO_3D_MODEL` names a verified registry entry.

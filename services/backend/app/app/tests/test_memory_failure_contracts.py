@@ -694,10 +694,11 @@ async def test_reconcile_clear_guards_on_updated_at(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_pgvector_write_casts_bind_param_to_vector(monkeypatch):
-    """The pgvector fallback write must cast `$1::vector`. Without the cast
-    asyncpg infers the column's `vector` type for the bind param, has no codec
-    for it, and raises at execute — breaking every memory write whenever
-    Weaviate is disabled/unavailable. Mirrors the read path (`<=> $1::vector`)."""
+    """The pgvector fallback write must cast `$1::public.vector`. Without the
+    cast asyncpg infers the column's `vector` type for the bind param, has no
+    codec for it, and raises at execute — breaking every memory write whenever
+    Weaviate is disabled/unavailable. Mirrors the read path. The type is
+    schema-qualified so a type planted in public cannot win the lookup."""
     import memory_store
 
     executed = []
@@ -726,7 +727,7 @@ async def test_pgvector_write_casts_bind_param_to_vector(monkeypatch):
 
     assert executed, "pgvector write must execute an UPDATE"
     query, _params = executed[0]
-    assert "SET embedding = $1::vector" in query
+    assert "SET embedding = $1::public.vector" in query
     assert "WHERE id = $2 AND content = $3" in query
 
 

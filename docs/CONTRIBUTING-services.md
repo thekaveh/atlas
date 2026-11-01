@@ -620,6 +620,7 @@ make docs-check
 **When to re-run each step:**
 
 - **`env_assembler`** — after any change to a manifest's `env:` block, port allocation, or source variants.
+- **Build-pin bumps** — when you change the shipped default of a pin listed in `RETIRED_DEFAULTS` (`bootstrapper/services/migrations/build_pin_refresh.py`), append the replaced value there. Startup then moves existing `.env` files off the old default.
 - **`generate_readme_topology`** — after any change to a manifest's `rows:`, `display_name`, `category`, or `alias`.
 - **Publication registration** — before building a new service page. Add its page and diagram entries to `docs/manifest.yaml`, then set the matching canonical H1.
 - **Top-level `docs/diagrams/architecture.html` and `architecture.svg`** — hand-authored masters. Update both when a band-level change occurs, such as a new category or a new gateway. After either master changes, run `python -m scripts.docs.render_diagrams` as shown above before `make docs-build`. Routine `data_flow.calls` edits flow into per-service diagrams via `bootstrapper.docs.regen`.

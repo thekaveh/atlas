@@ -44,10 +44,10 @@ A body key must start the string or follow whitespace, `{`, `[`, `,`, `?`, `&` o
 
 Backend, Celery, and LiteLLM export OTLP HTTP spans to the collector. The collector batches and forwards traces to Tempo. OTLP log producers use the same receiver; after redaction and bounded live retry, the collector sends logs to Loki's native `/otlp` endpoint. The collector stays stateless and uses no persistent volume.
 
-Loki keeps OTLP `trace_id` and `span_id` as structured metadata. Grafana's Loki datasource reads the `trace_id` label to build the Tempo link; it does not scan the log line. To query a correlated record in LogQL:
+Loki keeps OTLP `trace_id` and `span_id` as structured metadata. Grafana's Loki datasource reads the `trace_id` label to build the Tempo link; it does not scan the log line. To query a correlated record in LogQL, replace `<service>` with the `service.name` of an application that sends OTLP logs:
 
 ```logql
-{service_name="backend"} | trace_id = "0123456789abcdef0123456789abcdef"
+{service_name="<service>"} | trace_id = "0123456789abcdef0123456789abcdef"
 ```
 
 Trace correlation uses W3C `traceparent`. Backend spans start or continue request traces. The backend's instrumented httpx client sends `traceparent` on outbound calls. When `ATLAS_OTEL_ENABLED=true`, LiteLLM's `otel` callback continues the trace and excludes prompt and completion content. Kong emits no spans, so Kong access logs and request IDs are correlation clues only. A Kong `correlation-id` plugin is a candidate in the [Kong README](../kong/README.md).

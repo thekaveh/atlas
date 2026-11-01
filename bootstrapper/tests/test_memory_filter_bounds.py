@@ -37,17 +37,33 @@ def _load_module():
     return module
 
 
+@pytest.mark.filterwarnings("ignore::pytest.PytestUnhandledThreadExceptionWarning")
 def test_executor_rejects_work_beyond_worker_and_queue_capacity():
     module = _load_module()
     executor = module._BoundedDaemonExecutor(max_workers=1, max_queue=1)
     started = threading.Event()
     release = threading.Event()
+    before = set(threading.enumerate())
 
     assert executor.submit(lambda: (started.set(), release.wait(1)))
+    workers = {
+        thread
+        for thread in set(threading.enumerate()) - before
+        if thread.name.startswith("atlas-memory-extract-")
+    }
+    assert len(workers) == 1
     assert started.wait(1)
     assert executor.submit(lambda: None)
     assert not executor.submit(lambda: None)
     release.set()
+
+    # The executor has no shutdown, so stop its worker here. A leaked worker
+    # makes the later os.fork() tests fork a multi-threaded process.
+    executor._jobs.join()
+    assert executor.submit(sys.exit)
+    for worker in workers:
+        worker.join(1)
+    assert not any(worker.is_alive() for worker in workers)
 
 
 def test_extraction_checks_http_status_and_redacts_error(monkeypatch, capsys):

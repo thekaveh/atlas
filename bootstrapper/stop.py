@@ -534,7 +534,7 @@ def _select_cli_consumers(paths) -> None:
                    'this (or set PROJECT_NAME in .env) to stop a specific stack '
                    'when running Atlas as a submodule; it persists to .env.')
 @click.option('--consumer', 'consumer_manifests', multiple=True,
-              type=click.Path(exists=False, dir_okay=False),
+              type=click.Path(exists=False),
               help='atlas.consumer.yml the stack was started with (repeatable). '
                    'Its compose overlays are loaded so --cold also removes the '
                    'volumes they declare. Relative paths resolve from the '

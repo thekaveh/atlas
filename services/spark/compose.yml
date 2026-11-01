@@ -162,8 +162,9 @@ services:
     deploy:
       replicas: ${SPARK_CONNECT_SCALE:-0}
     # Intentionally NO `ports:` block. Spark Connect is backend-only —
-    # in-Compose clients (Zeppelin's interpreter, Airflow DAGs running in
-    # the scheduler) reach it at `sc://spark-connect:15002` via the
+    # in-Compose clients (JupyterHub kernels via SPARK_REMOTE and Airflow DAG
+    # tasks running in the scheduler; Zeppelin uses the standalone master)
+    # reach it at `sc://spark-connect:15002` via the
     # backend-network. External client access can be added later by
     # publishing the port; not in scope for the in-stack-only baseline.
     environment:

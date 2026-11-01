@@ -545,8 +545,8 @@ def build_ollama_steps(
             subtitle=(
                 "Container: full ollama.com/library catalog (ollama-pull fetches checked at startup). "
                 "Localhost: [pulled] = already on your Ollama host (usable immediately); "
-                "[library] = in the public catalog but NOT on your host yet (you'll need to "
-                "`ollama pull <name>` afterwards). "
+                "[library] = in the public catalog, not on your host yet; Atlas pulls it onto "
+                "your Ollama host at the next start. "
                 "Recent models first (by pull count); [legacy] = updated > 1 year ago. "
                 "Each row's 2nd line shows variant sizes — both Ollama tag (8b) and approximate "
                 "Q4 disk footprint (4.8GB); selected variants render in green. "
@@ -1158,12 +1158,21 @@ def build_default_model_steps(
 
         return not (ollama_active or cloud_active)
 
+    def _selected_custom_models(selections: dict) -> List[str]:
+        """Names from the 'additional models to pull' step, or the saved
+        OLLAMA_CUSTOM_MODELS when the step was not shown (ollama-localhost)."""
+        custom = selections.get(OLLAMA_CUSTOM_TITLE)
+        if custom in (None, SECRET_KEEP):
+            custom = env_vars.get("OLLAMA_CUSTOM_MODELS", "")
+        return [] if custom == SECRET_CLEAR else _csv(custom)
+
     def _gather_selected_models(selections: dict) -> List[tuple]:
         """Return a list of (provider, name) pairs for the user's current
         selections across all providers.
 
-        For Ollama: reads from the selections dict; falls back to .env when
-        the step returned SECRET_KEEP (degraded fetch).
+        For Ollama: reads the models step plus the custom-models step (both
+        are registered with LiteLLM); falls back to .env when a step returned
+        SECRET_KEEP (degraded fetch) or was not shown.
         For cloud: reads per-provider multiselect; falls back to .env when
         the step was not visited.
         """
@@ -1176,6 +1185,7 @@ def build_default_model_steps(
             ollama_names = _csv(env_vars.get("OLLAMA_USER_MODELS", ""))
         else:
             ollama_names = _csv(ollama_v)
+        ollama_names = list(dict.fromkeys(ollama_names + _selected_custom_models(selections)))
         src = _selected_llm_source(env_vars, selections)
         if src.startswith("ollama-"):
             for name in ollama_names:
@@ -1208,10 +1218,7 @@ def build_default_model_steps(
             "LLM_PROVIDER_SOURCE": _selected_llm_source(env_vars, selections),
             "OLLAMA_USER_MODELS": ",".join(name for provider, name in pairs if provider == "ollama"),
         }
-        custom = selections.get(OLLAMA_CUSTOM_TITLE)
-        if custom in (None, SECRET_KEEP):
-            custom = env_vars.get("OLLAMA_CUSTOM_MODELS", "")
-        env["OLLAMA_CUSTOM_MODELS"] = "" if custom == SECRET_CLEAR else (custom or "")
+        env["OLLAMA_CUSTOM_MODELS"] = ",".join(_selected_custom_models(selections))
         for p in CLOUD_PROVIDERS:
             # The verdict already checks source and key presence. Metadata
             # resolution needs an activation marker, never the secret value.

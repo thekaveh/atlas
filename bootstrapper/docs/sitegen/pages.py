@@ -838,7 +838,10 @@ _MANIFEST_FIELD_PURPOSES = {
     "name": "Folder name under `services/`, in kebab-case",
     "extra_kong_aliases": "Extra `*.localhost` Kong hostnames beyond each row's alias",
     "images": "Image env var, pinned default image and the container that uses it",
-    "runtime_dependency_tiers": "Stack-wide startup tier order (the `globals` manifest only)",
+    "runtime_dependency_tiers": (
+        "Informational container tier grouping (the `globals` manifest only); "
+        "not used for startup order"
+    ),
 }
 
 

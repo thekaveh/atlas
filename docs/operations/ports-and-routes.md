@@ -126,6 +126,8 @@ Each start also writes the port into the service URLs in `.env` (for example `WE
 
 Env migrations (`bootstrapper/services/migrations/`) rewrite `.env` when the port layout changes between versions. They keep your custom values and save a backup to `.env.backup.v<N>.<timestamp>.<random>`. The wizard and `--no-tui` both migrate before they apply the run's source, profile, key and model overrides. `--no-port-migrate` skips migrations for one run.
 
+Backfill also moves a build pin that still holds a default an earlier Atlas shipped, such as `ASSET_WORKER_GLTF_TRANSFORM_VERSION`, to the current default. `--no-port-migrate` does not skip that, and a value you set yourself stays.
+
 For duplicate `BOOTSTRAPPER_PORT_LAYOUT_VERSION` assignments, Atlas uses the last value. If that version is older, it first saves `.env.backup.migration-marker.<timestamp>.<random>`. It comments the original assignments, writes one active marker, and runs the migration chain. Current or future versions stay unchanged. `--no-port-migrate` skips this repair too. Invalid duplicate metadata or repair write failures stop startup.
 
 Base-port changes and env migrations snapshot `.env` first, mode `0600`. Supabase JWT key generation (`generate_supabase_keys`) takes no snapshot. At startup it runs only when all three keys are blank; run by hand, it rewrites all three. Copy `.env` yourself before you run it by hand.

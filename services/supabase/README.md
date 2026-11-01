@@ -316,6 +316,16 @@ and qualify `public` objects. `01-extensions.sql` pins PostGIS's
 `ST_EstimatedExtent` the same way, so call its schema-qualified three-argument
 form: the two-argument form does not find a table by search path.
 
+Backend and Celery SQL schema-qualifies `public` tables and pgvector
+(`public.vector`, `OPERATOR(public.<=>)`). Calls to `public` routines pass
+exact argument types, so a planted text overload cannot win.
+
+Open WebUI, LightRAG, pg-meta and Realtime can still create objects in `public`. A planted
+overload of a built-in operator could therefore still run as the Backend. The
+fix is a saved `search_path = pg_catalog, pg_temp` for the Backend role. It is
+not applied yet, because it also changes SQL in consumer Backend plugins and
+needs a live check.
+
 Init runs as a superuser, so `db-init-runner` protects it in three ways:
 
 - Every init `psql` call uses `search_path=public,auth,extensions`. The

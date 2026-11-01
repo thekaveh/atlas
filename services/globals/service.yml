@@ -136,9 +136,10 @@ rows: []
 # ─────────────────────────────────────────────────────────
 # Bootstrapper runtime data (migrated from the legacy
 # bootstrapper/service-configs.yml). Slice owned by this
-# manifest — stack-wide dependency tiers (data → init → core → app).
-# Synthesized into the runtime dict by
-# bootstrapper/services/sc_synthesizer.py.
+# manifest — an informational grouping of containers by tier
+# (data → init → core → app). sc_synthesizer.py copies it into the
+# runtime dict and the validator checks each name, but nothing reads it
+# at runtime: Compose depends_on orders startup.
 # ─────────────────────────────────────────────────────────
 runtime_dependency_tiers:
   data_tier:

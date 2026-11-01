@@ -71,11 +71,23 @@ The image installs a **pinned, checksum-verified** headless Blender at build tim
 
 **Download source.** `download.blender.org` returns HTTP 403 to automated clients. The build therefore fetches from the official Blender **mirror network** and tries each mirror in turn: `ftp.nluug.nl`, `mirror.clarkson.edu`, `mirrors.ocf.berkeley.edu`, `mirrors.dotsrc.org`. The SHA-256 is verified whatever the host, so one mirror outage does not break the build. A clean `docker build` needs no developer cache. A build-time smoke step asserts that `blender --version` matches the pin.
 
-**Updating the pin.**
+**Updating the pin.** A local override changes only your `.env`. A shipped bump changes every file that holds the pin.
+
+For a local override:
 
 1. Download `blender-<version>-linux-x64.tar.xz` and `blender-<version>.sha256` from a mirror above.
-2. Set `ASSET_BAKER_BLENDER_VERSION` to the new version, in `.env` or the `service.yml` defaults.
-3. Set `ASSET_BAKER_BLENDER_SHA256` to its published checksum in the same place.
+2. Set `ASSET_BAKER_BLENDER_VERSION` in `.env` to the new version.
+3. Set `ASSET_BAKER_BLENDER_SHA256` in `.env` to its published checksum.
+
+For a shipped bump:
+
+1. Set both defaults in `services/asset-baker/service.yml`.
+2. Regenerate `.env.example` with `uv run --project bootstrapper python -m services.env_assembler`.
+3. Update the fallbacks in `services/asset-baker/compose.yml` and the `ARG` defaults in `services/asset-baker/app/Dockerfile`.
+4. Update `bootstrapper/tests/test_asset_baker_service.py` and `bootstrapper/tests/fixtures/rendered_config_baseline.yml`.
+5. Add the old version and checksum to `RETIRED_DEFAULTS` in `bootstrapper/services/migrations/build_pin_refresh.py`.
+
+Every `.env` holds its own copy of both pins, and backfill keeps non-blank values. Startup replaces a pin whose value is listed in `RETIRED_DEFAULTS` and keeps a local override.
 
 ## 4. API Contract
 

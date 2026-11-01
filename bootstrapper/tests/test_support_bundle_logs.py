@@ -64,6 +64,45 @@ def test_cut_source_cannot_reintroduce_unsafe_context_after_redaction():
     assert bundle.body["logs"][0]["truncated"]
 
 
+def test_redaction_inside_the_omitted_head_keeps_the_safe_boundary():
+    raw = b"abc PARTIALSECRETVALUE99 more-excluded\nnext head line\n" + b"ok line\n" * 3
+    bundle = bundle_for(LogSnapshot(data=raw, original_bytes=len(raw) + 5, head_cut=True),
+                        env={"PRIVATE_TOKEN": "PARTIALSECRETVALUE99"})
+    assert bundle.logs["session.log"] == "next head line\n" + "ok line\n" * 3
+
+
+@pytest.mark.parametrize(("key", "secret", "line"), [
+    ("POSTGRES_PASSWORD", "p4ss;word,99", "PGPASSWORD={} started"),
+    ("GRAPH_DB_PASSWORD", "Tr0ub;dor&3x", "export GRAPH_DB_PASSWORD={}"),
+    ("OPENAI_API_KEY", "abc def ghij klm", "OPENAI_API_KEY={}"),
+    ("MY_PASSWORD", "red horse 99 battery", "my_password: {}"),
+    ("MY_PASSWORD", "red horse 99 battery", "run --password {}"),
+], ids=["comma", "semicolon-ampersand", "space-assignment", "space-yaml", "space-flag"])
+def test_known_value_with_a_delimiter_is_fully_redacted_after_a_key(monkeypatch, key, secret, line):
+    monkeypatch.setattr(sb.os, "environ", {})
+    text = line.format(secret) + "\nterminal canary\n"
+    redactor = sb.Redactor({key: secret})
+    bundle = sb.build_bundle(sb.BundleRequest(
+        env={key: secret}, logs=[sb.LogSource("transcript.log", text=text)]))
+    expected = line.format(sb.REDACTED) + "\nterminal canary\n"
+    assert (redactor.text(text), redactor.window(text, 0)[0],
+            bundle.logs["transcript.log"]) == (expected, expected, expected)
+
+
+def test_known_value_holding_a_key_word_still_lets_its_assignment_redact():
+    redactor = sb.Redactor({"ROOT_PASSWORD": "PASSWORD_ROOT1"})
+    assert redactor.text("PASSWORD_ROOT1=xyz123") == f"{sb.REDACTED}={sb.REDACTED}"
+
+
+def test_a_short_secret_inside_a_key_word_secret_does_not_split_it():
+    """The early pass must not break a longer key-word value apart."""
+    env = {"SHORT_TOKEN": "abc123xyz", "LONG_PASSWORD": "mypasswordabc123xyzTAIL"}
+    redactor = sb.Redactor(env)
+    line = "a mypasswordabc123xyzTAIL b abc123xyz c"
+    for out in (redactor.text(line), redactor.window(line, 0)[0]):
+        assert "TAIL" not in out and "mypassword" not in out and "abc123xyz" not in out
+
+
 @pytest.mark.parametrize("raw", [
     b"fragment" * 10000,
     b"RANDOMBASE64BODY0123456789abcdef\n" * 8,

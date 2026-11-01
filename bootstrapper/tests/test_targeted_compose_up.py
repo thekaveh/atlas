@@ -22,6 +22,21 @@ from tests.test_detach_start import (
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
+@pytest.fixture(autouse=True)
+def _private_build_marker(tmp_path, monkeypatch):
+    """Keep the source-build marker out of the real checkout.
+
+    These managers run on REPO_ROOT, and a successful fake build would
+    otherwise overwrite the operator's gitignored ``.atlas-build-state``
+    with this file's projection digest, forcing the next warm start to
+    rebuild every local image.
+    """
+    from core.docker_manager import DockerManager
+
+    marker = tmp_path / DockerManager.SOURCE_BUILD_MARKER
+    monkeypatch.setattr(DockerManager, "_source_marker_path", lambda _self: marker)
+
+
 def _manager(monkeypatch, config_payload, config_rc=0):
     from core.docker_manager import DockerManager
     import core.docker_manager as dm_module

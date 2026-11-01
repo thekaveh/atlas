@@ -396,7 +396,7 @@ services:
       - infra-network
     environment:
       # Reach Atlas services by their compose service name
-      DATABASE_URL: postgresql://${SUPABASE_DB_USER}:${SUPABASE_DB_PASSWORD}@supabase-db:5432/postgres
+      DATABASE_URL: postgresql://${APP_DB_USER}:${APP_DB_PASSWORD_URI}@supabase-db:5432/postgres
       REDIS_URL: redis://:${REDIS_PASSWORD_URI}@redis:6379
       LITELLM_BASE_URL: http://litellm:4000
       LITELLM_API_KEY: ${LITELLM_MASTER_KEY}
@@ -406,10 +406,19 @@ services:
 ```
 
 The parent Compose project does not read `infra/.env`. Export
-`SUPABASE_DB_USER`, `SUPABASE_DB_PASSWORD`, `REDIS_PASSWORD_URI` (the
+`APP_DB_USER`, `APP_DB_PASSWORD_URI` (the percent-encoded application
+role password), `REDIS_PASSWORD_URI` (the
 percent-encoded `REDIS_PASSWORD`) and `LITELLM_MASTER_KEY` to it from your
 secret store. Service names are stable and do not depend on `PROJECT_NAME`
 ([Reusing Atlas §3.3](reusing-atlas.md#33-service-addresses-inside-the-shared-network)).
+
+Do not give the application `SUPABASE_DB_USER`. That is `supabase_admin`, the
+Postgres superuser, which can read and change every service database on the
+shared server. Create a scoped login role in your own SQL
+([Reusing Atlas §6.2](reusing-atlas.md#62-adding-supabase-sql-via-the-user-migration-slot)).
+Keep its password out of that file, because `supabase-db-init` prints every SQL
+line to its log. Set the password afterwards with psql `\password` as
+`supabase_admin` ([§2.4](#24-access-services)).
 
 The Atlas services belong to a separate Compose project, so they cannot appear
 in this file's `depends_on`. Start Atlas first, as shown below. If the

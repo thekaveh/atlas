@@ -15,7 +15,8 @@ from pathlib import Path
 
 import pytest
 
-from tests.test_database_backup_repair_contracts import BACKUP_ENTRYPOINT, SNAPSHOTS, _module
+from tests.test_cloudflared_backup_contracts import _backup_s3_env, _fake_s3_boundary
+from tests.test_database_backup_repair_contracts import BACKUP_ENTRYPOINT, REPO, SNAPSHOTS, _module
 
 
 @pytest.fixture
@@ -624,3 +625,93 @@ def test_local_snapshot_prune_refusals_remove_nothing(tmp_path, case):
     assert result.returncode == 64, result.stderr
     assert message in result.stderr
     assert _tree(root) == before
+
+
+# --- backup-all.sh producer refusals -----------------------------------------
+# restore-postgres.sh refuses a backup whose key, deployment identity or
+# inventories are invalid, so the producer must refuse it before publishing.
+BACKUP_ALL = REPO / "services/backup/init/scripts/backup-all.sh"
+_HEX_KEY = "must be exactly 64 lowercase hex characters"
+
+
+@pytest.mark.parametrize("case", [
+    ({"BACKUP_MANIFEST_HMAC_KEY": "A" * 64}, _HEX_KEY),
+    ({"BACKUP_MANIFEST_HMAC_KEY": "a" * 63}, _HEX_KEY),
+    ({"BACKUP_MANIFEST_HMAC_KEY": "g" * 64}, _HEX_KEY),
+    ({"BACKUP_DEPLOYMENT_ID": "bad/id"}, "must use only letters, digits, dot, underscore, and hyphen"),
+    ({"BACKUP_DEPLOYMENT_ID": "a" * 129}, "BACKUP_DEPLOYMENT_ID must be at most 128 characters"),
+    ({"BACKUP_DATABASES": "yes"}, "BACKUP_DATABASES must be true or false"),
+    ({"BACKUP_COMMAND_TIMEOUT_SECONDS": "01"}, "TIMEOUT_SECONDS must be a canonical positive integer"),
+    ({"BACKUP_COMMAND_TIMEOUT_SECONDS": "86401"}, "TIMEOUT_SECONDS must be at most 86400"),
+    ({"BACKUP_MAX_POSTGRES_DUMP_BYTES": "0"}, "DUMP_BYTES must be a canonical positive integer"),
+    ({"BACKUP_MAX_POSTGRES_DUMP_BYTES": "1099511627777"}, "DUMP_BYTES must be at most 1099511627776"),
+    ({"BACKUP_TIMESTAMP": "20260230_000000"}, "invalid backup timestamp: 20260230_000000"),
+], ids=["key-uppercase", "key-short", "key-non-hex", "deployment-charset", "deployment-length",
+        "databases-enum", "timeout-noncanonical", "timeout-max", "dump-cap-zero", "dump-cap-max",
+        "timestamp-calendar"])
+def test_backup_refuses_invalid_producer_inputs_before_s3(tmp_path, case):
+    overrides, message = case
+    trace, bin_dir = _fake_s3_boundary(tmp_path)
+    # A valid external S3 configuration, so only the producer check can refuse
+    # (local mode without credentials exits 64 first, for the wrong reason).
+    # LC_ALL=C matches the container's busybox sh, which compares bracket
+    # ranges by code point; macOS bash 3.2 in a UTF-8 locale collates `a-f`
+    # to include uppercase letters.
+    env = {
+        **_backup_s3_env(bin_dir, trace), "LC_ALL": "C", "BACKUP_S3_MODE": "external",
+        "BACKUP_S3_ENDPOINT": "https://s3.example.test",
+        "BACKUP_S3_ACCESS_KEY": "external-access", "BACKUP_S3_SECRET_KEY": "external-secret",
+        **overrides,
+    }
+    result = subprocess.run(
+        ["sh", str(BACKUP_ALL)], env=env, text=True, capture_output=True, check=False, timeout=30,
+    )
+    assert result.returncode == 64, result.stderr
+    assert message in result.stderr
+    assert not trace.exists()
+
+
+def _backup_fragment(start: str, end: str) -> str:
+    body = BACKUP_ALL.read_text(encoding="utf-8")
+    first = body.index(start)
+    return body[first:body.index(end, first) + len(end)]
+
+
+@pytest.mark.parametrize("case", [
+    ("", "1/1 TABLE public t postgres\n", 1, "empty user-table inventory"),
+    ("7075626c6963\t74\n", "; Archive created\n;\n", 1, "empty archive object inventory"),
+    ("7075626c6963\t74\n", "; Archive created\n1; 1 TABLE public t postgres\n", 0, None),
+], ids=["no-tables", "no-objects", "both-present"])
+def test_backup_refuses_empty_postgres_inventories(tmp_path, case):
+    tables, listing, status, message = case
+    (tmp_path / "postgres.tables").write_text(tables, encoding="utf-8")
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "pg_restore").write_text('#!/bin/sh\nprintf \'%s\' "$PG_RESTORE_LIST"\n', encoding="utf-8")
+    (bin_dir / "pg_restore").chmod(0o755)
+    fragment = _backup_fragment('table_count="$(run_bounded wc -l', "esac\ndatabase_name_hex=")
+    result = subprocess.run(
+        ["sh", "-c", 'set -eu\nrun_bounded() { "$@"; }\n' + fragment.removesuffix("database_name_hex=")],
+        env={"PATH": f"{bin_dir}:{os.environ.get('PATH', '')}", "WORK": str(tmp_path),
+             "PG_RESTORE_LIST": listing},
+        text=True, capture_output=True, check=False, timeout=10,
+    )
+    assert result.returncode == status, result.stderr
+    if message:
+        assert message in result.stderr
+    else:
+        assert result.stderr == ""
+
+
+@pytest.mark.parametrize("case", [(4, 1), (3, 0)], ids=["over-cap", "at-cap"])
+def test_backup_refuses_a_dump_over_the_configured_cap(tmp_path, case):
+    size, status = case
+    (tmp_path / "postgres.dump").write_bytes(b"x" * size)
+    fragment = _backup_fragment('dump_bytes="$(run_bounded wc -c', "exceeds BACKUP_MAX_POSTGRES_DUMP_BYTES\" >&2; exit 1; }")
+    result = subprocess.run(
+        ["sh", "-c", 'set -eu\nrun_bounded() { "$@"; }\n' + fragment],
+        env={"PATH": os.environ.get("PATH", ""), "WORK": str(tmp_path), "MAX_DUMP_BYTES": "3"},
+        text=True, capture_output=True, check=False, timeout=10,
+    )
+    assert result.returncode == status, result.stderr
+    assert ("exceeds BACKUP_MAX_POSTGRES_DUMP_BYTES" in result.stderr) is bool(status)

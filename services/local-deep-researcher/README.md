@@ -66,10 +66,14 @@ It rejects missing, skipped, unexpected or mismatched package versions in the au
 To upgrade:
 
 1. Change the three pins in the manifest.
-2. Run `uv run --project bootstrapper python scripts/refresh-local-deep-researcher-lock.py`.
-3. Run the same command with `--check`.
-4. Commit the regenerated files under `locks/` and `build/config/`.
-5. Re-test the LDR patches and the backend research contract.
+2. Regenerate `.env.example` with `uv run --project bootstrapper python -m services.env_assembler`.
+3. Add each replaced pin value to `RETIRED_DEFAULTS` in `bootstrapper/services/migrations/build_pin_refresh.py`.
+4. Run `uv run --project bootstrapper python scripts/refresh-local-deep-researcher-lock.py`.
+5. Run the same command with `--check`.
+6. Commit the regenerated files under `locks/` and `build/config/`.
+7. Re-test the LDR patches and the backend research contract.
+
+Every `.env` holds its own copy of the three pins, and backfill keeps non-blank values. Startup replaces only a pin whose value is listed in `RETIRED_DEFAULTS`. Without step 3, an upgraded install keeps the old pin, and the container rejects the new runtime lock (§6).
 
 **Optional adaptive** (`runtime_deps.local-deep-researcher.optional`): `neo4j-graph-db`, `n8n`, `weaviate` and the media providers. The manifest declares them, but no LDR code uses them yet.
 
@@ -115,6 +119,8 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 ## 6. Troubleshooting
 
 **Container keeps restarting.** The pinned checkout, lock verification or install failed. `docker logs <project>-local-deep-researcher` shows the failing step; network or PyPI access is the usual cause.
+
+**Restarts with `runtime lock was not generated for ...`.** The `LOCAL_DEEP_RESEARCHER_*` pins in `.env` differ from the lock built into the image. Startup refreshes a pin that still holds an earlier shipped default, so the value is usually an override. Blank the three pins or copy them from `.env.example`, then rerun `./start.sh`.
 
 **Research returns empty / "no sources gathered".** SearXNG returned no JSON results. Check `curl "http://localhost:${SEARXNG_PORT}/search?q=test&format=json"`; if the JSON format is disabled, fix `services/searxng/config/settings.yml`.
 

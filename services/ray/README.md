@@ -19,7 +19,7 @@ Active when `RAY_SOURCE ∈ {ray-container-cpu, ray-container-gpu}`. Authenticat
 
 The backend reaches Ray through the dashboard's HTTP job API, never Ray Client. It sets `RAY_API_SERVER_ADDRESS` to the dashboard URL. Otherwise the Ray SDK resolves `RAY_ADDRESS=ray://…` through `ray.init`, which fails on the backend's newer Python.
 
-Every SDK call, including the client's construction-time version probe, has a transport timeout. When the dashboard does not answer the probe or `/api/cluster_status`, the routes return `503`; no job request was sent. Job status, logs and stop also return `503` when the dashboard refuses or drops the connection.
+Every SDK call, including the client's construction-time version probe, has a transport timeout. When the dashboard does not answer the probe or `/api/cluster_status`, the routes return `503`; no job request was sent. Job status and stop also return `503` when the dashboard refuses or drops the connection.
 
 `POST /api/ray/jobs/submit` requires a stable `submission_id` using the
 Ray-compatible `raysubmit_` prefix and letters, digits, or underscores. After an

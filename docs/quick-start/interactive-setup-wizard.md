@@ -383,7 +383,7 @@ Of these four exit actions, only cold stop deletes data, and only after the seco
 | `1` / `2` | Jump to the Setup / Logs tab (Logs only after launch begins) |
 | `Shift+Tab` | Cycle to the previous tab |
 | `a` `e` `w` `i` | After launch: show all log lines, errors, warnings or info |
-| `s` | Logs tab: open the filter-by-source picker |
+| `s` | Logs tab: open the filter-by-source picker. In it, `↑` `↓` move, `Space` toggles and `Esc` applies. |
 | `y` / `Y` | After launch: copy the visible log lines / up to the last 2 MiB of the session log's first segment |
 | `Ctrl+R` | Review the full warning on a destructive step (§7.1) |
 | `Ctrl+O` | Review the whole command, every service's details and every answered decision (§10.1, §10.2) |

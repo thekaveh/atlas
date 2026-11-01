@@ -923,7 +923,7 @@ class ManagedHostManager:
             return False
 
     def _read_pid(self) -> Optional[int]:
-        # The pid is the first line; `_write_pid_file` may append a `start=`
+        # The pid is the first line; `_write_pid_file` writes a `start_utc=`
         # line after it. Reading the first line keeps single-line pid files
         # written by an earlier version parsing unchanged.
         try:

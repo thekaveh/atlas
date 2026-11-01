@@ -1038,6 +1038,13 @@ _SEARCH_ALLOWED_ACTIONS = frozenset({
     "back", "quit_wizard", "move", "toggle_search_focus", "cycle_tab",
 })
 
+# While the Logs-tab source picker is open, every other priority key must
+# reach its focused SelectionList (Up/Down move, Space toggles). Esc still
+# closes and applies it (``back``); ``s``, ``1``/``2`` and Shift+Tab close it.
+_POPUP_ALLOWED_ACTIONS = frozenset({
+    "back", "filter_sources", "quit_wizard", "show_setup", "show_logs", "cycle_tab",
+})
+
 
 def _permission_recovery_hints(joined: str) -> list[str]:
     """Explain known permission symptoms without assuming ownership or repair."""
@@ -2023,7 +2030,20 @@ class WizardScreen(Screen):
         ``Screen._binding_chain`` / ``Input.check_consume_key`` mechanism
         that lets some printable-character bindings skip the whitelist
         entirely.
+
+        Two overlays also take the keys. While the opening splash shows,
+        every screen binding is off, so any key reaches the splash and
+        skips it. While the source picker is open, only
+        ``_POPUP_ALLOWED_ACTIONS`` stay on.
         """
+        from ui.textual.widgets.atlas_splash import AtlasSplash
+        if any(isinstance(w, AtlasSplash) for w in self.children):
+            return False
+        if (
+            self._log_chips.source_picker_open
+            and action not in _POPUP_ALLOWED_ACTIONS
+        ):
+            return False
         if (
             self._phase == "setup"
             and self._prompt.has_search_focus()

@@ -312,6 +312,51 @@ def test_a_slot_ordering_pin_is_not_reported_as_a_missing_dependency():
     assert any("asset worker" in w.lower() and "minio" in w for w in warnings), warnings
 
 
+@pytest.mark.parametrize("sources", [
+    {"SUPABASE_STUDIO_SOURCE": "disabled"},
+    {"MULTI2VEC_CLIP_SOURCE": "disabled", "VERBA_SOURCE": "container"},
+])
+def test_a_disabled_sub_row_does_not_disable_its_manifest(sources):
+    """Studio is one of seven supabase rows and Multi2Vec CLIP is weaviate's
+    second row. Disabling either reported every dependant of the whole
+    manifest as broken (2026-11-01 run, cycle 7)."""
+    from services.topology import get_topology
+    from utils.atlas_dashboard import _dependency_warnings
+
+    assert _dependency_warnings(get_topology().rows, sources, {}) == []
+
+
+def test_disabling_the_whole_manifest_still_warns():
+    from services.topology import get_topology
+    from utils.atlas_dashboard import _dependency_warnings
+
+    rows = get_topology().rows
+    sources = {"WEAVIATE_SOURCE": "disabled", "VERBA_SOURCE": "container"}
+    warnings = _dependency_warnings(rows, sources, {})
+    assert any("verba" in w.lower() and "weaviate" in w for w in warnings), warnings
+    # supabase has no sources block: it is off only when every row is.
+    sources = {row.source_var: "disabled" for row in rows if row.manifest == "supabase"}
+    warnings = _dependency_warnings(rows, sources, {})
+    assert any(w.startswith("Backend") and "supabase" in w for w in warnings), warnings
+
+
+def test_sub_row_cards_use_their_track_key(tmp_path):
+    """tracks.yml names these rows multi2vec-clip, doc-processor and
+    stt-provider; their manifests are weaviate, docling and parakeet."""
+    from utils.atlas_dashboard import build_dashboard_model
+
+    cp = _config_parser_for_env(tmp_path, "\n".join([
+        "BASE_PORT=63000", "KONG_HTTP_PORT=63000", "WEAVIATE_SOURCE=container",
+        "MULTI2VEC_CLIP_SOURCE=disabled", "DOC_PROCESSOR_SOURCE=disabled",
+        "STT_PROVIDER_SOURCE=disabled",
+    ]))
+    rag = {row.name: row for row in build_dashboard_model(cp, track_key="gen-ai-rag").services}
+    assert rag["Multi2Vec CLIP"].disabled_reason == "disabled-by-track"
+    assert rag["Document Processor"].disabled_reason == "manually-disabled"
+    eng = {row.name: row for row in build_dashboard_model(cp, track_key="gen-ai-eng").services}
+    assert eng["STT Provider"].disabled_reason == "manually-disabled"
+
+
 @pytest.mark.parametrize("field", ["BRAND_NAME", "BRAND_TAGLINE"])
 @pytest.mark.parametrize("literal", [
     "__TITLE__", "__TAGLINE__", "__TRACK__", "__KONG_PORT__", "__ACTIVE__",

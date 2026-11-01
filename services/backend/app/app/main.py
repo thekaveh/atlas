@@ -106,6 +106,12 @@ from rag_ingestion import (
     RagIngestionRequest,
     RagIngestionService,
 )
+from rag_ingestion.models import (
+    DISPATCH_DISPATCHING,
+    DISPATCH_PREPARED,
+    STATUS_PENDING,
+    STATUS_RUNNING,
+)
 from rag_ingestion.store import validate_page_cursor
 from graphiti_experiment import GraphitiExperimentConfig
 from document_extraction import (
@@ -1395,13 +1401,13 @@ async def _reconcile_cancelled_rag_submit(
 def _existing_rag_response(
     record: Any, created: bool, async_job: bool
 ) -> Any | None:
-    recover_prepared = record.dispatch_state == "prepared" and (
-        record.status == "pending"
-        or (record.status == "running" and not async_job)
+    recover_prepared = record.dispatch_state == DISPATCH_PREPARED and (
+        record.status == STATUS_PENDING
+        or (record.status == STATUS_RUNNING and not async_job)
     )
     recover_dispatch = (
-        record.status == "pending"
-        and record.dispatch_state == "dispatching"
+        record.status == STATUS_PENDING
+        and record.dispatch_state == DISPATCH_DISPATCHING
     )
     if created or recover_prepared or recover_dispatch:
         return None
@@ -4135,7 +4141,8 @@ async def get_media_spend(
     """Scoped spend read for a single consumer (optionally one project).
 
     Returns that consumer's ledger rows + committed/reserved totals only — never
-    provider keys or another consumer's records. Requires an explicit consumer.
+    provider keys or another consumer's records. Without `consumer`, a service
+    caller reads the `default` consumer and a user reads their own spend.
     """
     _check_attribution_labels(consumer=consumer, project=project)
     consumer, resolved_project = authorize_media_scope(principal, consumer, project)

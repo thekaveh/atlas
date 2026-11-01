@@ -66,7 +66,7 @@ _FAKE_DOCKER_SOURCE = (
     "  exit 0\n"
     "fi\n"
     "if [[ \"$FAKE_DOCKER_HANG\" = pull && \"$1\" = pull ]]; then\n"
-    "  signal_smoke \"${FAKE_DOCKER_HANG_SIGNAL:-}\"; sleep 30\n"
+    "  signal_smoke \"${FAKE_DOCKER_HANG_SIGNAL:-}\"; sleep \"${FAKE_DOCKER_HANG_SECONDS:-30}\"\n"
     "fi\n"
     "if [[ \"$1\" = run ]]; then\n"
     "  name=; detached=false; auto_remove=false; args=(\"$@\")\n"
@@ -83,7 +83,7 @@ _FAKE_DOCKER_SOURCE = (
     "  fi\n"
     "  if [[ \"$FAKE_DOCKER_HANG\" = readiness && \"$*\" = *pgsty/mc:* ]] ||\n"
     "    [[ \"$FAKE_DOCKER_HANG\" = *spark* && \"$*\" = *spark-submit* ]]; then\n"
-    "    signal_smoke \"${FAKE_DOCKER_HANG_SIGNAL:-}\"; sleep 30\n"
+    "    signal_smoke \"${FAKE_DOCKER_HANG_SIGNAL:-}\"; sleep \"${FAKE_DOCKER_HANG_SECONDS:-30}\"\n"
     "  fi\n"
     "  if [[ \"$auto_remove\" = true && \"$detached\" = false && -n \"$name\" ]]; then\n"
     "    rm -f \"$(resource_file container \"$name\")\"\n"
@@ -92,7 +92,7 @@ _FAKE_DOCKER_SOURCE = (
     "fi\n"
     "if [[ \"$FAKE_DOCKER_HANG\" = *cleanup* && \"$1\" = rm && ! -e \"$FAKE_DOCKER_CLEANUP_MARKER\" ]]; then\n"
     "  : > \"$FAKE_DOCKER_CLEANUP_MARKER\"\n"
-    "  signal_smoke \"${FAKE_DOCKER_CLEANUP_SIGNAL:-}\"; sleep 30\n"
+    "  signal_smoke \"${FAKE_DOCKER_CLEANUP_SIGNAL:-}\"; sleep \"${FAKE_DOCKER_HANG_SECONDS:-30}\"\n"
     "fi\n"
     "if [[ \"${FAKE_DOCKER_CLEANUP_FAIL:-}\" = 1 && ( \"$1\" = rm || \"$1 $2\" = 'network rm' ) ]]; then exit 42; fi\n"
     "if [[ \"$1\" = rm ]]; then\n"
@@ -614,7 +614,7 @@ def test_required_ci_runs_a_real_spark_minio_s3a_round_trip() -> None:
     )
 
 
-_S3A_HANG_BOUND_SECONDS = 20
+_S3A_HANG_BOUND_SECONDS = 40
 
 
 @pytest.mark.parametrize("hang_mode", ["pull", "readiness", "spark"])
@@ -622,10 +622,14 @@ def test_s3a_smoke_bounds_docker_hangs_and_cleans_owned_resources(
     tmp_path: Path, hang_mode: str
 ) -> None:
     env, log = _fake_docker_environment(tmp_path, hang_mode)
+    # A 3 s deadline let a loaded host (load 32-45) expire before the run
+    # reached the hung readiness or Spark step, so the cleanup assertions
+    # below failed. 10 s keeps reaching that step independent of host speed.
+    env.update(ATLAS_S3A_SMOKE_TIMEOUT_SECONDS="10", FAKE_DOCKER_HANG_SECONDS="60")
 
-    # The smoke's own 3 s deadline plus 1 s per cleanup command took up to
-    # 7.8 s on a loaded host, so an 8 s bound flaked. 20 s still sits below
-    # the fake's 30 s hang, so a run that ignores the deadline still fails.
+    # The smoke's own 10 s deadline plus 1 s per cleanup command, with load
+    # headroom. 40 s still sits below the fake's 60 s hang, so a run that
+    # ignores the deadline still fails.
     started = time.monotonic()
     try:
         result = subprocess.run(
@@ -684,15 +688,18 @@ def test_s3a_smoke_never_removes_foreign_network_collision(tmp_path: Path) -> No
 
 def test_s3a_probe_reconciles_beyond_short_command_timeout(tmp_path: Path) -> None:
     env, log = _fake_docker_environment(tmp_path, "spark")
+    # The overall deadline must not clip the 3 s probe reconcile window: an
+    # 8 s deadline was spent reaching the Spark step on a loaded host, and the
+    # clipped window left the probe container behind.
     env.update(
-        ATLAS_S3A_SMOKE_TIMEOUT_SECONDS="8",
+        ATLAS_S3A_SMOKE_TIMEOUT_SECONDS="30",
         ATLAS_S3A_COMMAND_TIMEOUT_SECONDS="1",
         ATLAS_S3A_PULL_TIMEOUT_SECONDS="3",
         FAKE_DOCKER_DELAY_PROBE_INSPECTIONS="3",
     )
 
-    # Outer safety bound only: the script's own 8 s budget plus cleanup hit
-    # 12 s under load (2026-10-08 run, cycle 44).
+    # Outer safety bound only: the run ends once the probe is reconciled,
+    # well inside the script's own 30 s budget (2026-10-08 run, cycle 44).
     result = subprocess.run(
         [str(S3A_SMOKE), "atlas-test-spark:latest"],
         cwd=ROOT,
@@ -721,13 +728,12 @@ def test_s3a_probe_reconciliation_is_clipped_to_remaining_overall_deadline(
     env, log = _fake_docker_environment(tmp_path, "spark")
     # Separate the two outcomes by an order of magnitude instead of a tight
     # wall-clock budget (#1237). Clipped, every reconcile window is bounded by
-    # the 3s overall deadline and the run takes a few seconds; unclipped, the
-    # probe reconcile alone would run the full 120s pull timeout. The 60s hang
-    # guard below therefore fails an unclipped run outright while leaving the
-    # clipped one about twenty times its idle duration on a contended runner,
-    # where the old 20s budget could be reached by a correct run.
+    # the 10s overall deadline and the run takes well under 30s; unclipped,
+    # the probe reconcile alone would run the full 120s pull timeout. The 60s
+    # hang guard below therefore fails an unclipped run outright. A 3s
+    # deadline could expire on a loaded host before the probe ever ran.
     env.update(
-        ATLAS_S3A_SMOKE_TIMEOUT_SECONDS="3",
+        ATLAS_S3A_SMOKE_TIMEOUT_SECONDS="10",
         ATLAS_S3A_COMMAND_TIMEOUT_SECONDS="120",
         ATLAS_S3A_PULL_TIMEOUT_SECONDS="120",
         FAKE_DOCKER_DELAY_PROBE_INSPECTIONS="999",
@@ -750,13 +756,13 @@ def test_s3a_probe_reconciliation_is_clipped_to_remaining_overall_deadline(
         if line.startswith("container inspect --format")
         and "atlas-s3a-spark-" in line
     ]
-    # cleanup_resource() polls on `sleep 0.1`, so the probe count is roughly ten
-    # per second of reconcile window. Clipping to the 3s overall deadline admits
-    # about thirty; an unclipped reconcile would poll for the full 120s pull
-    # timeout. Bound the clipped case with headroom rather than at its own
-    # arithmetic edge -- the previous `< 10` sat exactly on the count a loaded
-    # runner produces and failed as `assert 10 < 10`.
-    assert 1 <= len(probe_inspections) < 60
+    # cleanup_resource() polls on `sleep 0.1`, so the probe count is at most
+    # about ten per second of reconcile window. Clipping to the 10s overall
+    # deadline admits about a hundred; an unclipped reconcile would poll for
+    # the full 120s pull timeout. Bound the clipped case with headroom rather
+    # than at its own arithmetic edge -- the earlier `< 10` sat exactly on the
+    # count a loaded runner produces and failed as `assert 10 < 10`.
+    assert 1 <= len(probe_inspections) < 200
 
 
 @pytest.mark.parametrize("failure_mode", ("remove", "malformed-inspect"))

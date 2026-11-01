@@ -292,14 +292,6 @@ class RayClient:
         except _connection_failures() as exc:
             raise RayUnavailableError(f"Ray dashboard at {self._addr} did not answer") from exc
 
-    def get_job_logs(self, job_id: str) -> str:
-        try:
-            return self._ensure_client().get_job_logs(job_id)
-        except _transport_timeouts() as exc:
-            raise RayControlPlaneTimeoutError("job log fetch", job_id) from exc
-        except _connection_failures() as exc:
-            raise RayUnavailableError(f"Ray dashboard at {self._addr} did not answer") from exc
-
     def stop_job(self, job_id: str) -> bool:
         try:
             return self._ensure_client().stop_job(job_id)

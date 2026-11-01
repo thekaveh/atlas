@@ -554,6 +554,39 @@ def test_source_popup_is_dismissed_when_switching_away_from_logs():
     assert popup_open_after is False, "switching to Setup must dismiss the orphaned popup"
 
 
+def test_source_popup_is_usable_from_the_keyboard():
+    """The screen binds Up/Down/Space with priority, so they used to fire
+    the (launch-phase no-op) wizard actions and never reach the popup's
+    focused SelectionList: `s` opened the picker, but no key could move
+    or toggle a source. While the picker is open those keys must pass
+    through, and Esc must still close it and apply the selection.
+    """
+    scr = _screen()
+
+    async def scenario():
+        async with _App(scr).run_test(size=(140, 44)) as pilot:
+            await pilot.pause()
+            scr._logs_enabled = True
+            scr._phase = "launch"
+            scr.show_tab(BrandPanel.TAB_LOGS)
+            await pilot.pause()
+            for source in ("kong", "redis", "weaviate"):
+                scr._log_pane.write_log(f"{source} up", level="info", source=source)
+            await pilot.pause()
+            await pilot.press("s")
+            await pilot.pause()
+            opened = scr._log_chips.source_picker_open
+            await pilot.press("down", "space", "escape")
+            await pilot.pause()
+            return opened, scr._log_chips.source_picker_open, set(scr._log_chips._disabled_svcs)
+
+    opened, still_open, disabled = asyncio.run(scenario())
+
+    assert opened is True, "`s` must open the picker for this test to mean anything"
+    assert still_open is False, "Esc must close the picker"
+    assert disabled == {"redis"}, "Down then Space must deselect the second source"
+
+
 def test_action_filter_sources_is_a_no_op_while_on_setup():
     """I2: ``action_filter_sources`` previously gated only on ``_phase ==
     "launch"``, not the active tab — pressing `s` while on Setup mid-launch

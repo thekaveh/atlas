@@ -318,8 +318,8 @@ def test_media_set_only_upgrade_is_atomic_resumable_and_race_safe() -> None:
         assert await redis.sismember(_PENDING_LEDGER_KEY, new_id)
         assert await redis.zscore(_PENDING_LEDGER_ZSET, new_id) is not None
 
-        # Migration validates the sequence before SPOP, so a corrupt counter
-        # cannot remove an intent from the only index that still contains it.
+        # Migration validates the sequence before writing anything and only
+        # SSCANs the legacy set, so a corrupt counter cannot drop an intent from it.
         rollback_id = prefix + "rollback"
         await redis.delete(_PENDING_LEDGER_KEY)
         await redis.sadd(_PENDING_LEDGER_KEY, rollback_id)

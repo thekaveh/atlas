@@ -165,6 +165,11 @@ Key modules:
   is the source of truth for the complete sequence, gates, and current purpose
   of each version. Add a new versioned module instead of editing a migration
   that existing `.env` files may already have stamped.
+- `services/migrations/build_pin_refresh.py` — not a chained migration. Every
+  `backfill_missing_env_vars` call (each start and `./start.sh env backfill`)
+  runs it, and `--no-port-migrate` does not skip it. It moves a build pin that
+  still holds a retired shipped default to the `.env.example` value. A shipped
+  pin bump appends the replaced value to its `RETIRED_DEFAULTS` table.
 - `ui/textual/integration.py` — public entry points. `run_setup_flow` runs the interactive wizard, pipeline and log streaming in one Textual app. `run_launch_flow` is CLI-flag mode: it skips the wizard and opens the launch screen with the user's overrides applied.
 - `ui/textual/screens/wizard_screen.py` — `WizardScreen` hosts the wizard prompts, then transitions in-place to the launch phase (service-table + log pane + filter chips)
 - `ui/textual/widgets/` — Textual widgets composed by `WizardScreen` (prompt panel, service table, info / brand panels, log pane + filter chips, command summary, footer bar)

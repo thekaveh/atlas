@@ -15,10 +15,6 @@ that YAML at call time (no import-time side effects).  Path resolution mirrors
   2. ``<repo_root>/services``  (repo_root = 3 parents above this file:
      ``bootstrapper/utils/comfyui_library.py`` → ``utils/`` → ``bootstrapper/``
      → ``repo_root``; then ``repo_root/services``).
-  3. ``/catalog``  (defensive remnant of the former comfyui-catalog-init
-     bind-mount; that container was deleted and no compose fragment mounts
-     ``/catalog`` today — this path is unreachable in normal operation but
-     kept harmlessly as a last-resort fallback).
 
 The wizard **also** live-scrapes HuggingFace and civitai on each invocation;
 those results are merged with the curated entries (curated wins on name
@@ -442,8 +438,6 @@ def _plain_basename(name):
 # Search order mirrors llm_catalog._find_models_dir():
 #   1. ATLAS_MODELS_DIR env var
 #   2. <repo_root>/services  (3 parents above this file)
-#   3. /catalog              (defensive remnant of the former comfyui-catalog-init
-#                             bind-mount; no compose fragment mounts /catalog today)
 
 def _find_services_dir() -> _Path:
     """Resolve the directory that contains comfyui/models.yaml.
@@ -454,9 +448,6 @@ def _find_services_dir() -> _Path:
     Search order:
       1. ``ATLAS_MODELS_DIR`` env var.
       2. ``<repo_root>/services``  (repo_root = 3 parents above this file).
-      3. ``/catalog``  (defensive remnant of the former comfyui-catalog-init
-         bind-mount; unreachable in normal operation — kept as a last-resort
-         fallback only).
     """
     env_dir = _os.environ.get("ATLAS_MODELS_DIR")
     if env_dir:
@@ -464,7 +455,7 @@ def _find_services_dir() -> _Path:
 
     # bootstrapper/utils/comfyui_library.py → utils/ → bootstrapper/ → repo_root
     repo_root = _Path(__file__).resolve().parent.parent.parent
-    candidates = [repo_root / "services", _Path("/catalog")]
+    candidates = [repo_root / "services"]
     for candidate in candidates:
         if candidate.is_dir():
             return candidate
@@ -481,9 +472,9 @@ def _find_comfyui_yaml() -> _Path:
 
     Tries:
       1. ``<services_dir>/comfyui/models.yaml``  — host layout (expected path).
-      2. ``<services_dir>/comfyui-models.yaml``  — flat layout under /catalog
-         (defensive remnant of the former comfyui-catalog-init bind-mount;
-         unreachable in normal operation).
+      2. ``<services_dir>/comfyui-models.yaml``  — flat layout, when
+         ATLAS_MODELS_DIR names a directory laid out like litellm-init's
+         /atlas-models.
     """
     base = _find_services_dir()
     primary = base / "comfyui" / "models.yaml"
@@ -494,8 +485,8 @@ def _find_comfyui_yaml() -> _Path:
         return flat
     raise FileNotFoundError(
         f"Cannot find ComfyUI curated catalog YAML. Tried: {primary}, {flat}. "
-        "Ensure services/comfyui/models.yaml is present (host) or bind-mounted "
-        "as /catalog/comfyui-models.yaml (container)."
+        "Ensure services/comfyui/models.yaml exists, or set ATLAS_MODELS_DIR "
+        "to a directory holding comfyui/models.yaml or comfyui-models.yaml."
     )
 
 

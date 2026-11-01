@@ -270,7 +270,9 @@ class PostgresLedgerStore:
         async with self._acquire() as conn:
             async with conn.transaction():
                 await conn.execute(
-                    "SELECT pg_advisory_xact_lock($1)",
+                    # Typed and qualified: a planted public.pg_advisory_xact_lock(text)
+                    # would otherwise win the untyped parameter.
+                    "SELECT pg_catalog.pg_advisory_xact_lock($1::bigint)",
                     _scope_lock_key(record.consumer, record.project),
                 )
                 if cap is not None and record.estimated_cost_usd is not None:

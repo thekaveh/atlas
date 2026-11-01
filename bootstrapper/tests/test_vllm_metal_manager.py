@@ -390,6 +390,24 @@ def test_safe_archive_extraction_rejects_traversal(tmp_path):
             VllmMetalManager._extract_archive_safely(bundle, tmp_path / "extract")
 
 
+@pytest.mark.parametrize("kind", [tarfile.SYMTYPE, tarfile.LNKTYPE, tarfile.CHRTYPE])
+def test_safe_archive_extraction_rejects_links_and_devices(tmp_path, kind):
+    """The member-type guard is the only link defence on 3.11 patches that
+    lack tarfile.data_filter, so each rejected type is pinned here."""
+    archive = tmp_path / "links.tar"
+    with tarfile.open(archive, "w") as bundle:
+        info = tarfile.TarInfo("vllm/link")
+        info.type = kind
+        info.linkname = "vllm/setup.py"
+        bundle.addfile(info)
+
+    destination = tmp_path / "extract"
+    with tarfile.open(archive) as bundle:
+        with pytest.raises(VllmMetalError, match="unsupported link or device"):
+            VllmMetalManager._extract_archive_safely(bundle, destination)
+    assert not destination.exists()
+
+
 # ─────────────────────────── install ───────────────────────────
 def test_install_happy_path_creates_venv_and_pip_installs(tmp_path, monkeypatch):
     _darwin_arm64(monkeypatch)
@@ -779,11 +797,16 @@ def test_stop_refuses_stranger_pid(tmp_path, monkeypatch):
     mgr.pid_file.write_text("999")
     monkeypatch.setattr(mgr, "_pid_alive", lambda pid: True)
     monkeypatch.setattr(mgr, "_pid_is_stranger", lambda pid: True)
-    killed = []
-    monkeypatch.setattr(mod.os, "kill", lambda pid, sig: killed.append((pid, sig)))
+    # Never signal the stranger. Termination goes through _terminate_pid and
+    # os.killpg, so either one being reached fails the test without a real
+    # signal reaching host process group 999.
+    monkeypatch.setattr(
+        mgr, "_terminate_pid", lambda pid: pytest.fail(f"signalled stranger {pid}")
+    )
+    monkeypatch.setattr(
+        mod.os, "killpg", lambda pid, sig: pytest.fail(f"killpg({pid}, {sig}) on a stranger")
+    )
     assert mgr.stop() is False
-    # never signalled the stranger
-    assert all(sig == 0 for _, sig in killed) or killed == []
     assert mgr.pid_file.exists()
 
 

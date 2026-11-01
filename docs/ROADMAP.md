@@ -1529,7 +1529,7 @@ The following candidates were evaluated and explicitly *not* recommended at this
 - **`hwdsl2/docker-mcp-gateway`** — Caddy + MCPHub community wrapper with a handful of MCP servers bundled. Only ~4 GitHub stars at time of evaluation; insufficient community trust for production roadmap. The underlying engine (MCPHub) is fine on its own.
 - **Pure MCPHub** (samanhappy/mcphub) as the aggregator — Apache-2.0 and active, but **MetaMCP is strictly more capable for the same operational cost** (MetaMCP also has native OpenAPI, namespacing, RBAC, OAuth, and an inspector; MCPHub lacks OpenAPI). Pick MCPHub only if a deployment specifically needs its lighter footprint and accepts MCP-only protocol exposure.
 - **Klavis "Strata" aggregator** (Apache-2.0, 100+ pre-built vendor server images) — defer; smaller ecosystem than MetaMCP and Docker MCP Gateway, and the "one Compose service per server" model is operationally heavier than MetaMCP for our scale. Worth revisiting if vendor-blessed OAuth-shaped SaaS connectors become a hard requirement.
-- **Anthropic reference MCP servers as standalone offering (no aggregator)** — fine as the *source* of individual MCP servers (used in our Phase 1 starter set), but does not solve the aggregation / namespacing / OpenAPI problem on its own. Combine with MetaMCP (Option A) or Docker MCP Gateway (Option B), not as a replacement for either.
+- **Anthropic reference MCP servers as a standalone offering (no aggregator)** — usable as sources of individual servers, as in the future option A starter set (§2.3.1). Atlas ships none of them. The shipped FastMCP 3 composite needs no aggregator; add one only under the conditions in §3.10.
 
 ## 4. Implementation strategy
 

@@ -678,6 +678,70 @@ def test_backup_rejects_invalid_s3_endpoint_tls_and_region_before_io(
     assert not trace.exists()
 
 
+_NO_S3_CREDENTIALS = {
+    "BACKUP_S3_ENDPOINT": "", "BACKUP_S3_ACCESS_KEY": "", "BACKUP_S3_SECRET_KEY": "",
+    "BACKUP_S3_SESSION_TOKEN": "", "BACKUP_S3_ALIAS_URL": "",
+    "MINIO_ROOT_USER": "", "MINIO_ROOT_PASSWORD": "",
+}
+_MINIO_ROOT = {"MINIO_ROOT_USER": "local-root-access", "MINIO_ROOT_PASSWORD": "local-root-secret"}
+
+
+@pytest.mark.parametrize("case", [
+    ({"BACKUP_S3_MODE": "local", "BACKUP_S3_ACCESS_KEY": "dedicated-access"},
+     "BACKUP_S3_ACCESS_KEY and BACKUP_S3_SECRET_KEY must be set together"),
+    ({"BACKUP_S3_MODE": "local", "BACKUP_S3_SECRET_KEY": "dedicated-secret"},
+     "BACKUP_S3_ACCESS_KEY and BACKUP_S3_SECRET_KEY must be set together"),
+    ({"BACKUP_S3_MODE": "local"},
+     "local mode requires dedicated S3 credentials or both MINIO_ROOT_USER and MINIO_ROOT_PASSWORD"),
+    ({"BACKUP_S3_MODE": "local", "MINIO_ROOT_USER": "local-root-access"},
+     "local mode requires dedicated S3 credentials or both MINIO_ROOT_USER and MINIO_ROOT_PASSWORD"),
+    ({"BACKUP_S3_MODE": "local", **_MINIO_ROOT, "BACKUP_S3_SESSION_TOKEN": "t"},
+     "BACKUP_S3_SESSION_TOKEN requires dedicated S3 credentials in local mode"),
+    ({"BACKUP_S3_MODE": "remote", **_MINIO_ROOT}, "BACKUP_S3_MODE must be local or external"),
+    ({"BACKUP_S3_MODE": "external", "BACKUP_S3_ENDPOINT": "https://a.example.test",
+      "BACKUP_S3_ALIAS_URL": "https://b.example.test", "BACKUP_S3_ACCESS_KEY": "external-access",
+      "BACKUP_S3_SECRET_KEY": "external-secret"},
+     "BACKUP_S3_ALIAS_URL conflicts with BACKUP_S3_ENDPOINT"),
+], ids=["access-only", "secret-only", "no-credentials", "half-root", "root-with-token",
+        "unknown-mode", "alias-conflict"])
+def test_backup_s3_local_mode_and_mode_rules_fail_closed(tmp_path: Path, case) -> None:
+    """services/backup/README.md: a partial pair fails closed; a token needs the dedicated pair."""
+    overrides, message = case
+    trace, bin_dir = _fake_s3_boundary(tmp_path)
+    result = subprocess.run(
+        ["sh", str(REPO / "services/backup/init/scripts/backup-all.sh")],
+        env={**_backup_s3_env(bin_dir, trace), **_NO_S3_CREDENTIALS, **overrides},
+        text=True, capture_output=True, check=False, timeout=30,
+    )
+    assert result.returncode == 64, result.stderr
+    assert message in result.stderr
+    assert not trace.exists()
+    assert "local-root-secret" not in result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("case", [("true", "1", ""), ("false", "", "1")],
+                         ids=["verify-clears-inherited", "no-verify-sets"])
+def test_backup_tls_verify_decides_mc_insecure(tmp_path: Path, case) -> None:
+    """TLS_VERIFY=true must clear an inherited MC_INSECURE, or mc skips verification."""
+    tls_verify, inherited, expected = case
+    trace, bin_dir = _fake_s3_boundary(tmp_path)
+    result = subprocess.run(
+        ["sh", str(_backup_script_with_private_work(tmp_path))],
+        env={
+            **_backup_s3_env(bin_dir, trace), **_NO_S3_CREDENTIALS,
+            "BACKUP_S3_MODE": "external", "BACKUP_S3_ENDPOINT": "https://s3.example.test",
+            "BACKUP_S3_ACCESS_KEY": "AK:ID@", "BACKUP_S3_SECRET_KEY": 'se/cr et+$"\\value',
+            "BACKUP_S3_SESSION_TOKEN": "tok:@/+=", "BACKUP_S3_TLS_VERIFY": tls_verify,
+            "MC_INSECURE": inherited,
+        },
+        text=True, capture_output=True, check=False, timeout=30,
+    )
+    calls = trace.read_text(encoding="utf-8")
+    assert "credentials=ok" in calls, result.stderr
+    assert f"insecure={expected}\n" in calls
+    assert ("MC_INSECURE=1" in calls) is (expected == "1")
+
+
 @pytest.mark.parametrize(
     "endpoint",
     [

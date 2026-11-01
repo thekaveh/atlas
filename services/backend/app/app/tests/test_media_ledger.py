@@ -316,6 +316,19 @@ def test_reserve_at_exact_cap_allowed():
     asyncio.run(run())
 
 
+def test_project_cap_overrides_consumer_cap():
+    # MEDIA_BUDGET_CONSUMER_CAPS: a "consumer:project" key wins over "consumer".
+    engine = _engine(consumer_caps={"acme": 5.0, "acme:demo": 1.0})
+
+    async def run():
+        with pytest.raises(BudgetExceeded):
+            await _reserve(engine, "demo-1", 2.0, project="demo")
+        return await _reserve(engine, "default-1", 2.0, project="default")
+
+    admitted = asyncio.run(run())
+    assert admitted.status == STATUS_RESERVED
+
+
 # --- concurrency-safe reservation at the boundary ---------------------------
 
 

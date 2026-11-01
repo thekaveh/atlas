@@ -24,15 +24,18 @@ BACKEND_APP = Path(__file__).resolve().parents[2] / "services" / "backend" / "ap
 
 _HTTP_METHODS = {"get", "post", "put", "patch", "delete", "head", "options"}
 #: Decorators that register a route without naming an HTTP verb. A websocket
-#: endpoint or an `api_route(methods=[...])` is just as reachable.
-_ROUTE_DECORATORS = _HTTP_METHODS | {"websocket", "api_route"}
+#: endpoint, an `api_route(methods=[...])` or a Starlette `route` /
+#: `websocket_route` is just as reachable.
+_ROUTE_DECORATORS = _HTTP_METHODS | {"websocket", "api_route", "route", "websocket_route"}
 
 #: Vendored third-party code that happens to live under the app directory.
 _VENDORED = ("site-packages", ".ci-venv", ".venv", "node_modules", "/tests/")
 
 #: Calls that register a route without a decorator. Only `add_api_route` can
 #: carry a literal auth `dependencies=[...]`; the Starlette forms cannot.
-_IMPERATIVE_ROUTE_CALLS = {"add_api_route", "add_route", "add_websocket_route", "mount"}
+_IMPERATIVE_ROUTE_CALLS = {
+    "add_api_route", "add_api_websocket_route", "add_route", "add_websocket_route", "mount",
+}
 
 #: Deliberately public. The first three return a fixed liveness/readiness token
 #: and reveal nothing about configuration — `/ready` answers only
@@ -132,8 +135,12 @@ def _collect_routes() -> list[tuple[str, str, str, bool, str]]:
 
 
 def _imperative_route(call: ast.Call) -> tuple[str, str] | None:
-    """(method label, path) when ``call`` registers a route imperatively."""
-    if not (isinstance(call.func, ast.Attribute) and call.args):
+    """(method label, path) when ``call`` registers a route imperatively.
+
+    A keyword-only registration (``path=...``) is scanned too; its path reads
+    as ``?`` when not literal, which never matches ``_PUBLIC_ROUTES``.
+    """
+    if not isinstance(call.func, ast.Attribute):
         return None
     if call.func.attr in _IMPERATIVE_ROUTE_CALLS:
         return call.func.attr.upper(), _decorated_path(call)
@@ -171,7 +178,10 @@ def _route_decorators(func: ast.AST):
 
 
 def _decorated_path(decorator: ast.Call) -> str:
-    first = decorator.args[0] if decorator.args else None
+    """The route path, positional or ``path=``; ``?`` when not a literal."""
+    first = decorator.args[0] if decorator.args else next(
+        (kw.value for kw in decorator.keywords if kw.arg == "path"), None
+    )
     return first.value if isinstance(first, ast.Constant) else "?"
 
 
@@ -392,11 +402,20 @@ def test_websocket_and_api_route_decorators_are_scanned() -> None:
         "async def ws(websocket): ...\n"
         "@app.api_route('/any', methods=['GET', 'POST'])\n"
         "async def any_(): ...\n"
+        "@app.websocket_route('/w')\n"
+        "async def w(websocket): ...\n"
+        "@router.route('/rr')\n"
+        "async def rr(request): ...\n"
+        "@app.get(path='/kw')\n"
+        "async def kw(): ...\n"
     )
     rows = [r for f in tree.body for r in _routes_on(f, "x.py", {})]
     assert {(r[1], r[2], r[3]) for r in rows} == {
         ("WEBSOCKET", "/ws", False),
         ("API_ROUTE", "/any", False),
+        ("WEBSOCKET_ROUTE", "/w", False),
+        ("ROUTE", "/rr", False),
+        ("GET", "/kw", False),
     }
 
 
@@ -410,9 +429,16 @@ def test_imperative_route_registrations_are_scanned() -> None:
         "Instrumentator().instrument(app).expose(app, endpoint='/m')\n"
         "Instrumentator().expose(app)\n"
         "app.add_middleware(Middleware)\n"
+        "app.add_api_websocket_route('/aw', h)\n"
+        "app.add_api_route(path='/k', endpoint=f)\n"
+        "app.add_route(path='/r', route=f)\n"
+        "app.mount(path='/s', app=files)\n"
+        "app.add_api_route(path=PATH, endpoint=f)\n"
     )
     assert {(r[1], r[2], r[3]) for r in _imperative_routes(tree, "x.py")} == {
         ("ADD_API_ROUTE", "/a", False), ("ADD_API_ROUTE", "/b", True),
         ("ADD_ROUTE", "/c", False), ("ADD_WEBSOCKET_ROUTE", "/d", False),
         ("MOUNT", "/static", False), ("GET", "/m", False), ("GET", "/metrics", False),
+        ("ADD_API_WEBSOCKET_ROUTE", "/aw", False), ("ADD_API_ROUTE", "/k", False),
+        ("ADD_ROUTE", "/r", False), ("MOUNT", "/s", False), ("ADD_API_ROUTE", "?", False),
     }

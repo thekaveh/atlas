@@ -49,7 +49,7 @@ To fix it, configure a workflow under Admin Settings → Images (for example fro
 
 **Memory extraction** runs after the reply, in two daemon workers with a four-job queue. When the queue is full, the job is skipped with a short diagnostic. A Backend non-success response counts as an extraction failure. Chat replies never wait for extraction.
 
-The `min_messages` filter valve (default 4) is the minimum chat length before a job starts. Each job sends the non-empty text of the last `min_messages` messages; `0` sends the whole chat. The Backend's `MemoryExtractRequest` limit caps a job at the newest 100 messages, each clipped to 20,000 characters.
+The `min_messages` filter valve (default 4) is the minimum chat length before a job starts. Each job sends the non-empty text of the last `min_messages` messages; `0` sends the whole chat. The Backend's `MemoryExtractRequest` limit caps a job at the newest 100 messages, each clipped to 20,000 characters. The Memory Assistant tool clips `remember` text to 20,000 characters and `recall` queries to 4,000 characters, the Backend request limits.
 
 The tool and function folders are mounted read-only; `open-webui-init` registers them through the API.
 

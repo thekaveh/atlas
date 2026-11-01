@@ -260,3 +260,50 @@ def test_env_backfill_without_an_env_file_says_so(tmp_path, monkeypatch) -> None
     assert result.exit_code == 0  # fresh-clone CI recipes run this first
     assert "No env file" in result.output and "No env changes needed" not in result.output
     assert not (tmp_path / ".env").exists()
+
+
+@pytest.mark.parametrize("case", [
+    ("start", "doctor_command", "bundle_path", "tests", Path("tests")),
+    ("start", "main", "support_bundle", "tests", Path("tests")),
+    ("start", "main", "consumer_manifests", ("tests",), ("tests",)),
+    ("start", "main", "comfyui_custom_models_file", "tests", "tests"),
+    ("stop", "main", "consumer_manifests", ("tests",), ("tests",)),
+], ids=["doctor-bundle", "support-bundle", "start-consumer", "custom-models", "stop-consumer"])
+def test_relative_path_options_ignore_the_bootstrapper_directory(tmp_path, monkeypatch, case) -> None:
+    """A name that is a directory only in the bootstrapper's cwd is not rejected."""
+    import importlib
+
+    import click
+
+    module, command_name, name, raw, expected = case
+    (tmp_path / "bootstrapper" / "tests").mkdir(parents=True)
+    (tmp_path / "invoker").mkdir()
+    monkeypatch.chdir(tmp_path / "bootstrapper")
+    monkeypatch.setenv("ATLAS_INVOKER_CWD", str(tmp_path / "invoker"))
+    command = getattr(importlib.import_module(module), command_name)
+    option = next(param for param in command.params if param.name == name)
+    assert option.process_value(click.Context(command), raw) == expected
+
+
+def test_doctor_bundle_rejects_a_directory_in_the_invoker_directory(tmp_path, monkeypatch) -> None:
+    import start as start_module
+
+    (tmp_path / "taken").mkdir()
+    monkeypatch.setenv("ATLAS_INVOKER_CWD", str(tmp_path))
+    monkeypatch.setattr(start_module, "AtlasStarter", lambda: pytest.fail("a check ran"))
+    result = CliRunner().invoke(start_module.doctor_command, ["--bundle", "taken"])
+    assert result.exit_code == 2, result.output
+    assert f"Invalid value for '--bundle': {tmp_path.resolve() / 'taken'} is a directory" in result.output
+
+
+def test_env_backfill_cli_reports_a_refreshed_retired_build_pin(tmp_path, monkeypatch) -> None:
+    import start as start_module
+
+    pin = "LOCAL_DEEP_RESEARCHER_LANGGRAPH_CLI_VERSION"
+    (tmp_path / ".env.example").write_text(f"PROJECT_NAME=atlas\n{pin}=0.4.32\n", encoding="utf-8")
+    (tmp_path / ".env").write_text(f"PROJECT_NAME=atlas\n{pin}=0.4.31\n", encoding="utf-8")
+    _patch_starter_paths(monkeypatch, tmp_path)
+    result = CliRunner().invoke(start_module.main, ["env", "backfill"])
+    assert result.exit_code == 0, result.output
+    assert f"{pin} (refreshed retired default)" in result.output
+    assert (tmp_path / ".env").read_text(encoding="utf-8") == f"PROJECT_NAME=atlas\n{pin}=0.4.32\n"

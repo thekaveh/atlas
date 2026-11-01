@@ -101,7 +101,7 @@ def build_dashboard_model(
         disabled_reason = None
         if not available:
             disabled_reason = "No Ollama upstream selected" if source.lower() == "none" else _disabled_reason(
-                row.manifest,
+                _row_service_key(row),
                 row.locked,
                 track_key=track_key,
                 overridden_services=overridden,
@@ -508,8 +508,22 @@ def _track_label(track_key: str | None) -> str:
         return track_key
 
 
+def _row_service_key(row) -> str:
+    """The track key for a row, taken from its SOURCE var, not its manifest.
+
+    tracks.yml and the track force-disable name Multi2Vec CLIP, Document
+    Processor and STT Provider by their SOURCE var. Their manifests are
+    weaviate, docling and parakeet.
+    """
+    from tracks import normalize_service_key  # noqa: PLC0415
+
+    return normalize_service_key(
+        row.source_var.removesuffix("_SOURCE").lower().replace("_", "-")
+    )
+
+
 def _disabled_reason(
-    manifest: str,
+    service_key: str,
     locked: bool,
     *,
     track_key: str | None,
@@ -525,8 +539,8 @@ def _disabled_reason(
         if (
             track is not None
             and track.services is not None
-            and manifest not in overridden_services
-            and not is_in_track(track, manifest, always_on=registry.always_on)
+            and service_key not in overridden_services
+            and not is_in_track(track, service_key, always_on=registry.always_on)
         ):
             return "disabled-by-track"
     except Exception:  # noqa: BLE001
@@ -597,20 +611,38 @@ def _selected_runtime_requirements(spec, env: dict[str, str]):
     return (dep for rule in selected for dep in rule.get("requires") or ())
 
 
+def _disabled_manifests(manifests, rows, service_sources: dict[str, str], env: dict[str, str]) -> set[str]:
+    """Names of the manifests whose service is off.
+
+    A sub-row's own SOURCE var (Supabase Studio, Multi2Vec CLIP) does not turn
+    its manifest off. A manifest with a ``sources`` block is off when that var
+    is ``disabled``. One without (supabase) is off only when all its rows are.
+    """
+    row_vars: dict[str, set[str]] = {}
+    for row in rows:
+        row_vars.setdefault(row.manifest, set()).add(row.source_var)
+    disabled = set()
+    for manifest in manifests:
+        own_vars = {manifest.sources.var} if manifest.sources else row_vars.get(manifest.name)
+        if own_vars and all(
+            (service_sources.get(var) or env.get(var) or "container") == "disabled"
+            for var in own_vars
+        ):
+            disabled.add(manifest.name)
+    return disabled
+
+
 def _dependency_warnings(rows, service_sources: dict[str, str], env: dict[str, str]) -> list[str]:
     by_manifest = {row.manifest: row for row in rows}
     effective_env = {**env, **service_sources}
-    disabled_manifests = {
-        row.manifest
-        for row in rows
-        if (service_sources.get(row.source_var) or env.get(row.source_var) or "container") == "disabled"
-    }
     warnings = []
     try:
         from services.manifests import load_manifests
 
         services_root = Path(__file__).resolve().parent.parent.parent / "services"
-        for manifest in load_manifests(services_root):
+        manifests = load_manifests(services_root)
+        disabled_manifests = _disabled_manifests(manifests, rows, service_sources, env)
+        for manifest in manifests:
             if manifest.name in disabled_manifests:
                 continue
             missing = sorted(

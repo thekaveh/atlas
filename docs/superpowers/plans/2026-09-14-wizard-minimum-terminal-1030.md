@@ -1,6 +1,6 @@
 # Wizard Minimum-Terminal Usability (#1030) Implementation Plan
 
-> **Status: archived plan** — dated 2026-09-14; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+> **Status: archived plan** — dated 2026-09-14; a point-in-time record kept for archaeology, not current guidance. It landed in `f4bd8238` (#1078), which has no CHANGELOG entry.
 
 > **For agentic workers:** Execute sequentially in this session with TDD and a separate code review. The campaign directive authorizes implementation and both PR merges without another approval checkpoint.
 

@@ -305,6 +305,11 @@ class LogFilterChips(Container):
         else:
             popup.styles.offset = (x, y)
 
+    @property
+    def source_picker_open(self) -> bool:
+        """True while the source-filter popup is mounted."""
+        return self._open_popup is not None
+
     def toggle_source_picker(self) -> None:
         if self._open_popup is not None:
             self._open_popup.action_dismiss()

@@ -288,6 +288,37 @@ def test_long_tail_extension_routes_to_tika_without_docling() -> None:
     assert [call[0] for call in client.calls] == ["http://tika:9998/tika"]
 
 
+@pytest.mark.parametrize(
+    ("filename", "content_type"),
+    [
+        ("mail", "message/rfc822"),
+        ("report", "application/vnd.oasis.opendocument.text"),
+    ],
+)
+def test_long_tail_content_type_routes_extensionless_upload_to_tika(
+    filename, content_type
+) -> None:
+    client = FakeAsyncClient([FakeResponse(200, text="Long-tail body")])
+    extractor = DocumentExtractor(
+        DocumentExtractorConfig(
+            docling_endpoint="http://docling-gpu:8000",
+            docling_api_token=TEST_DOCLING_TOKEN,
+            tika_endpoint="http://tika:9998",
+        ),
+        http_client=client,
+    )
+
+    result = _run(
+        extractor.extract(
+            content=b"long-tail bytes", filename=filename, content_type=content_type
+        )
+    )
+
+    assert result.extractor == "tika"
+    assert result.fallback_reason == "long-tail-format"
+    assert [call[0] for call in client.calls] == ["http://tika:9998/tika"]
+
+
 def test_explicit_tika_selection_bypasses_docling() -> None:
     client = FakeAsyncClient([FakeResponse(200, text="Forced Tika text")])
     extractor = DocumentExtractor(

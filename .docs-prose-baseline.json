@@ -2,7 +2,7 @@
   "files": {
     "docs/ROADMAP.md": {
       "para_words": 5,
-      "sentence": 68
+      "sentence": 67
     }
   },
   "generated_by": "python scripts/check-docs-drift.py --write-prose-baseline",

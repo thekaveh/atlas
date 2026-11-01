@@ -288,3 +288,29 @@ def test_bundle_file_key_read_errors_still_propagate(tmp_path, monkeypatch):
     monkeypatch.setattr(Path, "read_text", unreadable)
     with pytest.raises(OSError, match="synthetic metadata read error"):
         _file_keys(path)
+
+
+def test_bundle_sends_a_sidecar_derived_key_to_the_manifest_field(tmp_path, monkeypatch):
+    """OLLAMA_CUSTOM_MODELS is rewritten from model_sidecars.ollama on every start."""
+    from core.consumer_manifest import load_consumer_config
+    from core import support_bundle as sb
+    import start
+
+    (tmp_path / ".env.example").write_text("PROJECT_NAME=atlas\n", encoding="utf-8")
+    manifest = tmp_path / "parent" / "atlas.consumer.yml"
+    manifest.parent.mkdir()
+    manifest.write_text("name: parent\nmodel_sidecars:\n  ollama: [llama3.2:latest]\n")
+    config = load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
+    env_file = tmp_path / ".env"
+    env_file.write_text("OLLAMA_CUSTOM_MODELS=llama3.2:latest\n")
+    monkeypatch.delenv("ATLAS_ENV_USER_FILE", raising=False)
+    starter = SimpleNamespace(_env_user_overlay_path=lambda: None,
+                              config_parser=SimpleNamespace(load_consumer_config=lambda: config))
+    request = sb.BundleRequest(env={"OLLAMA_CUSTOM_MODELS": "llama3.2:latest"},
+                               env_origins=start.AtlasStarter._env_origins(starter), env_file=env_file)
+    entries, _omitted = sb.config_entries(request, sb.Redactor())
+    origin = str(config.consumers[0].manifest_path)
+    assert (entries[0]["origin"], entries[0]["action"]) == (origin, (
+        f"Change `model_sidecars.ollama` in {origin}. Every start writes the manifest's "
+        "values into .env, so an edit to .env alone does not stick."))
+    assert Path(origin).resolve() == manifest.resolve()

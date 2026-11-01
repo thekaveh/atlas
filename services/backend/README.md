@@ -122,6 +122,7 @@ Recall and update confidence must be finite and in `0..1`. Invalid requests retu
 
 - Failback happens through `POST /memory/vector-store/probe` and at Backend startup. Startup runs the same probe and rebuild before the Backend accepts traffic. The probe checks the model, dimension and collection module.
 - It then rebuilds active objects and retirements from Postgres before searches switch.
+- For a pending active fact, the rebuild also re-embeds its pgvector shadow before it clears the intent.
 - It clears the generation by a compare-and-set on model and dimension, only when no `vector_sync_pending` row remains.
 - A restart after an outage therefore delays startup by the rebuild time.
 - Sustained write churn keeps pgvector latched and reports the reason.
@@ -382,7 +383,7 @@ A disabled optional service degrades only its feature:
 
 **Limits and deadlines.**
 
-- Ray control-plane calls: 5 s connect and 30 s read. A timed-out submit, status or stop returns `504` with the `submission_id` to reconcile. Do not resubmit blindly. A refused or dropped dashboard connection on status, logs or stop returns `503`.
+- Ray control-plane calls: 5 s connect and 30 s read. A timed-out submit, status or stop returns `504` with the `submission_id` to reconcile. Do not resubmit blindly. A refused or dropped dashboard connection on status or stop returns `503`.
 - Postgres pool: if all `BACKEND_PG_POOL_MAX` connections stay busy for 5 s, the request gets `503` with `Retry-After: 1`. Readiness stays green. Metrics: `backend_pg_pool_saturated_total`, `backend_pg_pool_acquire_wait_seconds`.
 - A new Postgres connection that takes over 5 s to open fails as a database error, not as saturation.
 - Request bodies are capped before parsing. `/media/generate` authenticates, then buffers up to `MEDIA_REQUEST_MAX_BYTES` (40 MiB).
@@ -472,7 +473,7 @@ Redis guards have no TTL and outlive ordinary job retention. Atlas enables AOF w
 - `BACKEND_STATE_STORE_MODE=memory` is a single-process, non-durable mode for unit tests and ephemeral development only. RAG submissions then run synchronously, even with Celery enabled, so no ingestion id reaches a worker-local store.
 - Do not use memory mode if you scale the Backend yourself.
 - Rolling upgrades keep the legacy Redis SET indexes for old replicas and copy membership into versioned sorted indexes without deleting it.
-- Media ledger recovery reads at most `MEDIA_LEDGER_RECOVERY_BATCH_SIZE` intents per page and at most `MEDIA_LEDGER_RECOVERY_MAX_CYCLES` pages per poll. The next cycle resumes the cursor.
+- Media ledger recovery reads at most `MEDIA_LEDGER_RECOVERY_BATCH_SIZE` intents per page and at most `MEDIA_LEDGER_RECOVERY_MAX_CYCLES` pages per 30-second recovery sweep. The next sweep resumes the cursor.
 
 **Source and local development.**
 

@@ -1819,12 +1819,10 @@ class ServiceConfig:
             weaviate_config = self.get_service_config('weaviate', weaviate_source)
             env_vars['WEAVIATE_INIT_SCALE'] = str(weaviate_config.get('scale', 1))
         
-        # OLLAMA_PULL_SCALE: 1 only for in-stack ollama-container-* sources.
-        # Host-side Ollama (ollama-localhost) is not pull-controllable
-        # from the stack — sending /api/pull at the user's host Ollama
-        # would surprise them (for localhost, the operator must `ollama pull`
-        # manually).
-        # Source=none has no upstream at all.
+        # OLLAMA_PULL_SCALE: ollama-pull runs only for the in-stack
+        # ollama-container-* sources. For ollama-localhost the bootstrapper
+        # pulls the declared models on the host (start.py
+        # _finalize_ollama_localhost_models, #757); source none has no upstream.
         llm_source = self.service_sources.get('LLM_PROVIDER_SOURCE', 'ollama-container-cpu')
         if llm_source.startswith('ollama-container-'):
             env_vars['OLLAMA_PULL_SCALE'] = '1'

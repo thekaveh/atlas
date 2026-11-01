@@ -312,6 +312,19 @@ def test_recovered_attach_terminal_is_pending_even_when_top_level_untracked() ->
     asyncio.run(scenario())
 
 
+def test_in_flight_attach_protection_clear_is_pending_work() -> None:
+    # Without the index entry the background drain never clears the marker.
+    async def scenario():
+        store = InMemoryMediaOperationStore()
+        await store.create(
+            _op("attach-clear", ledger_attach_protection_clear_pending=True)
+        )
+        page = await store.pending_ledger_intent_page()
+        assert [item["operation_id"] for item in page.records] == ["attach-clear"]
+
+    asyncio.run(scenario())
+
+
 def test_terminal_payload_can_only_be_enriched_without_changing_status() -> None:
     async def scenario():
         store = InMemoryMediaOperationStore()

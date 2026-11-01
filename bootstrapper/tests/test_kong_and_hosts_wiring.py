@@ -205,6 +205,7 @@ def test_cleanup_removes_only_lines_atlas_itself_wrote(tmp_path):
     hosts.write_text(
         "##\n# Host Database\n##\n"
         "127.0.0.1\tlocalhost api.localhost my-dev-box\n"
+        "127.0.0.1 api.localhost my-dev-box\n"
         "127.0.0.1 chat.localhost   # my own reverse proxy\n"
         "255.255.255.255\tbroadcasthost\n"
         "::1             localhost\n"
@@ -220,6 +221,8 @@ def test_cleanup_removes_only_lines_atlas_itself_wrote(tmp_path):
 
     # operator-owned lines survive untouched, comments and all
     assert "127.0.0.1\tlocalhost api.localhost my-dev-box\n" in result
+    # ...even when an Atlas alias is the line's FIRST name
+    assert "127.0.0.1 api.localhost my-dev-box" in result.splitlines()
     assert "my own reverse proxy" in result
     assert "broadcasthost" in result
     assert "::1             localhost\n" in result
@@ -625,6 +628,8 @@ def test_hosts_addition_publishes_complete_content_once(tmp_path, monkeypatch, r
     assert hosts.read_text(encoding="utf-8") == expected
     assert manager.check_missing_hosts() == []
     assert hosts.stat().st_mode & 0o777 == 0o640
+    # The default addition backs the hosts file up before replacing it.
+    assert len(list(tmp_path.glob("private-hosts.backup*"))) == 1
 
 
 @pytest.mark.parametrize("route", ["add", "setup"])
@@ -656,3 +661,44 @@ def test_hosts_addition_without_privilege_keeps_original(tmp_path, monkeypatch):
     monkeypatch.setattr(hosts_module, "is_elevated", lambda: False)
     assert manager.setup_hosts_entries() is False
     assert hosts.read_text(encoding="utf-8") == original
+
+
+def test_hosts_addition_read_failure_keeps_file(tmp_path, monkeypatch):
+    """A failed read returns False; writing anyway would truncate to Atlas's block."""
+    import builtins
+
+    manager, hosts, original, _expected = _private_hosts_addition(tmp_path, monkeypatch)
+    real_open = builtins.open
+
+    def unreadable_hosts(file, mode="r", *args, **kwargs):
+        if str(file) == str(hosts) and "r" in mode:
+            raise OSError(13, "private hosts read failure")
+        return real_open(file, mode, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "open", unreadable_hosts)
+    assert manager.add_hosts_entries(str(hosts), create_backup=False) is False
+    monkeypatch.undo()
+    assert hosts.read_text(encoding="utf-8") == original
+
+
+def test_atomic_hosts_write_removes_its_temp_file_on_failure(tmp_path, monkeypatch):
+    import utils.hosts_manager as hosts_module
+
+    hosts = tmp_path / "hosts"
+    hosts.write_text("127.0.0.1 localhost\n", encoding="utf-8")
+
+    def refuse_replace(*_args, **_kwargs):
+        raise OSError(5, "private replace failure")
+
+    monkeypatch.setattr(hosts_module.os, "replace", refuse_replace)
+    with pytest.raises(OSError, match="private replace failure"):
+        HostsManager._atomic_write_hosts(str(hosts), "127.0.0.1 n8n.localhost\n")
+    assert hosts.read_text(encoding="utf-8") == "127.0.0.1 localhost\n"
+    assert list(tmp_path.glob(".hosts.*.tmp")) == []
+
+
+def test_an_alias_mapped_to_another_address_is_missing(tmp_path, monkeypatch):
+    """`10.0.0.5 n8n.localhost` does not route the alias to Kong on loopback."""
+    manager, hosts, _original, _expected = _private_hosts_addition(tmp_path, monkeypatch)
+    hosts.write_text("127.0.0.1 api.localhost\n10.0.0.5 n8n.localhost\n", encoding="utf-8")
+    assert manager.check_missing_hosts() == ["n8n.localhost"]

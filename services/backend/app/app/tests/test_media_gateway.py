@@ -1799,6 +1799,31 @@ def test_operation_owner_fetches_its_comfyui_artifact(monkeypatch):
     assert fetched == [("out.png", "sub", "output")]
 
 
+def test_unknown_artifact_type_is_served_as_an_attachment(monkeypatch):
+    # HTML/SVG rendered inline would run script, so an unknown type downloads.
+    import asyncio
+
+    owner = str(uuid.uuid4())
+    client, fetched = _artifact_app(monkeypatch, owner)
+    import main
+
+    artifacts = [{"filename": "page.html", "subfolder": "", "folder_type": "output"}]
+    asyncio.run(main.MEDIA_OPERATION_STORE.create({
+        "operation_id": "op-html", "provider": "comfyui", "modality": "image", "model": "m",
+        "created_at_epoch": time.time(), "timeout_seconds": 60,
+        "owner_scope": f"user:{owner}", "budget_tracked": False, "reconciled": True,
+        "last_payload": {"operation_id": "op-html", "status": "succeeded", "artifacts": artifacts},
+    }))
+
+    response = client.get("/media/operations/op-html/artifacts/0", headers=_artifact_user_headers(owner))
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/octet-stream"
+    assert response.headers["content-disposition"].startswith("attachment")
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert fetched == [("page.html", "", "output")]
+
+
 def test_another_user_cannot_fetch_the_artifact(monkeypatch):
     client, fetched = _artifact_app(monkeypatch, str(uuid.uuid4()))
 

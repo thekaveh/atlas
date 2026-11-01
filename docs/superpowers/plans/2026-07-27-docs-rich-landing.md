@@ -1,6 +1,6 @@
 # Docs .io Rich Landing Page — Implementation Plan
 
-> **Status: archived plan** — dated 2026-07-27; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+> **Status: archived plan** — dated 2026-07-27; a point-in-time record kept for archaeology, not current guidance. It landed in `e58d615c` (#845), which has no CHANGELOG entry.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax.
 

@@ -1,6 +1,6 @@
 # Bounded TUI Compose reactivation (#1031)
 
-> **Status: archived spec** — dated 2026-09-14; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+> **Status: archived spec** — dated 2026-09-14; a point-in-time record kept for archaeology, not current guidance. It landed in `dc960923` (#1075), which has no CHANGELOG entry.
 
 ## 1. Verified problem
 

@@ -230,6 +230,28 @@ def test_spend_read_is_scoped_to_consumer(monkeypatch):
     assert beta["records"] == []  # no leakage across consumers
 
 
+def test_spend_read_without_project_covers_every_project(monkeypatch):
+    # An omitted project is an all-projects read, not the "default" project.
+    main = _fresh_main(monkeypatch, budget_enabled=True, default_cap=10.0)
+    from fastapi.testclient import TestClient
+
+    async def seed():
+        for operation_id, project in (("op-a", "a"), ("op-b", "b")):
+            await main.MEDIA_BUDGET_ENGINE.reserve(
+                operation_id=operation_id, consumer="acme", project=project,
+                provider="fal", model="fal-ai/trellis", modality="image_to_3d",
+                estimated_cost_usd=0.05,
+            )
+
+    asyncio.run(seed())
+    response = TestClient(main.app).get("/media/spend", params={"consumer": "acme"})
+    assert response.status_code == 200
+    spend = response.json()
+    assert spend["project"] is None
+    assert spend["cap_usd"] is None
+    assert sorted(r["project"] for r in spend["records"]) == ["a", "b"]
+
+
 def test_attach_failure_does_not_500_and_retains_reservation(monkeypatch):
     # The provider call succeeded, so a ledger re-key hiccup must retain the
     # reservation and a durable attach intent rather than undercount paid work.
@@ -740,17 +762,19 @@ def test_lost_operation_state_ack_can_sync_ledger_fallback_winner(monkeypatch):
     operation = asyncio.run(main.MEDIA_OPERATION_STORE.get("fal-3d-9"))
     provider_terminal = dict(operation["last_payload"])
     provider_terminal["status"] = "succeeded"
-    asyncio.run(
+    _, moved = asyncio.run(
         main.MEDIA_OPERATION_STORE.transition_payload(
-            "fal-3d-9", provider_terminal, expected_status="queued"
+            "fal-3d-9", provider_terminal, expected_status="submitted"
         )
     )
+    assert moved is True
     synced = client.post(
         "/media/operations/fal-3d-9/reconcile", json={"outcome": "release"}
     )
     assert synced.status_code == 200
     assert synced.json()["status"] == "failed"
     operation = asyncio.run(main.MEDIA_OPERATION_STORE.get("fal-3d-9"))
+    assert operation["reconciled"] is True
     assert operation["last_payload"]["provenance"][
         "manual_reconciliation_outcome"
     ] == "release"

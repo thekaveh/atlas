@@ -727,10 +727,10 @@
 | OPEN_WEB_UI_REDIS_DB | open-webui | 2 | Redis database index for Open WebUI's websocket manager. LightRAG shares db 2 by default. |
 | OPEN_WEB_UI_MODEL_CACHE_TTL | open-webui | 300 | Seconds Open WebUI caches the model list (MODELS_CACHE_TTL). |
 | OPEN_WEB_UI_ENABLE_IMAGE_GENERATION | open-webui | true | Set by bootstrapper: true unless COMFYUI_SOURCE=disabled, so Open WebUI hides its ComfyUI image toggle when there is no ComfyUI. Open WebUI keeps the value saved in its database once an admin edits the Images settings. |
-| OPEN_WEB_UI_TTS_ENGINE | open-webui |  | Set by bootstrapper when speaches/chatterbox are enabled. |
+| OPEN_WEB_UI_TTS_ENGINE | open-webui |  | Set by ./start.sh: openai when TTS_PROVIDER_SOURCE is not disabled, else empty. Passed as AUDIO_TTS_ENGINE. |
 | OPEN_WEB_UI_STT_ENGINE | open-webui |  | Set by ./start.sh: openai when STT_PROVIDER_SOURCE is not disabled, else empty. Passed as AUDIO_STT_ENGINE. |
-| OPEN_WEB_UI_TTS_MODEL | open-webui |  | Model name Open WebUI sends to /v1/audio/speech. Empty = engine default. |
-| OPEN_WEB_UI_TTS_VOICE | open-webui |  | Voice id. Empty = engine default. |
+| OPEN_WEB_UI_TTS_MODEL | open-webui |  | Set by ./start.sh from TTS_PROVIDER_SOURCE; do not edit. SPEACHES_TTS_MODEL (Kokoro if blank) for Speaches, chatterbox-tts-1 for Chatterbox, else empty. Passed to Open WebUI as AUDIO_TTS_MODEL and to hermes-init. Open WebUI admin, Audio overrides it for Open WebUI only. |
+| OPEN_WEB_UI_TTS_VOICE | open-webui |  | Set by ./start.sh from TTS_PROVIDER_SOURCE; do not edit. af_heart for Speaches, alloy for Chatterbox, else empty. Passed to Open WebUI as AUDIO_TTS_VOICE and to hermes-init. Open WebUI admin, Audio overrides it for Open WebUI only. |
 | OPEN_WEB_UI_TTS_API_URL | open-webui |  | Set by ./start.sh from TTS_ENDPOINT plus /v1, or empty. Passed as AUDIO_TTS_OPENAI_API_BASE_URL. |
 | OPEN_WEB_UI_STT_API_URL | open-webui |  | Set by ./start.sh from STT_ENDPOINT plus /v1, or empty. Passed as AUDIO_STT_OPENAI_API_BASE_URL. |
 | OPEN_WEB_UI_SCALE | open-webui |  | Set by ./start.sh from OPEN_WEB_UI_SOURCE; do not edit. 1 runs the open-web-ui container, 0 does not. |

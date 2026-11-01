@@ -183,7 +183,8 @@ echo ""
 
 # Forward every CMD token to the next stage of the launch chain — typically
 # `start-notebook.sh <flags...>` per the compose `command:` block. The flags
-# (e.g. --ServerApp.allow_origin=*) ride through unchanged: start-notebook.sh
+# (e.g. --ServerApp.allow_origin=${JUPYTER_ALLOW_ORIGIN}, empty by default)
+# ride through unchanged: start-notebook.sh
 # passes its own "$@" to `jupyter lab`, where each --ServerApp.<name>=<value>
 # sets a Traitlet on the Jupyter Server.
 #

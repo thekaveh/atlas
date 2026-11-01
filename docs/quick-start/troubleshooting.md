@@ -34,7 +34,9 @@ For file-inspection commands below, replace literal `.env` paths with your selec
 
 ## 1. New or renamed variables after an upgrade
 
-Every `./start.sh` repairs `.env` before it starts services. To repair it without a start, run `./start.sh env backfill`. Both add each key that `.env.example` has and `.env` lacks, and report what changed. A blank value gets the non-blank `.env.example` default. Model-selection lists such as `OLLAMA_USER_MODELS` are the exception: they can stay blank. Backfill changes no non-blank value and no data.
+Every `./start.sh` repairs `.env` before it starts services. To repair it without a start, run `./start.sh env backfill`. Both add each key that `.env.example` has and `.env` lacks, and report what changed. A blank value gets the non-blank `.env.example` default. Model-selection lists such as `OLLAMA_USER_MODELS` are the exception: they can stay blank. Apart from the build pins below, backfill changes no non-blank value and no data.
+
+A build pin such as `LOCAL_DEEP_RESEARCHER_LANGGRAPH_CLI_VERSION` decides what an image build installs. When a pin still holds a default that an earlier Atlas shipped, both commands replace it with the current `.env.example` value. They back up `.env` first and name each key they change. A pin value you set yourself stays as it is.
 
 A renamed key is not carried over by backfill. It adds the new key with its default and leaves the old key in place, unused. `./start.sh` carries over only the renames its `.env` migrations know, after it writes a backup of `.env`:
 

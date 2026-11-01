@@ -1,6 +1,6 @@
 # Wizard recovery guidance (#1029)
 
-> **Status: archived spec** — dated 2026-09-13; a point-in-time record kept for archaeology, not current guidance. The landed outcome is recorded in the [CHANGELOG](../../CHANGELOG.md).
+> **Status: archived spec** — dated 2026-09-13; a point-in-time record kept for archaeology, not current guidance. It landed in `0b0d56cb` (#1068), which has no CHANGELOG entry.
 
 ## 1. Verified problem
 

@@ -930,6 +930,31 @@ def test_npm_audit_requires_vulnerability_totals(
     assert failures == ["n8n: npm audit response omitted vulnerability totals"]
 
 
+@pytest.mark.parametrize(
+    "case",
+    [
+        (1, "n8n: npm audit exited 1 without reported vulnerabilities"),
+        (2, "n8n: npm audit failed (exit 2; subprocess output redacted)"),
+    ],
+)
+def test_npm_audit_exit_status_anomalies_fail_closed(
+    tmp_path: Path, monkeypatch, case: tuple[int, str]
+) -> None:
+    """An exit status that contradicts a clean report must fail the gate."""
+    returncode, expected = case
+    monkeypatch.setattr(
+        audit_runtime_locks,
+        "run_bounded",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            returncode=returncode,
+            stdout=json.dumps({"metadata": {"vulnerabilities": {"total": 0}}}),
+            stderr="",
+        ),
+    )
+
+    assert audit_runtime_locks.audit_npm_project("n8n", root=tmp_path) == [expected]
+
+
 def _npm_payload(*advisories: str) -> dict:
     """An npm audit report: each advisory on one package, plus a transitive parent."""
     vulnerabilities = {

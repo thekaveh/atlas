@@ -280,7 +280,7 @@ runtime_sc:
       environment:
         AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
         AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: "postgresql+psycopg2://${AIRFLOW_DB_USER_URI}:${AIRFLOW_DB_PASSWORD_URI}@supabase-db:5432/airflow"
-        # _AIRFLOW_DB_MIGRATE intentionally NOT set — see compose.yml.
+        # _AIRFLOW_DB_MIGRATE stays unset: init-airflow.sh runs `airflow db migrate` itself.
         # Mirror of compose.yml — required by init-airflow.sh's
         # `airflow users create --password "${AIRFLOW_ADMIN_PASSWORD}"`.
         # Without it, `set -euo pipefail` aborts and the whole family

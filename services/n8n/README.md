@@ -73,7 +73,7 @@ With `SUPAVISOR_SOURCE=container`, n8n and n8n-worker connect to `supavisor:6543
 
 The bundled Backend-calling workflows send `Authorization: Bearer $env.BACKEND_N8N_API_TOKEN` on every request. Both the web and worker containers have the value, because queue-mode executions run on the worker. The token reaches only a limited set of Backend routes; the Backend docs list them. Do not return it in webhook payloads, execution output or browser-side code.
 
-Only `BACKEND_N8N_API_TOKEN` is route-scoped. The web and worker containers also receive the stack-wide LiteLLM master key and provider-level credentials for cloud models, Docling and Parakeet. Trusted workflow expressions may call those services.
+Only `BACKEND_N8N_API_TOKEN` is route-scoped. The web and worker containers also receive the stack-wide LiteLLM master key and provider-level credentials for Docling, Parakeet, Hermes, LightRAG and Crawl4AI. Trusted workflow expressions may call those services.
 
 - Calls to `${DOCLING_ENDPOINT}/v1/document/convert` must send `Authorization: Bearer {{$env.DOCLING_API_TOKEN}}`.
 - Calls to a Parakeet `${STT_ENDPOINT}/v1/audio/transcriptions` route must send `{{$env.PARAKEET_API_TOKEN}}`. Speaches and whisper.cpp do not use it.

@@ -246,3 +246,47 @@ def test_unknown_ollama_retention_keeps_independent_comfyui_cleanup(tmp_path, mo
     assert fixture.stack.ollama == before
     assert "loras/mystery.safetensors" not in fixture.stack.comfyui
     assert "checkpoints/v1-5-pruned-emaonly.safetensors" in fixture.stack.comfyui
+
+
+@pytest.mark.parametrize("answer", ["n\n", "\n", None], ids=["no", "default", "eof"])
+def test_storage_clean_asks_before_removing(tmp_path, monkeypatch, answer):
+    """Without --yes it asks first; "no", an empty answer and EOF remove nothing."""
+    import start
+    from click.testing import CliRunner
+
+    fixture = _rendered_retention_fixture(tmp_path, monkeypatch)
+    before = dict(fixture.stack.ollama)
+    result = CliRunner().invoke(start.main, ["storage", "clean"], input=answer)
+    assert "Remove these items?" in result.output
+    assert fixture.stack.ollama == before
+    if answer is None:
+        assert result.exit_code == 1, result.output  # click aborts on EOF
+    else:
+        assert result.exit_code == 0, result.output
+        assert "Nothing removed." in result.output
+
+
+def test_storage_clean_stops_at_the_first_failed_removal(tmp_path, monkeypatch):
+    """A failure exits 1 and leaves every later planned item as it was."""
+    import start
+    from click.testing import CliRunner
+
+    fixture = _rendered_retention_fixture(tmp_path, monkeypatch)
+    fixture.stack.fail_on = fixture.routed  # the first of [routed, custom]
+    result = CliRunner().invoke(start.main, ["storage", "clean", "--yes", "--name", fixture.custom])
+    assert result.exit_code == 1, result.output
+    assert f"stopped at {fixture.routed}" in result.output
+    assert {fixture.routed, fixture.custom} <= set(fixture.stack.ollama)
+
+
+@pytest.mark.parametrize("key", ["LITELLM_DEFAULT_MODEL", "LITELLM_VISION_MODEL", "LANGMEM_EMBEDDING_MODEL"])
+def test_storage_clean_keeps_models_routed_by_settings(tmp_path, monkeypatch, key):
+    """docs/quick-start/troubleshooting.md lists these settings as retained."""
+    import start
+    from click.testing import CliRunner
+
+    fixture = _rendered_retention_fixture(tmp_path, monkeypatch)
+    fixture.env[key] = "ollama/" + fixture.routed
+    result = CliRunner().invoke(start.main, ["storage", "clean", "--yes"])
+    assert result.exit_code == 0, result.output
+    assert fixture.routed in fixture.stack.ollama
