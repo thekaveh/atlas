@@ -154,6 +154,7 @@ Key modules:
 - `core/config_parser.py` — env parsing + manifest synthesis entry point; exports `DEFAULT_BASE_PORT` (the single source for the 63000 default base port; consumed by `start.py` and the Textual wizard). `load_yaml_config()` returns the synthesized dict by delegating to `services/manifests.py` + `services/sc_synthesizer.py`.
 - `core/support_bundle.py` — the redacted, versioned support bundle (#1057) behind `./start.sh doctor --bundle PATH` and `./start.sh --support-bundle PATH`: best-effort `Redactor`, offline, time-bounded `run_checks`, allowlisted `build_bundle`, and a preview-then-write `export`. `AtlasStarter.build_support_bundle` feeds it the doctor checks and consumer env origins; the linear flow and the Textual launch screen each call it on a failed start.
 - `core/docker_manager.py` — compose execution; `execute_compose_command` for the linear flow, `stream_compose` for line-by-line piping into the Textual log pane
+- `core/launch_plan.py` — the ordered configuration stages (source overrides through the final `.env` backfill) and `run_stage`, which returns a `StageResult` (succeeded / failed / crashed / cancelled). `core/linear_startup.py` and the Textual launch screen both run this plan, so a new stage is one registration (#1043). Environment preparation before it and Compose up, init checks and post-start probes after it are still owned by each front end.
 - `services/topology.py` — single source of truth for service rows (category, deps, aliases, port defaults, display name, description). `get_topology()` accessor; `build_topology()` for tests with synthetic services dirs.
 - `services/manifests.py` — loads `services/<name>/service.yml` files into `Manifest` dataclasses (env vars, source variants, runtime_sc slices).
 - `services/manifest_validator.py` — schema + cross-manifest invariants (alias uniqueness, cycle detection, category-overflow, engine-orphan lints).
@@ -205,7 +206,8 @@ direction `view -> viewmodel -> model` as far as each layer exists:
 - `ui/textual/` may import `wizard.model` only at the six allowlisted sites. A
   tripwire test fails when `wizard/view/` is created, so the check moves there.
 - `core/linear_startup.py` must not import `vmx`, so the `--no-tui` path is
-  VMx-free by structure, not by convention.
+  VMx-free by structure, not by convention. It, `core/launch_plan.py` and
+  `core/launch_outcome.py` must not import `textual`, `vmx` or `ui`.
 
 `start.sh` and `stop.sh` are thin wrappers that prefer `uv run` and fall back to system Python. The bootstrapper can also be invoked directly with its dependencies available, e.g. `uv run --project bootstrapper python bootstrapper/start.py [flags]` (a bare system `python` lacks `click` and the other dependencies). `--no-tui` bypasses the Textual TUI and runs the linear stdout flow (used by CI, non-TTY shells, and very narrow terminals).
 
