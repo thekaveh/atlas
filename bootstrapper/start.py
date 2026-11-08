@@ -3877,9 +3877,11 @@ class AtlasStarter:
         bind-mounts it. Earlier container runs can leave the directory
         root-owned with 755 mode, blocking subsequent re-writes.
 
-        Strategy: if the directory exists and is not writable, attempt
-        a 777 chmod. If chmod also fails (usually because another user owns
-        it), preserve the directory and report the ownership repair command.
+        Strategy: if the directory exists and is not writable, add owner
+        rwx. Only the owner can chmod, and no container writes these
+        directories as a non-root user, so other-write is never added
+        (#1387). If chmod fails (another user owns it), preserve the
+        directory and report the ownership repair command.
 
         Never raises — falls back to letting the original write fail with its
         native error when ownership prevents the permission repair.
@@ -3892,9 +3894,9 @@ class AtlasStarter:
         if os.access(path, os.W_OK):
             return  # already writable, nothing to do
 
-        # Try chmod 0o777 first (cheapest, least destructive).
+        # Owner rwx is the cheapest, least destructive repair.
         try:
-            path.chmod(0o777)
+            path.chmod(path.stat().st_mode & 0o7777 | 0o700)
             if os.access(path, os.W_OK):
                 self.banner.show_status_message(
                     f"  • Relaxed permissions on {path} (was root-owned from a prior container run)",

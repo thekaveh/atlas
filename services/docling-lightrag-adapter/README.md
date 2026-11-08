@@ -10,6 +10,8 @@ LightRAG v1.5.4 expects an asynchronous submit, poll, and result-download docume
 
 The adapter runs only when `LIGHTRAG_SOURCE=container` and a Docling source is enabled. It, LightRAG, and `docling-gpu` share the dedicated `docling-lightrag-network`; the adapter has no published host port and does not join the backend network. With `docling-localhost`, the adapter reaches the host provider through `host.docker.internal`. LightRAG receives only the adapter URL. The adapter alone receives `DOCLING_API_TOKEN` and uses it for the protected upstream bundle request.
 
+The adapter's submit, poll and result routes have no inbound authentication. LightRAG v1.5.4's Docling client sends no credential and has no setting for one, so a token check would break ingestion (#1387). The network is the control: only LightRAG and `docling-gpu` share it, and `docling-gpu` already holds `DOCLING_API_TOKEN`. `test_docling_adapter_wiring.py` fails if the adapter gains a published port or another network.
+
 The container is built from the pinned adapter lock, runs as a non-root user, and does not load document models. Container ownership, derived scale, and source permutations remain in the Docling manifest and compose fragment.
 
 ## 3. API contract

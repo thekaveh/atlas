@@ -158,6 +158,22 @@ def test_heavy_work_past_its_deadline_is_a_504_and_keeps_its_slot_until_done(mon
     assert later == 0
 
 
+def test_unlisted_tokenizer_is_a_400_before_chonkie_loads_it(monkeypatch):
+    """A Hub repo id as tokenizer made Chonkie download it (#1387)."""
+    main = _fresh_main(monkeypatch)
+    import chunking_service
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setattr(chunking_service, "_import_chonkie", lambda: pytest.fail("chonkie loaded"))
+    response = TestClient(main.app).post(
+        "/api/chunk",
+        json={"text": "x y", "strategy": "token", "tokenizer": "someuser/somerepo"},
+    )
+
+    assert response.status_code == 400
+    assert "gpt2" in response.json()["detail"]
+
+
 def test_chunker_errors_split_into_caller_and_server_faults(monkeypatch):
     """#1354: a tokenizer the caller named that cannot load is a 400 (as before);
     any other chunker failure is a 502."""

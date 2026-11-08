@@ -100,7 +100,11 @@ Kong applies one of three schemes per route:
 - **Basic** (`basic-auth`): protected dashboards.
 - **Pass-through**: services that handle their own auth.
 
-On a Basic-auth route Kong reads the dashboard credential from `Authorization` or `Proxy-Authorization`. Some clients need `Authorization` for the service's own token: Crawl4AI's `Bearer`, Label Studio's `Token`, and Langfuse's public-API `Basic pk:sk`. They send the dashboard credential as `Proxy-Authorization: Basic …` alongside it. Trino's route strips the credential before forwarding (`hide_credentials`), because Trino rejects any password over plain HTTP.
+On a Basic-auth route Kong reads the dashboard credential from `Authorization` or `Proxy-Authorization`. Some clients need `Authorization` for the service's own token: Crawl4AI's `Bearer`, Label Studio's `Token`, and Langfuse's public-API `Basic pk:sk`. They send the dashboard credential as `Proxy-Authorization: Basic …` alongside it.
+
+Every dashboard route strips the dashboard credential before forwarding (`hide_credentials`), so apps never receive the pair (#1387). Kong clears only the header the credential came in, so an app's own `Authorization` survives. Flower is the exception: it checks the same pair itself (`FLOWER_BASIC_AUTH`), so its route forwards it.
+
+nginx's error log still records the full request line, query string included, when an upstream fails. A WebSocket client that puts a credential in the query string can therefore leave it in `docker logs <project>-kong-api-gateway` during upstream restarts.
 
 **Blocked paths.** Two routes answer `403` at the gateway and never reach the upstream. Use the internal network for these paths:
 
