@@ -117,6 +117,7 @@ Recall and update confidence must be finite and in `0..1`. Invalid requests retu
 - A reconciliation pass counts only facts whose guarded clear matched. A fact that a newer edit wins stays pending and is not counted.
 - When Weaviate is unavailable, a pgvector write advances the dirty generation atomically with the vector update.
 - A Weaviate outage latches recall to pgvector, without readiness probes on each request.
+- pgvector recall runs with `hnsw.iterative_scan = strict_order` (pgvector 0.8+). The HNSW index filters after its scan, so a selective filter could return fewer rows than `limit`. Iterative scans read on until `limit` rows match, in distance order.
 - Recall and writes check the generation before and after external I/O. On a change, the result is discarded or pgvector stays authoritative. No stale result or lost write crosses a switch.
 
 **Failback to Weaviate.**

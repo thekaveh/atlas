@@ -1178,7 +1178,14 @@ class MemoryStore:
         distance = self._distance_expression()
         # #804: embedding already generated above (no connection held across
         # that I/O), so this short UPDATE/SELECT draws from the shared pool.
-        async with acquire_conn(self.database_url) as conn:
+        async with acquire_conn(self.database_url) as conn, conn.transaction():
+            # An HNSW scan applies the filters after the index returns its
+            # ef_search candidates, so a selective filter (one user's facts in
+            # a shared table, a high min_confidence) can return fewer rows
+            # than exist. Iterative scans keep reading the index until LIMIT
+            # rows match, in distance order (pgvector 0.8+, #1901). SET LOCAL
+            # ends with this transaction, so pooled connections stay clean.
+            await conn.execute("SET LOCAL hnsw.iterative_scan = strict_order")
             rows = await conn.fetch(
                 f"""
                 SELECT id, content, fact_type, confidence,
