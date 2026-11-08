@@ -83,13 +83,8 @@ Set `SUPAVISOR_SOURCE=disabled` and rerun `./start.sh`. The bootstrapper resets 
 - `FATAL: Tenant or user not found`: confirm the client username includes the tenant suffix, for example `${BACKEND_DB_USER}.${SUPAVISOR_TENANT_ID}`.
 - `VAULT_ENC_KEY` errors: make sure `SUPAVISOR_VAULT_ENC_KEY` is exactly 32 bytes. The bootstrapper generates this when the value is blank.
 - Backend or n8n auth failures after enabling: set `SUPAVISOR_SOURCE=disabled` to roll back, then inspect Supavisor tenant bootstrap logs.
-- The tenant is created once and never updated (`pooler/pooler.exs`, matching upstream Supabase). If `.env` is regenerated while volumes are kept, the scoped manager password changes but the stored tenant keeps the old one. Later edits to `SUPAVISOR_DEFAULT_POOL_SIZE` / `SUPAVISOR_MAX_CLIENT_CONN` also have no effect. To fix either, re-create the tenant (below).
+- Settings changes apply at the next start. `pooler/pooler.exs` creates the tenant when it is missing and otherwise updates it from the environment (#1367). A regenerated manager password, `SUPAVISOR_DEFAULT_POOL_SIZE` and `SUPAVISOR_MAX_CLIENT_CONN` therefore reach the stored tenant when Supavisor restarts. Volumes can stay; no manual tenant reset is needed.
 - No Kong alias or host port is expected. Consumers connect over the Compose network at `supavisor:6543`.
-
-**Re-create the tenant.** Supavisor has no volume of its own, so do not touch the `supabase-db` volume.
-
-1. In the `supavisor` database on `supabase-db`, run `DELETE FROM _supavisor.tenants WHERE external_id = '<SUPAVISOR_TENANT_ID>';`. Its `_supavisor.users` rows cascade.
-2. Restart Supavisor.
 
 ## 8. Dependencies & Integrations
 
