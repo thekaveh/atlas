@@ -13,8 +13,10 @@ from functools import wraps
 from typing import Any
 
 from core import launch_plan
+from core.env_snapshot import EnvSnapshot
 from core.launch_plan import LaunchInputs
 from core.launch_outcome import (
+    ENV_RESTORED,
     COLD_STOP,
     DETACH,
     HEALTH_NOT_AWAITED,
@@ -151,6 +153,36 @@ def _run_linear_startup(
     starter.profile = options.profile
     starter.show_banner()
 
+    # Every step up to the confirm writes .env. Capture it first, so a
+    # declined summary or an interrupt leaves it as it was (#1044). A failed
+    # stage keeps its writes: #1820 persists source normalization across a
+    # halted launch on purpose.
+    snapshot = EnvSnapshot.capture(starter.config_parser.env_file_path)
+    try:
+        code = _configure_and_confirm(starter, options, snapshot)
+    except (KeyboardInterrupt, SystemExit):
+        if snapshot.restore():
+            print(f"  {ENV_RESTORED}; nothing was started.", file=sys.stderr)
+        raise
+    if code == 0:
+        snapshot.restore()  # the cancel notice already says so
+    if code is not None:
+        return code
+    if not starter.start_managed_host_processes():
+        return 1
+    if not starter.start_docker_services(
+        cold_start=options.cold, wait=options.detach or options.json_output
+    ):
+        return 1
+
+    warn_if_submodule_pin_drifted(starter.config_parser.root_dir)
+    return _finish_linear_startup(starter, options, summary_payload)
+
+
+def _configure_and_confirm(
+    starter: Any, options: LinearStartupOptions, snapshot: EnvSnapshot
+) -> int | None:
+    """Prepare, configure and confirm. None means launch; a code means stop."""
     if not starter.prepare_environment(
         cold_start=options.cold,
         base_port=options.base_port,
@@ -185,26 +217,24 @@ def _run_linear_startup(
             return 1
 
     assume_yes = options.detach or options.json_output
+    if not assume_yes:
+        # What launching would keep in .env; declining puts it back.
+        for line in snapshot.summary_lines():
+            starter.banner.console.print(
+                f"  {line}", style="color(245)", markup=False, highlight=False
+            )
     if not starter.show_pre_launch_summary(
         track=options.track, assume_yes=assume_yes
     ):
-        # Declining happens after .env was written and before anything
-        # starts, so say exactly that (#1032).
+        # Declining happens before anything starts; .env is put back by the
+        # caller, so say exactly that (#1032, #1044).
         starter.banner.console.print(
             "\n  [color(245)]"
-            f"{launch_cancelled_notice(options.cold, starter.stopped_previous_instance)}"
+            f"{launch_cancelled_notice(options.cold, starter.stopped_previous_instance, env_restored=True)}"
             "[/color(245)]"
         )
         return 0
-    if not starter.start_managed_host_processes():
-        return 1
-    if not starter.start_docker_services(
-        cold_start=options.cold, wait=assume_yes
-    ):
-        return 1
-
-    warn_if_submodule_pin_drifted(starter.config_parser.root_dir)
-    return _finish_linear_startup(starter, options, summary_payload)
+    return None
 
 
 def _run_post_start_probes(starter: Any) -> list[ProbeOutcome]:
