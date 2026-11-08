@@ -24,7 +24,7 @@ Smaller terminals (**59×20**, **60×19** or less) use the linear stdout flow. T
 
 ![Atlas wizard normal layout at 120 by 44 terminal cells](../screenshots/wizard-normal-terminal.svg)
 
-*At 120×44 the full logo, stack overview and work area are shown.*
+*At 120×44 the full logo, the stack overview with its Track and count lines, the prompt and the command summary are shown. The overview's remaining service rows scroll inside it.*
 
 The stack overview takes at most half of the Setup tab, so the prompt and the command summary always have room below it. When the service rows do not fit, they scroll inside the overview while its count and Track lines stay in view (#1921).
 
