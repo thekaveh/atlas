@@ -148,6 +148,7 @@ DOWNLOAD_PID=""
 DOWNLOAD_FIFO=""
 CUTOVER_STARTED=0
 CUTOVER_COMPLETE=0
+TARGET_ALLOW_CONN=""
 
 stop_download() {
   stop_rc=0
@@ -168,10 +169,14 @@ recover_cutover() {
   run_bounded psql -X \
     -h supabase-db -U "$SUPABASE_DB_USER" -d template1 \
     -v ON_ERROR_STOP=1 -v target_db="$SUPABASE_DB_NAME" \
-    -v temp_db="$TEMP_DB" -v rollback_db="$ROLLBACK_DB" <<'SQL'
+    -v temp_db="$TEMP_DB" -v rollback_db="$ROLLBACK_DB" \
+    -v allow_conn="${TARGET_ALLOW_CONN:-}" <<'SQL'
 SELECT format('ALTER DATABASE %I RENAME TO %I', :'rollback_db', :'target_db')
 WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = :'target_db')
   AND EXISTS (SELECT 1 FROM pg_database WHERE datname = :'rollback_db') \gexec
+SELECT format('ALTER DATABASE %I ALLOW_CONNECTIONS %s', :'target_db', :'allow_conn')
+WHERE :'allow_conn' IN ('true', 'false')
+  AND EXISTS (SELECT 1 FROM pg_database WHERE datname = :'target_db') \gexec
 SELECT 'restore: recovery state target=' ||
        EXISTS (SELECT 1 FROM pg_database WHERE datname = :'target_db') ||
        ' staging=' || EXISTS (SELECT 1 FROM pg_database WHERE datname = :'temp_db') ||
@@ -672,12 +677,27 @@ SQL
   exit 1
 }
 
+# The target refuses new sessions from before pg_terminate_backend until the
+# renames, so a reconnecting client cannot make the rename fail (#1362).
+# Every exit path restores the original setting recorded here.
+TARGET_ALLOW_CONN="$(run_bounded psql -X \
+  -h supabase-db -U "$SUPABASE_DB_USER" -d template1 \
+  -v ON_ERROR_STOP=1 -v target_db="$SUPABASE_DB_NAME" -At <<'SQL'
+SELECT CASE WHEN datallowconn THEN 'true' ELSE 'false' END
+FROM pg_database WHERE datname = :'target_db';
+SQL
+)"
+case "$TARGET_ALLOW_CONN" in
+  true | false) ;;
+  *) echo "restore: could not read the target database's connection setting" >&2; exit 1 ;;
+esac
+
 echo "restore: phase cutover"
 CUTOVER_STARTED=1
 if ! run_bounded psql -X \
   -h supabase-db -U "$SUPABASE_DB_USER" -d template1 \
   -v target_db="$SUPABASE_DB_NAME" -v temp_db="$TEMP_DB" \
-  -v rollback_db="$ROLLBACK_DB" <<'SQL'
+  -v rollback_db="$ROLLBACK_DB" -v allow_conn="$TARGET_ALLOW_CONN" <<'SQL'
 \set ON_ERROR_STOP on
 SELECT (
   EXISTS (SELECT 1 FROM pg_database WHERE datname = :'target_db')
@@ -695,6 +715,7 @@ SELECT format(
   CASE WHEN datallowconn THEN 'true' ELSE 'false' END
 )
 FROM pg_database WHERE datname = :'target_db' \gexec
+SELECT format('ALTER DATABASE %I ALLOW_CONNECTIONS false', :'target_db') \gexec
 
 SELECT pg_terminate_backend(pid)
 FROM pg_stat_activity
@@ -711,6 +732,7 @@ SELECT (
 \if :first_rename_ok
 \else
   \echo 'restore: original database rename failed'
+  SELECT format('ALTER DATABASE %I ALLOW_CONNECTIONS %s', :'target_db', :'allow_conn') \gexec
   SELECT 1/0;
 \endif
 
@@ -723,6 +745,7 @@ SELECT (
   AND NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = :'temp_db')
 ) AS second_rename_ok \gset
 \if :second_rename_ok
+  SELECT format('ALTER DATABASE %I ALLOW_CONNECTIONS %s', :'rollback_db', :'allow_conn') \gexec
   \quit
 \else
   \echo 'restore: replacement rename failed; restoring original name'
@@ -731,6 +754,8 @@ SELECT (
 \set ON_ERROR_STOP off
 SELECT format('ALTER DATABASE %I RENAME TO %I', :'rollback_db', :'target_db')
 WHERE NOT EXISTS (SELECT 1 FROM pg_database WHERE datname = :'target_db') \gexec
+SELECT format('ALTER DATABASE %I ALLOW_CONNECTIONS %s', :'target_db', :'allow_conn')
+WHERE EXISTS (SELECT 1 FROM pg_database WHERE datname = :'target_db') \gexec
 \set ON_ERROR_STOP on
 SELECT (
   EXISTS (SELECT 1 FROM pg_database WHERE datname = :'target_db')
