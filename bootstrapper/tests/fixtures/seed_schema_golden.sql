@@ -1260,6 +1260,14 @@ ALTER TABLE public.schema_migrations ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
 
+CREATE POLICY atlas_reader_select ON storage.buckets FOR SELECT TO atlas_studio_readonly, atlas_airflow_reader, atlas_mcp, atlas_jupyter, atlas_zeppelin USING (true);
+
+CREATE POLICY atlas_reader_select ON storage.objects FOR SELECT TO atlas_studio_readonly, atlas_airflow_reader, atlas_mcp, atlas_jupyter, atlas_zeppelin USING (true);
+
+ALTER TABLE storage.buckets ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
+
 CREATE PUBLICATION supabase_realtime WITH (publish = 'insert, update, delete, truncate');
 
 ALTER PUBLICATION supabase_realtime OWNER TO postgres;

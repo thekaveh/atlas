@@ -85,9 +85,15 @@ SELECT pg_temp.atlas_as_role(pg_temp.atlas_owner_of('storage.buckets'), $body$
   CREATE INDEX IF NOT EXISTS idx_storage_buckets_owner ON storage.buckets (owner);
 $body$);
 
--- Disable RLS since we're managing access through GRANTs
-ALTER TABLE storage.buckets DISABLE ROW LEVEL SECURITY;
-ALTER TABLE storage.objects DISABLE ROW LEVEL SECURITY;
+-- Row-level security is the control (#1887). The revokes below are not
+-- enough: supabase-storage starts after this script and runs its own pending
+-- migrations, and storage-api v1.61.5's 0046 grants ALL on both tables to
+-- anon and authenticated. With RLS on and no policy for those roles they
+-- see and change nothing. service_role bypasses RLS, the Storage service's
+-- own role owns the tables, and 05-scoped-roles.sh adds SELECT policies for
+-- the database readers and Studio.
+ALTER TABLE storage.buckets ENABLE ROW LEVEL SECURITY;
+ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
 
 
 -- Grant privileges to roles
@@ -95,8 +101,8 @@ GRANT ALL ON storage.buckets TO service_role;
 GRANT ALL ON storage.objects TO service_role;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA storage TO service_role;
 
--- `anon` is deliberately EXCLUDED here. RLS is disabled on these tables (see
--- above), so a GRANT is the only control — and PostgREST publishes `storage`
+-- `anon` is deliberately EXCLUDED here. Before #1887, RLS was disabled on these
+-- tables, so a GRANT was the only control — and PostgREST publishes `storage`
 -- (PGRST_DB_SCHEMA: "public,storage") on a port that binds loopback by
 -- default (HOST_BIND_IP=127.0.0.1:) and every interface when HOST_BIND_IP is
 -- empty or 0.0.0.0:. Granting anon SELECT therefore made every object's
@@ -114,9 +120,9 @@ GRANT ALL ON ALL SEQUENCES IN SCHEMA storage TO service_role;
 -- RLS off there is no owner scoping left: SELECT exposed every object's path,
 -- owner and metadata across every bucket, and INSERT/UPDATE/DELETE let any such
 -- account rewrite or erase every row in storage.objects -- other people's
--- objects included. Upstream Supabase grants this role only because it runs
--- these tables with RLS ON and owner-scoped policies; this slice deliberately
--- does not.
+-- objects included. Upstream Supabase grants this role because it runs these
+-- tables with RLS ON and owner-scoped policies. RLS is now on here as well,
+-- with no policy for this role.
 --
 -- Nothing in the tree needs it. The Storage service reaches these tables as
 -- SUPABASE_STORAGE_DB_USER with its own DDL/DML/READ contract (pinned by
