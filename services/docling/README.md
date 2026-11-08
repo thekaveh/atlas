@@ -31,6 +31,13 @@ before enrichment or export. Only `data:`, `http:` and `https:` references
 remain. The log reports their discarded count without exposing paths. Images
 from other input formats keep their existing handling.
 
+**Image inputs.** PNG, JPEG and TIFF uploads use the same pipeline options as
+PDF: per-request `use_ocr` and `table_mode`, `DOCLING_DEVICE`, and the
+`DOCLING_ENABLE_FORMULAS` and `DOCLING_ENABLE_CODE_BLOCKS` toggles.
+`services/docling/provider/tests/test_pipeline_real_converter.py` checks every
+combination against the pinned Docling release. It needs a provider lock
+installed, so the bootstrapper suite does not run it; it skips without Docling.
+
 **Timeouts and fallback.**
 
 - Backend and Celery extraction set their Docling client timeout to `DOCLING_INFERENCE_TIMEOUT_SECONDS` plus 30 s, capped at 3,600 s.
