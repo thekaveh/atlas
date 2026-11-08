@@ -19,6 +19,12 @@ class RayDisabledError(Exception):
     """Raised by RayClient methods when Ray is not configured."""
 
 
+class RayPackNotInstalledError(RayDisabledError):
+    """This Backend image was built without the Ray SDK. A 503 with a
+    detail, like a disabled cluster, instead of a 500 from the import
+    (#1041)."""
+
+
 class RayUnavailableError(RayDisabledError):
     """The Ray dashboard did not answer; no job request was sent. A 503 like
     a disabled cluster: the SDK constructor probe ran outside the timeout
@@ -249,6 +255,11 @@ class RayClient:
             os.environ.setdefault("RAY_API_SERVER_ADDRESS", self._addr)
             try:
                 client = _bounded_submission_client(self._addr)
+            except ImportError as exc:
+                raise RayPackNotInstalledError(
+                    "The Ray SDK is not installed in this Backend image; "
+                    "Ray job routes are unavailable"
+                ) from exc
             except OSError as exc:  # requests timeouts/connection errors and builtin ConnectionError
                 raise RayUnavailableError(f"Ray dashboard at {self._addr} did not answer") from exc
             _bind_transport_deadline(client)
