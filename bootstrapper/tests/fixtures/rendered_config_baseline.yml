@@ -1053,7 +1053,7 @@ services:
     - /tmp
     - /var/lib/redis
     - /var/lib/crawl4ai/outputs:mode=0700
-    - /home/appuser/.cache
+    - /home/appuser/.crawl4ai
   docling-lightrag-adapter:
     build:
       context: '{REPO_ROOT}/services/docling/provider'

@@ -13,11 +13,15 @@ services:
       - no-new-privileges:true
     pids_limit: 512
     read_only: true
+    # Writable paths for the read-only root (#1375). crawl4ai creates its
+    # database under /home/appuser/.crawl4ai at import. /home/appuser/.cache
+    # stays read-only: it holds the image's Playwright Chromium, and a tmpfs
+    # there hid the browser, so the worker failed to boot.
     tmpfs:
       - /tmp
       - /var/lib/redis
       - /var/lib/crawl4ai/outputs:mode=0700
-      - /home/appuser/.cache
+      - /home/appuser/.crawl4ai
     environment:
       CRAWL4AI_API_TOKEN: ${CRAWL4AI_API_TOKEN}
       CRAWL4AI_ALLOW_INTERNAL_URLS: ${CRAWL4AI_ALLOW_INTERNAL_URLS:-false}

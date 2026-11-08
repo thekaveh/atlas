@@ -84,7 +84,7 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
-| Browser-backed web extraction | supported | tested | Atlas configures Crawl4AI's JavaScript-capable API and a Local Deep Researcher adapter that submits URLs and retains bounded markdown output. |
+| Browser-backed web extraction | supported | tested | Atlas configures Crawl4AI's JavaScript-capable API and a Local Deep Researcher adapter that submits URLs and retains bounded markdown output. On 2026-11-08, POST /crawl returned rendered markdown for a static and a JavaScript page under the read-only profile (#1375). |
 | Layered extraction-route authentication | supported | tested | The direct and internal APIs require the generated Crawl4AI bearer token, while the Kong alias adds dashboard Basic authentication and ACL; only health is public. |
 | Conservative crawl isolation | supported | tested | Internal-URL access defaults off and the container is read-only with dropped capabilities, no-new-privileges, bounded processes, and ephemeral working directories. |
 | Curated MCP package registration | not-supported | documented | The upstream server exposes MCP transports, but Atlas does not register them in its curated MCP package or provide transport-specific discovery. |
@@ -96,6 +96,16 @@ Crawl4AI 0.9.0 exposes MCP endpoints at `/mcp/sse`, `/mcp/ws` and `/mcp/schema` 
 - `401 Unauthorized`: include `Authorization: Bearer ${CRAWL4AI_API_TOKEN}`.
 - Kong route missing: confirm `CRAWL4AI_SOURCE=container` and rerun `./start.sh`.
 - Local Deep Researcher still using snippets: set `LOCAL_DEEP_RESEARCHER_FULL_PAGE_MODE=crawl4ai`, ensure `CRAWL4AI_SOURCE=container`, and restart the stack.
+- Worker fails to boot (`/health` unreachable), with `Read-only file system: '/home/appuser/.crawl4ai'` or Playwright's `Executable doesn't exist` in `docker logs <project>-crawl4ai`: the root filesystem is read-only. `/home/appuser/.crawl4ai` must be a tmpfs, because crawl4ai creates its database there. `/home/appuser/.cache` must not be one, because it holds the image's Chromium.
+- A `Control server error … '/home/appuser/.gunicorn'` log line is harmless. It is gunicorn's optional admin socket, which Atlas does not use.
+- Browser smoke test. Startup launches Chromium, so a healthy `/health` already means the browser started. To check a full crawl:
+
+  ```bash
+  curl -s -H "Authorization: Bearer ${CRAWL4AI_API_TOKEN}" -H 'Content-Type: application/json' \
+    -d '{"urls": ["https://example.com"]}' "http://localhost:${CRAWL4AI_PORT}/crawl"
+  ```
+
+  A working browser returns `"success": true` and the page as markdown in `results[0].markdown`.
 
 ## 8. Dependencies & Integrations
 
