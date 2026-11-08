@@ -81,9 +81,12 @@ async def _refresh_rejected_vector_rows(conn, rejected) -> None:
             rejected[key] = stamp
 
 
-async def _clear_active_vector_intent(conn, row, new_weaviate_id) -> None:
-    """Capture the current version only while it owns the vector just written."""
-    await conn.execute(
+async def _clear_active_vector_intent(conn, row, new_weaviate_id) -> bool:
+    """Capture the current version only while it owns the vector just written.
+
+    Returns whether the clear matched the row; a newer edit makes it miss.
+    """
+    status = await conn.execute(
         """
         WITH vector_owner AS MATERIALIZED (
             SELECT updated_at FROM public.memory_facts
@@ -106,20 +109,21 @@ async def _clear_active_vector_intent(conn, row, new_weaviate_id) -> None:
         row["id"], new_weaviate_id, row["user_id"], row["namespace"],
         row["content"], row["fact_type"], row["confidence"],
     )
+    return status == "UPDATE 1"
 
 
-async def _clear_pending_vector_intent(conn, row, new_weaviate_id) -> None:
+async def _clear_pending_vector_intent(conn, row, new_weaviate_id) -> bool:
     """Clear only the canonical vector state this reconciliation owns.
 
     Active writes advance updated_at through the embedding UPDATE trigger.
     Capture the resulting version while its vector-bearing fields still
     match, then guard the clear against any later canonical edit. Retired
     facts and legacy NULL versions keep their original timestamp guard.
+    Returns whether a row was cleared.
     """
     if row["is_active"] and row["updated_at"] is not None:
-        await _clear_active_vector_intent(conn, row, new_weaviate_id)
-        return
-    await conn.execute(
+        return await _clear_active_vector_intent(conn, row, new_weaviate_id)
+    status = await conn.execute(
         """
         UPDATE public.memory_facts
         SET vector_sync_pending = false,
@@ -132,6 +136,7 @@ async def _clear_pending_vector_intent(conn, row, new_weaviate_id) -> None:
         new_weaviate_id,
         row["updated_at"],
     )
+    return status == "UPDATE 1"
 
 
 class WeaviateQueryError(RuntimeError):

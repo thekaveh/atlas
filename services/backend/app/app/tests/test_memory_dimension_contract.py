@@ -3179,7 +3179,8 @@ async def test_reconcile_owns_current_vector_state_after_embedding_trigger(chang
         return vector_id
 
     service.store.update_embedding = trigger_then_change
-    assert await service._reconcile_pending_vectors(conn=conn) == 1
+    # Only a matched clear counts; a newer edit keeps its intent uncounted.
+    assert await service._reconcile_pending_vectors(conn=conn) == int(change is None)
     assert row["vector_sync_pending"] is (change is not None)
     assert service.store.attempts == [row["id"]]
     assert row["updated_at"] > _RECONCILE_TIME
@@ -3574,12 +3575,101 @@ async def test_reconcile_postgres_clear_follows_embedding_trigger_version(vector
             return vector_id
 
         service.store.update_embedding = embedding_write
-        assert await service._reconcile_pending_vectors(conn=conn) == 1
+        assert await service._reconcile_pending_vectors(conn=conn) == int(not vector_edit)
         stored = await conn.fetchrow(
             "SELECT vector_sync_pending, weaviate_id FROM public.memory_facts WHERE id=$1",
             row["id"])
         assert stored["vector_sync_pending"] is vector_edit
         assert stored["weaviate_id"] == (None if vector_edit else "new-vector")
+
+
+@asynccontextmanager
+async def _seeded_memory_fact():
+    """Opt-in fact in a database built by the shipped seed scripts (#1753).
+
+    ATLAS_TEST_MEMORY_SEEDED_POSTGRES_URL must name a disposable database
+    with every services/supabase/db/scripts/*.sql applied, so the real
+    updated_at trigger, pgvector column and constraints are present.
+    """
+    import os
+    import asyncpg
+    url = os.environ.get("ATLAS_TEST_MEMORY_SEEDED_POSTGRES_URL")
+    if not url:
+        pytest.skip("set ATLAS_TEST_MEMORY_SEEDED_POSTGRES_URL to a seeded disposable database")
+    conn = await asyncpg.connect(url)
+    user, fact = uuid4(), uuid4()
+    try:
+        await conn.execute("INSERT INTO public.users (id, name) VALUES ($1, 'reconcile-test')", user)
+        await conn.execute(
+            "INSERT INTO public.memory_facts (id, user_id, content, fact_type, confidence,"
+            " vector_sync_pending) VALUES ($1, $2, 'likes tea', 'preference', 0.9, true)",
+            fact, user)
+        yield url, conn, fact
+    finally:
+        from db_connection import close_pg_pools
+        # The store's shared pool belongs to this test's event loop.
+        await close_pg_pools()
+        await conn.execute("DELETE FROM public.users WHERE id = $1", user)
+        await conn.close()
+
+
+def _seeded_reconcile_service(url):
+    """MemoryService over the real pgvector store; only the provider is faked."""
+    import memory_service
+    import memory_store
+    store = memory_store.MemoryStore(database_url=url, embedding_dimension=768)
+    store.embedding_requests = 0
+
+    async def embed(_text):
+        store.embedding_requests += 1
+        return [0.5] * 768
+
+    store._generate_embedding = embed
+    service = memory_service.MemoryService.__new__(memory_service.MemoryService)
+    service.database_url = url
+    service.store = store
+    return service
+
+
+@pytest.mark.asyncio
+async def test_seeded_reconcile_clears_through_the_real_trigger_in_one_pass():
+    async with _seeded_memory_fact() as (url, conn, fact):
+        service = _seeded_reconcile_service(url)
+        before = await conn.fetchval("SELECT updated_at FROM public.memory_facts WHERE id=$1", fact)
+        assert await service._reconcile_pending_vectors(conn=conn) == 1
+        stored = await conn.fetchrow(
+            "SELECT vector_sync_pending, embedding IS NOT NULL AS embedded, updated_at"
+            " FROM public.memory_facts WHERE id=$1", fact)
+        assert stored["vector_sync_pending"] is False and stored["embedded"]
+        assert stored["updated_at"] > before  # the shipped trigger ran
+        assert service.store.embedding_requests == 1
+        # An unchanged fact is no longer pending: no second provider request.
+        assert await service._reconcile_pending_vectors(conn=conn) == 0
+        assert service.store.embedding_requests == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("edit", [
+    "content = 'likes coffee'", "confidence = 0.4", "is_active = false",
+], ids=["content", "confidence", "activation"])
+async def test_seeded_reconcile_keeps_a_newer_edit_pending_and_uncounted(edit):
+    async with _seeded_memory_fact() as (url, conn, fact):
+        service = _seeded_reconcile_service(url)
+        write = service.store._store_pgvector
+
+        async def write_then_edit(*args, **kwargs):
+            await write(*args, **kwargs)
+            # A concurrent canonical edit lands after the shadow write.
+            await conn.execute(f"UPDATE public.memory_facts SET {edit} WHERE id=$1", fact)
+
+        service.store._store_pgvector = write_then_edit
+        assert await service._reconcile_pending_vectors(conn=conn) == 0
+        stored = await conn.fetchrow(
+            "SELECT vector_sync_pending, embedding IS NOT NULL AS embedded"
+            " FROM public.memory_facts WHERE id=$1", fact)
+        # The provider write succeeded; only the guarded clear lost.
+        assert service.store.embedding_requests == 1 and stored["embedded"]
+        assert stored["vector_sync_pending"] is True
 
 
 def _assert_cache_validation_bound(conn):

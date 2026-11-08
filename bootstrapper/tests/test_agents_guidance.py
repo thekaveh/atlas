@@ -636,6 +636,7 @@ def test_live_endpoint_switches_are_derived_from_skip_conditions() -> None:
         "ATLAS_TEI_RERANKER_LIVE_ENDPOINT",
         "ATLAS_TEST_REDIS_URL",
         "ATLAS_TEST_MEMORY_RECONCILE_POSTGRES_URL",
+        "ATLAS_TEST_MEMORY_SEEDED_POSTGRES_URL",
         "ATLAS_TEST_MEDIA_LEDGER_POSTGRES_URL",
     }
 

@@ -816,11 +816,12 @@ Extract the facts as JSON:"""
         # fields just written; retired rows keep the updated_at guard. A
         # concurrent edit keeps its durable pending intent, but a
         # content-preserving delete and restore that another process
-        # reconciles in between is not detected.
-        await _clear_pending_vector_intent(conn, row, new_weaviate_id)
+        # reconciles in between is not detected. A clear that a newer edit
+        # wins matches no row: the fact stays pending and is not counted.
+        cleared = await _clear_pending_vector_intent(conn, row, new_weaviate_id)
         if row["id"] in rejected and rejected[row["id"]] == row["updated_at"]:
             del rejected[row["id"]]
-        return True, None
+        return cleared, None
 
     async def _reconcile_vector_page(self, conn, retry_transient) -> int:
         await self._refresh_rejected_rows(conn)

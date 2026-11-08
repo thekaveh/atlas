@@ -330,6 +330,7 @@ stops at the first failing step:
   env -u ATLAS_TEST_REDIS_URL -u ATLAS_COMFYUI_LIVE_ENDPOINT \
     -u ATLAS_TEI_RERANKER_LIVE_ENDPOINT \
     -u ATLAS_TEST_MEMORY_RECONCILE_POSTGRES_URL -u ATLAS_TEST_MEDIA_LEDGER_POSTGRES_URL \
+    -u ATLAS_TEST_MEMORY_SEEDED_POSTGRES_URL \
     "$BACKEND_TEST_VENV/bin/python" -m pytest tests/ -q -W error
 )
 ```
@@ -339,6 +340,7 @@ skipped unless their documented `ATLAS_*` endpoint variables are configured:
 
 - `ATLAS_TEST_REDIS_URL=redis://127.0.0.1:<port>/15` runs the Redis Lua and paging tests. Use a throwaway Redis, because they flush database 15.
 - `ATLAS_TEST_MEMORY_RECONCILE_POSTGRES_URL` and `ATLAS_TEST_MEDIA_LEDGER_POSTGRES_URL` name a disposable PostgreSQL database. They run the memory-reconcile and media-ledger SQL tests, and CI sets both.
+- `ATLAS_TEST_MEMORY_SEEDED_POSTGRES_URL` names a disposable database with every `services/supabase/db/scripts/*.sql` applied. It runs the memory-reconcile tests against the real `updated_at` trigger and pgvector store.
 
 ### Audit scripts (`scripts/`)
 
