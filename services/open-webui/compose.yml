@@ -17,6 +17,15 @@ services:
         condition: service_healthy
     deploy:
       replicas: ${OPEN_WEB_UI_SCALE:-1}
+    # The image's own check had no interval, timeout or start period. Measured
+    # cold start on 2026-11-08: healthy in 10-11 s on an empty data volume;
+    # the start period also covers database migrations (#1356).
+    healthcheck:
+      test: ["CMD-SHELL", "curl --silent --fail http://localhost:$${PORT:-8080}/health | jq -ne 'input.status == true' || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 180s
     extra_hosts:
       - "host.docker.internal:${HOST_GATEWAY_IP}"
     environment:

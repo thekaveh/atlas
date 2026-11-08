@@ -29,5 +29,32 @@ echo "weaviate: default LiteLLM endpoint: http://litellm:4000"
 
 echo "weaviate: init checks done - embedding model: $LITELLM_EMBEDDING_MODEL"
 
+# Go has no memory limit of its own, so a heap that grows to the container
+# cap is OOM-killed instead of collected (#1356). Unless WEAVIATE_GOMEMLIMIT
+# set GOMEMLIMIT, use 80% of the cgroup v2 (or v1) memory limit.
+if [ -z "${GOMEMLIMIT:-}" ]; then
+  unset GOMEMLIMIT
+  limit=""
+  if [ -r /sys/fs/cgroup/memory.max ]; then
+    limit=$(cat /sys/fs/cgroup/memory.max)
+  elif [ -r /sys/fs/cgroup/memory/memory.limit_in_bytes ]; then
+    limit=$(cat /sys/fs/cgroup/memory/memory.limit_in_bytes)
+  fi
+  case "$limit" in
+    '' | max | *[!0123456789]*) echo "weaviate: no container memory limit; GOMEMLIMIT unset" ;;
+    *)
+      # Divide first: cgroup v1 reports "no limit" as ~9.2e18, and
+      # multiplying that by 4 would overflow 64-bit shell arithmetic.
+      # shellcheck disable=SC2017
+      GOMEMLIMIT=$((limit / 5 * 4))
+      export GOMEMLIMIT
+      echo "weaviate: GOMEMLIMIT=${GOMEMLIMIT} (80% of the container memory limit)"
+      ;;
+  esac
+else
+  export GOMEMLIMIT
+  echo "weaviate: GOMEMLIMIT=${GOMEMLIMIT} (WEAVIATE_GOMEMLIMIT)"
+fi
+
 # Execute the original Weaviate command with dynamic configuration
 exec "$@"

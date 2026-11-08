@@ -65,6 +65,9 @@ env:
   - name: LANGFUSE_CLICKHOUSE_SCALE
     description: "Set by ./start.sh from LANGFUSE_SOURCE; do not edit. 1 runs langfuse-clickhouse, 0 does not."
     auto_managed: true
+  - name: LANGFUSE_CLICKHOUSE_MEMORY_LIMIT
+    default: 4g
+    description: "Container memory limit for langfuse-clickhouse (deploy.resources.limits.memory). ClickHouse sizes its server memory from the container limit; without one it used host RAM."
   - name: LANGFUSE_INIT_SCALE
     description: "Set by ./start.sh from LANGFUSE_SOURCE; do not edit. 1 runs langfuse-init, 0 does not."
     auto_managed: true

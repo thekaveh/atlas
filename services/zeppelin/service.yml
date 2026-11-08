@@ -75,7 +75,16 @@ env:
     auto_managed: true
   - name: ZEPPELIN_MEMORY_LIMIT
     default: 2g
-    description: "Container memory limit for the zeppelin container (deploy.resources.limits.memory). Zeppelin's JVM-based interpreter host typically uses under 1 g for a single-user session; 2 g leaves comfortable headroom on a 32 GB host."
+    description: "Container memory limit for the zeppelin container (deploy.resources.limits.memory). It holds the server (ZEPPELIN_SERVER_HEAP), Spark driver (ZEPPELIN_SPARK_DRIVER_MEMORY) and one interpreter (ZEPPELIN_INTERPRETER_HEAP) JVMs. Keep their heaps under about 70% of this limit for non-heap memory."
+  - name: ZEPPELIN_SERVER_HEAP
+    default: 512m
+    description: "Maximum heap of the Zeppelin server JVM (ZEPPELIN_MEM=-Xmx<value>). Upstream defaults to 1024m."
+  - name: ZEPPELIN_INTERPRETER_HEAP
+    default: 384m
+    description: "Maximum heap of non-Spark interpreter JVMs such as JDBC (ZEPPELIN_INTP_MEM=-Xmx<value>). Upstream defaults to 1024m."
+  - name: ZEPPELIN_SPARK_DRIVER_MEMORY
+    default: 512m
+    description: "spark.driver.memory for the Spark interpreter. The driver runs in client mode inside the zeppelin container, so it counts against ZEPPELIN_MEMORY_LIMIT. Spark defaults to 1g."
   - name: ZEPPELIN_CPU_LIMIT
     default: "1.5"
     description: "Container CPU limit for the zeppelin container (deploy.resources.limits.cpus). 1.5 cores covers notebook rendering and interpreter dispatch. Compute-heavy work runs on the remote Spark cluster, not in this process."

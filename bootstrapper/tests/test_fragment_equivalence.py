@@ -396,3 +396,32 @@ def test_redis_exporter_cannot_be_pointed_at_another_target():
     anything that could reach :9121 could collect it (2026-10-08 run, cycle 32)."""
     env = _render(COMPOSE)["services"]["redis-exporter"]["environment"]
     assert env["REDIS_EXPORTER_DISABLE_SCRAPE_ENDPOINT"] == "true"
+
+
+def _memory_bytes(value: str) -> int:
+    units = {"k": 1024, "m": 1024**2, "g": 1024**3}
+    value = value.lower().removeprefix("-xmx")
+    return int(value[:-1]) * units[value[-1]] if value[-1] in units else int(value)
+
+
+def test_optional_services_size_their_memory_inside_their_limits():
+    """#1356: each service's own memory sizing must fit its container limit."""
+    services = _render(COMPOSE)["services"]
+    limit = lambda name: int(services[name]["deploy"]["resources"]["limits"]["memory"])
+
+    # Weaviate's Go GC gets a soft limit (derived when this is empty).
+    assert "GOMEMLIMIT" in services["weaviate"]["environment"]
+    # Trino sizes its heap at 80% of available memory, ClickHouse from the
+    # limit: both need one.
+    assert limit("trino") > 0 and limit("langfuse-clickhouse") > 0
+
+    # Zeppelin runs the server, the Spark driver and one other interpreter.
+    zeppelin = services["zeppelin"]["environment"]
+    driver = zeppelin["SPARK_SUBMIT_OPTIONS"].split("spark.driver.memory=")[1].split()[0]
+    heaps = sum(map(_memory_bytes, (zeppelin["ZEPPELIN_MEM"], zeppelin["ZEPPELIN_INTP_MEM"], driver)))
+    assert heaps <= 0.7 * limit("zeppelin")
+
+    assert services["airflow-scheduler"]["environment"]["AIRFLOW__CORE__PARALLELISM"] == "4"
+    for name in ("trino", "open-web-ui"):
+        check = services[name]["healthcheck"]
+        assert check["start_period"] and check["interval"] and check["retries"]
