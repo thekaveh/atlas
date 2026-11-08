@@ -457,6 +457,10 @@ trap 'rm -f "$input" "${input}.out"' 0
 cat >"$input"
 if grep -q 'first_rename_ok' "$input"; then
   awk -v mode="$(cat /fixture/cutover-mode)" '
+    mode == "reconnect" && /RENAME TO/ && /target_db.*rollback_db/ && ! paused {
+      print "SELECT pg_sleep(4);"
+      paused=1
+    }
     /temp_db.*target_db/ && ! injected {
       if (mode == "timeout" || mode == "signal") print "SELECT pg_sleep(30);"
       if (mode == "failure") {
@@ -739,6 +743,12 @@ def _seed_state(postgres: DisposablePostgres, database: str, value: str) -> None
 
 def _state(postgres: DisposablePostgres, database: str) -> str:
     return postgres.sql(database, "SELECT value FROM state").stdout.strip()
+
+
+def _allows_connections(postgres: DisposablePostgres, database: str) -> str:
+    return postgres.sql(
+        "template1", f"SELECT datallowconn FROM pg_database WHERE datname='{database}'"
+    ).stdout.strip()
 
 
 def _temporary_databases(postgres: DisposablePostgres) -> str:
@@ -1645,11 +1655,51 @@ def test_cutover_interruption_restores_original_name_and_preserves_staging(
 
     assert result.returncode != 0
     assert _state(disposable_postgres, target) == "live"
+    # The cutover refuses new sessions on the target; compensation restores it.
+    assert _allows_connections(disposable_postgres, target) == "t"
     match = re.search(r"staging=(atlas_restore_[0-9a-f]{16})", result.stderr)
     assert match
     staging = match.group(1)
     assert _state(disposable_postgres, staging) == "archive"
     assert staging in result.stderr
+
+
+def test_reconnecting_client_cannot_block_the_cutover_rename(
+    disposable_postgres: DisposablePostgres, tmp_path: Path
+) -> None:
+    """A client reconnecting between pg_terminate_backend and the rename made
+    the rename fail (#1362). The fake pauses 4 s at that point while a client
+    keeps opening 20 s sessions on the target, far longer than the 5 s that
+    ALTER DATABASE ... RENAME waits for other sessions to end."""
+    target = _database_name("restore_reconnect")
+    source = _database_name("restore_source")
+    disposable_postgres.create_database(target)
+    disposable_postgres.create_database(source)
+    _seed_state(disposable_postgres, target, "live")
+    _seed_state(disposable_postgres, source, "archive")
+    _write_client_fakes(tmp_path, cutover_mode="reconnect")
+    _dump_database(disposable_postgres, tmp_path, source)
+    _write_restore_sidecar(disposable_postgres, tmp_path, source, target)
+    done = False
+
+    def reconnect() -> None:
+        while not done:
+            disposable_postgres.sql(target, "SELECT pg_sleep(20)", check=False)
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        client = pool.submit(reconnect)
+        try:
+            result = _run_restore(disposable_postgres, tmp_path, target)
+        finally:
+            done = True
+            client.result(timeout=60)
+
+    assert result.returncode == 0, result.stderr
+    assert _state(disposable_postgres, target) == "archive"
+    rollback = re.search(r"retained as (atlas_rollback_[0-9a-f]{16})", result.stdout).group(1)
+    assert _state(disposable_postgres, rollback) == "live"
+    assert _allows_connections(disposable_postgres, target) == "t"
+    assert _allows_connections(disposable_postgres, rollback) == "t"
 
 
 def test_cutover_signal_restores_original_name_and_preserves_staging(
