@@ -8,6 +8,8 @@ Folder names guarantee nothing; this test does. The direction is:
 - wizard/viewmodel/**  may not import textual
 - wizard/view/**       may not import wizard.model (must go through a VM)
 - core/linear_startup  may not import vmx
+- core/linear_startup, core/launch_plan and core/launch_outcome may not
+  import textual, vmx or ui (#1043)
 
 The last rule is what makes the --no-tui guarantee structural rather
 than asserted: the non-TTY path CANNOT acquire a VMx dependency,
@@ -232,6 +234,16 @@ def test_linear_startup_is_vmx_free():
         if m == "vmx" or m.startswith("vmx.")
     )
     assert offending == [], f"linear_startup must not import vmx: {offending}"
+
+
+def test_headless_launch_modules_import_no_textual():
+    """The launch plan both front ends run belongs to neither (#1043)."""
+    for name in ("linear_startup.py", "launch_plan.py", "launch_outcome.py"):
+        offending = sorted(
+            m for m in _imported_modules(ROOT / "core" / name)
+            if m.split(".")[0] in {"textual", "vmx", "ui"}
+        )
+        assert offending == [], f"core/{name} imports a view module: {offending}"
 
 
 def test_model_package_exists():

@@ -181,13 +181,12 @@ def test_failed_managed_host_preflight_never_reaches_the_teardown(monkeypatch) -
     assert "start_docker_services" not in starter.calls
 
 
-def test_tui_pipeline_preflights_managed_hosts_before_configuring_ports() -> None:
-    from pathlib import Path
+def test_the_shared_plan_preflights_managed_hosts_before_configuring_ports() -> None:
+    """The TUI runs the same plan (tests/test_tui_pipeline_steps.py, #1043)."""
+    from core.launch_plan import CONFIGURE_STAGES
 
-    source = (
-        Path(__file__).resolve().parents[1] / "ui" / "textual" / "screens" / "wizard_screen.py"
-    ).read_text(encoding="utf-8")
-    assert source.index('("Preflight managed hosts"') < source.index('("Configure ports"')
+    ids = [stage.id for stage in CONFIGURE_STAGES]
+    assert ids.index("preflight-managed-hosts") < ids.index("configure-ports")
 
 import pytest  # noqa: E402
 

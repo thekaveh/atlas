@@ -867,7 +867,8 @@ def test_tui_starts_managed_hosts_after_setup_and_rolls_back_failures():
     source = (
         REPO_ROOT / "bootstrapper/ui/textual/screens/wizard_screen.py"
     ).read_text(encoding="utf-8")
-    setup = source.index("starter.generate_service_configuration),")
+    # The configuration stages run from the shared plan (#1043).
+    setup = source.index("for stage in stages:")
     managed = source.index("starter.start_managed_host_processes", setup)
     compose_up = source.index('self._run_compose(["up"', managed)
 

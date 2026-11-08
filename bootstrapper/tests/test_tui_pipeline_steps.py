@@ -1,153 +1,166 @@
-"""Regression guard for the TUI startup pipeline steps list.
+"""Both launch front ends run one configuration plan (#1043).
 
-Fix 1 (final review): the Textual TUI pipeline in wizard_screen.py must include
-``generate_comfyui_manifest`` AFTER ``generate_litellm_configuration`` and BEFORE
-the ``docker compose up`` call.  Without this, a fresh interactive install never
-writes ``volumes/comfyui/active-models.tsv``, so comfyui-init downloads nothing
-regardless of the user's wizard selection.
+``core/launch_plan.py`` owns the ordered configuration stages. These tests
+drive the real ``--no-tui`` flow and the real Textual pipeline with the same
+fake starter and compare the stages each one actually executed, instead of
+matching source text.
 
-This test parses wizard_screen.py with the ``ast`` module to locate the ``steps``
-list and verify:
-
-  1. Both ``generate_litellm_configuration`` and ``generate_comfyui_manifest``
-     appear as callable references in the steps list.
-  2. ``generate_comfyui_manifest`` comes AFTER ``generate_litellm_configuration``
-     (mirrors the ordering in start.py's linear path).
-  3. Both entries appear BEFORE the ``_run_compose`` call that starts containers
-     (i.e., both are pre-compose pipeline steps).
+Fix 1 (final review) still holds: ``generate_comfyui_manifest`` runs after
+``generate_litellm_configuration`` and before ``docker compose up``. Without
+it a fresh interactive install never writes
+``volumes/comfyui/active-models.tsv``, so comfyui-init downloads nothing.
 """
 
 from __future__ import annotations
 
-import ast
-import re
-from pathlib import Path
-
 import pytest
 
-
-REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-WIZARD_SCREEN = REPO_ROOT / "bootstrapper" / "ui" / "textual" / "screens" / "wizard_screen.py"
-
-
-def _extract_steps_and_compose_region(src: str) -> tuple[list[str], int]:
-    """Return (list_of_step_labels_and_attrs, line_of_first_run_compose).
-
-    We scan for the ``steps = [`` assignment in wizard_screen.py and collect
-    every string literal label and every attribute reference (e.g.
-    ``starter.generate_litellm_configuration``) mentioned inside that list.
-    We also find the line of the first ``_run_compose(["up"`` call so we can
-    confirm the steps list precedes compose-up.
-    """
-    # Locate the `steps = [` assignment via AST
-    tree = ast.parse(src)
-    steps_node: ast.List | None = None
-    for node in ast.walk(tree):
-        if (
-            isinstance(node, ast.Assign)
-            and len(node.targets) == 1
-            and isinstance(node.targets[0], ast.Name)
-            and node.targets[0].id == "steps"
-            and isinstance(node.value, ast.List)
-        ):
-            steps_node = node.value
-            break
-
-    assert steps_node is not None, "Could not find `steps = [...]` in wizard_screen.py"
-
-    # Collect all string constants and attribute names used inside the list
-    tokens: list[str] = []
-    for elt in ast.walk(steps_node):
-        if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
-            tokens.append(elt.value)
-        if isinstance(elt, ast.Attribute):
-            tokens.append(elt.attr)  # e.g. 'generate_litellm_configuration'
-
-    # Find line of first `_run_compose(["up"` — heuristic via regex on source
-    compose_up_line: int = -1
-    for lineno, line in enumerate(src.splitlines(), start=1):
-        if '_run_compose(["up"' in line or "_run_compose(['up'" in line:
-            compose_up_line = lineno
-            break
-
-    return tokens, compose_up_line
+from core import launch_plan, linear_startup
+from tests.test_wizard_launch_outcomes import _Starter, _options, _run_tui
 
 
-def _step_index(tokens: list[str], attr: str) -> int:
-    """Return the first index in *tokens* where *attr* appears, or -1."""
-    try:
-        return tokens.index(attr)
-    except ValueError:
-        return -1
+def _ids(stages=launch_plan.CONFIGURE_STAGES) -> list[str]:
+    return [stage.id for stage in stages]
 
 
-def test_tui_steps_include_generate_litellm_configuration():
-    """generate_litellm_configuration must be in the TUI pipeline steps."""
-    src = WIZARD_SCREEN.read_text()
-    tokens, _ = _extract_steps_and_compose_region(src)
-    assert "generate_litellm_configuration" in tokens, (
-        "wizard_screen.py steps list is missing 'generate_litellm_configuration'. "
-        "The TUI pipeline must call starter.generate_litellm_configuration before compose-up."
+@pytest.fixture
+def trace(monkeypatch):
+    """Every stage id either front end runs, in order, plus Compose calls."""
+    seen: list[str] = []
+    real = launch_plan.run_stage
+
+    def recording(stage, *args, **kwargs):
+        seen.append(stage.id)
+        return real(stage, *args, **kwargs)
+
+    monkeypatch.setattr(launch_plan, "run_stage", recording)
+    monkeypatch.setattr(linear_startup, "warn_if_submodule_pin_drifted", lambda *_: None)
+    return seen
+
+
+def _linear_trace(trace) -> list[str]:
+    trace.clear()
+    assert linear_startup.run_linear_startup(_Starter("success"), _options()) == 0
+    return list(trace)
+
+
+def _tui_trace(trace) -> list[str]:
+    trace.clear()
+
+    async def compose(args):
+        trace.append(f"compose:{args[0]}")
+        return 0
+
+    codes, _statuses, succeeded = _run_tui("success", compose=compose)
+    assert codes == [0] and succeeded is True
+    return list(trace)
+
+
+def test_both_front_ends_execute_the_same_stage_ids(trace):
+    linear = _linear_trace(trace)
+    tui = [stage for stage in _tui_trace(trace) if not stage.startswith("compose:")]
+    assert linear == tui == _ids()
+
+
+def test_a_new_stage_needs_one_registration(trace, monkeypatch):
+    extra = launch_plan.LaunchStage(
+        "throwaway", "Throwaway", lambda starter, _i: starter.throwaway_stage()
+    )
+    monkeypatch.setattr(
+        launch_plan, "CONFIGURE_STAGES", (*launch_plan.CONFIGURE_STAGES, extra)
+    )
+    assert _linear_trace(trace)[-1] == "throwaway"
+    tui = _tui_trace(trace)
+    assert tui[tui.index("compose:up") - 1] == "throwaway"
+
+
+def test_the_comfyui_manifest_follows_litellm_and_precedes_compose_up(trace):
+    tui = _tui_trace(trace)
+    litellm = tui.index("generate-litellm-configuration")
+    comfyui = tui.index("generate-comfyui-manifest")
+    assert litellm < comfyui < tui.index("compose:up")
+
+
+def test_stage_ids_are_unique():
+    assert len(set(_ids())) == len(_ids())
+
+
+def test_no_front_end_keeps_its_own_step_list():
+    """The Textual screen had a second ``steps = [`` list (#1043)."""
+    from pathlib import Path
+
+    source = (
+        Path(__file__).resolve().parents[1] / "ui" / "textual" / "screens" / "wizard_screen.py"
+    ).read_text(encoding="utf-8")
+    assert "        steps = [\n" not in source
+    assert "launch_plan.CONFIGURE_STAGES" in source
+
+
+# ─── The executor's structured results ────────────────────────────────
+
+
+def _stage(run):
+    return launch_plan.LaunchStage("probe", "Probe", run)
+
+
+def _run(run, **kwargs):
+    return launch_plan.run_stage(
+        _stage(run), object(), launch_plan.LaunchInputs(), **kwargs
     )
 
 
-def test_tui_steps_include_generate_comfyui_manifest():
-    """generate_comfyui_manifest must be in the TUI pipeline steps (Fix 1)."""
-    src = WIZARD_SCREEN.read_text()
-    tokens, _ = _extract_steps_and_compose_region(src)
-    assert "generate_comfyui_manifest" in tokens, (
-        "wizard_screen.py steps list is MISSING 'generate_comfyui_manifest'. "
-        "Without this step the TUI path never writes volumes/comfyui/active-models.tsv, "
-        "so comfyui-init silently skips all model downloads regardless of wizard selection."
+def test_a_stage_that_returns_true_succeeded():
+    result = _run(lambda *_: True)
+    assert (result.stage_id, result.status, result.ok) == ("probe", launch_plan.SUCCEEDED, True)
+
+
+def test_a_stage_that_returns_false_failed_validation():
+    result = _run(lambda *_: False)
+    assert (result.status, result.ok) == (launch_plan.FAILED, False)
+
+
+def test_an_explained_refusal_failed_with_its_reason():
+    def refuse(*_):
+        raise launch_plan.StageFailure("SUPABASE_JWT_SECRET is still a placeholder")
+
+    result = _run(refuse)
+    assert (result.status, result.detail) == (
+        launch_plan.FAILED, "SUPABASE_JWT_SECRET is still a placeholder",
     )
 
 
-def test_tui_steps_comfyui_manifest_after_litellm():
-    """generate_comfyui_manifest must appear AFTER generate_litellm_configuration."""
-    src = WIZARD_SCREEN.read_text()
-    tokens, _ = _extract_steps_and_compose_region(src)
-    litellm_idx = _step_index(tokens, "generate_litellm_configuration")
-    comfyui_idx = _step_index(tokens, "generate_comfyui_manifest")
-    assert litellm_idx != -1, "generate_litellm_configuration not found in steps"
-    assert comfyui_idx != -1, "generate_comfyui_manifest not found in steps"
-    assert comfyui_idx > litellm_idx, (
-        f"generate_comfyui_manifest (token index {comfyui_idx}) must come AFTER "
-        f"generate_litellm_configuration (token index {litellm_idx}) to mirror "
-        "the ordering in start.py's linear path."
+def test_a_stage_that_raises_crashed_and_keeps_the_exception():
+    error = RuntimeError("port 63000 already bound")
+    result = _run(lambda *_: (_ for _ in ()).throw(error))
+    assert (result.status, result.detail, result.error) == (
+        launch_plan.CRASHED, "port 63000 already bound", error,
     )
 
 
-def test_tui_steps_both_precede_compose_up():
-    """Both generator steps must appear in the steps list, which precedes _run_compose up."""
-    src = WIZARD_SCREEN.read_text()
-    tokens, compose_up_line = _extract_steps_and_compose_region(src)
+def test_a_requested_cancel_skips_the_stage():
+    ran: list[bool] = []
+    result = _run(lambda *_: ran.append(True) or True, should_stop=lambda: True)
+    assert result.status == launch_plan.CANCELLED and ran == []
 
-    assert compose_up_line != -1, (
-        "Could not locate `_run_compose([\"up\"` in wizard_screen.py — "
-        "update the heuristic in this test if the compose call changed."
-    )
 
-    # Confirm steps list node ends before the compose-up line by checking
-    # that the steps assignment (which contains our tokens) is found and
-    # that the _run_compose line follows it in source order.
-    tree = ast.parse(src)
-    steps_end_line: int = -1
-    for node in ast.walk(tree):
-        if (
-            isinstance(node, ast.Assign)
-            and len(node.targets) == 1
-            and isinstance(node.targets[0], ast.Name)
-            and node.targets[0].id == "steps"
-            and isinstance(node.value, ast.List)
-        ):
-            steps_end_line = node.end_lineno  # type: ignore[attr-defined]
-            break
+def test_a_failed_stage_stops_both_front_ends_before_compose(trace, monkeypatch):
+    """Partial startup: the stages after the failure never run."""
 
-    assert steps_end_line != -1, "steps assignment not found"
-    assert steps_end_line < compose_up_line, (
-        f"steps list ends at line {steps_end_line} but _run_compose([\"up\"] "
-        f"is at line {compose_up_line} — steps list must precede compose-up."
-    )
-    # Confirm both attrs are present
-    assert "generate_litellm_configuration" in tokens
-    assert "generate_comfyui_manifest" in tokens
+    class Failing(_Starter):
+        def generate_kong_configuration(self):
+            return False
+
+    trace.clear()
+    assert linear_startup.run_linear_startup(Failing("success"), _options()) == 1
+    assert trace[-1] == "generate-kong-configuration"
+
+    trace.clear()
+
+    async def compose(args):
+        trace.append(f"compose:{args[0]}")
+        return 0
+
+    _codes, statuses, succeeded = _run_tui("success", Failing("success"), compose=compose)
+    assert trace[-1] == "generate-kong-configuration"
+    assert succeeded is False
+    assert "  ✗ Generate Kong configuration failed" in statuses
