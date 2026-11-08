@@ -12,6 +12,8 @@ from dataclasses import dataclass
 from functools import wraps
 from typing import Any
 
+from core import launch_plan
+from core.launch_plan import LaunchInputs
 from core.launch_outcome import (
     COLD_STOP,
     DETACH,
@@ -160,70 +162,27 @@ def _run_linear_startup(
     # Migrate before this run's overrides, as the Textual flow does before
     # its wizard (#1391).
     starter.run_port_migration(options.no_port_migrate)
-    if not starter.apply_source_overrides(**options.source_args):
-        return 1
-    # After the source overrides: this run's flags are in
-    # _explicit_source_vars, so they win over the profile's sources.
-    if not starter.apply_profile_overrides(options.profile or "default"):
-        return 1
-    if not starter.apply_cloud_api_keys(options.cloud_api_keys):
-        return 1
-    if not starter.apply_user_model_selections(options.user_model_selections):
-        return 1
-    if options.profile == "prod":
-        service_sources = starter.config_parser.parse_service_sources()
-        starter.source_validator.validation_errors = []
-        if not starter.source_validator.validate_sources_for_profile(
-            service_sources, "prod"
-        ):
-            starter.source_validator.print_validation_results()
+    # The configuration stages come from the plan the Textual flow also
+    # runs, so the two cannot drift apart (#1043).
+    inputs = LaunchInputs(
+        source_args=options.source_args,
+        profile=options.profile or "default",
+        cloud_api_keys=options.cloud_api_keys,
+        user_model_selections=options.user_model_selections,
+        cold=options.cold,
+        base_port=options.base_port,
+        setup_hosts=options.setup_hosts,
+        skip_hosts=options.skip_hosts,
+    )
+    for stage in launch_plan.CONFIGURE_STAGES:
+        result = launch_plan.run_stage(stage, starter, inputs)
+        if result.status == launch_plan.CRASHED:
+            # Escapes as before, to start.py's "Unexpected error" handler.
+            raise result.error
+        if not result.ok:
+            if result.detail:
+                print(f"ERROR: {result.detail}", file=sys.stderr)
             return 1
-    if not starter.validate_source_configurations():
-        return 1
-    if not starter.reconcile_default_models():
-        return 1
-
-    # Before port configuration, which stops a running stack on a warm start:
-    # a managed host that would refuse to start must not cost that stack (#1342).
-    if not starter.preflight_managed_host_processes():
-        return 1
-    starter.unset_port_environment_variables()
-    if not starter.handle_port_configuration(options.base_port):
-        return 1
-
-    # Secrets precede every derived-config writer: those writers embed the
-    # database, Redis, Kong, and LiteLLM credentials they read here.
-    if not starter.validate_supabase_keys(cold_start=options.cold):
-        return 1
-    if not starter.generate_encryption_keys(cold_start=options.cold):
-        return 1
-
-    for step in (
-        starter.generate_service_configuration,
-        starter.check_service_dependencies,
-        starter.generate_kong_configuration,
-        starter.generate_litellm_configuration,
-        starter.generate_comfyui_manifest,
-    ):
-        if not step():
-            return 1
-
-    if not starter.handle_hosts_configuration(
-        options.setup_hosts, options.skip_hosts
-    ):
-        return 1
-
-    if getattr(starter, "profile", "default") == "prod":
-        try:
-            starter.key_generator.assert_no_placeholders_remaining()
-        except RuntimeError as exc:
-            print(f"ERROR: {exc}", file=sys.stderr)
-            return 1
-
-    if not starter.validate_localhost_services():
-        return 1
-    if not starter.backfill_missing_env_vars():
-        return 1
 
     assume_yes = options.detach or options.json_output
     if not starter.show_pre_launch_summary(

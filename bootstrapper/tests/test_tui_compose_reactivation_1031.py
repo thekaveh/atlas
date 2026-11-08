@@ -363,7 +363,8 @@ def test_pipeline_installs_bounded_executor_as_the_actual_compose_hook() -> None
     assert "docker_manager.execute_compose_command = compose_executor" in source
     assert "restore_stream = compose_executor.bridge_stream()" in source
     assert "restore_stream()" in source
-    assert "compose_executor.run_in_thread(fn)" in source
+    # Every plan stage runs on the executor's thread (#1043).
+    assert "await compose_executor.run_in_thread(\n                    lambda stage=stage: launch_plan.run_stage(" in source
     assert "Popen(" not in source
 
 

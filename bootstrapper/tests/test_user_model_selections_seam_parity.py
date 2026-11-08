@@ -94,8 +94,8 @@ def test_integration_emits_comfyui_user_models():
 
 
 def test_wizard_screen_consumes_comfyui_user_models():
-    """The wizard's 'Apply user model selections' lambda must call
-    `.get("comfyui_user_models", ...)` on stack_options. Without this,
+    """The TUI's launch inputs must call `.get("comfyui_user_models", ...)`
+    on stack_options for the plan's 'Apply user model selections' stage. Without this,
     wizard-driven ComfyUI selections silently drop on confirm — the P1
     bug fixed alongside this test.
     """
@@ -115,7 +115,7 @@ def test_wizard_screen_consumes_comfyui_user_models():
     for key in ("cloud_user_models", "ollama_user_models", "comfyui_user_models", "user_env_writes"):
         assert key in keys_used_in_get_calls, (
             f"wizard_screen.py must call `.get({key!r}, ...)` on stack_options "
-            f"in the 'Apply user model selections' lambda. Commented-out or string "
+            f"when it builds the launch plan's user_model_selections. Commented-out or string "
             f"literals in other contexts won't satisfy this (AST-checked)."
         )
 

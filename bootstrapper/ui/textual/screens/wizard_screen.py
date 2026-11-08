@@ -78,6 +78,8 @@ from ..widgets import (
     ServiceTable,
 )
 from ..widgets.command_summary import SECRET_MASK
+from core import launch_plan
+from core.launch_plan import LaunchInputs, LaunchStage
 from core.launch_outcome import (
     CANCEL,
     COLD_STOP,
@@ -3717,10 +3719,14 @@ class WizardScreen(Screen):
     def _configure_launch_ports(self, base_port) -> bool:
         if not self._starter.handle_port_configuration(base_port):
             return False
+        self._record_launch_base_port()
+        return True
+
+    def _record_launch_base_port(self) -> None:
+        """Show the block port configuration resolved and wrote to .env."""
         resolved = int(self._starter.config_parser.parse_env_file()["BASE_PORT"])
         self._stack_options["base_port"] = resolved
         self._show_launch_base_port(resolved)
-        return True
 
     def _cold_cleanup_steps(self, starter, base_port: int, project_name) -> list:
         """The wizard cold start's cleanup step, when one is pending.
@@ -3837,163 +3843,67 @@ class WizardScreen(Screen):
         _resolved_profile = ((self._stack_options or {}).get("profile") or "default")
         starter.profile = _resolved_profile
 
-        def _validate_sources_for_profile() -> bool:
-            """Profile-source compatibility check for the TUI pipeline.
-
-            Mirrors the same guard in the linear path (start.py) so that
-            a ``--profile prod`` TUI launch with a dev-only source (e.g.
-            ollama-localhost) that was left in .env by a track-skipped
-            wizard step fails fast with a clear message instead of
-            proceeding silently.  No-ops for non-prod profiles.
-            """
-            if _resolved_profile != "prod":
-                return True
-            svc_srcs = starter.config_parser.parse_service_sources()
-            starter.source_validator.validation_errors = []
-            ok = starter.source_validator.validate_sources_for_profile(
-                svc_srcs, _resolved_profile
-            )
-            if not ok:
-                starter.source_validator.print_validation_results()
-            return ok
-
-        def _assert_no_placeholder_secrets() -> bool:
-            """Prod-launch gate for the TUI pipeline: refuse to start if any
-            managed secret still equals its shipped placeholder. Mirrors the
-            linear path (start.py). Runs after key generation, so a normal
-            first-run auto-rotation happens first and does not trip it.
-            No-ops for non-prod profiles."""
-            if _resolved_profile != "prod":
-                return True
-            try:
-                starter.key_generator.assert_no_placeholders_remaining()
-                return True
-            except RuntimeError as exc:
-                self._safe_log(str(exc), source="pipeline", level="warn")
-                return False
-
-        steps = [
-            ("Apply source overrides",
-             lambda: starter.apply_source_overrides(**(self._source_args or {}))),
-            # Apply profile overrides after source overrides: the wizard
-            # merges user choices into source_args, so they are already in
-            # _explicit_source_vars and win over the profile's sources.
-            ("Apply profile overrides",
-             lambda _p=_resolved_profile: starter.apply_profile_overrides(_p)),
-            # Validate that no dev-only source (e.g. ollama-localhost) is active
-            # under --profile prod. This mirrors the linear-path check in start.py
-            # but was absent from the TUI pipeline: a track-skipped service step
-            # could leave a localhost source in .env and proceed silently.
-            # Runs only when profile=prod; default profile allows all sources.
-            # Runs AFTER Apply profile overrides so the .env already reflects any
-            # prod-default source changes before we read it back.
-            ("Validate sources for profile",
-             _validate_sources_for_profile),
-            ("Apply cloud API keys",
-             lambda: starter.apply_cloud_api_keys(
-                 (self._stack_options or {}).get("cloud_api_keys", {})
-             )),
-            ("Apply user model selections",
-             lambda: starter.apply_user_model_selections({
-                 **((self._stack_options or {}).get("cloud_user_models", {}) or {}),
-                 **((self._stack_options or {}).get("ollama_user_models", {}) or {}),
-                 **((self._stack_options or {}).get("comfyui_user_models", {}) or {}),
-                 # Default-model picker (B3): LITELLM_DEFAULT_MODEL,
-                 # LITELLM_EMBEDDING_MODEL, LITELLM_VISION_MODEL.
-                 **((self._stack_options or {}).get("default_model_selections", {}) or {}),
-                 # CLI-launch catch-all: COMFYUI_CUSTOM_MODELS_FILE,
-                 # RAY_WORKER_COUNT, PROMETHEUS_RETENTION_DAYS,
-                 # SPARK_WORKER_COUNT — flags that don't match the wizard's
-                 # cosmetic *_USER_MODELS / OLLAMA_* bucket patterns.
-                 # Without this bucket they'd be silently dropped on the
-                 # ./start.sh --flag <value> path while TUI is active.
-                 **((self._stack_options or {}).get("user_env_writes", {}) or {}),
-             })),
-            ("Validate source configurations",
-             starter.validate_source_configurations),
-            ("Reconcile default models",
-             starter.reconcile_default_models),
-            # Before port configuration, which stops a running stack on a
-            # warm start: a managed host that would refuse to start must not
-            # cost that stack (#1342).
-            ("Preflight managed hosts",
-             starter.preflight_managed_host_processes),
-            # Always clear any port env vars left over from a previous
-            # session BEFORE port configuration runs, so the new
-            # base-port assignments aren't shadowed by stale exports.
-            ("Clear stale port environment",
-             lambda: (starter.unset_port_environment_variables() or True)),
-            ("Configure ports",
-             lambda: self._configure_launch_ports(base_port)),
-            # Secrets MUST be generated/rotated BEFORE any step that bakes a
-            # secret into a derived config value. generate_service_configuration
-            # embeds SUPABASE_DB_PASSWORD / GRAPH_DB_PASSWORD / REDIS_PASSWORD into
-            # LIGHTRAG_PG_URI / LIGHTRAG_NEO4J_PASSWORD / LIGHTRAG_REDIS_URI, and
-            # generate_kong/litellm configuration embed their own keys. If those
-            # ran first and a password then rotated (cold start, or a first-run
-            # placeholder→real upgrade), the derived value would carry the STALE
-            # secret while the DB volume is initdb'd with the NEW one — the
-            # client (e.g. lightrag-init) then hits "password authentication
-            # failed for user supabase_admin" against a perfectly fresh volume.
-            ("Validate Supabase keys",
-             lambda: starter.validate_supabase_keys(cold_start=cold)),
-            ("Generate encryption keys",
-             lambda: starter.generate_encryption_keys(cold_start=cold)),
-            ("Generate service configuration",
-             starter.generate_service_configuration),
-            ("Check service dependencies",
-             starter.check_service_dependencies),
-            ("Generate Kong configuration",
-             starter.generate_kong_configuration),
-            ("Generate LiteLLM configuration",
-             starter.generate_litellm_configuration),
-            ("Generate ComfyUI manifest",
-             starter.generate_comfyui_manifest),
-            ("Configure hosts",
-             lambda: starter.handle_hosts_configuration(setup_hosts, skip_hosts)),
-            # Prod-launch gate: refuse to start under --profile prod if any
-            # managed secret still equals its placeholder. After key gen, so
-            # first-run auto-rotation passes cleanly. No-op for non-prod.
-            ("Assert no placeholder secrets",
-             _assert_no_placeholder_secrets),
-            ("Validate localhost services",
-             starter.validate_localhost_services),
-            # Defensive final backfill — runs after every other
-            # pipeline step has touched .env. Catches the edge case
-            # where a user merged new entries into .env.example after
-            # their .env was last fully written; if any earlier step
-            # somehow regenerated .env from a parsed snapshot rather
-            # than regex-replacing, the new vars (MINIO_IMAGE,
-            # MINIO_PORT, etc.) would be missing at compose time and
-            # ``docker compose up`` would fail with ``variable X not
-            # set, defaulting to blank string``. Cheap when there's
-            # nothing to add (a no-op tail append).
-            ("Backfill .env from .env.example",
-             starter.backfill_missing_env_vars),
-        ]
-        steps = self._cold_cleanup_steps(starter, base_port, _proj) + steps
+        # The configuration stages come from the plan the --no-tui flow also
+        # runs, so the two cannot drift apart (#1043).
+        options = self._stack_options or {}
+        inputs = LaunchInputs(
+            source_args=self._source_args or {},
+            profile=_resolved_profile,
+            cloud_api_keys=options.get("cloud_api_keys", {}) or {},
+            user_model_selections={
+                **(options.get("cloud_user_models", {}) or {}),
+                **(options.get("ollama_user_models", {}) or {}),
+                **(options.get("comfyui_user_models", {}) or {}),
+                # Default-model picker (B3): LITELLM_DEFAULT_MODEL,
+                # LITELLM_EMBEDDING_MODEL, LITELLM_VISION_MODEL.
+                **(options.get("default_model_selections", {}) or {}),
+                # CLI-launch catch-all: COMFYUI_CUSTOM_MODELS_FILE,
+                # RAY_WORKER_COUNT, PROMETHEUS_RETENTION_DAYS,
+                # SPARK_WORKER_COUNT — flags that don't match the wizard's
+                # cosmetic *_USER_MODELS / OLLAMA_* bucket patterns.
+                # Without this bucket they'd be silently dropped on the
+                # ./start.sh --flag <value> path while TUI is active.
+                **(options.get("user_env_writes", {}) or {}),
+            },
+            cold=cold,
+            base_port=base_port,
+            setup_hosts=setup_hosts,
+            skip_hosts=skip_hosts,
+        )
+        stages = [
+            LaunchStage("cold-cleanup", label, lambda _s, _i, fn=fn: fn())
+            for label, fn in self._cold_cleanup_steps(starter, base_port, _proj)
+        ] + list(launch_plan.CONFIGURE_STAGES)
 
         self._write_status("⚙ Running setup pipeline", style="bold cyan",
                            source="pipeline")
         managed_hosts_pending = False
         managed_host_start_task: asyncio.Task | None = None
         try:
-            for i, (label, fn) in enumerate(steps, start=1):
-                self._write_status(f"  · {label}…", style="dim",
+            for stage in stages:
+                self._write_status(f"  · {stage.label}…", style="dim",
                                    source="pipeline")
-                try:
-                    ok = await compose_executor.run_in_thread(fn)
-                except Exception as exc:  # noqa: BLE001
-                    self._write_status(f"  ✗ {label} crashed: {exc}",
+                result = await compose_executor.run_in_thread(
+                    lambda stage=stage: launch_plan.run_stage(
+                        stage, starter, inputs,
+                        should_stop=compose_executor.cancel_requested,
+                    )
+                )
+                if result.status == launch_plan.CRASHED:
+                    self._write_status(f"  ✗ {stage.label} crashed: {result.detail}",
                                        style="bold red", source="pipeline")
                     self._mark_launch_failed()
                     return
-                if not ok:
-                    self._write_status(f"  ✗ {label} failed",
+                if not result.ok:
+                    if result.detail:
+                        self._safe_log(result.detail, source="pipeline", level="warn")
+                    self._write_status(f"  ✗ {stage.label} {result.status}",
                                        style="bold red", source="pipeline")
                     self._mark_launch_failed()
                     return
-                self._write_status(f"  ✓ {label}", style="bold green",
+                if stage.id == "configure-ports":
+                    self._record_launch_base_port()
+                self._write_status(f"  ✓ {stage.label}", style="bold green",
                                    source="pipeline")
 
             self._write_status("", style="", source="pipeline")
