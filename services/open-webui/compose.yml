@@ -43,7 +43,7 @@ services:
       # TTS integration (openai-compatible via openedai-speech)
       AUDIO_TTS_ENGINE: ${OPEN_WEB_UI_TTS_ENGINE:-}
       AUDIO_TTS_OPENAI_API_BASE_URL: ${OPEN_WEB_UI_TTS_API_URL:-}
-      AUDIO_TTS_OPENAI_API_KEY: "sk-unused"
+      AUDIO_TTS_OPENAI_API_KEY: ${OPEN_WEB_UI_TTS_API_KEY:-}
       AUDIO_TTS_MODEL: ${OPEN_WEB_UI_TTS_MODEL:-}
       AUDIO_TTS_VOICE: ${OPEN_WEB_UI_TTS_VOICE:-}
       # STT integration (openai-compatible via parakeet)

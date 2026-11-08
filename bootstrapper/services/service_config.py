@@ -27,6 +27,19 @@ def _speaches_tts_model(env_file_vars: dict) -> str:
     return env_file_vars.get('SPEACHES_TTS_MODEL') or 'speaches-ai/Kokoro-82M-v1.0-ONNX'
 
 
+def _audio_api_key(source: str, env_file_vars: dict) -> str:
+    """Bearer key a client sends to the selected STT or TTS engine.
+
+    Parakeet and Speaches check a key (Speaches since #1458); the other
+    engines ignore it, so they get a non-secret placeholder. Empty when the
+    role is disabled."""
+    if source.startswith('parakeet-'):
+        return env_file_vars.get('PARAKEET_API_TOKEN', '')
+    if source.startswith('speaches-container'):
+        return env_file_vars.get('SPEACHES_API_KEY', '')
+    return 'sk-unused' if source != 'disabled' else ''
+
+
 def _configured_weaviate_modules(env_file_vars: dict, default_modules: str) -> str:
     """The declared Weaviate module list, falling back on a BLANK value.
 
@@ -1958,14 +1971,12 @@ class ServiceConfig:
         stt_endpoint = parent_vars.get('STT_ENDPOINT', '')
         env_vars['OPEN_WEB_UI_STT_API_URL'] = f'{stt_endpoint}/v1' if stt_endpoint else ''
         provider_env = self.config_parser.parse_env_file()
-        if stt_source.startswith('parakeet-'):
-            stt_api_key = provider_env.get('PARAKEET_API_TOKEN', '')
-        elif stt_source != 'disabled':
-            stt_api_key = 'sk-unused'
-        else:
-            stt_api_key = ''
+        stt_api_key = _audio_api_key(stt_source, provider_env)
         env_vars['OPEN_WEB_UI_STT_API_KEY'] = stt_api_key
         env_vars['STT_INTERNAL_API_KEY'] = stt_api_key
+        tts_api_key = _audio_api_key(tts_source, provider_env)
+        env_vars['OPEN_WEB_UI_TTS_API_KEY'] = tts_api_key
+        env_vars['TTS_INTERNAL_API_KEY'] = tts_api_key
         # Open WebUI's default TTS model — depends on which engine is active.
         # service_sources only carries ``*_SOURCE`` vars (see parse_service_sources),
         # so we read the model knob directly from .env with a hard-coded fallback.
