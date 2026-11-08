@@ -152,7 +152,7 @@ The stack uses Supabase Auth (GoTrue) for user authentication and management wit
 
 **supabase-storage**:
 
-- Accepts JWTs passed via Kong. Atlas hardens the `storage` schema (no `anon`/`authenticated` grants, row-level security off), so only the service-role key can read or write objects. User and anon tokens get "permission denied".
+- Accepts JWTs passed via Kong. Row-level security is the control on `storage.buckets` and `storage.objects`: it is on, and no policy covers `anon` or `authenticated`. Only the service-role key, which bypasses RLS, can read or write objects; user and anon tokens see nothing and cannot write. The revoked grants stay as a second line. Storage's own migration 0046 re-grants both roles after init, so the grants alone did not hold (#1887).
 
 **kong-api-gateway**:
 
@@ -215,7 +215,7 @@ execute privilege is revoked from public API roles despite its required
 - **Access**: `http://localhost:${SUPABASE_STORAGE_PORT}` (default: 63015)
 - **Features**:
   - Secure file storage and management
-  - Service-role access only: the hardened `storage` schema grants nothing to `anon`/`authenticated`
+  - Service-role access only: row-level security on `storage.buckets` and `storage.objects` gives `anon` and `authenticated` no rows. A `SELECT` policy (`atlas_reader_select`) lets the read-only database readers and Studio list them
   - Integration with authentication system
   - Support for various file types
   - Through Kong, `/storage/v1/` needs the `apikey` header. `/storage/v1/object/public/`, `/storage/v1/object/sign/` and `/storage/v1/object/upload/sign/` do not, so `<img>` tags and outside services can fetch public and signed URLs and PUT to signed upload URLs.

@@ -652,6 +652,18 @@ WHERE (table_schema, table_name) IN
   AND NOT (table_schema = 'public' AND table_name = 'user' AND column_name = 'settings')
 GROUP BY table_schema, table_name \gexec
 
+-- storage.buckets and storage.objects use row-level security (04-storage.sql,
+-- #1887). The readers and Studio keep their read access through this policy;
+-- anon and authenticated have none. Drop and recreate in one transaction so a
+-- renamed role is picked up without a window with no policy.
+BEGIN;
+SELECT format('DROP POLICY IF EXISTS atlas_reader_select ON storage.%I', t)
+FROM unnest(ARRAY['buckets', 'objects']) AS t \gexec
+SELECT format('CREATE POLICY atlas_reader_select ON storage.%I FOR SELECT TO %I, %I, %I, %I, %I USING (true)',
+              t, :'airflow_reader', :'mcp_reader', :'jupyter_reader', :'zeppelin_reader', :'studio_role')
+FROM unnest(ARRAY['buckets', 'objects']) AS t \gexec
+COMMIT;
+
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 GRANT USAGE ON SCHEMA public TO :"backend_role";
 

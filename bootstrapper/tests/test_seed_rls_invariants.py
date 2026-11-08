@@ -241,11 +241,11 @@ def test_the_storage_grant_scan_finds_the_real_service_grants():
 @pytest.mark.parametrize("role", ["anon", "authenticated"])
 @pytest.mark.parametrize("table", ["objects", "buckets"])
 def test_storage_tables_are_not_granted_to_client_roles(table, role):
-    """`storage` has RLS DISABLED, so the GRANT is the only control.
+    """The revokes stay as a second line behind row-level security.
 
-    `04-storage.sql` disables RLS on these deliberately ("managing access
-    through GRANTs instead"), and `storage` is in PGRST_DB_SCHEMA — so a grant
-    to `anon` made every object path, owner and bucket row readable by any
+    Before #1887, `04-storage.sql` disabled RLS on these tables, so the GRANT
+    was the only control, and `storage` is in PGRST_DB_SCHEMA — a grant to
+    `anon` made every object path, owner and bucket row readable by any
     unauthenticated peer.
 
     `authenticated` is not the safer half of that pair. GOTRUE_DISABLE_SIGNUP
@@ -315,3 +315,22 @@ def test_function_grants_never_reexpose_security_definer_routines():
     assert "GRANT ALL ON ALL FUNCTIONS IN SCHEMA public TO authenticated" not in sql
     assert "NOT p.prosecdef" in sql
     assert "GRANT ALL ON ROUTINE %s TO authenticated" in sql
+
+
+@pytest.mark.parametrize("table", ["buckets", "objects"])
+def test_storage_tables_enable_rls_with_only_a_reader_policy(table):
+    """storage-api v1.61.5's migration 0046 grants ALL on both tables to anon
+    and authenticated after 04 runs, so the revokes alone did not hold (#1887).
+    RLS is on, and the only policy is SELECT for the readers and Studio."""
+    storage_sql = _SQL_LINE_COMMENT.sub("", (SCRIPTS_DIR / "04-storage.sql").read_text())
+    assert f"ALTER TABLE storage.{table} ENABLE ROW LEVEL SECURITY;" in storage_sql
+    assert "DISABLE ROW LEVEL SECURITY" not in storage_sql
+
+    scoped = SCOPED_ROLES.read_text()
+    policy = re.search(r"CREATE POLICY atlas_reader_select ON storage\.%I FOR (\w+) TO ([^']+) USING \(true\)", scoped)
+    assert policy and policy.group(1) == "SELECT"
+    assert policy.group(2).count("%I") == 5
+    roles = re.search(r"t, (:'airflow_reader'[^\n]+)\n", scoped).group(1)
+    assert roles == ":'airflow_reader', :'mcp_reader', :'jupyter_reader', :'zeppelin_reader', :'studio_role')"
+    assert "FROM unnest(ARRAY['buckets', 'objects'])" in scoped
+
