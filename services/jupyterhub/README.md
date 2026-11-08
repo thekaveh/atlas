@@ -145,7 +145,7 @@ For a small local JSON ingestion example, use the optional [dlt and DuckDB recip
 
 ### 6.1. Connecting to the lakehouse from Python
 
-The image ships the lakehouse clients `boto3`, `s3fs`, `pyiceberg[s3fs]`, `pyarrow` and `duckdb`, pre-wired against MinIO and the Iceberg REST catalog. To confirm connectivity, load the catalog with `pyiceberg.catalog.load_catalog` and call `list_namespaces()`:
+The image ships the lakehouse clients `boto3`, `s3fs`, `pyiceberg[s3fs]`, `pyarrow` and `duckdb`, pre-wired against MinIO and the Iceberg REST catalog. `s3fs` and `fsspec` are pinned together at 2026.6.0, past CVE-2026-104851 (#1394). To confirm connectivity, load the catalog with `pyiceberg.catalog.load_catalog` and call `list_namespaces()`:
 
 ```python
 import os
