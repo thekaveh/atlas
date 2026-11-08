@@ -201,7 +201,8 @@ What follows from this layout:
 
 - **Reachability.** A sandbox reaches an Atlas service only through a port Atlas publishes on the host, addressed as `host.openshell.internal:<port>`. With the default `BASE_PORT`, LiteLLM is `http://host.openshell.internal:63040/v1`.
 - **Ports must be generated.** Ports derive from `BASE_PORT`, so Atlas must generate OpenShell profiles and policies from `services/topology.py`, the same way it generates Kong routes. A static file would break on `--base-port`.
-- **Unpublished services are unreachable.** Services with no host port (Loki, Tempo, the OTel collector, Prometheus) cannot be reached from sandboxes unless Atlas publishes a port. Supervisor trace export needs the collector's OTLP gRPC port published on loopback.
+- **Unpublished services are unreachable.** Services with no host port (Loki, Tempo, the OTel collector) cannot be reached from sandboxes unless Atlas publishes a port. Supervisor trace export needs the collector's OTLP gRPC port published on loopback.
+- **Prometheus already listens on the host when enabled.** With `PROMETHEUS_SOURCE=container`, Compose publishes it on `PROMETHEUS_PORT` (default 63006) at `HOST_BIND_IP` (default `127.0.0.1`). A sandbox reaches it only if the gateway can reach that address; this evaluation did not test that. (Corrected 2026-11-08, #1770: the original text listed Prometheus as having no host port.)
 - **Atlas services need a route to the gateway.** Services that call the gateway (Backend, JupyterHub) can use its service name only if it runs in Compose. Otherwise the host gateway must listen on an interface containers can reach, protected by mTLS.
 
 ### 5.2. Option A: host-managed gateway (recommended first)
