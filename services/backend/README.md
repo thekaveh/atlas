@@ -389,6 +389,7 @@ A disabled optional service degrades only its feature:
 **Limits and deadlines.**
 
 - Ray control-plane calls: 5 s connect and 30 s read. A timed-out submit, status or stop returns `504` with the `submission_id` to reconcile. Do not resubmit blindly. A refused or dropped dashboard connection on status or stop returns `503`.
+- Optional packs: an image built without the Ray SDK answers every `/api/ray` route with `503` and a `detail` naming the missing SDK. A missing Ragas pack answers `/api/rag/evaluate` the same way (#1041).
 - Postgres pool: if all `BACKEND_PG_POOL_MAX` connections stay busy for 5 s, the request gets `503` with `Retry-After: 1`. Readiness stays green. Metrics: `backend_pg_pool_saturated_total`, `backend_pg_pool_acquire_wait_seconds`.
 - A new Postgres connection that takes over 5 s to open fails as a database error, not as saturation.
 - Request bodies are capped before parsing. `/media/generate` authenticates, then buffers up to `MEDIA_REQUEST_MAX_BYTES` (40 MiB).
