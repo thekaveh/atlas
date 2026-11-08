@@ -83,6 +83,8 @@ Both scripts coordinate runs on the **same client host**, under the **same OS ac
 
 These admission locks do not record durable cutover phases or change Postgres cutover and rollback-retention policy. They do not establish live-kill recovery qualification.
 
+**Postgres cutover.** Before it ends existing sessions, `restore-postgres.sh` sets the target database to refuse new ones (`ALLOW_CONNECTIONS false`). Otherwise a reconnecting client made the rename fail (#1362). The original setting returns on the new database, on the rollback database, and on every failure or signal path. An interrupted cutover keeps the staging database and prints its name.
+
 Run `docker compose run --rm backup` directly only with `BACKUP_DATABASES=false`. Otherwise it fails closed when no same-timestamp offline Neo4j dump is present.
 
 ## 2. Access
