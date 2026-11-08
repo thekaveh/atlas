@@ -26,6 +26,8 @@ Smaller terminals (**59×20**, **60×19** or less) use the linear stdout flow. T
 
 *At 120×44 the full logo, stack overview and work area are shown.*
 
+The stack overview takes at most half of the Setup tab, so the prompt and the command summary always have room below it. When the service rows do not fit, they scroll inside the overview while its count and Track lines stay in view (#1921).
+
 The stack overview ends with a count line of container, local, GPU and off services. `none` and off-track rows count as off, and an enabled FAL row counts as local. Cloud API and consumer counts follow. When a track is set, a `Track: <name>` line sits above the counts.
 
 The dark palette meets the WCAG 2.2 AA normal-text ratio of **4.5:1**; the faintest text measures 4.54:1. Selection and status also use cursor glyphs, checkbox text, icons and words, not color alone. The wizard is keyboard-operable; screen-reader support is not tested.
