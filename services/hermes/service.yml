@@ -148,7 +148,11 @@ env:
   - name: STT_INTERNAL_API_KEY
     auto_managed: true
     secret: true
-    description: "Parakeet bearer token for the rendered server-side STT block; non-secret compatibility placeholder for other enabled STT engines."
+    description: "Parakeet bearer token or SPEACHES_API_KEY for the rendered server-side STT block; non-secret compatibility placeholder for other enabled STT engines."
+  - name: TTS_INTERNAL_API_KEY
+    auto_managed: true
+    secret: true
+    description: "SPEACHES_API_KEY when a Speaches TTS source is selected, else a non-secret placeholder; the hermes container sends it as VOICE_TOOLS_OPENAI_KEY."
   - name: COMFYUI_INTERNAL_URL
     description: "Set by ./start.sh from COMFYUI_ENDPOINT; do not edit. hermes-init renders the ComfyUI host skill from it; empty skips the skill."
     auto_managed: true
@@ -229,6 +233,7 @@ runtime_adaptive:
       TTS_INTERNAL_VOICE: ${OPEN_WEB_UI_TTS_VOICE}
       STT_INTERNAL_URL: ${STT_ENDPOINT}
       STT_INTERNAL_API_KEY: ${STT_INTERNAL_API_KEY}
+      TTS_INTERNAL_API_KEY: ${TTS_INTERNAL_API_KEY}
       COMFYUI_INTERNAL_URL: ${COMFYUI_ENDPOINT}
       SEARXNG_INTERNAL_URL: http://searxng:8080
       LIGHTRAG_INTERNAL_URL: ${LIGHTRAG_ENDPOINT}

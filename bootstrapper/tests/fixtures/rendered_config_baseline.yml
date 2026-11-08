@@ -3261,7 +3261,7 @@ services:
       AUDIO_TTS_ENGINE: ''
       AUDIO_TTS_MODEL: ''
       AUDIO_TTS_OPENAI_API_BASE_URL: ''
-      AUDIO_TTS_OPENAI_API_KEY: sk-unused
+      AUDIO_TTS_OPENAI_API_KEY: ''
       AUDIO_TTS_VOICE: ''
       BACKEND_OPEN_WEBUI_API_TOKEN: ''
       COMFYUI_BASE_URL: http://comfyui:18188

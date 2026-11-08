@@ -147,7 +147,9 @@ Reference: [upstream Web-Dashboard docs](https://hermes-agent.nousresearch.com/d
 Use `./start.sh` for the guided wizard, or pass `--hermes-source <option>`
 for scripted changes.
 
-`STT_INTERNAL_API_KEY` resolves to `PARAKEET_API_TOKEN` for a Parakeet source, to `sk-unused` for other enabled STT engines, and to empty when STT is disabled. `hermes-init` writes it into the server-side provider configuration. It is not a browser credential; do not emit it in tool output.
+`STT_INTERNAL_API_KEY` follows the STT source. It is `PARAKEET_API_TOKEN` for Parakeet and `SPEACHES_API_KEY` for Speaches. Other enabled engines get `sk-unused`, and it is empty when STT is disabled. `hermes-init` writes it into the server-side provider configuration. It is not a browser credential; do not emit it in tool output.
+
+`TTS_INTERNAL_API_KEY` follows the TTS source the same way. The `hermes` container sends it as `VOICE_TOOLS_OPENAI_KEY`, which falls back to `not-required`.
 
 ### 4.1. Containerize vs. localhost
 

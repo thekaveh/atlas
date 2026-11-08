@@ -35,6 +35,9 @@ services:
       # POST each id to /v1/models after boot. (Shipping a populated default is a
       # pending decision — see the README; it changes boot time + image size.)
       PRELOAD_MODELS: '[]'
+      # Without API_KEY every route is open, and model download and load take
+      # no body, so any web page could fill the cache and RAM (#1458).
+      API_KEY: ${SPEACHES_API_KEY}
       HF_TOKEN: ${HUGGING_FACE_HUB_TOKEN}
       NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-all}
     volumes:

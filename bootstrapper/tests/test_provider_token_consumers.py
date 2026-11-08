@@ -74,8 +74,8 @@ def test_manifests_declare_server_side_token_adaptation():
     [
         ("parakeet-container-gpu", "parakeet-test-token"),
         ("parakeet-localhost", "parakeet-test-token"),
-        ("speaches-container-cpu", "sk-unused"),
-        ("speaches-container-gpu", "sk-unused"),
+        ("speaches-container-cpu", "speaches-test-key"),
+        ("speaches-container-gpu", "speaches-test-key"),
         ("whisper-cpp-localhost", "sk-unused"),
         ("disabled", ""),
     ],
@@ -86,6 +86,7 @@ def test_stt_consumer_key_is_source_aware(env_with_overrides, source, expected):
             {
                 "STT_PROVIDER_SOURCE": source,
                 "PARAKEET_API_TOKEN": "parakeet-test-token",
+                "SPEACHES_API_KEY": "speaches-test-key",
             }
         )
     )
@@ -94,6 +95,52 @@ def test_stt_consumer_key_is_source_aware(env_with_overrides, source, expected):
 
     assert generated["OPEN_WEB_UI_STT_API_KEY"] == expected
     assert generated["STT_INTERNAL_API_KEY"] == expected
+
+
+@pytest.mark.parametrize(
+    "source,expected",
+    [
+        ("speaches-container-cpu", "speaches-test-key"),
+        ("speaches-container-gpu", "speaches-test-key"),
+        ("chatterbox-container-gpu", "sk-unused"),
+        ("disabled", ""),
+    ],
+)
+def test_tts_consumer_key_is_source_aware(env_with_overrides, source, expected):
+    """Speaches requires API_KEY since #1458, so TTS clients send it."""
+    config = _service_config(
+        env_with_overrides(
+            {"TTS_PROVIDER_SOURCE": source, "SPEACHES_API_KEY": "speaches-test-key"}
+        )
+    )
+
+    generated = config.generate_service_environment()
+
+    assert generated["OPEN_WEB_UI_TTS_API_KEY"] == expected
+    assert generated["TTS_INTERNAL_API_KEY"] == expected
+
+
+def test_speaches_requires_its_key_and_every_client_sends_it(tmp_path):
+    """Without API_KEY, Speaches serves model download and load to any web
+    page (#1458). Its clients read the source-aware keys above."""
+    speaches = yaml.safe_load((ROOT / "services/speaches/compose.yml").read_text())
+    assert speaches["services"]["speaches"]["environment"]["API_KEY"] == "${SPEACHES_API_KEY}"
+    webui = yaml.safe_load((ROOT / "services/open-webui/compose.yml").read_text())
+    audio = webui["services"]["open-web-ui"]["environment"]
+    assert audio["AUDIO_TTS_OPENAI_API_KEY"] == "${OPEN_WEB_UI_TTS_API_KEY:-}"
+    assert audio["AUDIO_STT_OPENAI_API_KEY"] == "${OPEN_WEB_UI_STT_API_KEY:-}"
+    adaptation = _yaml("services/hermes/service.yml")["runtime_adaptive"]["hermes-init"][
+        "environment_adaptation"]
+    assert adaptation["TTS_INTERNAL_API_KEY"] == "${TTS_INTERNAL_API_KEY}"
+
+    from utils.key_generator import KeyGenerator
+    (tmp_path / ".env").write_text("SPEACHES_API_KEY=\n")
+    generator = KeyGenerator(str(tmp_path))
+    assert generator.generate_and_update_speaches_api_key()
+    key = generator.get_current_env_value("SPEACHES_API_KEY")
+    assert len(key) >= 32
+    assert generator.generate_and_update_speaches_api_key()
+    assert generator.get_current_env_value("SPEACHES_API_KEY") == key
 
 
 @pytest.mark.parametrize("api_key", ["parakeet-test-token", "sk-unused"])
@@ -131,7 +178,9 @@ def test_hermes_template_renders_server_side_stt_key(api_key):
     init = (ROOT / "services/hermes/init/scripts/init-hermes.sh").read_text(encoding="utf-8")
     assert 'STT_INTERNAL_API_KEY="${STT_INTERNAL_API_KEY:-not-required}"' in init
     compose = yaml.safe_load((ROOT / "services/hermes/compose.yml").read_text(encoding="utf-8"))
-    assert compose["services"]["hermes"]["environment"]["VOICE_TOOLS_OPENAI_KEY"] == "not-required"
+    assert compose["services"]["hermes"]["environment"]["VOICE_TOOLS_OPENAI_KEY"] == (
+        "${TTS_INTERNAL_API_KEY:-not-required}"
+    )
     # Hermes reads web.search_backend + the SEARXNG_URL env var (no `search:`),
     # has no config-declared HTTP tools, and indexes only <dir>/SKILL.md.
     assert config["web"] == {"search_backend": "searxng"} and "search" not in config
