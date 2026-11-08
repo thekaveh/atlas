@@ -448,6 +448,27 @@ The wizard uses your current `.env` values as defaults, with two exceptions. A s
     - `--base-port`, `--cold`, `--setup-hosts`, `--skip-hosts`, `--detach` and `--json`.
 - **Selection flags keep the wizard.** `--track` and `--profile` pre-answer and hide their own steps; a consumer manifest's `profile:` hides the profile step too. `--project` and `--consumer` change no prompt.
 
+### 13.1. What a run writes to `.env`
+
+`./start.sh` has no one-run mode. Each flag below writes its value to `.env`, and the value stays for later runs.
+
+| Flag | `.env` key |
+|---|---|
+| Any `--*-source` | The matching `*_SOURCE` |
+| `--track` | `*_SOURCE=disabled` for each out-of-track service |
+| `--profile` | The profile's bundle from `bootstrapper/profiles.yml` |
+| `--openai-models`, `--anthropic-models`, `--openrouter-models`, `--ollama-models` | `OPENAI_USER_MODELS`, `ANTHROPIC_USER_MODELS`, `OPENROUTER_USER_MODELS`, `OLLAMA_USER_MODELS` |
+| `--ollama-custom-models`, `--comfyui-models`, `--comfyui-custom-models-file` | `OLLAMA_CUSTOM_MODELS`, `COMFYUI_USER_MODELS`, `COMFYUI_CUSTOM_MODELS_FILE` |
+| `--openai-api-key`, `--anthropic-api-key`, `--openrouter-api-key`, `--fal-api-key` | The matching `*_API_KEY` |
+| `--project`, `--base-port` | `PROJECT_NAME`, `BASE_PORT` |
+| `--ray-worker-count`, `--spark-workers`, `--prometheus-retention-days` | `RAY_WORKER_COUNT`, `SPARK_WORKER_COUNT`, `PROMETHEUS_RETENTION_DAYS` |
+
+Startup also writes `.env` without a flag. It adds keys that are new in `.env.example`, generates missing Supabase keys and applies env migrations.
+
+A consumer manifest's `env.values` apply again on each start, so the keys it declares return to its values. A key it does not declare keeps the value from the last run, for example `OLLAMA_USER_MODELS` after `--ollama-models ""`.
+
+For a one-off configuration, stop the stack and copy `.env`. Then run and stop, and restore the copy.
+
 ## 14. Requirements
 
 The TUI needs three Python libraries, all declared in `bootstrapper/pyproject.toml`:
