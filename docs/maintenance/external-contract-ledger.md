@@ -158,7 +158,7 @@ The exclusion ledger is machine-checked against the complete Compose build inven
 | GitHub Actions cache action | `actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9` (`v6.1.0`) | The v6.1.0 release tag was resolved to this commit through the GitHub API on 2026-09-16 (previously `v4` at `0057852b…`, resolved 2026-08-25); v5+ runs on the Node.js 24 runtime, which the hosted `ubuntu-24.04` runners provide | Workflow execution is bound to the reviewed commit rather than a mutable major tag | Repository tests scan every workflow action reference and reject mutable pins |
 | GitHub repository security settings | Secret scanning, push protection, and Dependabot security updates enabled | Live repository settings re-read through the GitHub API on 2026-08-25 | New committed secrets are blocked and supported dependency advisories receive automated security-update PRs | Enabled all three controls. Five additional alerts whose only manifest path was the retired `tts-provider/localhost/uv.lock` were dismissed individually as `not_used`; 12 active-path alerts remain governed by the repository's exact, stale-checked reachability exceptions. |
 | Container image vulnerability gate | Trivy `v0.74.0`; `aquasecurity/setup-trivy` pinned to commit `81e51434…f567` | Official release and immutable action commit resolved through the GitHub API on 2026-08-25 | Inputs are attempted on both declared scan platforms; failures remain visible. See [detailed evidence](#71-container-image-vulnerability-gate-evidence) for inventory counts, gating, exceptions and resource limits. | Inventory, source contracts and exclusions are executable. The [detailed evidence](#71-container-image-vulnerability-gate-evidence) names their owners and retains the distinction from registry discovery. |
-| LLM Graph Builder remote base images | Upstream source commit `4a412f4688cf4096976045c019edc0a7f6ddcb6b`; `python:3.12-slim@sha256:aa943ce411423c7582288f18707ff66eddcbaeb510502d747a72aeb34f30d159`; `node:20@sha256:8f693eaa7e0a8e71560c9a82b55fd54c2ae920a2ba5d2cde28bac7d1c01c9ba5`; `nginx:alpine@sha256:785835ea65db4bba6f021acc0f3be91b0fef76a53fe41f8588c6698d2aed0606` | The pinned Dockerfiles and all index moves were reviewed. See [dated base-image evidence](#72-llm-graph-builder-base-image-evidence) for content changes, unchanged platforms and the package-closure limitation. | The reviewed baseline must exactly equal the three literal bases discovered from the two pinned Dockerfiles; every nightly check resolves their current multi-platform index digests and fails closed on added, removed, or changed bases. | `.container-scan-exclusions.yml` records only the reviewed registry indexes. `bootstrapper/tests/test_container_security.py` pins the reviewed fixture and ledger evidence, while `scripts.upstream_drift_watch` owns bounded live source and registry verification. |
+| LLM Graph Builder remote base images | Upstream source commit `4a412f4688cf4096976045c019edc0a7f6ddcb6b`; `python:3.12-slim@sha256:4840d514c583a4d3d8cad3940e68dee6f0f6f3635c12fcd0a3d74c21a5b93a54`; `node:20@sha256:8f693eaa7e0a8e71560c9a82b55fd54c2ae920a2ba5d2cde28bac7d1c01c9ba5`; `nginx:alpine@sha256:713fc2ebfd92e8217db451477182ee91944b123d2b1ee9fd5a8c6e91ca6c3a11` | The pinned Dockerfiles and all index moves were reviewed. See [dated base-image evidence](#72-llm-graph-builder-base-image-evidence) for content changes, unchanged platforms and the package-closure limitation. | The reviewed baseline must exactly equal the three literal bases discovered from the two pinned Dockerfiles; every nightly check resolves their current multi-platform index digests and fails closed on added, removed, or changed bases. | `.container-scan-exclusions.yml` records only the reviewed registry indexes. `bootstrapper/tests/test_container_security.py` pins the reviewed fixture and ledger evidence, while `scripts.upstream_drift_watch` owns bounded live source and registry verification. |
 
 ### 7.1. Container image vulnerability gate evidence
 
@@ -339,6 +339,25 @@ The Python index moved from `sha256:02108f5d...` to `sha256:aa943ce4...` with ge
 Python 3.12.15 moved to 3.12.16 from `docker-library/python@3d7e95597e56a415d9e4abc0f15877e005d2cb2e`. The image stayed on Debian 13.7 and was created on 2026-10-28.
 
 The outgoing amd64 manifest reported one fixed HIGH finding, CVE-2026-103111 in `libpcre2-8-0` 10.46-1~deb13u2. The incoming amd64 and arm64 manifests reported none. Unfixed Debian findings stayed at 44. The baseline advanced because the replacement strictly reduced exposure.
+
+
+#### 7.2.10. 2026-11-08 — Nginx and Python rebuilds
+
+The Nginx index moved from `sha256:785835ea...` to `sha256:713fc2eb...` with new content:
+
+- `linux/amd64`: `sha256:2db7d285...` to `sha256:697b0b156c70b91130853fd0675c6be36665939d5f93dce2686be04b4c3f98a8`.
+- `linux/arm64/v8`: `sha256:41c8801e...` to `sha256:5e3f1baf6e6505e8bc2b7ba50c790f94bb189b5e96c0ab2298fc745081c519a3`.
+
+nginx stayed at 1.31.8 from `nginx/docker-nginx@6fabb4c960a02a1e576d2789974c45f4cd2aa854`. Alpine moved from 3.24.3 to 3.24.4, and the image was created on 2026-11-05. Pinned Trivy 0.74.0 scans used the database of 2026-11-07 18:32 UTC.
+
+The outgoing amd64 and arm64 manifests each reported seven fixed HIGH or CRITICAL findings: CVE-2026-111497 in `brotli-libs`, four `libexpat` CVEs (CVE-2026-113351, -115506, -117610, -118370) and CVE-2026-92392 in `curl` and `libcurl`. The incoming manifests reported none. The baseline advanced because the replacement strictly reduced exposure.
+
+The Python index moved from `sha256:aa943ce4...` to `sha256:4840d514...` with new content:
+
+- `linux/amd64`: `sha256:1148dbb0...` to `sha256:05a994d2344eb364cc186910f4fc8786a38215f39f00d0acc25bff33a08f4177`.
+- `linux/arm64/v8`: `sha256:b224e2fe...` to `sha256:c61cffc3bacb94ed026ff8b45d5114b7693dd0420baca0a1ace0e3d0ce9035fd`.
+
+Python stayed at 3.12.16 from `docker-library/python@3d7e95597e56a415d9e4abc0f15877e005d2cb2e` on Debian 13.7, rebuilt on 2026-11-05. The outgoing manifests reported four fixed HIGH findings; the incoming manifests reported two. The update cleared CVE-2026-109518 in `apt` and `libapt-pkg7.0`; CVE-2026-76844 and CVE-2026-85091 in `zlib1g` remain. Unfixed Debian findings stayed at 47. The baseline advanced because the replacement strictly reduced exposure.
 
 ## 8. 2026-09-20 TrueForge Adoption (#1159)
 
