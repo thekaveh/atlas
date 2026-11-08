@@ -184,18 +184,32 @@ With AOF enabled, Redis loads the AOF files at startup instead of the standalone
 **Memory cap and eviction.**
 
 - `REDIS_MAXMEMORY` defaults to `0` (no cap). Redis then grows until Docker's memory limit kills it, which loses in-flight queue state.
-- Set a cap of about 75% of the container's memory budget, for example `REDIS_MAXMEMORY=512mb`.
-- `REDIS_MAXMEMORY_POLICY` defaults to `volatile-lru`, which evicts only keys with a TTL. These include LiteLLM's response cache and ordinary Backend media records.
+- A cap of about 75% of the container's memory budget, for example `REDIS_MAXMEMORY=512mb`, bounds memory. Read the key table below first.
+- `REDIS_MAXMEMORY_POLICY` defaults to `volatile-lru`, which evicts only keys with a TTL. These include LiteLLM's response cache, ordinary Backend media records, and two coordination leases (table below).
 - Media retention defaults to seven days, but a memory cap can evict TTL-bearing records earlier, including operations without budget tracking.
 - Budget-tracked in-flight records, unresolved `submission_unknown` records and pending ledger intents remain persistent until settlement. See [Backend media retention](../backend/README.md#36-hosted-media-gateway).
 - Keys without a TTL survive `volatile-lru`.
 - If no TTL key is left, writes fail with an OOM error.
 
+**Keys on db 0 and their eviction exposure.** Under `volatile-lru` with a cap, every key with a TTL is an eviction candidate, whatever its role. Several coordination keys carry a TTL.
+
+| Key prefix | Writer | TTL | If evicted |
+|---|---|---|---|
+| `atlas:media:operations:<id>` | Backend media gateway | Retention TTL (seven days by default) once settled; none while a budget-tracked operation is in flight or its submission is unknown | A settled operation's status and result are lost early |
+| `atlas:media:pending-ledger-intents*` | Backend media gateway | None | Not an eviction candidate |
+| `atlas:rag:ingestions:<id>`, `atlas:rag:idempotency:<key>` | Backend RAG ingestion | `RAG_INGESTION_TTL_SECONDS` (seven days by default) | Status is lost early; a repeat with the same idempotency key is no longer recognized |
+| `atlas:rag:execution:<id>` | RAG ingestion worker | Lease seconds | **A second worker can claim a running ingestion** |
+| `atlas:rag:delivery-starts:<id>`, `atlas:rag:publication:<id>` | RAG ingestion worker | A TTL | Delivery and publication bookkeeping is lost |
+| `atlas:celery:memory-execution:<task>` | Celery memory consolidation | Lease, then the `done:` marker, both with a TTL | **Consolidation can run twice** |
+| `litellm.cache:*` | LiteLLM response cache | Cache TTL | Recomputed on the next request |
+
+Do not set `REDIS_MAXMEMORY` on a stack that runs RAG ingestion or memory consolidation until those leases live in an instance without eviction (#1040). A Redis logical database does not scope `maxmemory-policy`.
+
 Stack-relevant knobs (the first two are `.env` settings; the rest need a Compose change):
 
 | Knob | Default | Recommended for stack |
 |---|---|---|
-| `maxmemory` | unbounded | 75% of container memory budget |
+| `maxmemory` | unbounded | 75% of container memory budget, but only on a stack without RAG ingestion or memory consolidation (table above) |
 | `maxmemory-policy` | `volatile-lru` | Keep for the mixed stock workload; use a dedicated cache instance before selecting `allkeys-lru`. |
 | `appendfsync` | `everysec` | leave as-is; `always` is overkill, `no` loses queue state on crash |
 | `save` (RDB) | Enabled: 3600 seconds / 1 change; 300 seconds / 100 changes; 60 seconds / 10000 changes | Account for background snapshot CPU and disk use. |
