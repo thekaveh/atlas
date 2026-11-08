@@ -355,6 +355,9 @@
 | TTS_INTERNAL_URL | hermes |  | Set by ./start.sh from TTS_PROVIDER_SOURCE; do not edit. hermes-init renders the TTS block of config.yaml from it; empty omits the block. |
 | STT_INTERNAL_URL | hermes |  | Set by ./start.sh from STT_PROVIDER_SOURCE; do not edit. hermes-init renders the STT block of config.yaml from it; empty omits the block. |
 | STT_INTERNAL_API_KEY | hermes |  | Parakeet bearer token or SPEACHES_API_KEY for the rendered server-side STT block; non-secret compatibility placeholder for other enabled STT engines. |
+| HERMES_OPENAI_API_KEY | hermes |  | OPENAI_API_KEY when CLOUD_OPENAI_SOURCE=enabled, else empty. The hermes container receives it as OPENAI_API_KEY. |
+| HERMES_ANTHROPIC_API_KEY | hermes |  | ANTHROPIC_API_KEY when CLOUD_ANTHROPIC_SOURCE=enabled, else empty. The hermes container receives it as ANTHROPIC_API_KEY. |
+| HERMES_OPENROUTER_API_KEY | hermes |  | OPENROUTER_API_KEY when CLOUD_OPENROUTER_SOURCE=enabled, else empty. The hermes container receives it as OPENROUTER_API_KEY. |
 | TTS_INTERNAL_API_KEY | hermes |  | SPEACHES_API_KEY when a Speaches TTS source is selected, else a non-secret placeholder; the hermes container sends it as VOICE_TOOLS_OPENAI_KEY. |
 | COMFYUI_INTERNAL_URL | hermes |  | Set by ./start.sh from COMFYUI_ENDPOINT; do not edit. hermes-init renders the ComfyUI host skill from it; empty skips the skill. |
 | SEARXNG_INTERNAL_URL | hermes |  | Set by ./start.sh from SEARXNG_SOURCE; do not edit. hermes-init renders the web-search block of config.yaml from it; empty omits the block. |
@@ -526,6 +529,7 @@
 | LITELLM_VISION_MODEL | litellm | ollama/qwen3.8:latest | Default vision-capable model (resolved from the model catalog; forward-looking — no consumer routes on it yet). |
 | LITELLM_BASE_URL | litellm |  | In-network URL consumers point at (backend, n8n, jupyterhub, open-webui). |
 | LITELLM_IMAGE | litellm | ghcr.io/berriai/litellm:v1.83.14-stable.patch.2 | Container image for `litellm`. |
+| LLM_GRAPH_BUILDER_OPENAI_API_KEY | llm-graph-builder |  | OPENAI_API_KEY when CLOUD_OPENAI_SOURCE=enabled, else empty. The llm-graph-builder container receives it as OPENAI_API_KEY; models go through LiteLLM either way. |
 | LLM_GRAPH_BUILDER_SOURCE | llm-graph-builder | disabled | Deployment source for Neo4j LLM Graph Builder: container (pinned source build) or disabled. The container source requires NEO4J_GRAPH_DB_SOURCE=container. |
 | LLM_GRAPH_BUILDER_REF | llm-graph-builder | 4a412f4688cf4096976045c019edc0a7f6ddcb6b | Pinned upstream neo4j-labs/llm-graph-builder git ref used by the source-build containers. |
 | LLM_GRAPH_BUILDER_PORT | llm-graph-builder | 63095 | Host port for the Graph Builder frontend (in-container 8080). |

@@ -507,3 +507,34 @@ def test_hermes_actual_curl_preserves_http_failure(tmp_path, hermes_owned_http, 
     assert result.returncode == 22
     assert str(status).encode() in result.stderr
     assert result.stdout == b""
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+@pytest.mark.parametrize("provider,key_var", [
+    ("OPENAI", "OPENAI_API_KEY"), ("ANTHROPIC", "ANTHROPIC_API_KEY"), ("OPENROUTER", "OPENROUTER_API_KEY"),
+])
+def test_cloud_keys_reach_hermes_and_graph_builder_only_when_enabled(
+    env_with_overrides, provider, key_var, enabled
+):
+    """Disabling a provider used to remove only its LiteLLM routes (#1886)."""
+    config = _service_config(env_with_overrides({
+        f"CLOUD_{provider}_SOURCE": "enabled" if enabled else "disabled",
+        key_var: "sk-test-provider-key",
+    }))
+
+    generated = config.generate_service_environment()
+
+    expected = "sk-test-provider-key" if enabled else ""
+    assert generated[f"HERMES_{key_var}"] == expected
+    if key_var == "OPENAI_API_KEY":
+        assert generated["LLM_GRAPH_BUILDER_OPENAI_API_KEY"] == expected
+
+
+def test_hermes_and_graph_builder_read_only_the_gated_cloud_keys():
+    hermes = yaml.safe_load((ROOT / "services/hermes/compose.yml").read_text())
+    hermes_env = hermes["services"]["hermes"]["environment"]
+    for key_var in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "OPENROUTER_API_KEY"):
+        assert hermes_env[key_var] == f"${{HERMES_{key_var}:-}}"
+    builder = yaml.safe_load((ROOT / "services/llm-graph-builder/compose.yml").read_text())
+    builder_env = next(iter(builder["services"].values()))["environment"]
+    assert builder_env["OPENAI_API_KEY"] == "${LLM_GRAPH_BUILDER_OPENAI_API_KEY:-}"
