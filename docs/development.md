@@ -81,6 +81,8 @@ The Material `privacy` plugin, enabled by `scripts/docs/build_docs.py`, self-hos
 
 **Mermaid floats.** mkdocs-material's JavaScript requests `https://unpkg.com/mermaid@11/dist/mermaid.min.js`. unpkg serves the newest 11.x release for that URL, so its inventory entry has `sha256: null`. A test requires a sha256 for every URL that names an exact version, and for no other URL. If mkdocs-material pins an exact Mermaid version, pin the inventory entry too.
 
+**Cold-cache evidence.** On 2026-11-08, on one machine with network access, `.cache` was removed and `make docs-check` ran against live unpkg (#1282). The preflight passed, Mermaid resolved to 11.17.2, and the strict build passed. `make docs-assets-verify` reported all 20 assets matching. The `assets:` section printed by `--print-inventory` matched `docs/external-assets.yaml` exactly.
+
 The assets are not vendored, and the cache is not seeded. Vendoring adds about 3.8 MB of binaries. The cache paths are internal to the plugin and can change with any mkdocs-material release.
 
 ### 3.2. Heading numbers and symbols
