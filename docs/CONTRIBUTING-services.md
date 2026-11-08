@@ -757,9 +757,10 @@ user-model-selection path) needs FOUR coordinated edits, not two:
 2. the `source_mapping` / collector-dict entry,
 3. the `user_model_selections[KEY] = kwarg` assignment in `main()`,
 4. the wizard bucket. `_selections_to_args` in `ui/textual/integration.py`
-   returns it. The "Apply user model selections" lambda in
-   `ui/textual/screens/wizard_screen.py` reads it with `.get(...)`. A new
-   bucket key needs both edits.
+   returns it. `_run_pipeline_and_stream` in
+   `ui/textual/screens/wizard_screen.py` merges it into the launch plan's
+   `user_model_selections` with `.get(...)`. A new bucket key needs both
+   edits.
 Missing seam 4 silently drops the flag's value. AST-based seam-parity tests
 (`tests/test_user_model_selections_seam_parity.py`,
 `tests/test_wizard_app_discovery.py`) guard all four — extend them when

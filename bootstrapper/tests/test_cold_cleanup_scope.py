@@ -307,9 +307,8 @@ def test_all_entry_paths_prepare_environment_before_secret_rotation():
 
     main_flow = linear[linear.index("def run_linear_startup(") :]
     linear_prepare = main_flow.index("starter.prepare_environment(")
-    linear_rotation = main_flow.index(
-        "starter.generate_encryption_keys(cold_start=options.cold)"
-    )
+    # Secret rotation is a stage of the shared plan the loop runs (#1043).
+    linear_rotation = main_flow.index("launch_plan.CONFIGURE_STAGES")
     assert linear_prepare < linear_rotation
     assert main_flow.count("starter.prepare_environment(") == 1
     assert "starter.setup_env_file(" not in main_flow

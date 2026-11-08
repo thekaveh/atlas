@@ -106,6 +106,7 @@ def pipeline_screen(s, options, monkeypatch):
                 _close_launch_log_tee=lambda: None, _on_base_port_change=None, _services=[])
     screen._show_launch_base_port = MethodType(ws.WizardScreen._show_launch_base_port, screen)
     screen._cold_cleanup_steps = MethodType(ws.WizardScreen._cold_cleanup_steps, screen)
+    screen._record_launch_base_port = MethodType(ws.WizardScreen._record_launch_base_port, screen)
     if hasattr(ws.WizardScreen, "_configure_launch_ports"):
         screen._configure_launch_ports = MethodType(ws.WizardScreen._configure_launch_ports, screen)
     return screen
