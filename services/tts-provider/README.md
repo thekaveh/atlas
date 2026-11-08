@@ -175,7 +175,8 @@ maps each to the `AUDIO_TTS_*` variable shown:
 | `OPEN_WEB_UI_TTS_MODEL` | `AUDIO_TTS_MODEL` | `SPEACHES_TTS_MODEL` (Speaches) or `chatterbox-tts-1` (Chatterbox) |
 | `OPEN_WEB_UI_TTS_VOICE` | `AUDIO_TTS_VOICE` | `af_heart` (Speaches) or `alloy` (Chatterbox) |
 
-The compose file hard-codes `AUDIO_TTS_OPENAI_API_KEY=sk-unused`. These are
+`AUDIO_TTS_OPENAI_API_KEY` comes from `OPEN_WEB_UI_TTS_API_KEY`:
+`SPEACHES_API_KEY` for Speaches, `sk-unused` for Chatterbox. These are
 defaults; change the voice or model later in Open WebUI admin → Settings →
 Audio.
 

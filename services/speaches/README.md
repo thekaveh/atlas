@@ -24,6 +24,7 @@ Requests return `404` until you download the model (issue #799). See
 - **GPU caveat:** `speaches-container-gpu` selects the CUDA image, but the service gets no NVIDIA device (issue #1373, open). It runs on CPU or fails CUDA initialisation. Use `speaches-container-cpu`.
 - **In-container port:** 8000
 - **Host port:** `${SPEACHES_PORT}` (computed from `BASE_PORT`)
+- **API key:** every route except `/health` requires `Authorization: Bearer ${SPEACHES_API_KEY}`. A missing or wrong key gets `403`. The bootstrapper generates the key. Open WebUI and Hermes send it; notebooks, n8n workflows and the Gradio UI at `/` must send it too. Without a key, any web page could download models into the cache and load them into RAM (#1458).
 
 ## 2. Capabilities & limitations
 

@@ -27,7 +27,7 @@ model:
 # BEGIN-TTS
 # Hermes reads the endpoint from tts.openai.* only (a flat tts.base_url is
 # ignored and audio went to api.openai.com); the key comes from
-# VOICE_TOOLS_OPENAI_KEY, which compose pins to a placeholder.
+# VOICE_TOOLS_OPENAI_KEY, which compose sets to the engine's key or a placeholder.
 tts:
   provider: openai
   openai:
