@@ -12,6 +12,11 @@ Parakeet is an STT engine selected with `STT_PROVIDER_SOURCE`. See
 - **In-container port:** 8000
 - **Host port:** `${STT_PROVIDER_PORT}` (computed from `BASE_PORT` by the
   bootstrapper)
+- **Held dependencies:** the GPU lock keeps `fsspec==2024.12.0` and
+  `hydra-core==1.3.2`. NeMo 3.0.0 pins Lightning 2.4.0, which requires
+  `fsspec[http]<2026.0`, and admits only `hydra-core<=1.3.2`. Their advisories
+  have a reviewed, time-boxed exception in `scripts/audit_runtime_locks.py`
+  until 2026-11-27 (#1394).
 - **Readiness:** Uvicorn starts while a deadline-bounded background task loads
   the model. `GET /health` returns `503` until loading completes. A cold first
   boot downloads the ~2.5 GB checkpoint. The healthcheck start period (810 s

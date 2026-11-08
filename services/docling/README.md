@@ -9,6 +9,7 @@ setup, configuration and integration.
 - **Image (GPU):** `pytorch/pytorch:2.13.0-cuda12.6-cudnn9-runtime` (digest-pinned; used as
   `BASE_IMAGE` in the GPU provider Dockerfile); the provider requirements keep
   `torch==2.13.0` and its matching `torchvision==0.28.0` patch pair.
+- **Docling:** 2.142.0 in both provider locks (`provider/gpu/requirements-locked.txt`, `provider/localhost/uv.lock`). It is past the archive and table-span parser advisories CVE-2026-105747, CVE-2026-105749 and CVE-2026-105750, fixed in 2.131.0 (#1394).
 - **License:** MIT (IBM)
 - **Activation:** `DOC_PROCESSOR_SOURCE=docling-container-gpu` (or
   `docling-localhost` for host-installed Docling)
