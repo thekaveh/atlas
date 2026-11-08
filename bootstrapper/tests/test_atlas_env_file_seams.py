@@ -283,6 +283,47 @@ def test_each_writer_leaves_env_owner_only(tmp_path, write):
     assert "OPENAI_API_KEY=sk-x" in env.read_text(encoding="utf-8").splitlines()
 
 
+def _migration_writers():
+    """Each migration write, with a seed that makes it actually rewrite."""
+    from services.migrations import migration_v1, migration_v3, migration_v4, migration_v5
+
+    v3_seed = "BOOTSTRAPPER_PORT_LAYOUT_VERSION=2\nCOMFYUI_MODEL_SET=sdxl\n"
+    v4_seed = (
+        "BOOTSTRAPPER_PORT_LAYOUT_VERSION=3\n"
+        "LITELLM_DEFAULT_MODEL=ollama/qwen3.6:latest\n"
+    )
+    v5_seed = "BOOTSTRAPPER_PORT_LAYOUT_VERSION=4\nWEAVIATE_ENABLE_MODULES=text2vec-openai\n"
+    return [
+        pytest.param("LITELLM_PORT=63012\n",
+                     lambda env: migration_v1.apply(env, {"LITELLM_PORT": 63030}, base_port=63000),
+                     id="v1_apply"),
+        pytest.param("X=1\n", lambda env: migration_v1.stamp_version(env, 1), id="v1_stamp"),
+        pytest.param(v3_seed, migration_v3.apply, id="v3_apply"),
+        pytest.param("X=1\n", migration_v3.stamp_version, id="v3_stamp"),
+        pytest.param(v4_seed, migration_v4.apply, id="v4_apply"),
+        pytest.param("X=1\n", migration_v4.stamp_version, id="v4_stamp"),
+        pytest.param(v5_seed, migration_v5.apply, id="v5_apply"),
+        pytest.param("X=1\n", migration_v5.stamp_version, id="v5_stamp"),
+    ]
+
+
+@pytest.mark.parametrize("seed,write", _migration_writers())
+def test_each_migration_write_leaves_env_owner_only(tmp_path, seed, write):
+    """Migrations rewrite .env, which holds secrets. A 0o644 seed catches a
+    write that drops `mode=0o600`, because the atomic writer keeps the
+    existing mode otherwise."""
+    import stat
+
+    env = tmp_path / ".env"
+    env.write_text(seed, encoding="utf-8")
+    env.chmod(0o644)
+
+    write(env)
+
+    assert env.read_text(encoding="utf-8") != seed  # the write really happened
+    assert stat.S_IMODE(env.stat().st_mode) == 0o600
+
+
 def _start_writers():
     def merge_overrides(starter):
         starter._merge_env_file_overrides({"X": "1"})

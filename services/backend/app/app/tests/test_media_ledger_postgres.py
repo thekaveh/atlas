@@ -112,6 +112,10 @@ def test_append_inserts_all_columns():
     # exit), not closed by the caller — so no `conn.closed` assertion here.
 
 
+# Typed and qualified, so a planted public.pg_advisory_xact_lock(text) cannot win.
+_TYPED_LOCK = "SELECT pg_catalog.pg_advisory_xact_lock($1::bigint)"
+
+
 def test_reserve_within_cap_admits_under_cap():
     conn = FakeConn(fetchrow_result={"reserved": 0, "committed": 0})  # no prior spend
     with _acquire_patch(conn):
@@ -119,7 +123,7 @@ def test_reserve_within_cap_admits_under_cap():
 
     assert admitted is True
     # Advisory lock taken + the row inserted inside the transaction.
-    assert any("pg_advisory_xact_lock" in s for s in conn.executed_sql())
+    assert _TYPED_LOCK in conn.executed_sql()
     assert len(conn.inserted()) == 1
 
 
@@ -131,7 +135,7 @@ def test_reserve_within_cap_denies_over_cap_without_insert():
 
     assert admitted is False
     # Locked + checked totals, but did NOT insert an over-budget row.
-    assert any("pg_advisory_xact_lock" in s for s in conn.executed_sql())
+    assert _TYPED_LOCK in conn.executed_sql()
     assert conn.inserted() == []
 
 
