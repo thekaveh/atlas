@@ -27,8 +27,11 @@ LANGFUSE_SALT=                        # auto-generated
 LANGFUSE_ENCRYPTION_KEY=              # auto-generated
 LANGFUSE_NEXTAUTH_SECRET=             # auto-generated
 LANGFUSE_CLICKHOUSE_PASSWORD=         # auto-generated
+LANGFUSE_CLICKHOUSE_MEMORY_LIMIT=4g   # langfuse-clickhouse container memory limit
 MINIO_BUCKET_LANGFUSE=langfuse
 ```
+
+ClickHouse sizes its server memory from the container limit. Without `LANGFUSE_CLICKHOUSE_MEMORY_LIMIT` it sized itself from host RAM (#1356).
 
 Langfuse self-hosting needs a web container, a worker container, Postgres, ClickHouse, Redis/Valkey and S3/blob storage. Atlas reuses Supabase Postgres, Redis and MinIO, and adds a Langfuse-owned ClickHouse container. This is a low-scale local Docker Compose deployment, not a high-availability production cluster.
 

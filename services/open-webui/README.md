@@ -25,6 +25,8 @@ Sign in with the admin account that `open-webui-init` creates: `OPEN_WEB_UI_ADMI
 
 **Saved admin settings override `.env`.** Open WebUI keeps its connection, audio and image settings as persistent config. `ENABLE_PERSISTENT_CONFIG` defaults to true, and Atlas does not change it. The injected env vars only seed the first boot. After an admin saves the Connections, Audio or Images page, the stored value wins. Later STT/TTS source switches, `PARAKEET_API_TOKEN` regenerations and `LITELLM_MASTER_KEY` changes are then ignored. Update the page, or reset the value in Admin Settings.
 
+**Healthcheck.** The compose file runs the image's `/health` check every 15 s, with a 180 s start period that also covers database migrations. A cold start on an empty data volume was healthy in 10–11 s (#1356).
+
 **Shared Redis database.** Open WebUI's websocket store uses Redis database `OPEN_WEB_UI_REDIS_DB` (default `2`) with the key prefix `openwebui`. LightRAG's KV and doc-status storage also uses database `2`. To keep them apart, set `OPEN_WEB_UI_REDIS_DB` to another database number.
 
 ## 4. Integration notes

@@ -158,6 +158,7 @@ services:
       AIRFLOW__CORE__AUTH_MANAGER: airflow.providers.fab.auth_manager.fab_auth_manager.FabAuthManager
       AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://airflow-webserver:8080/execution/
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__PARALLELISM: '4'
       AIRFLOW__CORE__FERNET_KEY: ''
       AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:atlas-db-password@supabase-db:5432/airflow
@@ -1792,6 +1793,9 @@ services:
     container_name: atlas-langfuse-clickhouse
     deploy:
       replicas: 0
+      resources:
+        limits:
+          memory: '4294967296'
     environment:
       CLICKHOUSE_DB: default
       CLICKHOUSE_PASSWORD: ''
@@ -3282,6 +3286,14 @@ services:
       WEBUI_SECRET_KEY: secret
     extra_hosts:
     - host.docker.internal=
+    healthcheck:
+      test:
+      - CMD-SHELL
+      - "curl --silent --fail http://localhost:$${PORT:-8080}/health | jq -ne 'input.status == true' || exit 1"
+      timeout: 10s
+      interval: 15s
+      retries: 5
+      start_period: 3m0s
     image: dyrnq/open-webui:v0.6.32
     logging:
       driver: json-file
@@ -4709,12 +4721,23 @@ services:
         required: true
     deploy:
       replicas: 0
+      resources:
+        limits:
+          memory: '4294967296'
     environment:
       JAVA_TOOL_OPTIONS: -Dhttp-server.process-forwarded=true
       MINIO_BUCKET_ICEBERG_LAKEHOUSE: lakehouse
       MINIO_ICEBERG_ACCESS_KEY: ''
       MINIO_ICEBERG_SECRET_KEY: ''
       MINIO_REGION: us-east-1
+    healthcheck:
+      test:
+      - CMD
+      - /usr/lib/trino/bin/health-check
+      timeout: 5s
+      interval: 15s
+      retries: 5
+      start_period: 1m0s
     image: trinodb/trino:482
     logging:
       driver: json-file
@@ -4936,6 +4959,7 @@ services:
       CLUSTER_HOSTNAME: weaviate
       CORS_ALLOW_ORIGIN: http://weaviate.localhost:63000
       DEFAULT_VECTORIZER_MODULE: none
+      GOMEMLIMIT: ''
       ENABLE_MODULES: text2vec-openai,text2vec-ollama,multi2vec-clip,generative-openai,generative-ollama,backup-filesystem
       OPENAI_APIKEY: ''
       PERSISTENCE_DATA_PATH: /var/lib/weaviate
@@ -5052,6 +5076,8 @@ services:
           cpus: 1.5
           memory: '2147483648'
     environment:
+      ZEPPELIN_INTP_MEM: -Xmx384m
+      ZEPPELIN_MEM: -Xmx512m
       ICEBERG_REST_URI: http://iceberg-rest:8181
       JAVA_HOME: /opt/java/openjdk
       MINIO_BUCKET_ICEBERG_CHECKPOINTS: checkpoints
@@ -5068,7 +5094,7 @@ services:
       SPARK_KAFKA_BOOTSTRAP_SERVERS: ''
       SPARK_MASTER: spark://spark-master:7077
       SPARK_SUBMIT_OPTIONS: --conf spark.submit.deployMode=client --conf spark.driver.bindAddress=0.0.0.0
-        --conf spark.driver.host=zeppelin --conf spark.cores.max=1 --conf spark.hadoop.fs.s3a.endpoint=http://minio:9000
+        --conf spark.driver.host=zeppelin --conf spark.cores.max=1 --conf spark.driver.memory=512m --conf spark.hadoop.fs.s3a.endpoint=http://minio:9000
         --conf spark.hadoop.fs.s3a.access.key= --conf spark.hadoop.fs.s3a.secret.key=
         --conf spark.hadoop.fs.s3a.path.style.access=true --conf spark.hadoop.fs.s3a.endpoint.region=us-east-1
         --conf spark.hadoop.fs.s3a.connection.ssl.enabled=false --conf spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions

@@ -42,7 +42,11 @@ AIRFLOW_FERNET_KEY=                  # auto-generated (Connection-password encry
 AIRFLOW_SECRET_KEY=                  # auto-generated (AIRFLOW__API__SECRET_KEY — signs inter-process payloads in Airflow 3.x)
 AIRFLOW_JWT_SECRET=                  # auto-generated (AIRFLOW__API_AUTH__JWT_SECRET — signs Execution API JWTs; shared across webserver/scheduler/dag-processor)
 AIRFLOW_ADMIN_PASSWORD=              # auto-generated (admin login)
+AIRFLOW_SCHEDULER_MEMORY_LIMIT=2g    # airflow-scheduler container memory limit
+AIRFLOW_PARALLELISM=4                # [core] parallelism: concurrent LocalExecutor tasks
 ```
+
+LocalExecutor runs every task process inside `airflow-scheduler`, so they share its memory limit. Upstream's `parallelism` of 32 does not fit 2 g. Raise `AIRFLOW_PARALLELISM` and `AIRFLOW_SCHEDULER_MEMORY_LIMIT` together (#1356).
 
 Auto-managed (resolved by the bootstrapper from `AIRFLOW_SOURCE`; do not hand-edit): `AIRFLOW_WEBSERVER_SCALE`, `AIRFLOW_SCHEDULER_SCALE`, `AIRFLOW_DAG_PROCESSOR_SCALE`, `AIRFLOW_INIT_SCALE`.
 

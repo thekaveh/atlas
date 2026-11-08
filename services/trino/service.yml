@@ -45,6 +45,9 @@ env:
   - name: TRINO_SCALE
     description: "Set by ./start.sh from TRINO_SOURCE; do not edit. 1 runs trino, 0 does not."
     auto_managed: true
+  - name: TRINO_MEMORY_LIMIT
+    default: 4g
+    description: "Container memory limit for trino (deploy.resources.limits.memory). The image sizes its heap at 80% of available memory, so without a limit it took 80% of host RAM."
 
 depends_on:
   required:
