@@ -36,7 +36,10 @@ class _FakeStarter:
         self.log_return_code = log_return_code
         # AtlasStarter state the result block reads (#989): no image left out.
         self.skipped_builds: list[str] = []
-        self.config_parser = SimpleNamespace(root_dir="/repo")
+        # A path that never exists: the .env snapshot (#1044) is a no-op.
+        self.config_parser = SimpleNamespace(
+            root_dir="/repo", env_file_path="/nonexistent/atlas-test/.env"
+        )
         self.source_validator = SimpleNamespace(validation_errors=[])
         self.key_generator = SimpleNamespace(
             assert_no_placeholders_remaining=lambda: None

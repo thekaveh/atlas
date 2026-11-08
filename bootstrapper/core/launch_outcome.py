@@ -378,26 +378,34 @@ def cancel_notice(stopped_previous: bool = False, cold_start: bool = False) -> s
     return notice
 
 
-def launch_cancelled_notice(cold_start: bool = False, stopped_previous: bool = False) -> str:
+ENV_RESTORED = ".env restored to its state before this run"
+
+
+def launch_cancelled_notice(
+    cold_start: bool = False, stopped_previous: bool = False, env_restored: bool = False,
+) -> str:
     """The pre-launch summary was declined, so nothing was started.
 
-    A cold start has already removed the volumes and recreated .env by the
-    time the summary is shown, so it must not claim no data was deleted. The
-    port check may already have stopped this project's running stack.
+    A cold start has already removed the volumes by the time the summary is
+    shown, so it must not claim no data was deleted. The port check may
+    already have stopped this project's running stack. ``env_restored``: the
+    caller put .env back to its pre-run bytes (#1044).
     """
+    configuration = ENV_RESTORED if env_restored else CANCEL.configuration
     if stopped_previous and not cold_start:
         return (
-            f"Launch cancelled — nothing was started · {CANCEL.configuration} · "
+            f"Launch cancelled — nothing was started · {configuration} · "
             f"{CANCEL.data} · the previously running stack was stopped to free "
             "its ports; run ./start.sh again to bring it back."
         )
     if cold_start:
+        restored = ENV_RESTORED if env_restored else ".env was recreated"
         return (
-            "Launch cancelled — nothing was started · .env was recreated · "
+            f"Launch cancelled — nothing was started · {restored} · "
             "persistent data was already DELETED by the cold start (volumes removed)."
         )
     return (
-        f"Launch cancelled — nothing was started · {CANCEL.configuration} · "
+        f"Launch cancelled — nothing was started · {configuration} · "
         f"{CANCEL.data}."
     )
 
