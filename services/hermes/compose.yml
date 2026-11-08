@@ -128,9 +128,10 @@ services:
       # Provider keys forwarded so config.yaml custom_providers can
       # resolve at runtime.
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
-      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      # Empty unless CLOUD_<PROVIDER>_SOURCE=enabled (#1886).
+      OPENAI_API_KEY: ${HERMES_OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${HERMES_ANTHROPIC_API_KEY:-}
+      OPENROUTER_API_KEY: ${HERMES_OPENROUTER_API_KEY:-}
       # Hermes TTS takes its key from VOICE_TOOLS_OPENAI_KEY before
       # OPENAI_API_KEY. It is the in-stack engine's key (SPEACHES_API_KEY for
       # Speaches, #1458) or a placeholder, never the real OpenAI key.

@@ -48,6 +48,10 @@ sources:
       label: "Disabled"
 
 env:
+  - name: LLM_GRAPH_BUILDER_OPENAI_API_KEY
+    auto_managed: true
+    secret: true
+    description: "OPENAI_API_KEY when CLOUD_OPENAI_SOURCE=enabled, else empty. The llm-graph-builder container receives it as OPENAI_API_KEY; models go through LiteLLM either way."
   - name: LLM_GRAPH_BUILDER_SOURCE
     description: "Deployment source for Neo4j LLM Graph Builder: container (pinned source build) or disabled. The container source requires NEO4J_GRAPH_DB_SOURCE=container."
     default: disabled
