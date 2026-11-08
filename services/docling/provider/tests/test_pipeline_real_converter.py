@@ -79,3 +79,30 @@ def test_cached_converters_do_not_share_options_across_settings():
     assert _options(first, InputFormat.IMAGE).do_ocr is False
     assert _options(second, InputFormat.IMAGE).ocr_options.force_full_page_ocr is True
     assert _options(first, InputFormat.IMAGE) is not _options(second, InputFormat.IMAGE)
+
+
+@pytest.mark.parametrize("compression", ["raw", "tiff_lzw", "tiff_adobe_deflate", "packbits"])
+def test_ordinary_tiff_converts_on_the_pinned_pillow(tmp_path, compression):
+    """Ordinary TIFFs decode and convert on the fixed Pillow (#1780).
+
+    Conversion loads Docling's layout and table models, so this runs only
+    with ATLAS_TEST_DOCLING_CONVERT=1."""
+    import os
+
+    if os.environ.get("ATLAS_TEST_DOCLING_CONVERT") != "1":
+        pytest.skip("set ATLAS_TEST_DOCLING_CONVERT=1 to run a real conversion")
+    from docling.datamodel.base_models import ConversionStatus
+    from PIL import Image, ImageDraw
+
+    image = Image.new("RGB", (400, 200), "white")
+    ImageDraw.Draw(image).text((20, 80), "Atlas TIFF probe", fill="black")
+    path = tmp_path / f"probe-{compression}.tiff"
+    image.save(path, compression=compression, dpi=(72, 72))
+    settings = pipeline.resolve_pipeline_settings(use_ocr="never", table_mode="fast", device="cpu")
+
+    result = pipeline.build_converter(settings).convert(path)
+
+    assert result.status == ConversionStatus.SUCCESS
+    pages = list(result.document.pages.values())
+    assert len(pages) == 1
+    assert (round(pages[0].size.width), round(pages[0].size.height)) == (400, 200)
