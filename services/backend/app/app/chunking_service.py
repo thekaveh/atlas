@@ -23,6 +23,12 @@ class ChunkingUpstreamError(ChunkingError):
     error): a server-side fault, not a bad request (#1354)."""
 
 
+# Tokenizers Chonkie 1.7 loads by name. Any other string is a Hugging Face
+# Hub repo id that Chonkie downloads at request time, so callers could make
+# the Backend fetch arbitrary repos (#1387).
+ALLOWED_TOKENIZERS = frozenset({"character", "word", "gpt2", "cl100k_base", "o200k_base"})
+
+
 class ChunkRequest(BaseModel):
     text: str = Field(min_length=1, max_length=1_000_000)
     strategy: ChunkStrategy = "recursive"
@@ -149,6 +155,10 @@ def chunk_text(
     *,
     semantic_embedding_model: Any | None = None,
 ) -> ChunkResponse:
+    if request.tokenizer not in ALLOWED_TOKENIZERS:
+        raise ChunkingError(
+            f"tokenizer must be one of: {', '.join(sorted(ALLOWED_TOKENIZERS))}"
+        )
     RecursiveChunker, SemanticChunker, TokenChunker = _import_chonkie()
     metadata: Dict[str, Any] = {
         "tokenizer": request.tokenizer,

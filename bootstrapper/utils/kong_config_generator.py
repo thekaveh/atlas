@@ -37,6 +37,17 @@ def _has_basic_auth(holder: Dict[str, Any]) -> bool:
     return any(p.get('name') == 'basic-auth' for p in holder.get('plugins') or [])
 
 
+def _dashboard_basic_auth() -> Dict[str, Any]:
+    """The dashboard-user basic-auth plugin, credentials stripped upstream.
+
+    Without hide_credentials Kong forwarded the dashboard pair to the app
+    (#1387). Kong clears only the header the pair came in, so an app's own
+    Authorization survives when the client sends the pair as
+    Proxy-Authorization. A fresh dict per call keeps YAML free of anchors.
+    """
+    return {'name': 'basic-auth', 'config': {'hide_credentials': True}}
+
+
 def is_host_alias_route(route: Dict[str, Any]) -> bool:
     """True for a route that owns a whole host (no paths, or only the root).
 
@@ -1050,7 +1061,7 @@ class KongConfigGenerator:
                 ],
                 'plugins': [
                     {'name': 'cors'},
-                    {'name': 'basic-auth'},
+                    _dashboard_basic_auth(),
                     {'name': 'acl', 'config': {'allow': ['dashboard_user']}}
                 ]
             },
@@ -1081,7 +1092,7 @@ class KongConfigGenerator:
                 # false and Studio sat open on the gateway root.
                 'plugins': [
                     {'name': 'cors'},
-                    {'name': 'basic-auth'},
+                    _dashboard_basic_auth(),
                     {'name': 'acl', 'config': {'allow': ['dashboard_user']}}
                 ]
             }
@@ -1247,7 +1258,7 @@ class KongConfigGenerator:
             ],
             'plugins': [
                 {'name': 'cors'},
-                {'name': 'basic-auth'},
+                _dashboard_basic_auth(),
                 {'name': 'acl', 'config': {'allow': ['dashboard_user']}},
             ],
         }
@@ -1362,7 +1373,7 @@ class KongConfigGenerator:
             # dashboard Basic auth + ACL as the other operator UIs.
             'plugins': [
                 {'name': 'cors'},
-                {'name': 'basic-auth'},
+                _dashboard_basic_auth(),
                 {'name': 'acl', 'config': {'allow': ['dashboard_user']}},
             ]
         }
@@ -1648,7 +1659,7 @@ class KongConfigGenerator:
             ],
             'plugins': [
                 {'name': 'cors'},
-                {'name': 'basic-auth'},
+                _dashboard_basic_auth(),
                 {'name': 'acl', 'config': {'allow': ['dashboard_user']}},
             ],
         }
@@ -1693,7 +1704,7 @@ class KongConfigGenerator:
             ],
             'plugins': [
                 {'name': 'cors'},
-                {'name': 'basic-auth'},
+                _dashboard_basic_auth(),
                 {'name': 'acl', 'config': {'allow': ['dashboard_user']}},
             ],
         }
@@ -1837,7 +1848,7 @@ class KongConfigGenerator:
             ],
             'plugins': [
                 {'name': 'cors'},
-                {'name': 'basic-auth'},
+                _dashboard_basic_auth(),
                 {'name': 'acl', 'config': {'allow': ['dashboard_user']}},
             ],
         }
@@ -1865,7 +1876,7 @@ class KongConfigGenerator:
             ],
             'plugins': [
                 {'name': 'cors'},
-                {'name': 'basic-auth'},
+                _dashboard_basic_auth(),
                 {'name': 'acl', 'config': {'allow': ['dashboard_user']}},
             ],
         }
@@ -1887,7 +1898,7 @@ class KongConfigGenerator:
             ],
             'plugins': [
                 {'name': 'cors'},
-                {'name': 'basic-auth'},
+                _dashboard_basic_auth(),
                 {'name': 'acl', 'config': {'allow': ['dashboard_user']}},
             ],
         }
@@ -1909,7 +1920,7 @@ class KongConfigGenerator:
             ],
             'plugins': [
                 {'name': 'cors'},
-                {'name': 'basic-auth'},
+                _dashboard_basic_auth(),
                 {'name': 'acl', 'config': {'allow': ['dashboard_user']}},
             ],
         }
@@ -1931,7 +1942,7 @@ class KongConfigGenerator:
             ],
             'plugins': [
                 {'name': 'cors'},
-                {'name': 'basic-auth'},
+                _dashboard_basic_auth(),
                 {'name': 'acl', 'config': {'allow': ['dashboard_user']}},
             ],
         }
@@ -1958,7 +1969,7 @@ class KongConfigGenerator:
             ],
             'plugins': [
                 {'name': 'cors'},
-                {'name': 'basic-auth'},
+                _dashboard_basic_auth(),
                 {'name': 'acl', 'config': {'allow': ['dashboard_user']}},
             ],
         }
@@ -1985,7 +1996,7 @@ class KongConfigGenerator:
             ],
             "plugins": [
                 {"name": "cors"},
-                {"name": "basic-auth"},
+                _dashboard_basic_auth(),
                 {"name": "acl", "config": {"allow": ["dashboard_user"]}},
             ],
         }
@@ -1997,7 +2008,7 @@ class KongConfigGenerator:
 
         plugins = [
             {"name": "cors"},
-            {"name": "basic-auth"},
+            _dashboard_basic_auth(),
             {"name": "acl", "config": {"allow": ["dashboard_user"]}},
         ]
         return [
@@ -2058,6 +2069,8 @@ class KongConfigGenerator:
             ],
             'plugins': [
                 {'name': 'cors'},
+                # Credentials stay visible: Flower checks the same dashboard
+                # pair itself (FLOWER_BASIC_AUTH, services/celery/compose.yml).
                 {'name': 'basic-auth'},
                 {'name': 'acl', 'config': {'allow': ['dashboard_user']}},
             ],

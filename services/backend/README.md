@@ -337,6 +337,8 @@ RAG_INGESTION_TTL_SECONDS=604800
 
 `POST /api/chunk` splits text with Chonkie's `recursive` (default), `token`, or `semantic` strategy. It returns stable offsets and chunk indexes. Only token chunking honors `overlap`, because the current Chonkie APIs expose no overlap control for the other strategies. `/docs` serves the full schema.
 
+`tokenizer` must be one of `character`, `word`, `gpt2` (the default), `cl100k_base` or `o200k_base`; any other name is a `400`. Chonkie treats an unknown name as a Hugging Face Hub repo and downloads it. The list stops callers from making the Backend fetch arbitrary repos (#1387).
+
 ```bash
 RAGAS_EVALUATOR_MODEL=            # empty = LITELLM_DEFAULT_MODEL
 RAGAS_EMBEDDINGS_MODEL=           # empty = LITELLM_EMBEDDING_MODEL
@@ -381,6 +383,7 @@ BACKEND_HEAVY_WORK_TIMEOUT_SECONDS=600   # wait per call, then 504; the slot fre
 A disabled optional service degrades only its feature:
 
 - `/storage/upload` returns `503` if Supabase Storage is down, and `409` when the path exists. Uploads never overwrite.
+- `/storage/upload` keeps the client's `Content-Type` only for inert types: PNG, JPEG, GIF, WebP, PDF, plain text, CSV, JSON, ZIP, MP3, WAV and MP4. Any other type, including HTML, SVG and JavaScript, is stored as `application/octet-stream`, so a public bucket cannot serve an uploaded page (#1387).
 - `/research/start` stores sessions in Supabase. `research_client.py` creates LangGraph threads on the Local Deep Researcher service and runs them through `/threads/{id}/runs/stream`.
 
 **Limits and deadlines.**
