@@ -210,9 +210,12 @@ def test_crawl4ai_compose_contract() -> None:
     assert service["security_opt"] == ["no-new-privileges:true"]
     assert service["pids_limit"] == 512
     assert service["read_only"] is True
-    assert set(service["tmpfs"]) >= {
+    # #1375: crawl4ai writes its database under ~/.crawl4ai at import, and
+    # ~/.cache holds the image's Playwright Chromium, so it must stay visible
+    # (no tmpfs over it).
+    assert set(service["tmpfs"]) == {
         "/tmp",
-        "/home/appuser/.cache",
+        "/home/appuser/.crawl4ai",
         "/var/lib/redis",
         "/var/lib/crawl4ai/outputs:mode=0700",
     }

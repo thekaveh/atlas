@@ -8,7 +8,7 @@ capabilities:
   - name: "Browser-backed web extraction"
     status: supported
     verification: tested
-    note: "Atlas configures Crawl4AI's JavaScript-capable API and a Local Deep Researcher adapter that submits URLs and retains bounded markdown output."
+    note: "Atlas configures Crawl4AI's JavaScript-capable API and a Local Deep Researcher adapter that submits URLs and retains bounded markdown output. On 2026-11-08, POST /crawl returned rendered markdown for a static and a JavaScript page under the read-only profile (#1375)."
   - name: "Layered extraction-route authentication"
     status: supported
     verification: tested
