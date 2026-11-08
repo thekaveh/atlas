@@ -29,7 +29,11 @@ params = %{
   ]
 }
 
+# Apply the current settings on every boot. The tenant used to be created only
+# when absent, so a changed manager password or pool size never reached it and
+# pooled logins failed after a password rotation (#1367). update_tenant replaces
+# the users list (on_replace: :delete) with the manager built above.
 case Supavisor.Tenants.get_tenant_by_external_id(params["external_id"]) do
   nil -> {:ok, _} = Supavisor.Tenants.create_tenant(params)
-  _tenant -> :ok
+  tenant -> {:ok, _} = Supavisor.Tenants.update_tenant(tenant, params)
 end

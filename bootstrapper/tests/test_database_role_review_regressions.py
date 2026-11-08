@@ -490,7 +490,8 @@ def test_supavisor_auth_query_uses_the_scoped_security_definer_function() -> Non
     assert "pg_authid" not in source
 
 
-def _supavisor_container(network: str):
+def _supavisor_container(network: str, *, pool_size: int = 5, password: str | None = None):
+    password = password or TEST_SECRETS["SUPAVISOR_DB_ADMIN_PASSWORD"]
     args = [
             "--network", network,
             # Supavisor's entrypoint raises RLIMIT_NOFILE to 100000 and aborts
@@ -501,11 +502,7 @@ def _supavisor_container(network: str):
             "-v", f"{SUPAVISOR_CONFIG}:/etc/pooler/pooler.exs:ro",
             "-e", "PORT=4000",
             "-e", "PROXY_PORT_TRANSACTION=6543",
-            "-e", (
-                "DATABASE_URL=ecto://atlas_supavisor:"
-                f"{TEST_SECRETS['SUPAVISOR_DB_ADMIN_PASSWORD']}"
-                "@supabase-db:5432/supavisor"
-            ),
+            "-e", f"DATABASE_URL=ecto://atlas_supavisor:{password}@supabase-db:5432/supavisor",
             "-e", "CLUSTER_POSTGRES=true",
             "-e", f"SECRET_KEY_BASE={'s' * 64}",
             "-e", f"VAULT_ENC_KEY={'v' * 32}",
@@ -518,12 +515,9 @@ def _supavisor_container(network: str):
             "-e", "POSTGRES_PORT=5432",
             "-e", "POSTGRES_DB=postgres",
             "-e", "POSTGRES_USER=atlas_supavisor",
-            "-e", (
-                "POSTGRES_PASSWORD="
-                f"{TEST_SECRETS['SUPAVISOR_DB_ADMIN_PASSWORD']}"
-            ),
+            "-e", f"POSTGRES_PASSWORD={password}",
             "-e", "POOLER_TENANT_ID=atlas",
-            "-e", "POOLER_DEFAULT_POOL_SIZE=5",
+            "-e", f"POOLER_DEFAULT_POOL_SIZE={pool_size}",
             "-e", "POOLER_MAX_CLIENT_CONN=20",
             "-e", "POOLER_POOL_MODE=transaction",
             "-e", "DB_POOL_SIZE=5",
