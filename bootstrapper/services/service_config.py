@@ -40,6 +40,26 @@ def _audio_api_key(source: str, env_file_vars: dict) -> str:
     return 'sk-unused' if source != 'disabled' else ''
 
 
+def _enabled_provider_keys(sources: dict, env_file_vars: dict) -> Dict[str, str]:
+    """Cloud-provider keys for Hermes and LLM Graph Builder (#1886).
+
+    Each service gets a provider's key only while CLOUD_*_SOURCE enables it.
+    Both reach models through LiteLLM, so a disabled provider's key leaves
+    the stack instead of staying in their environment."""
+    from utils.cloud_providers import CLOUD_PROVIDERS
+    keys = {
+        provider.api_key_var: env_file_vars.get(provider.api_key_var, '')
+        if sources.get(provider.source_var, 'disabled') == 'enabled' else ''
+        for provider in CLOUD_PROVIDERS
+    }
+    return {
+        'HERMES_OPENAI_API_KEY': keys.get('OPENAI_API_KEY', ''),
+        'HERMES_ANTHROPIC_API_KEY': keys.get('ANTHROPIC_API_KEY', ''),
+        'HERMES_OPENROUTER_API_KEY': keys.get('OPENROUTER_API_KEY', ''),
+        'LLM_GRAPH_BUILDER_OPENAI_API_KEY': keys.get('OPENAI_API_KEY', ''),
+    }
+
+
 def _configured_weaviate_modules(env_file_vars: dict, default_modules: str) -> str:
     """The declared Weaviate module list, falling back on a BLANK value.
 
@@ -1977,6 +1997,7 @@ class ServiceConfig:
         tts_api_key = _audio_api_key(tts_source, provider_env)
         env_vars['OPEN_WEB_UI_TTS_API_KEY'] = tts_api_key
         env_vars['TTS_INTERNAL_API_KEY'] = tts_api_key
+        env_vars.update(_enabled_provider_keys(sources, provider_env))
         # Open WebUI's default TTS model — depends on which engine is active.
         # service_sources only carries ``*_SOURCE`` vars (see parse_service_sources),
         # so we read the model knob directly from .env with a hard-coded fallback.
