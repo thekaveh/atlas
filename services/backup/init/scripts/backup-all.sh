@@ -34,8 +34,10 @@ if [ "$BACKUP_DATABASES" = true ]; then
 fi
 : "${BACKUP_MANIFEST_HMAC_KEY:=}"
 : "${BACKUP_DEPLOYMENT_ID:=}"
+# Hex checks spell out their characters. Bash 3.2 (macOS /bin/sh) matches a
+# range such as [a-f] by locale collation, so it can admit uppercase.
 case "$BACKUP_MANIFEST_HMAC_KEY" in
-  *[!0-9a-f]*|'') echo "backup: BACKUP_MANIFEST_HMAC_KEY must be exactly 64 lowercase hex characters" >&2; exit 64 ;;
+  *[!0123456789abcdef]*|'') echo "backup: BACKUP_MANIFEST_HMAC_KEY must be exactly 64 lowercase hex characters" >&2; exit 64 ;;
 esac
 [ "${#BACKUP_MANIFEST_HMAC_KEY}" -eq 64 ] || { echo "backup: BACKUP_MANIFEST_HMAC_KEY must be exactly 64 lowercase hex characters" >&2; exit 64; }
 case "$BACKUP_DEPLOYMENT_ID" in
@@ -80,7 +82,7 @@ valid_timestamp() {
 }
 valid_timestamp "$TS" || { echo "backup: invalid backup timestamp: ${TS}" >&2; exit 64; }
 backup_id="$(od -An -N16 -v -tx1 /dev/urandom | tr -d '[:space:]')"
-case "$backup_id" in *[!0-9a-f]*|'') echo "backup: could not generate backup identity" >&2; exit 1;; esac
+case "$backup_id" in *[!0123456789abcdef]*|'') echo "backup: could not generate backup identity" >&2; exit 1;; esac
 [ "${#backup_id}" -eq 32 ] || { echo "backup: could not generate backup identity" >&2; exit 1; }
 WORK="/tmp/atlas-backup-${backup_id}"
 # The S3 client config holds the access key, secret key and session token in
@@ -231,7 +233,7 @@ while :; do
   snapshot_id="$(run_bounded sed -n '1p' "$WORK/postgres.snapshot")"
   case "$snapshot_id" in
     '') ;;
-    *[!0-9A-Fa-f-]*) echo "backup: exported snapshot identifier was invalid" >&2; exit 1 ;;
+    *[!0123456789ABCDEFabcdef-]*) echo "backup: exported snapshot identifier was invalid" >&2; exit 1 ;;
     *) break ;;
   esac
   kill -0 "$SNAPSHOT_PID" 2>/dev/null || { echo "backup: snapshot holder exited before export" >&2; exit 1; }
@@ -323,7 +325,7 @@ server_version_num=${server_version_num}
 EOF
   manifest_hmac_output="$(run_bounded openssl dgst -sha256 -mac HMAC -macopt "hexkey:${BACKUP_MANIFEST_HMAC_KEY}" "$WORK/postgres.manifest.payload")"
   manifest_hmac="${manifest_hmac_output##* }"
-  case "$manifest_hmac" in *[!0-9a-f]*|'') echo "backup: could not create trusted manifest HMAC" >&2; exit 1;; esac
+  case "$manifest_hmac" in *[!0123456789abcdef]*|'') echo "backup: could not create trusted manifest HMAC" >&2; exit 1;; esac
   [ "${#manifest_hmac}" -eq 64 ] || { echo "backup: could not create trusted manifest HMAC" >&2; exit 1; }
   run_bounded cp "$WORK/postgres.manifest.payload" "$WORK/postgres.manifest"
   printf 'hmac_sha256=%s\n' "$manifest_hmac" >>"$WORK/postgres.manifest"
@@ -341,7 +343,7 @@ objects_bytes=${objects_bytes}
 EOF
   completion_hmac_output="$(run_bounded openssl dgst -sha256 -mac HMAC -macopt "hexkey:${BACKUP_MANIFEST_HMAC_KEY}" "$WORK/postgres.complete.payload")"
   completion_hmac="${completion_hmac_output##* }"
-  case "$completion_hmac" in *[!0-9a-f]*|'') echo "backup: could not create completion HMAC" >&2; exit 1;; esac
+  case "$completion_hmac" in *[!0123456789abcdef]*|'') echo "backup: could not create completion HMAC" >&2; exit 1;; esac
   run_bounded cp "$WORK/postgres.complete.payload" "$COMPLETE"
   printf 'hmac_sha256=%s\n' "$completion_hmac" >>"$COMPLETE"
   new_completion_bytes="$(run_bounded wc -c <"$COMPLETE" | tr -d '[:space:]')"

@@ -8,10 +8,12 @@ set -eu
 : "${BACKUP_RESTORE_TOKEN:?required}"
 : "${BACKUP_MANIFEST_HMAC_KEY:?required}"
 : "${BACKUP_DEPLOYMENT_ID:?required}"
+# Hex checks spell out their characters. Bash 3.2 (macOS /bin/sh) matches a
+# range such as [a-f] by locale collation, so it can admit uppercase.
 case "${BACKUP_RESTORE_TOKEN}" in
-  [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;;
-  *) echo "database restore: invalid ownership token" >&2; exit 64 ;;
+  ''|*[!0123456789abcdef]*) echo "database restore: invalid ownership token" >&2; exit 64 ;;
 esac
+[ "${#BACKUP_RESTORE_TOKEN}" -eq 32 ] || { echo "database restore: invalid ownership token" >&2; exit 64; }
 
 SCRIPT_DIR=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 # shellcheck disable=SC1091 # runtime container path is deliberate.
@@ -196,7 +198,7 @@ verify_signed_metadata "${work}/databases.complete"
 [ "$(metadata_value "${work}/databases.complete" snapshot_state)" = complete ] || { echo "database restore: incomplete publication" >&2; exit 65; }
 [ "$(metadata_value "${work}/databases.complete" backup_timestamp)" = "${BACKUP_TIMESTAMP}" ] || { echo "database restore: timestamp mismatch" >&2; exit 65; }
 backup_id="$(metadata_value "${work}/databases.complete" backup_id)"
-case "${backup_id}" in *[!0-9a-f]*|'') echo "database restore: invalid backup id" >&2; exit 65;; esac
+case "${backup_id}" in *[!0123456789abcdef]*|'') echo "database restore: invalid backup id" >&2; exit 65;; esac
 [ "${#backup_id}" -eq 32 ] || { echo "database restore: invalid backup id" >&2; exit 65; }
 # postgres.complete is the publication marker and is uploaded last; without
 # it (a failed final upload) restore-postgres refuses this timestamp, so the
