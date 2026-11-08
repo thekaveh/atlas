@@ -21,6 +21,10 @@ services:
       - "127.0.0.1:${ZEPPELIN_PORT}:8080"
     environment:
       ZEPPELIN_PORT: "8080"
+      # Server, Spark driver and one other interpreter share the container
+      # limit; upstream defaults (1 GiB each) did not fit 2g (#1356).
+      ZEPPELIN_MEM: -Xmx${ZEPPELIN_SERVER_HEAP:-512m}
+      ZEPPELIN_INTP_MEM: -Xmx${ZEPPELIN_INTERPRETER_HEAP:-384m}
       # Zeppelin 0.12.1 accepts an origin whose host is "localhost" (any
       # port), the container's hostname, or one listed here, and answers 403
       # to a state-changing REST request or websocket from any other origin.
@@ -55,6 +59,7 @@ services:
         --conf spark.driver.bindAddress=0.0.0.0
         --conf spark.driver.host=zeppelin
         --conf spark.cores.max=${ZEPPELIN_SPARK_CORES_MAX:-1}
+        --conf spark.driver.memory=${ZEPPELIN_SPARK_DRIVER_MEMORY:-512m}
         --conf spark.hadoop.fs.s3a.endpoint=http://minio:9000
         --conf spark.hadoop.fs.s3a.access.key=${MINIO_SPARK_ACCESS_KEY}
         --conf spark.hadoop.fs.s3a.secret.key=${MINIO_SPARK_SECRET_KEY}

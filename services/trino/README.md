@@ -23,7 +23,10 @@ TRINO_SOURCE=disabled                # container | disabled
 TRINO_IMAGE=trinodb/trino:482
 TRINO_PORT=                          # topology-assigned
 TRINO_SCALE=                         # set by ./start.sh from TRINO_SOURCE
+TRINO_MEMORY_LIMIT=4g                # container memory limit
 ```
+
+The image sizes the JVM heap at 80% of available memory. `TRINO_MEMORY_LIMIT` makes that 80% of the container limit instead of the host's RAM. The compose healthcheck runs the image's `health-check` every 15 s with a 60 s start period; a cold start was healthy in 6–11 s (#1356).
 
 `TRINO_SOURCE=container` also needs `MINIO_SOURCE=container` and `ICEBERG_REST_SOURCE=container`. If either is disabled, `./start.sh` stops with an error before Compose starts. Enable both, or set `TRINO_SOURCE=disabled`.
 

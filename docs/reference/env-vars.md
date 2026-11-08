@@ -23,6 +23,7 @@
 | AIRFLOW_WEBSERVER_MEMORY_LIMIT | airflow | 2g | Container memory limit for airflow-webserver (deploy.resources.limits.memory). The api-server process is Python + Flask/FAB; 2 g is comfortable on a 32 GB host and prevents runaway memory from large DAG list pages. |
 | AIRFLOW_WEBSERVER_CPU_LIMIT | airflow | 1.0 | Container CPU limit for airflow-webserver (deploy.resources.limits.cpus). 1.0 core is ample for the API/UI server under typical load. |
 | AIRFLOW_SCHEDULER_MEMORY_LIMIT | airflow | 2g | Container memory limit for airflow-scheduler (deploy.resources.limits.memory). The LocalExecutor scheduler forks task processes in-process; 2 g caps runaway task forking. |
+| AIRFLOW_PARALLELISM | airflow | 4 | Airflow [core] parallelism: task processes the LocalExecutor runs at once inside airflow-scheduler. Upstream's 32 does not fit the 2 g scheduler limit; raise both together. |
 | AIRFLOW_SCHEDULER_CPU_LIMIT | airflow | 1.0 | Container CPU limit for airflow-scheduler (deploy.resources.limits.cpus). 1.0 core is sufficient for LocalExecutor task scheduling on a dev/staging host. |
 | AIRFLOW_DAG_PROCESSOR_MEMORY_LIMIT | airflow | 2g | Container memory limit for airflow-dag-processor (deploy.resources.limits.memory). DAG parsing is Python-heavy but short-lived per cycle; 2 g prevents unbounded growth from parsing pathological DAG files. |
 | AIRFLOW_DAG_PROCESSOR_CPU_LIMIT | airflow | 1.0 | Container CPU limit for airflow-dag-processor (deploy.resources.limits.cpus). 1.0 core covers the periodic DAG file parsing cycle. |
@@ -419,6 +420,7 @@
 | LANGFUSE_WEB_SCALE | langfuse |  | Set by ./start.sh from LANGFUSE_SOURCE; do not edit. 1 runs langfuse-web, 0 does not. |
 | LANGFUSE_WORKER_SCALE | langfuse |  | Set by ./start.sh from LANGFUSE_SOURCE; do not edit. 1 runs langfuse-worker, 0 does not. |
 | LANGFUSE_CLICKHOUSE_SCALE | langfuse |  | Set by ./start.sh from LANGFUSE_SOURCE; do not edit. 1 runs langfuse-clickhouse, 0 does not. |
+| LANGFUSE_CLICKHOUSE_MEMORY_LIMIT | langfuse | 4g | Container memory limit for langfuse-clickhouse (deploy.resources.limits.memory). ClickHouse sizes its server memory from the container limit; without one it used host RAM. |
 | LANGFUSE_INIT_SCALE | langfuse |  | Set by ./start.sh from LANGFUSE_SOURCE; do not edit. 1 runs langfuse-init, 0 does not. |
 | LANGFUSE_DB_NAME | langfuse | langfuse | Postgres database for Langfuse. Supabase db-init (05-scoped-roles.sh) creates it. |
 | LANGFUSE_DB_NAME_URI | langfuse | langfuse | Bootstrapper-synchronized percent-encoded LANGFUSE_DB_NAME for DSN path components. |
@@ -976,6 +978,7 @@
 | TRINO_SOURCE | trino | disabled | Deployment source for the Trino coordinator: container or disabled (default). container requires MinIO and the Iceberg REST catalog. |
 | TRINO_PORT | trino | 63029 | Host port for the Trino coordinator UI/API (in-container 8080). |
 | TRINO_SCALE | trino |  | Set by ./start.sh from TRINO_SOURCE; do not edit. 1 runs trino, 0 does not. |
+| TRINO_MEMORY_LIMIT | trino | 4g | Container memory limit for trino (deploy.resources.limits.memory). The image sizes its heap at 80% of available memory, so without a limit it took 80% of host RAM. |
 | TRINO_IMAGE | trino | trinodb/trino:482 | Pinned to the current Trino release tag validated against the Iceberg REST + MinIO catalog contract. |
 | TRUEFORGE_SOURCE | trueforge | disabled | Deployment source for TrueForge (server, schedule controller and init): container or disabled (default). |
 | TRUEFORGE_PORT | trueforge | 63079 | Host port for the TrueForge server UI + API (in-container 8790). |
@@ -1031,6 +1034,7 @@
 | CLIP_DEPLOY_RESOURCES | weaviate | ~ | Set by ./start.sh from the multi2vec-clip deploy slice; `~` means none. No compose file reads it. |
 | WEAVIATE_LOCALHOST_PORT | weaviate | 8080 | Host port for the weaviate-localhost source variant. URL is derived at compose-render time as http://host.docker.internal:8080. |
 | WEAVIATE_MEMORY_LIMIT | weaviate | 2g | Container memory limit for the weaviate container (deploy.resources.limits.memory). The 2g default is conservative for a 32 GB host. It fits the Go data plane and in-memory HNSW index for small-to-medium collections. |
+| WEAVIATE_GOMEMLIMIT | weaviate |  | Go soft memory limit for Weaviate (GOMEMLIMIT, for example 1600MiB). Empty derives 80% of the container's cgroup memory limit at startup, so the garbage collector works before the WEAVIATE_MEMORY_LIMIT cap kills the process. |
 | WEAVIATE_CPU_LIMIT | weaviate | 1.5 | Container CPU limit for the weaviate container (deploy.resources.limits.cpus). 1.5 cores covers routine indexing and query serving on a shared host. |
 | WEAVIATE_IMAGE | weaviate | cr.weaviate.io/semitechnologies/weaviate:1.38.17 | Container image for `weaviate`. |
 | WEAVIATE_INIT_IMAGE | weaviate | alpine:3.24.2 | Container image for `weaviate-init`. |
@@ -1042,7 +1046,10 @@
 | ZEPPELIN_PORT | zeppelin | 63099 | Host port for the Zeppelin Web UI (in-container 8080). |
 | ZEPPELIN_SCALE | zeppelin |  | Set by ./start.sh from ZEPPELIN_SOURCE; do not edit. 1 runs zeppelin, 0 does not. |
 | ZEPPELIN_INIT_SCALE | zeppelin |  | Set by ./start.sh from ZEPPELIN_SOURCE; do not edit. 1 runs zeppelin-init, 0 does not. |
-| ZEPPELIN_MEMORY_LIMIT | zeppelin | 2g | Container memory limit for the zeppelin container (deploy.resources.limits.memory). Zeppelin's JVM-based interpreter host typically uses under 1 g for a single-user session; 2 g leaves comfortable headroom on a 32 GB host. |
+| ZEPPELIN_MEMORY_LIMIT | zeppelin | 2g | Container memory limit for the zeppelin container (deploy.resources.limits.memory). It holds the server (ZEPPELIN_SERVER_HEAP), Spark driver (ZEPPELIN_SPARK_DRIVER_MEMORY) and one interpreter (ZEPPELIN_INTERPRETER_HEAP) JVMs. Keep their heaps under about 70% of this limit for non-heap memory. |
+| ZEPPELIN_SERVER_HEAP | zeppelin | 512m | Maximum heap of the Zeppelin server JVM (ZEPPELIN_MEM=-Xmx&lt;value&gt;). Upstream defaults to 1024m. |
+| ZEPPELIN_INTERPRETER_HEAP | zeppelin | 384m | Maximum heap of non-Spark interpreter JVMs such as JDBC (ZEPPELIN_INTP_MEM=-Xmx&lt;value&gt;). Upstream defaults to 1024m. |
+| ZEPPELIN_SPARK_DRIVER_MEMORY | zeppelin | 512m | spark.driver.memory for the Spark interpreter. The driver runs in client mode inside the zeppelin container, so it counts against ZEPPELIN_MEMORY_LIMIT. Spark defaults to 1g. |
 | ZEPPELIN_CPU_LIMIT | zeppelin | 1.5 | Container CPU limit for the zeppelin container (deploy.resources.limits.cpus). 1.5 cores covers notebook rendering and interpreter dispatch. Compute-heavy work runs on the remote Spark cluster, not in this process. |
 | ZEPPELIN_IMAGE | zeppelin | apache/zeppelin:0.12.1 | Container image for `zeppelin`. |
 | ZEPPELIN_INIT_IMAGE | zeppelin | python:3.12.13-alpine | Container image for `zeppelin-init`. |

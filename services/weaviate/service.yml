@@ -99,6 +99,9 @@ env:
   - name: WEAVIATE_MEMORY_LIMIT
     default: 2g
     description: "Container memory limit for the weaviate container (deploy.resources.limits.memory). The 2g default is conservative for a 32 GB host. It fits the Go data plane and in-memory HNSW index for small-to-medium collections."
+  - name: WEAVIATE_GOMEMLIMIT
+    default: ""
+    description: "Go soft memory limit for Weaviate (GOMEMLIMIT, for example 1600MiB). Empty derives 80% of the container's cgroup memory limit at startup, so the garbage collector works before the WEAVIATE_MEMORY_LIMIT cap kills the process."
   - name: WEAVIATE_CPU_LIMIT
     default: "1.5"
     description: "Container CPU limit for the weaviate container (deploy.resources.limits.cpus). 1.5 cores covers routine indexing and query serving on a shared host."

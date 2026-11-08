@@ -6,8 +6,20 @@ services:
     restart: unless-stopped
     deploy:
       replicas: ${TRINO_SCALE:-0}
+      resources:
+        limits:
+          # The image's jvm.config uses 80% of available memory (#1356).
+          memory: ${TRINO_MEMORY_LIMIT:-4g}
     ports:
       - "${HOST_BIND_IP-127.0.0.1:}${TRINO_PORT}:8080"
+    # The image's own check with a start period for a loaded host. Measured
+    # cold start on 2026-11-08: healthy in 6-10 s (#1356).
+    healthcheck:
+      test: ["CMD", "/usr/lib/trino/bin/health-check"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
     environment:
       # Kong always adds X-Forwarded-* headers; Trino rejects them with 406
       # unless forwarded-header processing is on. Set as a JVM system
