@@ -54,6 +54,7 @@ The Backend has its own dependencies. This block creates a throwaway Python 3.12
   env -u ATLAS_TEST_REDIS_URL -u ATLAS_COMFYUI_LIVE_ENDPOINT \
     -u ATLAS_TEI_RERANKER_LIVE_ENDPOINT \
     -u ATLAS_TEST_MEMORY_RECONCILE_POSTGRES_URL -u ATLAS_TEST_MEDIA_LEDGER_POSTGRES_URL \
+    -u ATLAS_TEST_MEMORY_SEEDED_POSTGRES_URL \
     "$BACKEND_TEST_VENV/bin/python" -m pytest tests/test_readiness.py -q -W error
 )
 ```
@@ -64,6 +65,7 @@ Some Backend tests need an opt-in variable:
 
 - `ATLAS_TEST_REDIS_URL=redis://127.0.0.1:<port>/15` runs the Redis Lua and paging tests. Use a throwaway Redis, because they flush database 15.
 - `ATLAS_TEST_MEMORY_RECONCILE_POSTGRES_URL` and `ATLAS_TEST_MEDIA_LEDGER_POSTGRES_URL` name a disposable PostgreSQL database. They run the memory-reconcile and media-ledger SQL tests.
+- `ATLAS_TEST_MEMORY_SEEDED_POSTGRES_URL` names a disposable database with every `services/supabase/db/scripts/*.sql` applied. It runs the memory-reconcile tests against the real `updated_at` trigger and pgvector store.
 
 `requirements-test-locked.txt` must pin every package it shares with `requirements-locked.txt` at the same version, so the tests run the versions the image ships. `scripts/check_test_locks.py` fails when the two differ.
 
