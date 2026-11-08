@@ -44,6 +44,9 @@ RUN set -eux; \
 COPY --from=mc /usr/bin/mc /usr/local/bin/mc
 
 COPY plugins.txt /usr/share/jenkins/ref/plugins.txt
-RUN jenkins-plugin-cli --plugin-file /usr/share/jenkins/ref/plugins.txt
+# plugins.txt pins the whole dependency closure. Without --latest false the
+# CLI raises every dependency to the newest update-center release on the day
+# of the build, so one commit built different images (#1449).
+RUN jenkins-plugin-cli --latest false --plugin-file /usr/share/jenkins/ref/plugins.txt
 
 USER jenkins

@@ -188,7 +188,11 @@ def test_jenkins_dockerfile_and_plugins_are_minimal_and_pinned() -> None:
     assert "MINIO_MC_" not in dockerfile
     assert "dl.min.io" not in dockerfile
     assert "sha256sum -c -" in dockerfile
-    assert "jenkins-plugin-cli --plugin-file /usr/share/jenkins/ref/plugins.txt" in dockerfile
+    # #1449: plugins.txt pins the whole closure, and --latest false stops the
+    # CLI raising any dependency to the newest update-center release.
+    assert (
+        "jenkins-plugin-cli --latest false --plugin-file /usr/share/jenkins/ref/plugins.txt"
+    ) in dockerfile
     assert "jenkins.install.UpgradeWizard.state" in dockerfile
     assert "USER jenkins" in dockerfile
     assert "docker" not in dockerfile.lower()
@@ -196,6 +200,12 @@ def test_jenkins_dockerfile_and_plugins_are_minimal_and_pinned() -> None:
     for plugin in ("configuration-as-code", "workflow-aggregator", "git"):
         assert f"{plugin}:" in plugins
     assert "blueocean" not in plugins
+    entries = [
+        line for line in plugins.splitlines() if line.strip() and not line.startswith("#")
+    ]
+    names = [entry.split(":", 1)[0] for entry in entries]
+    assert all(len(entry.split(":")) == 2 and entry.split(":")[1] for entry in entries)
+    assert len(names) == len(set(names)) > 5  # the closure, not only the top level
 
 
 def test_jenkins_jcasc_sets_admin_and_no_project_jobs() -> None:

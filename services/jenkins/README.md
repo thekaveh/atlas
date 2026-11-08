@@ -35,6 +35,19 @@ JCasC is loaded from `services/jenkins/casc/jenkins.yaml` via `CASC_JENKINS_CONF
 
 `JENKINS_HOME` persists in the `${PROJECT_NAME}-jenkins-home` volume. `./stop.sh --cold` removes it with all jobs and build history.
 
+**Plugin pins.** `services/jenkins/build/plugins.txt` pins every plugin the image installs: the five top-level plugins and their full dependency closure. The build runs `jenkins-plugin-cli --latest false`, so it installs exactly those versions. Without the flag, the CLI raised each dependency to the newest release on the day of the build.
+
+To change a plugin, edit its top-level pin, then resolve the closure in the pinned base image:
+
+```bash
+BASE=$(sed -n 's/^ARG BASE_IMAGE=//p' services/jenkins/build/Dockerfile)
+docker run --rm --entrypoint jenkins-plugin-cli \
+  -v "$PWD/services/jenkins/build/plugins.txt:/tmp/plugins.txt:ro" "$BASE" \
+  --plugin-file /tmp/plugins.txt --no-download --list --output txt
+```
+
+Replace the closure section of `plugins.txt` with the `name:version` lines printed after "Plugins that will be downloaded".
+
 ## 4. Artifact Publishing
 
 Jenkins receives MinIO endpoint and scoped Iceberg/lakehouse credentials from the Atlas environment. The canonical artifact path is:
