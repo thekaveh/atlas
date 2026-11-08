@@ -42,6 +42,8 @@ backup_s3_validate_dns() {
 }
 
 backup_s3_validate_ipv6_groups() {
+  # Hex checks spell out their characters. Bash 3.2 (macOS /bin/sh) matches a
+  # range such as [a-f] by locale collation, so it can admit uppercase.
   backup_s3_group_count=0
   [ -n "$1" ] || return 0
   backup_s3_saved_ifs=$IFS
@@ -50,14 +52,14 @@ backup_s3_validate_ipv6_groups() {
   set -- $1
   IFS=$backup_s3_saved_ifs
   for backup_s3_group do
-    case "$backup_s3_group" in ''|*[!0-9A-Fa-f]*) return 1 ;; esac
+    case "$backup_s3_group" in ''|*[!0123456789ABCDEFabcdef]*) return 1 ;; esac
     [ "${#backup_s3_group}" -le 4 ] || return 1
     backup_s3_group_count=$((backup_s3_group_count + 1))
   done
 }
 
 backup_s3_validate_ipv6() {
-  case "$1" in ''|*.*|*[!0-9A-Fa-f:]*) return 1 ;; esac
+  case "$1" in ''|*.*|*[!0123456789ABCDEFabcdef:]*) return 1 ;; esac
   case "$1" in *:::*) return 1 ;; esac
   case "$1" in
     *::* )

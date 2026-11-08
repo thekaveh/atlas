@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import signal
 import subprocess
@@ -654,11 +655,10 @@ def test_backup_refuses_invalid_producer_inputs_before_s3(tmp_path, case):
     trace, bin_dir = _fake_s3_boundary(tmp_path)
     # A valid external S3 configuration, so only the producer check can refuse
     # (local mode without credentials exits 64 first, for the wrong reason).
-    # LC_ALL=C matches the container's busybox sh, which compares bracket
-    # ranges by code point; macOS bash 3.2 in a UTF-8 locale collates `a-f`
-    # to include uppercase letters.
+    # A UTF-8 locale: macOS /bin/sh (bash 3.2) collates a range like `a-f` to
+    # include uppercase, so `key-uppercase` passed there while checks used ranges.
     env = {
-        **_backup_s3_env(bin_dir, trace), "LC_ALL": "C", "BACKUP_S3_MODE": "external",
+        **_backup_s3_env(bin_dir, trace), "LC_ALL": "en_US.UTF-8", "BACKUP_S3_MODE": "external",
         "BACKUP_S3_ENDPOINT": "https://s3.example.test",
         "BACKUP_S3_ACCESS_KEY": "external-access", "BACKUP_S3_SECRET_KEY": "external-secret",
         **overrides,
@@ -669,6 +669,20 @@ def test_backup_refuses_invalid_producer_inputs_before_s3(tmp_path, case):
     assert result.returncode == 64, result.stderr
     assert message in result.stderr
     assert not trace.exists()
+
+
+def test_backup_hex_checks_list_their_characters():
+    """Bracket ranges match by locale in bash 3.2, so hex checks spell out
+    every character instead of using `0-9`, `a-f` or `A-F`."""
+    scripts = sorted((REPO / "services/backup/init/scripts").glob("*.sh"))
+    ranged = [
+        f"{path.name}:{number}"
+        for path in scripts
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)
+        if not line.lstrip().startswith("#")
+        and re.search(r"\[!?[^]]*(?:a-f|A-F)[^]]*\]", line)
+    ]
+    assert scripts and ranged == []
 
 
 def _backup_fragment(start: str, end: str) -> str:

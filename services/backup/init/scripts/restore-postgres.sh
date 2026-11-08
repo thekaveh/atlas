@@ -22,10 +22,12 @@ fi
 . "$S3_CLIENT_SCRIPT"
 backup_s3_config_dir_is_safe() {
   backup_s3_checked_dir=${MC_CONFIG_DIR:-}
+  # Hex checks spell out their characters. Bash 3.2 (macOS /bin/sh) matches a
+  # range such as [a-f] by locale collation, so it can admit uppercase.
   case "$backup_s3_checked_dir" in
     /tmp/atlas-restore-s3-????????????????????????????????)
       backup_s3_checked_suffix=${backup_s3_checked_dir#/tmp/atlas-restore-s3-}
-      case "$backup_s3_checked_suffix" in *[!0-9a-f]*) return 1 ;; esac
+      case "$backup_s3_checked_suffix" in *[!0123456789abcdef]*) return 1 ;; esac
       return 0
       ;;
   esac
@@ -47,7 +49,7 @@ fi
 : "${BACKUP_MANIFEST_HMAC_KEY:=}"
 : "${BACKUP_DEPLOYMENT_ID:=}"
 case "$BACKUP_MANIFEST_HMAC_KEY" in
-  *[!0-9a-f]*|'') echo "restore: BACKUP_MANIFEST_HMAC_KEY must be exactly 64 lowercase hex characters" >&2; exit 64 ;;
+  *[!0123456789abcdef]*|'') echo "restore: BACKUP_MANIFEST_HMAC_KEY must be exactly 64 lowercase hex characters" >&2; exit 64 ;;
 esac
 [ "${#BACKUP_MANIFEST_HMAC_KEY}" -eq 64 ] || { echo "restore: BACKUP_MANIFEST_HMAC_KEY must be exactly 64 lowercase hex characters" >&2; exit 64; }
 case "$BACKUP_DEPLOYMENT_ID" in
@@ -105,9 +107,9 @@ if [ "${ATLAS_BACKUP_S3_PREPARED:-0}" != "1" ]; then
   prepare_backup_s3 restore
   s3_config_suffix="$(od -An -N16 -v -tx1 /dev/urandom | tr -d '[:space:]')"
   case "$s3_config_suffix" in
-    [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;;
-    *) echo "restore: could not generate a safe S3 client configuration path" >&2; exit 1 ;;
+    ''|*[!0123456789abcdef]*) echo "restore: could not generate a safe S3 client configuration path" >&2; exit 1 ;;
   esac
+  [ "${#s3_config_suffix}" -eq 32 ] || { echo "restore: could not generate a safe S3 client configuration path" >&2; exit 1; }
   MC_CONFIG_DIR="/tmp/atlas-restore-s3-${s3_config_suffix}"
   export MC_CONFIG_DIR
   trap cleanup_backup_s3_config 0
@@ -123,9 +125,9 @@ if [ "${ATLAS_RESTORE_GLOBAL_DEADLINE_ACTIVE:-0}" != "1" ]; then
 fi
 suffix="$(od -An -N8 -tx1 /dev/urandom | tr -d '[:space:]')"
 case "$suffix" in
-  [0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]) ;;
-  *) echo "restore: could not generate a safe temporary database name" >&2; exit 1 ;;
+  ''|*[!0123456789abcdef]*) echo "restore: could not generate a safe temporary database name" >&2; exit 1 ;;
 esac
+[ "${#suffix}" -eq 16 ] || { echo "restore: could not generate a safe temporary database name" >&2; exit 1; }
 
 TEMP_DB="atlas_restore_${suffix}"
 ROLLBACK_DB="atlas_rollback_${suffix}"
@@ -347,9 +349,9 @@ authenticate_candidate() {
   completion_objects_bytes="$(metadata_value "$COMPLETE" objects_bytes)" || return 1
   expected_completion_hmac="$(metadata_value "$COMPLETE" hmac_sha256)" || return 1
   [ "$completion_format" = 1 ] && [ "$signed_timestamp" = "$candidate" ] && valid_timestamp "$candidate" || return 1
-  case "$backup_id" in *[!0-9a-f]*|'') return 1;; esac
+  case "$backup_id" in *[!0123456789abcdef]*|'') return 1;; esac
   [ "${#backup_id}" -eq 32 ] || return 1
-  case "$expected_manifest_sha:$expected_completion_hmac" in *[!0-9a-f:]*) return 1;; esac
+  case "$expected_manifest_sha:$expected_completion_hmac" in *[!0123456789abcdef:]*) return 1;; esac
   case "$expected_manifest_bytes:$completion_dump_bytes:$completion_tables_bytes:$completion_objects_bytes" in *[!0-9:]*) return 1;; esac
   [ "${#expected_manifest_sha}" -eq 64 ] && [ "${#expected_completion_hmac}" -eq 64 ] || return 1
   [ "$expected_manifest_bytes" -le 4096 ] && [ "$completion_dump_bytes" -le "$MAX_DUMP_BYTES" ] && [ "$completion_tables_bytes" -le 8388608 ] && [ "$completion_objects_bytes" -le 16777216 ] || return 1
@@ -391,10 +393,10 @@ backup_server_version="$(metadata_value "$MANIFEST" server_version_num)"; expect
 [ "$format_version" = 3 ] && [ "$manifest_timestamp" = "$TS" ] && [ "$manifest_backup_id" = "$backup_id" ] || { echo "restore: manifest publication identity mismatch" >&2; exit 1; }
 [ "$expected_dump_bytes" = "$completion_dump_bytes" ] && [ "$expected_tables_bytes" = "$completion_tables_bytes" ] && [ "$expected_objects_bytes" = "$completion_objects_bytes" ] || { echo "restore: publication size metadata mismatch" >&2; exit 1; }
 [ "$expected_completion_bytes" = "$(run_bounded wc -c <"$COMPLETE" | tr -d '[:space:]')" ] || { echo "restore: completion size mismatch" >&2; exit 1; }
-case "$deployment_id_hex" in ''|*[!0-9a-f]*) echo "restore: invalid deployment identity metadata" >&2; exit 1;; esac
-case "$database_name_hex" in ''|*[!0-9a-f]*) echo "restore: invalid database identity metadata" >&2; exit 1;; esac
+case "$deployment_id_hex" in ''|*[!0123456789abcdef]*) echo "restore: invalid deployment identity metadata" >&2; exit 1;; esac
+case "$database_name_hex" in ''|*[!0123456789abcdef]*) echo "restore: invalid database identity metadata" >&2; exit 1;; esac
 case "$expected_dump_sha:$expected_tables_sha:$expected_objects_sha:$expected_manifest_hmac" in
-  *[!0-9a-f:]*|*:*:*:*:*:*|:*) echo "restore: invalid checksum or HMAC metadata" >&2; exit 1 ;;
+  *[!0123456789abcdef:]*|*:*:*:*:*:*|:*) echo "restore: invalid checksum or HMAC metadata" >&2; exit 1 ;;
 esac
 [ "${#expected_dump_sha}" -eq 64 ] && [ "${#expected_tables_sha}" -eq 64 ] && \
   [ "${#expected_objects_sha}" -eq 64 ] && [ "${#expected_manifest_hmac}" -eq 64 ] || \
