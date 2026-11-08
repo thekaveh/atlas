@@ -20,6 +20,7 @@ from core.consumer_manifest import ConsumerManifestError, load_consumer_config
 from core.endpoints_contract import build_export
 from services import _listener_address_matches, legacy_process_start_identity
 from services.blender_mcp_manager import BlenderMcpManager
+from services import managed_host
 from services.managed_host import (
     HealthProbe,
     HostProcessSpec,
@@ -313,7 +314,7 @@ def test_cli_health_preserves_successful_positive_timeout_probes(tmp_path, monke
         return Response()
     monkeypatch.setattr(start, '_managed_host_manager', lambda _name: manager)
     monkeypatch.setattr(socket, 'create_connection', connected)
-    monkeypatch.setattr(urllib.request, 'urlopen', connected)
+    monkeypatch.setattr(managed_host, '_open_local', connected)
     result = CliRunner().invoke(start.managed_host_health_command, ['svc'])
     assert result.exit_code == 0, result.output
     assert json.loads(result.output)['reachable'] is True
@@ -604,3 +605,41 @@ def test_kernel_group_foreign_or_invalid_ids_stay_unowned(
     package, _member = _kernel_group_fixture(tmp_path, monkeypatch, b"worker\xff)", group)
     assert package._linux_process_group_members(4242) == []
     assert manager._spawned_endpoint_owned(4242) is False
+
+
+def test_http_health_probe_skips_proxies_and_the_system_proxy_lookup(tmp_path, monkeypatch):
+    """A local probe must not use HTTP_PROXY. urllib's system proxy lookup
+    also started macOS SystemConfiguration threads that outlived the call,
+    so a later os.fork() warned about a multi-threaded process (#1897)."""
+    import http.server
+    import threading
+    import urllib.request
+
+    from services.managed_host import HealthProbe, HostProcessSpec, ManagedHostManager
+
+    def no_lookup():
+        raise AssertionError("local probe consulted the system proxy settings")
+
+    monkeypatch.setattr(urllib.request, "getproxies", no_lookup)
+    monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:9")  # discard port: nothing answers
+    monkeypatch.setenv("http_proxy", "http://127.0.0.1:9")
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            self.send_response(200)
+            self.end_headers()
+            self.wfile.write(b"{}")
+
+        def log_message(self, *_args):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        spec = HostProcessSpec(name="probe", command=("true",), port=server.server_address[1],
+                               health=HealthProbe(kind="http", path="/health"))
+        result = ManagedHostManager(spec, tmp_path / "state").health(timeout=5)
+    finally:
+        server.shutdown()
+        server.server_close()
+    assert result["reachable"] is True and result["code"] == 200
