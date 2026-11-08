@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, nullcontext
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -1129,8 +1129,8 @@ async def test_search_pgvector_scopes_query_to_user_id(monkeypatch):
             executed.append((query, params))
             return []
 
-        async def close(self):
-            pass
+        transaction = staticmethod(nullcontext)
+        close = execute = AsyncMock()
 
     store = memory_store.MemoryStore(
         "postgresql://atlas", embedding_dimension=3

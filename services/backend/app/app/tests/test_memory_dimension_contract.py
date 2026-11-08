@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import math
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, nullcontext
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -465,6 +465,8 @@ async def test_healthy_weaviate_interval_is_immediately_recallable_after_outage(
 
         async def execute(self, query, *_args):
             nonlocal shadow_written
+            if query.startswith("SET LOCAL hnsw."):
+                return "SET"  # the recall's iterative-scan setting
             assert "SET embedding" in query
             assert "embedding_model = $4" in query
             assert "embedding_generation = 1" in query
@@ -598,6 +600,12 @@ async def test_pgvector_query_uses_selected_dimension_and_index_expression(
             queries.append(query)
             return []
 
+        def transaction(self):
+            return nullcontext()
+
+        async def execute(self, query, *_params):
+            queries.append(query)
+
     @asynccontextmanager
     async def acquire(_url):
         yield Conn()
@@ -614,11 +622,14 @@ async def test_pgvector_query_uses_selected_dimension_and_index_expression(
         "hello", "00000000-0000-4000-8000-000000000002", "default", 5
     )
 
-    assert expected_expression in queries[0]
-    assert f"public.vector_dims(embedding) = {dimension}" in queries[0]
-    assert "embedding_model = $5" in queries[0]
-    assert "embedding_generation = 1" in queries[0]
-    assert "vector(768)" not in queries[0] if dimension != 768 else True
+    # Iterative scan is set in the recall's own transaction, before the
+    # SELECT, so a selective filter still fills LIMIT (#1901).
+    assert queries[0] == "SET LOCAL hnsw.iterative_scan = strict_order"
+    assert expected_expression in queries[1]
+    assert f"public.vector_dims(embedding) = {dimension}" in queries[1]
+    assert "embedding_model = $5" in queries[1]
+    assert "embedding_generation = 1" in queries[1]
+    assert "vector(768)" not in queries[1] if dimension != 768 else True
 
 
 @pytest.mark.asyncio
@@ -2900,6 +2911,12 @@ def test_recall_applies_min_confidence_inside_the_vector_query(monkeypatch):
             executed.append((query, params))
             return []
 
+        def transaction(self):
+            return nullcontext()
+
+        async def execute(self, *_args):
+            pass
+
         async def close(self):
             pass
 
@@ -3670,6 +3687,47 @@ async def test_seeded_reconcile_keeps_a_newer_edit_pending_and_uncounted(edit):
         # The provider write succeeded; only the guarded clear lost.
         assert service.store.embedding_requests == 1 and stored["embedded"]
         assert stored["vector_sync_pending"] is True
+
+
+@pytest.mark.asyncio
+async def test_seeded_pgvector_recall_fills_limit_under_a_selective_filter():
+    """One user owns the table and 1% of facts pass min_confidence, so the
+    planner walks the HNSW index; without an iterative scan it returned 0-1
+    of 10 rows (#1901)."""
+    import random
+    import memory_store
+    async with _seeded_memory_fact() as (url, conn, fact):
+        user = await conn.fetchval("SELECT user_id FROM public.memory_facts WHERE id=$1", fact)
+        await conn.execute("SELECT setseed(0.42)")
+        await conn.execute(
+            "INSERT INTO public.memory_facts (user_id, content, confidence, embedding,"
+            " embedding_model, embedding_generation)"
+            " SELECT $1, 'fact ' || i, CASE WHEN i <= 20 THEN 0.99 ELSE 0.5 END,"
+            " (SELECT array_agg(random()::real - 0.5) FROM generate_series(1, 768) d"
+            "  WHERE d > 0 * i)::public.vector(768), 'ollama/nomic-embed-text', 1"
+            " FROM generate_series(1, 2000) i", user)
+        await conn.execute("ANALYZE public.memory_facts")
+        store = memory_store.MemoryStore(
+            url, embedding_model="ollama/nomic-embed-text", embedding_dimension=768)
+        rnd = random.Random(0)
+        query = [rnd.random() - 0.5 for _ in range(768)]
+
+        async def embed(_text):
+            return query
+
+        store._generate_embedding = embed
+        plan = await conn.fetch(
+            "EXPLAIN SELECT id FROM public.memory_facts WHERE user_id = $1"
+            " AND namespace = 'default' AND is_active AND embedding IS NOT NULL"
+            " AND public.vector_dims(embedding) = 768 AND embedding_generation = 1"
+            " AND embedding_model = 'ollama/nomic-embed-text' AND confidence >= 0.9"
+            " ORDER BY embedding::public.vector(768) OPERATOR(public.<=>) $2::public.vector(768)"
+            " LIMIT 10", user, str(query))
+        # Precondition: this shape uses the HNSW index, where filtering is late.
+        assert any("idx_memory_facts_embedding" in row[0] for row in plan), plan
+        rows = await store._search_pgvector("q", str(user), "default", 10, 0.9)
+        assert len(rows) == 10
+        assert [r["distance"] for r in rows] == sorted(r["distance"] for r in rows)
 
 
 def _assert_cache_validation_bound(conn):
