@@ -639,6 +639,7 @@ class _FakeReconcileConnection:
 
     async def execute(self, *args):
         self._executed.append(args)
+        return "UPDATE 1"
 
     async def close(self):
         return None
@@ -780,6 +781,7 @@ async def test_shadow_failure_keeps_pending_until_both_vector_targets_succeed():
         async def execute(self, query, *_args):
             if "vector_sync_pending = false" in query:
                 clears.append(query)
+            return "UPDATE 1"
 
     service = memory_service.MemoryService.__new__(memory_service.MemoryService)
     service.database_url = "postgresql://atlas"
