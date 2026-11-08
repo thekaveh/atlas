@@ -46,10 +46,10 @@ env:
     description: "Single-option source: Redis always runs as a container. It is an env entry, not a sources block, so the wizard shows no one-option dropdown. The source validator expects REDIS_SOURCE=container."
   - name: REDIS_MAXMEMORY
     default: "0"
-    description: "Redis memory cap, e.g. 512mb. 0 means unlimited: Redis grows until the container is OOM-killed and loses in-flight queue state. A cap lets REDIS_MAXMEMORY_POLICY shed recomputable data instead. Size it to about 75% of the container memory budget."
+    description: "Redis memory cap, e.g. 512mb. 0 means unlimited: Redis grows until the container is OOM-killed and loses in-flight queue state. A cap makes every TTL key evictable, including the RAG and memory-consolidation leases. See the Redis README before setting it."
   - name: REDIS_MAXMEMORY_POLICY
     default: volatile-lru
-    description: "volatile-lru evicts TTL keys, including LiteLLM cache and ordinary media records (seven-day default). Budget-tracked in-flight records, unresolved submissions and pending ledger intents persist until settlement. Without TTL keys, writes fail with OOM."
+    description: "volatile-lru evicts TTL keys: LiteLLM cache, settled media records, RAG ingestion records, and the RAG execution and memory-consolidation leases. Budget-tracked in-flight media records and pending ledger intents have no TTL. Without TTL keys, writes fail with OOM."
   - name: REDIS_PORT
     # default removed — computed by services/topology.py slot allocator
     description: "Host port. Container port is always 6379."

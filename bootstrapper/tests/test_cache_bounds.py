@@ -157,3 +157,25 @@ def test_the_response_cache_serves_embeddings_and_chat_only_on_opt_in():
     assert not {"completion", "acompletion", "responses"} & set(default)
     chat = base_settings({"LITELLM_CACHE_CHAT": "true"})["litellm_settings"]["cache_params"]
     assert {"completion", "acompletion", "embedding"} <= set(chat["supported_call_types"])
+
+
+def test_the_redis_docs_name_the_evictable_coordination_leases():
+    """volatile-lru evicts any TTL key, and two leases carry one: an evicted
+    lease lets a second worker claim a running job. The manifest called what
+    a cap sheds "recomputable data" (#1040)."""
+    backend = REPO_ROOT / "services" / "backend" / "app" / "app"
+    rag_store = (backend / "rag_ingestion" / "store.py").read_text(encoding="utf-8")
+    celery = (backend / "celery_app.py").read_text(encoding="utf-8")
+    assert '_LEASE_PREFIX = "atlas:rag:execution:"' in rag_store
+    assert "redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3])" in celery
+    assert 'f"atlas:celery:memory-execution:{task_id}"' in celery
+
+    readme = (REPO_ROOT / "services" / "redis" / "README.md").read_text(encoding="utf-8")
+    for prefix in ("atlas:rag:execution:", "atlas:celery:memory-execution:",
+                   "atlas:rag:ingestions:", "atlas:media:operations:"):
+        assert f"| `{prefix}" in readme
+
+    manifest = yaml.safe_load((REPO_ROOT / "services" / "redis" / "service.yml").read_text())
+    text = {e["name"]: e["description"] for e in manifest["env"]}
+    assert "recomputable" not in text["REDIS_MAXMEMORY"]
+    assert "leases" in text["REDIS_MAXMEMORY"] and "leases" in text["REDIS_MAXMEMORY_POLICY"]

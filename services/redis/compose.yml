@@ -20,6 +20,9 @@ services:
     # Those records can disappear before their seven-day retention expires.
     # Budget-tracked in-flight records, unresolved submissions and pending
     # ledger intents have no TTL.
+    # The RAG execution lease and the Celery memory-consolidation lease DO
+    # carry a TTL, so a cap lets eviction hand a running job to a second
+    # worker (#1040; README §9). A logical db does not scope the policy.
     # Other persistent keys also survive eviction. Under noeviction a full
     # instance instead rejects WRITES,
     # so the cache would take the whole queue down with it.
