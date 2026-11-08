@@ -461,7 +461,11 @@ def test_stale_research_sessions_are_terminalized_with_logs():
 
         async def fetch(self, sql, *args):
             assert self.in_transaction is True
-            assert "heartbeat_at" in sql
+            # Both lease checks cast the argument, so an untyped $1 cannot
+            # resolve to a planted public operator.
+            assert "heartbeat_at" in sql and sql.count(
+                "$1::double precision * interval '1 second'"
+            ) == 2
             assert args == (300,)
             return [{"id": "stale-pending"}, {"id": "stale-running"}]
 
