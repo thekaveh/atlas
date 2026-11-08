@@ -28,6 +28,7 @@ import pytest
 
 from core.config_parser import ConfigParser
 from utils.kong_config_generator import KongConfigGenerator
+from tests.test_kong_alias_routes import _generate
 
 
 @pytest.fixture
@@ -295,3 +296,34 @@ def test_refused_cors_entry_is_reported_and_not_allowed(tmp_path, capsys):
     gen = _generator(tmp_path, "KONG_CORS_EXTRA_ORIGINS=ftp://a.com\n")
     assert gen._cors_origins() == list(KongConfigGenerator._LOCAL_CORS_ORIGINS)
     assert "ignoring KONG_CORS_EXTRA_ORIGINS entry 'ftp://a.com'" in capsys.readouterr().out
+
+
+
+# #1387: a dashboard route must not forward the dashboard pair to its app.
+# Each entry is a route that keeps it, with the reason.
+_BASIC_AUTH_KEEPS_CREDENTIALS = {
+    "flower": "Flower checks the same pair itself (FLOWER_BASIC_AUTH in services/celery/compose.yml)",
+}
+
+
+def _basic_auth_plugins(config):
+    """(service name, hides credentials) for every basic-auth plugin."""
+    for service in config["services"]:
+        holders = [service, *(service.get("routes") or [])]
+        for plugin in (p for holder in holders for p in holder.get("plugins") or []):
+            if plugin["name"] == "basic-auth":
+                yield service["name"], (plugin.get("config") or {}).get("hide_credentials") is True
+
+
+def test_dashboard_basic_auth_hides_credentials_except_listed_apps():
+    sources = ["HERMES", "TRINO", "REDPANDA", "LANGFUSE", "TRUEFORGE", "MLFLOW",
+               "LABEL_STUDIO", "VERBA", "CRAWL4AI", "TIKA", "LLM_GRAPH_BUILDER",
+               "CELERY", "FLOWER", "MCP_SERVERS"]
+    env = "\n".join(f"{name}_SOURCE=container" for name in sources)
+    config = _generate(env + "\nRAY_SOURCE=ray-container-cpu\nDASHBOARD_PASSWORD=x\n")
+    plugins = list(_basic_auth_plugins(config))
+    keeping = {name for name, hides in plugins if not hides}
+    hiding = {name for name, hides in plugins if hides}
+
+    assert keeping == set(_BASIC_AUTH_KEEPS_CREDENTIALS)
+    assert {"meta", "dashboard", "ray-dashboard", "langfuse", "mlflow", "crawl4ai"} <= hiding

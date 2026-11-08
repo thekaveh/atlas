@@ -157,6 +157,42 @@ def test_storage_upload_maps_a_storage_size_rejection_to_413(monkeypatch):
     assert resp.status_code == 413
 
 
+@pytest.mark.parametrize("sent,stored", [
+    ("text/html", "application/octet-stream"),
+    ("image/svg+xml", "application/octet-stream"),
+    ("application/javascript", "application/octet-stream"),
+    ("TEXT/PLAIN; charset=utf-8", "text/plain"),
+    ("image/png", "image/png"),
+])
+def test_storage_upload_stores_only_inert_content_types(monkeypatch, sent, stored):
+    """A public bucket would serve a client-typed text/html upload from a Kong
+    origin, so the stored type comes from a server-side allowlist (#1387)."""
+    _stub_required_env(monkeypatch)
+    from fastapi.testclient import TestClient
+    import main
+
+    uploads = []
+
+    class Bucket:
+        def upload(self, **kwargs):
+            uploads.append(kwargs["file_options"])
+
+        def get_public_url(self, path):
+            return f"http://storage/{path}"
+
+    class Storage:
+        def from_(self, _bucket):
+            return Bucket()
+
+    monkeypatch.setattr(main, "storage_client", Storage())
+    resp = TestClient(main.app).post(
+        "/storage/upload", files={"file": ("page.bin", b"<script>1</script>", sent)},
+    )
+
+    assert resp.status_code == 200
+    assert uploads == [{"content-type": stored}]
+
+
 def test_storage_upload_rejects_unapproved_bucket_and_path_filename(monkeypatch):
     _stub_required_env(monkeypatch)
     from fastapi.testclient import TestClient

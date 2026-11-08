@@ -942,6 +942,22 @@ def _is_storage_duplicate(exc: Exception) -> bool:
     )
 
 
+# Content types Storage may serve as uploaded. Anything else, notably HTML,
+# SVG and JavaScript that a public bucket would serve from a Kong origin, is
+# stored as application/octet-stream (#1387).
+_STORAGE_INERT_CONTENT_TYPES = frozenset({
+    "application/json", "application/pdf", "application/zip", "audio/mpeg",
+    "audio/wav", "audio/x-wav", "image/gif", "image/jpeg", "image/png",
+    "image/webp", "text/csv", "text/plain", "video/mp4",
+})
+
+
+def _storage_content_type(client_type: Optional[str]) -> str:
+    """The client's media type when it is inert, else octet-stream."""
+    base = (client_type or "").split(";", 1)[0].strip().lower()
+    return base if base in _STORAGE_INERT_CONTENT_TYPES else "application/octet-stream"
+
+
 @app.post(
     "/storage/upload",
     response_model=StorageResponse,
@@ -979,9 +995,7 @@ async def upload_file(file: UploadFile = File(...), bucket: str = "default"):
                 bucket_ref.upload,
                 path=filename,
                 file=content,
-                file_options={"content-type": file.content_type}
-                if file.content_type
-                else None,
+                file_options={"content-type": _storage_content_type(file.content_type)},
             )
 
             # Get public URL

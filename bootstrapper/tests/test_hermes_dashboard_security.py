@@ -169,7 +169,7 @@ def test_hermes_route_keeps_auth_and_api_separation(source, tmp_path, monkeypatc
     if source == "disabled":
         assert route is None and probes == []
         return
-    assert route["plugins"] == [{"name": "cors"}, {"name": "basic-auth"},
+    assert route["plugins"] == [{"name": "cors"}, {"name": "basic-auth", "config": {"hide_credentials": True}},
                                 {"name": "acl", "config": {"allow": ["dashboard_user"]}}]
     assert route["routes"] == [{"name": "hermes-dashboard-all", "strip_path": False,
                                 "preserve_host": True, "hosts": ["hermes.localhost"]}]
@@ -192,7 +192,7 @@ def test_hermes_route_uses_requested_default_consistently(requested, enabled, tm
     assert bool(route) is enabled
     assert probes == []
     if enabled:
-        assert route["plugins"] == [{"name": "cors"}, {"name": "basic-auth"},
+        assert route["plugins"] == [{"name": "cors"}, {"name": "basic-auth", "config": {"hide_credentials": True}},
                                     {"name": "acl", "config": {"allow": ["dashboard_user"]}}]
 
 
@@ -216,7 +216,7 @@ def test_hermes_route_matches_validated_configured_container(kong, tmp_path, mon
     assert route == {"name": "hermes-dashboard", "url": "http://hermes:9119/",
                      "routes": [{"name": "hermes-dashboard-all", "strip_path": False,
                                  "preserve_host": True, "hosts": ["hermes.localhost"]}],
-                     "plugins": [{"name": "cors"}, {"name": "basic-auth"},
+                     "plugins": [{"name": "cors"}, {"name": "basic-auth", "config": {"hide_credentials": True}},
                                  {"name": "acl", "config": {"allow": ["dashboard_user"]}}]}
     assert probes == []
 
