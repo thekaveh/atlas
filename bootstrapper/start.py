@@ -439,6 +439,7 @@ from utils.atomic_write import (
 from utils.banner import BannerDisplay
 from utils.hosts_manager import HostsManager
 from utils.key_generator import KeyGenerator
+from core.env_snapshot import EnvSnapshot
 from core.linear_startup import LinearStartupOptions, json_cli_guard, run_linear_startup
 from core.launch_outcome import (
     DETACH,
@@ -7376,13 +7377,16 @@ def _report_tui_exit(rc: int, starter=None, *, cold: bool = False) -> int:
     launch started and whether the wizard's cold cleanup ran; ``cold`` is a
     CLI --cold, which cleans before the launch screen.
     """
-    if rc == 130:
-        stopped = getattr(starter, "stopped_previous_instance", False)
-        cold = cold or getattr(starter, "tui_cold_cleanup_ran", False)
-        if getattr(starter, "tui_launch_started", True):
-            print(cancel_notice(stopped, cold))
-        else:
-            print(launch_cancelled_notice(cold, stopped))
+    stopped = getattr(starter, "stopped_previous_instance", False)
+    cold = cold or getattr(starter, "tui_cold_cleanup_ran", False)
+    started = getattr(starter, "tui_launch_started", True)
+    if getattr(starter, "wizard_declined", False) or (rc == 130 and not started):
+        # Nothing was launched: put .env back as it was before this run (#1044).
+        snapshot = getattr(starter, "launch_env_snapshot", None)
+        restored = snapshot is not None and snapshot.restore()
+        print(launch_cancelled_notice(cold, stopped, env_restored=restored))
+    elif rc == 130:
+        print(cancel_notice(stopped, cold))
     return rc
 
 
@@ -8497,7 +8501,10 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
                 sys.exit(1)
 
         if wizard_requested:
-            # Setup .env first so wizard can read current defaults.
+            # Setup .env first so wizard can read current defaults. Capture
+            # it before that first write, so leaving without a launch can put
+            # it back (#1044).
+            starter.launch_env_snapshot = EnvSnapshot.capture(starter.config_parser.env_file_path)
             if not starter.prepare_environment(cold_start=cold, base_port=base_port, project_name=project_name):
                 sys.exit(1)
             # Backfill any keys added to .env.example since the user's
@@ -8602,6 +8609,7 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
             if _is_tui_capable(no_tui_flag=no_tui):
                 # Make sure .env exists so the launch screen can build
                 # the Stack overview.
+                starter.launch_env_snapshot = EnvSnapshot.capture(starter.config_parser.env_file_path)
                 if not starter.prepare_environment(cold_start=cold, base_port=base_port, project_name=project_name):
                     sys.exit(1)
                 # Backfill new .env.example keys before the launch

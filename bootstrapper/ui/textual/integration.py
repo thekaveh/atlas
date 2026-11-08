@@ -885,7 +885,9 @@ def _build_steps_and_rows(
         options=[
             PromptOption("yes", "Yes — launch now", "starts docker compose"),
             PromptOption("no", "No — exit without starting",
-                         "discards wizard selections; nothing written or launched"),
+                         # True since #1044: start.py restores the .env it
+                         # captured before setup wrote anything.
+                         "discards wizard selections; restores .env; launches nothing"),
         ],
         default_value="yes", service_name="",
     ))

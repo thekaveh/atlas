@@ -292,7 +292,9 @@ Before launching, a configuration summary inside the same anchored info-box show
 - A separate **Cloud APIs** sub-section lists OpenAI / Anthropic / OpenRouter status. Each shows `enabled · key set` with a check mark, `disabled`, or `enabled · key MISSING` with a warning mark. Cloud providers don't run as containers, so they render below the services grid rather than alongside real services.
 - Color-coded source choices (container = green, localhost / cloud = cyan, off = slate).
 
-You confirm to launch (the **Launch the stack with this configuration?** step is the wizard's final question), or cancel to exit without changes.
+You confirm to launch (the **Launch the stack with this configuration?** step is the wizard's final question), or cancel to exit without changes. Atlas records `.env` before setup first writes it. **No — exit without starting** puts that copy back, and so does `Ctrl+C` before the launch begins. A fresh install is left with no `.env`. A `--cold` start has already removed the volumes before the wizard opened, and that stays done.
+
+Under `--no-tui`, the summary lists the `.env` keys this run changes, with secret values hidden. Answering `n` puts `.env` back the same way. A setup step that fails keeps what it wrote, so a retry starts from the normalized sources (#1044).
 
 ### 8.1. What "started" means, and what it does not
 

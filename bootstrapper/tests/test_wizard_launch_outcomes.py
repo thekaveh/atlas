@@ -112,6 +112,7 @@ class _Starter:
         self.configured_env = {"BASE_PORT": "63000"}
         self.config_parser = SimpleNamespace(
             root_dir="/nonexistent", get_project_name=lambda: "atlas",
+            env_file_path="/nonexistent/atlas-test/.env",
             parse_env_file=lambda: dict(self.configured_env),
         )
         self.docker_manager = _Docker()

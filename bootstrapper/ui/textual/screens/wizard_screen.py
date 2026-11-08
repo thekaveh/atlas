@@ -2314,7 +2314,10 @@ class WizardScreen(Screen):
             else:
                 # "No — exit without starting" must actually exit
                 # (previously a silent no-op: Enter did nothing and only
-                # Esc/Ctrl+Q could leave the screen).
+                # Esc/Ctrl+Q could leave the screen). start.py then puts
+                # .env back as it was before this run (#1044).
+                if self._starter is not None:
+                    self._starter.wizard_declined = True
                 self._close_launch_log_tee()
                 self.app.exit()
 
