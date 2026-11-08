@@ -4412,6 +4412,7 @@ case "$stdin:$*" in
   *lock_app=*) printf 'locked\\n' ;;
   *pg_replication_slots*) printf '0\\n' ;;
   *datlocprovider*) printf 'c\\n' ;;
+  *CASE\\ WHEN\\ datallowconn*) printf 'true\\n' ;;
   *encode\\(convert_to*) printf '7075626c\\t7374617465\\n' ;;
   *target_db=*|*atlas_restore_*) printf '1\\n' ;;
 esac
