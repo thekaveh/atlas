@@ -114,6 +114,7 @@ Recall and update confidence must be finite and in `0..1`. Invalid requests retu
 - Every memory write (edit, soft delete, consolidation, retention) marks a durable `vector_sync_pending` intent with the Postgres change.
 - While Weaviate serves recall, each write also updates a pgvector shadow. The intent clears only after both writes are durable.
 - Successful reconciliation clears the pending intent after the required vector writes. An edit to the fact's content or vector properties keeps the new version pending.
+- A reconciliation pass counts only facts whose guarded clear matched. A fact that a newer edit wins stays pending and is not counted.
 - When Weaviate is unavailable, a pgvector write advances the dirty generation atomically with the vector update.
 - A Weaviate outage latches recall to pgvector, without readiness probes on each request.
 - Recall and writes check the generation before and after external I/O. On a change, the result is discarded or pgvector stays authoritative. No stale result or lost write crosses a switch.
