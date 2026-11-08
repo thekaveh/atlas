@@ -341,6 +341,11 @@ GRANT CONNECT ON DATABASE :"primary_database" TO :"auth_role", :"storage_role", 
   :"realtime_role", :"meta_role", :"studio_role", :"metrics_role", :"backend_role", :"n8n_role",
   :"openwebui_role", :"lightrag_role", :"airflow_reader", :"mcp_reader",
   :"jupyter_reader", :"zeppelin_reader";
+-- n8n's first statement is CREATE SCHEMA IF NOT EXISTS "n8n". Postgres checks
+-- database CREATE before it checks whether the schema exists, so without this
+-- grant n8n stops with "permission denied for database" and never starts
+-- (#1824). The schema already exists and belongs to this role.
+GRANT CREATE ON DATABASE :"primary_database" TO :"n8n_role";
 
 GRANT dashboard_user TO :"meta_role";
 GRANT USAGE, CREATE ON SCHEMA public TO :"meta_role";

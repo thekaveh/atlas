@@ -1131,6 +1131,21 @@ def test_host_tcp_rejects_passwordless_authentication(
     ).stdout == "1\n"
 
 
+def test_n8n_can_run_its_create_schema_statement(
+    disposable_postgres: DisposablePostgres,
+) -> None:
+    """n8n's first statement is CREATE SCHEMA IF NOT EXISTS "n8n". Postgres
+    checks database CREATE before the schema's existence, so without the grant
+    n8n stopped with "permission denied for database" (#1824)."""
+    assert disposable_postgres.sql(
+        "SELECT has_database_privilege('atlas_n8n', 'postgres', 'CREATE')"
+    ).stdout == "t\n"
+    created = disposable_postgres.sql(
+        'SET ROLE atlas_n8n; CREATE SCHEMA IF NOT EXISTS "n8n"', check=False
+    )
+    assert created.returncode == 0, created.stderr
+
+
 def test_service_role_cannot_read_or_drop_another_services_objects(
     disposable_postgres: DisposablePostgres,
 ) -> None:
