@@ -363,3 +363,32 @@ def test_actual_sdk_preflight_transport_failure_is_unavailable(offline_ray_dashb
         RayClient().submit_job(RayJobSubmission("echo synthetic", "raysubmit_preflight"))
     assert dashboard.accepted == []
     assert all(method != "POST" for method, _, _ in dashboard.calls)
+
+
+def test_a_backend_image_without_the_ray_sdk_answers_503(monkeypatch):
+    """A core image built without Ray answers its routes with the 503 and
+    detail a disabled cluster gets, not a 500 from the import (#1041)."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    import ray_client
+    import ray_routes
+
+    monkeypatch.setenv("RAY_ADDRESS", "ray://ray-head:10001")
+    monkeypatch.setenv("RAY_JOB_API_TOKEN", "ray-test-token")
+    monkeypatch.setitem(sys.modules, "ray.job_submission", None)  # import raises
+    monkeypatch.setattr(ray_client.RayClient, "_instance", None)
+
+    with pytest.raises(ray_client.RayPackNotInstalledError):
+        ray_client.RayClient()._ensure_client()
+
+    app = FastAPI()
+    app.include_router(ray_routes.router)
+    response = TestClient(app).get(
+        "/api/ray/cluster/status", headers={"Authorization": "Bearer ray-test-token"}
+    )
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": "The Ray SDK is not installed in this Backend image; "
+        "Ray job routes are unavailable"
+    }
