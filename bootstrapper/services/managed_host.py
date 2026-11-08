@@ -296,6 +296,16 @@ def pid_is_stranger(pid: int, pid_file: Path, probe) -> bool:
     return not recorded or not live or live != recorded
 
 
+# Local health probes never use a proxy. An explicit empty ProxyHandler also
+# skips urllib's system proxy lookup: on macOS it starts SystemConfiguration
+# threads that outlive the call, so a later os.fork() warns (#1897).
+_LOCAL_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+
+def _open_local(url: str, timeout: float):
+    return _LOCAL_OPENER.open(url, timeout=timeout)
+
+
 class ManagedHostManager:
     """Generic lifecycle for one :class:`HostProcessSpec`.
 
@@ -829,7 +839,7 @@ class ManagedHostManager:
         host = self._probe_host()
         url = f"http://{f'[{host}]' if ':' in host else host}:{self.spec.port}{self.spec.health.path}"
         try:
-            with urllib.request.urlopen(url, timeout=timeout) as response:  # noqa: S310
+            with _open_local(url, timeout) as response:  # noqa: S310
                 body = response.read(65536).decode("utf-8", errors="replace")
                 code = response.getcode()
         except (urllib.error.URLError, OSError, ValueError, OverflowError, http.client.HTTPException) as exc:

@@ -523,7 +523,7 @@ managed_host_services:
 | `env` | no | Extra environment for the process. A boolean is written as `true` or `false`; `null` is rejected. |
 | `venv` | no | `python`, `metal`, `requirements`, `packages`. A leading `python`/`python3` in `command` is rewritten to the venv interpreter. |
 | `install` | no | Extra argv steps run after dependency install. |
-| `health` | no | `kind` (`tcp`/`http`), `path`, `expect_json`, `timeout`. Defaults to a TCP port knock. `timeout` must be finite and positive; booleans are rejected. Its default is 5s. During `start`, each probe uses the smaller of this timeout and the remaining wait, with a 50ms minimum. |
+| `health` | no | `kind` (`tcp`/`http`), `path`, `expect_json`, `timeout`. Defaults to a TCP port knock. `timeout` must be finite and positive; booleans are rejected. Its default is 5s. During `start`, each probe uses the smaller of this timeout and the remaining wait, with a 50ms minimum. An HTTP probe connects directly and ignores `HTTP_PROXY`. |
 | `allow_remote` | no | Required to bind anything other than loopback. |
 
 > **Three deliberate constraints.** (1) A declared command is argv passed straight to `subprocess`, never a shell. A semicolon in a value is text, not a second command. (2) A non-loopback `bind` is refused without `allow_remote: true`, because these processes have no authentication. (3) `workdir` and `venv.requirements` must resolve inside your consumer root, because Atlas executes what this block declares.
