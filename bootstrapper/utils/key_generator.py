@@ -476,6 +476,12 @@ class KeyGenerator:
             return True
         return self.update_env_key('CRAWL4AI_API_TOKEN', self.generate_crawl4ai_api_token())
 
+    def generate_and_update_speaches_api_key(self, force: bool = False) -> bool:
+        """Generate SPEACHES_API_KEY when absent. Existing keys stick."""
+        if not force and self.get_current_env_value('SPEACHES_API_KEY'):
+            return True
+        return self.update_env_key('SPEACHES_API_KEY', _cli_safe_token_urlsafe(32))
+
     def generate_and_update_meta_crypto_key(self, force: bool = False) -> bool:
         """Generate SUPABASE_META_CRYPTO_KEY when absent. Existing keys stick.
 
@@ -1244,6 +1250,7 @@ class KeyGenerator:
         # Crawl4AI Docker API bearer token — generated even when disabled so
         # enabling the service later does not require a manual secret edit.
         results['CRAWL4AI_API_TOKEN'] = self.generate_and_update_crawl4ai_api_token(force=False)
+        results['SPEACHES_API_KEY'] = self.generate_and_update_speaches_api_key(force=False)
         results['OPENCLAW_GATEWAY_TOKEN'] = self.generate_and_update_openclaw_gateway_token(force=False)
         results['SUPABASE_META_CRYPTO_KEY'] = self.generate_and_update_meta_crypto_key(force=False)
 

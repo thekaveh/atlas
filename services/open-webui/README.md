@@ -58,8 +58,11 @@ The tool and function folders are mounted read-only; `open-webui-init` registers
 The STT API key depends on the STT source:
 
 - For either Parakeet source, `OPEN_WEB_UI_STT_API_KEY` is derived from the generated `PARAKEET_API_TOKEN`.
+- For a Speaches source, it is the generated `SPEACHES_API_KEY`.
 - For other enabled STT engines, it is the compatibility value `sk-unused`.
 - When STT is disabled, it is blank.
+
+`OPEN_WEB_UI_TTS_API_KEY` (sent as `AUDIO_TTS_OPENAI_API_KEY`) follows the TTS source the same way: `SPEACHES_API_KEY` for Speaches, `sk-unused` for Chatterbox, blank when TTS is disabled.
 
 The value is injected only into Open WebUI's server process. Do not expose it through browser-side tools or logs.
 

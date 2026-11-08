@@ -224,8 +224,9 @@ When the microphone button works depends on the engine:
 - Parakeet and whisper.cpp: once the service is healthy.
 - Speaches: only after `Systran/faster-whisper-large-v3` (the `whisper-1` target) is downloaded (see §3).
 
-`OPEN_WEB_UI_STT_API_KEY` is the Parakeet provider token for a Parakeet source.
-It is `sk-unused` for other STT engines, and empty when STT is disabled. The
+`OPEN_WEB_UI_STT_API_KEY` is the Parakeet provider token for a Parakeet source,
+and `SPEACHES_API_KEY` for a Speaches source. It is `sk-unused` for other STT
+engines, and empty when STT is disabled. The
 key stays in the Open WebUI server process; browser code does not see it.
 
 For the managed Parakeet GPU source, healthy means the model is loaded. The
