@@ -556,3 +556,45 @@ def test_committed_screenshots_preserve_the_atlas_palette() -> None:
         "wizard-minimum-terminal.svg": required,
         "wizard-normal-terminal.svg": required,
     }
+
+
+@pytest.mark.parametrize("size", [NORMAL_SIZE, (160, 44), (240, 60), (100, 30)])
+def test_the_real_overview_leaves_the_prompt_and_its_counts_visible(
+    size, tmp_path, monkeypatch
+) -> None:
+    """#1921: with all 62 real rows the overview grew to 69 rows and pushed
+    the prompt, the summary and its own count and Track lines off screen."""
+    from core.config_parser import ConfigParser
+    from ui.textual import integration as I
+    from ui.textual.widgets.info_box import InfoBoxFooter
+
+    root = Path(__file__).resolve().parents[2]
+    shutil.copy(root / ".env.example", tmp_path / ".env")
+    monkeypatch.setenv("ATLAS_ENV_FILE", str(tmp_path / ".env"))
+    steps, rows, _info, _port, _state, clouds = I._build_steps_and_rows(
+        ConfigParser(), track_key="gen-ai-rag"
+    )
+    assert len(rows) > 50  # the real row set, not a synthetic one
+    screen = WizardScreen(
+        steps=steps, services=rows, cloud_apis=clouds, no_splash=True,
+        track_display_name=I._resolve_track_display_name("gen-ai-rag"),
+    )
+    _OPEN.append((screen, screen._launch_log_path))
+
+    async def scenario():
+        async with _App(screen).run_test(size=size) as pilot:
+            await pilot.pause()
+            tab = screen.query_one("#tab-setup").region
+            for widget in (screen.query_one(PromptPanel), screen.query_one(CommandSummary),
+                           screen.query_one(InfoBoxFooter)):
+                region = widget.region
+                assert region.height > 0 and tab.y <= region.y and region.bottom <= tab.bottom, (
+                    f"{type(widget).__name__} at {region} outside the Setup tab {tab}"
+                )
+            text = "\n".join(
+                "".join(segment.text for segment in strip)
+                for strip in screen.app.screen._compositor.render_strips()
+            )
+            assert "Track:" in text and "services" in text
+
+    asyncio.run(scenario())
