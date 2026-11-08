@@ -1197,7 +1197,14 @@ class WizardScreen(Screen):
        gutter between them. */
     WizardScreen #tab-setup { width: 100%; height: 1fr; }
     WizardScreen #tab-logs  { width: 100%; height: 1fr; }
-    WizardScreen #info-section { width: 100%; height: auto; margin-top: 1; }
+    /* The overview grows to fit its rows, but at most half the Setup tab:
+       uncapped, 62 service rows filled the tab and pushed the prompt and
+       command summary off screen at normal sizes (#1921). The capped panel
+       keeps its count and Track footer docked; the rows scroll above it. */
+    WizardScreen #info-section {
+        width: 100%; height: auto; max-height: 50%; margin-top: 1;
+    }
+    WizardScreen #info-section > InfoPanel { max-height: 100%; }
     WizardScreen #lower-pane {
         width: 100%;
         /* Keeps absorbing the leftover height (so the footer stays pinned to
@@ -1254,6 +1261,7 @@ class WizardScreen(Screen):
     WizardScreen.compact-height.launch-phase #info-section {
         display: block;
         height: 1fr;
+        max-height: 100%;
         margin-top: 0;
         overflow: hidden;
     }

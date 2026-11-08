@@ -331,8 +331,9 @@ class InfoPanel(Container):
         height: auto;
         width: 100%;
     }
-    InfoPanel > .info-body { height: auto; min-height: 5; }
-    InfoPanel > InfoBoxFooter { height: auto; }
+    InfoPanel > .info-body { height: auto; min-height: 5; overflow-y: auto; }
+    /* Docked so a height-capped panel shrinks the rows, not the counts. */
+    InfoPanel > InfoBoxFooter { height: auto; dock: bottom; }
     """
 
     def __init__(
