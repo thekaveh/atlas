@@ -38,6 +38,16 @@ PDF: per-request `use_ocr` and `table_mode`, `DOCLING_DEVICE`, and the
 `services/docling/provider/tests/test_pipeline_real_converter.py` checks every
 combination against the pinned Docling release. It needs a provider lock
 installed, so the bootstrapper suite does not run it; it skips without Docling.
+With `ATLAS_TEST_DOCLING_CONVERT=1` it also converts ordinary TIFFs (raw, LZW,
+deflate and PackBits) end to end, which downloads Docling's layout and table
+models.
+
+**TIFF decoding.** Both provider locks pin Pillow 13.0.0, which fixes the TIFF
+decoder advisories CVE-2026-112897, CVE-2026-112395 and CVE-2026-112404 that
+uploaded images reach through `PIL.Image.open` (#1780). The floor is enforced
+by `bootstrapper/tests/test_security_dependency_floors.py`. Whether decoded
+pixels from the older decoder could reach Atlas outputs was never
+established; with the fixed release that question no longer applies.
 
 **Timeouts and fallback.**
 
