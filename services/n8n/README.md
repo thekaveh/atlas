@@ -71,6 +71,8 @@ BACKEND_N8N_API_TOKEN=            # auto-generated workflow-scoped bearer
 
 With `SUPAVISOR_SOURCE=container`, n8n and n8n-worker connect to `supavisor:6543` as `${N8N_DB_USER}.${SUPAVISOR_TENANT_ID}`. See the [Supavisor README](../supavisor/README.md).
 
+`${N8N_DB_USER}` owns the `n8n` schema and holds `CREATE` on the database. The first statement n8n runs is `CREATE SCHEMA IF NOT EXISTS "n8n"`. Postgres checks database `CREATE` before it checks that the schema exists. Without the grant, n8n stopped at "permission denied for database" and never became healthy (#1824).
+
 The bundled Backend-calling workflows send `Authorization: Bearer $env.BACKEND_N8N_API_TOKEN` on every request. Both the web and worker containers have the value, because queue-mode executions run on the worker. The token reaches only a limited set of Backend routes; the Backend docs list them. Do not return it in webhook payloads, execution output or browser-side code.
 
 Only `BACKEND_N8N_API_TOKEN` is route-scoped. The web and worker containers also receive the stack-wide LiteLLM master key and provider-level credentials for Docling, Parakeet, Hermes, LightRAG and Crawl4AI. Trusted workflow expressions may call those services.
