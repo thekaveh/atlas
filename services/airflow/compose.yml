@@ -104,6 +104,9 @@ services:
           cpus: "${AIRFLOW_SCHEDULER_CPU_LIMIT:-1.0}"
     environment:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      # LocalExecutor task processes run inside this container; upstream's 32
+      # concurrent tasks do not fit the 2g limit (#1356).
+      AIRFLOW__CORE__PARALLELISM: ${AIRFLOW_PARALLELISM:-4}
       # Airflow 3.3.2's Task-SDK supervisor resolves the Execution API per task
       # via get_execution_api_server_url(), which falls back to
       # http://localhost:8080/execution/ when unset — but `airflow api-server`

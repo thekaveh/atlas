@@ -34,6 +34,10 @@ services:
     user: "101:101"
     deploy:
       replicas: ${LANGFUSE_CLICKHOUSE_SCALE:-0}
+      resources:
+        limits:
+          # ClickHouse sizes its server memory from this limit (#1356).
+          memory: ${LANGFUSE_CLICKHOUSE_MEMORY_LIMIT:-4g}
     environment:
       CLICKHOUSE_DB: default
       CLICKHOUSE_USER: ${LANGFUSE_CLICKHOUSE_USER:-clickhouse}

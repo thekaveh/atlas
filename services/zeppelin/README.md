@@ -117,10 +117,15 @@ ZEPPELIN_INIT_IMAGE=python:3.12.13-alpine
 ZEPPELIN_PORT=                     # auto-assigned (apps band)
 ZEPPELIN_SPARK_CORES_MAX=1         # spark.cores.max for the interpreter (§1.1)
 ZEPPELIN_MEMORY_LIMIT=2g           # container limits
+ZEPPELIN_SERVER_HEAP=512m          # server JVM heap (ZEPPELIN_MEM)
+ZEPPELIN_INTERPRETER_HEAP=384m     # non-Spark interpreter heap (ZEPPELIN_INTP_MEM)
+ZEPPELIN_SPARK_DRIVER_MEMORY=512m  # spark.driver.memory for the Spark interpreter
 ZEPPELIN_CPU_LIMIT=1.5
 ZEPPELIN_DB_USER=atlas_zeppelin    # read-only Postgres role for the manual JDBC profile
 ZEPPELIN_DB_PASSWORD=              # auto-generated
 ```
+
+**Memory budget.** The container runs up to three JVMs: the server, the Spark driver (client mode) and one other interpreter, such as JDBC. Upstream gives each a 1 GiB heap, which does not fit the 2 g limit. The defaults above total 1.4 GiB of heap, leaving room for non-heap memory. Raise `ZEPPELIN_MEMORY_LIMIT` with any heap (#1356).
 
 ## 4. Integration with the stack
 

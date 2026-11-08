@@ -26,7 +26,11 @@ See the canonical port table at [Ports and Routes](../../docs/reference/ports-ro
 WEAVIATE_SOURCE=container          # container | localhost | disabled
 WEAVIATE_LOCALHOST_PORT=8080       # host port when WEAVIATE_SOURCE=localhost
 # WEAVIATE_URL is auto-managed: http://weaviate:8080, http://host.docker.internal:<port>, or empty
+WEAVIATE_MEMORY_LIMIT=2g           # container memory limit
+WEAVIATE_GOMEMLIMIT=               # Go soft limit; empty = 80% of the container limit
 ```
+
+**Go memory limit.** Go has no memory limit of its own, so a growing heap met the container cap as an OOM kill. At startup `configure-weaviate.sh` sets `GOMEMLIMIT` to 80% of the container's cgroup memory limit, unless `WEAVIATE_GOMEMLIMIT` sets it (for example `1600MiB`). The garbage collector then runs harder before the cap. The startup log prints the value (#1356).
 
 Scripted changes: `./start.sh --weaviate-source <value>` and `--multi2vec-clip-source <value>`.
 

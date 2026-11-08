@@ -75,6 +75,8 @@ services:
       # below, internal-only). Scraped by the observability bundle's
       # Prometheus when PROMETHEUS_SOURCE=container.
       PROMETHEUS_MONITORING_ENABLED: 'true'
+      # Empty: configure-weaviate.sh derives 80% of the container limit.
+      GOMEMLIMIT: ${WEAVIATE_GOMEMLIMIT:-}
       # Weaviate defaults to Access-Control-Allow-Origin: *, and anonymous
       # access is on, so any web page in the operator's browser could read
       # or DELETE collections through the loopback port. Only the Kong host

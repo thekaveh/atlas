@@ -113,6 +113,9 @@ env:
   - name: AIRFLOW_SCHEDULER_MEMORY_LIMIT
     default: 2g
     description: "Container memory limit for airflow-scheduler (deploy.resources.limits.memory). The LocalExecutor scheduler forks task processes in-process; 2 g caps runaway task forking."
+  - name: AIRFLOW_PARALLELISM
+    default: "4"
+    description: "Airflow [core] parallelism: task processes the LocalExecutor runs at once inside airflow-scheduler. Upstream's 32 does not fit the 2 g scheduler limit; raise both together."
   - name: AIRFLOW_SCHEDULER_CPU_LIMIT
     default: "1.0"
     description: "Container CPU limit for airflow-scheduler (deploy.resources.limits.cpus). 1.0 core is sufficient for LocalExecutor task scheduling on a dev/staging host."
