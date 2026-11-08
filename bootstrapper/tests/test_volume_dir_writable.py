@@ -54,7 +54,8 @@ def test_missing_directory_is_created(tmp_path):
 
 
 def test_unwritable_directory_gets_chmodded(tmp_path):
-    """Dir without write perm for current user: chmodded to 777.
+    """Dir without write perm for current user: owner rwx is added, and
+    group/other bits stay as they were (#1387; it used to be 777).
 
     Skip when running as root (root always has write access, regardless
     of mode, so the function takes the no-op branch).
@@ -69,6 +70,22 @@ def test_unwritable_directory_gets_chmodded(tmp_path):
     assert not os.access(d, os.W_OK)
     starter._ensure_volume_dir_writable(d)
     assert os.access(d, os.W_OK), "directory should be writable after _ensure_volume_dir_writable"
+    assert d.stat().st_mode & 0o777 == 0o755
+
+
+def test_permission_repair_never_grants_other_write(tmp_path, monkeypatch):
+    """Any mode the repair sets keeps other-write (and group-write) clear."""
+    starter = _make_starter(tmp_path)
+    d = tmp_path / "volumes" / "litellm"
+    d.mkdir(parents=True)
+    d.chmod(0o500)
+    modes = []
+    real_chmod = Path.chmod
+    monkeypatch.setattr(os, "access", lambda path, mode: bool(modes))
+    monkeypatch.setattr(Path, "chmod", lambda self, mode: (modes.append(mode), real_chmod(self, mode)))
+    starter._ensure_volume_dir_writable(d)
+    assert modes == [0o700]
+    assert all(mode & 0o022 == 0 for mode in modes)
 
 
 def test_chmod_failure_never_deletes_existing_contents(tmp_path, monkeypatch):
