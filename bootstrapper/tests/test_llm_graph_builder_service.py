@@ -272,6 +272,15 @@ def test_llm_graph_builder_compose_contract() -> None:
     assert frontend["depends_on"]["llm-graph-builder-backend"]["condition"] == "service_healthy"
 
 
+def test_the_frontend_healthcheck_targets_the_ipv4_listener() -> None:
+    """The image's nginx listens on 8080 for IPv4 only, and the container's
+    ``localhost`` resolves to ``::1``: probing ``localhost`` was refused on
+    every attempt, so the frontend never became healthy (#1965)."""
+    test = _compose()["services"]["llm-graph-builder-frontend"]["healthcheck"]["test"]
+    assert test[-1] == "http://127.0.0.1:8080/"
+    assert not any("localhost" in part for part in test)
+
+
 def test_llm_graph_builder_gcp_features_require_complete_config(
     env_with_overrides, tmp_path: Path
 ) -> None:
