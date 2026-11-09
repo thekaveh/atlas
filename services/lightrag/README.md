@@ -89,6 +89,7 @@ A model's `request_defaults` in the Ollama catalog (`services/ollama/models.yaml
 A native LightRAG 1.5.4 binding does not send them. The Ollama binding forwards only Ollama's `options` object ([`binding_options.py#L435`](https://github.com/HKUDS/LightRAG/blob/v1.5.4/lightrag/llm/binding_options.py#L435), [`lightrag_server.py#L1739-L1740`](https://github.com/HKUDS/LightRAG/blob/v1.5.4/lightrag/api/lightrag_server.py#L1739-L1740)), and `think` is a top-level field beside it. So `resolve-role-keys.py` reads the catalog (read-only mount) and sets each role's transport at start:
 
 - **A role that would inherit a native base stays on LiteLLM.** Example: `LIGHTRAG_LLM_BINDING` and `LIGHTRAG_LLM_BINDING_HOST` point at `ollama` on `http://host.docker.internal:11434` (`LLM_PROVIDER_SOURCE=ollama-localhost`). Take a role whose model declares catalog `request_defaults` and that sets no binding, host or key. Atlas binds it to `openai` at `http://litellm:4000/v1` with the LiteLLM master key.
+  - A routed role that inherits the base model gets it as its own `<ROLE>_LLM_MODEL`. LightRAG 1.5.4 stops at start when a role on a binding other than the base names no model.
   - LiteLLM applies the defaults, so the role sends the same request it would on the default path.
   - The cost is one gateway hop for that role, which also brings it back under Langfuse tracing.
   - The role's model must be one LiteLLM serves. Select catalog role models through `OLLAMA_USER_MODELS` and custom models through `OLLAMA_CUSTOM_MODELS`; see [Ollama §5](../ollama/README.md).
