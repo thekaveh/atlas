@@ -195,15 +195,18 @@ EOF
     if mc admin user svcacct info local "$access" >/dev/null 2>&1; then
         echo "minio-init: service account '$access' exists - refreshing secret + policy..."
         # mc has no stdin form for --secret-key; this argv exposure is #1381.
+        # stdout carries the keys back, so it goes nowhere; stderr stays so a
+        # failure still names its cause (#1974).
         mc admin user svcacct edit local "$access" \
             --secret-key "$secret" \
-            --policy "$policy_file"
+            --policy "$policy_file" >/dev/null
     else
         echo "minio-init: creating service account '$access' for bucket(s) '$buckets'..."
+        # `svcacct add` prints "Access Key:" and "Secret Key:" on success (#1974).
         mc admin user svcacct add local "$MINIO_ROOT_USER" \
             --access-key "$access" \
             --secret-key "$secret" \
-            --policy "$policy_file"
+            --policy "$policy_file" >/dev/null
     fi
 
     rm -f "$policy_file"
