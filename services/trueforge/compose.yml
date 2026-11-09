@@ -70,12 +70,13 @@ services:
 
   trueforge-controller:
     # Same image as the server; only the entrypoint differs (schedule
-    # dispatch loop). Command path verified against upstream's Helm chart
-    # and compose file.
+    # dispatch loop). The image keeps the package under /app/node_modules, as
+    # its default server command (node_modules/@truefoundry/trueforge/dist/
+    # main.js) shows; /app/dist does not exist (#1973).
     image: ${TRUEFORGE_IMAGE:-tfy.jfrog.io/tfy-images/trueforge:0.2.0-8b1d98e}
     container_name: ${PROJECT_NAME}-trueforge-controller
     restart: unless-stopped
-    command: ["node", "dist/controller-main.js"]
+    command: ["node", "node_modules/@truefoundry/trueforge/dist/controller-main.js"]
     deploy:
       replicas: ${TRUEFORGE_CONTROLLER_SCALE:-0}
     depends_on:
