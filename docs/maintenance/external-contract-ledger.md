@@ -47,7 +47,7 @@ A pins-only bump retaining `botocore` 1.43.56 would have failed the Dockerfile's
 
 Without Docker, `pip check` was reproduced from PyPI metadata over the base set. That set used `apache-airflow[<image extras>]==3.3.2` under `constraints-3.3.2`, overlaid with the lock. It reported zero problems on amd64 and arm64, matching the method's result for the shipped 3.3.1 pair.
 
-The final image's real `pip check` and vulnerability gate run in CI's final-image job. A live bring-up on 3.3.2 remains tracked in #1276.
+The final image's real `pip check` and vulnerability gate run in CI's final-image job. A live bring-up on 3.3.2 passed on 2026-11-08; see [initialization evidence](#43-airflow-initialization-evidence) (#1276).
 
 On 2026-10-28 the overlay also began upgrading the base's Snowflake connector. The 3.3.2 constraints ship `snowflake-connector-python` 4.7.3, which requires `filelock<4,>=3.5`.
 
@@ -57,7 +57,7 @@ virtualenv 21.14.10 requires `filelock>=3.24.2,<5`. Snowflake provider 6.17.0 re
 
 The overlay also moves OpenTelemetry to 1.45.1 and its beta packages to 0.66b1. The base constraints ship `opentelemetry-exporter-prometheus` 0.65b0, which rejects that family. The overlay therefore pins exporter 0.66b1.
 
-These ranges come from PyPI metadata and the `constraints-3.3.2` file, rechecked on 2026-10-29. The final image's `pip check` and a live bring-up remain tracked in #1276.
+These ranges come from PyPI metadata and the `constraints-3.3.2` file, rechecked on 2026-10-29. On 2026-11-08 a no-cache build's `pip check` printed "No broken requirements found", and a live bring-up passed (#1276).
 
 ## 3. 2026-08-02 Maintenance Pass
 
@@ -89,7 +89,7 @@ Each pinned-image `--help` path was executed on 2026-08-03. These match the comm
 
 On 2026-09-28, `quay.io/minio` had stopped serving anonymous pulls. The `mc` binary from the pinned `pgsty/mc` image ran the unmodified `init-minio.sh` twice against the pinned Silo server. The first run created 16 buckets and 13 scoped service accounts. The second edited all 13 accounts.
 
-boto3 probes confirmed read-write, read-only and no-access scoping, multipart upload and presigned GET. A scoped key's attempt to create a service account was denied, covering the CVE-2025-62506 escalation. Live stack checks remain tracked in #1278.
+boto3 probes confirmed read-write, read-only and no-access scoping, multipart upload and presigned GET. A scoped key's attempt to create a service account was denied, covering the CVE-2025-62506 escalation. The live stack checks passed on 2026-11-08 (#1278).
 
 On 2026-10-03 (#1288), `services/jenkins` and `services/backup` moved onto this same digest-pinned image. They left the abandoned official `minio/mc` release `RELEASE.2025-08-13T08-35-41Z` (Go 1.24.6, 43 HIGH/CRITICAL scanner rows).
 
@@ -105,7 +105,7 @@ On 2026-09-28, probes used the binary extracted from the pinned amd64 image. Hea
 
 The CVE-2026-39414 fix is present in source: `internal/s3select/csv/reader.go` bounds each record at 1 MiB. Trivy's pseudo-version match is therefore excepted as a false positive.
 
-An in-place upgrade of an existing `RELEASE.2025-09-07` volume remains tracked in #1278. The same issue tracks Grafana panel metrics that appear only after traffic. The long-term server choice remains tracked in #1277.
+On 2026-11-08 Silo started on a volume written by `RELEASE.2025-09-07`, and the seeded object and service account survived. After S3 traffic the Grafana panels `minio_s3_requests_total` and `minio_cluster_usage_total_bytes` populated. A fresh bring-up, the S3A and lakehouse smokes, and a local-mode backup and restore also passed (#1278). The long-term server choice remains tracked in #1277.
 
 ### 4.3. Airflow initialization evidence
 
