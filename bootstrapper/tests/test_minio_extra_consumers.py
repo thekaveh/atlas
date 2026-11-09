@@ -196,13 +196,19 @@ case "$1 $2 $3 $4" in
   "admin policy info local") exit 1 ;;
   "admin user svcacct info") [ "${FAKE_SVCACCT_EXISTS:-}" = 1 ]; exit $? ;;
   "admin user svcacct add"|"admin user svcacct edit")
-    access=; policy=; prev=
+    access=; policy=; secret=; prev=
     [ "$4" = edit ] && access=$6
     for arg in "$@"; do
-      case "$prev" in --access-key) access=$arg ;; --policy) policy=$arg ;; esac
+      case "$prev" in --access-key) access=$arg ;; --policy) policy=$arg ;; --secret-key) secret=$arg ;; esac
       prev=$arg
     done
     [ -z "$policy" ] || cp "$policy" "$MC_CAPTURE/inline-$access.json"
+    if [ -n "${FAKE_SVCACCT_FAIL:-}" ]; then
+      echo "mc: <ERROR> Unable to add service account '$access'." >&2
+      exit 1
+    fi
+    # Like the real mc, success echoes the new credentials on stdout.
+    printf 'Access Key: %s\nSecret Key: %s\nExpiration: no-expiry\n' "$access" "$secret"
     ;;
 esac
 exit 0
@@ -354,3 +360,28 @@ def test_minio_root_password_is_never_an_mc_argument():
     script = (Path(__file__).resolve().parents[2] / "services/minio/init/scripts/init-minio.sh").read_text(encoding="utf-8")
     mc_lines = [line for line in script.splitlines() if re.search(r"\bmc\b", line) and not line.lstrip().startswith("#")]
     assert not [line for line in mc_lines if "MINIO_ROOT_PASSWORD" in line.split("| mc", 1)[-1]]
+
+
+@pytest.mark.parametrize("existing", [False, True], ids=["create", "refresh"])
+def test_minio_init_output_carries_no_service_account_secret(tmp_path: Path, existing: bool) -> None:
+    """#1974: mc echoes each account's keys on stdout, and that output became
+    the container log. Only account names may reach it."""
+    result, log = _run_minio_init(tmp_path, {**_DAYDREAMS_ENV, "FAKE_SVCACCT_EXISTS": "1" if existing else ""})
+    output = result.stdout + result.stderr
+    secrets = [value for key, value in {**BUILT_IN_CONSUMER_ENV, **_DAYDREAMS_ENV}.items()
+               if key.endswith("_SECRET_KEY")]
+
+    assert (
+        result.returncode,
+        "Secret Key:" in output,
+        [secret for secret in secrets if secret in output],
+        f"admin user svcacct {'edit' if existing else 'add'} " in log,
+    ) == (0, False, [], True)
+
+
+def test_minio_init_still_reports_a_failed_service_account_write(tmp_path: Path) -> None:
+    """#1974: silencing stdout must not hide a failure; mc's stderr and the
+    nonzero exit still reach the operator."""
+    result, _ = _run_minio_init(tmp_path, {**_DAYDREAMS_ENV, "FAKE_SVCACCT_FAIL": "1"})
+
+    assert (result.returncode != 0, "Unable to add service account" in result.stderr) == (True, True)
