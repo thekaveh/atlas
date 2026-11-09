@@ -182,6 +182,9 @@ def route_roles(env: Mapping[str, str], catalog: Mapping[str, dict]) -> dict[str
 
     Only a role that sets none of its binding, host or key, under a base whose
     host is not LiteLLM, and whose model declares catalog request defaults.
+    A role on a binding other than the base must name its own model, or
+    LightRAG 1.5.4 stops at start (lightrag/api/config.py, "Cross-provider
+    error"), so a routed role inheriting the base model gets it explicitly.
     """
     _, base_host = _base(env)
     routes: dict[str, str] = {}
@@ -189,9 +192,12 @@ def route_roles(env: Mapping[str, str], catalog: Mapping[str, dict]) -> dict[str
         return routes
     for role in ROLES:
         own = any(_value(env, f"{role}_LLM_BINDING{part}") for part in ("", "_HOST", "_API_KEY"))
-        if not own and request_defaults(catalog, _role_model(env, role)):
+        model = _role_model(env, role)
+        if not own and request_defaults(catalog, model):
             routes[f"{role}_LLM_BINDING"] = "openai"
             routes[f"{role}_LLM_BINDING_HOST"] = LITELLM_URL
+            if not _value(env, f"{role}_LLM_MODEL"):
+                routes[f"{role}_LLM_MODEL"] = model
     return routes
 
 

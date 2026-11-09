@@ -297,11 +297,46 @@ def test_base_model_alias_keeps_every_inheriting_role_on_litellm():
     routed = {
         **{f"{role}_LLM_BINDING": "openai" for role in _ROLES},
         **{f"{role}_LLM_BINDING_HOST": "http://litellm:4000/v1" for role in _ROLES},
+        **{f"{role}_LLM_MODEL": f"ollama/{_THINK_OFF_MODEL}" for role in _ROLES},
         **_master_for(*_ROLES),
     }
     env = {**_NATIVE_BASE, "LLM_MODEL": f"ollama/{_THINK_OFF_MODEL}"}
 
     assert _resolver().resolve_role_env(env, _catalog()) == routed
+
+
+def _cross_provider_missing(env: dict[str, str]) -> dict[str, list[str]]:
+    """LightRAG 1.5.4's start-time check (lightrag/api/config.py, "Cross-provider
+    error"): a role on a binding other than the base must name its model and,
+    unless it is Bedrock, its key. Returns the missing variables per role."""
+    missing = {}
+    for role in _ROLES:
+        binding = env.get(f"{role}_LLM_BINDING") or None
+        if binding and binding != env["LLM_BINDING"]:
+            names = [f"{role}_LLM_MODEL"] if not env.get(f"{role}_LLM_MODEL") else []
+            if binding != "bedrock" and not env.get(f"{role}_LLM_BINDING_API_KEY"):
+                names.append(f"{role}_LLM_BINDING_API_KEY")
+            if names:
+                missing[role] = names
+    return missing
+
+
+@pytest.mark.parametrize("host", _NATIVE_HOSTS)
+def test_routed_roles_pass_lightrags_cross_provider_check(host):
+    """#658: the Compose fragment passes every role variable, empty when unset.
+    Each routed role must still name its model and key, or LightRAG exits at
+    start ("required env vars are missing: EXTRACT_LLM_MODEL"). A role that
+    names its own model keeps it."""
+    role_vars = {f"{role}_LLM_{part}": "" for role in _ROLES
+                 for part in ("MODEL", "BINDING", "BINDING_HOST", "BINDING_API_KEY")}
+    env = {**role_vars, **_NATIVE_BASE, "LLM_BINDING_HOST": host,
+           "LLM_MODEL": _THINK_OFF_MODEL, "QUERY_LLM_MODEL": f"ollama/{_THINK_OFF_MODEL}"}
+    resolved = {**env, **_resolver().resolve_role_env(env, _catalog())}
+
+    assert (
+        _cross_provider_missing(resolved),
+        [resolved[f"{role}_LLM_MODEL"] for role in _ROLES],
+    ) == ({}, [_THINK_OFF_MODEL, _THINK_OFF_MODEL, f"ollama/{_THINK_OFF_MODEL}"])
 
 
 def _catalog_with_plain_chat(tmp_path: Path) -> Path:
