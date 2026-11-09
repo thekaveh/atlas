@@ -22,7 +22,7 @@
       "functions_over_100_physical_lines": 85,
       "functions_over_4_parameters": 156,
       "modules_over_600_logical_lines": 21,
-      "tracked_files": 1674,
+      "tracked_files": 1675,
       "v0.1.0_tracked_files": 667
     },
     "extended_python_baseline_snapshot": {
@@ -36,6 +36,7 @@
     "regression_policy": "Do not increase any baseline count without reviewed commit-range attribution, and record a grounded symbol-level rationale for every new Radon E/F symbol; refresh the snapshot only during a reviewed maintenance pass.",
     "review_by": "2027-01-29",
     "owner": "Atlas maintainers",
+    "refresh_notes_2026_11_08_issue_1973": "Issue #1973 from base a330d6ecb565b01f0ee3542744a8a295d6b7319d: tracked_files 1674 -> 1675 attributes exactly bootstrapper/tests/test_trueforge_compose.py, which pins the trueforge-controller entry point to the path the pinned image has. Every code-complexity ceiling, counting rule, accepted disposition, exclusion and review deadline remains unchanged; no unrelated file is excluded, removed or compressed to offset growth.",
     "refresh_notes_2026_11_08_issue_1044": "Issue #1044 from base b3ee10e444e179b318f04713031fc1aaf3a9ca05: tracked_files 1672 -> 1674 attributes exactly bootstrapper/core/env_snapshot.py (the pre-launch .env capture, restore and redacted change list) and bootstrapper/tests/test_launch_env_rollback.py (decline, interrupt, wizard No, pre-launch Ctrl+C, failure-keeps-writes and redaction regressions). Every code-complexity ceiling, counting rule, accepted disposition, exclusion and review deadline remains unchanged; no unrelated file is excluded, removed or compressed to offset growth.",
     "refresh_notes_2026_11_08_issue_1043": "Issue #1043 from base a0d8a8bf41c07ff52944aab673431876d87f6d61: tracked_files 1671 -> 1672 attributes exactly bootstrapper/core/launch_plan.py, the UI-independent configuration-stage plan and executor that core/linear_startup.py and the Textual launch screen now both run. Its tests extend the existing bootstrapper/tests/test_tui_pipeline_steps.py. WizardScreen._run_pipeline_and_stream 50 -> 48. Every code-complexity ceiling, counting rule, accepted disposition, exclusion and review deadline remains unchanged; no unrelated file is excluded, removed or compressed to offset growth.",
     "refresh_notes_2026_10_29_overnight_maintenance": "Reviewed during the 2026-10-27..29 overnight maintenance pass on base 775c90567e7cf4d3b6fc49d8a2fd703d4c2b5ee8: only reviewed_on and review_by move. Every baseline count, accepted disposition and exclusion is unchanged; the recomputed core counts stay within the ceilings (tracked_files 1671, modules_over_600_logical_lines 21, radon_grade_c_or_worse 428). The LDR marker-projection audit tests moved from bootstrapper/tests/test_runtime_lock_audit.py to bootstrapper/tests/test_local_deep_researcher_reproducibility.py so neither module crosses 600 logical lines.",

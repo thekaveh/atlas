@@ -115,7 +115,7 @@ Set `PROJECT_NAME` in your shell to the value in `.env` (default `atlas`) before
     - an empty `TRUEFORGE_API_KEY`: run `./start.sh` once so the bootstrapper generates it. Do not hand-write `.env` from scratch.
 - **No models in the UI**: `trueforge-init` seeds the provider from LiteLLM's live catalog; check `docker logs ${PROJECT_NAME}-trueforge-init`. An empty gateway catalog fails the seed on purpose rather than registering a dead provider.
 - **Agent creation rejected with a skills/sandbox error**: expected: Atlas configures neither (§4.3). Remove the skills/sandbox blocks from the agent spec.
-- **Schedules never fire**: the controller is a separate container. Check `docker logs ${PROJECT_NAME}-trueforge-controller`. Check that `TRUEFORGE_API_KEY` is the same for server and controller; it is, unless `.env` was edited by hand.
+- **Schedules never fire**: the controller is a separate container. Check `docker logs ${PROJECT_NAME}-trueforge-controller`. It runs `node_modules/@truefoundry/trueforge/dist/controller-main.js`, the path the pinned image keeps it at; `Cannot find module` there means the image layout changed. Check that `TRUEFORGE_API_KEY` is the same for server and controller; it is, unless `.env` was edited by hand.
 - **Slow first boot on Apple Silicon**: the amd64 image runs emulated; allow extra start-up time before the healthcheck settles (the compose healthcheck budgets for this).
 
 ## 7. Dependencies & Integrations
