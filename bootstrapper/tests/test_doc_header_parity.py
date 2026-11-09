@@ -77,3 +77,29 @@ def test_index_executive_lead_is_complete_but_concise() -> None:
     assert "tracks" in hero.lower()
     assert "launch wizard" in hero.lower()
     assert "dev or prod profiles" in hero
+
+
+def test_readme_opens_with_the_poster_title_and_badges() -> None:
+    """The README's hero is owner-controlled branding. #1495 moved the poster
+    and badge rows below an intro, the Quick start and an "At a glance"
+    section, and swapped the full-width poster for a banner; #1989 restored
+    it. Pin the opening order so a docs pass cannot move it again."""
+    text = README.read_text(encoding="utf-8")
+    poster = '<img src="./assets/atlas-poster-blue.png"'
+    markers = [
+        poster,
+        '<h1 align="center">Atlas</h1>',
+        f"<strong>{CANONICAL_TAGLINE}</strong>",
+        CANONICAL_SUBTITLE,
+        "https://img.shields.io/badge/Docker%20Compose",
+        "https://img.shields.io/badge/Langfuse",
+        CANONICAL_SUMMARY,
+        f"**{SERVICE_FAMILIES} service families across ",
+        "## 1. Quick start",
+    ]
+    positions = [text.find(marker) for marker in markers]
+
+    assert -1 not in positions, [m for m, p in zip(markers, positions) if p == -1]
+    assert positions == sorted(positions)
+    assert text.lstrip().startswith('<p align="center">\n  ' + poster)
+    assert 'width="100%"' in text[positions[0]:positions[1]]
