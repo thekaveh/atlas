@@ -4812,7 +4812,7 @@ services:
   trueforge-controller:
     command:
     - node
-    - dist/controller-main.js
+    - node_modules/@truefoundry/trueforge/dist/controller-main.js
     container_name: atlas-trueforge-controller
     depends_on:
       trueforge:
