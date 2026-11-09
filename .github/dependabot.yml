@@ -104,6 +104,14 @@ updates:
       interval: weekly
       day: monday
     open-pull-requests-limit: 5
+    ignore:
+      # n8n-workflow is only the peer dependency of the community nodes that
+      # n8n-init installs into /home/node/.n8n/nodes. It stays on the 2.x line
+      # that the pinned n8nio/n8n image runs: a 3.x copy in the nodes folder
+      # could be loaded in place of n8n's own. Move it with n8n itself.
+      # Dependabot's #1882 and #1984 (2.45.1 -> 3.x) were closed unmerged.
+      - dependency-name: "n8n-workflow"
+        update-types: ["version-update:semver-major"]
     groups:
       patches:
         update-types: ["patch"]
