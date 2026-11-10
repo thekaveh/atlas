@@ -5790,7 +5790,7 @@ def test_a_disabled_source_placeholder_archives_under_busybox_tar(tmp_path):
 
     if shutil.which("docker") is None:
         pytest.skip("docker required for a BusyBox tar")
-    image = "alpine:3.24.2"
+    image = "alpine:3.24.4"
     if subprocess.run(["docker", "image", "inspect", image], capture_output=True).returncode != 0:
         pytest.skip(f"{image} not local")
     # The capture itself, not only the helper: a call site reverted to

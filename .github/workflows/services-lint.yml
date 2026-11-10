@@ -119,7 +119,7 @@ jobs:
           timeout 5m docker pull cr.weaviate.io/semitechnologies/weaviate:1.38.17
           # The previous pin, whose native backups must restore into 1.38.17 (#1286).
           timeout 5m docker pull cr.weaviate.io/semitechnologies/weaviate:1.38.13
-          timeout 5m docker pull alpine:3.24.2
+          timeout 5m docker pull alpine:3.24.4
           timeout 5m docker pull supabase/postgres:17.6.1.139
           timeout 5m docker pull postgres:15.19-alpine
           timeout 5m docker pull supabase/realtime:v2.112.0
@@ -315,7 +315,7 @@ jobs:
           timeout 5m docker pull cr.weaviate.io/semitechnologies/weaviate:1.38.17
           # The previous pin, whose native backups must restore into 1.38.17 (#1286).
           timeout 5m docker pull cr.weaviate.io/semitechnologies/weaviate:1.38.13
-          timeout 5m docker pull alpine:3.24.2
+          timeout 5m docker pull alpine:3.24.4
           timeout 5m docker pull supabase/postgres:17.6.1.139
           timeout 5m docker pull postgres:15.19-alpine
           timeout 5m docker pull supabase/realtime:v2.112.0

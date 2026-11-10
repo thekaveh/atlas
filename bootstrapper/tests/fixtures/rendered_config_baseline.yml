@@ -978,7 +978,7 @@ services:
       context: '{REPO_ROOT}/services/comfyui/init'
       dockerfile: Dockerfile
       args:
-        BASE_IMAGE: alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
+        BASE_IMAGE: alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
     container_name: atlas-comfyui-init
     depends_on:
       ollama-pull:
@@ -1284,7 +1284,7 @@ services:
       context: '{REPO_ROOT}/services/hermes/init'
       dockerfile: Dockerfile
       args:
-        BASE_IMAGE: alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
+        BASE_IMAGE: alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
     container_name: atlas-hermes-init
     depends_on:
       litellm:
@@ -1754,7 +1754,7 @@ services:
       context: '{REPO_ROOT}/services/label-studio/init'
       dockerfile: Dockerfile
       args:
-        BASE_IMAGE: alpine:3.24.2
+        BASE_IMAGE: alpine:3.24.4
     container_name: atlas-label-studio-init
     depends_on:
       minio-init:
@@ -1837,7 +1837,7 @@ services:
       context: '{REPO_ROOT}/services/langfuse/init'
       dockerfile: Dockerfile
       args:
-        BASE_IMAGE: alpine:3.24.2
+        BASE_IMAGE: alpine:3.24.4
     container_name: atlas-langfuse-init
     depends_on:
       minio-init:
@@ -2153,7 +2153,7 @@ services:
       context: '{REPO_ROOT}/services/lightrag/init'
       dockerfile: Dockerfile
       args:
-        BASE_IMAGE: alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
+        BASE_IMAGE: alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
     container_name: atlas-lightrag-init
     depends_on:
       litellm:
@@ -2811,7 +2811,7 @@ services:
       context: '{REPO_ROOT}/services/mlflow/init'
       dockerfile: Dockerfile
       args:
-        BASE_IMAGE: alpine:3.24.2
+        BASE_IMAGE: alpine:3.24.4
     container_name: atlas-mlflow-init
     depends_on:
       minio-init:
@@ -3207,7 +3207,7 @@ services:
       context: '{REPO_ROOT}/services/ollama/pull'
       dockerfile: Dockerfile
       args:
-        BASE_IMAGE: alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
+        BASE_IMAGE: alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
     container_name: atlas-ollama-pull
     depends_on:
       ollama:
@@ -3441,7 +3441,7 @@ services:
       context: '{REPO_ROOT}/services/openclaw/init'
       dockerfile: Dockerfile
       args:
-        BASE_IMAGE: alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
+        BASE_IMAGE: alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
     container_name: atlas-openclaw-init
     deploy:
       replicas: 0
@@ -5037,7 +5037,7 @@ services:
       LITELLM_EMBEDDING_MODEL: ollama/nomic-embed-text
     extra_hosts:
     - host.docker.internal=
-    image: alpine:3.24.2
+    image: alpine:3.24.4
     networks:
       backend-network: null
     restart: 'no'
