@@ -30,7 +30,7 @@ from types import MappingProxyType
 NEO4J_IMAGE = "neo4j:5.26.31"
 WEAVIATE_IMAGE = "cr.weaviate.io/semitechnologies/weaviate:1.38.17"
 WEAVIATE_VERSION = WEAVIATE_IMAGE.rpartition(":")[2]
-HELPER_IMAGE = "alpine:3.24.2"
+HELPER_IMAGE = "alpine:3.24.4"
 OWNER_LABEL = "com.atlas.database-restore-token"
 SCOPE_LABEL = "com.atlas.database-restore-scope"
 ROLE_LABEL = "com.atlas.database-restore-role"
