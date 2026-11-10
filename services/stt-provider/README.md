@@ -263,9 +263,9 @@ until inference is available. Speaches `/health` reports process liveness only.
 | parakeet | Timestamp-rich transcription | partial | tested | Atlas-managed Parakeet providers expose segment and word timing when the selected implementation returns alignment data; plain results honestly report timestamps unavailable. |
 | parakeet | Provider authentication and workload bounds | partial | tested | Atlas Parakeet requires a bearer token and bounds uploads, admission, and inference by default; those guarantees do not extend to selected Speaches or whisper.cpp upstreams. |
 | parakeet | Cross-architecture Parakeet container | not-supported | tested | The only Parakeet container is NVIDIA GPU. Apple Silicon uses the separately installed MLX localhost provider; no CPU container or GPU quantization knob is advertised. |
-| speaches | OpenAI-compatible text-to-speech | partial | tested | Speaches serves /v1/audio/speech, but Atlas does not preload Kokoro; the model must be downloaded before requests succeed. |
-| speaches | OpenAI-compatible speech-to-text | partial | untested | Speaches exposes /v1/audio/transcriptions, but Atlas has not validated the current preload and Open WebUI model path against a live container. |
-| speaches | Configurable STT model selection | stubbed | documented | SPEACHES_STT_MODEL is declared but does not alter the hard-coded PRELOAD_MODELS value or Open WebUI's STT model. |
+| speaches | OpenAI-compatible text-to-speech | partial | tested | Atlas preloads speaches-ai/Kokoro-82M-v1.0-ONNX (the SPEACHES_TTS_MODEL default and tts-1 alias target). The first start downloads it from Hugging Face; once it is cached, Speaches restarts offline. Open WebUI text-to-speech returned audio from a cold cache on 2026-11-09. |
+| speaches | OpenAI-compatible speech-to-text | partial | tested | Atlas preloads Systran/faster-whisper-large-v3, the whisper-1 alias target Open WebUI and Hermes request. Open WebUI transcribed Speaches-generated audio from a cold cache, and again after an offline restart, on 2026-11-09. |
+| speaches | Configurable STT model selection | stubbed | documented | SPEACHES_STT_MODEL is declared but inert: PRELOAD_MODELS pins the whisper-1 alias target, and Open WebUI and Hermes request whisper-1. |
 
 ## 10. Troubleshooting
 
