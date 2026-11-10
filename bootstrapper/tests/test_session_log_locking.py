@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import contextlib
 import errno
+import functools
 import json
 import os
 from pathlib import Path
@@ -152,7 +153,33 @@ def test_unlock_failure_still_closes_descriptor(tmp_path, monkeypatch):
         os.fstat(fd)
 
 
+_FRESH = 'ATLAS_SESSION_LOG_FRESH_INTERPRETER'
+
+
+def fresh_interpreter(test):
+    """Run the test in a new pytest process, so it forks from a single-threaded
+    interpreter. In the full suite earlier tests leave native threads behind
+    (macOS proxy lookups), and fork() then warns that the child may deadlock
+    (#1910). The child treats that warning as an error, so a fork from a
+    threaded process fails the test instead of passing on luck."""
+    @functools.wraps(test)
+    def run(*args, **kwargs):
+        if os.environ.get(_FRESH) == test.__name__:
+            return test(*args, **kwargs)
+        node = os.environ['PYTEST_CURRENT_TEST'].rsplit(' ', 1)[0].split('::', 1)[1]
+        result = subprocess.run(
+            [sys.executable, '-m', 'pytest', '-q', '-p', 'no:cacheprovider',
+             '-W', 'error:This process:DeprecationWarning',
+             f'{Path(__file__).resolve()}::{node}'],
+            cwd=Path(__file__).resolve().parents[1], capture_output=True, text=True,
+            timeout=120, env={**os.environ, _FRESH: test.__name__})
+        assert result.returncode == 0, result.stdout[-4000:] + result.stderr[-2000:]
+        assert ' passed' in result.stdout, result.stdout[-2000:]
+    return run
+
+
 @pytest.mark.skipif(not hasattr(os, 'fork'), reason='POSIX fork only')
+@fresh_interpreter
 def test_fork_child_cannot_write_or_retain_parent_lease(tmp_path):
     tee = SessionLogTee(prefix='atlas-launch-fork-', config=SessionLogConfig(directory=str(tmp_path)))
     reader, writer = os.pipe()
@@ -196,6 +223,7 @@ def test_native_windows_process_and_readable_lease(tmp_path):
 
 
 @pytest.mark.skipif(not hasattr(os, 'fork'), reason='POSIX fork only')
+@fresh_interpreter
 def test_fork_closes_inherited_admission_coordinator(tmp_path):
     store = retention.resolve_store(tmp_path)
     fd = retention._coordinator(store)
@@ -413,6 +441,7 @@ def test_missing_lock_primitive_is_contained_as_oserror(tmp_path, monkeypatch):
 
 
 @pytest.mark.skipif(not hasattr(os, 'fork'), reason='POSIX fork only')
+@fresh_interpreter
 def test_inherited_writer_close_cannot_touch_reused_child_descriptor(tmp_path):
     tee = SessionLogTee(prefix='atlas-launch-reuse-', config=SessionLogConfig(directory=str(tmp_path)))
     tee._fh.write('pending parent canary')
