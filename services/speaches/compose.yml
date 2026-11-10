@@ -13,28 +13,53 @@ services:
     restart: unless-stopped
     deploy:
       replicas: ${SPEACHES_SCALE:-0}
+    # Speaches lists the preload models on the Hugging Face Hub at every boot,
+    # even when they are cached, and exits if the Hub is unreachable (verified
+    # offline against 0.9.0-rc.3, #799). When both models are already in the
+    # cache, skip the preload: Speaches serves cached models by cache-only
+    # lookup, so a warm stack also restarts offline. A cold cache still
+    # preloads, which needs the Hub once.
+    command:
+      - sh
+      - -c
+      - |
+        hub=/home/ubuntu/.cache/huggingface/hub
+        cached() { for f in "$$hub/models--$$1"/snapshots/*/"$$2"; do [ -s "$$f" ] && return 0; done; return 1; }
+        if cached speaches-ai--Kokoro-82M-v1.0-ONNX model.onnx && cached speaches-ai--Kokoro-82M-v1.0-ONNX voices.bin && cached Systran--faster-whisper-large-v3 model.bin; then
+          echo "speaches: both preload models are cached; skipping the Hub preload" >&2
+          export PRELOAD_MODELS='[]'
+        fi
+        exec uvicorn --factory speaches.main:create_app
     environment:
       # ⚠ Speaches does NOT auto-download models. Verified against
       # speaches-ai/speaches @ v0.9.0-rc.3: the /v1/audio/* handlers resolve
       # the requested model via cache-only lookups (get_model_card_data_or_raise
       # → scan_cache_dir) and raise HTTP 404 "Model is not installed locally"
       # when it is absent — "lazy-load" loads an already-DOWNLOADED model into
-      # memory, it never fetches one. So with PRELOAD_MODELS='[]' and an empty
-      # cache volume, every STT/TTS request 404s out of the box.
+      # memory, it never fetches one. An empty preload list therefore 404s
+      # every STT/TTS request on a cold cache volume (#799).
       #
-      # To make STT/TTS work, preload the models. PRELOAD_MODELS is typed
-      # ``list[str]`` on the upstream Config and decoded via ``json.loads``, so
-      # it MUST be a JSON array literal (a bare CSV blows up at boot with
-      # ``JSONDecodeError``). Entries are HuggingFace repo ids that satisfy the
-      # executor filters — for Kokoro TTS that means the ONNX build
-      # ``speaches-ai/Kokoro-82M-v1.0-ONNX`` (the PyTorch ``hexgrad/Kokoro-82M``
-      # fails the onnx+{speaches,kokoro}-tags filter), e.g.
-      #   PRELOAD_MODELS: '["speaches-ai/Kokoro-82M-v1.0-ONNX","Systran/faster-whisper-large-v3"]'
-      # Note: preload downloads block startup and Speaches exits if a model
-      # fails — bump start_period and pin valid ids before enabling. Alternative:
-      # POST each id to /v1/models after boot. (Shipping a populated default is a
-      # pending decision — see the README; it changes boot time + image size.)
-      PRELOAD_MODELS: '[]'
+      # So Atlas preloads the targets of upstream's own OpenAI aliases
+      # (model_aliases.json @ v0.9.0-rc.3), which is what Atlas consumers send:
+      #   - speaches-ai/Kokoro-82M-v1.0-ONNX — tts-1 / tts-1-hd (Hermes) and
+      #     the SPEACHES_TTS_MODEL default (Open WebUI). The PyTorch
+      #     ``hexgrad/Kokoro-82M`` fails the Kokoro executor's
+      #     onnx+{speaches,kokoro}-tags filter.
+      #   - Systran/faster-whisper-large-v3 — whisper-1, the STT model Open
+      #     WebUI and Hermes both request.
+      # PRELOAD_MODELS is typed ``list[str]`` on the upstream Config and
+      # decoded via ``json.loads``, so it MUST be a JSON array literal (a bare
+      # CSV blows up at boot with ``JSONDecodeError``). The ids are literals,
+      # not interpolated from SPEACHES_*_MODEL: Speaches exits at boot when an
+      # entry is unknown, so a stale or mistyped .env value would take down
+      # both endpoints instead of 404ing one request.
+      #
+      # Preload runs in the app lifespan, before Uvicorn serves /health. On
+      # every boot it lists the executors' Hugging Face models, then downloads
+      # only what the speaches-cache volume lacks; the command above skips it
+      # once both models are cached. Any failure exits the container and
+      # `restart: unless-stopped` retries it. See start_period below.
+      PRELOAD_MODELS: '["speaches-ai/Kokoro-82M-v1.0-ONNX","Systran/faster-whisper-large-v3"]'
       # Without API_KEY every route is open, and model download and load take
       # no body, so any web page could fill the cache and RAM (#1458).
       API_KEY: ${SPEACHES_API_KEY}
@@ -48,15 +73,19 @@ services:
       - backend-network
     # Healthcheck mirrors upstream's own compose.yaml — Speaches ships
     # curl and serves /health that returns 200 as soon as Uvicorn is up
-    # (it checks server liveness only, NOT model readiness — see the
-    # PRELOAD_MODELS note above). Verified against
-    # speaches-ai/speaches @ 0.9.0-rc.3.
+    # (it checks server liveness only). Uvicorn starts only after
+    # PRELOAD_MODELS completes, so a cold cache volume first downloads
+    # both models (faster-whisper-large-v3 dominates, at about 3 GB).
+    # start_period covers that download; with a warm cache only the Hub
+    # listing runs first. 600s + 5 x 30s retries (unhealthy at ~750s)
+    # stays inside the bootstrapper's `up --wait --wait-timeout 900`.
+    # Verified against speaches-ai/speaches @ 0.9.0-rc.3.
     healthcheck:
       test: ["CMD", "curl", "--fail", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 120s
+      start_period: 600s
     logging:
       driver: json-file
       options:
