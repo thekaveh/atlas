@@ -290,6 +290,13 @@ def _custom_nodes_from_tags(tags: list[str]) -> tuple[str, ...]:
 
 _GENERIC_HF_FILENAMES = ("diffusion_pytorch_model.", "model.", "pytorch_model.")
 
+# A GGUF image or video model is a quantized diffusion transformer. ComfyUI-GGUF's
+# UnetLoaderGGUF reads diffusion_models, not checkpoints, so a GGUF primary file
+# in these categories goes there, as the fallback catalog places its Flux GGUF
+# (#1902). The live checkpoint query (text-to-image + diffusers) returned 6 GGUF
+# repos in its top 30 on 2026-11-09.
+_GGUF_DIFFUSION_CATEGORIES = frozenset({"checkpoint", "video_model"})
+
 
 def _parse_hf_response(
     raw: list[dict],
@@ -328,6 +335,11 @@ def _parse_hf_response(
         size_bytes = primary.get("size") or 0
         size_gb = round(size_bytes / (1024 ** 3), 2) if size_bytes else 0.0
         tags = item.get("tags") or []
+        nodes = _custom_nodes_from_tags(tags)
+        gguf = (rfilename.lower().endswith(".gguf")
+                and category in _GGUF_DIFFUSION_CATEGORIES)
+        if gguf and "ComfyUI-GGUF" not in nodes:
+            nodes = (*nodes, "ComfyUI-GGUF")
         out.append(ComfyUILibraryEntry(
             name=model_id.replace("/", "--"),
             family=_family_from_id(model_id),
@@ -335,10 +347,10 @@ def _parse_hf_response(
             size_gb=size_gb,
             url=url,
             sha256=None,
-            target_dir=target_dir,
+            target_dir="diffusion_models" if gguf else target_dir,
             min_vram_gb=None,
             cpu_supported=("cpu" in tags or category in ("vae", "embedding", "clip")),
-            requires_custom_node=_custom_nodes_from_tags(tags),
+            requires_custom_node=nodes,
             popularity=int(item.get("downloads") or 0),
             source="huggingface",
             pulled=False,
