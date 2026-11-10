@@ -19,15 +19,15 @@ capabilities:
   - name: "OpenAI-compatible text-to-speech"
     status: partial
     verification: tested
-    note: "Speaches serves /v1/audio/speech, but Atlas does not preload Kokoro; the model must be downloaded before requests succeed."
+    note: "Atlas preloads speaches-ai/Kokoro-82M-v1.0-ONNX (the SPEACHES_TTS_MODEL default and tts-1 alias target). The first start downloads it from Hugging Face; once it is cached, Speaches restarts offline. Open WebUI text-to-speech returned audio from a cold cache on 2026-11-09."
   - name: "OpenAI-compatible speech-to-text"
     status: partial
-    verification: untested
-    note: "Speaches exposes /v1/audio/transcriptions, but Atlas has not validated the current preload and Open WebUI model path against a live container."
+    verification: tested
+    note: "Atlas preloads Systran/faster-whisper-large-v3, the whisper-1 alias target Open WebUI and Hermes request. Open WebUI transcribed Speaches-generated audio from a cold cache, and again after an offline restart, on 2026-11-09."
   - name: "Configurable STT model selection"
     status: stubbed
     verification: documented
-    note: "SPEACHES_STT_MODEL is declared but does not alter the hard-coded PRELOAD_MODELS value or Open WebUI's STT model."
+    note: "SPEACHES_STT_MODEL is declared but inert: PRELOAD_MODELS pins the whisper-1 alias target, and Open WebUI and Hermes request whisper-1."
 
 containers:
   - speaches
@@ -44,10 +44,10 @@ env:
     description: "CUDA build of the same image. When the speaches-gpu profile wins, the bootstrapper writes this value into SPEACHES_IMAGE (the compose interpolation target)."
   - name: SPEACHES_TTS_MODEL
     default: "speaches-ai/Kokoro-82M-v1.0-ONNX"
-    description: "Model id Open WebUI sends in /v1/audio/speech requests. It must be the Speaches Kokoro ONNX executor id (speaches-ai/Kokoro-82M-v1.0-ONNX). The HuggingFace 'hexgrad/Kokoro-82M' id is invalid for Speaches and returns 404."
+    description: "Model id Open WebUI sends in /v1/audio/speech requests: the Speaches Kokoro ONNX id (speaches-ai/Kokoro-82M-v1.0-ONNX). The id 'hexgrad/Kokoro-82M' returns 404. Only the default is preloaded; download another id first with POST /v1/models/{id}."
   - name: SPEACHES_STT_MODEL
     default: "Systran/faster-distil-whisper-large-v3"
-    description: "Inert: Speaches preloads from a hard-coded `PRELOAD_MODELS` list, and Open WebUI requests `whisper-1`. Changing this value has no effect."
+    description: "Inert: Speaches preloads from a hard-coded `PRELOAD_MODELS` list, and Open WebUI and Hermes request `whisper-1`, which Speaches maps to the preloaded Systran/faster-whisper-large-v3. Changing this value has no effect."
   - name: SPEACHES_API_KEY
     default: ""
     secret: true

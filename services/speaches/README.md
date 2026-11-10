@@ -22,6 +22,7 @@ Requests return `404` until you download the model (issue #799). See
   - `TTS_PROVIDER_SOURCE=speaches-container-cpu`
   - `TTS_PROVIDER_SOURCE=speaches-container-gpu`
 - **GPU caveat:** `speaches-container-gpu` selects the CUDA image, but the service gets no NVIDIA device (issue #1373, open). It runs on CPU or fails CUDA initialisation. Use `speaches-container-cpu`.
+- **Models:** Speaches answers only models in its cache, so Atlas preloads two at boot. They are `speaches-ai/Kokoro-82M-v1.0-ONNX` (text-to-speech) and `Systran/faster-whisper-large-v3` (the `whisper-1` target). The first start downloads about 3 GB from Hugging Face, and the healthcheck allows 600 s for it. Once both models are cached, the start command skips the preload, so the container restarts offline. To force a fresh download, remove the `speaches-cache` volume.
 - **In-container port:** 8000
 - **Host port:** `${SPEACHES_PORT}` (computed from `BASE_PORT`)
 - **API key:** every route except `/health` requires `Authorization: Bearer ${SPEACHES_API_KEY}`. A missing or wrong key gets `403`. The bootstrapper generates the key. Open WebUI and Hermes send it; notebooks, n8n workflows and the Gradio UI at `/` must send it too. Without a key, any web page could download models into the cache and load them into RAM (#1458).
@@ -35,9 +36,9 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
-| OpenAI-compatible text-to-speech | partial | tested | Speaches serves /v1/audio/speech, but Atlas does not preload Kokoro; the model must be downloaded before requests succeed. |
-| OpenAI-compatible speech-to-text | partial | untested | Speaches exposes /v1/audio/transcriptions, but Atlas has not validated the current preload and Open WebUI model path against a live container. |
-| Configurable STT model selection | stubbed | documented | SPEACHES_STT_MODEL is declared but does not alter the hard-coded PRELOAD_MODELS value or Open WebUI's STT model. |
+| OpenAI-compatible text-to-speech | partial | tested | Atlas preloads speaches-ai/Kokoro-82M-v1.0-ONNX (the SPEACHES_TTS_MODEL default and tts-1 alias target). The first start downloads it from Hugging Face; once it is cached, Speaches restarts offline. Open WebUI text-to-speech returned audio from a cold cache on 2026-11-09. |
+| OpenAI-compatible speech-to-text | partial | tested | Atlas preloads Systran/faster-whisper-large-v3, the whisper-1 alias target Open WebUI and Hermes request. Open WebUI transcribed Speaches-generated audio from a cold cache, and again after an offline restart, on 2026-11-09. |
+| Configurable STT model selection | stubbed | documented | SPEACHES_STT_MODEL is declared but inert: PRELOAD_MODELS pins the whisper-1 alias target, and Open WebUI and Hermes request whisper-1. |
 
 ## 3. Dependencies & Integrations
 
