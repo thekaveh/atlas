@@ -28,4 +28,47 @@ EOF
 echo "weaviate-init: Configuration created:"
 cat /shared/weaviate-config.env
 
+# Weaviate's text2vec-openai sends OPENAI_APIKEY to LiteLLM. Register it as a
+# virtual key limited to the atlas-embeddings access group (every embedding
+# model litellm-init renders), so a Weaviate caller cannot reach chat models
+# or admin routes with it (#1885). Requests go through busybox nc, built with
+# the printf builtin, so no secret appears in process argv. LiteLLM drops a
+# client that half-closes before it answers, so the request stays open until
+# the status line arrives (at most 30 s). An existing key is updated; a
+# rotated one replaces the old alias. A failure stops the start rather than
+# falling back to the master key.
+litellm_post() {
+  path=$1 body=$2 resp=/tmp/litellm-response
+  rm -f "$resp"
+  # The writer loop watches the file nc fills; that is the point (SC2094).
+  # shellcheck disable=SC2094
+  {
+    printf 'POST %s HTTP/1.0\r\nHost: litellm\r\nAuthorization: Bearer %s\r\nContent-Type: application/json\r\nContent-Length: %s\r\n\r\n%s' \
+      "$path" "$LITELLM_MASTER_KEY" "${#body}" "$body"
+    i=0
+    while [ "$i" -lt 30 ] && ! grep -q '^HTTP/' "$resp" 2>/dev/null; do sleep 1; i=$((i + 1)); done
+  } | nc -w 30 litellm 4000 > "$resp"
+  head -n 1 "$resp" | grep -q '^HTTP/1\.[01] 2'
+  status=$?
+  rm -f "$resp"
+  return "$status"
+}
+
+if [ -z "${WEAVIATE_LITELLM_API_KEY:-}" ] || [ -z "${LITELLM_MASTER_KEY:-}" ]; then
+  echo "weaviate-init: WEAVIATE_LITELLM_API_KEY or LITELLM_MASTER_KEY is empty; run ./start.sh to generate the key" >&2
+  exit 1
+fi
+scope='"models":["atlas-embeddings"]'
+if litellm_post /key/update "{\"key\":\"$WEAVIATE_LITELLM_API_KEY\",$scope}"; then
+  echo "weaviate-init: refreshed Weaviate's LiteLLM key (embedding models only)"
+else
+  litellm_post /key/delete '{"key_aliases":["atlas-weaviate"]}' || true
+  if litellm_post /key/generate "{\"key\":\"$WEAVIATE_LITELLM_API_KEY\",\"key_alias\":\"atlas-weaviate\",$scope}"; then
+    echo "weaviate-init: registered Weaviate's LiteLLM key (embedding models only)"
+  else
+    echo "weaviate-init: could not register Weaviate's LiteLLM key; Weaviate needs it to vectorize" >&2
+    exit 1
+  fi
+fi
+
 echo "weaviate-init: Weaviate configuration process completed successfully."

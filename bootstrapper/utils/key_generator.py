@@ -482,6 +482,14 @@ class KeyGenerator:
             return True
         return self.update_env_key('SPEACHES_API_KEY', _cli_safe_token_urlsafe(32))
 
+    # WEAVIATE_LITELLM_API_KEY: weaviate-init registers this exact value as a
+    # LiteLLM virtual key for the embedding models only, so Weaviate never holds
+    # the master key (#1885). LiteLLM requires virtual keys to start with sk-.
+    # Existing keys stick.
+    def generate_and_update_weaviate_litellm_api_key(self, force: bool = False) -> bool:
+        return (not force and bool(self.get_current_env_value('WEAVIATE_LITELLM_API_KEY'))) or \
+            self.update_env_key('WEAVIATE_LITELLM_API_KEY', 'sk-atlas-weaviate-' + _cli_safe_token_urlsafe(32))
+
     def generate_and_update_meta_crypto_key(self, force: bool = False) -> bool:
         """Generate SUPABASE_META_CRYPTO_KEY when absent. Existing keys stick.
 
@@ -1251,6 +1259,7 @@ class KeyGenerator:
         # enabling the service later does not require a manual secret edit.
         results['CRAWL4AI_API_TOKEN'] = self.generate_and_update_crawl4ai_api_token(force=False)
         results['SPEACHES_API_KEY'] = self.generate_and_update_speaches_api_key(force=False)
+        results['WEAVIATE_LITELLM_API_KEY'] = self.generate_and_update_weaviate_litellm_api_key(force=False)
         results['OPENCLAW_GATEWAY_TOKEN'] = self.generate_and_update_openclaw_gateway_token(force=False)
         results['SUPABASE_META_CRYPTO_KEY'] = self.generate_and_update_meta_crypto_key(force=False)
 

@@ -296,6 +296,10 @@ def fetch_active_models() -> list[Any]:
 _CLOUD_PROVIDERS = frozenset({"openai", "anthropic", "openrouter"})
 
 
+# LiteLLM model access group holding every embedding model (#1885).
+EMBEDDING_ACCESS_GROUP = "atlas-embeddings"
+
+
 def _model_info(
     row: Any,
     *,
@@ -323,8 +327,12 @@ def _model_info(
         if capability in capabilities:
             info[litellm_key] = capabilities[capability]
     dimension = getattr(row, "dim", None)
-    if kind == "embedding" and dimension is not None:
-        info["output_vector_size"] = dimension
+    if kind == "embedding":
+        if dimension is not None:
+            info["output_vector_size"] = dimension
+        # Weaviate's virtual key is limited to this group, so anonymous
+        # Weaviate callers cannot reach chat models or admin routes (#1885).
+        info["access_groups"] = [EMBEDDING_ACCESS_GROUP]
     info["atlas_model_metadata"] = {
         "metadata_version": getattr(row, "metadata_version", None) or 0,
         "inferred": bool(inferred_fields),

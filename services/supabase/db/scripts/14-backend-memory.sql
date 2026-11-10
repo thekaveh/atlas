@@ -607,6 +607,8 @@ REVOKE ALL ON FUNCTION public.complete_memory_weaviate_rebuild(bigint)
 REVOKE ALL ON FUNCTION public.complete_memory_weaviate_rebuild(bigint)
     FROM anon, authenticated, authenticator;
 
+-- 18-backend-memory-vector-quarantine.sql replaces this body on every start
+-- so that quarantined facts do not block completion (#1365). Change both.
 CREATE OR REPLACE FUNCTION public.complete_memory_weaviate_rebuild(
     expected_generation bigint,
     expected_model text,
