@@ -143,6 +143,8 @@ For the advanced Iceberg/Spark validation flow (`MERGE INTO`, `VERSION AS OF`, S
 
 For a small local JSON ingestion example, use the optional [dlt and DuckDB recipe](../../docs/operations/dlt-duckdb.md). It demonstrates incremental updates, schema evolution and load recovery in a separate Python 3.12 environment.
 
+For bounded SQL analytics over local or MinIO Parquet, use the optional [embedded DuckDB recipe](../../docs/operations/duckdb-analytics.md). It runs in-process with the image's `duckdb` and needs no Spark or Trino.
+
 ### 6.1. Connecting to the lakehouse from Python
 
 The image ships the lakehouse clients `boto3`, `s3fs`, `pyiceberg[s3fs]`, `pyarrow` and `duckdb`, pre-wired against MinIO and the Iceberg REST catalog. `s3fs` and `fsspec` are pinned together at 2026.6.0, past CVE-2026-104851 (#1394). To confirm connectivity, load the catalog with `pyiceberg.catalog.load_catalog` and call `list_namespaces()`:
