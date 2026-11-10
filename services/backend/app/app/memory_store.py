@@ -50,6 +50,10 @@ def _needs_field_tokenization(schema: dict) -> bool:
     }.issuperset(_EXACT_MATCH_PROPERTIES)
 MAX_PGVECTOR_DIMENSION = 4000
 MAX_FAILBACK_REBUILD_ATTEMPTS = 3
+# Recorded per-fact rejections after which a pending fact no longer blocks the
+# failback rebuild (#1365). 18-backend-memory-vector-quarantine.sql holds the
+# same number in complete_memory_weaviate_rebuild.
+VECTOR_SYNC_QUARANTINE_ATTEMPTS = 3
 
 
 class FailbackGenerationChurn(RuntimeError):
@@ -82,6 +86,17 @@ def _parse_embedding_dimension(value: Union[str, int, None]) -> int:
 # Writes and nearText queries make Weaviate call LiteLLM for an embedding; a
 # cold Ollama model load can exceed 10s (the direct pgvector embed allows 30s).
 _WEAVIATE_VECTORIZE_TIMEOUT = 30.0
+
+
+def _vector_sync_error_summary(exc: BaseException) -> str:
+    """Name a rejection without its response body, which can echo the fact."""
+    status = getattr(getattr(exc, "response", None), "status_code", None)
+    summary = type(exc).__name__
+    if status is not None:
+        summary += f": HTTP {status}"
+    if _weaviate_vectorizer_failure(exc):
+        summary += " (vectorizer)"
+    return summary[:200]
 
 
 def _weaviate_target_unavailable(exc: BaseException) -> bool:
@@ -300,7 +315,16 @@ class MemoryStore:
                 return
             for row in rows:
                 if row["is_active"]:
-                    await self._rebuild_active_row(row)
+                    try:
+                        await self._rebuild_active_row(row)
+                    except Exception as exc:
+                        # A rejection of this fact's content is recorded on
+                        # the row and the pass goes on. Anything else (an
+                        # outage, timeout, 5xx or systematic vectorizer error)
+                        # aborts the pass with every pending flag intact.
+                        if not _is_row_rejection(exc):
+                            raise
+                        await self._record_vector_sync_rejection(row, exc)
                 else:
                     await self._deactivate_weaviate(
                         str(row["id"]), row.get("weaviate_id") or str(row["id"])
@@ -335,6 +359,35 @@ class MemoryStore:
         async with acquire_conn(self.database_url) as conn:
             await _clear_active_vector_intent(conn, row, weaviate_id)
 
+    async def _record_vector_sync_rejection(self, row, exc: BaseException) -> None:
+        """Count one deterministic rejection against the exact version read.
+
+        The fact stays vector_sync_pending, so reconciliation keeps retrying
+        it. After VECTOR_SYNC_QUARANTINE_ATTEMPTS rejections it is quarantined
+        and no longer blocks complete_memory_weaviate_rebuild. A concurrent
+        edit changes updated_at, so its new content is not charged.
+        """
+        error = _vector_sync_error_summary(exc)
+        async with acquire_conn(self.database_url) as conn:
+            status = await conn.execute(
+                """
+                UPDATE public.memory_facts
+                SET vector_sync_pending = true,
+                    vector_sync_attempts = vector_sync_attempts + 1,
+                    vector_sync_error = $3
+                WHERE id = $1 AND is_active = true
+                  AND updated_at IS NOT DISTINCT FROM $2
+                """,
+                row["id"],
+                row["updated_at"],
+                error,
+            )
+        logger.warning(
+            "Weaviate rebuild rejected a memory fact; recorded and continuing "
+            "(id=%s, error=%s, recorded=%s)",
+            row["id"], error, status == "UPDATE 1",
+        )
+
     async def _clear_rebuilt_intent(self, row, weaviate_id: Optional[str]) -> None:
         """Drain the exact durable intent just applied. If a concurrent edit
         changes updated_at, this guarded clear is a no-op and the generation
@@ -357,10 +410,13 @@ class MemoryStore:
     ) -> tuple[bool, int]:
         if not self.manage_schema:
             return True, 0
-        pending_clause = """
+        # A quarantined fact stays pending for reconciliation but, as in
+        # complete_memory_weaviate_rebuild, does not demand another rebuild.
+        pending_clause = f"""
             OR EXISTS (
                 SELECT 1 FROM public.memory_facts
                  WHERE vector_sync_pending = true
+                   AND vector_sync_attempts < {VECTOR_SYNC_QUARANTINE_ATTEMPTS}
             )
         """ if include_pending else ""
         async with acquire_conn(self.database_url) as conn:
@@ -698,7 +754,10 @@ class MemoryStore:
 
     async def _ensure_weaviate_collection(self, *, force_recreate: bool = False):
         """Ensure the collection exactly matches the configured vector contract."""
-        expected_model = self.embedding_model.split("/", 1)[-1]
+        # The exact LiteLLM alias, as the direct embedding path sends it. With
+        # a third-party baseURL, Weaviate 1.38.17 forwards the model unchanged.
+        # A collection created with a stripped alias is replaced and rebuilt.
+        expected_model = self.embedding_model
         expected_base_url = self.litellm_url.rstrip("/").removesuffix("/v1")
         async with httpx.AsyncClient(timeout=10.0) as client:
             # Check if collection exists
@@ -753,9 +812,9 @@ class MemoryStore:
                 "vectorizer": "text2vec-openai",
                 "moduleConfig": {
                     "text2vec-openai": {
-                        # Strip the LiteLLM provider prefix (text2vec-openai
-                        # expects an OpenAI-style model name; LiteLLM resolves
-                        # the actual provider from its model_list).
+                        # The full LiteLLM model_name alias (for example
+                        # "ollama/nomic-embed-text"). Stripping the first path
+                        # segment named a model an alias-only row lacks.
                         "model": expected_model,
                         # No /v1 suffix: Weaviate's openai module joins
                         # "/v1/embeddings" onto baseURL itself, so a /v1

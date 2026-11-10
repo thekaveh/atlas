@@ -258,6 +258,20 @@ class TestDefaultOllamaConfig:
             )
 
 
+    def test_only_embedding_models_join_the_weaviate_access_group(self):
+        """#1885: Weaviate's LiteLLM key is limited to the atlas-embeddings
+        access group, so every embedding entry is in it and no chat entry is."""
+        mod = _load_init_module({"LLM_PROVIDER_SOURCE": "ollama-container-cpu"})
+        model_list = mod.render_model_list(mod.fetch_active_models())
+
+        groups = {e["model_name"]: e["model_info"].get("access_groups") for e in model_list}
+        assert groups["ollama/nomic-embed-text"] == ["atlas-embeddings"]
+        assert groups["nomic-embed-text"] == ["atlas-embeddings"]
+        assert groups["qwen3.8:latest"] is None
+        assert {name for name, g in groups.items() if g} == {
+            e["model_name"] for e in model_list if e["model_info"].get("mode") == "embedding"}
+
+
 # ---------------------------------------------------------------------------
 # Test 2: cloud provider enabled
 # ---------------------------------------------------------------------------

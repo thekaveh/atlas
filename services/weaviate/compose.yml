@@ -17,6 +17,9 @@ services:
       # Embedding model — value is already fully-qualified (e.g. ollama/nomic-embed-text).
       # init-weaviate.sh writes it through unchanged into /shared/weaviate-config.env.
       LITELLM_EMBEDDING_MODEL: ${LITELLM_EMBEDDING_MODEL:-ollama/nomic-embed-text}
+      # Registers WEAVIATE_LITELLM_API_KEY as an embedding-only LiteLLM key (#1885).
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
+      WEAVIATE_LITELLM_API_KEY: ${WEAVIATE_LITELLM_API_KEY}
     volumes:
       - ./init/scripts:/scripts:ro
       - weaviate-shared-config:/shared
@@ -51,7 +54,7 @@ services:
       # text2vec-ollama is left enabled for backward-compat with un-migrated collections.
       # none: a class created without an explicit vectorizer (or auto-created
       # on first insert) defaulted to text2vec-openai at api.openai.com with the
-      # global OPENAI_APIKEY, i.e. the LiteLLM master key. Atlas classes set
+      # global OPENAI_APIKEY. Atlas classes set
       # their vectorizer explicitly.
       DEFAULT_VECTORIZER_MODULE: 'none'
       ENABLE_MODULES: ${WEAVIATE_ENABLE_MODULES:-text2vec-openai,text2vec-ollama,multi2vec-clip,generative-openai,generative-ollama,backup-filesystem}
@@ -67,9 +70,11 @@ services:
       RAFT_JOIN: weaviate
       # Weaviate's text2vec-openai talks to LiteLLM. The collection-level
       # base URL is set by the Backend when it creates its collection
-      # (memory_store.py). OPENAI_APIKEY here is the master key Weaviate
-      # sends to LiteLLM for authentication.
-      OPENAI_APIKEY: ${LITELLM_MASTER_KEY:-}
+      # (memory_store.py). OPENAI_APIKEY is an embedding-only LiteLLM
+      # virtual key that weaviate-init registers. It used to be the master
+      # key, which opened every model and the admin UI to anonymous Weaviate
+      # callers (#1885).
+      OPENAI_APIKEY: ${WEAVIATE_LITELLM_API_KEY:-}
       CLIP_INFERENCE_API: ${CLIP_INFERENCE_API-http://multi2vec-clip:8080}
       # Prometheus metrics — surfaces /metrics on port 2112 (exposed
       # below, internal-only). Scraped by the observability bundle's

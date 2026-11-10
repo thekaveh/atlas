@@ -538,3 +538,99 @@ def test_hermes_and_graph_builder_read_only_the_gated_cloud_keys():
     builder = yaml.safe_load((ROOT / "services/llm-graph-builder/compose.yml").read_text())
     builder_env = next(iter(builder["services"].values()))["environment"]
     assert builder_env["OPENAI_API_KEY"] == "${LLM_GRAPH_BUILDER_OPENAI_API_KEY:-}"
+
+
+# ── #1885: Weaviate holds an embedding-only LiteLLM key, not the master key ──
+
+_WEAVIATE_INIT = ROOT / "services/weaviate/init/scripts/init-weaviate.sh"
+# A fake busybox nc: record argv and the request it receives on stdin, then
+# answer with the status line named by $FAKE_NC_STATUS (one per call).
+_FAKE_NC = r"""#!/bin/sh
+# Answer as soon as the request is complete, before stdin closes: the init
+# script keeps stdin open until it sees the status line, as LiteLLM needs.
+n=$(cat "$NC_DIR/count" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" > "$NC_DIR/count"
+printf '%s\n' "$*" > "$NC_DIR/argv-$n"
+req="$NC_DIR/request-$n"; : > "$req"; cr=$(printf '\r'); len=0
+while IFS= read -r line; do
+  printf '%s\n' "$line" >> "$req"
+  case "$line" in Content-Length:*) len=$(printf '%s' "${line#Content-Length: }" | tr -d '\r') ;; esac
+  [ "$line" = "$cr" ] && break
+done
+[ "$len" -gt 0 ] && head -c "$len" >> "$req"
+status=$(echo "$FAKE_NC_STATUS" | cut -d, -f"$n")
+printf 'HTTP/1.1 %s\r\n\r\n{}' "$status"
+cat > /dev/null
+"""
+
+
+def _run_weaviate_init(tmp_path: Path, statuses: str, **env: str) -> subprocess.CompletedProcess[str]:
+    bin_dir, shared = tmp_path / "bin", tmp_path / "shared"
+    bin_dir.mkdir()
+    shared.mkdir()
+    fake = bin_dir / "nc"
+    fake.write_text(_FAKE_NC, encoding="utf-8")
+    fake.chmod(0o755)
+    script = (tmp_path / "init.sh")
+    script.write_text(_WEAVIATE_INIT.read_text(encoding="utf-8").replace("/shared/", f"{shared}/"),
+                      encoding="utf-8")
+    run_env = {"PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}", "NC_DIR": str(tmp_path),
+               "FAKE_NC_STATUS": statuses, "LITELLM_MASTER_KEY": "sk-master-1885",
+               "WEAVIATE_LITELLM_API_KEY": "sk-atlas-weaviate-1885", **env}
+    return subprocess.run(["/bin/sh", str(script)], env=run_env, text=True,
+                          capture_output=True, check=False)
+
+
+def test_weaviate_gets_the_scoped_key_and_init_gets_what_it_needs_to_register_it():
+    compose = _yaml("services/weaviate/compose.yml")["services"]
+    assert compose["weaviate"]["environment"]["OPENAI_APIKEY"] == "${WEAVIATE_LITELLM_API_KEY:-}"
+    init_env = compose["weaviate-init"]["environment"]
+    assert init_env["WEAVIATE_LITELLM_API_KEY"] == "${WEAVIATE_LITELLM_API_KEY}"
+    assert init_env["LITELLM_MASTER_KEY"] == "${LITELLM_MASTER_KEY}"
+    assert "LITELLM_MASTER_KEY" not in json.dumps(compose["weaviate"]["environment"])
+
+
+def _request(tmp_path: Path, n: int) -> tuple[str, dict]:
+    head, body = (tmp_path / f"request-{n}").read_bytes().decode().split("\r\n\r\n", 1)
+    return head, json.loads(body)
+
+
+def test_weaviate_init_refreshes_its_embedding_only_key_without_secrets_in_argv(tmp_path):
+    result = _run_weaviate_init(tmp_path, "200 OK")
+    head, body = _request(tmp_path, 1)
+
+    assert result.returncode == 0, result.stderr
+    assert head.startswith("POST /key/update HTTP/1.0")
+    assert "Authorization: Bearer sk-master-1885" in head
+    assert body == {"key": "sk-atlas-weaviate-1885", "models": ["atlas-embeddings"]}
+    assert (tmp_path / "argv-1").read_text().split() == ["-w", "30", "litellm", "4000"]
+    assert not (tmp_path / "request-2").exists()
+
+
+def test_weaviate_init_replaces_a_missing_or_rotated_key_and_stops_on_failure(tmp_path):
+    for name in ("new", "fail", "missing"):
+        (tmp_path / name).mkdir()
+
+    created = _run_weaviate_init(tmp_path / "new", "404 Not Found,200 OK,200 OK")
+    assert created.returncode == 0, created.stderr
+    assert [_request(tmp_path / "new", n)[0].split()[1] for n in (1, 2, 3)] == [
+        "/key/update", "/key/delete", "/key/generate"]
+    assert _request(tmp_path / "new", 2)[1] == {"key_aliases": ["atlas-weaviate"]}
+    assert _request(tmp_path / "new", 3)[1] == {
+        "key": "sk-atlas-weaviate-1885", "key_alias": "atlas-weaviate",
+        "models": ["atlas-embeddings"]}
+
+    failed = _run_weaviate_init(tmp_path / "fail", "500 Error,500 Error,500 Error")
+    assert (failed.returncode, "could not register" in failed.stderr) == (1, True)
+    missing = _run_weaviate_init(tmp_path / "missing", "200 OK", WEAVIATE_LITELLM_API_KEY="")
+    assert missing.returncode == 1
+
+
+def test_weaviate_litellm_key_is_generated_once_with_the_sk_prefix(tmp_path):
+    from utils.key_generator import KeyGenerator
+    (tmp_path / ".env").write_text("WEAVIATE_LITELLM_API_KEY=\n")
+    generator = KeyGenerator(str(tmp_path))
+    assert generator.generate_and_update_weaviate_litellm_api_key()
+    key = generator.get_current_env_value("WEAVIATE_LITELLM_API_KEY")
+    assert key.startswith("sk-atlas-weaviate-") and len(key) > 40
+    assert generator.generate_and_update_weaviate_litellm_api_key()
+    assert generator.get_current_env_value("WEAVIATE_LITELLM_API_KEY") == key
