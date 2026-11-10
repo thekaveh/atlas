@@ -639,6 +639,79 @@ A Metal or MLX service cannot get the GPU through a Linux container on macOS. If
 
 `./start.sh` and `./stop.sh` do not start or stop a declared service, and neither does `--stop-managed-hosts`. Use `./start.sh managed-host list|preflight|install|start|status|health|stop|remove <name>`. Fields, safety constraints and the commands: [Consumer Manifest Reference §13](../reference/consumer-manifest.md#13-managed_host_services).
 
+### 6.8. Gating RAG quality changes (`examples/rag-quality`)
+
+A prompt or model change can lower answer quality without breaking a test. The starter in `examples/rag-quality/` turns such a change into a reviewable diff. Copy it into your project and replace the fixtures. Atlas keeps only the per-record scoring route. Datasets, thresholds and rankings stay with you.
+
+The starter needs only Python 3.11 or newer, with no packages.
+
+| File | Role |
+|---|---|
+| `fixtures.json` | The prompt template, the metric list and ten pinned fixtures. |
+| `regress.py` | The `check`, `report` and `export` commands. |
+
+Each fixture has a question, its source passages, expected answer traits, expected citation sources and a ground truth. The scored metrics need the passages and the ground truth. Without them, a metric returns a null score.
+
+**Run the check.** `check` renders the prompt for each fixture, collects an answer and runs deterministic checks. These checks call no evaluator and need no credentials:
+
+- the answer cites at least one source as `[source-id]`;
+- it cites every expected source and no unknown source;
+- it contains every expected trait, ignoring case.
+
+```bash
+cd my-project/rag-quality                            # your copy of examples/rag-quality
+python3 regress.py check --out runs/baseline.json   # offline responder: no stack, no keys
+```
+
+Any failing fixture makes `check` exit with code 1. The default `offline` responder is a deterministic stand-in for a model. It answers with the passages in the prompt. It cites them only when the prompt asks for citations. A prompt that drops its passages or its citation instruction therefore fails. So does a fixture that loses an expected passage.
+
+**Answer with a real model.** `--responder gateway --model <alias>` sends each prompt to a LiteLLM alias. Every request uses `temperature` 0 and `max_tokens` 512. The command reads `ATLAS_LITELLM_HOST_ENDPOINT` from the endpoint contract ([§6.5](#65-exporting-the-endpoint-contract-endpoints-export)) and the key from `LITELLM_API_KEY`. Until per-consumer keys exist, use `LITELLM_MASTER_KEY` from `.env`.
+
+```bash
+./start.sh endpoints export --format env > atlas.env    # in the Atlas checkout
+set -a; . /path/to/atlas/atlas.env; set +a
+export LITELLM_API_KEY=<LITELLM_MASTER_KEY from .env>
+python3 regress.py check --responder gateway --model <alias> --out runs/new.json
+```
+
+**Add scored metrics.** Scoring is opt-in. `--score` sends each answer, its passages and its ground truth to `POST /api/rag/evaluate`. That route runs the Ragas metrics listed in `fixtures.json`, so the starter imports no evaluator. It reads `ATLAS_BACKEND_HOST_ENDPOINT` and `ATLAS_BACKEND_TOKEN`. Set the token to `BACKEND_NOTEBOOK_API_TOKEN`, the narrowest token the route accepts.
+
+Each scored fixture costs one evaluator call, and the evaluator model may be paid. Pass `--usd-per-call` with your price to put a cost in the report. Without it, the report shows `cost n/a`. A failed evaluator call counts as a fixture failure.
+
+**Compare two runs.** Keep a baseline run record, make your change, then run `check` again and compare:
+
+```bash
+python3 regress.py report runs/baseline.json runs/new.json --out runs/report.md
+```
+
+The report has one row per fixture. It shows latency, evaluator cost and scores as baseline -> new, plus the new failures. A fixture that passed before and fails now is marked `REGRESSED`. Commit the baseline next to your fixtures, and run `check` in your CI.
+
+**Export to MLflow.** `export` logs a run record to the MLflow server Atlas already runs ([MLflow](../../services/mlflow/README.md), `MLFLOW_SOURCE=container`). Per-fixture latency, failure counts, evaluator calls and scores become metrics. The prompt hash, fixture hash and generation settings become parameters. A failing run is marked `FAILED`.
+
+```bash
+MLFLOW_TRACKING_URI=http://localhost:${MLFLOW_PORT} python3 regress.py export runs/new.json
+```
+
+### 6.9. Comparing models on your own tasks (`examples/rag-quality/compare.py`)
+
+`compare.py` helps you decide whether a smaller or local model is good enough for your workload. It sends one task file to several LiteLLM aliases and records the results side by side. It reuses the fixture format, checks, endpoints and evaluator client of [§6.8](#68-gating-rag-quality-changes-examplesrag-quality). Run it by hand when you choose a model. For a check on every pull request, use §6.8.
+
+```bash
+python3 compare.py --models <local-alias> <cloud-alias> --max-requests 40 --score --out runs/compare.json
+```
+
+**Same input for every model.** Each task's prompt is rendered once, so every alias gets the same bytes. Every request uses the same settings: `temperature` 0 and `max_tokens` 512. The run record states the settings once, with the prompt hash, task hash and gateway URL.
+
+**Paid-request cap.** `--max-requests` (default 50) caps the whole run. Every gateway and evaluator request counts, because the example cannot tell which aliases are billed. Atlas configures no LiteLLM budget, so this cap is the only limit. The run stops before a task that would cross the cap and prints `Stopped: the paid-request cap ...`. Later candidates show `incomplete` or `not run`.
+
+**The result record.** Each row is one candidate on one task. It holds the alias, latency, prompt and completion tokens, the quality score, the evaluator and the check failures. The quality score is the mean of the Ragas scores from `POST /api/rag/evaluate`. Without `--score`, quality is `unavailable`, and latency and tokens are still recorded.
+
+**Errors stay visible.** A provider error becomes a row with its `error` and quality `no answer`. A candidate that fails every task has status `all errored` and a null mean quality. A candidate that answered but scored zero has status `ok` and mean quality `0.0`.
+
+**Picking a winner.** The sample policy considers only candidates with status `ok`. It ranks them by mean quality, then passed checks, then lower latency. Replace it with your own policy. The command prints a line to paste into Atlas's `.env`, such as `LITELLM_DEFAULT_MODEL=<alias>`. `--env-key` names another alias variable: `LIGHTRAG_QUERY_LLM_MODEL`, `LANGMEM_EXTRACTION_MODEL` or `HERMES_DEFAULT_MODEL`.
+
+Tasks, judge policy, selection and rankings stay in your project. Atlas provides only the aliases and the scoring route.
+
 ---
 
 ## 7. Consumer adoption runbook (the full journey)
@@ -788,6 +861,8 @@ Run the last two in consumer CI on every pin bump, so an upstream change fails y
 | `services/_user/` overlay **auto-launch** | **Ready**: put a fragment at `services/_user/<name>/compose.yml`, and the bootstrapper merges and launches it ([§6.1.1](#611-back-compatible-services_user-overlay-slot)). |
 | Release tags for submodule pinning | **Not current.** One tag exists (`v0.1.0`, June 2026), and it predates the consumer manifest. Pin a reviewed `main` commit until a newer tag is cut ([Releasing & version tags](releasing.md)). |
 | Published images / pip package | **Not supported** (see §5) |
+| RAG quality regression starter | **Ready** offline ([§6.8](#68-gating-rag-quality-changes-examplesrag-quality)). Scoring and the MLflow export need a running stack. |
+| Model comparison on your own tasks | **Ready** as an example ([§6.9](#69-comparing-models-on-your-own-tasks-examplesrag-qualitycomparepy)). It needs a running stack with LiteLLM. |
 
 ---
 

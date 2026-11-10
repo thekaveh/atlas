@@ -499,6 +499,10 @@ sections:
     number: '7.8'
     title: Local JSON Ingestion with dlt and DuckDB
     source: docs/operations/dlt-duckdb.md
+  - id: duckdb-analytics
+    number: '7.9'
+    title: Embedded DuckDB Analytics over Parquet
+    source: docs/operations/duckdb-analytics.md
 - id: architecture
   number: '8'
   title: Architecture
