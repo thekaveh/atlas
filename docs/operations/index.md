@@ -11,6 +11,7 @@ Related operator pages:
 - [Access and Credentials](access-and-credentials.md): login details and secrets.
 - [Expected Startup Warnings](expected-startup-warnings.md): expected log lines and conditions that need operator action.
 - [Reusing Atlas](reusing-atlas.md) and [Submodule Usage](submodule-usage.md): Atlas inside a parent project.
+- [dlt and DuckDB ingestion](dlt-duckdb.md) and [Embedded DuckDB Analytics](duckdb-analytics.md): optional data recipes with their own Python environments.
 - [Quick Start Troubleshooting](../quick-start/troubleshooting.md): recovery steps for failed starts.
 - [Sudo Recovery](../TROUBLESHOOTING.md): fixes for a launch or stop that ran under `sudo`.
 

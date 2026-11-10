@@ -1,0 +1,90 @@
+{
+  "version": 1,
+  "prompt": "Answer the question using only the sources below. Cite every source you use as [source-id].\n\nSources:\n{context}\n\nQuestion: {question}",
+  "metrics": ["faithfulness", "answer_relevancy", "context_precision", "context_recall"],
+  "fixtures": [
+    {
+      "id": "base-port",
+      "question": "What is the default Atlas base port?",
+      "contexts": [{"source": "atlas-ports", "text": "Atlas derives every host port from BASE_PORT, which defaults to 63000."}],
+      "expected_traits": ["63000"],
+      "expected_sources": ["atlas-ports"],
+      "ground_truth": "The default BASE_PORT is 63000."
+    },
+    {
+      "id": "litellm-suffix",
+      "question": "What must a client append to LITELLM_BASE_URL for OpenAI-compatible routes?",
+      "contexts": [{"source": "endpoint-vars", "text": "LITELLM_BASE_URL has no path suffix, so a client appends /v1 for the OpenAI-compatible routes."}],
+      "expected_traits": ["/v1"],
+      "expected_sources": ["endpoint-vars"],
+      "ground_truth": "Append /v1 to LITELLM_BASE_URL."
+    },
+    {
+      "id": "cold-stop",
+      "question": "Which command stops Atlas and removes its volumes?",
+      "contexts": [{"source": "stop-script", "text": "Running ./stop.sh --cold stops the stack and removes all of its volumes."}],
+      "expected_traits": ["--cold"],
+      "expected_sources": ["stop-script"],
+      "ground_truth": "./stop.sh --cold stops Atlas and removes its volumes."
+    },
+    {
+      "id": "kong-hosts",
+      "question": "What adds the hosts entries that Kong wildcard routing needs?",
+      "contexts": [{"source": "kong-routing", "text": "Running ./start.sh --setup-hosts adds the *.localhost entries that Kong wildcard routing needs."}],
+      "expected_traits": ["--setup-hosts"],
+      "expected_sources": ["kong-routing"],
+      "ground_truth": "./start.sh --setup-hosts adds the *.localhost hosts entries."
+    },
+    {
+      "id": "eval-metrics",
+      "question": "Which metrics does the Atlas RAG evaluation route support?",
+      "contexts": [{"source": "rag-evaluate", "text": "The evaluation route supports faithfulness, answer_relevancy, context_precision and context_recall."}],
+      "expected_traits": ["faithfulness", "context_recall"],
+      "expected_sources": ["rag-evaluate"],
+      "ground_truth": "It supports faithfulness, answer_relevancy, context_precision and context_recall."
+    },
+    {
+      "id": "missing-evidence",
+      "question": "What does the evaluation route report when a record lacks the evidence a metric needs?",
+      "contexts": [{"source": "rag-evidence", "text": "A metric whose evidence is missing is reported as not_evaluable with a null score instead of failing the request."}],
+      "expected_traits": ["not_evaluable"],
+      "expected_sources": ["rag-evidence"],
+      "ground_truth": "The metric is reported as not_evaluable with a null score."
+    },
+    {
+      "id": "mlflow-storage",
+      "question": "Where does MLflow keep run metadata and run artifacts in Atlas?",
+      "contexts": [
+        {"source": "mlflow-metadata", "text": "MLflow stores run metadata in Supabase Postgres."},
+        {"source": "mlflow-artifacts", "text": "MLflow stores run artifacts in MinIO."}
+      ],
+      "expected_traits": ["postgres", "minio"],
+      "expected_sources": ["mlflow-metadata", "mlflow-artifacts"],
+      "ground_truth": "Run metadata lives in Supabase Postgres and artifacts live in MinIO."
+    },
+    {
+      "id": "tracks",
+      "question": "Which flag starts a curated subset of Atlas services?",
+      "contexts": [{"source": "tracks", "text": "The --track flag starts a curated subset of services, such as gen-ai-rag."}],
+      "expected_traits": ["--track"],
+      "expected_sources": ["tracks"],
+      "ground_truth": "The --track flag starts a curated subset."
+    },
+    {
+      "id": "second-stack",
+      "question": "What must differ between two Atlas stacks on one host?",
+      "contexts": [{"source": "multi-instance", "text": "A second stack on one host needs its own PROJECT_NAME and its own BASE_PORT."}],
+      "expected_traits": ["PROJECT_NAME", "BASE_PORT"],
+      "expected_sources": ["multi-instance"],
+      "ground_truth": "Each stack needs its own PROJECT_NAME and BASE_PORT."
+    },
+    {
+      "id": "endpoint-export",
+      "question": "How does a consumer print the Atlas endpoint contract as environment lines?",
+      "contexts": [{"source": "endpoint-contract", "text": "Running ./start.sh endpoints export --format env prints the endpoint contract as KEY=value lines."}],
+      "expected_traits": ["endpoints export"],
+      "expected_sources": ["endpoint-contract"],
+      "ground_truth": "Run ./start.sh endpoints export --format env."
+    }
+  ]
+}
