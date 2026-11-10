@@ -20,7 +20,7 @@ Output shape (per service; descriptions abridged, image digest omitted):
 
     # Image references
     LLM_PROVIDER_IMAGE=ollama/ollama:0.30.11
-    OLLAMA_PULL_IMAGE=alpine:3.24.2
+    OLLAMA_PULL_IMAGE=alpine:3.24.4
 
     # Free-text extra Ollama models; ...
     OLLAMA_CUSTOM_MODELS=

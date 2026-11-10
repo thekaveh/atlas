@@ -300,7 +300,7 @@ images:
   url: https://github.com/comfyanonymous/ComfyUI/blob/696672905fd17af2654ced11e3ab590d6a555996/LICENSE
 - service: comfyui
   var: COMFYUI_INIT_IMAGE
-  image: alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
+  image: alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
   upstream: Alpine Linux 3.24.2 (packages under their own licenses)
   license: Alpine-packages
   url: https://github.com/alpinelinux/docker-alpine/blob/2c36a79aaaec3582d3b1961c9245b1a8a5a144dc/LICENSE
@@ -343,7 +343,7 @@ images:
   url: https://github.com/NousResearch/hermes-agent/blob/2bd1977d8fad185c9b4be47884f7e87f1add0ce3/LICENSE
 - service: hermes
   var: HERMES_INIT_IMAGE
-  image: alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
+  image: alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
   upstream: Alpine Linux 3.24.2 (packages under their own licenses)
   license: Alpine-packages
   url: https://github.com/alpinelinux/docker-alpine/blob/2c36a79aaaec3582d3b1961c9245b1a8a5a144dc/LICENSE
@@ -400,7 +400,7 @@ images:
   notice: https://github.com/HumanSignal/label-studio/blob/2a9bfbcbf0a844b999de97e601d16050a893f5fb/NOTICE
 - service: label-studio
   var: LABEL_STUDIO_INIT_IMAGE
-  image: alpine:3.24.2
+  image: alpine:3.24.4
   upstream: Alpine Linux 3.24.2 (packages under their own licenses)
   license: Alpine-packages
   url: https://github.com/alpinelinux/docker-alpine/blob/2c36a79aaaec3582d3b1961c9245b1a8a5a144dc/LICENSE
@@ -426,7 +426,7 @@ images:
   url: https://github.com/ClickHouse/ClickHouse/blob/65eaf18b4a939f3e02aad50b7fbb2711b09495a0/LICENSE
 - service: langfuse
   var: LANGFUSE_INIT_IMAGE
-  image: alpine:3.24.2
+  image: alpine:3.24.4
   upstream: Alpine Linux 3.24.2 (packages under their own licenses)
   license: Alpine-packages
   url: https://github.com/alpinelinux/docker-alpine/blob/2c36a79aaaec3582d3b1961c9245b1a8a5a144dc/LICENSE
@@ -440,7 +440,7 @@ images:
   url: https://github.com/HKUDS/LightRAG/blob/9a45b64c2ee25b1d806e90db926a8af37480bb16/LICENSE
 - service: lightrag
   var: LIGHTRAG_INIT_IMAGE
-  image: alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
+  image: alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
   upstream: Alpine Linux 3.24.2 (packages under their own licenses)
   license: Alpine-packages
   url: https://github.com/alpinelinux/docker-alpine/blob/2c36a79aaaec3582d3b1961c9245b1a8a5a144dc/LICENSE
@@ -492,7 +492,7 @@ images:
   url: https://github.com/mlflow/mlflow/blob/32792afe5b0183fce10532d3a023f5cfa8612d09/LICENSE.txt
 - service: mlflow
   var: MLFLOW_INIT_IMAGE
-  image: alpine:3.24.2
+  image: alpine:3.24.4
   upstream: Alpine Linux 3.24.2 (packages under their own licenses)
   license: Alpine-packages
   url: https://github.com/alpinelinux/docker-alpine/blob/2c36a79aaaec3582d3b1961c9245b1a8a5a144dc/LICENSE
@@ -528,7 +528,7 @@ images:
   url: https://github.com/ollama/ollama/blob/d26a58557d83aa8892bdfa79b3550f5ee969cd1c/LICENSE
 - service: ollama
   var: OLLAMA_PULL_IMAGE
-  image: alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
+  image: alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
   upstream: Alpine Linux 3.24.2 (packages under their own licenses)
   license: Alpine-packages
   url: https://github.com/alpinelinux/docker-alpine/blob/2c36a79aaaec3582d3b1961c9245b1a8a5a144dc/LICENSE
@@ -557,7 +557,7 @@ images:
   url: https://github.com/openclaw/openclaw/blob/aa69b12d0086b631b139c1435c9621a5783e3a40/LICENSE
 - service: openclaw
   var: OPENCLAW_INIT_IMAGE
-  image: alpine:3.24.2@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
+  image: alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
   upstream: Alpine Linux 3.24.2 (packages under their own licenses)
   license: Alpine-packages
   url: https://github.com/alpinelinux/docker-alpine/blob/2c36a79aaaec3582d3b1961c9245b1a8a5a144dc/LICENSE
@@ -788,7 +788,7 @@ images:
   url: https://github.com/weaviate/weaviate/blob/3f1ddfea60470ea89254b34802ca6c5c169ee390/LICENSE
 - service: weaviate
   var: WEAVIATE_INIT_IMAGE
-  image: alpine:3.24.2
+  image: alpine:3.24.4
   upstream: Alpine Linux 3.24.2 (packages under their own licenses)
   license: Alpine-packages
   url: https://github.com/alpinelinux/docker-alpine/blob/2c36a79aaaec3582d3b1961c9245b1a8a5a144dc/LICENSE
