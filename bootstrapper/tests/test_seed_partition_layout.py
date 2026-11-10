@@ -30,7 +30,12 @@ EXPECTED_OWNER = {
     "memory_consolidation_log": "14-backend-memory.sql",
     "media_spend_ledger": "17-backend-media-ledger.sql",
 }
-SLICE_FILES = sorted({v for v in EXPECTED_OWNER.values()})
+# Slices that alter a table another slice owns. They create no table, so they
+# are listed here to get the banner and idempotency guards.
+ALTER_ONLY_SLICES = {
+    "18-backend-memory-vector-quarantine.sql": "memory_facts",
+}
+SLICE_FILES = sorted({*EXPECTED_OWNER.values(), *ALTER_ONLY_SLICES})
 
 _CREATE_TABLE = re.compile(
     r"CREATE TABLE(?:\s+IF NOT EXISTS)?\s+public\.(\w+)", re.IGNORECASE
@@ -81,6 +86,16 @@ def test_slice_tables_are_guarded():
         )
         assert not re.search(r"CREATE INDEX\s+(?!IF NOT EXISTS)", text, re.IGNORECASE), (
             f"{name} has a CREATE INDEX without IF NOT EXISTS"
+        )
+
+
+def test_alter_only_slices_run_after_the_owner_and_create_no_table():
+    for name, table in ALTER_ONLY_SLICES.items():
+        text = _read(name)
+        assert not _CREATE_TABLE.findall(text), f"{name} must not create a table"
+        assert f"ALTER TABLE public.{table}" in text
+        assert name > EXPECTED_OWNER[table], (
+            f"{name} must sort after {EXPECTED_OWNER[table]}, which creates public.{table}"
         )
 
 

@@ -99,6 +99,10 @@ env:
   - name: WEAVIATE_MEMORY_LIMIT
     default: 2g
     description: "Container memory limit for the weaviate container (deploy.resources.limits.memory). The 2g default is conservative for a 32 GB host. It fits the Go data plane and in-memory HNSW index for small-to-medium collections."
+  - name: WEAVIATE_LITELLM_API_KEY
+    default: ""
+    secret: true
+    description: "LiteLLM virtual key that Weaviate's text2vec-openai sends as OPENAI_APIKEY; auto-generated. weaviate-init registers it at every start for the embedding models only (access group atlas-embeddings), so it cannot reach chat models or admin routes."
   - name: WEAVIATE_GOMEMLIMIT
     default: ""
     description: "Go soft memory limit for Weaviate (GOMEMLIMIT, for example 1600MiB). Empty derives 80% of the container's cgroup memory limit at startup, so the garbage collector works before the WEAVIATE_MEMORY_LIMIT cap kills the process."
@@ -151,7 +155,7 @@ runtime_sc:
         DEFAULT_VECTORIZER_MODULE: none
         ENABLE_MODULES: text2vec-openai,text2vec-ollama,multi2vec-clip,generative-openai,generative-ollama,backup-filesystem
         CLUSTER_HOSTNAME: weaviate
-        OPENAI_APIKEY: ${LITELLM_MASTER_KEY:-}
+        OPENAI_APIKEY: ${WEAVIATE_LITELLM_API_KEY:-}
         CLIP_INFERENCE_API: http://multi2vec-clip:8080
         WEAVIATE_URL: http://weaviate:8080
         PROMETHEUS_MONITORING_ENABLED: 'true'

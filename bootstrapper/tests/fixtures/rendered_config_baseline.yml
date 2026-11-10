@@ -5035,6 +5035,8 @@ services:
     - /scripts/init-weaviate.sh
     environment:
       LITELLM_EMBEDDING_MODEL: ollama/nomic-embed-text
+      LITELLM_MASTER_KEY: ''
+      WEAVIATE_LITELLM_API_KEY: ''
     extra_hosts:
     - host.docker.internal=
     image: alpine:3.24.4

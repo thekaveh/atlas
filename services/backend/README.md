@@ -125,7 +125,13 @@ Recall and update confidence must be finite and in `0..1`. Invalid requests retu
 - Failback happens through `POST /memory/vector-store/probe` and at Backend startup. Startup runs the same probe and rebuild before the Backend accepts traffic. The probe checks the model, dimension and collection module.
 - It then rebuilds active objects and retirements from Postgres before searches switch.
 - For a pending active fact, the rebuild also re-embeds its pgvector shadow before it clears the intent.
-- It clears the generation by a compare-and-set on model and dimension, only when no `vector_sync_pending` row remains.
+- It clears the generation by a compare-and-set on model and dimension, only when no unquarantined `vector_sync_pending` row remains.
+- A rejection of one fact (an HTTP 4xx from Weaviate or its embedder) does not stop the rebuild. The pass records it on the row and continues.
+- The row keeps the count in `vector_sync_attempts` and the HTTP status in `vector_sync_error`. The provider's response text is not stored.
+- After three rejections the fact is quarantined. It stays `vector_sync_pending`, but failback no longer waits for it. Weaviate recall can miss it.
+- Reconciliation keeps retrying a quarantined fact. A successful sync or a content edit resets its count.
+- An outage, a timeout, a 5xx, a 401, 403, 404, 408 or 429, or a systematic vectorizer error still aborts the pass. Every pending flag stays set, and pgvector stays authoritative.
+- `GET /memory/health` reports the number of quarantined facts as `vector_sync_quarantined`.
 - A restart after an outage therefore delays startup by the rebuild time.
 - Sustained write churn keeps pgvector latched and reports the reason.
 - The probe and `GET /memory/health` (whose fact count spans every user) accept only service callers: n8n, Open WebUI and the internal token. A user JWT is refused.
@@ -141,7 +147,9 @@ Recall and update confidence must be finite and in `0..1`. Invalid requests retu
 - `WEAVIATE_SOURCE=localhost` is unsupported for memory. The collection vectorizes through `http://litellm:4000`, which a host Weaviate cannot resolve, and the Backend sends no Weaviate API key. Every write fails vectorization, and recall uses pgvector.
 - `LANGMEM_EMBEDDING_DIM` is checked against a real LiteLLM embedding before startup. The migration keeps existing vectors and re-embeds them in short transactions. It narrows the column only when every row matches.
 - A fact the new embedding model rejects on its own content is left without a vector and marked `vector_sync_pending`. Startup continues, and reconciliation retries the fact.
-- In Weaviate mode, such a fact also blocks failback. Recall stays on pgvector until you edit or delete the fact.
+- In Weaviate mode, the failback rebuild quarantines such a fact after three rejections. It then no longer blocks failback.
+- The `Memory` collection's `text2vec-openai` model is the exact `LITELLM_EMBEDDING_MODEL` alias, as direct embedding requests send it. With a custom base URL, Weaviate forwards it unchanged.
+- An older Backend stripped the alias's first path segment. Its collection is replaced and rebuilt from Postgres at the next start.
 
 **Reviewing and deleting memories.**
 

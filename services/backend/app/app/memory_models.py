@@ -197,6 +197,9 @@ class MemoryHealthResponse(BaseModel):
     weaviate_state: Optional[str] = None
     embedding_dimension: Optional[int] = None
     facts_count: int
+    # Pending facts the Weaviate rebuild stopped waiting for after repeated
+    # per-fact rejections (#1365). They stay retried by reconciliation.
+    vector_sync_quarantined: int = 0
     enabled: bool
     error: Optional[str] = None
 

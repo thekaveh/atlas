@@ -1038,6 +1038,7 @@
 | CLIP_DEPLOY_RESOURCES | weaviate | ~ | Set by ./start.sh from the multi2vec-clip deploy slice; `~` means none. No compose file reads it. |
 | WEAVIATE_LOCALHOST_PORT | weaviate | 8080 | Host port for the weaviate-localhost source variant. URL is derived at compose-render time as http://host.docker.internal:8080. |
 | WEAVIATE_MEMORY_LIMIT | weaviate | 2g | Container memory limit for the weaviate container (deploy.resources.limits.memory). The 2g default is conservative for a 32 GB host. It fits the Go data plane and in-memory HNSW index for small-to-medium collections. |
+| WEAVIATE_LITELLM_API_KEY | weaviate |  | LiteLLM virtual key that Weaviate's text2vec-openai sends as OPENAI_APIKEY; auto-generated. weaviate-init registers it at every start for the embedding models only (access group atlas-embeddings), so it cannot reach chat models or admin routes. |
 | WEAVIATE_GOMEMLIMIT | weaviate |  | Go soft memory limit for Weaviate (GOMEMLIMIT, for example 1600MiB). Empty derives 80% of the container's cgroup memory limit at startup, so the garbage collector works before the WEAVIATE_MEMORY_LIMIT cap kills the process. |
 | WEAVIATE_CPU_LIMIT | weaviate | 1.5 | Container CPU limit for the weaviate container (deploy.resources.limits.cpus). 1.5 cores covers routine indexing and query serving on a shared host. |
 | WEAVIATE_IMAGE | weaviate | cr.weaviate.io/semitechnologies/weaviate:1.38.17 | Container image for `weaviate`. |
