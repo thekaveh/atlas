@@ -366,3 +366,41 @@ def test_optional_size_failure_keeps_real_picker_choices_and_saved_selection(
     assert step.default_values == ["saved-missing", "synthetic--bad"]
     bad = next(option for option in options if option.value == "synthetic--bad")
     assert "0.00GB" in bad.badges
+
+
+# Shaped like the live https://huggingface.co/api/models?pipeline_tag=text-to-image
+# &library=diffusers&full=true response on 2026-11-09, which listed six GGUF
+# repos among its top 30 (#1902).
+_HF_GGUF_AND_DIFFUSERS = [
+    {"id": "unsloth/Qwen-Image-2.1-GGUF", "downloads": 51000,
+     "tags": ["gguf", "quantized", "text-to-image"],
+     "siblings": [{"rfilename": "qwen-image-2.1-F16.gguf", "size": 40_900_000_000},
+                  {"rfilename": "qwen-image-2.1-Q4_K_M.gguf", "size": 13_100_000_000}]},
+    {"id": "DogukanUrker/Qwen-Image-2.1-Turbo-GGUF", "downloads": 900,
+     "tags": ["text-to-image"],
+     "siblings": [{"rfilename": "qwen-image-2.1-turbo-F16.gguf", "size": 40_900_000_000}]},
+    {"id": "stabilityai/stable-diffusion-xl-base-1.0", "downloads": 2_000_000,
+     "tags": ["diffusers", "text-to-image"],
+     "siblings": [{"rfilename": "sd_xl_base_1.0.safetensors", "size": 6_900_000_000}]},
+]
+
+
+@pytest.mark.parametrize("category", ["checkpoint", "video_model"])
+def test_parse_hf_places_gguf_diffusion_models_where_comfyui_gguf_loads_them(category):
+    """#1902: a GGUF primary file goes to diffusion_models with ComfyUI-GGUF,
+    even when the repo lacks the gguf tag; a safetensors checkpoint keeps the
+    category's directory."""
+    entries = {e.name: e for e in _parse_hf_response(_HF_GGUF_AND_DIFFUSERS, category=category)}
+
+    assert [(e.target_dir, "ComfyUI-GGUF" in e.requires_custom_node) for e in (
+        entries["unsloth--Qwen-Image-2.1-GGUF"],
+        entries["DogukanUrker--Qwen-Image-2.1-Turbo-GGUF"],
+        entries["stabilityai--stable-diffusion-xl-base-1.0"],
+    )] == [("diffusion_models", True), ("diffusion_models", True), ("checkpoints", False)]
+
+
+def test_parse_hf_gguf_outside_diffusion_categories_keeps_its_directory():
+    """#1902: only image and video model categories reroute GGUF files."""
+    entries = _parse_hf_response(_HF_GGUF_AND_DIFFUSERS[:1], category="lora")
+
+    assert entries[0].target_dir == "loras"
