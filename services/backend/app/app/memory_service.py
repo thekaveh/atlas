@@ -22,7 +22,7 @@ from memory_reconciliation import (
     _is_row_rejection, _refresh_rejected_vector_rows,
     _weaviate_vectorizer_failure, _weaviate_vectorizer_row_rejection,
 )
-from memory_store import MemoryStore, _to_uuid
+from memory_store import VECTOR_SYNC_QUARANTINE_ATTEMPTS, MemoryStore, _to_uuid
 
 logger = logging.getLogger("memory_service")
 
@@ -1468,8 +1468,16 @@ Extract the facts as JSON:"""
             await self._ensure_initialized()
 
             async with self._acquire() as conn:
-                count = await conn.fetchval(
-                    "SELECT COUNT(*) FROM public.memory_facts WHERE is_active = true"
+                counts = await conn.fetchrow(
+                    """
+                    SELECT
+                        COUNT(*) FILTER (WHERE is_active = true) AS facts_count,
+                        COUNT(*) FILTER (
+                            WHERE vector_sync_pending AND vector_sync_attempts >= $1
+                        ) AS vector_sync_quarantined
+                    FROM public.memory_facts
+                    """,
+                    VECTOR_SYNC_QUARANTINE_ATTEMPTS,
                 )
 
             vector_state = (
@@ -1481,7 +1489,9 @@ Extract the facts as JSON:"""
                 "vector_backend_reason": vector_state.get("reason"),
                 "weaviate_state": vector_state.get("weaviate_state"),
                 "embedding_dimension": vector_state.get("embedding_dimension"),
-                "facts_count": count,
+                "facts_count": counts["facts_count"],
+                # Facts left out of Weaviate after repeated rejections (#1365).
+                "vector_sync_quarantined": counts["vector_sync_quarantined"],
                 "enabled": True,
             }
         except Exception as exc:

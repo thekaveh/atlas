@@ -439,6 +439,7 @@ BEGIN
        AND NOT EXISTS (
            SELECT 1 FROM public.memory_facts
             WHERE vector_sync_pending = true
+              AND vector_sync_attempts < 3
        )
     RETURNING true INTO completed;
     RETURN COALESCE(completed, false);
@@ -624,6 +625,22 @@ END
 $$;
 
 ALTER FUNCTION public.mark_memory_weaviate_dirty() OWNER TO supabase_admin;
+
+CREATE FUNCTION public.reset_memory_vector_sync_quarantine() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'pg_catalog', 'pg_temp'
+    AS $$
+BEGIN
+    IF NOT NEW.vector_sync_pending
+       OR NEW.content IS DISTINCT FROM OLD.content THEN
+        NEW.vector_sync_attempts := 0;
+        NEW.vector_sync_error := NULL;
+    END IF;
+    RETURN NEW;
+END
+$$;
+
+ALTER FUNCTION public.reset_memory_vector_sync_quarantine() OWNER TO supabase_admin;
 
 CREATE FUNCTION public.set_memory_weaviate_rebuild_required(required boolean) RETURNS void
     LANGUAGE plpgsql SECURITY DEFINER
@@ -850,6 +867,8 @@ CREATE TABLE public.memory_facts (
     created_at timestamp with time zone DEFAULT now(),
     updated_at timestamp with time zone DEFAULT now(),
     expires_at timestamp with time zone,
+    vector_sync_attempts integer DEFAULT 0 NOT NULL,
+    vector_sync_error text,
     CONSTRAINT memory_facts_confidence_check CHECK (((confidence >= (0.0)::double precision) AND (confidence <= (1.0)::double precision))),
     CONSTRAINT memory_facts_embedding_dimension CHECK (((embedding IS NULL) OR (public.vector_dims(embedding) = 768))),
     CONSTRAINT memory_facts_fact_type_check CHECK (((fact_type)::text = ANY ((ARRAY['observation'::character varying, 'preference'::character varying, 'instruction'::character varying, 'relationship'::character varying, 'event'::character varying])::text[])))
@@ -1120,6 +1139,8 @@ CREATE INDEX path_tokens_idx ON storage.objects USING gin (path_tokens);
 
 CREATE TRIGGER on_auth_user_sync AFTER INSERT OR DELETE OR UPDATE OF email, raw_user_meta_data ON auth.users FOR EACH ROW EXECUTE FUNCTION public.handle_auth_user_sync();
 
+CREATE TRIGGER reset_memory_facts_vector_sync_quarantine BEFORE UPDATE OF vector_sync_pending, content ON public.memory_facts FOR EACH ROW EXECUTE FUNCTION public.reset_memory_vector_sync_quarantine();
+
 CREATE TRIGGER update_memory_facts_updated_at BEFORE UPDATE ON public.memory_facts FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
 CREATE TRIGGER update_research_sessions_updated_at BEFORE UPDATE ON public.research_sessions FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
@@ -1190,7 +1211,7 @@ CREATE POLICY "Atlas open-webui identity sync" ON public.users TO atlas_open_web
    FROM auth.users a
   WHERE (a.id = users.id)))));
 
-CREATE POLICY "Atlas upstream migration roles" ON public.schema_migrations TO supabase_auth_admin, atlas_realtime USING (true) WITH CHECK (true);
+CREATE POLICY "Atlas upstream migration roles" ON public.schema_migrations TO atlas_realtime, supabase_auth_admin USING (true) WITH CHECK (true);
 
 CREATE POLICY "Service role can access all comfyui generations" ON public.comfyui_generations USING ((auth.role() = 'service_role'::text));
 
@@ -1260,9 +1281,9 @@ ALTER TABLE public.schema_migrations ENABLE ROW LEVEL SECURITY;
 
 ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY atlas_reader_select ON storage.buckets FOR SELECT TO atlas_studio_readonly, atlas_airflow_reader, atlas_mcp, atlas_jupyter, atlas_zeppelin USING (true);
+CREATE POLICY atlas_reader_select ON storage.buckets FOR SELECT TO atlas_airflow_reader, atlas_jupyter, atlas_mcp, atlas_studio_readonly, atlas_zeppelin USING (true);
 
-CREATE POLICY atlas_reader_select ON storage.objects FOR SELECT TO atlas_studio_readonly, atlas_airflow_reader, atlas_mcp, atlas_jupyter, atlas_zeppelin USING (true);
+CREATE POLICY atlas_reader_select ON storage.objects FOR SELECT TO atlas_airflow_reader, atlas_jupyter, atlas_mcp, atlas_studio_readonly, atlas_zeppelin USING (true);
 
 ALTER TABLE storage.buckets ENABLE ROW LEVEL SECURITY;
 
@@ -3464,6 +3485,10 @@ GRANT ALL ON FUNCTION public.postgis_wagyu_version() TO postgres;
 GRANT ALL ON FUNCTION public.postgis_wagyu_version() TO anon;
 GRANT ALL ON FUNCTION public.postgis_wagyu_version() TO authenticated;
 GRANT ALL ON FUNCTION public.postgis_wagyu_version() TO service_role;
+
+REVOKE ALL ON FUNCTION public.reset_memory_vector_sync_quarantine() FROM PUBLIC;
+GRANT ALL ON FUNCTION public.reset_memory_vector_sync_quarantine() TO postgres;
+GRANT ALL ON FUNCTION public.reset_memory_vector_sync_quarantine() TO service_role;
 
 REVOKE ALL ON FUNCTION public.set_memory_weaviate_rebuild_required(required boolean) FROM PUBLIC;
 GRANT ALL ON FUNCTION public.set_memory_weaviate_rebuild_required(required boolean) TO postgres;

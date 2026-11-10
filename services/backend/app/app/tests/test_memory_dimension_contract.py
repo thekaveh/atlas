@@ -1327,7 +1327,7 @@ async def test_missing_collection_marks_dirty_before_creation(monkeypatch):
     "existing_module",
     [
         {"model": "old-model", "baseURL": "http://litellm:4000"},
-        {"model": "nomic-embed-text", "baseURL": "http://other:4000"},
+        {"model": "ollama/nomic-embed-text", "baseURL": "http://other:4000"},
     ],
 )
 @pytest.mark.asyncio
@@ -1383,7 +1383,8 @@ async def test_collection_model_or_base_url_mismatch_forces_recreation(
     mark.assert_awaited_once()
     assert calls[0] == "delete"
     assert calls[1][0] == "create"
-    assert calls[1][1]["model"] == "nomic-embed-text"
+    # #1365: the exact LiteLLM alias, not the alias minus its first segment.
+    assert calls[1][1]["model"] == "ollama/nomic-embed-text"
     assert calls[1][1]["baseURL"] == "http://litellm:4000"
 
 
@@ -1455,7 +1456,7 @@ async def test_exact_collection_contract_is_left_intact(monkeypatch):
                 "vectorizer": "text2vec-openai",
                 "moduleConfig": {
                     "text2vec-openai": {
-                        "model": "nomic-embed-text",
+                        "model": "ollama/nomic-embed-text",
                         "baseURL": "http://litellm:4000/",
                     }
                 },

@@ -13,6 +13,9 @@ from bootstrapper.tests import seed_harness
 
 REPO = Path(__file__).resolve().parents[2]
 MIGRATION = REPO / "services/supabase/db/scripts/14-backend-memory.sql"
+QUARANTINE_MIGRATION = (
+    REPO / "services/supabase/db/scripts/18-backend-memory-vector-quarantine.sql"
+)
 RUNNER = REPO / "services/supabase/db/scripts/db-init-runner.sh"
 SUPABASE_COMPOSE = REPO / "services/supabase/compose.yml"
 BACKEND_COMPOSE = REPO / "services/backend/compose.yml"
@@ -1091,6 +1094,80 @@ def test_real_pgvector_failback_cas_waits_for_durable_retirement_intent(
     ).stdout.strip().splitlines()
 
     assert [line for line in result if line in {"f", "t"}] == ["t", "f", "t"]
+
+
+def test_quarantine_slice_replaces_the_completion_body_after_the_memory_slice():
+    sql = QUARANTINE_MIGRATION.read_text(encoding="utf-8")
+
+    assert QUARANTINE_MIGRATION.name > MIGRATION.name
+    assert "ADD COLUMN IF NOT EXISTS vector_sync_attempts INTEGER NOT NULL DEFAULT 0" in sql
+    assert "ADD COLUMN IF NOT EXISTS vector_sync_error TEXT" in sql
+    assert "CREATE OR REPLACE FUNCTION public.complete_memory_weaviate_rebuild(" in sql
+    assert "AND vector_sync_attempts < 3" in sql
+    assert "BEFORE UPDATE OF vector_sync_pending, content ON public.memory_facts" in sql
+    assert "18-backend-memory-vector-quarantine.sql replaces this body" in (
+        MIGRATION.read_text(encoding="utf-8")
+    )
+
+
+def test_real_pgvector_quarantined_fact_stops_blocking_failback(disposable_pgvector):
+    """#1365: three recorded rejections quarantine a pending fact. A sync or
+    a content edit resets the count; a retirement keeps it."""
+    container = disposable_pgvector
+    _apply_seed_scripts(container, 768)
+
+    def complete():
+        return """
+        SELECT public.complete_memory_weaviate_rebuild(
+                   (SELECT weaviate_dirty_generation
+                      FROM public.memory_embedding_schema_state),
+                   'test/embed', 768);
+        """
+
+    def reject():
+        return """
+        UPDATE public.memory_facts
+           SET vector_sync_pending = true,
+               vector_sync_attempts = vector_sync_attempts + 1,
+               vector_sync_error = 'HTTPStatusError: HTTP 422'
+         WHERE content LIKE 'rejected%';
+        """
+
+    def state(label):
+        return f"""
+        SELECT '{label}:' || vector_sync_attempts || ':'
+               || coalesce(vector_sync_error, '-') || ':' || vector_sync_pending
+          FROM public.memory_facts WHERE content LIKE 'rejected%';
+        """
+
+    result = _psql(
+        container,
+        "SELECT public.ensure_memory_weaviate_identity('test/embed', 768);"
+        "INSERT INTO public.memory_facts (content, vector_sync_pending) "
+        "VALUES ('rejected', true);"
+        + "SELECT public.mark_memory_weaviate_dirty();"
+        + reject() + reject() + complete() + state("two")
+        + reject() + complete() + state("three")
+        + "UPDATE public.memory_facts SET content = 'rejected, edited' "
+          "WHERE content = 'rejected';"
+        + state("edited")
+        + reject() + reject() + reject()
+        + "UPDATE public.memory_facts SET is_active = false, vector_sync_pending = true "
+          "WHERE content LIKE 'rejected%';"
+        + state("retired")
+        + "UPDATE public.memory_facts SET vector_sync_pending = false "
+          "WHERE content LIKE 'rejected%';"
+        + state("synced"),
+    ).stdout.strip().splitlines()
+
+    assert [line for line in result if line in {"f", "t"}] == ["f", "t"]
+    assert [line for line in result if ":" in line] == [
+        "two:2:HTTPStatusError: HTTP 422:true",
+        "three:3:HTTPStatusError: HTTP 422:true",
+        "edited:0:-:true",
+        "retired:3:HTTPStatusError: HTTP 422:true",
+        "synced:0:-:false",
+    ]
 
 
 @pytest.mark.parametrize("target_dimension", [1536, 3072])

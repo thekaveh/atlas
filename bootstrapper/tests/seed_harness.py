@@ -612,6 +612,20 @@ def run_role_drill_client(
     return outcome
 
 
+_POLICY_ROLES = re.compile(r"^(CREATE POLICY .+? TO )(.+?)( USING | WITH CHECK |;)")
+
+
+def _sort_policy_roles(line: str) -> str:
+    """Sort a policy's TO role list. Postgres treats it as a set, but a
+    DROP and CREATE on a second run can list the same roles in another
+    order, which broke the idempotency comparison."""
+    match = _POLICY_ROLES.match(line)
+    if not match:
+        return line
+    roles = ", ".join(sorted(role.strip() for role in match.group(2).split(",")))
+    return f"{match.group(1)}{roles}{match.group(3)}{line[match.end():]}"
+
+
 def _normalize(dump: str) -> str:
     """Drop pg_dump's comment lines (version banners etc.) and collapse blank
     lines, so the comparison is structural and image-patch-stable.
@@ -623,6 +637,7 @@ def _normalize(dump: str) -> str:
     psql's restricted mode, not schema content."""
     out: list[str] = []
     for line in dump.splitlines():
+        line = _sort_policy_roles(line)
         if line.startswith("--"):
             continue
         if line.startswith("\\restrict") or line.startswith("\\unrestrict"):
