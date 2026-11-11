@@ -58,6 +58,8 @@ BUILT_IN_CONSUMER_ENV = {
     "MINIO_BUCKET_ICEBERG_CHECKPOINTS": "checkpoints",
     "MINIO_BUCKET_ICEBERG_LANDING": "landing",
     "MINIO_ICEBERG_ACCESS_KEY": "iceberg-ak",
+    "MINIO_JENKINS_ACCESS_KEY": "jenkins-ak",
+    "MINIO_JENKINS_SECRET_KEY": "jenkins-sk",
     "MINIO_ICEBERG_SECRET_KEY": "iceberg-sk",
     "MINIO_BUCKET_ASSET_INPUTS": "raw-assets",
     "MINIO_ASSET_INGEST_ACCESS_KEY": "asset-ingest-ak",
@@ -194,7 +196,17 @@ printf '%s\n' "$*" >>"$MC_LOG"
 case "$1 $2 $3 $4" in
   "admin policy create local") cp "$6" "$MC_CAPTURE/named-$5.json" ;;
   "admin policy info local") exit 1 ;;
-  "admin user svcacct info") [ "${FAKE_SVCACCT_EXISTS:-}" = 1 ]; exit $? ;;
+  "admin user svcacct info")
+    # argv: admin user svcacct info local <account> [--json]
+    if [ "$7" = "--json" ]; then
+      printf '{"accessKey":"%s","description":"%s"}\n' "$6" "$(cat "$MC_CAPTURE/desc-$6" 2>/dev/null)"
+      exit 0
+    fi
+    [ "${FAKE_SVCACCT_EXISTS:-}" = 1 ]; exit $? ;;
+  "admin user svcacct ls")
+    for account in ${FAKE_ACCOUNTS:-}; do printf '{"accessKey":"%s"}\n' "$account"; done
+    exit 0 ;;
+  "admin user svcacct rm") printf '%s\n' "$6" >> "$MC_CAPTURE/removed"; exit 0 ;;
   "admin user svcacct add"|"admin user svcacct edit")
     access=; policy=; secret=; prev=
     [ "$4" = edit ] && access=$6
@@ -217,12 +229,12 @@ exit 0
 
 def _run_minio_init(tmp_path: Path, overrides: dict[str, str]) -> tuple[subprocess.CompletedProcess[str], str]:
     bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
+    bin_dir.mkdir(exist_ok=True)
     stub = bin_dir / "mc"
     stub.write_text(_FAKE_MC, encoding="utf-8")
     stub.chmod(0o755)
     capture = tmp_path / "capture"
-    capture.mkdir()
+    capture.mkdir(exist_ok=True)
     command_log = tmp_path / "mc.log"
     env = os.environ.copy()
     env.update(BUILT_IN_CONSUMER_ENV)
@@ -385,3 +397,36 @@ def test_minio_init_still_reports_a_failed_service_account_write(tmp_path: Path)
     result, _ = _run_minio_init(tmp_path, {**_DAYDREAMS_ENV, "FAKE_SVCACCT_FAIL": "1"})
 
     assert (result.returncode != 0, "Unable to add service account" in result.stderr) == (True, True)
+
+
+def test_minio_init_revokes_only_superseded_atlas_managed_accounts(tmp_path):
+    """#1385: an account Atlas created for a consumer whose key is no longer
+    managed is revoked. A current Atlas account and an account an operator made
+    by hand (no atlas-managed description) survive."""
+    accounts = {
+        "old-ak": "atlas-managed:backend",
+        "daydreams-ak": "atlas-managed:daydreams",
+        "handmade-ak": "",
+    }
+    result, _ = _run_minio_init(tmp_path, {
+        **_DAYDREAMS_ENV, "FAKE_ACCOUNTS": " ".join(accounts),
+        **{}})
+    for access, description in accounts.items():
+        (tmp_path / "capture" / f"desc-{access}").write_text(description, encoding="utf-8")
+    result, _ = _run_minio_init(tmp_path, {
+        **_DAYDREAMS_ENV, "FAKE_ACCOUNTS": " ".join(accounts)})
+
+    removed = (tmp_path / "capture" / "removed").read_text(encoding="utf-8").split()
+    assert (result.returncode, removed) == (0, ["old-ak"])
+
+
+def test_jenkins_gets_an_account_that_can_write_only_the_jars_bucket(tmp_path):
+    """#1385: Jenkins publishes JARs, so its key reaches the jars bucket only;
+    the Iceberg key stays on the Iceberg consumer."""
+    result, log = _run_minio_init(tmp_path, {**_DAYDREAMS_ENV})
+
+    assert result.returncode == 0, result.stderr + result.stdout
+    assert "svcacct add local minioadmin --access-key jenkins-ak" in log
+    policy = _policy(tmp_path, "named-jenkins-policy.json")
+    resources = [r for statement in policy["Statement"] for r in statement["Resource"]]
+    assert resources == ["arn:aws:s3:::jars/*", "arn:aws:s3:::jars"]

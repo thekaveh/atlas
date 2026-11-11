@@ -62,7 +62,7 @@ Auto-managed (resolved by the bootstrapper from `AIRFLOW_SOURCE`; do not hand-ed
 | `litellm_default` | openai | `http://litellm:4000/v1` with `LITELLM_MASTER_KEY` (the `/v1` lives in conn.host because OpenAIHook ignores `api_base` extras) | always (LiteLLM is locked always-on) |
 | `redis_default` | redis | `redis:6379` with `REDIS_PASSWORD` | always (Redis ships container-only always-on, auth-on by default) |
 | `spark_default` | spark | `spark://spark-master:7077` with `deploy-mode=cluster`, `spark-binary=spark-submit` | `SPARK_SOURCE=container` |
-| `minio_default` | aws (S3-compat) | `http://minio:9000` with root creds, path-style addressing, region `us-east-1` | `MINIO_SOURCE=container` |
+| `minio_default` | aws (S3-compat) | `http://minio:9000` with the scoped `spark` credentials, path-style addressing, region `us-east-1` | `MINIO_SOURCE=container` |
 | `weaviate_default` | weaviate | host `weaviate`, port `8080`, gRPC `weaviate:50051` (via extra) | `WEAVIATE_SOURCE=container` (NOT `localhost` — the in-Compose DNS does not resolve in host-mode) |
 | `neo4j_default` | neo4j | host `neo4j-graph-db`, port `7687`, login `${GRAPH_DB_USER}`, password `${GRAPH_DB_PASSWORD}` (Hook prepends `bolt://`) | `NEO4J_GRAPH_DB_SOURCE=container` (same caveat) |
 
@@ -71,7 +71,7 @@ Seeding is idempotent: `airflow-init` deletes and re-adds each Connection on eve
 - the source is `container` (the Connection is re-seeded) or `disabled`;
 - a `localhost` source still has the in-Compose Connection Atlas seeded earlier (host `weaviate` / `neo4j-graph-db`).
 
-**Trusted DAG boundary.** LocalExecutor does not sandbox DAG code. DAGs run in the scheduler's process pool and can read every seeded Connection. These hold MinIO root, LiteLLM master, Neo4j administrator, the scoped Supabase reader role (`AIRFLOW_ATLAS_DB_USER`) and Redis credentials. Only trusted authors may supply DAGs. Atlas does not provide tenant isolation for untrusted DAG code.
+**Trusted DAG boundary.** LocalExecutor does not sandbox DAG code. DAGs run in the scheduler's process pool and can read every seeded Connection. These hold the scoped MinIO `spark` pair, LiteLLM master, Neo4j administrator, the scoped Supabase reader role (`AIRFLOW_ATLAS_DB_USER`) and Redis credentials. Only trusted authors may supply DAGs. Atlas does not provide tenant isolation for untrusted DAG code.
 
 **Reading a seeded Connection outside a task.** DAG tasks use hooks and operators, for example `S3Hook(aws_conn_id="minio_default")` and `SparkSubmitOperator(conn_id="spark_default")`. Scripts run with `docker exec … python` are outside a task execution context. There, `BaseHook.get_connection()` or hook construction can raise `AirflowNotFoundException`, even though `airflow connections get minio_default` shows the row. In preflight scripts, read the metadata DB directly:
 

@@ -1,5 +1,6 @@
 """Contract tests for Spark's baked Iceberg lakehouse integration."""
 
+import re
 from pathlib import Path
 
 import yaml
@@ -70,8 +71,7 @@ def test_spark_connect_defaults_include_lakehouse_rest_catalog():
         "spark.sql.catalog.lakehouse.io-impl=org.apache.iceberg.aws.s3.S3FileIO",
         "spark.sql.catalog.lakehouse.s3.endpoint=http://minio:9000",
         "spark.sql.catalog.lakehouse.s3.path-style-access=true",
-        "spark.sql.catalog.lakehouse.s3.access-key-id=${MINIO_ICEBERG_ACCESS_KEY}",
-        "spark.sql.catalog.lakehouse.s3.secret-access-key=${MINIO_ICEBERG_SECRET_KEY}",
+        "spark.sql.catalog.lakehouse.client.credentials-provider=software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider",
         "spark.sql.catalog.lakehouse.client.region=${MINIO_REGION:-us-east-1}",
     }
     for conf in expected_confs:
@@ -140,3 +140,20 @@ def test_every_iceberg_client_derives_bucket_and_region_from_the_same_vars():
         "tracking the variables minio-init and the other clients use:\n  "
         + "\n  ".join(offenders)
     )
+
+
+def test_no_minio_secret_is_passed_on_a_spark_command_line():
+    """#1884: a MinIO secret on a --conf or -D argument shows in `ps` and
+    `docker top` for the life of the container. The services take the spark
+    account from the environment instead."""
+    root = Path(__file__).resolve().parents[2]
+    secret = re.compile(r"\$\{MINIO_\w*(ACCESS|SECRET)_KEY\}")
+    leaks = []
+    for relative in (
+        "services/spark/compose.yml", "services/spark/service.yml",
+        "services/zeppelin/compose.yml", "services/zeppelin/service.yml",
+    ):
+        for number, line in enumerate((root / relative).read_text(encoding="utf-8").splitlines(), 1):
+            if secret.search(line) and ("--conf" in line or "-D" in line or line.lstrip().startswith("- spark.")):
+                leaks.append(f"{relative}:{number}")
+    assert leaks == []

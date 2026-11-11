@@ -36,6 +36,7 @@ langfuse:MINIO_BUCKET_LANGFUSE:MINIO_LANGFUSE_ACCESS_KEY:MINIO_LANGFUSE_SECRET_K
 mlflow:MINIO_BUCKET_MLFLOW:MINIO_MLFLOW_ACCESS_KEY:MINIO_MLFLOW_SECRET_KEY
 label-studio:MINIO_BUCKET_LABEL_STUDIO:MINIO_LABEL_STUDIO_ACCESS_KEY:MINIO_LABEL_STUDIO_SECRET_KEY
 iceberg:MINIO_BUCKET_ICEBERG_LAKEHOUSE:MINIO_ICEBERG_ACCESS_KEY:MINIO_ICEBERG_SECRET_KEY:MINIO_BUCKET_ICEBERG_JARS,MINIO_BUCKET_ICEBERG_CHECKPOINTS,MINIO_BUCKET_ICEBERG_LANDING
+jenkins:MINIO_BUCKET_ICEBERG_JARS:MINIO_JENKINS_ACCESS_KEY:MINIO_JENKINS_SECRET_KEY
 asset-ingest:MINIO_BUCKET_ASSET_INPUTS:MINIO_ASSET_INGEST_ACCESS_KEY:MINIO_ASSET_INGEST_SECRET_KEY
 asset-worker:ASSET_WORKER_MINIO_BUCKET:MINIO_ASSET_WORKER_ACCESS_KEY:MINIO_ASSET_WORKER_SECRET_KEY::MINIO_BUCKET_ASSET_INPUTS
 asset-baker:ASSET_BAKER_MINIO_BUCKET:MINIO_ASSET_BAKER_ACCESS_KEY:MINIO_ASSET_BAKER_SECRET_KEY::MINIO_BUCKET_ASSET_INPUTS
@@ -47,6 +48,11 @@ if [ -n "${MINIO_EXTRA_CONSUMERS:-}" ]; then
 ${extra_entry}"
     done
 fi
+
+# Access keys this run manages. The loop below runs in a pipeline subshell,
+# so it records them in a file; the prune step reads that file (#1385).
+access_keys_file=/tmp/minio-managed-access-keys
+: > "$access_keys_file"
 
 printf '%s\n' "$consumer_entries" | while IFS= read -r entry; do
     [ -z "$entry" ] && continue
@@ -67,6 +73,7 @@ printf '%s\n' "$consumer_entries" | while IFS= read -r entry; do
     eval "bucket=\${$bucket_var:-}"
     eval "access=\${$access_var:-}"
     eval "secret=\${$secret_var:-}"
+    echo "$access" >> "$access_keys_file"
 
     if [ -z "$bucket" ] || [ -z "$access" ] || [ -z "$secret" ]; then
         echo "minio-init: ERROR — missing env for consumer '$consumer' ($bucket_var/$access_var/$secret_var)" >&2
@@ -192,6 +199,7 @@ EOF
     # inline policy so .env rotations and bucket renames actually
     # propagate (the old skip-if-exists path silently never updated
     # either).
+    atlas_managed_description="atlas-managed:${consumer}"
     if mc admin user svcacct info local "$access" >/dev/null 2>&1; then
         echo "minio-init: service account '$access' exists - refreshing secret + policy..."
         # mc has no stdin form for --secret-key; this argv exposure is #1381.
@@ -199,17 +207,55 @@ EOF
         # failure still names its cause (#1974).
         mc admin user svcacct edit local "$access" \
             --secret-key "$secret" \
-            --policy "$policy_file" >/dev/null
+            --policy "$policy_file" \
+            --description "$atlas_managed_description" >/dev/null
     else
         echo "minio-init: creating service account '$access' for bucket(s) '$buckets'..."
         # `svcacct add` prints "Access Key:" and "Secret Key:" on success (#1974).
         mc admin user svcacct add local "$MINIO_ROOT_USER" \
             --access-key "$access" \
             --secret-key "$secret" \
-            --policy "$policy_file" >/dev/null
+            --policy "$policy_file" \
+            --description "$atlas_managed_description" >/dev/null
     fi
 
     rm -f "$policy_file"
 done
+
+# Revoke superseded accounts (#1385). Only accounts tagged atlas-managed:<consumer>
+# are candidates, so an account an operator made by hand survives. An account is
+# superseded when its access key is no longer one this run manages (a rotated
+# .env key, or a consumer removed from MINIO_EXTRA_CONSUMERS).
+# The mc image has no sed or grep, so this uses shell parameter expansion only.
+json_field() { # json_field <name> <line>: print a JSON string value from one line
+    rest=${2#*\""$1"\":\"}
+    [ "$rest" = "$2" ] && return 0
+    printf '%s\n' "${rest%%\"*}"
+}
+is_managed_access_key() { # is_managed_access_key <access-key>
+    while IFS= read -r managed; do
+        [ "$managed" = "$1" ] && return 0
+    done < "$access_keys_file"
+    return 1
+}
+prune_superseded_accounts() {
+    mc admin user svcacct ls local "$MINIO_ROOT_USER" --json 2>/dev/null \
+        | while IFS= read -r line; do
+            account=$(json_field accessKey "$line")
+            [ -n "$account" ] || continue
+            description=$(json_field description "$(mc admin user svcacct info local "$account" --json 2>/dev/null)")
+            case "$description" in
+                atlas-managed:*) ;;
+                *) continue ;;
+            esac
+            if is_managed_access_key "$account"; then
+                continue
+            fi
+            echo "minio-init: revoking superseded service account '$account' (${description#atlas-managed:})"
+            mc admin user svcacct rm local "$account" >/dev/null
+        done
+}
+prune_superseded_accounts
+rm -f "$access_keys_file"
 
 echo "minio-init: provisioning complete"
