@@ -129,6 +129,8 @@ runtime_sc:
         MINIO_BUCKET_SPARK_HISTORY: ${MINIO_BUCKET_SPARK_HISTORY:-spark-history}
         MINIO_SPARK_ACCESS_KEY: ${MINIO_SPARK_ACCESS_KEY}
         MINIO_SPARK_SECRET_KEY: ${MINIO_SPARK_SECRET_KEY}
+        AWS_ACCESS_KEY_ID: ${MINIO_SPARK_ACCESS_KEY}
+        AWS_SECRET_ACCESS_KEY: ${MINIO_SPARK_SECRET_KEY}
         MINIO_BUCKET_ICEBERG_LAKEHOUSE: ${MINIO_BUCKET_ICEBERG_LAKEHOUSE:-lakehouse}
         MINIO_ICEBERG_ACCESS_KEY: ${MINIO_ICEBERG_ACCESS_KEY}
         MINIO_ICEBERG_SECRET_KEY: ${MINIO_ICEBERG_SECRET_KEY}
@@ -145,8 +147,7 @@ runtime_sc:
           --conf spark.driver.host=zeppelin
           --conf spark.cores.max=${ZEPPELIN_SPARK_CORES_MAX:-1}
           --conf spark.hadoop.fs.s3a.endpoint=http://minio:9000
-          --conf spark.hadoop.fs.s3a.access.key=${MINIO_SPARK_ACCESS_KEY}
-          --conf spark.hadoop.fs.s3a.secret.key=${MINIO_SPARK_SECRET_KEY}
+          --conf spark.hadoop.fs.s3a.aws.credentials.provider=software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider
           --conf spark.hadoop.fs.s3a.path.style.access=true
           --conf spark.hadoop.fs.s3a.endpoint.region=${MINIO_REGION:-us-east-1}
           --conf spark.hadoop.fs.s3a.connection.ssl.enabled=false
@@ -158,8 +159,7 @@ runtime_sc:
           --conf spark.sql.catalog.lakehouse.io-impl=org.apache.iceberg.aws.s3.S3FileIO
           --conf spark.sql.catalog.lakehouse.s3.endpoint=http://minio:9000
           --conf spark.sql.catalog.lakehouse.s3.path-style-access=true
-          --conf spark.sql.catalog.lakehouse.s3.access-key-id=${MINIO_ICEBERG_ACCESS_KEY}
-          --conf spark.sql.catalog.lakehouse.s3.secret-access-key=${MINIO_ICEBERG_SECRET_KEY}
+          --conf spark.sql.catalog.lakehouse.client.credentials-provider=software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider
           --conf spark.sql.catalog.lakehouse.client.region=${MINIO_REGION:-us-east-1}
           --conf spark.eventLog.enabled=true
           --conf spark.eventLog.dir=s3a://${MINIO_BUCKET_SPARK_HISTORY:-spark-history}/

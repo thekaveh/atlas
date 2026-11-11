@@ -162,12 +162,13 @@ runtime_sc:
     container:
       scale: 1
       environment:
+        AWS_ACCESS_KEY_ID: ${MINIO_SPARK_ACCESS_KEY}
+        AWS_SECRET_ACCESS_KEY: ${MINIO_SPARK_SECRET_KEY}
         SPARK_KAFKA_BOOTSTRAP_SERVERS: ${SPARK_KAFKA_BOOTSTRAP_SERVERS:-}
         SPARK_HISTORY_OPTS: >-
           -Dspark.history.fs.logDirectory=s3a://${MINIO_BUCKET_SPARK_HISTORY:-spark-history}/
           -Dspark.hadoop.fs.s3a.endpoint=http://minio:9000
-          -Dspark.hadoop.fs.s3a.access.key=${MINIO_SPARK_ACCESS_KEY}
-          -Dspark.hadoop.fs.s3a.secret.key=${MINIO_SPARK_SECRET_KEY}
+          -Dspark.hadoop.fs.s3a.aws.credentials.provider=software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider
           -Dspark.hadoop.fs.s3a.path.style.access=true
           -Dspark.hadoop.fs.s3a.endpoint.region=${MINIO_REGION:-us-east-1}
       deploy: {}
@@ -185,6 +186,8 @@ runtime_sc:
     container:
       scale: 1
       environment:
+        AWS_ACCESS_KEY_ID: ${MINIO_SPARK_ACCESS_KEY}
+        AWS_SECRET_ACCESS_KEY: ${MINIO_SPARK_SECRET_KEY}
         SPARK_KAFKA_BOOTSTRAP_SERVERS: ${SPARK_KAFKA_BOOTSTRAP_SERVERS:-}
       deploy: {}
       extra_hosts: []

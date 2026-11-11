@@ -62,7 +62,7 @@ A downstream pipeline can publish with `mc`. The `set +x` line stops Jenkins fro
 sh 'mvn -q package'
 sh '''
 set +x
-printf '%s\n%s\n' "$MINIO_ICEBERG_ACCESS_KEY" "$MINIO_ICEBERG_SECRET_KEY" | mc alias set atlas "$MINIO_ENDPOINT" >/dev/null
+printf '%s\n%s\n' "$MINIO_JENKINS_ACCESS_KEY" "$MINIO_JENKINS_SECRET_KEY" | mc alias set atlas "$MINIO_ENDPOINT" >/dev/null
 '''
 sh 'mc cp target/*.jar "atlas/${MINIO_BUCKET_ICEBERG_JARS}/<app>/<version>/app.jar"'
 ```
@@ -91,7 +91,7 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 ## 7. Troubleshooting
 
 - **Login rejected** — check `JENKINS_ADMIN_USER` and `JENKINS_ADMIN_PASSWORD` in `.env`. After a change, rerun `./start.sh`: the container must be recreated to receive the new values, and JCasC applies them at startup. A plain `docker restart` keeps the old values.
-- **Artifact upload fails** — verify MinIO is enabled, `minio-init` completed, and `MINIO_ICEBERG_ACCESS_KEY` / `MINIO_ICEBERG_SECRET_KEY` are populated.
+- **Artifact upload fails** — verify MinIO is enabled, `minio-init` completed, and `MINIO_JENKINS_ACCESS_KEY` / `MINIO_JENKINS_SECRET_KEY` are populated.
 
 ## 8. Dependencies & Integrations
 

@@ -39,6 +39,12 @@ python3 /scripts/resolve-models.py > /app/data/.env.tmp
 mv /app/data/.env.tmp /app/data/.env
 
 if [ -n "${LIGHTRAG_PG_URI:-}" ]; then
+  # Keep the Postgres password out of argv (#1381): psql gets a password-free
+  # URI and PGPASSWORD. The password is percent-decoded the way libpq decodes it.
+  pg_password_raw=$(printf '%s' "$LIGHTRAG_PG_URI" | sed -n 's#^[^:]*://[^:]*:\([^@]*\)@.*#\1#p')
+  PGPASSWORD=$(printf '%s' "$pg_password_raw" | python3 -c 'import sys, urllib.parse as u; sys.stdout.write(u.unquote(sys.stdin.read()))')
+  export PGPASSWORD
+  LIGHTRAG_PG_URI_NOPASS=$(printf '%s' "$LIGHTRAG_PG_URI" | sed 's#^\([^:]*://[^:]*\):[^@]*@#\1@#')
   # Supabase DB is container-only, and lightrag-init already waits on it
   # through litellm's service_healthy gate. scripts/check-compose-source-deps.py
   # forbids a direct ('lightrag','supabase-db') edge so a local
@@ -48,7 +54,7 @@ if [ -n "${LIGHTRAG_PG_URI:-}" ]; then
   pg_ready=0
   attempt=0
   while [ "$attempt" -lt 60 ]; do
-    if psql "${LIGHTRAG_PG_URI}" -v ON_ERROR_STOP=1 -tAc 'SELECT 1' >/dev/null 2>&1; then
+    if psql "${LIGHTRAG_PG_URI_NOPASS}" -v ON_ERROR_STOP=1 -tAc 'SELECT 1' >/dev/null 2>&1; then
       pg_ready=1
       break
     fi
@@ -60,7 +66,7 @@ if [ -n "${LIGHTRAG_PG_URI:-}" ]; then
     exit 1
   fi
   echo "[lightrag-init] running pgvector migrations..."
-  psql "${LIGHTRAG_PG_URI}" -v ON_ERROR_STOP=1 -f /scripts/migrate-pgvector.sql
+  psql "${LIGHTRAG_PG_URI_NOPASS}" -v ON_ERROR_STOP=1 -f /scripts/migrate-pgvector.sql
 fi
 
 if [ -n "${LIGHTRAG_NEO4J_URI:-}" ]; then
@@ -84,14 +90,19 @@ if [ -n "${LIGHTRAG_NEO4J_URI:-}" ]; then
   else
     neo4j_http="http://${neo4j_host}:${NEO4J_LOCALHOST_HTTP_PORT:-7474}"
   fi
+  # Credentials go through a mode-0600 netrc file, not curl's argv (#1381).
+  neo4j_auth_host=$(printf '%s' "$neo4j_http" | sed -E 's#^https?://([^:/]+).*#\1#')
+  neo4j_netrc=$(mktemp)
+  printf 'machine %s login %s password %s\n' "$neo4j_auth_host" "$LIGHTRAG_NEO4J_USERNAME" "$LIGHTRAG_NEO4J_PASSWORD" > "$neo4j_netrc"
   http_status=$(curl -fs --max-time 30 -o /tmp/neo4j-resp.json -w '%{http_code}' \
-    -u "${LIGHTRAG_NEO4J_USERNAME}:${LIGHTRAG_NEO4J_PASSWORD}" \
+    --netrc-file "$neo4j_netrc" \
     -H 'Content-Type: application/json' \
     --data "$cypher_payload" \
     "${neo4j_http}/db/neo4j/tx/commit" 2>&1) || {
       echo "[lightrag-init] WARN: Neo4j migration HTTP call failed (curl exit $?)" >&2
       echo "[lightrag-init] response: $(cat /tmp/neo4j-resp.json 2>/dev/null)" >&2
     }
+  rm -f "$neo4j_netrc"
   if [ "$http_status" = "200" ] && jq -e '.errors == []' /tmp/neo4j-resp.json >/dev/null 2>&1; then
     echo "[lightrag-init] Neo4j migration: OK ($(jq -r '.results | length' /tmp/neo4j-resp.json) statements)"
   else

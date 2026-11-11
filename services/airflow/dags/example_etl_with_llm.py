@@ -42,6 +42,7 @@ from airflow.providers.openai.hooks.openai import OpenAIHook
 from airflow.providers.common.sql.operators.sql import SQLExecuteQueryOperator  # noqa: F401  # available for user DAGs
 # Airflow 3.x canonical path for core operators (was airflow.operators.python in 2.x).
 from airflow.providers.standard.operators.python import PythonOperator
+import os
 from datetime import datetime, timedelta
 
 
@@ -96,9 +97,12 @@ def summarize_via_litellm(**_ctx):
 
 
 def list_minio(**_ctx):
+    # head_bucket needs only s3:ListBucket on this bucket, which the scoped
+    # spark account has. list_buckets (ListAllMyBuckets) it lacks (#1487).
     s3 = S3Hook(aws_conn_id="minio_default")
-    buckets = s3.get_conn().list_buckets()["Buckets"]
-    print(f"buckets: {[b['Name'] for b in buckets]}")
+    bucket = os.environ.get("MINIO_BUCKET_ICEBERG_LANDING", "landing")
+    s3.get_conn().head_bucket(Bucket=bucket)
+    print(f"bucket reachable: {bucket}")
 
 
 with DAG(

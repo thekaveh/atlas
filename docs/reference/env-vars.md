@@ -645,6 +645,8 @@
 | MINIO_BUCKET_ICEBERG_LANDING | minio | landing | Landing bucket. The spark and iceberg service accounts can write it; Airflow, Zeppelin and JupyterHub receive its name. |
 | MINIO_ICEBERG_ACCESS_KEY | minio |  | Auto-generated scoped MinIO access key for the Iceberg lakehouse buckets. |
 | MINIO_ICEBERG_SECRET_KEY | minio |  | Auto-generated scoped MinIO secret key for the Iceberg lakehouse buckets. |
+| MINIO_JENKINS_ACCESS_KEY | minio |  | Auto-generated scoped MinIO access key for Jenkins. It can write the Iceberg JARs bucket only, so a job cannot rewrite lakehouse data. |
+| MINIO_JENKINS_SECRET_KEY | minio |  | Auto-generated scoped MinIO secret key for Jenkins. It can write the Iceberg JARs bucket only. |
 | MINIO_IMAGE | minio | pgsty/silo:RELEASE.2026-09-16T00-00-00Z@sha256:635197cb9f36d01bee221d34d1c7d7960f6a95c48b0b6c01d99cd13bdae51a46 | Silo, the Pigsty-maintained AGPL fork of the archived MinIO community server, pinned by tag and multi-arch digest. It keeps the `MINIO_*` environment, `/minio/*` routes, mc admin API and on-disk format. Its entrypoint maps `server` to `silo server`, so the compose command is unchanged. It carries the bounded S3 Select CSV reader fix for CVE-2026-39414. Review upstream security advisories before bumping. |
 | MINIO_INIT_IMAGE | minio | pgsty/mc:RELEASE.2026-09-16T00-00-00Z@sha256:cfc83108c3abb371f8fb84d99c1fdc88f8c237e022409b0081fb7c0a3be634dd | Container image for `minio-init`. |
 | MLFLOW_SOURCE | mlflow | disabled | MLflow deployment source: container or disabled. container requires MINIO_SOURCE=container for artifact storage. |
