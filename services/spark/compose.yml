@@ -169,6 +169,8 @@ services:
     # publishing the port; not in scope for the in-stack-only baseline.
     environment:
       SPARK_KAFKA_BOOTSTRAP_SERVERS: ${SPARK_KAFKA_BOOTSTRAP_SERVERS:-}
+      AWS_ACCESS_KEY_ID: ${MINIO_SPARK_ACCESS_KEY}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_SPARK_SECRET_KEY}
     command:
       - /opt/spark/sbin/start-connect-server.sh
       # `--wait` is the first arg → start-connect-server.sh shifts it and
@@ -190,9 +192,7 @@ services:
       - --conf
       - spark.hadoop.fs.s3a.endpoint=http://minio:9000
       - --conf
-      - spark.hadoop.fs.s3a.access.key=${MINIO_SPARK_ACCESS_KEY}
-      - --conf
-      - spark.hadoop.fs.s3a.secret.key=${MINIO_SPARK_SECRET_KEY}
+      - spark.hadoop.fs.s3a.aws.credentials.provider=software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider
       - --conf
       - spark.hadoop.fs.s3a.path.style.access=true
       # Without an explicit region, hadoop-aws 3.4 signs custom-endpoint
@@ -220,9 +220,7 @@ services:
       - --conf
       - spark.sql.catalog.lakehouse.s3.path-style-access=true
       - --conf
-      - spark.sql.catalog.lakehouse.s3.access-key-id=${MINIO_ICEBERG_ACCESS_KEY}
-      - --conf
-      - spark.sql.catalog.lakehouse.s3.secret-access-key=${MINIO_ICEBERG_SECRET_KEY}
+      - spark.sql.catalog.lakehouse.client.credentials-provider=software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider
       - --conf
       - spark.sql.catalog.lakehouse.client.region=${MINIO_REGION:-us-east-1}
       # Spark History needs DRIVERS to write event logs — spark-history's
@@ -274,11 +272,12 @@ services:
       # NOTE: dual-write — this block is the injection point.
       # Same SPARK_HISTORY_OPTS must appear in service.yml::runtime_sc.
       SPARK_KAFKA_BOOTSTRAP_SERVERS: ${SPARK_KAFKA_BOOTSTRAP_SERVERS:-}
+      AWS_ACCESS_KEY_ID: ${MINIO_SPARK_ACCESS_KEY}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_SPARK_SECRET_KEY}
       SPARK_HISTORY_OPTS: >-
         -Dspark.history.fs.logDirectory=s3a://${MINIO_BUCKET_SPARK_HISTORY:-spark-history}/
         -Dspark.hadoop.fs.s3a.endpoint=http://minio:9000
-        -Dspark.hadoop.fs.s3a.access.key=${MINIO_SPARK_ACCESS_KEY}
-        -Dspark.hadoop.fs.s3a.secret.key=${MINIO_SPARK_SECRET_KEY}
+        -Dspark.hadoop.fs.s3a.aws.credentials.provider=software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider
         -Dspark.hadoop.fs.s3a.path.style.access=true
         -Dspark.hadoop.fs.s3a.endpoint.region=${MINIO_REGION:-us-east-1}
     command:

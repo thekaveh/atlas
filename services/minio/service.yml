@@ -243,6 +243,14 @@ env:
     default: ""
     secret: true
     description: "Auto-generated scoped MinIO secret key for the Iceberg lakehouse buckets."
+  - name: MINIO_JENKINS_ACCESS_KEY
+    default: ""
+    secret: true
+    description: "Auto-generated scoped MinIO access key for Jenkins. It can write the Iceberg JARs bucket only, so a job cannot rewrite lakehouse data."
+  - name: MINIO_JENKINS_SECRET_KEY
+    default: ""
+    secret: true
+    description: "Auto-generated scoped MinIO secret key for Jenkins. It can write the Iceberg JARs bucket only."
 
 depends_on:
   # ORDERING-ONLY: the compose fragment has no supabase depends_on and

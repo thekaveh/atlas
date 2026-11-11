@@ -42,8 +42,8 @@ services:
       MINIO_ICEBERG_ACCESS_KEY: ''
       MINIO_ICEBERG_SECRET_KEY: ''
       MINIO_REGION: us-east-1
-      MINIO_ROOT_PASSWORD: ''
-      MINIO_ROOT_USER: minioadmin
+      MINIO_SPARK_SECRET_KEY: ''
+      MINIO_SPARK_ACCESS_KEY: ''
       SPARK_KAFKA_BOOTSTRAP_SERVERS: ''
       SPARK_MASTER_URL: spark://spark-master:7077
     healthcheck:
@@ -108,8 +108,8 @@ services:
       ICEBERG_REST_SOURCE: disabled
       LITELLM_MASTER_KEY: ''
       MINIO_REGION: us-east-1
-      MINIO_ROOT_PASSWORD: ''
-      MINIO_ROOT_USER: minioadmin
+      MINIO_SPARK_SECRET_KEY: ''
+      MINIO_SPARK_ACCESS_KEY: ''
       MINIO_SOURCE: container
       NEO4J_GRAPH_DB_SOURCE: container
       REDIS_PASSWORD: redis_password
@@ -175,8 +175,8 @@ services:
       MINIO_ICEBERG_ACCESS_KEY: ''
       MINIO_ICEBERG_SECRET_KEY: ''
       MINIO_REGION: us-east-1
-      MINIO_ROOT_PASSWORD: ''
-      MINIO_ROOT_USER: minioadmin
+      MINIO_SPARK_SECRET_KEY: ''
+      MINIO_SPARK_ACCESS_KEY: ''
       SPARK_KAFKA_BOOTSTRAP_SERVERS: ''
       SPARK_MASTER_URL: spark://spark-master:7077
     healthcheck:
@@ -246,8 +246,8 @@ services:
       MINIO_ICEBERG_ACCESS_KEY: ''
       MINIO_ICEBERG_SECRET_KEY: ''
       MINIO_REGION: us-east-1
-      MINIO_ROOT_PASSWORD: ''
-      MINIO_ROOT_USER: minioadmin
+      MINIO_SPARK_SECRET_KEY: ''
+      MINIO_SPARK_ACCESS_KEY: ''
       SPARK_KAFKA_BOOTSTRAP_SERVERS: ''
       SPARK_MASTER_URL: spark://spark-master:7077
     healthcheck:
@@ -1441,8 +1441,8 @@ services:
       KONG_HTTP_PORT: '63000'
       MINIO_BUCKET_ICEBERG_JARS: jars
       MINIO_ENDPOINT: http://minio:9000
-      MINIO_ICEBERG_ACCESS_KEY: ''
-      MINIO_ICEBERG_SECRET_KEY: ''
+      MINIO_JENKINS_ACCESS_KEY: ''
+      MINIO_JENKINS_SECRET_KEY: ''
       MINIO_REGION: us-east-1
     healthcheck:
       test:
@@ -2722,6 +2722,8 @@ services:
       MINIO_EXTRA_CONSUMERS: ''
       MINIO_ICEBERG_ACCESS_KEY: ''
       MINIO_ICEBERG_SECRET_KEY: ''
+      MINIO_JENKINS_ACCESS_KEY: ''
+      MINIO_JENKINS_SECRET_KEY: ''
       MINIO_JUPYTER_ACCESS_KEY: ''
       MINIO_JUPYTER_SECRET_KEY: ''
       MINIO_LABEL_STUDIO_ACCESS_KEY: ''
@@ -3905,9 +3907,7 @@ services:
     - --conf
     - spark.hadoop.fs.s3a.endpoint=http://minio:9000
     - --conf
-    - spark.hadoop.fs.s3a.access.key=
-    - --conf
-    - spark.hadoop.fs.s3a.secret.key=
+    - spark.hadoop.fs.s3a.aws.credentials.provider=software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider
     - --conf
     - spark.hadoop.fs.s3a.path.style.access=true
     - --conf
@@ -3929,9 +3929,7 @@ services:
     - --conf
     - spark.sql.catalog.lakehouse.s3.path-style-access=true
     - --conf
-    - spark.sql.catalog.lakehouse.s3.access-key-id=
-    - --conf
-    - spark.sql.catalog.lakehouse.s3.secret-access-key=
+    - spark.sql.catalog.lakehouse.client.credentials-provider=software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider
     - --conf
     - spark.sql.catalog.lakehouse.client.region=us-east-1
     - --conf
@@ -3950,6 +3948,8 @@ services:
       replicas: 0
     environment:
       SPARK_KAFKA_BOOTSTRAP_SERVERS: ''
+      AWS_ACCESS_KEY_ID: ''
+      AWS_SECRET_ACCESS_KEY: ''
     healthcheck:
       test:
       - CMD-SHELL
@@ -3984,10 +3984,10 @@ services:
     deploy:
       replicas: 0
     environment:
-      SPARK_HISTORY_OPTS: -Dspark.history.fs.logDirectory=s3a://spark-history/ -Dspark.hadoop.fs.s3a.endpoint=http://minio:9000
-        -Dspark.hadoop.fs.s3a.access.key= -Dspark.hadoop.fs.s3a.secret.key=
-        -Dspark.hadoop.fs.s3a.path.style.access=true -Dspark.hadoop.fs.s3a.endpoint.region=us-east-1
+      SPARK_HISTORY_OPTS: -Dspark.history.fs.logDirectory=s3a://spark-history/ -Dspark.hadoop.fs.s3a.endpoint=http://minio:9000 -Dspark.hadoop.fs.s3a.aws.credentials.provider=software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider -Dspark.hadoop.fs.s3a.path.style.access=true -Dspark.hadoop.fs.s3a.endpoint.region=us-east-1
       SPARK_KAFKA_BOOTSTRAP_SERVERS: ''
+      AWS_ACCESS_KEY_ID: ''
+      AWS_SECRET_ACCESS_KEY: ''
     image: atlas-spark:local
     logging:
       driver: json-file
@@ -5095,18 +5095,7 @@ services:
       SPARK_HOME: /opt/spark
       SPARK_KAFKA_BOOTSTRAP_SERVERS: ''
       SPARK_MASTER: spark://spark-master:7077
-      SPARK_SUBMIT_OPTIONS: --conf spark.submit.deployMode=client --conf spark.driver.bindAddress=0.0.0.0
-        --conf spark.driver.host=zeppelin --conf spark.cores.max=1 --conf spark.driver.memory=512m --conf spark.hadoop.fs.s3a.endpoint=http://minio:9000
-        --conf spark.hadoop.fs.s3a.access.key= --conf spark.hadoop.fs.s3a.secret.key=
-        --conf spark.hadoop.fs.s3a.path.style.access=true --conf spark.hadoop.fs.s3a.endpoint.region=us-east-1
-        --conf spark.hadoop.fs.s3a.connection.ssl.enabled=false --conf spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions
-        --conf spark.sql.catalog.lakehouse=org.apache.iceberg.spark.SparkCatalog --conf
-        spark.sql.catalog.lakehouse.type=rest --conf spark.sql.catalog.lakehouse.uri=http://iceberg-rest:8181
-        --conf spark.sql.catalog.lakehouse.warehouse=s3a://lakehouse/ --conf spark.sql.catalog.lakehouse.io-impl=org.apache.iceberg.aws.s3.S3FileIO
-        --conf spark.sql.catalog.lakehouse.s3.endpoint=http://minio:9000 --conf spark.sql.catalog.lakehouse.s3.path-style-access=true
-        --conf spark.sql.catalog.lakehouse.s3.access-key-id= --conf spark.sql.catalog.lakehouse.s3.secret-access-key=
-        --conf spark.sql.catalog.lakehouse.client.region=us-east-1 --conf spark.eventLog.enabled=true
-        --conf spark.eventLog.dir=s3a://spark-history/
+      SPARK_SUBMIT_OPTIONS: --conf spark.submit.deployMode=client --conf spark.driver.bindAddress=0.0.0.0 --conf spark.driver.host=zeppelin --conf spark.cores.max=1 --conf spark.driver.memory=512m --conf spark.hadoop.fs.s3a.endpoint=http://minio:9000 --conf spark.hadoop.fs.s3a.aws.credentials.provider=software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider --conf spark.hadoop.fs.s3a.path.style.access=true --conf spark.hadoop.fs.s3a.endpoint.region=us-east-1 --conf spark.hadoop.fs.s3a.connection.ssl.enabled=false --conf spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions --conf spark.sql.catalog.lakehouse=org.apache.iceberg.spark.SparkCatalog --conf spark.sql.catalog.lakehouse.type=rest --conf spark.sql.catalog.lakehouse.uri=http://iceberg-rest:8181 --conf spark.sql.catalog.lakehouse.warehouse=s3a://lakehouse/ --conf spark.sql.catalog.lakehouse.io-impl=org.apache.iceberg.aws.s3.S3FileIO --conf spark.sql.catalog.lakehouse.s3.endpoint=http://minio:9000 --conf spark.sql.catalog.lakehouse.s3.path-style-access=true --conf spark.sql.catalog.lakehouse.client.credentials-provider=software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider --conf spark.sql.catalog.lakehouse.client.region=us-east-1 --conf spark.eventLog.enabled=true --conf spark.eventLog.dir=s3a://spark-history/
       TRINO_ENDPOINT: http://trino:8080
       TRINO_JDBC_DEPENDENCY: io.trino:trino-jdbc:482
       TRINO_JDBC_DRIVER: io.trino.jdbc.TrinoDriver
@@ -5120,6 +5109,8 @@ services:
       ZEPPELIN_LOG_DIR: /logs
       ZEPPELIN_NOTEBOOK_DIR: /notebook
       ZEPPELIN_PORT: '8080'
+      AWS_ACCESS_KEY_ID: ''
+      AWS_SECRET_ACCESS_KEY: ''
     healthcheck:
       test:
       - CMD

@@ -54,6 +54,7 @@ class KeyGenerator:
         "MLFLOW",
         "LABEL_STUDIO",
         "ICEBERG",
+        "JENKINS",
         "ASSET_INGEST",
         "ASSET_WORKER",
         "ASSET_BAKER",

@@ -511,7 +511,7 @@ def test_lakehouse_spark_submit_smoke_dag_prepares_assets_and_submits_s3a_jar() 
     assert "ATLAS_LAKEHOUSE_SMOKE_JAR_PATH" in body
     assert "java_class=LAKEHOUSE_SMOKE_CLASS" in body
     assert "deploy_mode=DEPLOY_MODE" in body
-    assert 'os.environ.get("MINIO_ROOT_USER", "")' in body
+    assert 'os.environ.get("MINIO_SPARK_ACCESS_KEY", "")' in body
     assert '"MINIO_ICEBERG_ACCESS_KEY", ""' in body
     # Event logs go to the configurable history bucket, not a literal.
     assert 'os.environ.get("MINIO_BUCKET_SPARK_HISTORY", "spark-history")' in body

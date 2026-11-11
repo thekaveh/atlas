@@ -12,7 +12,17 @@ import urllib.request
 
 sys.stdout.reconfigure(line_buffering=True)
 
-ATLAS_REMOVED_PROPERTIES = ("spark.remote", "SPARK_REMOTE")
+# The MinIO secret properties an earlier seed wrote into interpreter settings.
+# Removed on the next seed, so no secret stays in the settings file or on the
+# interpreter's spark-submit command line (#1884).
+ATLAS_REMOVED_PROPERTIES = (
+    "spark.remote",
+    "SPARK_REMOTE",
+    "spark.hadoop.fs.s3a.access.key",
+    "spark.hadoop.fs.s3a.secret.key",
+    "spark.sql.catalog.lakehouse.s3.access-key-id",
+    "spark.sql.catalog.lakehouse.s3.secret-access-key",
+)
 TRINO_JDBC_SETTING_NAME = "trino"
 TRINO_JDBC_GROUP = "jdbc"
 TRINO_JDBC_DEFAULT_DRIVER = "io.trino.jdbc.TrinoDriver"
@@ -60,8 +70,11 @@ def build_atlas_properties(env: dict[str, str]) -> dict[str, str]:
         # Airflow's cluster-mode submits wait forever for one.
         "spark.cores.max": _positive_int(_env(env, "ZEPPELIN_SPARK_CORES_MAX", "1"), "1"),
         "spark.hadoop.fs.s3a.endpoint": minio_endpoint,
-        "spark.hadoop.fs.s3a.access.key": _env(env, "MINIO_SPARK_ACCESS_KEY"),
-        "spark.hadoop.fs.s3a.secret.key": _env(env, "MINIO_SPARK_SECRET_KEY"),
+        # Credentials come from the container's AWS_* environment (the spark
+        # account), not from a property that spark-submit would print (#1884).
+        "spark.hadoop.fs.s3a.aws.credentials.provider": (
+            "software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider"
+        ),
         "spark.hadoop.fs.s3a.path.style.access": "true",
         "spark.hadoop.fs.s3a.endpoint.region": minio_region,
         "spark.hadoop.fs.s3a.connection.ssl.enabled": "false",
@@ -75,13 +88,8 @@ def build_atlas_properties(env: dict[str, str]) -> dict[str, str]:
         "spark.sql.catalog.lakehouse.io-impl": "org.apache.iceberg.aws.s3.S3FileIO",
         "spark.sql.catalog.lakehouse.s3.endpoint": minio_endpoint,
         "spark.sql.catalog.lakehouse.s3.path-style-access": "true",
-        "spark.sql.catalog.lakehouse.s3.access-key-id": _env(
-            env,
-            "MINIO_ICEBERG_ACCESS_KEY",
-        ),
-        "spark.sql.catalog.lakehouse.s3.secret-access-key": _env(
-            env,
-            "MINIO_ICEBERG_SECRET_KEY",
+        "spark.sql.catalog.lakehouse.client.credentials-provider": (
+            "software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider"
         ),
         "spark.sql.catalog.lakehouse.client.region": minio_region,
     }
