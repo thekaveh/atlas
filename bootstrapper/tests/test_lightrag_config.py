@@ -135,3 +135,40 @@ def test_lightrag_knows_the_catalog_default_embedding_dimension(monkeypatch):
     monkeypatch.setattr(module.urllib.request, "urlopen", lambda *a, **k: (_ for _ in ()).throw(AssertionError("probed")))
     assert module.resolve_dim("ollama/qwen3-embedding:0.6b") == 1024
     assert module.resolve_dim("ollama/nomic-embed-text") == 768
+
+
+def test_lightrag_init_keeps_postgres_and_neo4j_passwords_out_of_argv():
+    """#1381: psql gets a password-free URI and PGPASSWORD; curl gets a netrc
+    file. A password in a command line is visible to `ps` while it runs."""
+    from pathlib import Path
+
+    repo = Path(__file__).resolve().parents[2]
+    script = (repo / "services/lightrag/init/scripts/init-lightrag.sh").read_text(encoding="utf-8")
+
+    assert '"${LIGHTRAG_PG_URI}"' not in script
+    assert script.count('psql "${LIGHTRAG_PG_URI_NOPASS}"') == 2
+    assert "export PGPASSWORD" in script
+    assert "-u \"${LIGHTRAG_NEO4J_USERNAME}" not in script
+    assert "--netrc-file" in script and 'rm -f "$neo4j_netrc"' in script
+
+
+def test_lightrag_init_splits_the_postgres_uri_and_decodes_its_password(tmp_path):
+    """Run the script's own URI split with a percent-encoded password."""
+    import re
+    import subprocess
+    from pathlib import Path
+
+    repo = Path(__file__).resolve().parents[2]
+    script = (repo / "services/lightrag/init/scripts/init-lightrag.sh").read_text(encoding="utf-8")
+    start = script.index("  pg_password_raw=")
+    end = script.index("  # Supabase DB is container-only")
+    snippet = "\n".join(line[2:] for line in script[start:end].splitlines()) + (
+        '\nprintf \'%s\\n%s\\n\' "$PGPASSWORD" "$LIGHTRAG_PG_URI_NOPASS"\n')
+    result = subprocess.run(
+        ["sh", "-c", snippet], text=True, capture_output=True, check=True,
+        env={"LIGHTRAG_PG_URI": "postgresql://lightrag:p%40ss%3Aw0rd@supabase-db:5432/lightrag",
+             "PATH": __import__("os").environ["PATH"]},
+    )
+    password, uri = result.stdout.split("\n")[:2]
+    assert (password, uri) == ("p@ss:w0rd", "postgresql://lightrag@supabase-db:5432/lightrag")
+    assert "p%40ss" not in uri and "w0rd" not in uri

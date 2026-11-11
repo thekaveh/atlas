@@ -141,8 +141,8 @@ if [ "${MINIO_SOURCE}" = "container" ]; then
   # every Airflow container gated on it).
   minio_extra=$(python3 -c 'import json, os; print(json.dumps({
       "endpoint_url": "http://minio:9000",
-      "aws_access_key_id": os.environ["MINIO_ROOT_USER"],
-      "aws_secret_access_key": os.environ["MINIO_ROOT_PASSWORD"],
+      "aws_access_key_id": os.environ["MINIO_SPARK_ACCESS_KEY"],
+      "aws_secret_access_key": os.environ["MINIO_SPARK_SECRET_KEY"],
       "region_name": os.environ.get("MINIO_REGION") or "us-east-1",
       "config_kwargs": {"s3": {"addressing_style": "path"}},
   }))')

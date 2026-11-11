@@ -161,12 +161,17 @@ def test_zeppelin_seed_properties_are_standalone_spark_not_connect() -> None:
     assert props["spark.driver.bindAddress"] == "0.0.0.0"
     assert props["spark.driver.host"] == "zeppelin"
     assert props["spark.hadoop.fs.s3a.endpoint"] == "http://minio:9000"
-    assert props["spark.hadoop.fs.s3a.access.key"] == "spark-user"
-    assert props["spark.hadoop.fs.s3a.secret.key"] == "spark-password"
+    # The secrets are not properties any more: spark-submit prints them (#1884).
+    assert props["spark.hadoop.fs.s3a.aws.credentials.provider"] == (
+        "software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider")
+    assert "spark.hadoop.fs.s3a.access.key" not in props
+    assert "spark.hadoop.fs.s3a.secret.key" not in props
     assert props["spark.eventLog.dir"] == "s3a://spark-history/"
     assert props["spark.sql.catalog.lakehouse.uri"] == "http://iceberg-rest:8181"
     assert props["spark.sql.catalog.lakehouse.warehouse"] == "s3a://lakehouse/"
-    assert props["spark.sql.catalog.lakehouse.s3.access-key-id"] == "iceberg-user"
+    assert props["spark.sql.catalog.lakehouse.client.credentials-provider"] == (
+        "software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider")
+    assert "spark.sql.catalog.lakehouse.s3.access-key-id" not in props
     assert "spark.remote" not in props
 
 
