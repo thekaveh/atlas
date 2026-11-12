@@ -1304,3 +1304,43 @@ def test_nemo_gpu_repaired_lock_keeps_the_fixed_leaf_family(name, fixed):
         _text("services/parakeet/provider/gpu/requirements-locked.txt").splitlines()
         if "==" in line
     )[name] == fixed
+
+
+# Images whose pip runs at build time. Each upgrades pip to 26.3 before the first
+# pip use, because the base pip vendors a certifi that still trusts the distrusted
+# emSign ECC Root CA - G3 (#1905).
+PIP_BEFORE_USE_DOCKERFILES = (
+    "services/mcp-servers/build/Dockerfile",
+    "services/jupyterhub/build/Dockerfile",
+    "services/airflow/build/Dockerfile",
+    "services/litellm/init/Dockerfile",
+    "services/open-webui/init/Dockerfile",
+    "services/local-deep-researcher/build/Dockerfile",
+    "services/parakeet/provider/gpu/Dockerfile",
+    "services/docling/provider/gpu/Dockerfile",
+    "services/docling/provider/adapter/Dockerfile",
+    "services/asset-worker/app/Dockerfile",
+    "services/mlflow/build/Dockerfile",
+    "services/asset-baker/app/Dockerfile",
+    "services/backend/app/Dockerfile",
+)
+
+
+@pytest.mark.parametrize("relative", PIP_BEFORE_USE_DOCKERFILES)
+def test_pip_is_upgraded_to_26_3_before_its_first_use(relative: str) -> None:
+    text = _text(relative)
+    upgrade = re.search(r"^RUN (python -m )?pip install --no-cache-dir pip==26\.3\b", text, re.M)
+    first_use = re.search(r"^RUN (python -m )?pip install", text, re.M)
+    assert upgrade is not None, f"{relative} must upgrade pip to 26.3 (#1905)"
+    assert first_use is not None
+    assert upgrade.start() <= first_use.start(), f"{relative} uses pip before upgrading it"
+
+
+def test_backend_disables_the_distrusted_emsign_g3_root_in_its_system_store() -> None:
+    """Newer ca-certificates already ship the root disabled; the Dockerfile must
+    end with the root disabled either way, then rebuild the bundle (#1905)."""
+    text = _text("services/backend/app/Dockerfile")
+    assert "mozilla/emSign_ECC_Root_CA_-_G3.crt" in text
+    assert "sed -i 's|^mozilla/emSign_ECC_Root_CA_-_G3.crt$|!mozilla/emSign_ECC_Root_CA_-_G3.crt|'" in text
+    assert "grep -q '^!mozilla/emSign_ECC_Root_CA_-_G3.crt$' /etc/ca-certificates.conf" in text
+    assert "update-ca-certificates --fresh" in text

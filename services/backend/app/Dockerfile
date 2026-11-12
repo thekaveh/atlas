@@ -12,8 +12,17 @@ WORKDIR /app
 # services/airflow, services/spark, services/asset-baker, services/asset-worker
 # and services/backup do. This trades byte-for-byte base reproducibility for a
 # patched runtime; the final-image scan still gates every refresh.
+# The emSign ECC Root CA - G3 root is distrusted (GHSA-6q48-6c7w-9gw2, #1905).
+# Newer ca-certificates releases already disable it (`!mozilla/...`). An older
+# base still enables it, so disable it here too. Either way the line must end
+# up disabled, and the bundle is rebuilt from the config (#1905).
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y --no-install-recommends \
+    && if grep -q '^mozilla/emSign_ECC_Root_CA_-_G3.crt$' /etc/ca-certificates.conf; then \
+         sed -i 's|^mozilla/emSign_ECC_Root_CA_-_G3.crt$|!mozilla/emSign_ECC_Root_CA_-_G3.crt|' /etc/ca-certificates.conf; \
+       fi \
+    && grep -q '^!mozilla/emSign_ECC_Root_CA_-_G3.crt$' /etc/ca-certificates.conf \
+    && update-ca-certificates --fresh \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better layer caching
@@ -26,7 +35,9 @@ COPY ./app/requirements.txt ./app/requirements-locked.txt ./
 # this image has no JVM, so the jar can never run; it carried jackson-databind
 # 2.18.6 (CVE-2026-68497, #1308). Deleting it in the install layer keeps it out
 # of every image layer, and `test -d` fails the build if Ray moves it.
-RUN pip install --no-cache-dir uv==0.11.19 && \
+# pip 26.3 vendors certifi 2026.10.23, which excludes the G3 root. The base's
+# pip 25.0.1 still vendors G3, and the plugin seam runs pip at startup (#1905).
+RUN pip install --no-cache-dir pip==26.3 uv==0.11.19 && \
     uv pip install --system --no-cache-dir \
       -r requirements.txt -c requirements-locked.txt && \
     pip uninstall --yes uv && \

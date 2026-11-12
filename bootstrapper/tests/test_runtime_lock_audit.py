@@ -717,6 +717,13 @@ def test_every_runtime_dependency_manifest_is_in_the_audit_inventory() -> None:
     )
 
 
+def _is_installer_pin(pin: str) -> bool:
+    """`uv==` and `pip==` install the locked set; they are pinned inline by design.
+    pip 26.3 is upgraded before each image's first pip use because the base pip
+    vendors a certifi that trusts the distrusted emSign G3 root (#1905)."""
+    return pin.lower().startswith(("uv==", "pip=="))
+
+
 def test_shared_init_runtime_lock_is_regenerated_audited_and_used_by_builds() -> None:
     root = Path(audit_runtime_locks.__file__).parents[1]
     lock = "services/requirements-init-locked.txt"
@@ -726,7 +733,11 @@ def test_shared_init_runtime_lock_is_regenerated_audited_and_used_by_builds() ->
     )
     assert any(spec.lock == lock for spec in audit_runtime_locks.AUDIT_SPECS)
     installed = {
-        service: _inline_docker_pins(root / f"services/{service}/init/Dockerfile")
+        service: {
+            pin
+            for pin in _inline_docker_pins(root / f"services/{service}/init/Dockerfile")
+            if not _is_installer_pin(pin)
+        }
         for service in ("open-webui", "litellm")
     }
     locked = set((root / lock).read_text(encoding="utf-8").splitlines())
@@ -796,7 +807,7 @@ def test_inline_dockerfile_pins_are_also_owned_by_a_compiled_lock() -> None:
             f"{sorted(_inline_docker_install_violations(dockerfile))}"
         )
         inline = _inline_docker_pins(dockerfile)
-        inline = {pin for pin in inline if not pin.lower().startswith("uv==")}
+        inline = {pin for pin in inline if not _is_installer_pin(pin)}
         if not inline:
             continue
         locked = "\n".join(

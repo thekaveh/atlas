@@ -118,6 +118,9 @@ COPY atlas_finance /home/jovyan/atlas_finance
 
 # PyG family packages require torch at metadata-generation time. Install the
 # matching CPU trio first so the general PyPI index cannot pull CUDA runtimes.
+# pip 26.3 vendors certifi 2026.10.23, which excludes the distrusted emSign
+# ECC Root CA - G3. The base pip still vendors it, so upgrade before first use (#1905).
+RUN pip install --no-cache-dir pip==26.3
 RUN pip install --no-cache-dir --only-binary=:all: \
       torch==2.13.0 torchvision==0.28.0 \
       --index-url https://download.pytorch.org/whl/cpu
