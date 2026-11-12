@@ -22,6 +22,9 @@ RUN set -eux; \
 
 COPY build/requirements.txt /tmp/atlas-mlflow-requirements.txt
 COPY build/requirements-locked.txt /tmp/atlas-mlflow-requirements-locked.txt
+# pip 26.3 vendors certifi 2026.10.23, which excludes the distrusted emSign
+# ECC Root CA - G3. The base pip still vendors it, so upgrade before first use (#1905).
+RUN python -m pip install --no-cache-dir pip==26.3
 RUN python -m pip install --no-cache-dir \
       -r /tmp/atlas-mlflow-requirements.txt \
       -c /tmp/atlas-mlflow-requirements-locked.txt \

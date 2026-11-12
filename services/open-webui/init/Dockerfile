@@ -31,6 +31,9 @@ ENV PYTHONUNBUFFERED=1
 # closure in services/requirements-init-locked.txt. The build context is this
 # service directory, so the repository gate verifies these inline pins against
 # that central lock instead of copying a file from outside the context.
+# pip 26.3 vendors certifi 2026.10.23, which excludes the distrusted emSign
+# ECC Root CA - G3. The base pip still vendors it, so upgrade before first use (#1905).
+RUN pip install --no-cache-dir pip==26.3
 RUN pip install --no-cache-dir \
     certifi==2026.10.19 \
     charset-normalizer==3.5.1 \

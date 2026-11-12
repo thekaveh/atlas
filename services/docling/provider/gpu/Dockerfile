@@ -19,6 +19,9 @@ COPY gpu/requirements.txt /app/requirements.txt
 COPY gpu/requirements-locked.txt /app/requirements-locked.txt
 
 # Install Python dependencies
+# pip 26.3 vendors certifi 2026.10.23, which excludes the distrusted emSign
+# ECC Root CA - G3. The base pip still vendors it, so upgrade before first use (#1905).
+RUN pip install --no-cache-dir pip==26.3
 RUN pip install --no-cache-dir -r requirements.txt -c requirements-locked.txt \
     && pip check
 

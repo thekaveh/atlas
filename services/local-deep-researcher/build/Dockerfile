@@ -27,6 +27,9 @@ RUN apt-get update \
 # runtime venv gets its own lock-pinned setuptools/wheel from
 # config/runtime-requirements.lock, and the init scripts import neither.
 # Drop it, which also matches the python:3.12-slim images that ship none.
+# pip 26.3 vendors certifi 2026.10.23, which excludes the distrusted emSign
+# ECC Root CA - G3. The base pip still vendors it, so upgrade before first use (#1905).
+RUN pip install --no-cache-dir pip==26.3
 RUN pip install --no-cache-dir uv==0.11.33 \
     && pip uninstall --yes setuptools
 
