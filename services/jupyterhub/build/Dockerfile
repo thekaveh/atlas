@@ -144,13 +144,28 @@ RUN pip install --no-cache-dir \
       -r /tmp/requirements.txt -c /tmp/requirements-locked.txt && \
     ray_jars="$(python -c 'import importlib.util, pathlib; print(pathlib.Path(importlib.util.find_spec("ray").origin).parent / "jars")')" && \
     test -d "$ray_jars" && \
-    rm -rf "$ray_jars"
+    rm -rf "$ray_jars" && \
+    ray_agent="$(python -c 'import importlib.util, pathlib; print(pathlib.Path(importlib.util.find_spec("ray").origin).parent / "_private/runtime_env/agent/thirdparty_files")')" && \
+    test -d "$ray_agent/aiohttp-3.14.1.dist-info" && \
+    rm -rf "$ray_agent/aiohttp" "$ray_agent/aiohttp-3.14.1.dist-info"
+
+# OpenCV 5 (#601): exactly one cv2 distribution may exist, it must be the headless
+# contrib build (no GUI toolkit), and the contrib-only module must import. The
+# heavy notebook stack is imported here too, so a resolver drift fails the build.
+RUN python -c 'import importlib.metadata as m, cv2; \
+dists = m.packages_distributions().get("cv2", []); \
+assert dists == ["opencv-contrib-python-headless"], dists; \
+assert cv2.__version__.startswith("5.0"), cv2.__version__; \
+gui = next(l.split(":", 1)[1].strip() for l in cv2.getBuildInformation().splitlines() if l.strip().startswith("GUI:")); \
+assert gui == "NONE", gui; \
+assert hasattr(cv2, "xfeatures2d")' \
+ && python -c 'import pandas, pyarrow, torch, torchvision, matplotlib, sklearn, numpy; assert numpy.__version__.startswith("2."), numpy.__version__'
 
 # The newest official Jupyter base is immutable but contains three fixable
 # findings in upstream-bundled tooling. Refresh nbclassic's exact Underscore
-# asset from its checksummed official tarball; refresh pip's private msgpack
-# from the repository-locked 1.2.3 installation and keep both wheel RECORD and
-# CycloneDX inventory accurate. py-rattler 0.25.0 has no fixed release for its
+# asset from its checksummed official tarball. pip 26.3, installed above before
+# any pip use for its certifi, already vendors msgpack 1.2.4, past the 1.2.3 fix,
+# so the msgpack refresh is skipped (#1905, #601). py-rattler 0.25.0 has no fixed release for its
 # Rust dependency findings, so remove that optional solver plugin while
 # retaining and validating the base image's default conda/libmamba toolchain.
 COPY --chown=${NB_UID}:${NB_GID} refresh_pip_vendor.py /tmp/refresh_pip_vendor.py
@@ -163,11 +178,12 @@ RUN curl -fL \
  && python /tmp/refresh_pip_vendor.py \
       --vendor /opt/conda/lib/python3.13/site-packages/pip/_vendor \
       --msgpack-source /opt/conda/lib/python3.13/site-packages/msgpack \
-      --pip-record /opt/conda/lib/python3.13/site-packages/pip-26.2.1.dist-info/RECORD \
+      --pip-record /opt/conda/lib/python3.13/site-packages/pip-26.3.dist-info/RECORD \
+      --skip-msgpack \
       --underscore-component /opt/conda/lib/python3.13/site-packages/nbclassic/static/components/underscore \
       --underscore-source /tmp/underscore \
       --nbclassic-record /opt/conda/lib/python3.13/site-packages/nbclassic-1.3.3.dist-info/RECORD \
- && python -c 'from pip._vendor import msgpack; assert msgpack.version == (1, 2, 3), msgpack.version; payload = {"atlas": 9}; assert msgpack.unpackb(msgpack.packb(payload)) == payload' \
+ && python -c 'from pip._vendor import msgpack; assert msgpack.version >= (1, 2, 3), msgpack.version; payload = {"atlas": 9}; assert msgpack.unpackb(msgpack.packb(payload)) == payload' \
  && python -m pip uninstall -y conda-rattler-solver py-rattler \
  && python -c 'from pathlib import Path; patterns = ("conda-rattler-solver-0.1.1-*.json", "py-rattler-0.25.0-*.json"); records = [matches for pattern in patterns if len(matches := list(Path("/opt/conda/conda-meta").glob(pattern))) != 1]; assert not records, records; [path.unlink() for pattern in patterns for path in Path("/opt/conda/conda-meta").glob(pattern)]' \
  && conda --version \

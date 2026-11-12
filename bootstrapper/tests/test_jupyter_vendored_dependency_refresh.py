@@ -392,7 +392,8 @@ def test_dockerfile_applies_exact_security_refreshes() -> None:
         "COPY --chown=${NB_UID}:${NB_GID} refresh_pip_vendor.py "
         "/tmp/refresh_pip_vendor.py"
     ) in dockerfile
-    assert "--pip-record /opt/conda/lib/python3.13/site-packages/pip-26.2.1.dist-info/RECORD" in dockerfile
+    assert "--pip-record /opt/conda/lib/python3.13/site-packages/pip-26.3.dist-info/RECORD" in dockerfile
+    assert "--skip-msgpack" in dockerfile
     assert "from pip._vendor import msgpack" in dockerfile
     assert "msgpack.unpackb(msgpack.packb(payload)) == payload" in dockerfile
     assert "python -m pip uninstall -y conda-rattler-solver py-rattler" in dockerfile
@@ -413,6 +414,6 @@ def test_vendored_msgpack_guard_moves_with_the_locked_pin() -> None:
         text = (build / name).read_text(encoding="utf-8")
         assert re.findall(r"^msgpack==(\S+)", text, re.MULTILINE) == [version], name
     dockerfile = (build / "Dockerfile").read_text(encoding="utf-8")
-    guards = re.findall(r"msgpack\.version == \((\d+), (\d+), (\d+)\)", dockerfile)
+    guards = re.findall(r"msgpack\.version >= \((\d+), (\d+), (\d+)\)", dockerfile)
     assert guards == [tuple(version.split("."))]
     assert NEW_MSGPACK_REF == f"pkg:pypi/msgpack@{version}"

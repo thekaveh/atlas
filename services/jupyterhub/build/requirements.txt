@@ -122,6 +122,12 @@ tornado>=6.6
 gitpython>=3.2.1
 
 # Deep Learning — PyTorch core
+# Classical computer vision (#601). Headless, with contrib modules. OpenCV 5
+# needs NumPy 2, which numpy 2.5.3 in the lock already satisfies. Exactly one
+# cv2 distribution may be installed; the image build asserts that.
+opencv-contrib-python-headless==5.0.0.93
+# Base-image oauthlib 3.3.1 carries two advisories the Final-image scan flags (#1948).
+oauthlib==4.0.1
 torch==2.13.0
 torchvision==0.28.0
 

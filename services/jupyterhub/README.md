@@ -102,6 +102,11 @@ The notebooks read MinIO bucket names from the `MINIO_BUCKET_*` variables (`MINI
 | `13_chonkie_chunking.ipynb` | Compare Chonkie token, recursive, and optional semantic chunking, then call the Backend `/api/chunk` runtime endpoint. |
 | `14_ragas_evaluation.ipynb` | Evaluate RAG answers with Ragas metrics and the Backend `/api/rag/evaluate` runtime endpoint. |
 | `15_mcp_clients.ipynb` | Discovers and invokes Curated MCP tools through FastMCP 3, exercises error handling, and prototypes an in-process tool. The bootstrapper injects `MCP_SERVERS_URL` only when `MCP_SERVERS_SOURCE=container` and leaves it empty when the curated package is disabled. |
+| `16_opencv_vision.ipynb` | Classical computer vision with OpenCV 5 from the headless contrib wheel: colour conversion, resize, perspective warp, threshold and contours, ORB and a contrib-only LATCH call. Runs offline on generated fixtures and renders through Matplotlib, with no `cv2.imshow` (#601). |
+
+**OpenCV.** The image installs `opencv-contrib-python-headless` 5.0.0.93. The headless build has no Qt or GTK window support, and the contrib modules (such as `cv2.xfeatures2d`) are included. Exactly one `cv2` distribution may be installed, so the build fails if a second one appears. The pin moves only with a reviewed lock refresh (#601).
+
+**OpenCV troubleshooting.** Use `cv2.imshow` only in a desktop session, not in this image. For a display, use Matplotlib as `16_opencv_vision.ipynb` does. A second `cv2` distribution means the image drifted. Rebuild from the pinned lock.
 
 Notebook 00 sets HTTP and Redis timeouts and PostgreSQL/Neo4j connection timeouts. These do not impose a deadline on the whole notebook.
 
