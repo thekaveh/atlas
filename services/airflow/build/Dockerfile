@@ -47,6 +47,9 @@ COPY requirements-locked.txt /tmp/airflow-providers.lock
 ARG SPARK_JACKSON_VERSION=2.21.7
 ARG SPARK_JACKSON_CORE_SHA512=a4f38908ebf7cb3da776955c398c7b55b0c056ae7265a511b4a2a37ef5a4c6fed433d611ee4f3a1071aa966cc5d16b1fcb95a0e7d672002ece9d89367a4f8f85
 ARG SPARK_JACKSON_DATABIND_SHA512=3485a31a4815ef2577b91667768eebb10bea7ece6b1b7cc0fa3c06f2746c003f4f32c19c52cc30ad13813eff9941ae212caffa9353c717d00947ab80ecc76bd3
+# pip 26.3 vendors certifi 2026.10.23, which excludes the distrusted emSign
+# ECC Root CA - G3. The base pip still vendors it, so upgrade before first use (#1905).
+RUN python -m pip install --no-cache-dir pip==26.3
 RUN python -m pip install --no-cache-dir \
       -r /tmp/airflow-providers.txt -c /tmp/airflow-providers.lock \
     && python -m pip check \
