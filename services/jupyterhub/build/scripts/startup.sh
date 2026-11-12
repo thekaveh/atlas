@@ -125,6 +125,7 @@ Check the `examples/` directory for sample notebooks demonstrating:
 - `13_chonkie_chunking.ipynb` - Compare Chonkie strategies and the Backend chunking API
 - `14_ragas_evaluation.ipynb` - Evaluate RAG answers locally and through the Backend API
 - `15_mcp_clients.ipynb` - Discover and invoke MCP tools via FastMCP 3
+- `16_opencv_vision.ipynb` - Classical computer vision with OpenCV 5 (headless contrib build), offline
 
 ## Available Services
 
