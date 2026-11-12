@@ -49,6 +49,8 @@ SECURITY_DEPENDENCIES = (
     "click>=8.3.3",
     "langchain-classic>=1.0.7",
     "langgraph-api>=0.15.9 ; python_full_version >= '3.11'",
+    # GHSA-3fx2-cqw9-xr3c: langgraph >= 1.2.3, < 1.2.14 (#1988).
+    "langgraph>=1.2.14",
     "langgraph-sdk>=0.4.6",
     "langsmith>=0.8.18",
     "opentelemetry-api>=1.45.1 ; python_full_version >= '3.11'",
