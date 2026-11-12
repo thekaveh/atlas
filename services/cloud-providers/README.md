@@ -65,7 +65,7 @@ through LiteLLM either way.
 The wizard asks for each provider on every track. CLI flags:
 
 - `--cloud-openai-source enabled|disabled` (and `--cloud-anthropic-source`, `--cloud-openrouter-source`).
-- `--openai-api-key <key>` saves `OPENAI_API_KEY` to `.env` and enables the provider. `--anthropic-api-key` and `--openrouter-api-key` work the same way.
+- `--openai-api-key <key>` saves `OPENAI_API_KEY` to `.env` and enables the provider. `--anthropic-api-key` and `--openrouter-api-key` work the same way. Prefer `--openai-api-key-file <path>` (or `-` for stdin): a key on the command line stays in shell history and `ps` (#1381).
 - `--openai-models <names>` saves `OPENAI_USER_MODELS`. `--anthropic-models` and `--openrouter-models` work the same way.
 
 ## 10. Related Configuration

@@ -6,6 +6,7 @@ Python implementation of start.sh with full feature parity.
 Cross-platform startup script for Atlas — the self-hosted engineering platform.
 """
 
+import getpass
 import importlib
 import re
 import sys
@@ -7623,6 +7624,27 @@ def _prompt_for_track(registry, *, max_attempts: int = 5) -> str:
     sys.exit(2)
 
 
+def _key_from_option(value, key_file, flag):
+    """Return a provider key given by its value flag, by a key file, or by stdin ("-").
+
+    The file and stdin forms keep the key out of argv and shell history (#1381).
+    """
+    if key_file is None:
+        return value
+    if value is not None:
+        raise click.UsageError(f'{flag} and {flag}-file are mutually exclusive')
+    if key_file == '-':
+        # A terminal must not echo the key into scrollback.
+        key = getpass.getpass(f'{flag}: ') if sys.stdin.isatty() else sys.stdin.read()
+    else:
+        with open(key_file, encoding='utf-8') as handle:
+            key = handle.read()
+    key = key.strip()
+    if not key:
+        raise click.UsageError(f'{flag}-file is empty')
+    return key
+
+
 @click.group(invoke_without_command=True, cls=AtlasStartGroup)
 @click.option('--project', '-p', 'project_name', type=str, default=None,
               help='Docker Compose project name — the container-family namespace '
@@ -7669,15 +7691,28 @@ def _prompt_for_track(registry, *, max_attempts: int = 5) -> str:
               help='Enable/disable the OpenRouter cloud provider in LiteLLM (requires OPENROUTER_API_KEY).')
 @click.option('--openai-api-key', type=str, default=None,
               help='OpenAI API key (sk-...). Persists to .env as OPENAI_API_KEY and '
-                   'implies --cloud-openai-source=enabled.')
+                   'implies --cloud-openai-source=enabled. The value stays in shell history '
+                   'and ps; prefer --openai-api-key-file.')
+@click.option('--openai-api-key-file', type=click.Path(dir_okay=False, allow_dash=True, exists=True), default=None,
+              help='Read the OpenAI API key from PATH, or from stdin with "-". Same effect as '
+                   '--openai-api-key without the key in argv (#1381).')
 @click.option('--anthropic-api-key', type=str, default=None,
               help='Anthropic API key (sk-ant-...). Persists to .env as ANTHROPIC_API_KEY '
-                   'and implies --cloud-anthropic-source=enabled.')
+                   'and implies --cloud-anthropic-source=enabled. The value stays in shell '
+                   'history and ps; prefer --anthropic-api-key-file.')
+@click.option('--anthropic-api-key-file', type=click.Path(dir_okay=False, allow_dash=True, exists=True), default=None,
+              help='Read the Anthropic API key from PATH, or from stdin with "-" (#1381).')
 @click.option('--openrouter-api-key', type=str, default=None,
               help='OpenRouter API key (sk-or-...). Persists to .env as OPENROUTER_API_KEY '
-                   'and implies --cloud-openrouter-source=enabled.')
+                   'and implies --cloud-openrouter-source=enabled. The value stays in shell '
+                   'history and ps; prefer --openrouter-api-key-file.')
+@click.option('--openrouter-api-key-file', type=click.Path(dir_okay=False, allow_dash=True, exists=True), default=None,
+              help='Read the OpenRouter API key from PATH, or from stdin with "-" (#1381).')
 @click.option('--fal-api-key', type=str, default=None,
-              help='fal.ai API key. Persists to .env as FAL_API_KEY and implies --fal-source=enabled.')
+              help='fal.ai API key. Persists to .env as FAL_API_KEY and implies --fal-source=enabled. '
+                   'The value stays in shell history and ps; prefer --fal-api-key-file.')
+@click.option('--fal-api-key-file', type=click.Path(dir_okay=False, allow_dash=True, exists=True), default=None,
+              help='Read the fal.ai API key from PATH, or from stdin with "-" (#1381).')
 @click.option('--openai-models', type=str, default=None,
               help='Comma-separated OpenAI model names to activate (e.g. "gpt-5,gpt-5-mini,o3"). '
                    'Persists to .env as OPENAI_USER_MODELS; litellm-init activates these via model_resolver on the next docker compose up.')
@@ -7917,7 +7952,8 @@ def _prompt_for_track(registry, *, max_attempts: int = 5) -> str:
 @json_cli_guard
 def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, cold, setup_hosts, skip_hosts, llm_provider_source,
          cloud_openai_source, cloud_anthropic_source, cloud_openrouter_source,
-         openai_api_key, anthropic_api_key, openrouter_api_key, fal_api_key,
+         openai_api_key, openai_api_key_file, anthropic_api_key, anthropic_api_key_file,
+         openrouter_api_key, openrouter_api_key_file, fal_api_key, fal_api_key_file,
          openai_models, anthropic_models, openrouter_models,
          ollama_models, ollama_custom_models,
          comfyui_models, comfyui_custom_models_file,
@@ -8165,6 +8201,10 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
         # here so the implied --cloud-*-source toggles are applied
         # together with the explicit ones.
         cloud_api_keys: Dict[str, str] = {}
+        openai_api_key = _key_from_option(openai_api_key, openai_api_key_file, '--openai-api-key')
+        anthropic_api_key = _key_from_option(anthropic_api_key, anthropic_api_key_file, '--anthropic-api-key')
+        openrouter_api_key = _key_from_option(openrouter_api_key, openrouter_api_key_file, '--openrouter-api-key')
+        fal_api_key = _key_from_option(fal_api_key, fal_api_key_file, '--fal-api-key')
         if openai_api_key is not None:
             cloud_api_keys['OPENAI_API_KEY'] = openai_api_key
             if cloud_openai_source is None:

@@ -21,57 +21,49 @@ echo "==> airflow-init: running airflow db migrate"
 airflow db migrate
 
 echo "==> airflow-init: creating admin user (idempotent)"
-# Branch on exit code, not on stdout keywords. The earlier
-# `grep -qiE "error|exception|traceback"` heuristic over-matched
-# (e.g. a success message containing "no errors" would trigger exit 1).
-# `airflow users create` returns rc=0 on success AND on the documented
-# idempotent already-exists case in 3.x; we still grep stdout to suppress
-# the "already exists" message when the user is unchanged.
-# The `equals` form of every flag below (not the space-separated form)
-# is REQUIRED for any value that may legitimately start with `-`.
-# `secrets.token_urlsafe` emits the URL-safe Base64 alphabet
-# `[A-Za-z0-9_-]`, so ~3% of generated passwords start with a leading
-# dash. argparse then interprets the value as another flag and rejects:
-# `argument -p: expected one argument`. The equals form binds the value
-# to the flag in a single token regardless. Same applies to every
-# conn-password flag in the add_conn calls below.
-if create_output=$(airflow users create \
-  --username=admin \
-  --firstname=Admin \
-  --lastname=User \
-  --role=Admin \
-  --email=admin@localhost \
-  --password="${AIRFLOW_ADMIN_PASSWORD}" 2>&1); then
-  # FAB releases word this "already exists" or "already exist in the db".
-  if echo "$create_output" | grep -qiE "already exist|already a user"; then
-    # `users create` never touches an existing user, so re-apply the .env
-    # password: a rotated AIRFLOW_ADMIN_PASSWORD reaches the DB on the next
-    # start (README troubleshooting relies on this).
-    if ! reset_output=$(airflow users reset-password \
-      --username=admin \
-      --password="${AIRFLOW_ADMIN_PASSWORD}" 2>&1); then
-      echo "airflow-init: ERROR re-syncing the existing admin password:" >&2
-      echo "$reset_output" >&2
-      exit 1
-    fi
-    echo "(admin user already exists — password re-synced from .env)"
-  else
-    echo "$create_output"
-  fi
-else
-  rc=$?
-  echo "airflow-init: ERROR during admin user creation (rc=$rc):" >&2
-  echo "$create_output" >&2
+# The password is read by airflow_admin.py from the environment, not passed as
+# a flag: argv is visible in `ps` for the life of the process (#1381).
+if ! python3 /scripts/airflow_admin.py; then
+  echo "airflow-init: ERROR during admin user creation" >&2
   exit 1
 fi
 
 echo "==> airflow-init: seeding Connections (gated on sibling source)"
 
-# Helper: idempotent add (delete + add to update on second run)
+# Helper: idempotent add (delete, then import with --overwrite). Flags keep
+# their old form at the call sites. The values go to airflow_connection.py
+# through exported CONN_* variables, never through argv (#1381).
 add_conn() {
   local conn_id=$1; shift
   airflow connections delete "$conn_id" >/dev/null 2>&1 || true
-  airflow connections add "$conn_id" "$@"
+  unset CONN_TYPE CONN_HOST CONN_PORT CONN_LOGIN CONN_PASSWORD CONN_SCHEMA CONN_EXTRA
+  local flag value
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --conn-*=*) flag=${1%%=*}; value=${1#*=}; shift ;;
+      --conn-*)
+        if [ $# -lt 2 ] || [ "${2#--conn-}" != "$2" ]; then
+          echo "add_conn: $1 for $conn_id needs a value" >&2
+          return 2
+        fi
+        flag=$1; value=$2; shift 2 ;;
+      *) echo "add_conn: unexpected argument for $conn_id" >&2; return 2 ;;
+    esac
+    case "$flag" in
+      --conn-type) export CONN_TYPE=$value ;;
+      --conn-host) export CONN_HOST=$value ;;
+      --conn-port) export CONN_PORT=$value ;;
+      --conn-login) export CONN_LOGIN=$value ;;
+      --conn-password) export CONN_PASSWORD=$value ;;
+      --conn-schema) export CONN_SCHEMA=$value ;;
+      --conn-extra) export CONN_EXTRA=$value ;;
+      *) echo "add_conn: unsupported flag $flag" >&2; return 2 ;;
+    esac
+  done
+  CONN_ID=$conn_id python3 /scripts/airflow_connection.py
+  local status=$?
+  unset CONN_TYPE CONN_HOST CONN_PORT CONN_LOGIN CONN_PASSWORD CONN_SCHEMA CONN_EXTRA
+  return "$status"
 }
 
 # Orphan-cleanup pass: drop any source-gated Connection up front. The

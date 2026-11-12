@@ -22,7 +22,7 @@
       "functions_over_100_physical_lines": 85,
       "functions_over_4_parameters": 156,
       "modules_over_600_logical_lines": 21,
-      "tracked_files": 1687,
+      "tracked_files": 1690,
       "v0.1.0_tracked_files": 667
     },
     "extended_python_baseline_snapshot": {
@@ -36,6 +36,7 @@
     "regression_policy": "Do not increase any baseline count without reviewed commit-range attribution, and record a grounded symbol-level rationale for every new Radon E/F symbol; refresh the snapshot only during a reviewed maintenance pass.",
     "review_by": "2027-01-29",
     "owner": "Atlas maintainers",
+    "refresh_notes_2026_11_11_issue_1381": "Issue #1381 from base 6c9c07a0 (develop): tracked_files 1687 -> 1690 attributes exactly three additions: services/airflow/init/scripts/airflow_admin.py (admin user without a password on argv), services/airflow/init/scripts/airflow_connection.py (connection import from CONN_* variables), and bootstrapper/tests/test_start_key_file_flags.py (provider-key file and stdin flags).",
     "refresh_notes_2026_11_09_issue_1196": "Issue #1196 from base 46cdc6305d12a8b6ec8ba08fef1fac32a0a6c718: tracked_files 1675 -> 1679 attributes exactly four additions: examples/rag-quality/README.md, examples/rag-quality/fixtures.json (ten pinned fixtures with expected traits and citation sources), examples/rag-quality/regress.py (the stdlib-only consumer check, report and MLflow export; scoring goes through POST /api/rag/evaluate) and bootstrapper/tests/test_rag_quality_regression.py (offline behavioral contracts). Every code-complexity ceiling, counting rule, accepted disposition, exclusion and review deadline remains unchanged; no unrelated file is excluded, removed or compressed to offset growth.",
     "refresh_notes_2026_11_09_issue_1197": "Issue #1197 from base bd2196fd (the #1196 starter): tracked_files 1679 -> 1681 attributes exactly two additions: examples/rag-quality/compare.py (the consumer-side model comparison that reuses regress.py fixtures, checks and evaluator client, with a self-counted paid-request cap) and bootstrapper/tests/test_model_compare_example.py (offline behavioral contracts with a fake gateway and evaluator). Every code-complexity ceiling, counting rule, accepted disposition, exclusion and review deadline remains unchanged; no unrelated file is excluded, removed or compressed to offset growth.",
     "refresh_notes_2026_11_09_issue_1210": "Issue #1210 from base e5ff71200c293234d2057042bc473211b77eda3b: tracked_files 1675 -> 1679. The measured count was 1674 before this change because #1989 removed one asset; the change adds exactly five files: examples/duckdb-analytics/pyproject.toml, uv.lock and recipe.py; bootstrapper/tests/test_duckdb_analytics_recipe.py; and docs/operations/duckdb-analytics.md. The optional embedded DuckDB recipe owns its pinned environment, bounded engine settings, spill cap and checked local and object-storage result. Every code-complexity ceiling, scope and counting rule remains unchanged; no unrelated file is excluded, removed or compressed to offset growth.",

@@ -22,8 +22,9 @@ EXPECTED_BASELINE_SNAPSHOT = {
     "functions_over_4_parameters": 156,
     "modules_over_600_logical_lines": 21,
     # #1220 adds five optional recipe assets, one behavioral test and one guide.
+    # #1381 adds two Airflow init helpers and one start.py key-file test.
     # All code ceilings stay fixed.
-    "tracked_files": 1687,
+    "tracked_files": 1690,
     "v0.1.0_tracked_files": 667,
 }
 EXPECTED_EXTENDED_PYTHON_SNAPSHOT = {

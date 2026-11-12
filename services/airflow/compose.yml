@@ -265,8 +265,8 @@ services:
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${AIRFLOW_DB_USER_URI:?AIRFLOW_DB_USER_URI is required}:${AIRFLOW_DB_PASSWORD_URI:?AIRFLOW_DB_PASSWORD_URI is required}@supabase-db:5432/airflow
       # The central Supabase init owns role/database provisioning; this
       # container owns only Airflow's application migrations and seed data.
-      # CRITICAL: init-airflow.sh runs `airflow users create
-      # --password="${AIRFLOW_ADMIN_PASSWORD}"`. Under `set -euo pipefail`
+      # CRITICAL: init-airflow.sh runs airflow_admin.py, which reads
+      # AIRFLOW_ADMIN_PASSWORD from the environment (#1381). Under `set -euo pipefail`
       # an unset var aborts the script — and webserver/scheduler/
       # dag-processor all depends_on airflow-init: service_completed_successfully,
       # so the entire family fails to start. Pass 10 dropped the
@@ -309,13 +309,13 @@ services:
       # field is GRAPH_DB_USER).
       GRAPH_DB_USER: ${GRAPH_DB_USER}
       GRAPH_DB_PASSWORD: ${GRAPH_DB_PASSWORD}
-      # Redis is auth-on (services/redis/compose.yml passes --requirepass
-      # ${REDIS_PASSWORD}). Without this, redis_default Connection auth-
+      # Redis is auth-on (services/redis/compose.yml writes ${REDIS_PASSWORD}
+      # to a 0600 config file, not argv). Without this, redis_default Connection auth-
       # fails with NOAUTH/WRONGPASS on every DAG that uses RedisHook.
       REDIS_PASSWORD: ${REDIS_PASSWORD}
       # Same Airflow 3.x section renames as webserver/scheduler — needed
-      # so `airflow users create` (a FAB-provider CLI) finds
-      # FabAuthManager and writes the admin row. init-airflow.sh exits
+      # so the FAB user commands in airflow_admin.py find FabAuthManager
+      # and write the admin row. init-airflow.sh exits
       # non-zero if creation or the password re-sync fails, which blocks
       # the dependent Airflow services.
       AIRFLOW__API__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
