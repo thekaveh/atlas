@@ -35,6 +35,10 @@ COPY ./app/requirements.txt ./app/requirements-locked.txt ./
 # this image has no JVM, so the jar can never run; it carried jackson-databind
 # 2.18.6 (CVE-2026-68497, #1308). Deleting it in the install layer keeps it out
 # of every image layer, and `test -d` fails the build if Ray moves it.
+# Ray also bundles aiohttp 3.14.1 for its runtime-env agent, which the Backend
+# never starts. Trivy flags that copy (CVE-2026-111064, #1948). Removing it
+# leaves the Backend's own aiohttp 3.14.4 in place; `test -d` fails the build
+# if Ray moves or renames the bundle.
 # pip 26.3 vendors certifi 2026.10.23, which excludes the G3 root. The base's
 # pip 25.0.1 still vendors G3, and the plugin seam runs pip at startup (#1905).
 RUN pip install --no-cache-dir pip==26.3 uv==0.11.19 && \
@@ -43,7 +47,10 @@ RUN pip install --no-cache-dir pip==26.3 uv==0.11.19 && \
     pip uninstall --yes uv && \
     ray_jars="$(python -c 'import importlib.util, pathlib; print(pathlib.Path(importlib.util.find_spec("ray").origin).parent / "jars")')" && \
     test -d "$ray_jars" && \
-    rm -rf "$ray_jars"
+    rm -rf "$ray_jars" && \
+    ray_agent="$(python -c 'import importlib.util, pathlib; print(pathlib.Path(importlib.util.find_spec("ray").origin).parent / "_private/runtime_env/agent/thirdparty_files")')" && \
+    test -d "$ray_agent/aiohttp-3.14.1.dist-info" && \
+    rm -rf "$ray_agent/aiohttp" "$ray_agent/aiohttp-3.14.1.dist-info"
 
 # Copy application code
 COPY ./app .
