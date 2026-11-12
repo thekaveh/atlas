@@ -29,18 +29,29 @@ services:
     #
     # Worst case is unchanged: if nothing volatile remains, volatile-lru
     # returns the same OOM error noeviction would have.
+    # The password reaches Redis through a config file in /dev/shm, not argv:
+    # the server's command line is visible in `ps` for the life of the
+    # container (#1381). /dev/shm is memory-backed, so the file never lands in
+    # the container's writable layer. The sed escapes backslash and double
+    # quote for the config's quoted value. A newline would split the config
+    # line, so it is refused. Compose interpolates a bare `$`, so shell
+    # variables are `$$`. The script starts as root only to repair ownership
+    # of /data left by earlier runs, then drops to the `redis` user with the
+    # same setpriv call the image entrypoint uses, before the server starts.
     command:
-      - redis-server
-      - --appendonly
-      - "yes"
-      # Required: a blank value reached Redis as `requirepass ""`, which
-      # turns authentication off.
-      - --requirepass
-      - ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
-      - --maxmemory
-      - ${REDIS_MAXMEMORY:-0}
-      - --maxmemory-policy
-      - ${REDIS_MAXMEMORY_POLICY:-volatile-lru}
+      - sh
+      - -c
+      - |
+        umask 077
+        if [ "$$(printf '%s' "$$REDIS_PASSWORD" | wc -l | tr -d ' ')" != 0 ]; then
+          echo "REDIS_PASSWORD must not contain a newline" >&2
+          exit 1
+        fi
+        find /data \! -user redis -exec chown redis '{}' +
+        esc=$$(printf '%s' "$$REDIS_PASSWORD" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')
+        printf 'requirepass "%s"\n' "$$esc" > /dev/shm/redis.conf
+        chown redis:redis /dev/shm/redis.conf
+        exec setpriv --reuid redis --regid redis --clear-groups redis-server /dev/shm/redis.conf --appendonly yes --maxmemory ${REDIS_MAXMEMORY:-0} --maxmemory-policy ${REDIS_MAXMEMORY_POLICY:-volatile-lru}
     volumes:
       - redis-data:/data
     ports:
@@ -48,6 +59,9 @@ services:
     # redis-cli reads REDISCLI_AUTH, so the password is not in the argv of
     # every probe (visible to any local user through ps on Linux).
     environment:
+      # Required: a blank value would write `requirepass ""`, which turns
+      # authentication off.
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
       REDISCLI_AUTH: ${REDIS_PASSWORD}
     healthcheck:
       # redis-cli exits 0 on error replies (-LOADING after an AOF replay,

@@ -23,81 +23,168 @@ def test_init_script_exists_and_is_executable():
     assert (SCRIPT.stat().st_mode & 0o111), "init-airflow.sh not executable"
 
 
-_FAKE_AIRFLOW_ADMIN = """#!/bin/sh
-printf '%s %s\\n' "$1" "$2" >> "$AIRFLOW_CALLS"
-case "$MODE:$1 $2" in
-  "new:users create") echo "User admin created with role Admin"; exit 0 ;;
-  "exists:users create"|"resetfail:users create") echo "admin already exist in the db"; exit 0 ;;
-  "exists:users reset-password") echo "User admin reset"; exit 0 ;;
-  "resetfail:users reset-password") echo "reset failed"; exit 2 ;;
-  "createfail:users create") echo "create failed"; exit 3 ;;
-esac
-exit 99
+_FAKE_FAB_USER_COMMAND = """
+import os
+
+MODE = os.environ["MODE"]
+CALLS = os.environ["AIRFLOW_CALLS"]
+
+
+def _record(line):
+    with open(CALLS, "a", encoding="utf-8") as handle:
+        handle.write(line + "\\n")
+
+
+def users_create(args):
+    _record(f"users create {args.username} {args.role} {args.password}")
+    if MODE == "createfail":
+        raise RuntimeError("create failed")
+    if MODE in ("exists", "resetfail"):
+        print("admin already exists in the db")
+
+
+def user_reset_password(args):
+    _record(f"users reset-password {args.username} {args.password}")
+    if MODE == "resetfail":
+        raise SystemExit(2)
 """
 
 _FAKE_AIRFLOW_CONNECTIONS = """#!/bin/sh
+printf '%s\\n' "$*" >> "$AIRFLOW_ARGV_LOG"
 case "$1 $2" in
-  "connections delete") [ -e "$CONN_STATE/$3" ] || exit 1; rm "$CONN_STATE/$3" ;;
-  "connections add")
-    if [ -e "$CONN_STATE/$3" ]; then echo "A connection with conn_id $3 already exists" >&2; exit 1; fi
-    conn_id=$3; shift 3; printf '%s\\n' "$*" > "$CONN_STATE/$conn_id" ;;
+  "connections delete") rm -f "$CONN_STATE/$3" ;;
+  "connections import")
+    overwrite=no
+    for arg in "$@"; do [ "$arg" = "--overwrite" ] && overwrite=yes; done
+    eval "last=\\${$#}"
+    conn_id=$(python3 -c 'import json, sys; print(next(iter(json.load(open(sys.argv[1])))))' "$last")
+    if [ -e "$CONN_STATE/$conn_id" ] && [ "$overwrite" = no ]; then
+      echo "Connection $conn_id already exists" >&2
+      exit 1
+    fi
+    python3 -c 'import json, os, sys
+doc = json.load(open(sys.argv[1]))
+(conn_id, spec), = doc.items()
+open(os.path.join(sys.argv[2], conn_id), "w").write(json.dumps(spec, sort_keys=True))' "$last" "$CONN_STATE" ;;
   *) exit 99 ;;
 esac
 """
 
 
+def _fake_fab_path(tmp_path):
+    root = tmp_path / "fakefab"
+    package = root
+    for part in ("airflow", "providers", "fab", "auth_manager", "cli_commands"):
+        package = package / part
+        package.mkdir(parents=True, exist_ok=True)
+        (package / "__init__.py").write_text("", encoding="utf-8")
+    (package / "user_command.py").write_text(_FAKE_FAB_USER_COMMAND, encoding="utf-8")
+    return str(root)
+
+
 def _fake_airflow_path(tmp_path, source):
     bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
+    bin_dir.mkdir(exist_ok=True)
     fake = bin_dir / "airflow"
     fake.write_text(source, encoding="utf-8")
     fake.chmod(0o755)
     return f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}"
 
 
+PASSWORD = "-dash-first=pass"
+
+
 @pytest.mark.parametrize("mode,rc,calls", [
-    ("new", 0, ["users create"]),
-    ("exists", 0, ["users create", "users reset-password"]),
-    ("resetfail", 1, ["users create", "users reset-password"]),
-    ("createfail", 1, ["users create"]),
+    ("new", 0, [f"users create admin Admin {PASSWORD}", f"users reset-password admin {PASSWORD}"]),
+    ("exists", 0, [f"users create admin Admin {PASSWORD}", f"users reset-password admin {PASSWORD}"]),
+    ("resetfail", 2, [f"users create admin Admin {PASSWORD}", f"users reset-password admin {PASSWORD}"]),
+    ("createfail", 1, [f"users create admin Admin {PASSWORD}"]),
 ])
-def test_admin_user_block_is_idempotent_and_fails_closed(tmp_path, mode, rc, calls):
-    """A re-run re-syncs the admin password (README relies on it); a failure exits 1."""
-    body = SCRIPT.read_text(encoding="utf-8")
-    start = body.index("if create_output=$(airflow users create")
-    block = body[start:body.index('echo "==> airflow-init: seeding Connections', start)]
+def test_admin_helper_is_idempotent_and_fails_closed(tmp_path, mode, rc, calls):
+    """The helper creates the admin as Admin with the .env password, then always
+    re-syncs that password (the README relies on it). A failed step exits with
+    its own status, which stops init (#1381)."""
     log = tmp_path / "calls.log"
     env = {
-        **os.environ, "PATH": _fake_airflow_path(tmp_path, _FAKE_AIRFLOW_ADMIN),
-        "MODE": mode, "AIRFLOW_CALLS": str(log), "AIRFLOW_ADMIN_PASSWORD": "-dash-first",
+        **os.environ, "PYTHONPATH": _fake_fab_path(tmp_path), "MODE": mode,
+        "AIRFLOW_CALLS": str(log), "AIRFLOW_ADMIN_PASSWORD": PASSWORD,
     }
     result = subprocess.run(
-        ["bash", "-c", "set -euo pipefail\n" + block], env=env,
-        capture_output=True, text=True, timeout=10, check=False,
+        ["python3", str(SCRIPT.parent / "airflow_admin.py")], env=env,
+        capture_output=True, text=True, timeout=30, check=False,
     )
     assert result.returncode == rc, result
-    assert log.read_text(encoding="utf-8").splitlines() == calls
+    recorded = log.read_text(encoding="utf-8").splitlines() if log.exists() else []
+    assert recorded == calls
 
 
-def test_add_conn_rerun_succeeds_and_updates_the_connection(tmp_path):
-    """Always-on connections skip the orphan pass, so a re-run must replace them."""
+def test_init_script_stops_when_the_admin_helper_fails():
+    body = SCRIPT.read_text(encoding="utf-8")
+    assert (
+        "if ! python3 /scripts/airflow_admin.py; then\n"
+        '  echo "airflow-init: ERROR during admin user creation" >&2\n'
+        "  exit 1\n"
+        "fi"
+    ) in body
+    assert "airflow users create" not in body
+    assert "--password=" not in body
+
+
+def _run_add_conn(tmp_path, state, argv_log, *flags):
     body = SCRIPT.read_text(encoding="utf-8")
     start = body.index("add_conn() {")
-    helper = body[start:body.index("\n}\n", start) + 3]
-    state = tmp_path / "conns"
-    state.mkdir()
+    helper = body[start:body.index("\n}\n", start) + 3].replace(
+        "/scripts/airflow_connection.py", str(SCRIPT.parent / "airflow_connection.py"))
     env = {
         **os.environ, "PATH": _fake_airflow_path(tmp_path, _FAKE_AIRFLOW_CONNECTIONS),
-        "CONN_STATE": str(state),
+        "CONN_STATE": str(state), "AIRFLOW_ARGV_LOG": str(argv_log),
     }
-    for conn_type in ("first", "second"):
-        result = subprocess.run(
-            ["bash", "-c", "set -euo pipefail\n" + helper + 'add_conn "$@"\n',
-             "_", "x_default", f"--conn-type={conn_type}"],
-            env=env, capture_output=True, text=True, timeout=10, check=False,
-        )
-        assert result.returncode == 0, result
-    assert (state / "x_default").read_text(encoding="utf-8") == "--conn-type=second\n"
+    return subprocess.run(
+        ["bash", "-c", "set -euo pipefail\n" + helper + 'add_conn "$@"\n', "_", "x_default", *flags],
+        env=env, capture_output=True, text=True, timeout=30, check=False,
+    )
+
+
+def test_add_conn_stores_each_password_and_keeps_secrets_out_of_argv(tmp_path):
+    """Fresh install, then a rotation. The stored value must follow each write,
+    and no secret may appear in any `airflow` argv (#1381)."""
+    import json as _json
+    state = tmp_path / "conns"
+    state.mkdir()
+    argv_log = tmp_path / "argv.log"
+    first, second = "p@ss -w:rd=\"x\"#1", "rotated=pw"
+    result = _run_add_conn(tmp_path, state, argv_log, "--conn-type=first", "--conn-password", first)
+    assert result.returncode == 0, result
+    assert _json.loads((state / "x_default").read_text(encoding="utf-8"))["password"] == first
+    result = _run_add_conn(tmp_path, state, argv_log, "--conn-type=second", "--conn-password", second)
+    assert result.returncode == 0, result
+    assert _json.loads((state / "x_default").read_text(encoding="utf-8")) == {
+        "conn_type": "second", "password": second}
+    logged = argv_log.read_text(encoding="utf-8")
+    assert first not in logged and second not in logged
+    assert "connections delete x_default" in logged
+    assert "--overwrite" in logged
+
+
+def test_add_conn_keeps_an_equals_sign_inside_the_value(tmp_path):
+    import json as _json
+    state = tmp_path / "conns"
+    state.mkdir()
+    result = _run_add_conn(tmp_path, state, tmp_path / "argv.log", "--conn-password=abc=def==")
+    assert result.returncode == 0, result
+    assert _json.loads((state / "x_default").read_text(encoding="utf-8"))["password"] == "abc=def=="
+
+
+def test_add_conn_refuses_a_flag_without_a_value(tmp_path):
+    """A trailing `--conn-password` used to store a blank password (#1381 review)."""
+    state = tmp_path / "conns"
+    state.mkdir()
+    result = _run_add_conn(tmp_path, state, tmp_path / "argv.log", "--conn-host", "h", "--conn-password")
+    assert result.returncode == 2, result
+    assert not (state / "x_default").exists()
+    result = _run_add_conn(tmp_path, state, tmp_path / "argv.log", "--conn-password", "--conn-host", "h")
+    assert result.returncode == 2, result
+    assert not (state / "x_default").exists()
 
 
 def test_init_script_gates_each_sibling_connection():
@@ -144,8 +231,8 @@ def test_airflow_contract_discloses_unsandboxed_privileged_dag_execution():
     scheduler = yaml.safe_load(COMPOSE.read_text())["services"]["airflow-scheduler"]
 
     _assert_contains(body, (
-        'os.environ["MINIO_ROOT_USER"]',
-        'os.environ["MINIO_ROOT_PASSWORD"]',
+        'os.environ["MINIO_SPARK_ACCESS_KEY"]',
+        'os.environ["MINIO_SPARK_SECRET_KEY"]',
         "${LITELLM_MASTER_KEY}",
         "${AIRFLOW_ATLAS_DB_USER}",
         "${AIRFLOW_ATLAS_DB_PASSWORD}",
@@ -167,7 +254,7 @@ def test_airflow_contract_discloses_unsandboxed_privileged_dag_execution():
     ) == ("LocalExecutor", True, ("not-supported", "tested"))
     _assert_contains(capability["note"], (
         "operator-authored DAGs execute unsandboxed",
-        "MinIO root",
+        "scoped MinIO spark pair",
         "LiteLLM master",
         "Neo4j administrator",
         # The Supabase connection uses the scoped reader role (AIRFLOW_ATLAS_DB_USER).

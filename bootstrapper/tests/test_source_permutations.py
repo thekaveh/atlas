@@ -398,7 +398,10 @@ def test_redis_credentials_survive_complete_generation_and_compose(tmp_path, mon
     path = _redis_generated_env(tmp_path, monkeypatch, {"REDIS_PASSWORD": raw})
     services = _redis_merged_config(path)
     _assert_redis_password_urls(services, raw)
-    assert services["redis"]["command"] == ["redis-server", "--appendonly", "yes", "--requirepass", raw, "--maxmemory", "0", "--maxmemory-policy", "volatile-lru"]
+    # The password is in the environment only; the server reads it from a 0600 file (#1381).
+    assert services["redis"]["command"][:2] == ["sh", "-c"]
+    assert raw not in " ".join(services["redis"]["command"])
+    assert services["redis"]["environment"]["REDIS_PASSWORD"] == raw
     for service, key in [("redis", "REDISCLI_AUTH"), ("redis-exporter", "REDIS_PASSWORD"), ("litellm", "REDIS_PASSWORD"), ("n8n", "QUEUE_BULL_REDIS_PASSWORD"), ("n8n-worker", "QUEUE_BULL_REDIS_PASSWORD")]:
         assert services[service]["environment"][key] == raw
 
@@ -415,7 +418,8 @@ def test_redis_shell_password_is_runtime_only(tmp_path, monkeypatch, shell_passw
         assert quote(shell_password, safe="") not in persisted
     services = _redis_merged_config(path)
     _assert_redis_password_urls(services, shell_password)
-    assert services["redis"]["command"][4] == shell_password
+    assert shell_password not in " ".join(services["redis"]["command"])
+    assert services["redis"]["environment"]["REDIS_PASSWORD"] == shell_password
 
 
 def test_redis_blank_shell_password_fails_closed(tmp_path, monkeypatch):
@@ -471,7 +475,8 @@ def test_redis_encoded_shell_companion_is_runtime_only(tmp_path, monkeypatch):
     services = _redis_merged_config(path)
     _assert_redis_password_urls(services, "synthetic-encoded%2Fonly")
     # An explicit companion override does not rewrite the raw server secret.
-    assert services["redis"]["command"][4] == "synthetic-file-secret"
+    assert services["redis"]["environment"]["REDIS_PASSWORD"] == "synthetic-file-secret"
+    assert "synthetic-file-secret" not in " ".join(services["redis"]["command"])
 
 
 def test_redis_legacy_template_keeps_custom_database_index(tmp_path, monkeypatch):
@@ -518,7 +523,8 @@ def test_redis_literal_password_keeps_single_quotes_and_comment(tmp_path, monkey
     _assert_redis_password_urls(services, literal)
     # Compose config escapes dollars for reload after serializing the model.
     rendered_literal = literal.replace("$", "$$")
-    assert services["redis"]["command"][4] == rendered_literal
+    assert services["redis"]["environment"]["REDIS_PASSWORD"] == rendered_literal
+    assert rendered_literal not in " ".join(services["redis"]["command"])
     assert services["redis"]["environment"]["REDISCLI_AUTH"] == rendered_literal
     assert parser.parse_env_file()["REDIS_PASSWORD"] == literal
     assert raw_line in path.read_text()
@@ -547,7 +553,8 @@ def test_redis_expanding_file_password_is_resolved_only_for_runtime(tmp_path, mo
     persisted = path.read_bytes()
     services = _redis_merged_config(path)
     _assert_redis_password_urls(services, expected)
-    assert services["redis"]["command"][4] == expected
+    assert expected not in " ".join(services["redis"]["command"])
+    assert services["redis"]["environment"]["REDIS_PASSWORD"] == expected
     assert services["redis"]["environment"]["REDISCLI_AUTH"] == expected
     _assert_redis_reference_not_persisted(path, persisted, raw_line, shell)
 
