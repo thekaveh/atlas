@@ -13,3 +13,11 @@ GitPython==3.2.1
 sqlparse==0.6.0
 setuptools==84.1.0
 wheel==0.48.0
+
+# Base-image packages the Final-image scan flags (#1948, 2026-11-08). pillow
+# 13.0.0 clears 28 HIGH findings; aiohttp 3.14.4, certifi 2026.10.19 and pyasn1
+# 0.6.5 clear the rest. They are pinned here so the audited lock controls them.
+pillow==13.0.0
+pyasn1==0.6.5
+aiohttp==3.14.4
+certifi==2026.10.19
