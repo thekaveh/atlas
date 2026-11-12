@@ -18,6 +18,9 @@ STARTUP_FILE = ROOT / "services" / "jupyterhub" / "build" / "scripts" / "startup
 
 MODULE_DISTRIBUTIONS = {
     "boto3": "boto3",
+    "cv2": "opencv-contrib-python-headless",
+    "numpy": "numpy",
+    "matplotlib": "matplotlib",
     "ccxt": "ccxt",
     "fastmcp": "fastmcp",
     "chonkie": "chonkie",
