@@ -24,6 +24,7 @@ EXPECTED_REF = "38f769f84380f2065de76021ac7c5215f88aa39e"
 EXPECTED_CLI = "0.4.32"
 EXPECTED_LOCK_SHA256 = "26fc35ac377836de6628e5f7b180944c4d4bd50a5e9f0200bd6e663f20e35c1a"
 SECURITY_FLOORS = {
+    "langgraph": "1.2.14",
     "langgraph-sdk": "0.4.6",
     "aiohttp": "3.14.4",
     "certifi": "2026.10.19",
