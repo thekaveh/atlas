@@ -450,8 +450,17 @@ def main() -> None:
     parser.add_argument("--underscore-component", type=Path, required=True)
     parser.add_argument("--underscore-source", type=Path, required=True)
     parser.add_argument("--nbclassic-record", type=Path, required=True)
+    parser.add_argument(
+        "--skip-msgpack",
+        action="store_true",
+        help=(
+            "pip 26.3 vendors msgpack 1.2.4, already past the 1.2.3 fix, with an "
+            "upstream-consistent BOM and RECORD. Refresh only the nbclassic Underscore asset."
+        ),
+    )
     args = parser.parse_args()
-    refresh(args.vendor, args.msgpack_source, args.pip_record)
+    if not args.skip_msgpack:
+        refresh(args.vendor, args.msgpack_source, args.pip_record)
     refresh_underscore(
         args.underscore_component, args.underscore_source, args.nbclassic_record
     )
