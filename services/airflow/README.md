@@ -169,7 +169,7 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
 | Code-defined DAG orchestration | supported | tested | Atlas runs Airflow 3 with a separate API server, scheduler, DAG processor, and init path, using LocalExecutor for operator-authored DAGs. |
-| Untrusted DAG code isolation | not-supported | tested | LocalExecutor operator-authored DAGs execute unsandboxed. Their Airflow Connections hold MinIO root, LiteLLM master, Neo4j administrator, scoped Supabase reader, and Redis password credentials. Admit only trusted DAG authors. |
+| Untrusted DAG code isolation | not-supported | tested | LocalExecutor operator-authored DAGs execute unsandboxed. Their Airflow Connections hold the scoped MinIO spark pair, LiteLLM master, Neo4j administrator, scoped Supabase reader, and Redis password credentials. Admit only trusted DAG authors. |
 | Seeded stack service connections | partial | tested | Init seeds LiteLLM, Redis, Supabase, and enabled container-only lakehouse or graph connections; localhost variants are deliberately not mapped to unusable Compose DNS names. |
 | Spark lakehouse job execution | partial | tested | Bundled DAGs and jars exercise SparkSubmit and lakehouse configuration, but live Spark, MinIO, Iceberg, and Redpanda execution remains an operator-run smoke path. |
 | Airflow UI and API authentication | supported | tested | Direct and CORS-only Kong surfaces rely on Airflow FAB login for the UI and JWT exchange for /api/v2. Kong adds routing but no second authentication gate. |

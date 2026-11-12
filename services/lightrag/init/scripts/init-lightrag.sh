@@ -93,6 +93,7 @@ if [ -n "${LIGHTRAG_NEO4J_URI:-}" ]; then
   # Credentials go through a mode-0600 netrc file, not curl's argv (#1381).
   neo4j_auth_host=$(printf '%s' "$neo4j_http" | sed -E 's#^https?://([^:/]+).*#\1#')
   neo4j_netrc=$(mktemp)
+  trap 'rm -f "$neo4j_netrc"' EXIT
   printf 'machine %s login %s password %s\n' "$neo4j_auth_host" "$LIGHTRAG_NEO4J_USERNAME" "$LIGHTRAG_NEO4J_PASSWORD" > "$neo4j_netrc"
   http_status=$(curl -fs --max-time 30 -o /tmp/neo4j-resp.json -w '%{http_code}' \
     --netrc-file "$neo4j_netrc" \
