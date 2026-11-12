@@ -20,6 +20,9 @@ RUN apt-get update \
 # PyYAML renders config.yaml. These exact pins mirror the repository-owned,
 # vulnerability-audited shared init closure in
 # services/requirements-init-locked.txt.
+# pip 26.3 vendors certifi 2026.10.23, which excludes the distrusted emSign
+# ECC Root CA - G3. The base pip still vendors it, so upgrade before first use (#1905).
+RUN pip install --no-cache-dir pip==26.3
 RUN pip install --no-cache-dir \
     psycopg2-binary==2.9.9 \
     PyYAML==6.0.2
