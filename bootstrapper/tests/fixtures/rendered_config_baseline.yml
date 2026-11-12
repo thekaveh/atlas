@@ -3668,18 +3668,13 @@ services:
     shm_size: '8589934592'
   redis:
     command:
-    - redis-server
-    - --appendonly
-    - 'yes'
-    - --requirepass
-    - redis_password
-    - --maxmemory
-    - '0'
-    - --maxmemory-policy
-    - volatile-lru
+    - sh
+    - -c
+    - "umask 077\nif [ \"$$(printf '%s' \"$$REDIS_PASSWORD\" | wc -l | tr -d ' ')\" != 0 ]; then\n  echo \"REDIS_PASSWORD must not contain a newline\" >&2\n  exit 1\nfi\nfind /data \\! -user redis -exec chown redis '{}' +\nesc=$$(printf '%s' \"$$REDIS_PASSWORD\" | sed -e 's/\\\\/\\\\\\\\/g' -e 's/\"/\\\\\"/g')\nprintf 'requirepass \"%s\"\\n' \"$$esc\" > /dev/shm/redis.conf\nchown redis:redis /dev/shm/redis.conf\nexec setpriv --reuid redis --regid redis --clear-groups redis-server /dev/shm/redis.conf --appendonly yes --maxmemory 0 --maxmemory-policy volatile-lru\n"
     container_name: atlas-redis
     environment:
       REDISCLI_AUTH: redis_password
+      REDIS_PASSWORD: redis_password
     healthcheck:
       test:
       - CMD-SHELL

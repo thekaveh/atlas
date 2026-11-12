@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -114,11 +115,16 @@ def test_redis_memory_cap_is_configurable_and_defaults_to_unlimited() -> None:
 
 
 def test_redis_keeps_persistence_and_auth() -> None:
-    """Guard persistence and auth flags in the command list. A blank
-    password must stop Compose: `requirepass ""` turns authentication off."""
+    """Guard persistence and auth. The password reaches Redis through a config
+    file, never argv (#1381). A blank password must stop Compose: an empty
+    value would write `requirepass ""`, which turns authentication off."""
     cmd = _redis_command()
     assert "--appendonly yes" in cmd
-    assert "--requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD is required}" in cmd
+    assert "--requirepass" not in cmd
+    assert "requirepass" in cmd and "/dev/shm/redis.conf" in cmd
+    assert "umask 077" in cmd
+    env = _services(REDIS_COMPOSE)["redis"]["environment"]
+    assert env["REDIS_PASSWORD"] == "${REDIS_PASSWORD:?REDIS_PASSWORD is required}"
 
 
 # ─── 3. Ollama KV cache is quantized, and actually active ────────────
@@ -179,3 +185,100 @@ def test_the_redis_docs_name_the_evictable_coordination_leases():
     text = {e["name"]: e["description"] for e in manifest["env"]}
     assert "recomputable" not in text["REDIS_MAXMEMORY"]
     assert "leases" in text["REDIS_MAXMEMORY"] and "leases" in text["REDIS_MAXMEMORY_POLICY"]
+
+
+def _redis_password_script() -> str:
+    """The `sh -c` script that writes Redis's password file, taken from compose."""
+    return _redis_command_list()[2]
+
+
+def _redis_command_list():
+    return _services(REDIS_COMPOSE)["redis"]["command"]
+
+
+def _run_redis_script(tmp_path, password):
+    """Run the compose script with a stub redis-server and a local config path."""
+    import subprocess
+
+    shm = tmp_path / "shm"
+    shm.mkdir()
+    stub = tmp_path / "bin"
+    stub.mkdir()
+    captured = tmp_path / "server-args.txt"
+    (stub / "redis-server").write_text(
+        '#!/bin/sh\nprintf "%s\\n" "$@" > "$CAPTURE"\n', encoding="utf-8")
+    (stub / "redis-server").chmod(0o755)
+    # Compose fills ${VAR:-default} and turns $$ into $ before the container sees it.
+    import re
+    script = re.sub(r"\$\{\w+:-([^}]*)\}", r"\1", _redis_password_script()).replace("$$", "$")
+    script = script.replace("/dev/shm/redis.conf", str(shm / "redis.conf"))
+    # The ownership repair and the privilege drop need root and the image's users;
+    # this harness checks the password handling, so those steps are stripped.
+    script = "\n".join(
+        line for line in script.splitlines()
+        if not line.lstrip().startswith(("find /data", "chown redis:redis"))
+    ).replace("setpriv --reuid redis --regid redis --clear-groups ", "")
+    env = {"PATH": f"{stub}:/usr/bin:/bin", "REDIS_PASSWORD": password, "CAPTURE": str(captured)}
+    result = subprocess.run(["sh", "-c", script], env=env, capture_output=True, text=True, timeout=30)
+    return result, shm / "redis.conf", captured
+
+
+def _redis_quoted_value(body):
+    """Decode a Redis config double-quoted value. Only \\\\ and \\" are escapes; an
+    unescaped quote or any other backslash sequence is a config error."""
+    out, index = [], 0
+    while index < len(body):
+        char = body[index]
+        if char == '"':
+            raise AssertionError(f"unescaped quote in config value: {body!r}")
+        if char == "\\":
+            nxt = body[index + 1:index + 2]
+            if nxt not in ('"', "\\"):
+                raise AssertionError(f"invalid escape in config value: {body!r}")
+            out.append(nxt)
+            index += 2
+            continue
+        out.append(char)
+        index += 1
+    return "".join(out)
+
+
+@pytest.mark.parametrize("password", [
+    "synthetic-safe", "synthetic two words", 'synthetic"quoted"secret',
+    "back\\slash", "synthetic#secret", "synthetic'é雪", "-leading-dash",
+])
+def test_redis_password_file_round_trips_every_special_character(tmp_path, password):
+    """The config line must parse back to the exact password. A `"` or `\` that
+    the sed escapes incorrectly would split or truncate it (#1381 review)."""
+    result, config, args = _run_redis_script(tmp_path, password)
+    assert result.returncode == 0, result.stderr
+    line = config.read_text(encoding="utf-8")
+    assert line.startswith('requirepass "') and line.endswith('"\n')
+    decoded = _redis_quoted_value(line[len('requirepass "'):-2])
+    assert decoded == password
+    assert password not in args.read_text(encoding="utf-8")
+
+
+def test_redis_password_file_is_private_and_not_in_the_image_layer():
+    """The file lives in /dev/shm (memory-backed) and is written mode 0600."""
+    assert "umask 077" in _redis_password_script()
+    assert "/dev/shm/redis.conf" in _redis_password_script()
+    assert "/tmp/redis.conf" not in _redis_password_script()
+
+
+def test_redis_refuses_a_password_with_a_newline(tmp_path):
+    result, config, args = _run_redis_script(tmp_path, "line-one\nline-two")
+    assert result.returncode != 0
+    assert "must not contain a newline" in result.stderr
+    assert not config.exists()
+    assert not args.exists()
+
+
+def test_redis_drops_to_the_redis_user_before_serving():
+    """The command starts with `sh`, so the image entrypoint does not drop
+    privileges for it. The script repairs /data ownership as root, then runs the
+    server as `redis` with the same setpriv call the image entrypoint uses (#1381)."""
+    script = _redis_password_script()
+    assert "find /data \\! -user redis" in script
+    assert "exec setpriv --reuid redis --regid redis --clear-groups redis-server" in script
+    assert "user" not in _services(REDIS_COMPOSE)["redis"]

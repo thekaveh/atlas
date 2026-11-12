@@ -463,7 +463,7 @@ The wizard uses your current `.env` values as defaults, with two exceptions. A s
 | `--profile` | The profile's bundle from `bootstrapper/profiles.yml` |
 | `--openai-models`, `--anthropic-models`, `--openrouter-models`, `--ollama-models` | `OPENAI_USER_MODELS`, `ANTHROPIC_USER_MODELS`, `OPENROUTER_USER_MODELS`, `OLLAMA_USER_MODELS` |
 | `--ollama-custom-models`, `--comfyui-models`, `--comfyui-custom-models-file` | `OLLAMA_CUSTOM_MODELS`, `COMFYUI_USER_MODELS`, `COMFYUI_CUSTOM_MODELS_FILE` |
-| `--openai-api-key`, `--anthropic-api-key`, `--openrouter-api-key`, `--fal-api-key` | The matching `*_API_KEY` |
+| `--openai-api-key`, `--anthropic-api-key`, `--openrouter-api-key`, `--fal-api-key` (or their `-file` forms, which read the key from a path or stdin) | The matching `*_API_KEY` |
 | `--project`, `--base-port` | `PROJECT_NAME`, `BASE_PORT` |
 | `--ray-worker-count`, `--spark-workers`, `--prometheus-retention-days` | `RAY_WORKER_COUNT`, `SPARK_WORKER_COUNT`, `PROMETHEUS_RETENTION_DAYS` |
 
