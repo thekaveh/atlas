@@ -52,6 +52,8 @@ LITELLM_DEFAULT_MODEL=ollama/qwen3.8:latest  # the one model every step uses
 
 **Pinned source.** `LOCAL_DEEP_RESEARCHER_REF` must be a full commit SHA. Startup checks the upstream `uv.lock` against `LOCAL_DEEP_RESEARCHER_UPSTREAM_LOCK_SHA256`. It then installs from Atlas's hashed lock `build/config/runtime-requirements.lock`. A mismatch stops startup before the source tree is replaced.
 
+The refresh enforces `langgraph>=1.2.14`, which clears [GHSA-3fx2-cqw9-xr3c](https://github.com/advisories/GHSA-3fx2-cqw9-xr3c) (`>= 1.2.3, < 1.2.14`, #1988).
+
 The refresh enforces `aiohttp>=3.14.4` and pins `setuptools==84.1.0`. It also enforces `langgraph-sdk>=0.4.6`, which includes the earlier [SDK fix](https://github.com/advisories/GHSA-fvww-7h3r-vfhp) and encodes caller-supplied v3 streaming identifiers ([advisory](https://github.com/advisories/GHSA-3fx2-cqw9-xr3c)).
 
 On Python 3.11 or later, the serving branch requires `langgraph-api>=0.15.9` and `opentelemetry-api>=1.45.1`.
