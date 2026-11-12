@@ -234,10 +234,10 @@ RECIPE_WORK="$(mktemp -d "${TMPDIR:-/tmp}/atlas-promptfoo.XXXXXXXX")"
 mkdir "$RECIPE_WORK/npm" "$RECIPE_WORK/home" "$RECIPE_WORK/tmp"
 cp "$RECIPE/package.json" "$RECIPE/package-lock.json" "$RECIPE_WORK/npm/"
 : > "$RECIPE_WORK/empty-npmrc"
-env -i PATH="$PATH" HOME="$RECIPE_WORK/home" TMPDIR="$RECIPE_WORK/tmp" \
-  npm ci --prefix "$RECIPE_WORK/npm" --ignore-scripts --omit=dev \
+(cd "$RECIPE_WORK/npm" && env -i PATH="$PATH" HOME="$RECIPE_WORK/home" TMPDIR="$RECIPE_WORK/tmp" \
+  npm ci --ignore-scripts --omit=dev \
   --include=optional --no-audit --no-fund \
-  --userconfig /dev/null --globalconfig "$RECIPE_WORK/empty-npmrc"
+  --userconfig /dev/null --globalconfig "$RECIPE_WORK/empty-npmrc")
 python3.12 -I -S -B -m venv --without-pip "$RECIPE_WORK/auth"
 env -i PATH="$PATH" HOME="$RECIPE_WORK/home" TMPDIR="$RECIPE_WORK/tmp" \
   UV_NO_CONFIG=1 UV_PYTHON_DOWNLOADS=never \
@@ -246,7 +246,7 @@ env -i PATH="$PATH" HOME="$RECIPE_WORK/home" TMPDIR="$RECIPE_WORK/tmp" \
   -r "$RECIPE/requirements-auth-macos-arm64-py312.lock"
 ```
 
-These installation commands contact public package registries. npm lifecycle scripts and Python source builds are disabled. The Python lock selects only the authorization module's eleven dependencies; it does not install the full Backend.
+The npm step runs from inside the install directory: npm 11.20 rejects `npm ci --prefix` for this lock with `Missing: npm@0.0.0`. These installation commands contact public package registries. npm lifecycle scripts and Python source builds are disabled. The Python lock selects only the authorization module's eleven dependencies; it does not install the full Backend.
 
 ### 6.2. Qualify and run
 
