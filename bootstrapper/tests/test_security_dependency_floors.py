@@ -1344,3 +1344,21 @@ def test_backend_disables_the_distrusted_emsign_g3_root_in_its_system_store() ->
     assert "sed -i 's|^mozilla/emSign_ECC_Root_CA_-_G3.crt$|!mozilla/emSign_ECC_Root_CA_-_G3.crt|'" in text
     assert "grep -q '^!mozilla/emSign_ECC_Root_CA_-_G3.crt$' /etc/ca-certificates.conf" in text
     assert "update-ca-certificates --fresh" in text
+
+
+def test_backend_drops_rays_bundled_aiohttp_copy_but_keeps_its_own() -> None:
+    """Ray bundles aiohttp 3.14.1 for its runtime-env agent, which the Backend never
+    starts. The Backend build removes that copy, and fails if Ray moves it (#1948)."""
+    text = _text("services/backend/app/Dockerfile")
+    assert 'ray_agent/aiohttp-3.14.1.dist-info" && \\' in text
+    assert 'rm -rf "$ray_agent/aiohttp" "$ray_agent/aiohttp-3.14.1.dist-info"' in text
+
+
+def test_mlflow_lock_pins_the_scanner_fixed_base_packages() -> None:
+    """pillow, aiohttp, certifi and pyasn1 are base-image packages the Final-image
+    scan flags (#1948). The audited lock must control them, not the base."""
+    requirements = _text("services/mlflow/build/requirements.txt")
+    locked = _text("services/mlflow/build/requirements-locked.txt")
+    for pin in ("pillow==13.0.0", "pyasn1==0.6.5", "aiohttp==3.14.4", "certifi==2026.10.19"):
+        assert pin in requirements, pin
+        assert pin in locked.splitlines(), pin
