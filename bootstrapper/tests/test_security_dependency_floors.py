@@ -208,12 +208,12 @@ def test_airflow_overlay_remains_compatible_with_the_upstream_image() -> None:
 @pytest.mark.parametrize(("package", "floor"), (
     ("certifi", "2026.10.19"),
     ("authlib", "1.9.1"),
-    ("dnspython", "2.9.0"),
+    ("dnspython", "2.9.2"),
     ("gitpython", "3.2.1"),
     ("msgpack", "1.2.3"),
     ("setuptools", "84.1.0"),
     ("virtualenv", "21.14.10"),
-    ("opentelemetry-api", "1.45.1"),
+    ("opentelemetry-api", "1.45.2"),
     ("opentelemetry-exporter-prometheus", "0.66b1"),
 ))
 def test_airflow_security_floors_survive_overlay_refresh(package, floor) -> None:
@@ -227,23 +227,23 @@ def test_airflow_security_floors_survive_overlay_refresh(package, floor) -> None
 @pytest.mark.parametrize(("package", "version"), (
     ("certifi", "2026.10.19"),
     ("authlib", "1.9.1"),
-    ("dnspython", "2.9.0"),
+    ("dnspython", "2.9.2"),
     ("gitpython", "3.2.1"),
     ("msgpack", "1.2.3"),
     ("setuptools", "84.1.0"),
     ("virtualenv", "21.14.10"),
     ("packaging", "26.3"),
-    ("opentelemetry-api", "1.45.1"),
-    ("opentelemetry-sdk", "1.45.1"),
-    ("opentelemetry-proto", "1.45.1"),
-    ("opentelemetry-exporter-otlp", "1.45.1"),
-    ("opentelemetry-exporter-otlp-proto-common", "1.45.1"),
-    ("opentelemetry-exporter-otlp-proto-grpc", "1.45.1"),
-    ("opentelemetry-exporter-otlp-proto-http", "1.45.1"),
-    ("opentelemetry-semantic-conventions", "0.66b1"),
-    ("opentelemetry-exporter-otlp-common", "0.66b1"),
-    ("opentelemetry-exporter-http-transport", "0.66b1"),
-    ("opentelemetry-exporter-prometheus", "0.66b1"),
+    ("opentelemetry-api", "1.45.2"),
+    ("opentelemetry-sdk", "1.45.2"),
+    ("opentelemetry-proto", "1.45.2"),
+    ("opentelemetry-exporter-otlp", "1.45.2"),
+    ("opentelemetry-exporter-otlp-proto-common", "1.45.2"),
+    ("opentelemetry-exporter-otlp-proto-grpc", "1.45.2"),
+    ("opentelemetry-exporter-otlp-proto-http", "1.45.2"),
+    ("opentelemetry-semantic-conventions", "0.66b2"),
+    ("opentelemetry-exporter-otlp-common", "0.66b2"),
+    ("opentelemetry-exporter-http-transport", "0.66b2"),
+    ("opentelemetry-exporter-prometheus", "0.66b2"),
     ("prometheus-client", "0.26.0"),
 ))
 def test_airflow_lock_contains_the_compatible_security_patch_family(package, version) -> None:
@@ -359,10 +359,13 @@ def test_image_http_and_parser_security_floors() -> None:
         _locked_version("services/docling/provider/localhost/uv.lock", "pillow")
         == "13.0.0"
     )
-    assert (
-        _locked_version("services/docling/provider/localhost/uv.lock", "soupsieve")
-        == "2.9.2"  # CVE-2026-85999 / CVE-2026-86000 fixed in 2.9.0 (#1110)
-    )
+    # CVE-2026-85999 / CVE-2026-86000 fixed in 2.9.0 (#1110). soupsieve 4.1.1
+    # fixes CVE-2026-126190 but needs Python 3.11.5, so 3.11.0-3.11.4 keeps 2.10.
+    soupsieve_lock = tomllib.loads(_text("services/docling/provider/localhost/uv.lock"))
+    assert sorted(
+        row["version"] for row in soupsieve_lock["package"]
+        if row["name"] == "soupsieve"
+    ) == ["2.10", "4.1.1"]
     assert (
         _locked_version(
             "services/docling/provider/localhost/uv.lock", "pydantic-settings"
@@ -384,9 +387,10 @@ def test_docling_localhost_and_jupyterhub_take_the_2026_10_01_fixes() -> None:
     assert _locked_version(docling_lock, "accelerate") == "1.15.0"
 
     # tornado 6.5.9: GHSA-3hv7-mjh2-fv65, GHSA-c2m8-h5v5-343r, GHSA-chx6-46f5-w4vp;
-    # 6.6: GHSA-pcg2-g6cj-q92c, GHSA-pw9p-v7r6-gx4p, GHSA-r4j5-9xpp-3985.
-    assert "\ntornado>=6.6\n" in _text("services/jupyterhub/build/requirements.txt")
-    assert "\ntornado==6.6\n" in _text(
+    # 6.6: GHSA-pcg2-g6cj-q92c, GHSA-pw9p-v7r6-gx4p, GHSA-r4j5-9xpp-3985;
+    # 6.6.1: CVE-2026-126347.
+    assert "\ntornado>=6.6.1\n" in _text("services/jupyterhub/build/requirements.txt")
+    assert "\ntornado==6.6.1\n" in _text(
         "services/jupyterhub/build/requirements-locked.txt"
     )
 
@@ -1222,10 +1226,10 @@ def _exported_bootstrapper_pillow_versions(environment):
         ('aiohttp', '3.14.4'),
         ('authlib', '1.9.1'),
         ('banks', '2.5.1'),
-        ('dnspython', '2.9.0'),
+        ('dnspython', '2.9.2'),
         ('filelock', '4.2.1'),
         ('msgpack', '1.2.3'),
-        ('opentelemetry-api', '1.45.1'),
+        ('opentelemetry-api', '1.45.2'),
         ('nltk', '3.10.4'),
     ),
 )
@@ -1252,16 +1256,16 @@ def test_jupyter_repaired_dependencies_have_security_floors(name, fixed):
         ('authlib', '1.9.1'),
         ('banks', '2.5.1'),
         ('brotli', '1.2.1'),
-        ('dnspython', '2.9.0'),
+        ('dnspython', '2.9.2'),
         ('fastmcp', '3.4.10'),
         ('fastmcp-slim', '3.4.10'),
         ('filelock', '4.2.1'),
         ('gitpython', '3.2.1'),
         ('msgpack', '1.2.3'),
-        ('opentelemetry-api', '1.45.1'),
-        ('opentelemetry-sdk', '1.45.1'),
-        ('opentelemetry-proto', '1.45.1'),
-        ('opentelemetry-semantic-conventions', '0.66b1'),
+        ('opentelemetry-api', '1.45.2'),
+        ('opentelemetry-sdk', '1.45.2'),
+        ('opentelemetry-proto', '1.45.2'),
+        ('opentelemetry-semantic-conventions', '0.66b2'),
         ('pillow', '13.0.0'),
         ('setuptools', '84.1.0'),
         ('mlflow', '3.17.2'),
