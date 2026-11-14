@@ -65,9 +65,10 @@ gitpython>=3.2.1
 # fixed in 6.5.9; virtualenv 21.7.9 carries CVE-2026-102925, CVE-2026-102930
 # and CVE-2026-102937, fixed in 21.7.13. Raise both floors the same way
 # setuptools is raised above. Tornado 6.6 also fixes folded-header/chunked-body
-# DoS and redirect-host validation. The overlay upgrades the base's Snowflake
-# connector to 4.8.1, which accepts filelock 4 within the retained 4.x range.
-tornado>=6.6
+# DoS and redirect-host validation. Tornado 6.6.1 fixes CVE-2026-126347. The
+# overlay upgrades the base's Snowflake connector to 4.8.1, which accepts
+# filelock 4 within the retained 4.x range.
+tornado>=6.6.1
 virtualenv>=21.14.10
 
 # Keep the current security fixes when the overlay is regenerated. The
@@ -76,12 +77,14 @@ virtualenv>=21.14.10
 # Authlib stays below Weaviate and Flask-AppBuilder's existing <2 upper bound.
 certifi>=2026.10.19
 authlib>=1.9.1
-dnspython>=2.9.0
+dnspython>=2.9.2
 msgpack>=1.2.3
 
 # Keep the patched trace parser and its paired SDK/exporters. The base includes
 # a Prometheus exporter whose 0.65b0 SDK range rejects the patched family.
-opentelemetry-api>=1.45.1
+# opentelemetry-api 1.45.2 fixes CVE-2026-126360; dnspython 2.9.2 fixes
+# CVE-2026-128089.
+opentelemetry-api>=1.45.2
 opentelemetry-exporter-prometheus>=0.66b1
 
 # The upstream Airflow image includes optional cloud/provider packages beyond

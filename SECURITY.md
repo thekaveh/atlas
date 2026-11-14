@@ -107,9 +107,15 @@ on their host.
   NeMo 3.0.0 and Lightning 2.4.0 hold the Parakeet GPU lock on fsspec
   2024.12.0 and hydra-core 1.3.2, below their fixes. The n8n packages pin
   Zod 3.25.76 in the community-node lock. Reachability is not proven. On
-  2026-10-29 the owner approved exceptions for PYSEC-2026-4217 and
-  PYSEC-2026-4221 until 2026-11-27, and for GHSA-mrhx-c7xc-m3w5 until
-  2026-11-28. `docs/maintenance/external-contract-ledger.md` records the review.
+  2026-10-29 the owner approved exceptions for PYSEC-2026-4217, PYSEC-2026-4221
+  and GHSA-mrhx-c7xc-m3w5, renewed on 2026-11-12 to 2027-02-09.
+  `docs/maintenance/external-contract-ledger.md` records the review.
+- Docling localhost on Python 3.11.0–3.11.4: **time-boxed exception**.
+  soupsieve 2.10 is the newest release that installs there. CVE-2026-126190,
+  CVE-2026-126191 and CVE-2026-126193 stay open on that fork only. Docling
+  accepts `.html` uploads, so reachability is not ruled out. The owner
+  approved the exception on 2026-11-14 until 2027-02-12. Python 3.11.5 and
+  later take soupsieve 4.1.1, which clears them.
 - setuptools source-distribution exclusion bypass (CVE-2026-59890):
   **remediated**. Shipped compiled graphs and the Docling localhost lock now
   resolve setuptools 83.0.0 or newer.
