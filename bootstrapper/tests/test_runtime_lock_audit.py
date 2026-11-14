@@ -478,7 +478,7 @@ def test_each_current_reviewed_advisory_names_its_exact_installed_version(
     spec = _runtime_audit_spec(lock_path)
 
     assert advisory in spec.reviewed_advisories
-    assert spec.review_by == date(2026, 11, 27)
+    assert spec.review_by == date(2027, 2, 9)
     assert installed_pin in (root / lock_path).read_text(encoding="utf-8")
 
 
@@ -510,7 +510,7 @@ def test_jupyterhub_advisory_review_records_current_unreachable_paths() -> None:
             "PYSEC-2026-3046",
         }
     )
-    assert spec.review_by == date(2026, 11, 27)
+    assert spec.review_by == date(2027, 2, 9)
     for pin in (
         "diskcache==5.6.3",
         "ragas==0.4.3",
@@ -577,7 +577,7 @@ def test_parakeet_gpu_advisory_review_retains_only_unfixed_constraints() -> None
             "PYSEC-2026-4221",
         }
     )
-    assert spec.review_by == date(2026, 11, 27)
+    assert spec.review_by == date(2027, 2, 9)
     for pin in (
         "hydra-core==1.3.2",
         "lightning==2.4.0",
@@ -650,7 +650,7 @@ def test_parakeet_mlx_advisory_review_records_incompatible_fixed_wheel() -> None
     assert spec.reviewed_advisories == frozenset(
         {"PYSEC-2025-138", "PYSEC-2025-139"}
     )
-    assert spec.review_by == date(2026, 11, 27)
+    assert spec.review_by == date(2027, 2, 9)
     assert "mlx==0.29.3" in lock
     for evidence in (
         "mlx==0.29.3",
@@ -1029,7 +1029,7 @@ def test_npm_audit_exceptions_share_the_review_deadline_contract(monkeypatch) ->
 def test_npm_audit_reviews_only_the_capped_n8n_zod_advisory() -> None:
     """The only reviewed npm exception is the capped n8n Zod advisory."""
     assert audit_runtime_locks.NPM_PROJECT_EXCEPTIONS == {
-        "services/n8n/init/config": (frozenset({"GHSA-mrhx-c7xc-m3w5"}), date(2026, 11, 28)),
+        "services/n8n/init/config": (frozenset({"GHSA-mrhx-c7xc-m3w5"}), date(2027, 2, 9)),
     }
 
 
@@ -1184,6 +1184,13 @@ def _uv_export_audit_collector(monkeypatch, export_text=None, vulnerable=frozens
     captured: list[dict[str, str]] = []
     real_run = audit_runtime_locks.run_bounded
 
+    def advisories(name, version):
+        # A set marks a package as vulnerable with the placeholder GHSA-test; a
+        # dict maps (name, version) to the advisory ids pip-audit would report.
+        if isinstance(vulnerable, dict):
+            return vulnerable.get((name, version), ())
+        return ("GHSA-test",) if (name, version) in vulnerable else ()
+
     def run(command, **kwargs):
         if command[0] == "uv" and export_text is None:
             return real_run(command, **kwargs)
@@ -1195,7 +1202,7 @@ def _uv_export_audit_collector(monkeypatch, export_text=None, vulnerable=frozens
         captured.append(pairs)
         payload = {"dependencies": [
             {"name": name, "version": version,
-             "vulns": [{"id": "GHSA-test"}] if (name, version) in vulnerable else []}
+             "vulns": [{"id": advisory} for advisory in advisories(name, version)]}
             for name, version in pairs.items()
         ]}
         return SimpleNamespace(returncode=0, stdout=json.dumps(payload), stderr="")
@@ -1211,7 +1218,11 @@ _DOCLING_SHAPED_EXPORT = (
     "pywin32==311 ; sys_platform == 'win32'\n"
     "scipy==1.15.3 ; sys_platform != 'darwin'\n"
     "scipy==1.16.0 ; sys_platform == 'darwin'\n"
+    "soupsieve==4.1.1 ; python_full_version >= '3.11.5'\n"
+    "soupsieve==2.10 ; python_full_version < '3.11.5'\n"
 )
+# soupsieve 2.10 is the newest release a Python 3.11.0-3.11.4 target can install.
+_SOUPSIEVE_2_10_ADVISORIES = ("CVE-2026-126190", "CVE-2026-126191", "CVE-2026-126193")
 
 
 def test_docling_localhost_uv_audit_projects_every_supported_target(monkeypatch):
@@ -1219,21 +1230,41 @@ def test_docling_localhost_uv_audit_projects_every_supported_target(monkeypatch)
     assert set(environments) == {_DOCLING_LOCALHOST}
     assert set(environments[_DOCLING_LOCALHOST]) == {
         "linux-x86_64", "linux-aarch64", "darwin-arm64",
+        "linux-x86_64-py3.11.4", "linux-aarch64-py3.11.4", "darwin-arm64-py3.11.4",
     }
-    captured = _uv_export_audit_collector(monkeypatch, _DOCLING_SHAPED_EXPORT)
+    captured = _uv_export_audit_collector(
+        monkeypatch,
+        _DOCLING_SHAPED_EXPORT,
+        vulnerable={("soupsieve", "2.10"): _SOUPSIEVE_2_10_ADVISORIES},
+    )
 
     assert audit_runtime_locks.audit_uv_project(_DOCLING_LOCALHOST) == []
     linux = {"accelerate": "1.15.0", "nvidia-cublas": "13.1.1.3", "scipy": "1.15.3"}
-    assert captured == [linux, linux, {"accelerate": "1.15.0", "scipy": "1.16.0"}]
+    darwin = {"accelerate": "1.15.0", "scipy": "1.16.0"}
+    assert captured == [
+        {**linux, "soupsieve": "4.1.1"},
+        {**linux, "soupsieve": "4.1.1"},
+        {**darwin, "soupsieve": "4.1.1"},
+        {**linux, "soupsieve": "2.10"},
+        {**linux, "soupsieve": "2.10"},
+        {**darwin, "soupsieve": "2.10"},
+    ]
 
 
 def test_docling_localhost_uv_audit_reports_a_macos_only_advisory(monkeypatch):
     _uv_export_audit_collector(
-        monkeypatch, _DOCLING_SHAPED_EXPORT, vulnerable={("scipy", "1.16.0")}
+        monkeypatch,
+        _DOCLING_SHAPED_EXPORT,
+        vulnerable={
+            ("scipy", "1.16.0"): ("GHSA-test",),
+            ("soupsieve", "2.10"): _SOUPSIEVE_2_10_ADVISORIES,
+        },
     )
 
     assert audit_runtime_locks.audit_uv_project(_DOCLING_LOCALHOST) == [
-        f"{_DOCLING_LOCALHOST}/uv.lock [darwin-arm64]: unreviewed advisories: GHSA-test"
+        f"{_DOCLING_LOCALHOST}/uv.lock [darwin-arm64]: unreviewed advisories: GHSA-test",
+        f"{_DOCLING_LOCALHOST}/uv.lock [darwin-arm64-py3.11.4]: "
+        "unreviewed advisories: GHSA-test",
     ]
 
 
@@ -1252,9 +1283,17 @@ def test_docling_localhost_export_selects_the_platform_scipy_branches(monkeypatc
     if not shutil.which("uv"):
         pytest.skip("uv is not installed")
     monkeypatch.setenv("UV_OFFLINE", "1")
-    captured = _uv_export_audit_collector(monkeypatch)
+    captured = _uv_export_audit_collector(
+        monkeypatch,
+        vulnerable={("soupsieve", "2.10"): _SOUPSIEVE_2_10_ADVISORIES},
+    )
 
     assert audit_runtime_locks.audit_uv_project(_DOCLING_LOCALHOST) == []
-    assert [pairs["scipy"] for pairs in captured] == ["1.15.3", "1.15.3", "1.16.0"]
+    assert [pairs["scipy"] for pairs in captured] == [
+        "1.15.3", "1.15.3", "1.16.0", "1.15.3", "1.15.3", "1.16.0",
+    ]
+    assert [pairs["soupsieve"] for pairs in captured] == ["4.1.1"] * 3 + ["2.10"] * 3
     assert "torch" in captured[2] and "nvidia-cublas" not in captured[2]
+    assert "torch" in captured[5] and "nvidia-cublas" not in captured[5]
     assert all("nvidia-cublas" in pairs for pairs in captured[:2])
+    assert all("nvidia-cublas" in pairs for pairs in captured[3:5])
