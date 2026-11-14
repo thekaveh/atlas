@@ -53,10 +53,10 @@ cryptography>=50.0.0,<51
 aiohttp>=3.14.4
 Authlib>=1.9.1
 banks>=2.5.1
-dnspython>=2.9.0
+dnspython>=2.9.2
 filelock>=4.2.1
 msgpack==1.2.3  # exact input to the reviewed pip vendoring refresh
-opentelemetry-api>=1.45.1
+opentelemetry-api>=1.45.2
 
 # Configuration and Utils
 python-dotenv>=1.2.3
@@ -116,7 +116,8 @@ wheel==0.46.2
 # GHSA-c2m8-h5v5-343r (StaticFileHandler path read) and GHSA-chx6-46f5-w4vp
 # (curl client decompression bomb).
 # 6.6 also fixes folded-header/chunked-body DoS and redirect-host validation.
-tornado>=6.6
+# 6.6.1 fixes CVE-2026-126347.
+tornado>=6.6.1
 # Transitive via jupyterlab-git. 3.1.59 fixed PYSEC-2026-3785 through
 # PYSEC-2026-3788; the 3.2.1 floor takes the later GitPython security fixes.
 gitpython>=3.2.1

@@ -85,7 +85,7 @@ AUDIT_SPECS = (
     AuditSpec(
         "services/backend/app/app/requirements-locked.txt",
         frozenset({"PYSEC-2026-2447", "PYSEC-2026-3046"}),
-        review_by=date(2026, 12, 9),
+        review_by=date(2027, 2, 9),
     ),
     AuditSpec("services/airflow/build/requirements-locked.txt"),
     AuditSpec("services/mlflow/build/requirements-locked.txt"),
@@ -102,14 +102,14 @@ AUDIT_SPECS = (
         # only four text metrics and never the multimodalfaithfulness helper.
         # NLTK 3.10.4 routes the six model-artifact APIs through pathsec;
         # PYSEC-2026-3740 is fixed rather than retained as an exception.
-        # Atlas maintainers own re-review by 2026-11-27.
+        # Renewed by the owner on 2026-11-12 for 90 days; re-review by 2027-02-09.
         frozenset(
             {
                 "PYSEC-2026-2447",
                 "PYSEC-2026-3046",
             }
         ),
-        review_by=date(2026, 11, 27),
+        review_by=date(2027, 2, 9),
     ),
     AuditSpec(
         "services/parakeet/provider/gpu/requirements-locked.txt",
@@ -131,7 +131,7 @@ AUDIT_SPECS = (
         # caps: Lightning 2.4.0 requires fsspec[http]<2026.0, and NeMo admits only
         # hydra-core>1.3,<=1.3.2. Their reachability is NOT proven; the owner
         # approved a time-boxed exception on 2026-10-29 instead of a red gate.
-        # Atlas maintainers own re-review by 2026-11-27.
+        # Renewed by the owner on 2026-11-12 for 90 days; re-review by 2027-02-09.
         frozenset(
             {
                 "PYSEC-2026-3624",
@@ -141,7 +141,7 @@ AUDIT_SPECS = (
                 "PYSEC-2026-4221",
             }
         ),
-        review_by=date(2026, 11, 27),
+        review_by=date(2027, 2, 9),
     ),
     AuditSpec(
         "services/parakeet/provider/mlx/requirements-locked.txt",
@@ -152,7 +152,7 @@ AUDIT_SPECS = (
         # operator-configured config.json + model.safetensors; neither that path
         # nor audio transcription calls vulnerable .npy or GGUF loaders.
         frozenset({"PYSEC-2025-138", "PYSEC-2025-139"}),
-        review_by=date(2026, 11, 27),
+        review_by=date(2027, 2, 9),
     ),
     AuditSpec("bootstrapper/requirements-locked.txt"),
     AuditSpec("services/asset-baker/app/requirements-locked.txt"),
@@ -163,7 +163,7 @@ AUDIT_SPECS = (
     AuditSpec(
         "services/backend/app/app/requirements-test-locked.txt",
         frozenset({"PYSEC-2026-2447", "PYSEC-2026-3046"}),
-        review_by=date(2026, 12, 9),
+        review_by=date(2027, 2, 9),
     ),
     AuditSpec("services/mcp-servers/runtime/requirements-test-locked.txt"),
     AuditSpec("services/asset-worker/app/requirements-test-locked.txt"),
@@ -190,9 +190,14 @@ UV_PROJECTS = (
 # project's reviewed exceptions on its own, so an exception that matches no live
 # finding on one target fails there as stale. A platform-only advisory therefore
 # needs target-scoped exceptions before it can be reviewed here.
+_DOCLING_LOCALHOST_PLATFORMS = (("Linux", "x86_64"), ("Linux", "aarch64"), ("Darwin", "arm64"))
 _DOCLING_LOCALHOST_MARKER_ENVIRONMENTS = {
     f"{system.lower()}-{machine}": _cpython_marker_environment(system, machine, "3.11.15")
-    for system, machine in (("Linux", "x86_64"), ("Linux", "aarch64"), ("Darwin", "arm64"))
+    for system, machine in _DOCLING_LOCALHOST_PLATFORMS
+} | {
+    # soupsieve 4.x needs Python 3.11.5, so uv locks 3.11.0-3.11.4 to soupsieve 2.10.
+    f"{system.lower()}-{machine}-py3.11.4": _cpython_marker_environment(system, machine, "3.11.4")
+    for system, machine in _DOCLING_LOCALHOST_PLATFORMS
 }
 UV_PROJECT_MARKER_ENVIRONMENTS: dict[str, dict[str, dict[str, str]]] = {
     "services/docling/provider/localhost": _DOCLING_LOCALHOST_MARKER_ENVIRONMENTS,
@@ -206,8 +211,27 @@ UV_PROJECT_EXCEPTIONS: dict[str, tuple[frozenset[str], date]] = {
     # The Docling localhost provider's transformers and accelerate entries
     # (PYSEC-2026-3929, PYSEC-2026-3804) were retired on 2026-10-01: its
     # pyproject now floors transformers>=5.10.0 and accelerate>=1.15.0, which
-    # also clears CVE-2026-80047. No uv-managed project carries a reviewed
-    # exception today.
+    # also clears CVE-2026-80047. Project-wide exceptions only; see
+    # UV_TARGET_EXCEPTIONS for entries scoped to one marker target.
+}
+
+# Reviewed exceptions scoped to one marker target of a uv project, keyed by
+# project path and then target label. An entry applies only to its own target,
+# so a fork that exists on some targets does not make the others stale.
+UV_TARGET_EXCEPTIONS: dict[str, dict[str, tuple[frozenset[str], date]]] = {
+    # soupsieve 3.0.2 and every 4.x release need Python 3.11.5, so the
+    # 3.11.0-3.11.4 fork keeps soupsieve 2.10. CVE-2026-126190 is fixed only in
+    # 4.0.0; CVE-2026-126191 and CVE-2026-126193 are fixed in 3.0.2. Docling
+    # accepts .html uploads, so reachability is not ruled out. Owner-approved
+    # time-boxed exception on 2026-11-14 for that fork only; re-review by
+    # 2027-02-12.
+    "services/docling/provider/localhost": {
+        f"{system.lower()}-{machine}-py3.11.4": (
+            frozenset({"CVE-2026-126190", "CVE-2026-126191", "CVE-2026-126193"}),
+            date(2027, 2, 12),
+        )
+        for system, machine in _DOCLING_LOCALHOST_PLATFORMS
+    },
 }
 
 NPM_PROJECTS = (
@@ -225,7 +249,7 @@ NPM_PROJECT_EXCEPTIONS: dict[str, tuple[frozenset[str], date]] = {
     # under n8n-workflow 2.45.1 did (rechecked 2026-11-09). Reachability through
     # the community nodes is NOT proven; the owner approved a time-boxed
     # exception on 2026-10-29.
-    "services/n8n/init/config": (frozenset({"GHSA-mrhx-c7xc-m3w5"}), date(2026, 11, 28)),
+    "services/n8n/init/config": (frozenset({"GHSA-mrhx-c7xc-m3w5"}), date(2027, 2, 9)),
 }
 
 # Every runtime dependency manifest must be represented here, either directly
@@ -643,11 +667,17 @@ def _audit_uv_export(project: str, spec: AuditSpec) -> list[str]:
     if not environments:
         return audit_spec(spec, root=Path("/"))
     failures: list[str] = []
+    target_exceptions = UV_TARGET_EXCEPTIONS.get(project, {})
     for label, environment in environments.items():
+        reviewed, review_by = target_exceptions.get(
+            label, (spec.reviewed_advisories, spec.review_by)
+        )
         target = replace(
             spec,
             display_name=f"{spec.display_name} [{label}]",
             marker_environments=(environment,),
+            reviewed_advisories=reviewed,
+            review_by=review_by,
         )
         failures.extend(audit_spec(target, root=Path("/")))
     return failures

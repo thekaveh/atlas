@@ -16,7 +16,7 @@ Parakeet is an STT engine selected with `STT_PROVIDER_SOURCE`. See
   `hydra-core==1.3.2`. NeMo 3.0.0 pins Lightning 2.4.0, which requires
   `fsspec[http]<2026.0`, and admits only `hydra-core<=1.3.2`. Their advisories
   have a reviewed, time-boxed exception in `scripts/audit_runtime_locks.py`
-  until 2026-11-27 (#1394).
+  until 2027-02-09 (#1394; renewed 2026-11-12).
 - **Readiness:** Uvicorn starts while a deadline-bounded background task loads
   the model. `GET /health` returns `503` until loading completes. A cold first
   boot downloads the ~2.5 GB checkpoint. The healthcheck start period (810 s
