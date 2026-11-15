@@ -560,3 +560,9 @@ No advisory exceptions were added.
 
 
 
+
+## 15. 2026-11-15 Promptfoo recipe advisories (#1894)
+
+| Integration point | Pinned/configured version | Latest/status check | Contract checked | Evidence / disposition |
+|---|---:|---|---|---|
+| Promptfoo recipe lock (`examples/promptfoo-security`) | Promptfoo 0.124.1 kept. Nine npm findings accepted for the example. | `npm view promptfoo` on 2026-11-15: 0.125.1 is the newest release. It pins @hono/node-server 2.1.5 exactly, minimatch ^10 and glob ^13. | `npm audit --package-lock-only`: nine findings. Overrides clear them to zero, but they break declared ranges, and the macOS qualification cannot run here (#2029). | Owner decision on 2026-11-15 (#1894). Recorded in `examples/promptfoo-security/README.md`. The lock is outside the runtime audit, and no CI job runs npm audit on it. |
