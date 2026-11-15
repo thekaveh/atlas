@@ -2753,7 +2753,7 @@ services:
       context: '{REPO_ROOT}/services/mlflow'
       dockerfile: build/Dockerfile
       args:
-        BASE_IMAGE: ghcr.io/mlflow/mlflow:v3.16.1
+        BASE_IMAGE: ghcr.io/mlflow/mlflow:v3.17.2
     command:
     - python
     - atlas_server.py
@@ -2767,8 +2767,8 @@ services:
     environment:
       _MLFLOW_SERVER_ARTIFACT_DESTINATION: s3://mlflow
       _MLFLOW_SERVER_ARTIFACT_ROOT: mlflow-artifacts:/
-      _MLFLOW_SERVER_FILE_STORE: postgresql://mlflow:atlas-db-password@supabase-db:5432/mlflow
-      _MLFLOW_SERVER_REGISTRY_STORE: postgresql://mlflow:atlas-db-password@supabase-db:5432/mlflow
+      _MLFLOW_SERVER_FILE_STORE: postgresql+psycopg2://mlflow:atlas-db-password@supabase-db:5432/mlflow
+      _MLFLOW_SERVER_REGISTRY_STORE: postgresql+psycopg2://mlflow:atlas-db-password@supabase-db:5432/mlflow
       _MLFLOW_SERVER_SERVE_ARTIFACTS: 'true'
       AWS_ACCESS_KEY_ID: ''
       AWS_DEFAULT_REGION: us-east-1

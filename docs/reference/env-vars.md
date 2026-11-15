@@ -661,7 +661,7 @@
 | MLFLOW_DB_PASSWORD | mlflow | atlas-db-password | Auto-generated Postgres password for the dedicated MLflow database role. |
 | MLFLOW_DB_USER_URI | mlflow | mlflow | Bootstrapper-synchronized percent-encoded MLFLOW_DB_USER for DSN userinfo. |
 | MLFLOW_DB_PASSWORD_URI | mlflow | atlas-db-password | Bootstrapper-synchronized percent-encoded MLFLOW_DB_PASSWORD for DSN userinfo. |
-| MLFLOW_IMAGE | mlflow | ghcr.io/mlflow/mlflow:v3.16.1 | Container image for `mlflow`. |
+| MLFLOW_IMAGE | mlflow | ghcr.io/mlflow/mlflow:v3.17.2 | Container image for `mlflow`. |
 | MLFLOW_INIT_IMAGE | mlflow | alpine:3.24.4 | Container image for `mlflow-init`. |
 | N8N_SOURCE | n8n | container | n8n deployment source: container or disabled. Drives the n8n, n8n-worker and n8n-init scales. |
 | N8N_DB_USER | n8n | atlas_n8n | Owner of the isolated n8n schema in Supabase PostgreSQL. |

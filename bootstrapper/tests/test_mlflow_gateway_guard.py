@@ -28,7 +28,7 @@ def _load_guard(
     monkeypatch: pytest.MonkeyPatch,
     upstream: Any,
     *,
-    version: str = "3.16.1",
+    version: str = "3.17.2",
     static_prefix: str | None = None,
 ):
     mlflow = types.ModuleType("mlflow")
@@ -56,7 +56,9 @@ def _load_guard(
     return module
 
 
-@pytest.mark.parametrize("version", ("3.14.0", "3.15.1", "3.16.0", "3.16.2", "4.0.0"))
+@pytest.mark.parametrize(
+    "version", ("3.14.0", "3.15.1", "3.16.0", "3.16.1", "3.16.2", "3.17.1", "4.0.0")
+)
 def test_gateway_guard_refuses_every_unreviewed_server_version(
     monkeypatch: pytest.MonkeyPatch,
     version: str,
@@ -64,7 +66,7 @@ def test_gateway_guard_refuses_every_unreviewed_server_version(
     async def upstream(scope, receive, send):  # pragma: no cover - import must fail
         pass
 
-    with pytest.raises(RuntimeError, match="exactly MLflow 3.16.1"):
+    with pytest.raises(RuntimeError, match="exactly MLflow 3.17.2"):
         _load_guard(monkeypatch, upstream, version=version)
 
 
@@ -165,6 +167,13 @@ def test_mlflow_serve_does_not_launch_when_store_initialization_fails(
         "/ajax-api/3.0/mlflow/gateway/supported-providers",
         "/ajax-api/2.0/mlflow/gateway-proxy",
         "/api/2.0/mlflow/gateway-proxy",
+        "/ajax-api/3.0/mlflow/assistant/providers",
+        "/ajax-api/3.0/mlflow/assistant/providers/openai/models",
+        "/ajax-api/3.0/mlflow/assistant/sessions/s1/stream",
+        "/api/3.0/mlflow/assistant/message",
+        "/endpoints",
+        "/servers/demo/endpoints",
+        "/servers/demo/endpoints/e1",
     ),
 )
 def test_gateway_guard_rejects_every_mlflow_gateway_route_family(
@@ -344,10 +353,10 @@ def test_mlflow_compose_runs_the_guarded_patched_server() -> None:
             "context": ".",
             "dockerfile": "build/Dockerfile",
             "args": {
-                "BASE_IMAGE": "${MLFLOW_IMAGE:-ghcr.io/mlflow/mlflow:v3.16.1}"
+                "BASE_IMAGE": "${MLFLOW_IMAGE:-ghcr.io/mlflow/mlflow:v3.17.2}"
             },
         },
-        "ghcr.io/mlflow/mlflow:v3.16.1",
+        "ghcr.io/mlflow/mlflow:v3.17.2",
         ["python", "atlas_server.py"],
         False,
         "/opt/atlas",
@@ -363,8 +372,9 @@ def test_mlflow_manifest_documents_the_exact_reviewed_guard_version() -> None:
         if item["name"] == "MLflow AI Gateway SSRF containment"
     )
 
-    assert "exactly reviewed MLflow 3.16.1" in capability["note"]
+    assert "exactly reviewed MLflow 3.17.2" in capability["note"]
     assert "CVE-2026-71211" in capability["note"]
+    assert "CVE-2026-116692" in capability["note"]
 
 
 def test_mlflow_runtime_image_installs_postgres_and_s3_drivers() -> None:
@@ -378,7 +388,7 @@ def test_mlflow_runtime_image_installs_postgres_and_s3_drivers() -> None:
         "botocore==1.43.56" in lock,
         "pip check" in dockerfile,
         "S3ArtifactRepository" in dockerfile,
-        'create_engine("postgresql://' in dockerfile,
+        'create_engine("postgresql+psycopg2://' in dockerfile,
     ) == (True, True, True, True, True, True)
 
 
@@ -387,8 +397,8 @@ def test_mlflow_compose_preserves_the_cli_storage_contract() -> None:
     environment = service["environment"]
 
     assert (
-        environment["_MLFLOW_SERVER_FILE_STORE"].startswith("postgresql://"),
-        environment["_MLFLOW_SERVER_REGISTRY_STORE"].startswith("postgresql://"),
+        environment["_MLFLOW_SERVER_FILE_STORE"].startswith("postgresql+psycopg2://"),
+        environment["_MLFLOW_SERVER_REGISTRY_STORE"].startswith("postgresql+psycopg2://"),
         environment["_MLFLOW_SERVER_ARTIFACT_ROOT"],
         environment["_MLFLOW_SERVER_ARTIFACT_DESTINATION"].startswith("s3://"),
         environment["_MLFLOW_SERVER_SERVE_ARTIFACTS"],
@@ -398,7 +408,7 @@ def test_mlflow_compose_preserves_the_cli_storage_contract() -> None:
 
 
 def test_mlflow_server_advisory_is_fixed_by_the_pin_not_excepted() -> None:
-    """3.16.1 fixes CVE-2026-71211 (#1287): the row is gone, the guard stays."""
+    """3.16.1 fixes CVE-2026-71211 (#1287) and 3.17.2 fixes the scanner findings (#1948)."""
     exceptions = yaml.safe_load((ROOT / ".trivyignore.yaml").read_text())["vulnerabilities"]
 
     assert not [
@@ -408,7 +418,7 @@ def test_mlflow_server_advisory_is_fixed_by_the_pin_not_excepted() -> None:
         or any(purl.startswith("pkg:pypi/mlflow@") for purl in entry.get("purls", []))
     ]
     dockerfile = (ROOT / "services/mlflow/build/Dockerfile").read_text()
-    assert "ARG BASE_IMAGE=ghcr.io/mlflow/mlflow:v3.16.1\n" in dockerfile
+    assert "ARG BASE_IMAGE=ghcr.io/mlflow/mlflow:v3.17.2\n" in dockerfile
     assert "class GatewayDisabled" in GUARD_PATH.read_text()
 
 
