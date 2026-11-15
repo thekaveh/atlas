@@ -63,10 +63,10 @@ env:
     default: ""
     description: "Optional comma- or space-separated reference-route bucket allowlist; blank follows MINIO_BUCKET_ASSET_INPUTS."
   - name: ASSET_BAKER_BLENDER_VERSION
-    default: "4.3.2"
-    description: "Pinned headless Blender version (>= 4.3) downloaded into the asset-baker image. Blender bundles its own Python + numpy for the bake script."
+    default: "4.5.16"
+    description: "Pinned headless Blender version (4.5 LTS line) downloaded into the asset-baker image. Blender bundles its own Python + numpy for the bake script. Its bundled certifi omits the distrusted emSign ECC Root CA - G3."
   - name: ASSET_BAKER_BLENDER_SHA256
-    default: "4da1c956673c0485e63054e563ee69198cc8f80d8157dd7592dffc8a6a5592e6"
+    default: "23432b064977908beb1ab4b7f32f024e7331105c875c187dce002aff84b10c11"
     description: "SHA-256 checksum verified before extracting the pinned Blender archive. Update it with ASSET_BAKER_BLENDER_VERSION from Blender's published checksum file."
   - name: ASSET_BAKER_ARTIFACT_DIR
     default: "/data/artifacts"

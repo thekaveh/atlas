@@ -1,10 +1,11 @@
 ARG BASE_IMAGE=python:3.12.9-slim
 FROM ${BASE_IMAGE}
 
-# Pinned headless Blender (>= 4.3). Blender bundles its own Python + numpy, which
+# Pinned headless Blender (4.5 LTS line). Blender bundles its own Python + numpy, which
 # the bake script (bake.py) runs under; the FastAPI layer uses the image's Python.
-ARG BLENDER_VERSION=4.3.2
-ARG BLENDER_SHA256=4da1c956673c0485e63054e563ee69198cc8f80d8157dd7592dffc8a6a5592e6
+# Blender 4.5.16 bundles certifi 2026.10.19, which drops the emSign ECC Root CA - G3 (#1905).
+ARG BLENDER_VERSION=4.5.16
+ARG BLENDER_SHA256=23432b064977908beb1ab4b7f32f024e7331105c875c187dce002aff84b10c11
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -70,6 +71,20 @@ RUN set -eux; \
         "Blender ${BLENDER_VERSION}"*) : ;; \
         *) echo "ERROR: expected Blender ${BLENDER_VERSION}, got '${installed}'" >&2; exit 1 ;; \
     esac
+
+# Blender's bundled Python ships setuptools 63.2.0, urllib3 2.4.0 and pip 26.2.2, and
+# pip 26.2.2 vendors msgpack 1.1.2. Upgrade them to the locked pins in
+# requirements-blender-locked.txt. bake.py never imports these packages, and the
+# final-image scan flags the older copies (#1948, #1905).
+COPY requirements-blender.txt /tmp/requirements-blender.txt
+COPY requirements-blender-locked.txt /tmp/requirements-blender-locked.txt
+RUN set -eux; \
+    series="$(echo "${BLENDER_VERSION}" | cut -d. -f1,2)"; \
+    py="/opt/blender/${series}/python/bin/python3.11"; \
+    "$py" -m pip install --no-cache-dir "pip==26.3"; \
+    "$py" -m pip install --no-cache-dir -r /tmp/requirements-blender.txt -c /tmp/requirements-blender-locked.txt; \
+    "$py" -m pip check; \
+    rm -f /tmp/requirements-blender.txt /tmp/requirements-blender-locked.txt
 
 WORKDIR /app
 COPY requirements.txt /app/requirements.txt
