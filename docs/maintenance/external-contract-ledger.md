@@ -540,3 +540,10 @@ No advisory exceptions were added.
 | soupsieve in the Airflow, JupyterHub and Docling GPU locks | 4.1 | PyPI: 4.1 needs Python 3.11.5 or later. CVE-2026-126190 is fixed in 4.0.0. CVE-2026-126192 is fixed in 2.10.0. | `uv pip compile` with the other pins held. The x86_64 and aarch64 outputs are identical. | Clears CVE-2026-126190 and CVE-2026-126192 in each lock. |
 | soupsieve in Docling localhost | 4.1.1 on Python 3.11.5 and later. 2.10 on Python 3.11.0 to 3.11.4. | PyPI: 3.0.2 and later need Python 3.11.5. CVE-2026-126191 and CVE-2026-126193 are fixed in 3.0.2. | `uv lock --check` passes. `requires-python` stays `>=3.11`. The non-macOS SciPy branch stays at 1.15.3. | The 3.11.0 to 3.11.4 fork keeps three advisories open. Time-boxed exception in `UV_TARGET_EXCEPTIONS`, expiring 2027-02-12. |
 | dnspython, OpenTelemetry and tornado in Airflow, JupyterHub, Backend and MCP servers runtime | dnspython 2.9.2. opentelemetry-api 1.45.2 with the SDK, exporter and proto family at 1.45.2 and beta packages at 0.66b2. tornado 6.6.1. | Advisories CVE-2026-128089, CVE-2026-126360 and CVE-2026-126347, found by the audit on 2026-11-14. | Lock resolution for both platforms. Declared floors in the Airflow, JupyterHub and Backend requirements carry the fixed versions. | Moved to the fixed releases. Images were not rebuilt in this change. |
+
+## 13. 2026-11-14 Trivy exception renewal (#1972)
+
+| Integration point | Pinned/configured version | Latest/status check | Contract checked | Evidence / disposition |
+|---|---:|---|---|---|
+| Trivy exceptions in `.trivyignore.yaml` expiring 2026-11-30 | 23 rows, renewed to 2027-02-12 | Owner approval on 2026-11-14, 90 days. gosu: newest Postgres Alpine tags still ship gosu built with Go 1.24.6. Langfuse 3.227.0 clears `migrate`; tracked in #931. | `load_exceptions` passes on 2026-11-30 and 2026-12-01. `test_container_security.py` passes, 118 of 118. | Renewed in each row's statement. Remaining fixes: gosu upstream (no release), libthrift upstream (#996), Langfuse major move (#931). |
+
