@@ -175,6 +175,7 @@ AUDIT_SPECS = (
     AuditSpec("services/requirements-init-locked.txt"),
     AuditSpec("services/comfyui/custom-node-locks/instantid.txt"),
     AuditSpec("services/comfyui/custom-node-locks/gguf.txt"),
+    AuditSpec("services/comfyui/custom-node-locks/certifi-overlay.txt"),
 )
 
 SOURCE_SPECS: tuple[SourceSpec, ...] = ()

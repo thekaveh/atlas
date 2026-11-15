@@ -409,6 +409,27 @@ provisioning_start() {
   return 0
 }
 
+# Installs the reviewed certifi overlay (#1905) before any custom node. The
+# ai-dock freeze pins certifi 2024.8.30, which trusts the distrusted emSign ECC
+# Root CA - G3. The lock is hash-pinned, so pip verifies the artifact. A failure
+# is a required failure.
+install_certifi_overlay() {
+  overlay="${COMFYUI_MANIFEST_ROOT}/certifi-overlay.txt"
+  if [ -L "$overlay" ] || [ ! -f "$overlay" ]; then
+    echo "atlas-comfyui-provision: certifi overlay is missing"
+    REQUIRED_FAIL_COUNT=$((REQUIRED_FAIL_COUNT + 1))
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+    return 0
+  fi
+  echo "atlas-comfyui-provision: installing the certifi overlay"
+  if ! pip_install --no-deps --require-hashes -r "$overlay"; then
+    echo "atlas-comfyui-provision: certifi overlay install failed"
+    REQUIRED_FAIL_COUNT=$((REQUIRED_FAIL_COUNT + 1))
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+  fi
+  return 0
+}
+
 provisioning_start_pinned() {
   trap cleanup_private_state EXIT
   # Fail closed even if the private plan snapshot cannot be created: an old
@@ -435,9 +456,15 @@ provisioning_start_pinned() {
     return 0
   }
 
+  install_certifi_overlay
+
   if [ ! -s "$PLAN_COPY" ]; then
     echo "atlas-comfyui-provision: no active custom nodes"
-    write_provisioning_status ready 0 0
+    if [ "$REQUIRED_FAIL_COUNT" -gt 0 ]; then
+      write_provisioning_status failed "$REQUIRED_FAIL_COUNT" "$OPTIONAL_FAIL_COUNT"
+    else
+      write_provisioning_status ready 0 0
+    fi
     return 0
   fi
 

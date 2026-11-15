@@ -1074,3 +1074,26 @@ def test_storage_cleanup_refuses_malformed_active_model_identities(tmp_path, mon
     assert "SENTINEL_ACTIVE_VALUE" not in result.output
     if case == "missing":
         assert "active-models.tsv is missing" in result.output
+
+
+def test_certifi_overlay_is_published_under_its_reviewed_digest(tmp_path, monkeypatch):
+    """#1905: the generator copies the reviewed certifi overlay beside the TSV plan."""
+    import utils.comfyui_resolver as resolver
+    monkeypatch.setattr(resolver, "active_comfyui_models", lambda e, **kw: [])
+
+    ComfyUIManifestGenerator({"COMFYUI_SOURCE": "container"}).write(tmp_path)
+
+    published = (tmp_path / "certifi-overlay.txt").read_bytes()
+    assert hashlib.sha256(published).hexdigest() == ComfyUIManifestGenerator.CERTIFI_OVERLAY_SHA256
+    assert b"certifi==2026.10.19" in published
+
+
+def test_certifi_overlay_with_a_changed_digest_fails_closed(tmp_path, monkeypatch):
+    import utils.comfyui_resolver as resolver
+    monkeypatch.setattr(resolver, "active_comfyui_models", lambda e, **kw: [])
+    monkeypatch.setattr(ComfyUIManifestGenerator, "CERTIFI_OVERLAY_SHA256", "0" * 64)
+
+    with pytest.raises(ValueError, match="certifi overlay lock digest mismatch"):
+        ComfyUIManifestGenerator({"COMFYUI_SOURCE": "container"}).write(tmp_path)
+    assert not (tmp_path / "certifi-overlay.txt").exists()
+
