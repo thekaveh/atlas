@@ -403,7 +403,7 @@ def _assert_runtime_drivers(image: str, name: str, owner_token: str) -> None:
         "import boto3, psycopg2; "
         "from mlflow.store.artifact.s3_artifact_repo import S3ArtifactRepository; "
         "from sqlalchemy import create_engine; "
-        "engine=create_engine('postgresql://atlas:atlas@127.0.0.1/atlas'); "
+        "engine=create_engine('postgresql+psycopg2://atlas:atlas@127.0.0.1/atlas'); "
         "assert engine.dialect.dbapi.__name__ == 'psycopg2'; "
         "assert boto3.__version__ == '1.43.56'; "
         "assert psycopg2.__version__.startswith('2.9.12'); "
@@ -544,6 +544,9 @@ def main() -> int:
             f"{STATIC_PREFIX}/api/3.0/mlflow/gateway/secrets/create",
             f"{STATIC_PREFIX}/ajax-api/3.0/mlflow/gateway/secrets/create",
             f"{STATIC_PREFIX}/ajax-api/2.0/mlflow/gateway-proxy",
+            f"{STATIC_PREFIX}/ajax-api/3.0/mlflow/assistant/providers",
+            f"{STATIC_PREFIX}/endpoints",
+            f"{STATIC_PREFIX}/servers/demo/endpoints/e1",
         ):
             _assert_blocked(base_url, path)
         _assert_tracking_registry_and_artifacts(base_url)
