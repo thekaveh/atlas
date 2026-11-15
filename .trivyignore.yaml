@@ -632,7 +632,7 @@ vulnerabilities:
     paths:
       - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/libthrift-0.16.0.jar"
       - "opt/spark/jars/libthrift-0.16.0.jar"
-    expired_at: 2026-11-30
+    expired_at: 2027-02-12
     statement: >-
       libthrift 0.16.0 ships inside pyspark 4.1.2's bundled jars
       (pyspark/jars/libthrift-0.16.0.jar) in the Airflow image
@@ -651,13 +651,14 @@ vulnerabilities:
       the Go thrift purl the row also carried matched no scanned image. Tracked
       for the coordinated upgrade; remove this exception when the Spark family
       moves.
+      Renewed by the owner on 2026-11-14 for 90 days (#1972).
   - id: CVE-2025-61726
     paths:
       - "usr/bin/migrate"
       - "usr/local/bin/gosu"
     purls:
       - "pkg:golang/stdlib@v1.24.6"
-    expired_at: 2026-11-30
+    expired_at: 2027-02-12
     statement: >-
       Go toolchain (stdlib 1.24.6) finding in two upstream helper binaries
       built with that toolchain: gosu at usr/local/bin/gosu in
@@ -672,13 +673,14 @@ vulnerabilities:
       on 2026-10-01 found it suppressing nothing else, and a Trivy 0.74.0
       scan on 2026-10-03 reproduced it in both binaries. Remove it once no
       scanned image carries stdlib 1.24.6 at either path.
+      Renewed by the owner on 2026-11-14 for 90 days (#1972).
   - id: CVE-2025-61729
     paths:
       - "usr/bin/migrate"
       - "usr/local/bin/gosu"
     purls:
       - "pkg:golang/stdlib@v1.24.6"
-    expired_at: 2026-11-30
+    expired_at: 2027-02-12
     statement: >-
       Go toolchain (stdlib 1.24.6) finding in two upstream helper binaries
       built with that toolchain: gosu at usr/local/bin/gosu in
@@ -693,13 +695,14 @@ vulnerabilities:
       on 2026-10-01 found it suppressing nothing else, and a Trivy 0.74.0
       scan on 2026-10-03 reproduced it in both binaries. Remove it once no
       scanned image carries stdlib 1.24.6 at either path.
+      Renewed by the owner on 2026-11-14 for 90 days (#1972).
   - id: CVE-2025-68121
     paths:
       - "usr/bin/migrate"
       - "usr/local/bin/gosu"
     purls:
       - "pkg:golang/stdlib@v1.24.6"
-    expired_at: 2026-11-30
+    expired_at: 2027-02-12
     statement: >-
       Go toolchain (stdlib 1.24.6) finding in two upstream helper binaries
       built with that toolchain: gosu at usr/local/bin/gosu in
@@ -714,13 +717,14 @@ vulnerabilities:
       on 2026-10-01 found it suppressing nothing else, and a Trivy 0.74.0
       scan on 2026-10-03 reproduced it in both binaries. Remove it once no
       scanned image carries stdlib 1.24.6 at either path.
+      Renewed by the owner on 2026-11-14 for 90 days (#1972).
   - id: CVE-2026-25679
     paths:
       - "usr/bin/migrate"
       - "usr/local/bin/gosu"
     purls:
       - "pkg:golang/stdlib@v1.24.6"
-    expired_at: 2026-11-30
+    expired_at: 2027-02-12
     statement: >-
       Go toolchain (stdlib 1.24.6) finding in two upstream helper binaries
       built with that toolchain: gosu at usr/local/bin/gosu in
@@ -735,13 +739,14 @@ vulnerabilities:
       on 2026-10-01 found it suppressing nothing else, and a Trivy 0.74.0
       scan on 2026-10-03 reproduced it in both binaries. Remove it once no
       scanned image carries stdlib 1.24.6 at either path.
+      Renewed by the owner on 2026-11-14 for 90 days (#1972).
   - id: CVE-2026-27145
     paths:
       - "usr/bin/migrate"
       - "usr/local/bin/gosu"
     purls:
       - "pkg:golang/stdlib@v1.24.6"
-    expired_at: 2026-11-30
+    expired_at: 2027-02-12
     statement: >-
       Go toolchain (stdlib 1.24.6) finding in two upstream helper binaries
       built with that toolchain: gosu at usr/local/bin/gosu in
@@ -756,13 +761,14 @@ vulnerabilities:
       on 2026-10-01 found it suppressing nothing else, and a Trivy 0.74.0
       scan on 2026-10-03 reproduced it in both binaries. Remove it once no
       scanned image carries stdlib 1.24.6 at either path.
+      Renewed by the owner on 2026-11-14 for 90 days (#1972).
   - id: CVE-2026-32280
     paths:
       - "usr/bin/migrate"
       - "usr/local/bin/gosu"
     purls:
       - "pkg:golang/stdlib@v1.24.6"
-    expired_at: 2026-11-30
+    expired_at: 2027-02-12
     statement: >-
       Go toolchain (stdlib 1.24.6) finding in two upstream helper binaries
       built with that toolchain: gosu at usr/local/bin/gosu in
@@ -777,13 +783,14 @@ vulnerabilities:
       on 2026-10-01 found it suppressing nothing else, and a Trivy 0.74.0
       scan on 2026-10-03 reproduced it in both binaries. Remove it once no
       scanned image carries stdlib 1.24.6 at either path.
+      Renewed by the owner on 2026-11-14 for 90 days (#1972).
   - id: CVE-2026-32281
     paths:
       - "usr/bin/migrate"
       - "usr/local/bin/gosu"
     purls:
       - "pkg:golang/stdlib@v1.24.6"
-    expired_at: 2026-11-30
+    expired_at: 2027-02-12
     statement: >-
       Go toolchain (stdlib 1.24.6) finding in two upstream helper binaries
       built with that toolchain: gosu at usr/local/bin/gosu in
@@ -798,13 +805,14 @@ vulnerabilities:
       on 2026-10-01 found it suppressing nothing else, and a Trivy 0.74.0
       scan on 2026-10-03 reproduced it in both binaries. Remove it once no
       scanned image carries stdlib 1.24.6 at either path.
+      Renewed by the owner on 2026-11-14 for 90 days (#1972).
   - id: CVE-2026-32283
     paths:
       - "usr/bin/migrate"
       - "usr/local/bin/gosu"
     purls:
       - "pkg:golang/stdlib@v1.24.6"
-    expired_at: 2026-11-30
+    expired_at: 2027-02-12
     statement: >-
       Go toolchain (stdlib 1.24.6) finding in two upstream helper binaries
       built with that toolchain: gosu at usr/local/bin/gosu in
@@ -819,13 +827,14 @@ vulnerabilities:
       on 2026-10-01 found it suppressing nothing else, and a Trivy 0.74.0
       scan on 2026-10-03 reproduced it in both binaries. Remove it once no
       scanned image carries stdlib 1.24.6 at either path.
+      Renewed by the owner on 2026-11-14 for 90 days (#1972).
   - id: CVE-2026-33811
     paths:
       - "usr/bin/migrate"
       - "usr/local/bin/gosu"
     purls:
       - "pkg:golang/stdlib@v1.24.6"
-    expired_at: 2026-11-30
+    expired_at: 2027-02-12
     statement: >-
       Go toolchain (stdlib 1.24.6) finding in two upstream helper binaries
       built with that toolchain: gosu at usr/local/bin/gosu in
@@ -840,13 +849,14 @@ vulnerabilities:
       on 2026-10-01 found it suppressing nothing else, and a Trivy 0.74.0
       scan on 2026-10-03 reproduced it in both binaries. Remove it once no
       scanned image carries stdlib 1.24.6 at either path.
+      Renewed by the owner on 2026-11-14 for 90 days (#1972).
   - id: CVE-2026-33814
     paths:
       - "usr/bin/migrate"
       - "usr/local/bin/gosu"
     purls:
       - "pkg:golang/stdlib@v1.24.6"
-    expired_at: 2026-11-30
+    expired_at: 2027-02-12
     statement: >-
       Go toolchain (stdlib 1.24.6) finding in two upstream helper binaries
       built with that toolchain: gosu at usr/local/bin/gosu in
@@ -861,13 +871,14 @@ vulnerabilities:
       on 2026-10-01 found it suppressing nothing else, and a Trivy 0.74.0
       scan on 2026-10-03 reproduced it in both binaries. Remove it once no
       scanned image carries stdlib 1.24.6 at either path.
+      Renewed by the owner on 2026-11-14 for 90 days (#1972).
   - id: CVE-2026-33818
     paths:
       - "usr/bin/migrate"
       - "usr/local/bin/gosu"
     purls:
       - "pkg:golang/stdlib@v1.24.6"
-    expired_at: 2026-11-30
+    expired_at: 2027-02-12
     statement: >-
       Go toolchain (stdlib 1.24.6) finding in two upstream helper binaries
       built with that toolchain: gosu at usr/local/bin/gosu in
@@ -882,13 +893,14 @@ vulnerabilities:
       on 2026-10-01 found it suppressing nothing else, and a Trivy 0.74.0
       scan on 2026-10-03 reproduced it in both binaries. Remove it once no
       scanned image carries stdlib 1.24.6 at either path.
+      Renewed by the owner on 2026-11-14 for 90 days (#1972).
   - id: CVE-2026-39820
     paths:
       - "usr/bin/migrate"
       - "usr/local/bin/gosu"
     purls:
       - "pkg:golang/stdlib@v1.24.6"
-    expired_at: 2026-11-30
+    expired_at: 2027-02-12
     statement: >-
       Go toolchain (stdlib 1.24.6) finding in two upstream helper binaries
       built with that toolchain: gosu at usr/local/bin/gosu in
@@ -903,13 +915,14 @@ vulnerabilities:
       on 2026-10-01 found it suppressing nothing else, and a Trivy 0.74.0
       scan on 2026-10-03 reproduced it in both binaries. Remove it once no
       scanned image carries stdlib 1.24.6 at either path.
+      Renewed by the owner on 2026-11-14 for 90 days (#1972).
   - id: CVE-2026-39821
     paths:
       - "usr/bin/migrate"
       - "usr/local/bin/gosu"
     purls:
       - "pkg:golang/stdlib@v1.24.6"
-    expired_at: 2026-11-30
+    expired_at: 2027-02-12
     statement: >-
       Go toolchain (stdlib 1.24.6) finding in two upstream helper binaries
       built with that toolchain: gosu at usr/local/bin/gosu in
@@ -924,13 +937,14 @@ vulnerabilities:
       on 2026-10-01 found it suppressing nothing else, and a Trivy 0.74.0
       scan on 2026-10-03 reproduced it in both binaries. Remove it once no
       scanned image carries stdlib 1.24.6 at either path.
+      Renewed by the owner on 2026-11-14 for 90 days (#1972).
   - id: CVE-2026-39822
     paths:
       - "usr/bin/migrate"
       - "usr/local/bin/gosu"
     purls:
       - "pkg:golang/stdlib@v1.24.6"
-    expired_at: 2026-11-30
+    expired_at: 2027-02-12
     statement: >-
       Go toolchain (stdlib 1.24.6) finding in two upstream helper binaries
       built with that toolchain: gosu at usr/local/bin/gosu in
@@ -945,13 +959,14 @@ vulnerabilities:
       on 2026-10-01 found it suppressing nothing else, and a Trivy 0.74.0
       scan on 2026-10-03 reproduced it in both binaries. Remove it once no
       scanned image carries stdlib 1.24.6 at either path.
+      Renewed by the owner on 2026-11-14 for 90 days (#1972).
   - id: CVE-2026-39836
     paths:
       - "usr/bin/migrate"
       - "usr/local/bin/gosu"
     purls:
       - "pkg:golang/stdlib@v1.24.6"
-    expired_at: 2026-11-30
+    expired_at: 2027-02-12
     statement: >-
       Go toolchain (stdlib 1.24.6) finding in two upstream helper binaries
       built with that toolchain: gosu at usr/local/bin/gosu in
@@ -966,13 +981,14 @@ vulnerabilities:
       on 2026-10-01 found it suppressing nothing else, and a Trivy 0.74.0
       scan on 2026-10-03 reproduced it in both binaries. Remove it once no
       scanned image carries stdlib 1.24.6 at either path.
+      Renewed by the owner on 2026-11-14 for 90 days (#1972).
   - id: CVE-2026-42499
     paths:
       - "usr/bin/migrate"
       - "usr/local/bin/gosu"
     purls:
       - "pkg:golang/stdlib@v1.24.6"
-    expired_at: 2026-11-30
+    expired_at: 2027-02-12
     statement: >-
       Go toolchain (stdlib 1.24.6) finding in two upstream helper binaries
       built with that toolchain: gosu at usr/local/bin/gosu in
@@ -987,13 +1003,14 @@ vulnerabilities:
       on 2026-10-01 found it suppressing nothing else, and a Trivy 0.74.0
       scan on 2026-10-03 reproduced it in both binaries. Remove it once no
       scanned image carries stdlib 1.24.6 at either path.
+      Renewed by the owner on 2026-11-14 for 90 days (#1972).
   - id: CVE-2026-42504
     paths:
       - "usr/bin/migrate"
       - "usr/local/bin/gosu"
     purls:
       - "pkg:golang/stdlib@v1.24.6"
-    expired_at: 2026-11-30
+    expired_at: 2027-02-12
     statement: >-
       Go toolchain (stdlib 1.24.6) finding in two upstream helper binaries
       built with that toolchain: gosu at usr/local/bin/gosu in
@@ -1008,13 +1025,14 @@ vulnerabilities:
       on 2026-10-01 found it suppressing nothing else, and a Trivy 0.74.0
       scan on 2026-10-03 reproduced it in both binaries. Remove it once no
       scanned image carries stdlib 1.24.6 at either path.
+      Renewed by the owner on 2026-11-14 for 90 days (#1972).
   - id: CVE-2026-56853
     paths:
       - "usr/bin/migrate"
       - "usr/local/bin/gosu"
     purls:
       - "pkg:golang/stdlib@v1.24.6"
-    expired_at: 2026-11-30
+    expired_at: 2027-02-12
     statement: >-
       Go toolchain (stdlib 1.24.6) finding in two upstream helper binaries
       built with that toolchain: gosu at usr/local/bin/gosu in
@@ -1029,13 +1047,14 @@ vulnerabilities:
       on 2026-10-01 found it suppressing nothing else, and a Trivy 0.74.0
       scan on 2026-10-03 reproduced it in both binaries. Remove it once no
       scanned image carries stdlib 1.24.6 at either path.
+      Renewed by the owner on 2026-11-14 for 90 days (#1972).
   - id: CVE-2026-56858
     paths:
       - "usr/bin/migrate"
       - "usr/local/bin/gosu"
     purls:
       - "pkg:golang/stdlib@v1.24.6"
-    expired_at: 2026-11-30
+    expired_at: 2027-02-12
     statement: >-
       Go toolchain (stdlib 1.24.6) finding in two upstream helper binaries
       built with that toolchain: gosu at usr/local/bin/gosu in
@@ -1050,13 +1069,14 @@ vulnerabilities:
       on 2026-10-01 found it suppressing nothing else, and a Trivy 0.74.0
       scan on 2026-10-03 reproduced it in both binaries. Remove it once no
       scanned image carries stdlib 1.24.6 at either path.
+      Renewed by the owner on 2026-11-14 for 90 days (#1972).
   - id: CVE-2026-56859
     paths:
       - "usr/bin/migrate"
       - "usr/local/bin/gosu"
     purls:
       - "pkg:golang/stdlib@v1.24.6"
-    expired_at: 2026-11-30
+    expired_at: 2027-02-12
     statement: >-
       Go toolchain (stdlib 1.24.6) finding in two upstream helper binaries
       built with that toolchain: gosu at usr/local/bin/gosu in
@@ -1071,13 +1091,14 @@ vulnerabilities:
       on 2026-10-01 found it suppressing nothing else, and a Trivy 0.74.0
       scan on 2026-10-03 reproduced it in both binaries. Remove it once no
       scanned image carries stdlib 1.24.6 at either path.
+      Renewed by the owner on 2026-11-14 for 90 days (#1972).
   - id: CVE-2026-56860
     paths:
       - "usr/bin/migrate"
       - "usr/local/bin/gosu"
     purls:
       - "pkg:golang/stdlib@v1.24.6"
-    expired_at: 2026-11-30
+    expired_at: 2027-02-12
     statement: >-
       Go toolchain (stdlib 1.24.6) finding in two upstream helper binaries
       built with that toolchain: gosu at usr/local/bin/gosu in
@@ -1092,13 +1113,14 @@ vulnerabilities:
       on 2026-10-01 found it suppressing nothing else, and a Trivy 0.74.0
       scan on 2026-10-03 reproduced it in both binaries. Remove it once no
       scanned image carries stdlib 1.24.6 at either path.
+      Renewed by the owner on 2026-11-14 for 90 days (#1972).
   - id: CVE-2026-56862
     paths:
       - "usr/bin/migrate"
       - "usr/local/bin/gosu"
     purls:
       - "pkg:golang/stdlib@v1.24.6"
-    expired_at: 2026-11-30
+    expired_at: 2027-02-12
     statement: >-
       Go toolchain (stdlib 1.24.6) finding in two upstream helper binaries
       built with that toolchain: gosu at usr/local/bin/gosu in
@@ -1113,6 +1135,7 @@ vulnerabilities:
       on 2026-10-01 found it suppressing nothing else, and a Trivy 0.74.0
       scan on 2026-10-03 reproduced it in both binaries. Remove it once no
       scanned image carries stdlib 1.24.6 at either path.
+      Renewed by the owner on 2026-11-14 for 90 days (#1972).
   - id: CVE-2026-75595
     paths:
       - "home/airflow/.local/lib/python3.13/site-packages/pyspark/jars/bundle-2.29.52.jar"
