@@ -17,7 +17,7 @@ SERVICES = ROOT / "services"
 MANIFEST = SERVICES / "asset-baker" / "service.yml"
 README = SERVICES / "asset-baker" / "README.md"
 DOCKERFILE = SERVICES / "asset-baker" / "app" / "Dockerfile"
-BLENDER_SHA256 = "4da1c956673c0485e63054e563ee69198cc8f80d8157dd7592dffc8a6a5592e6"
+BLENDER_SHA256 = "23432b064977908beb1ab4b7f32f024e7331105c875c187dce002aff84b10c11"
 
 
 def _manifest() -> dict:
@@ -49,7 +49,7 @@ def test_asset_baker_manifest_contract() -> None:
     assert "ASSET_BAKER_PORT" in env
     assert env["ASSET_BAKER_ENDPOINT"]["auto_managed"] is True
     assert env["ASSET_BAKER_MINIO_BUCKET"]["default"] == "asset-baker"
-    assert env["ASSET_BAKER_BLENDER_VERSION"]["default"] == "4.3.2"
+    assert env["ASSET_BAKER_BLENDER_VERSION"]["default"] == "4.5.16"
     assert env["ASSET_BAKER_BLENDER_SHA256"]["default"] == BLENDER_SHA256
     # Bounded-worker + QA-gate knobs the triage requires as explicit config.
     assert env["ASSET_BAKER_BRIGHTNESS_MIN"]["default"] == "0.05"

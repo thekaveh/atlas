@@ -75,6 +75,12 @@ RUNTIME_LOCKS = (
         "3.12",
     ),
     RuntimeLock(
+        "services/asset-baker/app/requirements-blender.txt",
+        "services/asset-baker/app/requirements-blender-locked.txt",
+        "3.11",
+        ("x86_64-manylinux_2_28",),
+    ),
+    RuntimeLock(
         "services/asset-worker/app/requirements.txt",
         "services/asset-worker/app/requirements-locked.txt",
         "3.12",
