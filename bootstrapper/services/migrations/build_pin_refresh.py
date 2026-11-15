@@ -24,8 +24,8 @@ from utils.atomic_write import atomic_write_text, create_private_backup, env_lin
 #: Tool-owned build pins, each with every default an earlier Atlas shipped.
 #: When a bump lands, append the value it replaces.
 RETIRED_DEFAULTS: dict[str, frozenset[str]] = {
-    "ASSET_BAKER_BLENDER_VERSION": frozenset(),
-    "ASSET_BAKER_BLENDER_SHA256": frozenset(),
+    "ASSET_BAKER_BLENDER_VERSION": frozenset({"4.3.2"}),
+    "ASSET_BAKER_BLENDER_SHA256": frozenset({"4da1c956673c0485e63054e563ee69198cc8f80d8157dd7592dffc8a6a5592e6"}),
     "ASSET_WORKER_GLTF_TRANSFORM_VERSION": frozenset({"4.4.1", "4.5.0"}),
     "LOCAL_DEEP_RESEARCHER_REF": frozenset(),
     "LOCAL_DEEP_RESEARCHER_LANGGRAPH_CLI_VERSION": frozenset({"0.4.31"}),

@@ -290,8 +290,8 @@ services:
       dockerfile: Dockerfile
       args:
         BASE_IMAGE: python:3.12.9-slim
-        BLENDER_SHA256: 4da1c956673c0485e63054e563ee69198cc8f80d8157dd7592dffc8a6a5592e6
-        BLENDER_VERSION: 4.3.2
+        BLENDER_SHA256: 23432b064977908beb1ab4b7f32f024e7331105c875c187dce002aff84b10c11
+        BLENDER_VERSION: 4.5.16
     container_name: atlas-asset-baker
     depends_on:
       minio:

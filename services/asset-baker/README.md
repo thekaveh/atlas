@@ -30,8 +30,8 @@ Every route except `GET /health` and `GET /metrics` requires `Authorization: Bea
 |---|---:|---|
 | `ASSET_BAKER_SOURCE` | `disabled` | Enables the containerized worker when set to `container-cpu`. |
 | `ASSET_BAKER_IMAGE` | `python:3.12.9-slim` | Base image; the Dockerfile downloads pinned Blender on top. |
-| `ASSET_BAKER_BLENDER_VERSION` | `4.3.2` | Pinned headless Blender (≥ 4.3) installed in the image; bundles Python + numpy. |
-| `ASSET_BAKER_BLENDER_SHA256` | `4da1c956...a5592e6` | Published SHA-256 verified before the pinned Blender archive is extracted. |
+| `ASSET_BAKER_BLENDER_VERSION` | `4.5.16` | Pinned headless Blender (4.5 LTS line) installed in the image; bundles Python 3.11 + numpy. |
+| `ASSET_BAKER_BLENDER_SHA256` | `23432b06...b10c11` | Published SHA-256 verified before the pinned Blender archive is extracted. |
 | `ASSET_BAKER_PORT` | computed | Host port assigned by Atlas' topology allocator. |
 | `ASSET_BAKER_API_TOKEN` | generated | Bearer token required by upload, reference-bake, and artifact-download routes. |
 | `ASSET_BAKER_ALLOWED_INPUT_BUCKETS` | _(blank)_ | Optional comma- or space-separated MinIO bucket allowlist. Blank follows `MINIO_BUCKET_ASSET_INPUTS`. |
@@ -63,11 +63,12 @@ The image installs a **pinned, checksum-verified** headless Blender at build tim
 
 | Property | Value |
 |---|---|
-| Version | `ASSET_BAKER_BLENDER_VERSION` (default `4.3.2`) |
+| Version | `ASSET_BAKER_BLENDER_VERSION` (default `4.5.16`) |
 | Artifact | `blender-<version>-linux-x64.tar.xz` |
-| Integrity | `ASSET_BAKER_BLENDER_SHA256` (default `4da1c956…a5592e6`), verified with `sha256sum -c` before extraction |
+| Integrity | `ASSET_BAKER_BLENDER_SHA256` (default `23432b06…b10c11`), verified with `sha256sum -c` before extraction |
+| Bundled packages | `requirements-blender.txt` and its lock `requirements-blender-locked.txt`: setuptools 84.1.0 and urllib3 2.8.0, installed into Blender's Python with pip 26.3 |
 | Architecture | **`linux/amd64` (x86_64) only** — Blender ships no official `linux-arm64` build; the Dockerfile fails fast with an actionable message on any other architecture. The compose service pins `platform: ${ASSET_BAKER_PLATFORM:-linux/amd64}`, so an arm64 host (Apple Silicon) builds and runs it under emulation |
-| License | Blender is licensed under the **GNU GPL**: its source files carry `GPL-2.0-or-later`, and the `v4.3.2` source tree also ships the GPL-3.0 text. It runs as a separate headless subprocess (`blender -b`) and is not linked into Atlas code. Atlas has not settled what redistributing a built image requires; that is open item R-BUILD in the [license inventory](../../docs/reference/license-inventory.md) |
+| License | Blender is licensed under the **GNU GPL**: its source files carry `GPL-2.0-or-later`, and the 4.5.16 archive ships `license/license.md` and `licenses.json`. It runs as a separate headless subprocess (`blender -b`) and is not linked into Atlas code. Atlas has not settled what redistributing a built image requires; that is open item R-BUILD in the [license inventory](../../docs/reference/license-inventory.md) |
 
 **Download source.** `download.blender.org` returns HTTP 403 to automated clients. The build therefore fetches from the official Blender **mirror network** and tries each mirror in turn: `ftp.nluug.nl`, `mirror.clarkson.edu`, `mirrors.ocf.berkeley.edu`, `mirrors.dotsrc.org`. The SHA-256 is verified whatever the host, so one mirror outage does not break the build. A clean `docker build` needs no developer cache. A build-time smoke step asserts that `blender --version` matches the pin.
 

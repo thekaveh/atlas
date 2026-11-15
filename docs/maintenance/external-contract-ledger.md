@@ -566,3 +566,11 @@ No advisory exceptions were added.
 | Integration point | Pinned/configured version | Latest/status check | Contract checked | Evidence / disposition |
 |---|---:|---|---|---|
 | Promptfoo recipe lock (`examples/promptfoo-security`) | Promptfoo 0.124.1 kept. Nine npm findings accepted for the example. | `npm view promptfoo` on 2026-11-15: 0.125.1 is the newest release. It pins @hono/node-server 2.1.5 exactly, minimatch ^10 and glob ^13. | `npm audit --package-lock-only`: nine findings. Overrides clear them to zero, but they break declared ranges, and the macOS qualification cannot run here (#2029). | Owner decision on 2026-11-15 (#1894). Recorded in `examples/promptfoo-security/README.md`. The lock is outside the runtime audit, and no CI job runs npm audit on it. |
+
+## 16. 2026-11-15 Blender 4.5 LTS for asset-baker (#1905)
+
+| Integration point | Pinned/configured version | Latest/status check | Contract checked | Evidence / disposition |
+|---|---:|---|---|---|
+| Blender (`ASSET_BAKER_BLENDER_VERSION`, `ASSET_BAKER_BLENDER_SHA256`) | 4.5.16 LTS, linux-x64 `23432b06…b10c11`, moved from 4.3.2 | Newest 4.5 LTS build on download.blender.org on 2026-11-15, checksum matched Blender's published `.sha256`. | Archive SHA-256 check. `blender -b --version` in the built image. Real headless bake in the 121-test asset-baker suite. | Blender's bundled certifi 2026.10.19 contains no emSign ECC Root CA - G3 in either copy (main and pip-vendored). |
+| Blender-bundled pip, setuptools, urllib3 | pip 26.3 (installer pin), setuptools 84.1.0, urllib3 2.8.0 from `requirements-blender-locked.txt` | Trivy 0.74.0, HIGH and CRITICAL, `--ignore-unfixed`, against `.trivyignore.yaml`. Before the upgrade the image had 10 live findings in the bundled packages. | `pip check` in Blender's Python. Trivy: 0 fixable findings after the rebuild. | Runtime audit scans the new lock. The 11 exception rows scoped to `opt/blender/4.3/` are removed because their paths no longer exist. |
+| blender-mcp `managed-localhost` bridge | Not changed in this review | The bridge was verified live on Blender 4.3.2. Blender is not installed on this host, so the 4.5 bridge was not run live. | Not run. | Open: live blender-mcp re-verification on 4.5.16 is still required before this is called done. |

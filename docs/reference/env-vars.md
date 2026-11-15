@@ -35,8 +35,8 @@
 | ASSET_BAKER_ENDPOINT | asset-baker |  | In-network URL for the asset-baker API. |
 | ASSET_BAKER_API_TOKEN | asset-baker |  | Auto-generated bearer token required by all Asset Baker data and processing routes; /health remains unauthenticated. |
 | ASSET_BAKER_ALLOWED_INPUT_BUCKETS | asset-baker |  | Optional comma- or space-separated reference-route bucket allowlist; blank follows MINIO_BUCKET_ASSET_INPUTS. |
-| ASSET_BAKER_BLENDER_VERSION | asset-baker | 4.3.2 | Pinned headless Blender version (&gt;= 4.3) downloaded into the asset-baker image. Blender bundles its own Python + numpy for the bake script. |
-| ASSET_BAKER_BLENDER_SHA256 | asset-baker | 4da1c956673c0485e63054e563ee69198cc8f80d8157dd7592dffc8a6a5592e6 | SHA-256 checksum verified before extracting the pinned Blender archive. Update it with ASSET_BAKER_BLENDER_VERSION from Blender's published checksum file. |
+| ASSET_BAKER_BLENDER_VERSION | asset-baker | 4.5.16 | Pinned headless Blender version (4.5 LTS line) downloaded into the asset-baker image. Blender bundles its own Python + numpy for the bake script. Its bundled certifi omits the distrusted emSign ECC Root CA - G3. |
+| ASSET_BAKER_BLENDER_SHA256 | asset-baker | 23432b064977908beb1ab4b7f32f024e7331105c875c187dce002aff84b10c11 | SHA-256 checksum verified before extracting the pinned Blender archive. Update it with ASSET_BAKER_BLENDER_VERSION from Blender's published checksum file. |
 | ASSET_BAKER_ARTIFACT_DIR | asset-baker | /data/artifacts | Local artifact cache used when MinIO upload is disabled or for direct downloads. |
 | ASSET_BAKER_MINIO_ENABLED | asset-baker | true | When true, baked LP GLBs + textures are written to MinIO using content-addressed keys. |
 | ASSET_BAKER_MINIO_BUCKET | asset-baker | asset-baker | MinIO bucket for baked LP GLB + texture outputs. |
