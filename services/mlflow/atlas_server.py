@@ -18,10 +18,10 @@ Send = Callable[[dict[str, Any]], Awaitable[None]]
 
 _NOT_FOUND = b'{"detail":"Not Found"}'
 
-if Version(VERSION) != Version("3.16.1"):
+if Version(VERSION) != Version("3.17.2"):
     raise RuntimeError(
-        "Atlas requires exactly MLflow 3.16.1: the gateway denylist and server "
-        "integration must be reviewed before accepting another release"
+        "Atlas requires exactly MLflow 3.17.2: the gateway denylist, host allowlist "
+        "and server integration must be reviewed before accepting another release"
     )
 
 
@@ -50,19 +50,35 @@ def _is_gateway_path(path: str) -> bool:
     return False
 
 
+def _is_unused_provider_path(path: str) -> bool:
+    """Match the MLflow Assistant provider and MCP access-endpoint routes.
+
+    Neither family sits under the gateway prefix, and Atlas configures neither.
+    The MCP access routes are ``/endpoints`` and ``/{name}/endpoints[/{id}]``.
+    """
+    path = _without_static_prefix(path)
+    if path.startswith(("/ajax-api/3.0/mlflow/assistant/", "/api/3.0/mlflow/assistant/")):
+        return True
+    return path == "/endpoints" or path.endswith("/endpoints") or "/endpoints/" in path
+
+
 class GatewayDisabled:
-    """Keep the unused AI Gateway surface closed while preserving tracking APIs.
+    """Keep the unused AI Gateway, Assistant and MCP access surfaces closed.
 
     MLflow 3.16.1 fixes CVE-2026-71211 (#1287), but Atlas configures no
     gateway endpoints and the family stores provider secrets, so the denylist
-    stays as defence in depth. Every 3.16.1 gateway route is covered.
+    stays as defence in depth. 3.16.1 and 3.17.2 serve the same Flask rule
+    table, and every gateway route in it sits under ``/gateway`` or a
+    ``gateway`` / ``gateway-`` segment. The Assistant and MCP access routes
+    are not gateway routes, so they have their own rules (#1948).
     """
 
     def __init__(self, upstream: Callable[[Scope, Receive, Send], Awaitable[None]]):
         self._upstream = upstream
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if _is_gateway_path(scope.get("path", "")):
+        path = scope.get("path", "")
+        if _is_gateway_path(path) or _is_unused_provider_path(path):
             if scope.get("type") == "websocket":
                 await send({"type": "websocket.close", "code": 1008})
                 return
@@ -89,8 +105,8 @@ _FORBIDDEN_ORIGIN = b'{"detail":"Origin not allowed"}'
 def _origin_refused(scope: Scope) -> bool:
     """True for an API call, or any write, from an origin outside the list.
 
-    MLflow 3.16.1 admits every ``localhost`` / ``127.0.0.1`` origin on any
-    port whatever ``MLFLOW_SERVER_CORS_ALLOWED_ORIGINS`` says, and the direct
+    MLflow 3.16.1 and 3.17.2 admit every ``localhost`` / ``127.0.0.1`` origin
+    on any port whatever ``MLFLOW_SERVER_CORS_ALLOWED_ORIGINS`` says, and the direct
     port has no login, so a page on another local port could create, delete
     and read experiments and models. Clients without an ``Origin`` header
     (SDK, curl, same-origin GET) are not affected.
