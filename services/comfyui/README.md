@@ -144,6 +144,8 @@ A node with `install_requirements: true` must also declare `requirements_lock` a
 
 An optional `mps_unsafe: true` skips a node under `managed-localhost-mps` (CUDA/x86-only native wheels). Container sources ignore it.
 
+**Certifi overlay (#1905).** The AI-Dock freeze pins `certifi` 2024.8.30, which still trusts the distrusted emSign ECC Root CA - G3. The generator publishes `custom-node-locks/certifi-overlay.txt` under its reviewed SHA-256. The container provisioner installs `certifi==2026.10.19` first, with `--no-deps --require-hashes`. This is a documented exception to the AI-Dock rule that frozen packages keep their exact versions. A missing or altered overlay fails provisioning closed. Container sources only; the managed MPS host is not covered.
+
 **3D-Pack secure-install boundary.** The pinned 3D-Pack imports `rembg`, Real-ESRGAN and BasicSR. The AI-Dock runtime is Python 3.10, but the first `rembg` release that fixes its advisories needs Python 3.11 or newer. BasicSR has no fixed release. Atlas therefore does not clone 3D-Pack. Its catalog rows stay visible for operators who manage the node outside Atlas, and the unknown-node warning states the boundary.
 
 **Consumer-declared custom nodes.** A consumer manifest can add nodes with `custom_nodes.comfyui` in `atlas.consumer.yml`. The value is a path or path-list to a file with the same schema: `{name, repo, ref, install_requirements, requirements_lock, requirements_lock_sha256, mps_unsafe, provisioning_required}`. Rules:
