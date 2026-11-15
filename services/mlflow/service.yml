@@ -20,7 +20,7 @@ capabilities:
   - name: "MLflow AI Gateway SSRF containment"
     status: supported
     verification: tested
-    note: "Atlas accepts exactly reviewed MLflow 3.16.1, which closes CVE-2026-64849 and CVE-2026-71211. Every prefixed and unprefixed AI Gateway route family stays disabled at its ASGI boundary, because Atlas configures no gateway endpoints. The built image runs a required multi-architecture smoke."
+    note: "Atlas accepts exactly reviewed MLflow 3.17.2, which closes CVE-2026-64849, CVE-2026-71211, CVE-2026-116692, CVE-2026-116690 and CVE-2026-53995. Every prefixed and unprefixed AI Gateway, Assistant and MCP access route stays disabled at its ASGI boundary, because Atlas configures none of them. The built image runs a required multi-architecture smoke."
   - name: "Model registry deployment automation"
     status: not-supported
     verification: documented
@@ -36,7 +36,7 @@ containers:
 
 images:
   - var: MLFLOW_IMAGE
-    default: "ghcr.io/mlflow/mlflow:v3.16.1"
+    default: "ghcr.io/mlflow/mlflow:v3.17.2"
     container: mlflow
   - var: MLFLOW_INIT_IMAGE
     default: "alpine:3.24.4"

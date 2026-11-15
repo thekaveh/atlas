@@ -30,6 +30,7 @@ RETIRED_DEFAULTS: dict[str, frozenset[str]] = {
     "LOCAL_DEEP_RESEARCHER_REF": frozenset(),
     "LOCAL_DEEP_RESEARCHER_LANGGRAPH_CLI_VERSION": frozenset({"0.4.31"}),
     "LOCAL_DEEP_RESEARCHER_UPSTREAM_LOCK_SHA256": frozenset(),
+    "MLFLOW_IMAGE": frozenset({"ghcr.io/mlflow/mlflow:v3.16.1"}),
 }
 
 _ASSIGNMENT = re.compile(

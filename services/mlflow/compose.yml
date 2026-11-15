@@ -34,7 +34,7 @@ services:
       context: .
       dockerfile: build/Dockerfile
       args:
-        BASE_IMAGE: ${MLFLOW_IMAGE:-ghcr.io/mlflow/mlflow:v3.16.1}
+        BASE_IMAGE: ${MLFLOW_IMAGE:-ghcr.io/mlflow/mlflow:v3.17.2}
     image: ${PROJECT_NAME}-mlflow:local
     container_name: ${PROJECT_NAME}-mlflow
     restart: unless-stopped
@@ -51,10 +51,12 @@ services:
       AWS_SECRET_ACCESS_KEY: ${MINIO_MLFLOW_SECRET_KEY}
       AWS_DEFAULT_REGION: ${MINIO_REGION:-us-east-1}
       # Mirror `mlflow server`'s internal environment contract so Atlas can
-      # wrap the upstream ASGI app and keep the unused AI Gateway routes closed
-      # (defence in depth; 3.16.1 fixes CVE-2026-64849 and CVE-2026-71211).
-      _MLFLOW_SERVER_FILE_STORE: postgresql://${MLFLOW_DB_USER_URI:?MLFLOW_DB_USER_URI is required}:${MLFLOW_DB_PASSWORD_URI:?MLFLOW_DB_PASSWORD_URI is required}@supabase-db:5432/${MLFLOW_DB_NAME_URI:?MLFLOW_DB_NAME_URI is required}
-      _MLFLOW_SERVER_REGISTRY_STORE: postgresql://${MLFLOW_DB_USER_URI:?MLFLOW_DB_USER_URI is required}:${MLFLOW_DB_PASSWORD_URI:?MLFLOW_DB_PASSWORD_URI is required}@supabase-db:5432/${MLFLOW_DB_NAME_URI:?MLFLOW_DB_NAME_URI is required}
+      # wrap the upstream ASGI app and keep the unused AI Gateway, Assistant and
+      # MCP access routes closed (defence in depth; 3.16.1 fixes CVE-2026-64849
+      # and CVE-2026-71211; 3.17.2 fixes CVE-2026-116692, CVE-2026-116690 and
+      # CVE-2026-53995).
+      _MLFLOW_SERVER_FILE_STORE: postgresql+psycopg2://${MLFLOW_DB_USER_URI:?MLFLOW_DB_USER_URI is required}:${MLFLOW_DB_PASSWORD_URI:?MLFLOW_DB_PASSWORD_URI is required}@supabase-db:5432/${MLFLOW_DB_NAME_URI:?MLFLOW_DB_NAME_URI is required}
+      _MLFLOW_SERVER_REGISTRY_STORE: postgresql+psycopg2://${MLFLOW_DB_USER_URI:?MLFLOW_DB_USER_URI is required}:${MLFLOW_DB_PASSWORD_URI:?MLFLOW_DB_PASSWORD_URI is required}@supabase-db:5432/${MLFLOW_DB_NAME_URI:?MLFLOW_DB_NAME_URI is required}
       _MLFLOW_SERVER_ARTIFACT_ROOT: mlflow-artifacts:/
       _MLFLOW_SERVER_ARTIFACT_DESTINATION: s3://${MINIO_BUCKET_MLFLOW:-mlflow}
       _MLFLOW_SERVER_SERVE_ARTIFACTS: "true"

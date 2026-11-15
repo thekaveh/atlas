@@ -79,7 +79,7 @@ def test_mlflow_topology_alias_and_env_example_contract() -> None:
     env_example = (REPO_ROOT / ".env.example").read_text()
     for expected in (
         "MLFLOW_SOURCE=disabled",
-        "MLFLOW_IMAGE=ghcr.io/mlflow/mlflow:v3.16.1",
+        "MLFLOW_IMAGE=ghcr.io/mlflow/mlflow:v3.17.2",
         "MLFLOW_PORT=",
         "MLFLOW_ENDPOINT=",
         "MLFLOW_SCALE=",
@@ -161,7 +161,7 @@ def test_mlflow_compose_contract() -> None:
     assert service["build"] == {
         "context": ".",
         "dockerfile": "build/Dockerfile",
-        "args": {"BASE_IMAGE": "${MLFLOW_IMAGE:-ghcr.io/mlflow/mlflow:v3.16.1}"},
+        "args": {"BASE_IMAGE": "${MLFLOW_IMAGE:-ghcr.io/mlflow/mlflow:v3.17.2}"},
     }
     assert service["ports"] == ["${HOST_BIND_IP-127.0.0.1:}${MLFLOW_PORT}:5000"]
     assert service["depends_on"]["mlflow-init"]["condition"] == "service_completed_successfully"
@@ -172,7 +172,7 @@ def test_mlflow_compose_contract() -> None:
     assert service["working_dir"] == "/opt/atlas"
     assert "volumes" not in service
     environment = service["environment"]
-    database_uri = "postgresql://${MLFLOW_DB_USER_URI:?MLFLOW_DB_USER_URI is required}:${MLFLOW_DB_PASSWORD_URI:?MLFLOW_DB_PASSWORD_URI is required}@supabase-db:5432/${MLFLOW_DB_NAME_URI:?MLFLOW_DB_NAME_URI is required}"
+    database_uri = "postgresql+psycopg2://${MLFLOW_DB_USER_URI:?MLFLOW_DB_USER_URI is required}:${MLFLOW_DB_PASSWORD_URI:?MLFLOW_DB_PASSWORD_URI is required}@supabase-db:5432/${MLFLOW_DB_NAME_URI:?MLFLOW_DB_NAME_URI is required}"
     assert environment["_MLFLOW_SERVER_FILE_STORE"] == database_uri
     assert environment["_MLFLOW_SERVER_REGISTRY_STORE"] == database_uri
     assert environment["_MLFLOW_SERVER_ARTIFACT_ROOT"] == "mlflow-artifacts:/"
