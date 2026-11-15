@@ -1,16 +1,16 @@
 builds:
   - target: "services/docling/provider|gpu/Dockerfile"
-    reason: "CUDA build exceeds the hosted CPU runner profile; its pinned base image is still scanned in the manifest matrix."
-    expired_at: 2026-11-30
+    reason: "CUDA build exceeds the hosted CPU runner profile; its pinned base image is still scanned in the manifest matrix. Renewed by the owner on 2026-11-14 for 90 days."
+    expired_at: 2027-02-12
   - target: "services/parakeet/provider|gpu/Dockerfile"
-    reason: "CUDA build exceeds the hosted CPU runner profile; its pinned base image is still scanned in the manifest matrix."
-    expired_at: 2026-11-30
+    reason: "CUDA build exceeds the hosted CPU runner profile; its pinned base image is still scanned in the manifest matrix. Renewed by the owner on 2026-11-14 for 90 days."
+    expired_at: 2027-02-12
   - target: "https://github.com/neo4j-labs/llm-graph-builder.git#${LLM_GRAPH_BUILDER_REF}:backend|Dockerfile"
-    reason: "Remote-context final-image scanning needs a separately pinned source archive; the nightly upstream drift watch fetches this commit-pinned Dockerfile and compares each literal FROM image's index digest with a reviewed baseline."
-    expired_at: 2026-11-30
+    reason: "Remote-context final-image scanning needs a separately pinned source archive; the nightly upstream drift watch fetches this commit-pinned Dockerfile and compares each literal FROM image's index digest with a reviewed baseline. Renewed by the owner on 2026-11-14 for 90 days."
+    expired_at: 2027-02-12
   - target: "https://github.com/neo4j-labs/llm-graph-builder.git#${LLM_GRAPH_BUILDER_REF}:frontend|Dockerfile"
-    reason: "Remote-context final-image scanning needs a separately pinned source archive; the nightly upstream drift watch fetches this commit-pinned Dockerfile and compares each literal FROM image's index digest with a reviewed baseline."
-    expired_at: 2026-11-30
+    reason: "Remote-context final-image scanning needs a separately pinned source archive; the nightly upstream drift watch fetches this commit-pinned Dockerfile and compares each literal FROM image's index digest with a reviewed baseline. Renewed by the owner on 2026-11-14 for 90 days."
+    expired_at: 2027-02-12
 remote_base_digests:
   nginx:alpine: sha256:713fc2ebfd92e8217db451477182ee91944b123d2b1ee9fd5a8c6e91ca6c3a11
   node:20: sha256:8f693eaa7e0a8e71560c9a82b55fd54c2ae920a2ba5d2cde28bac7d1c01c9ba5
