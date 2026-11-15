@@ -118,8 +118,26 @@ class ComfyUIManifestGenerator:
         # --- TSVs (shell-consumable views for download_models.sh / nodes) ---
         self._atomic_write(output_dir / "active-models.tsv", models_tsv)
         self._atomic_write(output_dir / "active-custom-nodes.tsv", custom_nodes_tsv)
+        self._write_certifi_overlay(output_dir)
         comfyui_resolver.write_remembered_selections(entries, remembered)
         return True
+
+    # Reviewed certifi overlay for the ai-dock runtime (#1905). The provisioner
+    # installs it with --require-hashes before any custom node.
+    CERTIFI_OVERLAY_LOCK = (
+        Path(__file__).resolve().parents[2]
+        / "services/comfyui/custom-node-locks/certifi-overlay.txt"
+    )
+    CERTIFI_OVERLAY_SHA256 = "5adb56430648a99ddab36ff1b18802eb6883dacd010c492a938fbbccbbe8c5cc"
+
+    def _write_certifi_overlay(self, output_dir: Path) -> None:
+        """Publish the reviewed certifi overlay lock beside the TSV plan."""
+        source = self.CERTIFI_OVERLAY_LOCK
+        if not source.is_file() or source.is_symlink():
+            raise ValueError("ComfyUI certifi overlay lock is missing")
+        if hashlib.sha256(source.read_bytes()).hexdigest() != self.CERTIFI_OVERLAY_SHA256:
+            raise ValueError("ComfyUI certifi overlay lock digest mismatch")
+        self._atomic_write(output_dir / "certifi-overlay.txt", source.read_text(encoding="utf-8"))
 
     # ------------------------------------------------------------------
     # Private helpers
