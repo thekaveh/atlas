@@ -14,6 +14,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "services/comfyui/provisioning/provision_custom_nodes.sh"
 REF = "a" * 40
+CERTIFI_OVERLAY = ROOT / "services/comfyui/custom-node-locks/certifi-overlay.txt"
 
 
 def _executable(path: Path, body: str) -> Path:
@@ -42,6 +43,7 @@ def _run_plan(
     workspace_chmod_fails: bool = False,
     source_mode: bool = False,
     status_failure: str | None = None,
+    certifi_overlay: bool = True,
 ):
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -59,6 +61,8 @@ def _run_plan(
         lock.symlink_to(outside_lock)
     else:
         lock.write_bytes(payload)
+    if certifi_overlay:
+        (manifest / "certifi-overlay.txt").write_bytes(CERTIFI_OVERLAY.read_bytes())
     plan = manifest / "active-custom-nodes.tsv"
     rendered_row = row.format(lock=lock, digest=digest, ref=REF)
     plan.write_text(
@@ -85,6 +89,7 @@ def _run_plan(
     )
     fake_pip = _executable(
         bin_dir / "pip",
+        'case "$*" in *certifi-overlay.txt*) exit 0 ;; esac\n'
         'printf "pip %s\\n" "$*" >> "$MUTATION_LOG"\n'
         'if [ "${SWAP_ORIGINAL_IN_PIP:-0}" = "1" ]; then '
         'rm -f "$LOCK_PATH"; printf "malicious\\n" > "$LOCK_PATH"; fi\n'
@@ -647,6 +652,7 @@ def _provision_private_container_node(workspace, repo, ref, tmp_path):
     assert not Path("/opt/ai-dock/bin/venv-set.sh").exists()
     manifest = tmp_path / "manifest"
     manifest.mkdir()
+    (manifest / "certifi-overlay.txt").write_bytes(CERTIFI_OVERLAY.read_bytes())
     plan = manifest / "active-custom-nodes.tsv"
     plan.write_text(f"node\t{repo}\t{ref}\tfalse\t\t\trequired\n", encoding="utf-8")
     temporary = tmp_path / "temporary"
@@ -726,3 +732,12 @@ def test_current_plan_repository_drives_cached_node_update(
         assert head == target
         expected = "owned-new-repository" if replace_repo else "owned-same-origin-new"
         assert (dest / "owned-marker").read_text(encoding="utf-8") == expected
+
+
+def test_missing_certifi_overlay_fails_provisioning_even_without_nodes(tmp_path: Path) -> None:
+    """#1905: the certifi overlay is required, so an empty plan cannot report ready."""
+    result, nodes, mutations = _run_plan(tmp_path, "", certifi_overlay=False)
+
+    assert _node_status_fields(nodes)[2:] == ["failed", "1", "0"]
+    assert "certifi overlay is missing" in result.stdout
+    assert not mutations.exists()
