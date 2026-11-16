@@ -41,7 +41,7 @@ fal-client==1.0.0
 fastapi==0.136.3
 filelock==4.2.1
 frozenlist==1.8.0
-fsspec==2026.6.0
+fsspec==2026.9.0
 googleapis-common-protos==1.75.0
 greenlet==3.5.4
 grpcio==1.78.0
