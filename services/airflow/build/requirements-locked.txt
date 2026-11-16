@@ -211,7 +211,7 @@ uuid6==2025.0.1
 uvicorn==0.52.1
 uvloop==0.22.1
 validators==0.35.0
-virtualenv==21.14.10
+virtualenv==21.14.13
 watchfiles==1.2.0
 watchtower==3.4.0
 weaviate-client==4.16.2
