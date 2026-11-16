@@ -198,3 +198,9 @@ reasons:
 
 **Before `v0.1.0`.** The generator never reads before `v0.1.0`. The earlier
 entries, including the `1.0.0`–`3.0.0` milestone labels (§5), stay hand-written.
+
+## 7. Dependabot security PRs
+
+Dependabot security updates open PRs against `main`, but Atlas lands every change on `develop` and promotes it to `main` with a release merge. The owner chose to keep this arrangement. The `target-branch: develop` setting in `.github/dependabot.yml` covers version updates only.
+
+A security PR is therefore taken by hand. Reproduce the bump on a `develop` branch and ship it through the usual flow. Then close the Dependabot PR and delete its branch, with a comment that names the replacement PR. Do not merge a Dependabot PR into `main`.
