@@ -439,6 +439,8 @@ A disabled optional service degrades only its feature:
 - The default body limit applies to any request that declares a body (`Content-Length` or `Transfer-Encoding`), whatever its method. `GET /plugins` is internal-service only.
 - Contract: [Consumer Manifest Reference §8.2](../../docs/reference/consumer-manifest.md#82-pluginyml). Canonical schema: `bootstrapper/schemas/plugin.schema.json`.
 
+**Breaking change for plugin SQL (#1888).** The Backend role's search path is `pg_catalog, pg_temp`. Plugin SQL that names an unqualified `public` object must qualify it, for example `public.users`. Otherwise it fails with "does not exist" errors after the next database init.
+
 **Graphiti experiment status:** `GET /memory/graphiti/status` returns the disabled-by-default experiment configuration and namespace pattern. It does not import `graphiti-core` or write to Neo4j. Treat it as a readiness and contract endpoint for future backend-only Graphiti work, not as an active memory writer.
 
 **RAG chunking gateway:** `POST /api/chunk` centralizes Chonkie text splitting in the Backend. Notebooks call it with the notebook token. RAG ingestion runs the same `chunk_text` code in process. Chunking defaults, offsets, overlap and semantic model choice then stay consistent. JupyterHub also installs Chonkie for exploratory notebook work, but the Backend endpoint is the canonical runtime API.

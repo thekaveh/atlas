@@ -292,6 +292,11 @@ ensure_restricted_login "$SUPABASE_STUDIO_DB_USER" "$SUPABASE_META_DB_PASSWORD"
 ensure_restricted_login "$POSTGRES_EXPORTER_DB_USER" "$POSTGRES_EXPORTER_DB_PASSWORD"
 ensure_restricted_login "$SUPAVISOR_DB_ADMIN_USER" "$SUPAVISOR_DB_ADMIN_PASSWORD"
 ensure_restricted_login "$BACKEND_DB_USER" "$BACKEND_DB_PASSWORD"
+# Pin the Backend role's search path (#1888). Without it, an operator overload
+# planted in public, such as public.=(varchar, varchar), runs as the Backend role.
+# Consumer plugin SQL must schema-qualify public objects (breaking change).
+printf '%s\n' 'ALTER ROLE :"role" SET search_path = pg_catalog, pg_temp;' \
+  | psql_admin "$PGDATABASE" -v role="$BACKEND_DB_USER"
 ensure_restricted_login "$N8N_DB_USER" "$N8N_DB_PASSWORD"
 ensure_restricted_login "$OPEN_WEBUI_DB_USER" "$OPEN_WEBUI_DB_PASSWORD"
 ensure_restricted_login "$LIGHTRAG_DB_USER" "$LIGHTRAG_DB_PASSWORD"
