@@ -212,7 +212,7 @@ def test_airflow_overlay_remains_compatible_with_the_upstream_image() -> None:
     ("gitpython", "3.2.1"),
     ("msgpack", "1.2.3"),
     ("setuptools", "84.1.0"),
-    ("virtualenv", "21.14.10"),
+    ("virtualenv", "21.14.13"),
     ("opentelemetry-api", "1.45.2"),
     ("opentelemetry-exporter-prometheus", "0.66b1"),
 ))
@@ -231,7 +231,7 @@ def test_airflow_security_floors_survive_overlay_refresh(package, floor) -> None
     ("gitpython", "3.2.1"),
     ("msgpack", "1.2.3"),
     ("setuptools", "84.1.0"),
-    ("virtualenv", "21.14.10"),
+    ("virtualenv", "21.14.13"),
     ("packaging", "26.3"),
     ("opentelemetry-api", "1.45.2"),
     ("opentelemetry-sdk", "1.45.2"),
