@@ -1,0 +1,5 @@
+# Packages in Blender's bundled Python (its own CPython 3.11 under /opt/blender).
+# Blender 4.5.16 ships setuptools 63.2.0 and urllib3 2.4.0; the final-image scan flags both.
+# bake.py never imports them. Reviewed pins, audited through the compiled lock beside this file.
+setuptools==84.1.0
+urllib3==2.8.0
