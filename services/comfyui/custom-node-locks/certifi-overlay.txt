@@ -1,0 +1,9 @@
+# Atlas overlay for the ComfyUI ai-dock runtime (#1905).
+#
+# The ai-dock freeze in ai-dock-v2-cpu-22.04-v0.2.7.txt pins certifi 2024.8.30, which
+# still trusts the distrusted emSign ECC Root CA - G3. This is a documented exception
+# to that freeze's exact-version rule. certifi 2026.10.19 has no dependencies and
+# omits the G3 root. The provisioning script installs it with --no-deps and
+# --require-hashes before any custom node.
+certifi==2026.10.19 \
+    --hash=sha256:42d35340cc5b9ba78e818ddbff0c5b1c2b779de448a340fd1b989f5fa8670e1b
