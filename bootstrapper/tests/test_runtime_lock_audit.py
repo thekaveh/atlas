@@ -435,11 +435,6 @@ def _runtime_audit_spec(lock: str) -> audit_runtime_locks.AuditSpec:
             "diskcache==5.6.3",
         ),
         (
-            "services/jupyterhub/build/requirements-locked.txt",
-            "PYSEC-2026-3046",
-            "ragas==0.4.3",
-        ),
-        (
             "services/parakeet/provider/gpu/requirements-locked.txt",
             "PYSEC-2026-3850",
             "hydra-core==1.3.2",
@@ -504,16 +499,11 @@ def test_jupyterhub_advisory_review_records_current_unreachable_paths() -> None:
     compose = (root / "services/jupyterhub/compose.yml").read_text(encoding="utf-8")
     lock = (root / lock_path).read_text(encoding="utf-8")
 
-    assert spec.reviewed_advisories == frozenset(
-        {
-            "PYSEC-2026-2447",
-            "PYSEC-2026-3046",
-        }
-    )
+    assert spec.reviewed_advisories == frozenset({"PYSEC-2026-2447"})
     assert spec.review_by == date(2027, 2, 9)
     for pin in (
         "diskcache==5.6.3",
-        "ragas==0.4.3",
+        "ragas==0.4.4",
     ):
         assert pin in lock
         assert pin in requirements

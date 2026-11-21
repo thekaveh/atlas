@@ -73,18 +73,14 @@ _LDR_LINUX311_MARKER_ENVIRONMENTS = tuple(
 )
 
 
-# PYSEC-2026-2447 (diskcache) and PYSEC-2026-3046 (ragas) were re-verified on
-# 2026-09-10 for the #998 review pass. Neither has a fixed release, and both
-# packages are already at their newest published version -- diskcache 5.6.3 and
-# ragas 0.4.3 -- so there is nothing to upgrade to. The reachability mitigations
-# recorded beside the ragas pin in requirements.txt still hold: rag_eval_service
-# imports only the four text collection metrics (AnswerRelevancy,
-# ContextPrecision, ContextRecall, Faithfulness) and references no multimodal,
-# image, or URL helper, which is where the SSRF lives.
+# PYSEC-2026-2447 (diskcache) has no fixed release: diskcache 5.6.3 is the newest
+# published version, so nothing can be upgraded to. The mitigations recorded beside
+# the ragas pin in requirements.txt cover it. PYSEC-2026-3046 (ragas) is fixed in
+# ragas 0.4.4 and needs no exception.
 AUDIT_SPECS = (
     AuditSpec(
         "services/backend/app/app/requirements-locked.txt",
-        frozenset({"PYSEC-2026-2447", "PYSEC-2026-3046"}),
+        frozenset({"PYSEC-2026-2447"}),
         review_by=date(2027, 2, 9),
     ),
     AuditSpec("services/airflow/build/requirements-locked.txt"),
@@ -98,15 +94,12 @@ AUDIT_SPECS = (
         # Both are now real fixes rather than unreachability arguments.
         # diskcache==5.6.3: PYSEC-2026-2447 has no fixed release; notebook 14
         # passes no cache backend, so Ragas never creates or reads a disk cache.
-        # ragas==0.4.3: PYSEC-2026-3046 has no fixed release; notebook 14 imports
-        # only four text metrics and never the multimodalfaithfulness helper.
         # NLTK 3.10.4 routes the six model-artifact APIs through pathsec;
         # PYSEC-2026-3740 is fixed rather than retained as an exception.
         # Renewed by the owner on 2026-11-12 for 90 days; re-review by 2027-02-09.
         frozenset(
             {
                 "PYSEC-2026-2447",
-                "PYSEC-2026-3046",
             }
         ),
         review_by=date(2027, 2, 9),
@@ -163,7 +156,7 @@ AUDIT_SPECS = (
     AuditSpec("services/mcp-servers/runtime/requirements-locked.txt"),
     AuditSpec(
         "services/backend/app/app/requirements-test-locked.txt",
-        frozenset({"PYSEC-2026-2447", "PYSEC-2026-3046"}),
+        frozenset({"PYSEC-2026-2447"}),
         review_by=date(2027, 2, 9),
     ),
     AuditSpec("services/mcp-servers/runtime/requirements-test-locked.txt"),

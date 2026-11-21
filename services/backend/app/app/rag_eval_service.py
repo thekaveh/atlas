@@ -215,14 +215,14 @@ def _eligible_metrics(
 
 def _metric_objects(metric_names: list[str], *, llm, embeddings):
     """Construct the requested Ragas metric instances for the pinned
-    ``ragas==0.4.3`` runtime.
+    ``ragas==0.4.4`` runtime.
 
     The ``ragas.metrics.collections`` metrics are the *modern* metrics: they
     require an ``InstructorLLM`` (built via :func:`ragas.llms.llm_factory`),
     not the legacy ``LangchainLLMWrapper``, and they take the llm/embeddings
     at construction (a no-arg ``Metric()`` raises ``TypeError``). The class
     exported for answer-relevancy is ``AnswerRelevancy`` (``ResponseRelevancy``
-    does not exist in 0.4.3 — it was the surface symptom of #596).
+    does not exist in 0.4.4 — it was the surface symptom of #596).
     """
     try:
         from ragas.metrics.collections import (
@@ -233,7 +233,7 @@ def _metric_objects(metric_names: list[str], *, llm, embeddings):
         )
     except ModuleNotFoundError as exc:
         raise RagEvaluationDependencyError(
-            "Ragas metric dependencies are not installed; install ragas==0.4.3 "
+            "Ragas metric dependencies are not installed; install ragas==0.4.4 "
             "and langchain-community>=0.3.0,<0.4"
         ) from exc
 
@@ -320,7 +320,7 @@ async def _run_ragas_evaluation_async(
             "Ragas evaluation dependencies are not installed or are incompatible"
         ) from exc
 
-    # ragas 0.4.3's collections metrics require the modern InstructorLLM
+    # ragas 0.4.4's collections metrics require the modern InstructorLLM
     # abstraction. Build one from an OpenAI-compatible client pointed at the
     # LiteLLM gateway (the same base_url/key the legacy LangchainLLMWrapper
     # used); llm_factory wraps it into the InstructorLLM the metrics expect.

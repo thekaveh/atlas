@@ -89,9 +89,10 @@ on their host.
   unused torchaudio, the legacy scatter/sparse/cluster extensions, and
   `pyg_lib` were removed rather than held on vulnerable, unavailable, or
   single-CDN companion releases.
-- Ragas multimodal URL-processing SSRF (CVE-2026-6587): **unreachable**.
-  Backend exposes only a closed enum of text metrics and never imports the
-  vulnerable multimodal collection; Jupyter use is operator-authored code.
+- Ragas multimodal URL-processing SSRF (CVE-2026-6587): **fixed in ragas 0.4.4**.
+  Before the upgrade it was unreachable. Backend exposed only a closed enum of
+  text metrics and never imported the vulnerable multimodal collection; Jupyter
+  use is operator-authored code.
 - DiskCache pickle deserialization (CVE-2025-69872): **unreachable in shipped
   Backend routes**. `diskcache==5.6.3` is an unpatched transitive dependency of
   Ragas and Instructor, but Atlas never constructs their optional disk-cache
