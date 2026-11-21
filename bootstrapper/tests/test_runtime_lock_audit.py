@@ -1160,7 +1160,7 @@ def test_airflow_snowflake_repair_retains_reviewed_base_compatibility():
     assert locked.get("filelock") == "4.2.1"
     # Published ranges of the base image's snowflake-snowpark-python 1.55.0,
     # snowflake-sqlalchemy 1.11.1, apache-airflow-providers-snowflake 6.17.0 and
-    # flower 2.1.0, and of the overlay's virtualenv 21.14.10. They exclude
+    # flower 2.1.0, and of the overlay's virtualenv 21.14.13. They exclude
     # snowflake-connector-python 5 and filelock 5.
     for package, accepted in (
         ("snowflake-connector-python", ">=3.17.0,<5.0.0"),  # snowpark

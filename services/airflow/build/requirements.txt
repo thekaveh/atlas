@@ -69,7 +69,7 @@ gitpython>=3.2.1
 # overlay upgrades the base's Snowflake connector to 4.8.1, which accepts
 # filelock 4 within the retained 4.x range.
 tornado>=6.6.1
-virtualenv>=21.14.10
+virtualenv>=21.14.13
 
 # Keep the current security fixes when the overlay is regenerated. The
 # virtualenv floor also avoids the temporary app-data symlink regression in
