@@ -590,3 +590,12 @@ No advisory exceptions were added.
 | Prometheus scrape credential (`litellm_metrics_token` secret) | `start.py` writes `volumes/prometheus/litellm-metrics-token` from `LITELLM_MASTER_KEY`, mode 0644. Compose mounts it read-only at `/run/secrets/litellm_metrics_token`. | Not applicable. | Token contents, mode and fail-closed behaviour are unit tested. The fragment baseline lists the secret. | Owner choice on 2026-11-21: a generated credentials file. The master key is held by the Prometheus container. Anyone with local read access to the volume directory can read it. |
 | Prometheus config validation (`promtool check config`) | prom/prometheus:v2.55.1 | Not run. The Docker daemon returned HTTP 500 on `_ping` during this change. | Not run. | Open: run `promtool check config` and confirm the `litellm` target is UP after a restart. |
 | LiteLLM live check | Not run. | Not run (same Docker outage). | Unauthenticated request returns 401. Bearer master key returns 200. | Open: run the check once Docker is back. |
+
+## 19. 2026-11-21 Dependabot runtime-lock takes (#1895)
+
+| Integration point | Pinned/configured version | Latest/status check | Contract checked | Evidence / disposition |
+|---|---:|---|---|---|
+| Airflow overlay lock: virtualenv, fsspec | virtualenv 21.14.10 to 21.14.13 (floor raised to `>=21.14.13`). fsspec 2026.7.0 to 2026.9.0. | PyPI release metadata, 2026-11-21. Dependabot PRs #2062 and #2063 proposed these. Both are in range and have no cap in the Airflow graph. | `scripts.check_runtime_locks`; `scripts.audit_runtime_locks`; floor and lock-audit tests (276 pass). | Taken by hand on develop. The PRs are closed as superseded. |
+| Parakeet MLX lock: fsspec | fsspec 2026.7.0 to 2026.9.0 (aarch64-apple-darwin) | PyPI release metadata, 2026-11-21. Dependabot PR #2073 proposed it. The MLX lock has no Lightning or NeMo, so the GPU cap does not apply. | Lock checker; audit | Taken by hand. PR #2073 is closed as superseded. |
+| Docling GPU lock: mail-parser | mail-parser 4.5.0 to 4.6.3 | PyPI release metadata. Dependabot PR #2074 proposed it, and the PR body names no advisory ids. | Lock checker; audit | Taken by hand, pinned to 4.6.3 (the release the PR reviewed). PR #2074 is closed as superseded. |
+| Docling localhost uv.lock: mail-parser | mail-parser 4.4.0 to 4.6.3. The 4.6.3 block is spliced from PR #2075's branch. | `uv lock --upgrade-package` picked 4.11.0, which is not the reviewed release. The spliced block has no dependencies. | `uv lock --check` passes. | Taken by hand. PR #2075 is closed as superseded. |
