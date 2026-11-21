@@ -23,6 +23,7 @@ Skipped if `docker` is not on PATH (CI lint job) or `.env.example` is missing.
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import tempfile
@@ -206,6 +207,15 @@ def _build_test_env() -> Path:
 
 def _render(compose_file: Path) -> dict:
     env_file = _build_test_env()
+    # Exported shell variables outrank --env-file in Compose, so a host's
+    # OLLAMA_NUM_PARALLEL or OLLAMA_MAX_LOADED_MODELS changed the baseline. Drop
+    # every key the test env file defines, so the file alone sets those values.
+    defined = {
+        line.split("=", 1)[0].strip()
+        for line in env_file.read_text().splitlines()
+        if "=" in line and not line.lstrip().startswith("#")
+    }
+    clean_env = {k: v for k, v in os.environ.items() if k not in defined}
     # -p atlas matches the runtime invocation (./start.sh passes the project
     # name from .env). Without it, the rendered `name:` field defaults to the
     # parent directory, which causes baseline drift when the worktree is on a
@@ -226,6 +236,7 @@ def _render(compose_file: Path) -> dict:
             capture_output=True,
             text=True,
             check=False,
+            env=clean_env,
         )
     finally:
         env_file.unlink(missing_ok=True)
