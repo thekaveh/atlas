@@ -146,7 +146,7 @@ python-dotenv==1.2.2
 python-multipart==0.0.32
 pytz==2026.3.post1
 pyyaml==6.0.3
-ragas==0.4.3
+ragas==0.4.4rc1
 ray==2.56.0
 redis==6.4.0
 referencing==0.37.0

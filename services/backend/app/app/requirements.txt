@@ -50,7 +50,7 @@ chonkie>=1.7.0,<2
 # fixed release exists, and the cache lives inside the backend container where it is
 # not attacker-writable in the default deployment. Both are accepted with these
 # mitigations — re-audit on any ragas/diskcache upgrade.
-ragas==0.4.3
+ragas==0.4.4rc1
 fal-client>=1.0.0
 # Pillow: image_to_3d input conditioning (media_input.py) composites
 # transparent inputs onto a neutral background before submission. Imported
