@@ -39,8 +39,8 @@ def test_ragas_dependency_is_limited_to_backend_and_jupyterhub_surfaces() -> Non
     jupyter_requirements = _read("services/jupyterhub/build/requirements.txt")
     workflow = _read(".github/workflows/services-lint.yml")
 
-    assert "ragas==0.4.3" in backend_requirements
-    assert "ragas==0.4.3" in jupyter_requirements
+    assert "ragas==0.4.4" in backend_requirements
+    assert "ragas==0.4.4" in jupyter_requirements
     assert "langchain-community>=0.3.0,<0.4" in backend_requirements
     assert "langchain-community>=0.3.0,<0.4" in jupyter_requirements
     assert "requirements-test-locked.txt" in workflow

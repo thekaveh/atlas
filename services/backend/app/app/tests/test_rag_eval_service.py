@@ -167,7 +167,7 @@ def test_contextless_record_is_now_schema_valid():
     assert record.contexts == []
 
 
-# ── #596: metric import + construction against the pinned ragas==0.4.3 ──────
+# ── #596: metric import + construction against the pinned ragas==0.4.4 ──────
 # The previous code imported `ResponseRelevancy` (absent in 0.4.3) and built
 # metrics no-arg (`Metric()`), so every live eval failed before reaching the
 # evaluator. These tests exercise the real import + construction path that the
@@ -176,7 +176,7 @@ def test_contextless_record_is_now_schema_valid():
 
 def _instructor_llm():
     """An InstructorLLM built from a dummy OpenAI-compatible client — ragas
-    0.4.3's collections metrics require this abstraction, and constructing one
+    0.4.4's collections metrics require this abstraction, and constructing one
     makes no network call (the client is only used at evaluate() time)."""
     from openai import OpenAI
     from ragas.llms import llm_factory
@@ -186,7 +186,7 @@ def _instructor_llm():
 
 @pytest.fixture()
 def _suppress_ragas_warnings():
-    """ragas 0.4.3's analytics opens a uuid file without closing it (ResourceWarning
+    """ragas 0.4.4's analytics opens a uuid file without closing it (ResourceWarning
     on GC) and transformers logs when PyTorch is absent. Both are noise for these
     construction tests; suppress them (and force GC inside the suppression) so the
     suite stays green under the repo's ``-W error`` CI mode."""
