@@ -38,6 +38,10 @@ scrape_configs:
       - targets: ['kong-api-gateway:8100']
 
   - job_name: litellm
+    # LiteLLM requires a key on /metrics (#1486). The file is written by start.py.
+    authorization:
+      type: Bearer
+      credentials_file: /run/secrets/litellm_metrics_token
     static_configs:
       - targets: ['litellm:4000']
 

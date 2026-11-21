@@ -51,7 +51,8 @@ _HOME_TOKEN = "{HOME}"
 # Host-side path fields `docker compose config` resolves against the machine
 # (bind-mount sources and build contexts). Container-side values — mount
 # targets, environment, command strings — are never rewritten (#1283).
-_HOST_PATH_KEYS = frozenset({"context", "source"})
+# `file` is the host file behind a top-level secret (#1486).
+_HOST_PATH_KEYS = frozenset({"context", "file", "source"})
 
 
 def _normalize_paths(data):
