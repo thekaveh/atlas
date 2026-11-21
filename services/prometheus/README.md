@@ -57,7 +57,7 @@ POSTGRES_EXPORTER_SCALE / REDIS_EXPORTER_SCALE  # cross-manifest writes
 | `node` | `node-exporter:9100` | Host CPU/mem/disk/net |
 | `cadvisor` | `cadvisor:8080` | Per-container resources |
 | `kong` | `kong-api-gateway:8100` | Kong Status API + Prometheus plugin. (The Compose service name is `kong-api-gateway`; `kong` alone does not resolve on the backend-network.) |
-| `litellm` | `litellm:4000` | Per-model tokens / cost / latency / errors (requires `callbacks: [prometheus]` in LiteLLM config) |
+| `litellm` | `litellm:4000` | Per-model tokens / cost / latency / errors (requires `callbacks: [prometheus]` in LiteLLM config). LiteLLM requires a key on `/metrics` (#1486): the scrape presents `LITELLM_MASTER_KEY` from the read-only secret `litellm_metrics_token`, which `start.py` writes to `volumes/prometheus/litellm-metrics-token`. |
 | `weaviate` | `weaviate:2112` | Requires `PROMETHEUS_MONITORING_ENABLED=true` on Weaviate |
 | `n8n` | `n8n:5678` | Requires `N8N_METRICS=true` |
 | `n8n-worker` | `n8n-worker:5678` | Queue mode runs executions worker-side — execution-data counters live here |
