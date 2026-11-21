@@ -22,7 +22,7 @@ def test_rag_evaluation_matrix_evaluation_records_required_decisions() -> None:
         "downstream-owned",
         # reuse the landed surfaces, do not duplicate the evaluator
         "POST /api/rag/evaluate",
-        "ragas==0.4.3",
+        "ragas==0.4.4",
         "#378",
         "#411",
         "#413",

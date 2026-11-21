@@ -43,14 +43,15 @@ passlib>=1.7.4
 # AI/ML
 chonkie>=1.7.0,<2
 # GHSA-95ww-475f-pr4f / PYSEC-2026-3046 affect Ragas' multimodal URL/file helper
-# (SSRF). Atlas exposes only the four text collection metrics guarded by MetricName
-# in rag_eval_service, so the vulnerable multimodal path is never reached.
+# (SSRF). Ragas 0.4.4 (final) carries the fix; pip-audit reports 0.4.3 vulnerable
+# and 0.4.4 clean. Atlas exposes only the four text collection metrics guarded by
+# MetricName in rag_eval_service, so the multimodal path was never reachable here.
 # Ragas also pulls in diskcache 5.6.3 transitively (PYSEC-2026-2447: pickle
 # deserialization RCE for an attacker with write access to the cache directory); no
 # fixed release exists, and the cache lives inside the backend container where it is
-# not attacker-writable in the default deployment. Both are accepted with these
-# mitigations — re-audit on any ragas/diskcache upgrade.
-ragas==0.4.3
+# not attacker-writable in the default deployment. Accepted with these mitigations;
+# re-audit on any ragas/diskcache upgrade.
+ragas==0.4.4
 fal-client>=1.0.0
 # Pillow: image_to_3d input conditioning (media_input.py) composites
 # transparent inputs onto a neutral background before submission. Imported
@@ -63,13 +64,13 @@ apscheduler>=3.10.4
 scikit-learn>=1.9.0
 langchain>=0.1.14
 langchain-core>=0.1.22
-# Ragas 0.4.3 still imports langchain_community.chat_models.vertexai, which
-# is absent in langchain-community 0.4.x. Keep this compatibility cap until
-# Ragas moves that import to the newer provider package.
+# Ragas 0.4.4 guards its langchain_community vertexai import, so this cap is no
+# longer needed for import. It stays until the LangChain 1.x pass decides the
+# langchain-community line (docs/strategy/langchain-stack-evaluation.md).
 langchain-community>=0.3.0,<0.4
 langchain-openai>=0.0.8
 # Direct import: rag_eval_service builds the OpenAI-compatible client passed to
-# ragas' llm_factory (the InstructorLLM abstraction ragas 0.4.3 metrics require).
+# ragas' llm_factory (the InstructorLLM abstraction ragas 0.4.4 metrics require).
 # Always present transitively via langchain-openai; declared explicitly here.
 openai>=1.0
 langgraph>=0.0.15
