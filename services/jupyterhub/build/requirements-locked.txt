@@ -317,7 +317,7 @@ python-multipart==0.0.32
 pytz==2026.3.post1
 pyyaml==6.0.3
 pyzmq==27.2.0
-ragas==0.4.3
+ragas==0.4.4rc1
 random-user-agent==1.0.1
 ray==2.56.0
 realtime==2.31.0

@@ -1,7 +1,7 @@
 # Atlas - JupyterHub Python Dependencies
 # AI/ML Libraries
 chonkie>=1.7.0,<2
-# ragas==0.4.3 remains the latest release and has no fixed release for
+# ragas==0.4.4rc1 remains the latest release and has no fixed release for
 # PYSEC-2026-3046. Atlas' 14_ragas_evaluation.ipynb imports only AnswerRelevancy,
 # ContextPrecision, ContextRecall, and Faithfulness; it never imports the
 # vulnerable multimodalfaithfulness URL/file helper.
@@ -9,7 +9,7 @@ chonkie>=1.7.0,<2
 # PYSEC-2026-2447. Atlas never imports diskcache. Notebook 14 does not pass
 # cache= to llm_factory or OpenAIEmbeddings, so Ragas never creates a
 # DiskCacheBackend or reads an attacker-written pickle cache entry.
-ragas==0.4.3
+ragas==0.4.4rc1
 ollama>=0.6.2
 langchain>=0.3.0
 # Ragas 0.4.3 still imports langchain_community.chat_models.vertexai, which
