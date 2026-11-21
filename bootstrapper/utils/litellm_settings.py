@@ -118,6 +118,10 @@ def base_settings(env: Mapping[str, str] | None = None) -> Dict[str, Any]:
         # When disabled, the callback still loads but its emissions just sit
         # idle — no consumer hits /metrics. Harmless overhead.
         "callbacks": ["prometheus"],
+        # /metrics answers only with a LiteLLM key (#1486). Without this it is
+        # readable without auth and cross-origin on the published direct port.
+        # Prometheus presents the master key from its credentials file.
+        "require_auth_for_metrics_endpoint": True,
     }
     if source == "container":
         litellm_settings.update(success_callback=["langfuse"], failure_callback=["langfuse"])

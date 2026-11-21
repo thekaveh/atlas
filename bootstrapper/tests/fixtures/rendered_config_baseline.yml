@@ -3576,6 +3576,9 @@ services:
       published: '63006'
       protocol: tcp
     restart: unless-stopped
+    secrets:
+    - source: litellm_metrics_token
+      target: /run/secrets/litellm_metrics_token
     volumes:
     - type: bind
       source: '{REPO_ROOT}/services/prometheus/config/prometheus.yml'
@@ -5198,6 +5201,10 @@ networks:
   docling-lightrag-network:
     name: atlas-docling-lightrag
     driver: bridge
+secrets:
+  litellm_metrics_token:
+    name: atlas_litellm_metrics_token
+    file: '{REPO_ROOT}/volumes/prometheus/litellm-metrics-token'
 volumes:
   airflow-logs:
     name: atlas-airflow-logs

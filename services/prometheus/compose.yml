@@ -19,6 +19,10 @@ services:
       - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ./config/rules:/etc/prometheus/rules:ro
       - prometheus-data:/prometheus
+    # The LiteLLM metrics credential (#1486), written by start.py. Compose mounts it
+    # read-only at /run/secrets/litellm_metrics_token for the scrape job.
+    secrets:
+      - litellm_metrics_token
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:9090/-/healthy"]
       interval: 30s
@@ -91,6 +95,10 @@ services:
         max-file: "${LOG_MAX_FILE:-3}"
     networks:
       - backend-network
+
+secrets:
+  litellm_metrics_token:
+    file: ../../volumes/prometheus/litellm-metrics-token
 
 volumes:
   prometheus-data:
