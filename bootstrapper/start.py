@@ -3820,10 +3820,30 @@ class AtlasStarter:
             # symptom is ``PermissionError: '/litellm-config/config.yaml.tmp'``.
             self._ensure_volume_dir_writable(config_path.parent)
             generator.write_config(config_path, force=True)
+            self._write_prometheus_litellm_token()
             return True
         except Exception as e:
             self.banner.show_status_message(f"Failed to generate LiteLLM configuration: {e}", "error")
             return False
+
+    def _write_prometheus_litellm_token(self) -> None:
+        """Write the credential Prometheus presents to LiteLLM's /metrics (#1486).
+
+        prometheus.yml cannot read env vars, so the master key is written here.
+        Compose exposes the file to Prometheus as a read-only secret.
+        """
+        master_key = self.config_parser.parse_env_file().get("LITELLM_MASTER_KEY", "")
+        if not master_key:
+            raise RuntimeError("LITELLM_MASTER_KEY is required for the Prometheus scrape")
+        token_dir = self.root_dir / "volumes/prometheus"
+        token_dir.mkdir(parents=True, exist_ok=True)
+        token = token_dir / "litellm-metrics-token"
+        tmp = token_dir / "litellm-metrics-token.tmp"
+        # 0644: the Prometheus image runs as nobody, and the file is a bind mount.
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o644)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(master_key)
+        os.replace(tmp, token)
 
     def generate_comfyui_manifest(self) -> bool:
         """Write ``volumes/comfyui/selected-models.yaml`` and
