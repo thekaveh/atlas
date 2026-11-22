@@ -114,6 +114,9 @@ volumes/backend/rag-ingestion-profiles.compose.yml
 volumes/backend/lightrag-query-profiles.json
 volumes/backend/lightrag-query-profiles.compose.yml
 volumes/comfyui/selected-models.yaml
+# LiteLLM metrics credential (#1486): a copy of LITELLM_MASTER_KEY, written by start.py.
+volumes/prometheus/litellm-metrics-token
+volumes/comfyui/certifi-overlay.txt
 volumes/comfyui/active-models.tsv
 volumes/comfyui/active-custom-nodes.tsv
 volumes/comfyui/selected-library-entries.json
