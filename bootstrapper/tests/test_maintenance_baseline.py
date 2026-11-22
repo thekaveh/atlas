@@ -24,7 +24,8 @@ EXPECTED_BASELINE_SNAPSHOT = {
     # #1220 adds five optional recipe assets, one behavioral test and one guide.
     # #1381 adds two Airflow init helpers and one start.py key-file test.
     # All code ceilings stay fixed.
-    "tracked_files": 1690,
+    # #2038 attributes six files from #601, #1486 and #1905 and two split test modules.
+    "tracked_files": 1698,
     "v0.1.0_tracked_files": 667,
 }
 EXPECTED_EXTENDED_PYTHON_SNAPSHOT = {
