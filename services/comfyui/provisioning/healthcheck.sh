@@ -28,7 +28,7 @@ verify_status() {
       NR != 1 { bad = 1 }
       NF != 5 { bad = 1 }
       $1 != "v1" { bad = 1 }
-      $2 !~ /^[0-9a-f]{64}$/ { bad = 1 }
+      length($2) != 64 || $2 ~ /[^0-9a-f]/ { bad = 1 }
       $3 !~ /^(provisioning|ready|failed)$/ { bad = 1 }
       $4 !~ /^[0-9]+$/ || $5 !~ /^[0-9]+$/ { bad = 1 }
       $3 == "ready" && $4 != "0" { bad = 1 }
