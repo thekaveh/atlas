@@ -664,3 +664,9 @@ No advisory exceptions were added.
 | Migration of existing `.env` files (`RETIRED_DEFAULTS`) | `COMFYUI_REF` retires `v0.27.0`. `LITELLM_IMAGE`, `N8N_IMAGE` and `N8N_INIT_IMAGE` retire their replaced values. | Pin-refresh runs on every start and rewrites only retired values. | `build_pin_refresh` tests pass (8). Local `.env` rewrote `COMFYUI_REF` to the pinned commit on the next start. | Existing installs now migrate without a manual edit. |
 | Krea 2 and the cancel endpoint on the container path | Not available on `v0.2.7`. Available on the managed MPS path, which pins `v0.27.0`. | Upstream core Krea 2 support first appeared in v0.26.0. | Test `test_comfyui_core_pin_supports_krea2` now checks the container pin and the MPS ref separately. | Documented in the README. Moving the container core is ticket #2107. |
 | Transient git message at start | Not applicable. | Not reproduced on the next start. | `error: could not lock config file /home/user/.gitconfig` appeared twice during the first update, from concurrent `git config` writes. No lock file remains. | Non-fatal. Watch on later starts. |
+
+## 26. 2026-11-23 JupyterHub conda CA bundle without the emSign G3 root (#1905)
+
+| Integration point | Pinned/configured version | Latest/status check | Contract checked | Evidence / disposition |
+|---|---|---|---|---|
+| Conda default CA bundle (`/opt/conda/ssl/cacert.pem`, `cert.pem` links to it) | Base `quay.io/jupyter/datascience-notebook:2026-08-24`. The file held G3 three times before the change. | Read from the local base image. | The Dockerfile replaces the file with certifi's bundle (pinned `2026.10.19`, no G3). The build fails if G3 survives. Static test `test_jupyterhub_ca_trust.py`. | Simulated in a throwaway container from the same base with the backend's certifi 2026.10.19 bundle: G3 count 0, 120 roots, Python's default SSL context loads. The full JupyterHub image was not rebuilt; the next build verifies it. |

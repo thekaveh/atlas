@@ -149,6 +149,15 @@ RUN pip install --no-cache-dir \
     test -d "$ray_agent/aiohttp-3.14.1.dist-info" && \
     rm -rf "$ray_agent/aiohttp" "$ray_agent/aiohttp-3.14.1.dist-info"
 
+# Conda's default CA bundle (/opt/conda/ssl/cacert.pem; cert.pem links to it) still
+# carries the distrusted emSign ECC Root CA - G3, so Python's default TLS context trusts it
+# even after the system store is fixed. Replace it with certifi's bundle, pinned above,
+# which excludes G3. The build fails if G3 remains (#1905).
+RUN cp "$(python -c 'import certifi; print(certifi.where())')" /opt/conda/ssl/cacert.pem && \
+    if grep -q "emSign ECC Root CA - G3" /opt/conda/ssl/cacert.pem; then \
+      echo "emSign ECC Root CA - G3 is still in the conda CA bundle" >&2; exit 1; \
+    fi
+
 # OpenCV 5 (#601): exactly one cv2 distribution may exist, it must be the headless
 # contrib build (no GUI toolkit), and the contrib-only module must import. The
 # heavy notebook stack is imported here too, so a resolver drift fails the build.
