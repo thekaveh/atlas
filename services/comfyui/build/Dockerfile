@@ -61,3 +61,9 @@ RUN /opt/environments/python/comfyui/bin/python -m pip install --no-cache-dir \
  && if /opt/environments/python/comfyui/bin/python -c 'import certifi, sys; sys.exit(0 if b"emSign ECC Root CA - G3" in open(certifi.where(), "rb").read() else 1)'; then \
       echo "emSign ECC Root CA - G3 is still in the ComfyUI environment certifi" >&2; exit 1; \
     fi
+
+# ai-dock starts Cloudflare quick tunnels for ComfyUI, Jupyter, the service portal and
+# syncthing unless CF_QUICK_TUNNELS=false. Atlas's ENABLE_QUICKTUNNEL flag is not read by
+# this base, so the tunnels published those services on public trycloudflare.com URLs
+# while WEB_ENABLE_AUTH is false. The image turns them off for every container.
+ENV CF_QUICK_TUNNELS=false

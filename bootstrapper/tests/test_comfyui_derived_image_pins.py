@@ -61,3 +61,10 @@ def test_torch_family_comes_from_the_cpu_index_and_moves_together():
 
 def test_stage2_fails_the_build_if_g3_remains_in_the_comfy_certifi():
     assert "emSign ECC Root CA - G3 is still in the ComfyUI environment certifi" in _stage2()
+
+
+def test_quick_tunnels_are_off_in_the_derived_image():
+    # ai-dock reads CF_QUICK_TUNNELS, not the ENABLE_QUICKTUNNEL flag Atlas sets in compose.
+    # Without it the image publishes ComfyUI, Jupyter, the portal and syncthing on public URLs.
+    text = DOCKERFILE.read_text(encoding="utf-8")
+    assert "ENV CF_QUICK_TUNNELS=false" in text
