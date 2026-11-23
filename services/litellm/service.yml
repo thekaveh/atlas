@@ -40,7 +40,7 @@ containers:
 
 images:
   - var: LITELLM_IMAGE
-    default: "ghcr.io/berriai/litellm:v1.83.14-stable.patch.2"
+    default: "ghcr.io/berriai/litellm:v1.84.0"
     container: litellm
 
 env:
