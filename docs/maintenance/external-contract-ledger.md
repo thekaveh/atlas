@@ -679,3 +679,11 @@ No advisory exceptions were added.
 | ComfyUI jupyter Python environment certifi | `certifi==2026.10.19`, hash-pinned from the ComfyUI overlay lock. Was 2024.8.30 with G3. | PyPI wheel hash as in `certifi-overlay.txt`. | Rebuilt image: jupyter env certifi 2026.10.19 with G3 count 0. The build fails if G3 remains. | Closes the jupyter-env item on #1905. The ComfyUI venv overlay still applies at start. |
 | Trivy 0.74.0, HIGH and CRITICAL, unfixed excluded | Derived image. | 335 unique fixable findings, down from 1712 on the base. | 0 new findings versus the base. | Residual 335 is stage 2 on #2108. |
 | Live, 2026-11-23 | Recreated on the rebuilt image. | Healthy after about 50 s. Core commit `696672905`. | No `would be overwritten` lines in the log. System store: `ca-certificates` 20260816, G3 link count 0. | Runtime unchanged. |
+
+## 28. 2026-11-23 ComfyUI custom-nodes preflight hook (#2107)
+
+| Integration point | Pinned/configured version | Latest/status check | Contract checked | Evidence / disposition |
+|---|---|---|---|---|
+| Preflight hook `preflight.d/05-atlas-custom-nodes.sh` (derived image) | Restores only tracked files under `custom_nodes/` to the checked-out commit before the AI-Dock update. Never touches untracked custom nodes. | Read from `services/comfyui/build/atlas-preflight-custom-nodes.sh`. | Scratch test on a copy of the live custom-nodes volume: the `v0.27.0` checkout fails without the hook (`Your local changes ... would be overwritten`) and succeeds with it. Untracked custom nodes are kept. | Static test `test_comfyui_preflight_hook.py`. |
+| Live state, 2026-11-23 | Container core pinned to `696672905`. | The hook ran at start: `Restoring tracked custom_nodes files to the checked-out core` is in `/var/log/preflight.log`. | The tree is clean (no dirty files), HEAD is `696672905`, the API answers, and the log has no overwrite errors. | Runtime unchanged. |
+| Core move to v0.27.0 | Not done. | The hook removes the blocker. The move is a separate decision. | Not applicable. | Ticket #2107 stays open for the move decision. |
