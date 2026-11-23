@@ -56,7 +56,7 @@ sources_consulted:
   - Why valuable: LiteLLM's MCP server / tools integration lets you advertise an external tool to every chat-completions client. Wiring searxng as a built-in `search_web` tool via LiteLLM means open-webui, n8n, hermes, jupyterhub get web search for free — without per-consumer plumbing.
   - Mechanism sketch: define a LiteLLM MCP server in `litellm_settings.mcp_servers` that calls `http://searxng:8080/search?format=json`; expose under tool name `web_search`.
   - Effort: medium
-  - Risks / open questions: MCP server support in LiteLLM is newer (post-1.60) — version pin (`v1.83.14-stable.patch.2`) needs verification; tool-calling capability varies by model.
+  - Risks / open questions: MCP server support in LiteLLM is newer (post-1.60) — version pin (`v1.84.0`, see #1486) is the earliest stable release with the metrics-auth fix; tool-calling capability varies by model.
   - Confidence: medium.
 
 _No high-confidence pair identified for **neo4j** — LiteLLM does not natively read/write graphs._

@@ -528,7 +528,7 @@
 | LITELLM_DEFAULT_MODEL | litellm | ollama/qwen3.8:latest | Stack-wide default chat model id, resolved from the model catalog. Backend, Celery, JupyterHub, n8n, LightRAG init, Verba and Local Deep Researcher read it. |
 | LITELLM_VISION_MODEL | litellm | ollama/qwen3.8:latest | Default vision-capable model (resolved from the model catalog; forward-looking — no consumer routes on it yet). |
 | LITELLM_BASE_URL | litellm |  | In-network URL consumers point at (backend, n8n, jupyterhub, open-webui). |
-| LITELLM_IMAGE | litellm | ghcr.io/berriai/litellm:v1.83.14-stable.patch.2 | Container image for `litellm`. |
+| LITELLM_IMAGE | litellm | ghcr.io/berriai/litellm:v1.84.0 | Container image for `litellm`. |
 | LLM_GRAPH_BUILDER_OPENAI_API_KEY | llm-graph-builder |  | OPENAI_API_KEY when CLOUD_OPENAI_SOURCE=enabled, else empty. The llm-graph-builder container receives it as OPENAI_API_KEY; models go through LiteLLM either way. |
 | LLM_GRAPH_BUILDER_SOURCE | llm-graph-builder | disabled | Deployment source for Neo4j LLM Graph Builder: container (pinned source build) or disabled. The container source requires NEO4J_GRAPH_DB_SOURCE=container. |
 | LLM_GRAPH_BUILDER_REF | llm-graph-builder | 4a412f4688cf4096976045c019edc0a7f6ddcb6b | Pinned upstream neo4j-labs/llm-graph-builder git ref used by the source-build containers. |

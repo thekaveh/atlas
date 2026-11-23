@@ -10,7 +10,7 @@ When [Hermes Agent](../hermes/README.md) is enabled, `services/litellm/init/scri
 
 ## 2. Image and ports
 
-- Image: `ghcr.io/berriai/litellm:v1.83.14-stable.patch.2` (override via `LITELLM_IMAGE`). Pinned to a `vX.Y.Z-stable` tag; LiteLLM's prod docs explicitly warn against `main-latest` / `main-stable`.
+- Image: `ghcr.io/berriai/litellm:v1.84.0` (override via `LITELLM_IMAGE`). This is the earliest stable release whose `/metrics` auth replays the request body (#1486). From 1.84.0 LiteLLM drops the `-stable` suffix; its prod docs still warn against `main-latest` / `main-stable`.
 - Internal port: `4000`. Host port: `LITELLM_PORT` (default `63040`). See `.env.example` for the current default.
 - Internal port `4000` is also used by `supabase-realtime`; not a collision (different container hostnames).
 

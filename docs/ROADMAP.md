@@ -48,7 +48,7 @@ The stack orchestrates repository-defined containerized and virtual service fami
 
 **Unified LLM gateway (LiteLLM)**
 
-- Always-on OpenAI-compatible front door for every LLM provider. Pinned image: `ghcr.io/berriai/litellm:v1.83.14-stable.patch.2`. Listens on port 63040.
+- Always-on OpenAI-compatible front door for every LLM provider. Pinned image: `ghcr.io/berriai/litellm:v1.84.0`. Listens on port 63040.
 - Wizard model: locked LiteLLM tile + selectable LLM Engine (single-select Ollama upstream: `ollama-container-cpu/gpu`, `ollama-localhost`, `none`) + three multi-enable Cloud tiles (OpenAI, Anthropic, OpenRouter).
 - Bootstrapper auto-generates `LITELLM_MASTER_KEY` on first start and refuses to start when no upstream is configured (engine=none + vLLM Metal disabled + all cloud disabled).
 - Persistence: dedicated `litellm` database on the existing Supabase Postgres (Prisma migrations run automatically). Redis used for response cache + rate-limit state.
