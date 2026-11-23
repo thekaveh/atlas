@@ -188,6 +188,7 @@ jobs:
             "services/asset-baker/app|Dockerfile" \
             "services/backup/init|Dockerfile" \
             "services/backend/app|Dockerfile" \
+            "services/comfyui/build|Dockerfile" \
             "services/comfyui/init|Dockerfile" \
             "services/docling/provider|adapter/Dockerfile" \
             "services/hermes/init|Dockerfile" \
