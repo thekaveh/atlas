@@ -2254,7 +2254,7 @@ services:
       interval: 10s
       retries: 12
       start_period: 30s
-    image: ghcr.io/berriai/litellm:v1.83.14-stable.patch.2
+    image: ghcr.io/berriai/litellm:v1.84.0
     logging:
       driver: json-file
       options:

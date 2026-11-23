@@ -448,10 +448,10 @@ images:
   - R-BASE
 - service: litellm
   var: LITELLM_IMAGE
-  image: ghcr.io/berriai/litellm:v1.83.14-stable.patch.2
-  upstream: LiteLLM v1.83.14-stable.patch.2 (enterprise/ directory under enterprise/LICENSE)
+  image: ghcr.io/berriai/litellm:v1.84.0
+  upstream: LiteLLM v1.84.0 (enterprise/ directory under enterprise/LICENSE)
   license: MIT
-  url: https://github.com/BerriAI/litellm/blob/b36fb1dc191620e8ff2b3a43854c05f5189cd813/LICENSE
+  url: https://github.com/BerriAI/litellm/blob/e1fc955464bf493c15aef08f98e0e22bdf24d4cf/LICENSE
 - service: local-deep-researcher
   var: LOCAL_DEEP_RESEARCHER_IMAGE
   image: python:3.11.15-slim
