@@ -2,6 +2,10 @@
 # carry a concrete risk statement, and expire; scripts.container_security rejects
 # broad, undocumented, duplicate, or stale entries before a scan can run.
 #
+# Current status (2026-11-23, #1972): every row expires 2027-02-12. The owner renewed the
+# rows that expired on 2026-11-30 on 2026-11-14 (#2043, #2047). The counts and dates in
+# the review notes below are historical.
+#
 # Review pass 2026-09-28 (#998). Before it: 391 entries, 321 unique IDs, 59
 # expiring 2026-10-15, 3 on 2026-11-30, 324 on 2026-12-09, 5 on 2026-12-26.
 # Coverage was measured rather than inferred: every manifest image reachable
