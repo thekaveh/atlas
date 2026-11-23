@@ -6,6 +6,30 @@
 ARG BASE_IMAGE=ghcr.io/ai-dock/comfyui:v2-cpu-22.04-v0.2.7
 FROM ${BASE_IMAGE}
 
+# Stage 1 (#2108): pin the Ubuntu packages whose HIGH and CRITICAL findings cleared in
+# the scan image, 1712 to 335 unique findings. Exact versions keep rebuilds reproducible.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      apt=2.4.15ubuntu0.1 apt-transport-https=2.4.15ubuntu0.1 apt-utils=2.4.15ubuntu0.1 dirmngr=2.2.27-3ubuntu2.5 \
+      gir1.2-packagekitglib-1.0=1.2.5-2ubuntu3.1 git=1:2.34.1-1ubuntu1.18 git-man=1:2.34.1-1ubuntu1.18 gnupg=2.2.27-3ubuntu2.5 \
+      gnupg-l10n=2.2.27-3ubuntu2.5 gnupg-utils=2.2.27-3ubuntu2.5 gpg=2.2.27-3ubuntu2.5 gpg-agent=2.2.27-3ubuntu2.5 \
+      gpg-wks-client=2.2.27-3ubuntu2.5 gpg-wks-server=2.2.27-3ubuntu2.5 gpgconf=2.2.27-3ubuntu2.5 gpgsm=2.2.27-3ubuntu2.5 \
+      gpgv=2.2.27-3ubuntu2.5 libapt-pkg6.0=2.4.15ubuntu0.1 libbrotli1=1.0.9-2ubuntu0.1 libpackagekit-glib2-18=1.2.5-2ubuntu3.1 \
+      libssl3=3.0.2-0ubuntu1.30 libtiff5=4.3.0-6ubuntu0.13 linux-libc-dev=5.15.0-204.214 openssl=3.0.2-0ubuntu1.30 \
+      packagekit=1.2.5-2ubuntu3.1 rar=2:6.23-1~22.04.1 rsync=3.2.7-0ubuntu0.22.04.7 sudo=1.9.9-1ubuntu2.7 \
+      unrar=1:6.1.5-1ubuntu0.1 \
+ && rm -rf /var/lib/apt/lists/*
+
+# The ai-dock jupyter Python environment bundles certifi 2024.8.30, which trusts the
+# distrusted emSign ECC Root CA - G3. Install the G3-free overlay pin used by the
+# ComfyUI venv (#1905), and fail the build if G3 remains.
+RUN echo 'certifi==2026.10.19 --hash=sha256:42d35340cc5b9ba78e818ddbff0c5b1c2b779de448a340fd1b989f5fa8670e1b' > /tmp/certifi-overlay.txt \
+ && /opt/environments/python/jupyter/bin/python -m pip install --no-cache-dir --no-deps --require-hashes -r /tmp/certifi-overlay.txt \
+ && rm -f /tmp/certifi-overlay.txt \
+ && if grep -q 'emSign ECC Root CA - G3' "$(/opt/environments/python/jupyter/bin/python -c 'import certifi; print(certifi.where())')"; then \
+      echo 'emSign ECC Root CA - G3 is still in the jupyter environment certifi' >&2; exit 1; \
+    fi
+
 ARG CA_CERTIFICATES_VERSION=20260816ubuntu0.22.04.2
 
 RUN apt-get update \
