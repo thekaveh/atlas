@@ -61,7 +61,7 @@ services:
     environment:
       - COMFYUI_ARGS=${COMFYUI_ARGS:---listen --cpu}
       - AUTO_UPDATE=${COMFYUI_AUTO_UPDATE:-true}
-      - COMFYUI_REF=${COMFYUI_REF:-v0.27.0}
+      - COMFYUI_REF=${COMFYUI_REF:-696672905fd17af2654ced11e3ab590d6a555996}
       - COMFYUI_CUSTOM_NODES_TSV=/comfyui-manifest/active-custom-nodes.tsv
       - COMFYUI_MANIFEST_ROOT=/comfyui-manifest
       - COMFYUI_CUSTOM_NODES_PATH=/opt/ComfyUI/custom_nodes

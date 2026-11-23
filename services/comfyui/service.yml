@@ -80,7 +80,7 @@ env:
     description: "Fixed host port the Atlas-managed Apple-Silicon/MPS ComfyUI listens on (source=managed-localhost-mps). Containers reach it as http://host.docker.internal:8188. Named with the `_LOCALHOST_` host-port convention so the topology slot allocator leaves the fixed default intact."
   - name: COMFYUI_MPS_REF
     default: "v0.27.0"
-    description: "Pinned upstream ComfyUI git ref the managed MPS host process checks out (mirrors COMFYUI_REF for the container path). A release tag or full commit SHA."
+    description: "Pinned upstream ComfyUI git ref the managed MPS host process checks out (the host path; independent of COMFYUI_REF, which pins the container core). A release tag or full commit SHA."
   - name: COMFYUI_MPS_STATE_DIR
     default: "~/.atlas/comfyui-mps"
     description: "Atlas-owned host state directory for the managed MPS ComfyUI: the pinned checkout, its venv, and the pid/log/status files. Never a container volume."
@@ -109,7 +109,7 @@ env:
     default: true
     description: "AI-Dock startup update flag. Atlas keeps this true so COMFYUI_REF pins the upstream ComfyUI core even when the base image tag lags."
   - name: COMFYUI_REF
-    default: "v0.27.0"
+    default: "696672905fd17af2654ced11e3ab590d6a555996"
     description: "Pinned upstream ComfyUI git ref passed to AI-Dock. Use a release tag or full commit SHA when deliberately changing the ComfyUI core."
   - name: COMFYUI_PLATFORM
     description: "Compose platform for the comfyui image (default linux/amd64)."

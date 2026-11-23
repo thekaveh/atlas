@@ -223,7 +223,7 @@
 | COMFYUI_PORT | comfyui | 63054 | Host port that publishes the comfyui container (in-container port 18188). |
 | COMFYUI_LOCALHOST_PORT | comfyui | 8000 | Host port for the localhost source variant. URL is derived at compose-render time as http://host.docker.internal:8000. |
 | COMFYUI_MPS_LOCALHOST_PORT | comfyui | 8188 | Fixed host port the Atlas-managed Apple-Silicon/MPS ComfyUI listens on (source=managed-localhost-mps). Containers reach it as http://host.docker.internal:8188. Named with the `_LOCALHOST_` host-port convention so the topology slot allocator leaves the fixed default intact. |
-| COMFYUI_MPS_REF | comfyui | v0.27.0 | Pinned upstream ComfyUI git ref the managed MPS host process checks out (mirrors COMFYUI_REF for the container path). A release tag or full commit SHA. |
+| COMFYUI_MPS_REF | comfyui | v0.27.0 | Pinned upstream ComfyUI git ref the managed MPS host process checks out (the host path; independent of COMFYUI_REF, which pins the container core). A release tag or full commit SHA. |
 | COMFYUI_MPS_STATE_DIR | comfyui | ~/.atlas/comfyui-mps | Atlas-owned host state directory for the managed MPS ComfyUI: the pinned checkout, its venv, and the pid/log/status files. Never a container volume. |
 | COMFYUI_MPS_MODELS_PATH | comfyui | ~/Documents/ComfyUI/models | Host models directory the managed MPS process reuses via extra_model_paths, so weights are not duplicated. Shared with COMFYUI_LOCAL_MODELS_PATH by default. Under managed-localhost-mps, the host provisioner also downloads COMFYUI_USER_MODELS here at start. |
 | COMFYUI_MPS_MIN_MEMORY_GB | comfyui | 16 | Minimum unified-memory headroom (GiB) the managed MPS preflight requires before launching ComfyUI; below this the preflight warns. |
@@ -233,7 +233,7 @@
 | COMFYUI_KONG_URL | comfyui | http://kong-api-gateway:8000/comfyui | Passed to the comfyui container as SUPABASE_URL for the inert Supabase output upload. Default http://kong-api-gateway:8000/comfyui. |
 | COMFYUI_ARGS | comfyui | --listen | ComfyUI launch arguments passed to the AI-Dock image verbatim. The manifest default is --listen; compose falls back to --listen --cpu when the value is unset. |
 | COMFYUI_AUTO_UPDATE | comfyui | true | AI-Dock startup update flag. Atlas keeps this true so COMFYUI_REF pins the upstream ComfyUI core even when the base image tag lags. |
-| COMFYUI_REF | comfyui | v0.27.0 | Pinned upstream ComfyUI git ref passed to AI-Dock. Use a release tag or full commit SHA when deliberately changing the ComfyUI core. |
+| COMFYUI_REF | comfyui | 696672905fd17af2654ced11e3ab590d6a555996 | Pinned upstream ComfyUI git ref passed to AI-Dock. Use a release tag or full commit SHA when deliberately changing the ComfyUI core. |
 | COMFYUI_PLATFORM | comfyui | linux/amd64 | Compose platform for the comfyui image (default linux/amd64). |
 | COMFYUI_UPLOAD_TO_SUPABASE | comfyui | true | Inert placeholder. Nothing in the ai-dock image, Atlas provisioning or the backend reads it, so ComfyUI does not upload outputs to Supabase. Kept for a future output-upload custom node. |
 | COMFYUI_STORAGE_BUCKET | comfyui | comfyui-images | Reserved bucket name for the (currently inert) COMFYUI_UPLOAD_TO_SUPABASE placeholder; unused until an output-upload node is wired. |

@@ -31,6 +31,10 @@ RETIRED_DEFAULTS: dict[str, frozenset[str]] = {
     "LOCAL_DEEP_RESEARCHER_LANGGRAPH_CLI_VERSION": frozenset({"0.4.31"}),
     "LOCAL_DEEP_RESEARCHER_UPSTREAM_LOCK_SHA256": frozenset(),
     "MLFLOW_IMAGE": frozenset({"ghcr.io/mlflow/mlflow:v3.16.1"}),
+    "COMFYUI_REF": frozenset({"v0.27.0"}),
+    "LITELLM_IMAGE": frozenset({"ghcr.io/berriai/litellm:v1.83.14-stable.patch.2"}),
+    "N8N_IMAGE": frozenset({"n8nio/n8n:2.28.2"}),
+    "N8N_INIT_IMAGE": frozenset({"n8nio/n8n:2.28.2"}),
 }
 
 _ASSIGNMENT = re.compile(
