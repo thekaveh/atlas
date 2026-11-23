@@ -213,6 +213,8 @@ Sign presigned GET URLs against the public endpoint (`…_PUBLIC_ENDPOINT`). Nev
 
 ## 8. `backend_plugins` and `plugin.yml`
 
+**Breaking change for plugin SQL (#1888).** The Backend role's search path is `pg_catalog, pg_temp`. Plugin SQL that names an unqualified `public` object must qualify it, for example `public.users`. Unqualified names fail with `does not exist` after init.
+
 `backend_plugins` lists plugin roots. Atlas resolves each to an absolute host path and writes them to `.env` as `BACKEND_PLUGINS_DIR`. `doctor` and the Kong plugin-auth derivation read that value. Atlas does not mount the roots into the backend.
 
 A `compose_overlays` file must bind each root into the `backend` service. With one root, mount it at the default container path, `/app/plugins`:
