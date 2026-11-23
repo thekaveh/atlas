@@ -916,7 +916,12 @@ services:
       interval: 30s
       retries: 5
       start_period: 10m0s
-    image: ghcr.io/ai-dock/comfyui:v2-cpu-22.04-v0.2.7
+    build:
+      context: '{REPO_ROOT}/services/comfyui/build'
+      dockerfile: Dockerfile
+      args:
+        BASE_IMAGE: ghcr.io/ai-dock/comfyui:v2-cpu-22.04-v0.2.7
+    image: atlas-comfyui:local
     labels:
       com.atlas.category: ai
       com.atlas.dependencies: litellm,supabase-storage

@@ -40,7 +40,12 @@ services:
       - backend-network
 
   comfyui:
-    image: ${COMFYUI_IMAGE}
+    # Derived from ${COMFYUI_IMAGE} to drop the emSign G3 root from the system store (#1905).
+    build:
+      context: build
+      args:
+        BASE_IMAGE: ${COMFYUI_IMAGE}
+    image: ${PROJECT_NAME}-comfyui:local
     platform: ${COMFYUI_PLATFORM:-linux/amd64}
     container_name: ${PROJECT_NAME}-comfyui
     restart: unless-stopped
