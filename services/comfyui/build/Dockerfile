@@ -45,3 +45,19 @@ RUN apt-get update \
  && if ls /etc/ssl/certs | grep -qi 'emsign_ecc_root_ca_-_g3'; then \
       echo "emSign ECC Root CA - G3 is still linked in /etc/ssl/certs" >&2; exit 1; \
     fi
+
+# Stage 2 (#2108): bump the ComfyUI venv packages to their Trivy fixed versions. The base
+# image's venv is Python 3.10, so pillow, rembg and soupsieve stop at their newest Python
+# 3.10 releases. Their remaining fixes need Python 3.11 or later and stay on the ticket.
+RUN /opt/environments/python/comfyui/bin/python -m pip install --no-cache-dir \
+      "GitPython==3.2.1" "PyJWT==2.14.0" "aiohttp==3.14.4" "anyio==4.14.2" \
+      "certifi==2026.10.19" "cryptography==50.0.0" "fsspec==2026.6.0" "h11==0.16.0" \
+      "jaraco.context==6.1.0" "jupyter_core==5.8.1" "oauthlib==4.0.1" "opencv-python==4.8.1.78" \
+      "pillow==12.3.0" "wheel==0.46.2" \
+      "protobuf==6.33.5" "rembg==2.0.69" "sentencepiece==0.2.1" "setuptools==78.1.1" \
+      "soupsieve==2.10" "starlette==1.3.1" "tornado==6.5.9" "transformers==5.10.0" \
+      "urllib3==2.8.0" "torch==2.10.0+cpu" "torchvision==0.25.0+cpu" "torchaudio==2.10.0+cpu" \
+      --extra-index-url https://download.pytorch.org/whl/cpu \
+ && if /opt/environments/python/comfyui/bin/python -c 'import certifi, sys; sys.exit(0 if b"emSign ECC Root CA - G3" in open(certifi.where(), "rb").read() else 1)'; then \
+      echo "emSign ECC Root CA - G3 is still in the ComfyUI environment certifi" >&2; exit 1; \
+    fi
