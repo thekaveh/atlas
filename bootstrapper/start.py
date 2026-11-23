@@ -4457,7 +4457,7 @@ class AtlasStarter:
         and the webhook registers immediately (no restart). Without a key, the
         seed persists ``active=true`` via ``n8n publish:workflow`` — but the
         running server ignores that until it restarts (empirically verified on
-        n8nio/n8n:2.28.2; the 2.36.7 image retains the same
+        n8nio/n8n:2.28.2 (re-checked on 2.48.7); the 2.36.7 image retains the same
         ``publish:workflow --id`` CLI boundary). So Atlas performs the one
         restart the consumer would otherwise do by hand. No-op with a key, with
         n8n disabled, or when no active consumer workflow is declared.

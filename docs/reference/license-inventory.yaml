@@ -500,18 +500,18 @@ images:
   - R-BASE
 - service: n8n
   var: N8N_IMAGE
-  image: n8nio/n8n:2.28.2
-  upstream: n8n 2.28.2 (.ee. files under the n8n Enterprise License)
+  image: n8nio/n8n:2.48.7
+  upstream: n8n 2.48.7 (.ee. files under the n8n Enterprise License)
   license: Sustainable-Use-1.0
-  url: https://github.com/n8n-io/n8n/blob/99c6e0295dbde56de917f1df2d6a508c2b98dd9d/LICENSE.md
+  url: https://github.com/n8n-io/n8n/blob/86dff76e10efba250a4d3e57760e4eb5d2bbea25/LICENSE.md
   open:
   - R-N8N
 - service: n8n
   var: N8N_INIT_IMAGE
-  image: n8nio/n8n:2.28.2
-  upstream: n8n 2.28.2 (.ee. files under the n8n Enterprise License)
+  image: n8nio/n8n:2.48.7
+  upstream: n8n 2.48.7 (.ee. files under the n8n Enterprise License)
   license: Sustainable-Use-1.0
-  url: https://github.com/n8n-io/n8n/blob/99c6e0295dbde56de917f1df2d6a508c2b98dd9d/LICENSE.md
+  url: https://github.com/n8n-io/n8n/blob/86dff76e10efba250a4d3e57760e4eb5d2bbea25/LICENSE.md
   open:
   - R-N8N
 - service: neo4j
