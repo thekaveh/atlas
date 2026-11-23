@@ -670,3 +670,12 @@ No advisory exceptions were added.
 | Integration point | Pinned/configured version | Latest/status check | Contract checked | Evidence / disposition |
 |---|---|---|---|---|
 | Conda default CA bundle (`/opt/conda/ssl/cacert.pem`, `cert.pem` links to it) | Base `quay.io/jupyter/datascience-notebook:2026-08-24`. The file held G3 three times before the change. | Read from the local base image. | The Dockerfile replaces the file with certifi's bundle (pinned `2026.10.19`, no G3). The build fails if G3 survives. Static test `test_jupyterhub_ca_trust.py`. | Simulated in a throwaway container from the same base with the backend's certifi 2026.10.19 bundle: G3 count 0, 120 roots, Python's default SSL context loads. The full JupyterHub image was not rebuilt; the next build verifies it. |
+
+## 27. 2026-11-23 ComfyUI base-image stage 1 (#2108)
+
+| Integration point | Pinned/configured version | Latest/status check | Contract checked | Evidence / disposition |
+|---|---|---|---|---|
+| Ubuntu packages in the derived layer (`services/comfyui/build/Dockerfile`) | 29 exact pins, the Ubuntu packages whose HIGH and CRITICAL findings cleared in the scan image. Versions come from `atlas-comfyui:scan-a`. | The scan image upgraded 230 packages. Only these 29 cleared fixable findings, so only they are pinned. | Rebuilt image: all 29 installed at the pinned versions. | Stage 1 of #2108. |
+| ComfyUI jupyter Python environment certifi | `certifi==2026.10.19`, hash-pinned from the ComfyUI overlay lock. Was 2024.8.30 with G3. | PyPI wheel hash as in `certifi-overlay.txt`. | Rebuilt image: jupyter env certifi 2026.10.19 with G3 count 0. The build fails if G3 remains. | Closes the jupyter-env item on #1905. The ComfyUI venv overlay still applies at start. |
+| Trivy 0.74.0, HIGH and CRITICAL, unfixed excluded | Derived image. | 335 unique fixable findings, down from 1712 on the base. | 0 new findings versus the base. | Residual 335 is stage 2 on #2108. |
+| Live, 2026-11-23 | Recreated on the rebuilt image. | Healthy after about 50 s. Core commit `696672905`. | No `would be overwritten` lines in the log. System store: `ca-certificates` 20260816, G3 link count 0. | Runtime unchanged. |
