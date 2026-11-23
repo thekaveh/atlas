@@ -899,7 +899,7 @@ services:
       COMFYUI_CUSTOM_NODES_TSV: /comfyui-manifest/active-custom-nodes.tsv
       COMFYUI_MANIFEST_ROOT: /comfyui-manifest
       COMFYUI_PORT_HOST: '8188'
-      COMFYUI_REF: v0.27.0
+      COMFYUI_REF: 696672905fd17af2654ced11e3ab590d6a555996
       COMFYUI_UPLOAD_TO_SUPABASE: 'true'
       DISABLE_NATPMP: '1'
       ENABLE_QUICKTUNNEL: 'false'

@@ -887,13 +887,13 @@ def test_comfyui_service_exposes_pinned_core_ref():
     manifest = yaml.safe_load((REPO_ROOT / "services/comfyui/service.yml").read_text())
     env = {entry["name"]: entry for entry in manifest["env"]}
     assert env["COMFYUI_AUTO_UPDATE"]["default"] is True
-    assert env["COMFYUI_REF"]["default"] == "v0.27.0"
+    assert env["COMFYUI_REF"]["default"] == "696672905fd17af2654ced11e3ab590d6a555996"
 
     compose = (REPO_ROOT / "services/comfyui/compose.yml").read_text()
     start = compose.find("  comfyui:")
     end = compose.find("\n\nvolumes:", start)
     block = compose[start:end]
-    assert "COMFYUI_REF=${COMFYUI_REF:-v0.27.0}" in block
+    assert "COMFYUI_REF=${COMFYUI_REF:-696672905fd17af2654ced11e3ab590d6a555996}" in block
 
 
 # ---------------------------------------------------------------------------

@@ -15,7 +15,7 @@ Where to start: choose models in §6 and queue a workflow through the API (§6, 
 
 ## 1. Overview
 
-Image: `ghcr.io/ai-dock/comfyui:v2-cpu-22.04-v0.2.7` (CPU default). `COMFYUI_REF=v0.27.0` with `COMFYUI_AUTO_UPDATE=true` makes the ai-dock startup check out that ComfyUI release, even when the base image tag lags.
+Image: `ghcr.io/ai-dock/comfyui:v2-cpu-22.04-v0.2.7` (CPU default). `COMFYUI_REF=696672905fd17af2654ced11e3ab590d6a555996` is the commit the image already runs (ComfyUI v0.2.7), so the AI-Dock update is a no-op. A move to v0.27.0 is a separate decision (ticket #2107).
 
 **`container-gpu` is not GPU-accelerated.** `COMFYUI_IMAGE` stays the CPU image (which forces `--cpu`), and the fragment reserves no NVIDIA device. So `container-gpu` behaves like `container-cpu`, also when `COMFYUI_SOURCE=auto` selects it on NVIDIA hosts. A CUDA ai-dock image alone does not help without a GPU reservation.
 
@@ -44,7 +44,7 @@ COMFYUI_USER_MODELS=                         # comma-separated catalog names; se
 COMFYUI_UPLOAD_TO_SUPABASE=true
 COMFYUI_STORAGE_BUCKET=comfyui-images
 COMFYUI_AUTO_UPDATE=true                    # AI-Dock startup updates ComfyUI to COMFYUI_REF
-COMFYUI_REF=v0.27.0                         # pinned upstream ComfyUI release tag or full commit SHA
+COMFYUI_REF=696672905fd17af2654ced11e3ab590d6a555996   # pinned upstream core: the commit the image runs (v0.2.7)
 COMFYUI_MEMORY_LIMIT=40g                    # hard ceiling, not a reservation; supports large bundles such as Krea 2
 COMFYUI_CPU_LIMIT=2.0                       # container CPU ceiling; stops CPU-mode inference from taking every host core
 COMFYUI_CUSTOM_MODELS_FILE=/custom-models.yaml  # sidecar of models outside the catalog; set with --comfyui-custom-models-file (§6)
@@ -214,7 +214,7 @@ All four unique files (Turbo diffusion model, RAW diffusion model, shared text e
 
 ### 8.3. Core-node workflow
 
-[`workflows/krea2-turbo-api.json`](https://github.com/thekaveh/atlas/blob/main/services/comfyui/workflows/krea2-turbo-api.json) is an API-ready 1024-square example. It uses `CLIPLoader` type `krea2`, 8 steps, CFG 1.0, `euler` with the `simple` scheduler, and `ConditioningZeroOut` for negative conditioning. No custom nodes are required. Atlas pins ComfyUI `v0.27.0`; core Krea 2 support first appeared in `v0.26.0`.
+[`workflows/krea2-turbo-api.json`](https://github.com/thekaveh/atlas/blob/main/services/comfyui/workflows/krea2-turbo-api.json) is an API-ready 1024-square example. It uses `CLIPLoader` type `krea2`, 8 steps, CFG 1.0, `euler` with the `simple` scheduler, and `ConditioningZeroOut` for negative conditioning. No custom nodes are required. The container path runs the image core (`v0.2.7`), which has no Krea 2 code. Krea 2 runs on the managed MPS path, which pins `v0.27.0`; core Krea 2 support first appeared in `v0.26.0`.
 
 Queue it after selecting `krea2-turbo-bf16`:
 
@@ -257,7 +257,7 @@ The LoRA is an unofficial community fine-tune, trained on Krea 2 **Raw**; identi
 
 ### 9.1. What Atlas manages
 
-- **Pinned checkout and venv** — `COMFYUI_MPS_REF` (default `v0.27.0`, mirroring `COMFYUI_REF`) is checked out into `COMFYUI_MPS_STATE_DIR` (default `~/.atlas/comfyui-mps`), with a venv that holds Metal-enabled Torch. Each install compares the ref and requirements fingerprint with recorded state. A changed pin or dependency file is reinstalled; an unchanged environment is reused.
+- **Pinned checkout and venv** — `COMFYUI_MPS_REF` (default `v0.27.0`) is checked out into `COMFYUI_MPS_STATE_DIR` (default `~/.atlas/comfyui-mps`), with a venv that holds Metal-enabled Torch. Each install compares the ref and requirements fingerprint with recorded state. A changed pin or dependency file is reinstalled; an unchanged environment is reused.
 - **Host models reuse and provisioning** — the process reads `COMFYUI_MPS_MODELS_PATH` (default `~/Documents/ComfyUI/models`, shared with `COMFYUI_LOCAL_MODELS_PATH`) through a generated `extra_model_paths.yaml`. Existing weights, for example a Krea 2 or Flux install, are used in place with **no duplicate weights**. At start, Atlas downloads the selected catalog models (`COMFYUI_USER_MODELS`) that are missing from that tree, as the container init would.
 - **Download rules** — downloads are SHA-256 verified, and a verified file is skipped. They resume from a `.part` file, publish atomically, check free disk first and announce licenses.
 - **Resume and failures** — fp8 variants are skipped with a warning (MPS needs BF16). A resume sends `If-Range` with the recorded ETag or Last-Modified, so a changed upstream file downloads again from the start. A `.part` with no recorded validator also restarts. A short transfer keeps the `.part` and fails that file; an oversized `.part` is deleted and fetched again. Neither is published.
@@ -406,7 +406,7 @@ ATLAS_COMFYUI_LIVE_ENDPOINT=http://localhost:8188 \
 
 **Managed MPS mode — health shows `device: cpu` or an fp8 model crashes.** MPS needs BF16 weights; `fp8`/`fp8-scaled` variants crash on Metal. `./start.sh comfyui-mps preflight` warns on fp8 catalog picks. If `health` reports `device: cpu`, Torch did not find Metal: run `./start.sh comfyui-mps install --update`. A new host process is *reachable but cold*; the first request loads the model, so it is slower than later requests. That is not a hang.
 
-**ComfyUI shows `health: starting` for several minutes on first run.** First the container checks out `COMFYUI_REF` and installs custom nodes (amd64-emulated on Apple Silicon). The healthcheck allows a 600 s start period.
+**ComfyUI shows `health: starting` for several minutes on first run.** First the container runs the AI-Dock update to `COMFYUI_REF`, a no-op on the image core. It then installs custom nodes (amd64-emulated on Apple Silicon). The healthcheck allows a 600 s start period.
 
 **`/comfyui/workflow` or `/comfyui/generate` returns 400.** ComfyUI rejected the graph (a missing node, wrong input or unknown model file). Fix the workflow; do not retry. A 502 reports an upstream rejection or an invalid reply during another ComfyUI call. A 503 means the connection failed.
 
