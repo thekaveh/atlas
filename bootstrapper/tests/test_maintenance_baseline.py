@@ -25,7 +25,8 @@ EXPECTED_BASELINE_SNAPSHOT = {
     # #1381 adds two Airflow init helpers and one start.py key-file test.
     # All code ceilings stay fixed.
     # #2038 attributes six files from #601, #1486 and #1905 and two split test modules.
-    "tracked_files": 1698,
+    # #2107 attributes five files from #1888, #1905 and #2107 (#2104, #2102, #2114, #2121).
+    "tracked_files": 1703,
     "v0.1.0_tracked_files": 667,
 }
 EXPECTED_EXTENDED_PYTHON_SNAPSHOT = {
