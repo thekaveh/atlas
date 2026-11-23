@@ -81,9 +81,11 @@ def _krea_entries():
 
 
 def test_comfyui_core_pin_supports_krea2() -> None:
+    """Krea 2 runs on the managed MPS path, which pins v0.27.0. The container core is the image commit (#2106)."""
     service = yaml.safe_load((ROOT / "services/comfyui/service.yml").read_text())
     env = {item["name"]: item for item in service["env"]}
-    assert env["COMFYUI_REF"]["default"] == "v0.27.0"
+    assert env["COMFYUI_REF"]["default"] == "696672905fd17af2654ced11e3ab590d6a555996"
+    assert env["COMFYUI_MPS_REF"]["default"] == "v0.27.0"
     assert env["COMFYUI_MEMORY_LIMIT"]["default"] == "40g"
 
     compose = (ROOT / "services/comfyui/compose.yml").read_text(encoding="utf-8")
