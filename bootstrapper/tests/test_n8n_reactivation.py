@@ -1,7 +1,7 @@
 """#720: Atlas restarts n8n after seeding to register a consumer's production
 webhook when the workflow is activated without an N8N_API_KEY.
 
-The restart behavior was empirically verified on n8nio/n8n:2.28.2. Atlas keeps
+The restart behavior was empirically verified on n8nio/n8n:2.28.2 and re-checked on n8nio/n8n:2.48.7 (publish sets activeVersionId; webhook_entity stayed empty right after publish). Atlas keeps
 the conservative restart on 2.36.7: the current image retains the
 `publish:workflow --id` CLI contract, while an API-key activation still uses
 the live public API and does not need the restart.

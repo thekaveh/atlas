@@ -4,7 +4,7 @@
 
 Workflow automation engine, run in **queue mode** by default: an `n8n` web/API container and an `n8n-worker` container that takes jobs from Redis. Its workflows connect LLM (LiteLLM), media (ComfyUI, STT, TTS, Docling, SearXNG) and data (Supabase, Weaviate) services without code.
 
-Image: `n8nio/n8n:2.28.2`. The web/API container serves HTTP and the UI; the worker runs executions. Both share state through Supabase Postgres (workflow definitions, execution history, credentials) and Redis (queue and execution coordination).
+Image: `n8nio/n8n:2.48.7`. The web/API container serves HTTP and the UI; the worker runs executions. Both share state through Supabase Postgres (workflow definitions, execution history, credentials) and Redis (queue and execution coordination).
 
 The one-shot `n8n-init` runs first, installs the pinned ComfyUI community nodes and exits. The web/API and worker containers start only after it succeeds, and the launcher fails if it exits nonzero. It does not import workflow templates (`services/n8n/init/config/`); import them manually (§4).
 
@@ -36,7 +36,7 @@ N8N_INIT_NODES=n8n-nodes-comfyui@0.0.9,@ksc1234/n8n-nodes-comfyui-image-to-image
 
 n8n encrypts stored credentials with `N8N_ENCRYPTION_KEY`. Keep the generated value and back up `.env`. A changed key leaves every stored credential unreadable.
 
-n8n 2.28.2 always uses the owner-account setup flow. Community nodes load from the pinned packages that `n8n-init` installs. The pinned image needs no auth-mode or community-package env vars.
+n8n 2.48.7 uses the owner-account setup flow; on a fresh stack `/rest/settings` reports `showSetupOnFirstLoad: true`. Community nodes load from the pinned packages that `n8n-init` installs. The pinned image needs no auth-mode or community-package env vars.
 
 Both containers run with `NODE_ENV=production` (the image default). Development mode would add any-origin credentialed CORS, drop `X-Frame-Options` and return stack traces from the REST API.
 
