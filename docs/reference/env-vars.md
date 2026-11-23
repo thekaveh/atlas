@@ -673,7 +673,7 @@
 | N8N_PROTOCOL | n8n | http | Protocol n8n uses in the URLs it generates (N8N_PROTOCOL in the n8n and n8n-worker containers). |
 | N8N_EXECUTIONS_MODE | n8n | queue | n8n EXECUTIONS_MODE. The default queue runs workflow executions on n8n-worker through Redis. |
 | N8N_INIT_SOURCE | n8n | container | Init-container selector listed in the SOURCE values reference. N8N_INIT_SCALE follows N8N_SOURCE, so n8n-init runs whenever n8n runs. |
-| N8N_INIT_NODES | n8n | n8n-nodes-comfyui@0.0.9,@ksc1234/n8n-nodes-comfyui-image-to-image@1.0.2 | Exact community package specs installed before n8n starts. Atlas' default ComfyUI set uses the committed package-lock; n8n 2.28.2 already supplies first-party MCP nodes. Custom values must use name@x.y.z for every comma-separated package. |
+| N8N_INIT_NODES | n8n | n8n-nodes-comfyui@0.0.9,@ksc1234/n8n-nodes-comfyui-image-to-image@1.0.2 | Exact community package specs installed before n8n starts. Atlas' default ComfyUI set uses the committed package-lock; n8n 2.48.7 already supplies first-party MCP nodes. Custom values must use name@x.y.z for every comma-separated package. |
 | N8N_SEED_HTTP_TIMEOUT_MS | n8n | 10000 | Absolute deadline in milliseconds for each consumer workflow seeder HTTP operation; must be positive. |
 | N8N_SEED_COMMAND_TIMEOUT_MS | n8n | 120000 | Deadline in milliseconds for each consumer workflow n8n CLI operation; must be positive. |
 | N8N_SEED_MAX_RESPONSE_BYTES | n8n | 1048576 | Maximum bytes accepted from one consumer workflow seeder HTTP response; must be positive. |
@@ -685,8 +685,8 @@
 | N8N_SCALE | n8n |  | Set by ./start.sh from N8N_SOURCE; do not edit. 1 runs the n8n container, 0 does not. |
 | N8N_WORKER_SCALE | n8n |  | Set by ./start.sh from N8N_SOURCE; do not edit. 1 runs the n8n-worker container, 0 does not. |
 | N8N_INIT_SCALE | n8n |  | Set by ./start.sh from N8N_SOURCE; do not edit. 1 runs the n8n-init container, 0 does not. |
-| N8N_IMAGE | n8n | n8nio/n8n:2.28.2 | Container image for `n8n`. |
-| N8N_INIT_IMAGE | n8n | n8nio/n8n:2.28.2 | Container image for `n8n-init`. |
+| N8N_IMAGE | n8n | n8nio/n8n:2.48.7 | Container image for `n8n`. |
+| N8N_INIT_IMAGE | n8n | n8nio/n8n:2.48.7 | Container image for `n8n-init`. |
 | NEO4J_GRAPH_DB_SOURCE | neo4j | container | Neo4j deployment source. Drives NEO4J_SCALE and NEO4J_URI. |
 | GRAPH_DB_PORT | neo4j | 63023 | Host port for Neo4j bolt (container port 7687). |
 | GRAPH_DB_DASHBOARD_PORT | neo4j | 63024 | Host port for Neo4j browser dashboard (container port 7474). |

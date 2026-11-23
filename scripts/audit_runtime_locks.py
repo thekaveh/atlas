@@ -239,9 +239,9 @@ NPM_PROJECTS = (
 # entry that stops matching a live finding fails as stale. npm audit reports
 # each advisory as a GitHub advisory URL, so entries are GHSA ids.
 NPM_PROJECT_EXCEPTIONS: dict[str, tuple[frozenset[str], date]] = {
-    # zod 3.25.76 (GHSA-mrhx-c7xc-m3w5, fixed in 4.6.6): n8n-workflow 2.47.0
-    # resolves @n8n/expression-runtime 0.38.0, which pins it exactly, as 0.36.1
-    # under n8n-workflow 2.45.1 did (rechecked 2026-11-09). Reachability through
+    # zod 3.25.76 (GHSA-mrhx-c7xc-m3w5, fixed in 4.6.6): n8n-workflow 2.48.3
+    # resolves @n8n/expression-runtime 0.39.3, which pins it exactly, as 0.38.0
+    # under n8n-workflow 2.47.0 did (rechecked 2026-11-22). Reachability through
     # the community nodes is NOT proven; the owner approved a time-boxed
     # exception on 2026-10-29.
     "services/n8n/init/config": (frozenset({"GHSA-mrhx-c7xc-m3w5"}), date(2027, 2, 9)),
