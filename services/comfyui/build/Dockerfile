@@ -30,6 +30,9 @@ RUN echo 'certifi==2026.10.19 --hash=sha256:42d35340cc5b9ba78e818ddbff0c5b1c2b77
       echo 'emSign ECC Root CA - G3 is still in the jupyter environment certifi' >&2; exit 1; \
     fi
 
+# Restores the tracked custom_nodes files before the AI-Dock update checkout (#2107).
+COPY atlas-preflight-custom-nodes.sh /opt/ai-dock/bin/preflight.d/05-atlas-custom-nodes.sh
+
 ARG CA_CERTIFICATES_VERSION=20260816ubuntu0.22.04.2
 
 RUN apt-get update \
