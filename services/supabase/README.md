@@ -324,8 +324,8 @@ exact argument types, so a planted text overload cannot win.
 Open WebUI, LightRAG, pg-meta and Realtime can still create objects in `public`. A planted
 overload of a built-in operator could therefore still run as the Backend. The
 fix is a saved `search_path = pg_catalog, pg_temp` for the Backend role. It is
-not applied yet, because it also changes SQL in consumer Backend plugins and
-needs a live check.
+applied (#2059). Consumer Backend plugin SQL must qualify `public` objects. Live
+checks on 2026-11-21 and 2026-11-22 found no `does not exist` errors.
 
 Init runs as a superuser, so `db-init-runner` protects it in three ways:
 
