@@ -753,3 +753,9 @@ No advisory exceptions were added.
 | Integration point | Pinned/configured version | Latest/status check | Contract checked | Evidence / disposition |
 |---|---|---|---|---|
 | `n8n-workflow` in the n8n init config (`services/n8n/init/config`) | 2.48.3 to 2.49.1. The lock's transitive `@n8n/expression-runtime` and similar packages move in step. | 2.49.1 is the newest minor on npm. Its peer dependency is still `zod` 3.25.76. | The reviewed zod exception (GHSA-mrhx-c7xc-m3w5) still applies, so the bump does not remove it. | Lock and manifest taken from Dependabot #2131. The runtime-lock audit passes with them (1 reviewed exception). `npm ci --dry-run` succeeds. 131 n8n-related bootstrapper tests pass. |
+
+## 38. 2026-11-25 setup-uv 10.3.3 to 10.4.0 in the CI workflows (Dependabot #2130)
+
+| Integration point | Pinned/configured version | Latest/status check | Contract checked | Evidence / disposition |
+|---|---|---|---|---|
+| `astral-sh/setup-uv` in `container-security.yml`, `docs-pages.yml`, `services-lint.yml`, `upstream-drift-watch.yml` | 10.3.3 (`68559e99cc807c1eb7e9238fd43a15bba460eec2`) to 10.4.0 (`1db35dd8eee11c5894872e0b383ae6c406cf738d`). | 10.4.0 release notes read 2026-11-25. | The new `require-checksums` input defaults to off. The other changes are fixes or maintenance. No breaking change in the notes. | The four workflow files parse as YAML. The change touches only the pin lines. The workflow-related tests pass, with the drift-watch test's recorded SHA updated. Three tests were already failing on the commit where this session began: two final-image-scan count tests and the ComfyUI inline-pin test. |
