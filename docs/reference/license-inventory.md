@@ -8,7 +8,7 @@ This inventory covers every pinned image and every model weight a catalogue down
 
 Treat this inventory as a review record, not a legal conclusion. An open item names an unanswered question. No row assumes compatibility.
 
-Reviewed 2026-10-31: 85 images and 20 models, 53 of them with at least one open item.
+Reviewed 2026-10-31: 85 images and 22 models, 53 of them with at least one open item.
 
 ## 1. Reading the inventory
 
@@ -47,7 +47,7 @@ Redistribution values describe the upstream project's own terms. Shipping an ima
 | R-MODELS | What are the weight licenses of the catalogue entries that record none? Record license_name, a revision-pinned license_url and license_restrictions for each in services/comfyui/models.yaml; the model cards were not reachable from the review environment. This also covers the CLIP ViT-B-32 weights the multi2vec-clip image bundles. | ComfyUI catalogue entries without license fields; multi2vec-clip. | hosted, integration, redistribution |
 | R-KREA | Can Krea 2 weights ship in a bundle, and on what terms? The Krea 2 Community License requires an enterprise license at or above USD 1M annual revenue for commercial use and content filtering for deployments; its redistribution terms are not recorded, and krea2-identity-edit-v1-2's license URL points at main rather than a revision. | Krea 2 catalogue entries. | redistribution |
 | R-HUNYUAN | May Hunyuan3D-2 weights ship in a bundle offered in the European Union, the United Kingdom or South Korea, which the Tencent Hunyuan Community License excludes, or to a service above 100 million monthly active users? | hunyuan3d-2. | redistribution |
-| R-SVC-MODELS | Which licenses apply to the weights services download by their own configuration rather than from a catalogue? Examples are the TEI reranker model (TEI_RERANKER_MODEL_ID, pinned to mixedbread-ai/mxbai-rerank-base-v1 at a revision) and the speech and document-conversion models speaches, parakeet, chatterbox and docling fetch; none has a row yet. | Service-configured model weights. | hosted, integration, redistribution |
+| R-SVC-MODELS | Which licenses apply to the weights services download by their own configuration rather than from a catalogue? Examples are the TEI reranker model (TEI_RERANKER_MODEL_ID, pinned to mixedbread-ai/mxbai-rerank-base-v1 at a revision) and the speech and document-conversion models speaches, parakeet, chatterbox and docling fetch. Kokoro and Faster-Whisper have rows, from services/speaches/models.yaml, pinned to a commit. Parakeet, the MLX port and Chatterbox have none yet. | Service-configured model weights. | hosted, integration, redistribution |
 | R-OLLAMA | Which licenses apply to the Ollama library models, and which revision is pulled? Tags such as qwen3.8:latest float, and ollama.com was not reachable from the review environment. | Every Ollama catalogue model. | hosted, integration, redistribution |
 | R-BUNDLE | Which licenses apply to the extra files a bundle entry downloads besides its main weights? The Krea 2 entries also fetch a Qwen3-VL text encoder and a Qwen-Image VAE, which the Krea 2 Community License does not cover by name. | ComfyUI entries that download more than one file. | redistribution |
 
@@ -199,6 +199,8 @@ For ComfyUI, the license comes from `license_name`, `license_url` and `license_r
 | ollama | `nomic-embed-text` | floating `nomic-embed-text` | not recorded | unresolved | unresolved | unresolved | R-OLLAMA |
 | ollama | `qwen3-embedding:0.6b` | floating `qwen3-embedding:0.6b` | not recorded | unresolved | unresolved | unresolved | R-OLLAMA |
 | ollama | `bge-m3` | floating `bge-m3` | not recorded | unresolved | unresolved | unresolved | R-OLLAMA |
+| speaches | `speaches-ai/Kokoro-82M-v1.0-ONNX` | revision `dc196c76d64f` (+1 files) | [Apache-2.0](https://huggingface.co/hexgrad/Kokoro-82M/blob/f3ff3571791e39611d31c381e3a41a3af07b4987/README.md) | permitted | permitted | with notices | — |
+| speaches | `Systran/faster-whisper-large-v3` | revision `edaa852ec7e1` (+4 files) | [MIT](https://huggingface.co/Systran/faster-whisper-large-v3/blob/edaa852ec7e145841d8ffdb056a99866b5f0a478/README.md) | permitted | permitted | with notices | — |
 
 ## 6. Not in this inventory
 

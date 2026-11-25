@@ -1,0 +1,21 @@
+# Speech weights Speaches loads from its pinned cache (#2111). The license gate reads this
+# catalogue (scripts/docs/license_inventory.py). Every URL names the commit that compose.yml
+# and pin-cache.sh pin, so the gate's revision check holds.
+models:
+- name: speaches-ai/Kokoro-82M-v1.0-ONNX
+  sources:
+  - https://huggingface.co/speaches-ai/Kokoro-82M-v1.0-ONNX/resolve/dc196c76d64fed9203906231372bcb98135815df/model.onnx
+  - https://huggingface.co/speaches-ai/Kokoro-82M-v1.0-ONNX/resolve/dc196c76d64fed9203906231372bcb98135815df/voices.bin
+  license_name: Apache-2.0
+  license_url: https://huggingface.co/hexgrad/Kokoro-82M/blob/f3ff3571791e39611d31c381e3a41a3af07b4987/README.md
+  license_restrictions: []
+- name: Systran/faster-whisper-large-v3
+  sources:
+  - https://huggingface.co/Systran/faster-whisper-large-v3/resolve/edaa852ec7e145841d8ffdb056a99866b5f0a478/model.bin
+  - https://huggingface.co/Systran/faster-whisper-large-v3/resolve/edaa852ec7e145841d8ffdb056a99866b5f0a478/config.json
+  - https://huggingface.co/Systran/faster-whisper-large-v3/resolve/edaa852ec7e145841d8ffdb056a99866b5f0a478/tokenizer.json
+  - https://huggingface.co/Systran/faster-whisper-large-v3/resolve/edaa852ec7e145841d8ffdb056a99866b5f0a478/vocabulary.json
+  - https://huggingface.co/Systran/faster-whisper-large-v3/resolve/edaa852ec7e145841d8ffdb056a99866b5f0a478/preprocessor_config.json
+  license_name: MIT
+  license_url: https://huggingface.co/Systran/faster-whisper-large-v3/blob/edaa852ec7e145841d8ffdb056a99866b5f0a478/README.md
+  license_restrictions: []
