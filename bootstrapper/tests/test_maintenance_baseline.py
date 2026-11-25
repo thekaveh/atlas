@@ -27,7 +27,8 @@ EXPECTED_BASELINE_SNAPSHOT = {
     # #2038 attributes six files from #601, #1486 and #1905 and two split test modules.
     # #2107 attributes five files from #1888, #1905 and #2107 (#2104, #2102, #2114, #2121).
     # #2108 attributes the static stage 2 pin test.
-    "tracked_files": 1704,
+    # #2111 attributes the Speaches pin-cache script and its test.
+    "tracked_files": 1706,
     "v0.1.0_tracked_files": 667,
 }
 EXPECTED_EXTENDED_PYTHON_SNAPSHOT = {
