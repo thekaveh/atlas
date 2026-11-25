@@ -40,6 +40,8 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 | OpenAI-compatible speech-to-text | partial | tested | Atlas preloads Systran/faster-whisper-large-v3, the whisper-1 alias target Open WebUI and Hermes request. Open WebUI transcribed Speaches-generated audio from a cold cache, and again after an offline restart, on 2026-11-09. |
 | Configurable STT model selection | stubbed | documented | SPEACHES_STT_MODEL is declared but inert: PRELOAD_MODELS pins the whisper-1 alias target, and Open WebUI and Hermes request whisper-1. |
 
+**Pinned cache (#2111).** When both preload models are cached, the compose command checks each file's sha256 against its pinned commit, then runs offline. A cold cache still preloads the unpinned main branch. To stage the pinned files first, run `docker compose ... create speaches`, then `services/speaches/pin-cache.sh <volume>`.
+
 ## 3. Dependencies & Integrations
 
 <a id="2-dependencies-integrations"></a>
