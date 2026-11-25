@@ -22,7 +22,7 @@
       "functions_over_100_physical_lines": 85,
       "functions_over_4_parameters": 156,
       "modules_over_600_logical_lines": 21,
-      "tracked_files": 1706,
+      "tracked_files": 1707,
       "v0.1.0_tracked_files": 667
     },
     "extended_python_baseline_snapshot": {
@@ -36,6 +36,7 @@
     "regression_policy": "Do not increase any baseline count without reviewed commit-range attribution, and record a grounded symbol-level rationale for every new Radon E/F symbol; refresh the snapshot only during a reviewed maintenance pass.",
     "review_by": "2027-01-29",
     "owner": "Atlas maintainers",
+"refresh_notes_2026_11_25_issue_2111_license": "Issue #2111 from base 29b6f8f8 (develop): tracked_files 1706 -> 1707 attributes exactly one addition: services/speaches/models.yaml (the speech weight catalogue the license gate reads; Kokoro and Faster-Whisper pinned to commits). Every code-complexity ceiling, counting rule, accepted disposition, exclusion and review deadline remains unchanged; no unrelated file is excluded, removed or compressed to offset growth.",
 "refresh_notes_2026_11_25_issue_2111": "Issue #2111 from base aed330ac (develop): tracked_files 1704 -> 1706 attributes exactly two additions: services/speaches/pin-cache.sh (stages the Speaches preload models at their pinned Hugging Face commits, verifying each sha256) and bootstrapper/tests/test_speaches_pin_cache.py (keeps the compose and script pins in step). Every code-complexity ceiling, counting rule, accepted disposition, exclusion and review deadline remains unchanged; no unrelated file is excluded, removed or compressed to offset growth.",
     "refresh_notes_2026_11_23_issue_2108": "Issue #2108 stage 2 from base 5bd52fbf (develop): tracked_files 1703 -> 1704 attributes exactly one addition: bootstrapper/tests/test_comfyui_derived_image_pins.py (the static pins for the ComfyUI venv bumps in services/comfyui/build/Dockerfile). Every code-complexity ceiling, counting rule, accepted disposition, exclusion and review deadline remains unchanged; no unrelated file is excluded, removed or compressed to offset growth.",
     "refresh_notes_2026_11_23_issue_2107": "Issue #2107 from base 10208bd5 (develop): tracked_files 1698 -> 1703 attributes exactly five additions: bootstrapper/tests/test_backend_sql_qualification.py (#1888/#2104, f8d15de1), bootstrapper/tests/test_jupyterhub_ca_trust.py (#1905/#2114, ef7091e9), services/comfyui/build/Dockerfile (#1905/#2102, 69a70508), bootstrapper/tests/test_comfyui_preflight_hook.py and services/comfyui/build/atlas-preflight-custom-nodes.sh (#2107/#2121, 10208bd5). Every code-complexity ceiling, counting rule, accepted disposition, exclusion and review deadline remains unchanged; no unrelated file is excluded, removed or compressed to offset growth.",

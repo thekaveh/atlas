@@ -206,7 +206,7 @@ open_items:
     - redistribution
   R-SVC-MODELS:
     question: Which licenses apply to the weights services download by their own configuration rather than from a catalogue? Examples are the TEI reranker model (TEI_RERANKER_MODEL_ID, pinned to mixedbread-ai/mxbai-rerank-base-v1
-      at a revision) and the speech and document-conversion models speaches, parakeet, chatterbox and docling fetch; none has a row yet.
+      at a revision) and the speech and document-conversion models speaches, parakeet, chatterbox and docling fetch. Kokoro and Faster-Whisper have rows, from services/speaches/models.yaml, pinned to a commit. Parakeet, the MLX port and Chatterbox have none yet.
     applies: Service-configured model weights.
     modes:
     - hosted
@@ -1028,3 +1028,24 @@ models:
   redistribution: unresolved
   open:
   - R-OLLAMA
+- catalogue: speaches
+  id: speaches-ai/Kokoro-82M-v1.0-ONNX
+  sources:
+  - https://huggingface.co/speaches-ai/Kokoro-82M-v1.0-ONNX/resolve/dc196c76d64fed9203906231372bcb98135815df/model.onnx
+  - https://huggingface.co/speaches-ai/Kokoro-82M-v1.0-ONNX/resolve/dc196c76d64fed9203906231372bcb98135815df/voices.bin
+  license_url: https://huggingface.co/hexgrad/Kokoro-82M/blob/f3ff3571791e39611d31c381e3a41a3af07b4987/README.md
+  hosted: permitted
+  integration: permitted
+  redistribution: with notices
+- catalogue: speaches
+  id: Systran/faster-whisper-large-v3
+  sources:
+  - https://huggingface.co/Systran/faster-whisper-large-v3/resolve/edaa852ec7e145841d8ffdb056a99866b5f0a478/model.bin
+  - https://huggingface.co/Systran/faster-whisper-large-v3/resolve/edaa852ec7e145841d8ffdb056a99866b5f0a478/config.json
+  - https://huggingface.co/Systran/faster-whisper-large-v3/resolve/edaa852ec7e145841d8ffdb056a99866b5f0a478/tokenizer.json
+  - https://huggingface.co/Systran/faster-whisper-large-v3/resolve/edaa852ec7e145841d8ffdb056a99866b5f0a478/vocabulary.json
+  - https://huggingface.co/Systran/faster-whisper-large-v3/resolve/edaa852ec7e145841d8ffdb056a99866b5f0a478/preprocessor_config.json
+  license_url: https://huggingface.co/Systran/faster-whisper-large-v3/blob/edaa852ec7e145841d8ffdb056a99866b5f0a478/README.md
+  hosted: permitted
+  integration: permitted
+  redistribution: with notices

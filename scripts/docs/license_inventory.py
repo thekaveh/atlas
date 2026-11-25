@@ -82,6 +82,19 @@ def _comfyui_models(root: Path) -> dict[tuple[str, str], dict]:
     return models
 
 
+def _speaches_models(root: Path) -> dict[tuple[str, str], dict]:
+    catalogue = yaml.safe_load((root / "services/speaches/models.yaml").read_text(encoding="utf-8"))
+    return {
+        ("speaches", entry["name"]): {
+            "sources": list(dict.fromkeys(entry["sources"])),
+            "license_name": entry.get("license_name"),
+            "license_url": entry.get("license_url"),
+            "license_restrictions": entry.get("license_restrictions") or [],
+        }
+        for entry in catalogue["models"]
+    }
+
+
 def load_pins(root: Path) -> Pins:
     from bootstrapper.services.manifests import load_manifests
 
@@ -91,6 +104,7 @@ def load_pins(root: Path) -> Pins:
         for image in manifest.images
     }
     models = _comfyui_models(root)
+    models.update(_speaches_models(root))
     ollama = yaml.safe_load((root / "services/ollama/models.yaml").read_text(encoding="utf-8"))
     for section in ollama.values():
         for entry in section:
