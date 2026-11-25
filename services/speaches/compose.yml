@@ -25,9 +25,17 @@ services:
       - |
         hub=/home/ubuntu/.cache/huggingface/hub
         cached() { for f in "$$hub/models--$$1"/snapshots/*/"$$2"; do [ -s "$$f" ] && return 0; done; return 1; }
+        # Pinned cache (#2111): when both models are cached, check each file's sha256
+        # against its Hugging Face commit, then run offline so no revision drifts.
+        # A cold cache keeps the online preload, which fetches the unpinned main branch.
+        pin() { p=$$(ls "$$hub/models--$$1"/snapshots/*/"$$2" 2>/dev/null | head -1); [ -n "$$p" ] && [ "$$(sha256sum "$$p" | cut -d' ' -f1)" = "$$3" ] || { echo "speaches: $$1/$$2 does not match its pinned sha256" >&2; exit 1; }; }
         if cached speaches-ai--Kokoro-82M-v1.0-ONNX model.onnx && cached speaches-ai--Kokoro-82M-v1.0-ONNX voices.bin && cached Systran--faster-whisper-large-v3 model.bin; then
-          echo "speaches: both preload models are cached; skipping the Hub preload" >&2
+          pin speaches-ai--Kokoro-82M-v1.0-ONNX model.onnx 7d5df8ecf7d4b1878015a32686053fd0eebe2bc377234608764cc0ef3636a6c5
+          pin speaches-ai--Kokoro-82M-v1.0-ONNX voices.bin bca610b8308e8d99f32e6fe4197e7ec01679264efed0cac9140fe9c29f1fbf7d
+          pin Systran--faster-whisper-large-v3 model.bin 69f74147e3334731bc3a76048724833325d2ec74642fb52620eda87352e3d4f1
+          echo "speaches: both preload models are cached and pinned; skipping the Hub preload" >&2
           export PRELOAD_MODELS='[]'
+          export HF_HUB_OFFLINE=1
         fi
         exec uvicorn --factory speaches.main:create_app
     environment:
