@@ -747,3 +747,9 @@ No advisory exceptions were added.
 | Integration point | Pinned/configured version | Latest/status check | Contract checked | Evidence / disposition |
 |---|---|---|---|---|
 | Combined Silero gate (section 32), tested with noise mixed into speech | Silero `silero_vad.onnx` sha256 `f6f4407b41e05e277e7f5cfd9b9ae957b1dfe763c6076a934734c0b448e09b31`. Keep threshold 0.5. | Read 2026-11-25. | The gate must not skip speech. It must skip noise and silence. | Speech mixed with noise, 300 clips. At 20 dB and 10 dB SNR, 0 speech clips were skipped (white, pink and babble). At 0 dB SNR, 6 to 13 of 300 were skipped (white and pink). Babble at 0 dB skipped 0. Exploratory: at thresholds 0.3 and 0.2, the 0 dB misses drop to 3 to 7 of 300, and all noise-only clips at -50 and -70 dBFS are still skipped. Threshold not changed. Real background audio is untested. Results in the bench folder, `RESULTS_vad_noisy.md`. |
+
+## 37. 2026-11-25 n8n-workflow 2.48.3 to 2.49.1 (Dependabot #2131, #1895)
+
+| Integration point | Pinned/configured version | Latest/status check | Contract checked | Evidence / disposition |
+|---|---|---|---|---|
+| `n8n-workflow` in the n8n init config (`services/n8n/init/config`) | 2.48.3 to 2.49.1. The lock's transitive `@n8n/expression-runtime` and similar packages move in step. | 2.49.1 is the newest minor on npm. Its peer dependency is still `zod` 3.25.76. | The reviewed zod exception (GHSA-mrhx-c7xc-m3w5) still applies, so the bump does not remove it. | Lock and manifest taken from Dependabot #2131. The runtime-lock audit passes with them (1 reviewed exception). `npm ci --dry-run` succeeds. 131 n8n-related bootstrapper tests pass. |
