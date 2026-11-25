@@ -741,3 +741,9 @@ No advisory exceptions were added.
 | Integration point | Pinned/configured version | Latest/status check | Contract checked | Evidence / disposition |
 |---|---|---|---|---|
 | `apache-airflow-providers-smtp` in the Airflow image lock (`services/airflow/build/requirements-locked.txt`) | 3.0.2 to 3.2.2. The lock also drops `pyyaml-ft==8.0.0`, which no pin still needs. | 3.2.2 uploaded 2026-11-23. Advisory PYSEC-2026-4396 (OSV alias CVE-2026-49267) fixed in 3.2.2; affected range 2.0.0 up to 3.2.2. | Requires `apache-airflow>=2.11.0` and `apache-airflow-providers-common-compat>=1.12.0`. The lock has 3.3.2 and 1.18.0. | Resolved with `targeted_upgrade.py` (Python 3.12, `x86_64-unknown-linux-gnu`), then diffed against the prior lock. Atlas's Airflow configures no SMTP anywhere in `services/airflow`, so the advisory was not reachable here. The fix removes the audit failure without an exception. The audit passes on all 30 locks. |
+
+## 36. 2026-11-25 voice-activity gate under noise (#2111, exploratory)
+
+| Integration point | Pinned/configured version | Latest/status check | Contract checked | Evidence / disposition |
+|---|---|---|---|---|
+| Combined Silero gate (section 32), tested with noise mixed into speech | Silero `silero_vad.onnx` sha256 `f6f4407b41e05e277e7f5cfd9b9ae957b1dfe763c6076a934734c0b448e09b31`. Keep threshold 0.5. | Read 2026-11-25. | The gate must not skip speech. It must skip noise and silence. | Speech mixed with noise, 300 clips. At 20 dB and 10 dB SNR, 0 speech clips were skipped (white, pink and babble). At 0 dB SNR, 6 to 13 of 300 were skipped (white and pink). Babble at 0 dB skipped 0. Exploratory: at thresholds 0.3 and 0.2, the 0 dB misses drop to 3 to 7 of 300, and all noise-only clips at -50 and -70 dBFS are still skipped. Threshold not changed. Real background audio is untested. Results in the bench folder, `RESULTS_vad_noisy.md`. |
