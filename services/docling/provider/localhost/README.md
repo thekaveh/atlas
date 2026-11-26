@@ -2,7 +2,7 @@
 
 Run the Atlas Docling provider natively on the host. Atlas containers reach it
 through `host.docker.internal` when `DOC_PROCESSOR_SOURCE=docling-localhost`.
-It needs Python 3.11 or later and [uv](https://docs.astral.sh/uv/).
+It needs Python 3.11.5 or later and [uv](https://docs.astral.sh/uv/).
 
 On Apple Silicon, the locked Torch and Docling Parse wheels require macOS 14 or later.
 Older macOS releases and source builds are unverified.
