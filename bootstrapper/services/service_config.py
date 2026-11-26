@@ -13,6 +13,10 @@ from utils.atomic_write import atomic_write_text, env_assignment_pattern, env_li
 from utils.system import get_localhost_host, redis_service_url, resolve_host_gateway_ip
 
 
+# Internal URL of the speech gate (services/speech-gate). STT consumers use it
+# when SPEECH_GATE_SOURCE=container in front of a Speaches STT source (#2148).
+SPEECH_GATE_ENDPOINT = 'http://speech-gate:8000'
+
 # Same list as .env.example / compose: the backup contract requires
 # backup-filesystem, and a blank value is written back durably.
 _DEFAULT_WEAVIATE_MODULES = (
@@ -280,6 +284,10 @@ class ServiceConfig:
 
         tts_config = self._generate_tts_provider_config(shared_env=env_vars)
         env_vars.update(tts_config)
+
+        # Speech gate: scale follows STT_PROVIDER_SOURCE and SPEECH_GATE_SOURCE (#2148).
+        speech_gate_config = self._generate_speech_gate_config(shared_env=env_vars)
+        env_vars.update(speech_gate_config)
 
         # Resolve the speaches image for the WINNING profile. The compose
         # fragment is a single service interpolating ${SPEACHES_IMAGE}
@@ -671,6 +679,10 @@ class ServiceConfig:
         # STT_INTERNAL_URL) sit above the port lines, where compose falls back
         # to the default, so Open WebUI and Hermes called the wrong port.
         endpoint = _expand_interpolation(endpoint, self.config_parser.parse_env_file())
+        # The speech gate fronts Speaches for every STT consumer, so the shared
+        # STT_ENDPOINT (and the Open WebUI and Hermes values derived from it) point at it.
+        if source_value.startswith('speaches-container') and self._speech_gate_enabled():
+            endpoint = SPEECH_GATE_ENDPOINT
         env_vars['STT_ENDPOINT'] = endpoint
 
         if source_value.startswith('speaches-container'):
@@ -700,6 +712,22 @@ class ServiceConfig:
             env_vars.setdefault('SPEACHES_SCALE', '0')
             env_vars['STT_ENDPOINT'] = ''
 
+        return env_vars
+
+    def _speech_gate_enabled(self) -> bool:
+        """True when the speech gate sits in front of Speaches (SPEECH_GATE_SOURCE=container)."""
+        return self.service_sources.get('SPEECH_GATE_SOURCE', 'container') == 'container'
+
+    def _generate_speech_gate_config(self, shared_env: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+        """Scale the speech gate. It runs only in front of a speaches-container-* STT source.
+
+        STT_ENDPOINT is rewritten to the gate in _generate_stt_provider_config.
+        Consumers see the new URL through that shared value.
+        """
+        env_vars: Dict[str, str] = dict(shared_env or {})
+        stt_source = self.service_sources.get('STT_PROVIDER_SOURCE', 'disabled')
+        fronts_speaches = self._speech_gate_enabled() and stt_source.startswith('speaches-container')
+        env_vars['SPEECH_GATE_SCALE'] = '1' if fronts_speaches else '0'
         return env_vars
 
     def _generate_tts_provider_config(self, shared_env: Optional[Dict[str, str]] = None) -> Dict[str, str]:

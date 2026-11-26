@@ -54,6 +54,7 @@ include:
   - services/tika/compose.yml
   - services/parakeet/compose.yml
   - services/speaches/compose.yml
+  - services/speech-gate/compose.yml
   - services/chatterbox/compose.yml
   - services/docling/compose.yml
 

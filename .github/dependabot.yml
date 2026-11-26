@@ -20,6 +20,7 @@ updates:
       - "/services/docling/provider/localhost"
       - "/services/docling/provider/gpu"
       - "/services/docling/provider/adapter"
+      - "/services/speech-gate"
       - "/services/jupyterhub/build"
       - "/services/mlflow/build"
       - "/services/backend/app/app"

@@ -143,6 +143,7 @@ AUDIT_SPECS = (
     AuditSpec("services/asset-worker/app/requirements-locked.txt"),
     AuditSpec("services/docling/provider/gpu/requirements-locked.txt"),
     AuditSpec("services/docling/provider/adapter/requirements-locked.txt"),
+    AuditSpec("services/speech-gate/requirements-locked.txt"),
     AuditSpec("services/mcp-servers/runtime/requirements-locked.txt"),
     AuditSpec(
         "services/backend/app/app/requirements-test-locked.txt",
@@ -301,6 +302,8 @@ AUDITED_RUNTIME_MANIFESTS = frozenset(
         "services/jupyterhub/build/requirements-locked.txt",
         "services/mlflow/build/requirements.txt",
         "services/mlflow/build/requirements-locked.txt",
+        "services/speech-gate/requirements.txt",
+        "services/speech-gate/requirements-locked.txt",
         "services/local-deep-researcher/build/config/runtime-requirements.lock",
         "services/local-deep-researcher/locks/runtime-pyproject.toml",
         "services/local-deep-researcher/locks/runtime.uv.lock",

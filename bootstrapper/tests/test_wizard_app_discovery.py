@@ -44,6 +44,9 @@ EXPECTED_DISCOVERED = frozenset({
     "Neo4j Graph DB",
     "OpenClaw",
     "STT Provider",
+    # Speech gate (added 2026-11-25, #2148) — voice-activity check in front of
+    # Speaches. Wired via 'speech_gate_source'.
+    "Speech Gate",
     "SearxNG",
     "TTS Provider",
     "Weaviate",

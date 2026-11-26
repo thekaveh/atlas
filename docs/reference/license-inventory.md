@@ -8,7 +8,7 @@ This inventory covers every pinned image and every model weight a catalogue down
 
 Treat this inventory as a review record, not a legal conclusion. An open item names an unanswered question. No row assumes compatibility.
 
-Reviewed 2026-10-31: 85 images and 22 models, 53 of them with at least one open item.
+Reviewed 2026-10-31: 86 images and 22 models, 53 of them with at least one open item.
 
 ## 1. Reading the inventory
 
@@ -136,6 +136,7 @@ Each row represents an image in a service manifest's `images:` list. For locally
 | `searxng` · `SEARXNG_IMAGE` | `searxng/searxng:2026.6.28-357662d86` | SearXNG 2026.6.28 (commit 357662d86) | [AGPL-3.0](https://github.com/searxng/searxng/blob/357662d86/LICENSE) | permitted | with source | with source | — |
 | `spark` · `SPARK_IMAGE` | `apache/spark:4.1.2` | Apache Spark 4.1.2 | [Apache-2.0](https://github.com/apache/spark/blob/f0bb2e6a47d0ebda424ffd633fcea8644a597954/LICENSE) · [NOTICE](https://github.com/apache/spark/blob/f0bb2e6a47d0ebda424ffd633fcea8644a597954/NOTICE) | permitted | permitted | unresolved | R-BUILD |
 | `speaches` · `SPEACHES_IMAGE` | `ghcr.io/speaches-ai/speaches:0.9.0-rc.3-cpu` | Speaches 0.9.0-rc.3 | [MIT](https://github.com/speaches-ai/speaches/blob/24f209c90218187747a9205f0b84bc06b42ce775/LICENSE) | permitted | permitted | with notices | — |
+| `speech-gate` · `SPEECH_GATE_BASE_IMAGE` | `python:3.12.14-slim` | Python 3.12.14 (build base) | [PSF-2.0](https://github.com/python/cpython/blob/2abcf904b8dac8c999d2b3aac76681abb333798a/LICENSE) | permitted | permitted | with notices | — |
 | `supabase` · `POSTGRES_EXPORTER_IMAGE` | `prometheuscommunity/postgres-exporter:v0.19.1` | postgres_exporter v0.19.1 | [Apache-2.0](https://github.com/prometheus-community/postgres_exporter/blob/333363aeb548b66340a61a7fb2b3f0e8a8d39f90/LICENSE) · [NOTICE](https://github.com/prometheus-community/postgres_exporter/blob/333363aeb548b66340a61a7fb2b3f0e8a8d39f90/NOTICE) | permitted | permitted | with notices | — |
 | `supabase` · `SUPABASE_API_IMAGE` | `postgrest/postgrest:v12.2.10` | PostgREST v12.2.10 | [MIT](https://github.com/PostgREST/postgrest/blob/a7f91814622d197aadfcf680f4327024d56bf780/LICENSE) | permitted | permitted | with notices | — |
 | `supabase` · `SUPABASE_AUTH_IMAGE` | `supabase/gotrue:v2.191.0` | Supabase Auth (GoTrue) v2.191.0 | [MIT](https://github.com/supabase/auth/blob/712c037897ee918897996a8f71b62c0e4e2f48ef/LICENSE) | permitted | permitted | with notices | — |

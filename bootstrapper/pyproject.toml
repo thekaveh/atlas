@@ -63,6 +63,13 @@ dev = [
     "pytest-cov>=7.1,<8",
     "radon==6.0.1",         # Recomputes the committed maintenance complexity ceiling in CI.
     "asyncpg>=0.31.0",
+    # Speech-gate unit tests (tests/test_speech_gate_*.py) run the gate's Silero
+    # rule and PyAV decoder. Floors, not pins: the bootstrapper also runs on
+    # Python 3.11 (services-lint), and the gate's own pins
+    # (services/speech-gate/requirements.txt) need Python 3.12.
+    "av>=16",
+    "numpy>=2.3",
+    "onnxruntime>=1.22",
 ]
 
 [tool.pytest.ini_options]

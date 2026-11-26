@@ -23,7 +23,9 @@ wins and the bootstrapper prints a notice.
 > it runs on CPU or fails CUDA initialisation. Use `speaches-container-cpu`, or
 > `parakeet-container-gpu` for GPU transcription.
 
-**Recommended on macOS hosts (decision 2026-11-25).** `parakeet-localhost` (Parakeet-MLX) is the recommended transcription engine on Apple Silicon. It ties Qwen3-ASR-1.7B for the best result on the 297 conversational clips we scored, and whisper large-v3-turbo scored lower. The container default stays `speaches-container-cpu`, because Parakeet has no CPU container path. The voice-activity gate threshold stays at 0.5. Gate placement is tracked in #2148.
+**Recommended on macOS hosts (decision 2026-11-25).** `parakeet-localhost` (Parakeet-MLX) is the recommended transcription engine on Apple Silicon. It ties Qwen3-ASR-1.7B for the best result on the 297 conversational clips we scored, and whisper large-v3-turbo scored lower. The container default stays `speaches-container-cpu`, because Parakeet has no CPU container path.
+
+**Voice-activity gate (#2148).** With a `speaches-container-*` source, the [speech gate](../speech-gate/README.md) sits in front of Speaches by default. It answers silence with an empty transcript and forwards speech unchanged. `SPEECH_GATE_SOURCE=disabled` calls Speaches directly. Parakeet and whisper.cpp do not pass through the gate.
 
 ## 2. Engine comparison
 
@@ -310,13 +312,14 @@ _No upstream calls._
 <a id="92-current-downstream-services-that-call-this"></a>
 <a id="92-current--downstream-services-that-call-this"></a>
 
-| Service | Category |
-|---|---|
-| kong | infra |
-| hermes | agents |
-| n8n | agents |
-| jupyterhub | apps |
-| open-webui | apps |
+| Service | Category | Status |
+|---|---|---|
+| kong | infra | current |
+| speech-gate | media | optional: SPEECH_GATE_SOURCE=container and STT_PROVIDER_SOURCE=speaches-container-cpu or speaches-container-gpu |
+| hermes | agents | current |
+| n8n | agents | current |
+| jupyterhub | apps | current |
+| open-webui | apps | current |
 
 ### 11.3. Architecture diagram
 
