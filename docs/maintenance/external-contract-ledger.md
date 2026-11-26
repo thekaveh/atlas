@@ -804,3 +804,9 @@ No advisory exceptions were added.
 | Speech gate base image | `python:3.12.14-slim` (PSF-2.0) | Image pinned by tag in the Dockerfile. | Image scanned by the final-image scan (27 contexts, 53 images). | Added to the license inventory. |
 | Speech gate labels | 1,221 rows built from the v2 manifest. Speech 1,200, missed 19 at threshold 0.5. Non-speech 21, passed 0. | `build_labels.py` reproduces the committed file byte-for-byte after its refactor. | Labels are marked `pending-owner-review`. | Owner review pending. Threshold stays at 0.5 until the labels are reviewed. |
 | Live check | Silence: HTTP 200, empty text. Speech: transcribed. | Run against the stack's Speaches through a throwaway gate. Torn down afterwards. | Stack containers untouched. | Passed. |
+
+## 44. 2026-11-26 Verba host port removed (#1458)
+
+| Integration point | Pinned/configured version | Latest/status check | Contract checked | Evidence / disposition |
+|---|---|---|---|---|
+| Verba host port (`services/verba/compose.yml`) | Image digest unchanged (`verba@sha256:0947d289…`). | Upstream websocket skips the same-origin check and honours a client `rag_config` URL (#1458). | Host publish removed. Kong route `verba.localhost` only, with basic-auth and ACL. | `test_verba_publishes_no_host_port` and `test_verba_compose_contract` guard it. The pinned digest's behaviour is taken from the issue, not run here. Scoped LiteLLM key tracked in #1377. |

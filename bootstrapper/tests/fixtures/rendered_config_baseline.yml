@@ -4963,12 +4963,6 @@ services:
         max-size: 10m
     networks:
       backend-network: null
-    ports:
-    - mode: ingress
-      host_ip: 127.0.0.1
-      target: 8000
-      published: '63098'
-      protocol: tcp
     restart: unless-stopped
     volumes:
     - type: volume

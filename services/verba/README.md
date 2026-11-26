@@ -14,9 +14,11 @@ Upstream has discontinued and archived Verba, so it gets no upstream security fi
 
 | Surface | URL | Notes |
 |---|---|---|
-| Kong route | `http://verba.localhost:${KONG_HTTP_PORT}` | Protected by Atlas dashboard basic-auth/ACL and available only when `VERBA_SOURCE=container`. |
-| Direct port | `http://localhost:${VERBA_PORT}` | Ungated host port, intended for local development only. |
+| Kong route | `http://verba.localhost:${KONG_HTTP_PORT}` | The only way in. Protected by Atlas dashboard basic-auth/ACL and available only when `VERBA_SOURCE=container`. |
+| Host port | none | Atlas no longer publishes a host port for Verba (#1458). `VERBA_PORT` stays reserved in the topology but is not bound. Use the Kong route above. |
 | In-network URL | `http://verba:8000` | Exported as `VERBA_ENDPOINT` for internal references. |
+
+Earlier builds published `http://localhost:${VERBA_PORT}` with no login. That port is gone. Bookmarks and scripts that used it must switch to the Kong URL and the dashboard credentials.
 
 ## 3. Configuration
 
@@ -24,13 +26,15 @@ Upstream has discontinued and archived Verba, so it gets no upstream security fi
 |---|---|---|
 | `VERBA_SOURCE` | `disabled` | `container` starts Verba; `disabled` scales it to zero and removes its Kong route. |
 | `VERBA_IMAGE` | `semitechnologies/verba@sha256:0947d289ebff2c9814941c8d4282ee994dc79598e76162ae82e6efda4682b0b7` | Digest-pinned Docker Hub image. Upstream publishes `latest` but no matching `v2.1.3` tag. |
-| `VERBA_PORT` | topology allocated | Host port for the direct UI. |
+| `VERBA_PORT` | topology allocated | Reserved slot only. No host port is published (#1458). |
 | `VERBA_WEAVIATE_URL` | auto-managed | Passed as upstream `WEAVIATE_URL_VERBA`. Verba 2.1.3 reads it only for its `Weaviate` (cloud cluster) deployment. The default `Docker` deployment always dials `weaviate:8080`. With `WEAVIATE_SOURCE=localhost`, choose `Custom` on Verba's connect screen and enter `host.docker.internal` and `WEAVIATE_LOCALHOST_PORT`. The Verba container maps `host.docker.internal` to the host gateway (`HOST_GATEWAY_IP`), so the name also resolves on Linux Engine. |
 | `VERBA_OPENAI_MODEL` | empty | LiteLLM chat model for Verba. Empty uses `LITELLM_DEFAULT_MODEL`. |
 | `VERBA_OPENAI_EMBED_MODEL` | empty | LiteLLM embedding model. Empty uses `LITELLM_EMBEDDING_MODEL`. |
 | `VERBA_DEFAULT_DEPLOYMENT` | `Docker` | Forces Verba toward external Weaviate instead of embedded local Weaviate. |
 
 Verba receives `OPENAI_API_KEY=${LITELLM_MASTER_KEY}` and `OPENAI_BASE_URL=http://litellm:4000/v1`, so it calls LiteLLM, not cloud providers. Atlas also sets `OPENAI_CUSTOM_EMBED=true`, because LiteLLM model names are often not OpenAI names.
+
+Known gap: Verba holds the LiteLLM master key, not a scoped virtual key. A scoped key is tracked in #1377. Until it lands, treat anyone who can reach the Kong route as able to use the master key, so keep the route behind dashboard auth.
 
 ## 4. Architecture & Wiring
 
@@ -51,7 +55,7 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 |---|---|---|---|
 | Reference Weaviate RAG workflow | partial | tested | Atlas wires the archived Verba UI to Weaviate and LiteLLM for isolated sample ingest and query. Atlas does not treat it as the primary maintained chat or RAG runtime. |
 | Verba-managed data isolation | partial | documented | Operators are directed to Verba-owned Weaviate classes, but Atlas cannot enforce namespace separation if users manually target shared classes or cleanup operations. |
-| Verba ingress authentication | partial | tested | verba.localhost is protected by Kong dashboard Basic Auth and ACL, while the host-published direct UI/API is ungated and intended only for local development. |
+| Verba ingress authentication | partial | tested | verba.localhost is protected by Kong dashboard Basic Auth and ACL. Atlas publishes no host port for Verba, so the UI/API is reachable only through that route. |
 | Docling preprocessing integration | not-supported | documented | Docling is only a manual companion workflow because Atlas does not rely on an unsupported external Verba ingestion API. |
 | Maintained secure production runtime | not-supported | documented | Upstream Verba is archived and receives no security fixes; Atlas keeps the digest-pinned reference UI disabled by default and does not certify it for production. |
 | RAG service high availability | not-supported | documented | Atlas runs one Verba replica with a local data volume and configures no application failover, backup workflow, or horizontally shared UI state. |

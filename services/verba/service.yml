@@ -16,7 +16,7 @@ capabilities:
   - name: "Verba ingress authentication"
     status: partial
     verification: tested
-    note: "verba.localhost is protected by Kong dashboard Basic Auth and ACL, while the host-published direct UI/API is ungated and intended only for local development."
+    note: "verba.localhost is protected by Kong dashboard Basic Auth and ACL. Atlas publishes no host port for Verba, so the UI/API is reachable only through that route."
   - name: "Docling preprocessing integration"
     status: not-supported
     verification: documented
@@ -53,7 +53,7 @@ env:
     description: "Deployment source for the Verba RAG UI: container or disabled (default)."
     default: disabled
   - name: VERBA_PORT
-    description: "Host port for the Verba UI/API (in-container 8000)."
+    description: "Reserved host-port slot for the Verba UI/API (in-container 8000). Not published; reach Verba through Kong at verba.localhost."
   - name: VERBA_ENDPOINT
     auto_managed: true
     description: "In-network URL for Atlas services and notebooks."
