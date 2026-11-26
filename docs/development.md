@@ -132,7 +132,7 @@ atlas/
 │   ├── tests/                 # 7,000+ tests (loader, validator, byte-equiv, source-permutation, hooks)
 │   ├── tools/                 # validate_fragments manifest lint, generate_readme_topology
 │   └── start.py / stop.py     # Entry points
-├── services/                  # 58 service.yml manifests + 3 doc-only folders (representative subset shown below; see services/ for the full list)
+├── services/                  # 59 service.yml manifests + 3 doc-only folders (representative subset shown below; see services/ for the full list)
 │   ├── globals/               # Project-wide vars (PROJECT_NAME, BASE_PORT, BRAND_*, informational tiers)
 │   ├── supabase/              # supabase-db, db-init, meta, storage, auth, api, realtime, studio
 │   │   ├── service.yml        # Manifest: env vars, source variants, deps, runtime_sc slice
