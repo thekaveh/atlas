@@ -29,7 +29,8 @@ EXPECTED_BASELINE_SNAPSHOT = {
     # #2108 attributes the static stage 2 pin test.
     # #2111 attributes the Speaches pin-cache script and its test.
     # #2111 (license gate) attributes the speech weight catalogue.
-    "tracked_files": 1707,
+    # #2108 (ComfyUI Python 3.11) attributes the audited 3.11 lock.
+    "tracked_files": 1708,
     "v0.1.0_tracked_files": 667,
 }
 EXPECTED_EXTENDED_PYTHON_SNAPSHOT = {
