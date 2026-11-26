@@ -1,0 +1,39 @@
+# Python 3.10.12 lock for the AI-Dock python_310 venv (/opt/environments/python/python_310), #2108 residual.
+# Consumer: the Jupyter kernel 'python_310' (ipykernel_launcher). No supervisor program starts it.
+# Resolved with uv 0.11.19 for linux/x86_64, Python 3.10. Installed by services/comfyui/build/Dockerfile stage 3.
+# Open advisories, fixed only in Python 3.11+ releases (no 3.10 install exists): tornado 6.5.10 has
+#   CVE-2026-116577, CVE-2026-115927, CVE-2026-116578 (fix 6.6) and CVE-2026-126347 (fix 6.6.1).
+asttokens==2.4.1
+comm==0.2.2
+debugpy==1.8.6
+decorator==5.1.1
+exceptiongroup==1.2.2
+executing==2.1.0
+ipykernel==6.29.5
+ipython==8.27.0
+ipywidgets==8.1.5
+jedi==0.19.1
+jupyter-client==8.6.3
+jupyter-core==5.8.1
+jupyterlab-widgets==3.0.13
+matplotlib-inline==0.1.7
+nest-asyncio==1.6.0
+packaging==24.1
+parso==0.8.4
+pexpect==4.9.0
+platformdirs==4.3.6
+prompt-toolkit==3.0.48
+psutil==6.0.0
+ptyprocess==0.7.0
+pure-eval==0.2.3
+pygments==2.20.0
+python-dateutil==2.9.0.post0
+pyzmq==26.2.0
+setuptools==84.2.1
+six==1.16.0
+stack-data==0.6.3
+tornado==6.5.10
+traitlets==5.14.3
+typing-extensions==4.12.2
+wcwidth==0.2.13
+widgetsnbextension==4.0.13

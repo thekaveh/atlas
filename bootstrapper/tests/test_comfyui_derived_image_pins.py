@@ -102,3 +102,55 @@ def test_quick_tunnels_are_off_in_the_derived_image():
     # Without it the image publishes ComfyUI, Jupyter, the portal and syncthing on public URLs.
     text = DOCKERFILE.read_text(encoding="utf-8")
     assert "ENV CF_QUICK_TUNNELS=false" in text
+
+
+# Stage 3 (#2108 residual): the AI-Dock api, jupyter, python_310 and serviceportal venvs.
+RESIDUAL_VENVS = ("api", "jupyter", "python_310", "serviceportal")
+# Reviewed pins per residual venv: the Trivy fix or the pip-audit-clean release, Python 3.10 installable.
+RESIDUAL_PINS = {
+    "api": {"starlette": "1.3.1", "aiohttp": "3.14.4", "urllib3": "2.8.0", "idna": "3.15", "pygments": "2.20.0", "tornado": "6.5.10"},
+    "jupyter": {"jupyterlab": "4.6.4", "notebook": "7.6.3", "jupyter-server": "2.21.0", "mistune": "3.3.4", "nbconvert": "7.17.2", "requests": "2.34.2", "soupsieve": "2.10", "jinja2": "3.1.6", "tornado": "6.5.10"},
+    "python_310": {"jupyter-core": "5.8.1", "setuptools": "84.2.1", "pygments": "2.20.0", "tornado": "6.5.10"},
+    "serviceportal": {"starlette": "0.52.1", "python-multipart": "0.0.31", "jinja2": "3.1.6", "idna": "3.15", "anyio": "4.14.2", "h11": "0.16.0"},
+}
+
+
+def _residual_block() -> str:
+    text = DOCKERFILE.read_text(encoding="utf-8")
+    assert text.count("# Stage 3 (#2108 residual)") == 1
+    return text.split("# Stage 3 (#2108 residual)", 1)[1]
+
+
+def _pins_of(path: Path) -> dict[str, str]:
+    pins = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        match = re.match(r"^([A-Za-z0-9_.\-]+)==(\S+)$", line.strip())
+        if match:
+            pins[match.group(1).lower().replace("_", "-")] = match.group(2)
+    return pins
+
+
+def test_residual_venv_locks_are_copied_and_installed_from_the_lock_only():
+    block = _residual_block()
+    for venv in RESIDUAL_VENVS:
+        assert f"COPY requirements-{venv}-locked.txt /opt/atlas/{venv}-venv-locked.txt" in block
+    assert "for venv in api jupyter python_310 serviceportal; do" in block
+    for venv in RESIDUAL_VENVS:
+        assert f"VIRTUAL_ENV=/opt/environments/python/{venv} uv pip install --no-cache -r /opt/atlas/{venv}-venv-locked.txt" in block
+    assert not re.search(r'"[A-Za-z0-9_.\-]+==', block), "stage 3 must not carry inline pins"
+
+
+def test_residual_venv_pip_conf_constrains_boot_time_installs_and_passes_pip_check():
+    block = _residual_block()
+    assert 'cp "/opt/atlas/${venv}-venv-locked.txt" "/opt/atlas/${venv}-venv-constraints.txt"' in block
+    assert "constraint = /opt/atlas/%s-venv-constraints.txt" in block
+    assert '> "${venv_dir}/pip.conf"' in block
+    assert '"${venv_dir}/bin/python" -m pip check' in block
+
+
+def test_residual_venv_locks_carry_the_reviewed_versions_and_no_pip():
+    for venv, expected in RESIDUAL_PINS.items():
+        pins = _pins_of(BUILD / f"requirements-{venv}-locked.txt")
+        for name, version in expected.items():
+            assert pins.get(name) == version, (venv, name, pins.get(name))
+        assert "pip" not in pins, venv

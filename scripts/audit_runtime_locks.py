@@ -165,6 +165,10 @@ AUDIT_SPECS = (
             {"torch==2.14.0+cpu", "torchvision==0.29.0+cpu"}
         ),
     ),
+    AuditSpec("services/comfyui/build/requirements-api-locked.txt"),
+    AuditSpec("services/comfyui/build/requirements-jupyter-locked.txt"),
+    AuditSpec("services/comfyui/build/requirements-python_310-locked.txt"),
+    AuditSpec("services/comfyui/build/requirements-serviceportal-locked.txt"),
 )
 
 SOURCE_SPECS: tuple[SourceSpec, ...] = ()
@@ -291,6 +295,10 @@ AUDITED_RUNTIME_MANIFESTS = frozenset(
         "services/comfyui/custom-node-locks/gguf.in",
         "services/comfyui/custom-node-locks/gguf.txt",
         "services/comfyui/build/requirements-venv311-locked.txt",
+        "services/comfyui/build/requirements-api-locked.txt",
+        "services/comfyui/build/requirements-jupyter-locked.txt",
+        "services/comfyui/build/requirements-python_310-locked.txt",
+        "services/comfyui/build/requirements-serviceportal-locked.txt",
         "services/n8n/init/config/package-lock.json",
         "services/n8n/init/config/package.json",
         "services/parakeet/provider/gpu/requirements.txt",
