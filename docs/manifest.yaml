@@ -417,6 +417,10 @@ sections:
       source: services/speech-gate/README.md
       diagrams:
       - service-speech-gate
+    - id: service-speech-gate-testdata
+      number: 5.2.63
+      title: speech-gate test set
+      source: services/speech-gate/testdata/README.md
   - id: provider-guides
     number: '5.3'
     title: Provider And Extension Guides

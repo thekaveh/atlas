@@ -166,7 +166,7 @@ _Engine-only manifests (speaches, chatterbox) are not listed — they're selecte
 | Apps & UIs | Neo4j LLM Graph Builder | 63095 | graphbuilder.localhost |
 | Apps & UIs | Open WebUI | 63096 | chat.localhost |
 | Apps & UIs | Local Deep Researcher | 63097 | research.localhost |
-| Apps & UIs | Verba | 63098 | verba.localhost |
+| Apps & UIs | Verba | — (Kong only) | verba.localhost |
 | Apps & UIs | Apache Zeppelin | 63099 | — |
 <!-- TOPOLOGY:END -->
 
