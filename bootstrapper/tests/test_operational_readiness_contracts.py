@@ -45,11 +45,11 @@ def test_provider_health_endpoints_check_runtime_dependencies() -> None:
     assert "await processor_status()" in _text(
         "services/docling/provider/shared/api_server.py"
     )
-    assert "model_is_loaded()" in _text(
+    assert "is_loaded=model_is_loaded" in _text(
         "services/parakeet/provider/shared/api_server.py"
     )
-    assert "model_lifespan(app, _model_startup)" in _text(
-        "services/parakeet/provider/shared/api_server.py"
+    assert "model_lifespan(app, model_startup)" in _text(
+        "services/parakeet/provider/transcription_api.py"
     )
 
 
@@ -65,4 +65,10 @@ def test_provider_upload_limits_are_validated_once_during_import() -> None:
         compact = "".join(source.split())
         assert f'_MAX_UPLOAD_BYTES=parse_positive_int("{variable}",' in compact
         assert source.count(f'os.getenv("{variable}"') == 0
-        assert source.count("max_bytes=_MAX_UPLOAD_BYTES") == 2
+        if relative.startswith("services/docling/"):
+            assert source.count("max_bytes=_MAX_UPLOAD_BYTES") == 2
+        else:
+            # Parakeet hands its validated limit to the shared factory.
+            assert source.count("max_upload_bytes=_MAX_UPLOAD_BYTES") == 1
+    factory = _text("services/parakeet/provider/transcription_api.py")
+    assert factory.count("max_bytes=max_upload_bytes") == 1
