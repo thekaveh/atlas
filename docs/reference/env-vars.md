@@ -1009,7 +1009,7 @@
 | TTS_PROVIDER_SCALE | tts-provider |  | Set by ./start.sh; do not edit. 1 when a container engine serves text-to-speech, else 0. The wizard uses it to colour the TTS row. |
 | TTS_ENDPOINT | tts-provider |  | Resolved per TTS_PROVIDER_SOURCE. Read by n8n and jupyterhub; hermes-init receives it as TTS_INTERNAL_URL, and Open WebUI gets derived OPEN_WEB_UI_TTS_* values. The backend receives it but does not use it. |
 | VERBA_SOURCE | verba | disabled | Deployment source for the Verba RAG UI: container or disabled (default). |
-| VERBA_PORT | verba | 63098 | Host port for the Verba UI/API (in-container 8000). |
+| VERBA_PORT | verba | 63098 | Reserved host-port slot for the Verba UI/API (in-container 8000). Not published; reach Verba through Kong at verba.localhost. |
 | VERBA_ENDPOINT | verba |  | In-network URL for Atlas services and notebooks. |
 | VERBA_SCALE | verba |  | Set by ./start.sh from VERBA_SOURCE; do not edit. 1 runs verba, 0 does not. |
 | VERBA_WEAVIATE_URL | verba |  | Resolved Weaviate URL passed to upstream WEAVIATE_URL_VERBA, which Verba reads only for its Weaviate (cloud) deployment; the default Docker deployment always dials weaviate:8080. For WEAVIATE_SOURCE=localhost pick Custom on Verba's connect screen. |
