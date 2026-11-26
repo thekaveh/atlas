@@ -165,10 +165,40 @@ AUDIT_SPECS = (
             {"torch==2.14.0+cpu", "torchvision==0.29.0+cpu"}
         ),
     ),
-    AuditSpec("services/comfyui/build/requirements-api-locked.txt"),
-    AuditSpec("services/comfyui/build/requirements-jupyter-locked.txt"),
-    AuditSpec("services/comfyui/build/requirements-python_310-locked.txt"),
-    AuditSpec("services/comfyui/build/requirements-serviceportal-locked.txt"),
+    # Residual AI-Dock venvs in the ComfyUI image (#2108). Owner-approved 2026-11-25
+    # as recommended. The fixes need Python 3.11+ (tornado 6.6+, soupsieve 4.x) or a
+    # service-portal template port (starlette 1.x returns HTTP 500 on the portal).
+    # Atlas publishes none of these ports, so exposure is in-container only.
+    AuditSpec(
+        "services/comfyui/build/requirements-api-locked.txt",
+        frozenset({"CVE-2026-115927", "CVE-2026-116577", "CVE-2026-116578", "CVE-2026-126347"}),
+        review_by=date(2027, 2, 9),
+    ),
+    AuditSpec(
+        "services/comfyui/build/requirements-jupyter-locked.txt",
+        frozenset(
+            {
+                "CVE-2026-115927",
+                "CVE-2026-116577",
+                "CVE-2026-116578",
+                "CVE-2026-126190",
+                "CVE-2026-126191",
+                "CVE-2026-126193",
+                "CVE-2026-126347",
+            }
+        ),
+        review_by=date(2027, 2, 9),
+    ),
+    AuditSpec(
+        "services/comfyui/build/requirements-python_310-locked.txt",
+        frozenset({"CVE-2026-115927", "CVE-2026-116577", "CVE-2026-116578", "CVE-2026-126347"}),
+        review_by=date(2027, 2, 9),
+    ),
+    AuditSpec(
+        "services/comfyui/build/requirements-serviceportal-locked.txt",
+        frozenset({"PYSEC-2026-161", "PYSEC-2026-2280", "PYSEC-2026-2281", "PYSEC-2026-248", "PYSEC-2026-249"}),
+        review_by=date(2027, 2, 9),
+    ),
 )
 
 SOURCE_SPECS: tuple[SourceSpec, ...] = ()
