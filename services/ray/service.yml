@@ -129,13 +129,7 @@ runtime_sc:
       scale: 1
       environment:
         NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-all}
-      deploy:
-        resources:
-          reservations:
-            devices:
-              - driver: nvidia
-                count: 1
-                capabilities: [gpu]
+      deploy: {}
       extra_hosts: []
     disabled:
       scale: 0
@@ -152,13 +146,7 @@ runtime_sc:
       scale: 1
       environment:
         NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-all}
-      deploy:
-        resources:
-          reservations:
-            devices:
-              - driver: nvidia
-                count: 1
-                capabilities: [gpu]
+      deploy: {}
       extra_hosts: []
     disabled:
       scale: 0

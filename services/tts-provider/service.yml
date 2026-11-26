@@ -100,27 +100,13 @@ runtime_sc:
       scale: 1
       environment:
         TTS_ENDPOINT: http://speaches:8000
-      deploy:
-        resources:
-          reservations:
-            devices:
-            - driver: nvidia
-              count: 1
-              capabilities:
-              - gpu
+      deploy: {}
       extra_hosts: []
     chatterbox-container-gpu:
       scale: 1
       environment:
         TTS_ENDPOINT: http://chatterbox:4123
-      deploy:
-        resources:
-          reservations:
-            devices:
-            - driver: nvidia
-              count: 1
-              capabilities:
-              - gpu
+      deploy: {}
       extra_hosts: []
     chatterbox-localhost:
       scale: 0

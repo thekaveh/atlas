@@ -699,7 +699,7 @@
 | NEO4J_LOCALHOST_BOLT_PORT | neo4j | 7687 | Host Bolt port for the neo4j-localhost source variant (driver protocol). NEO4J_URI is derived as bolt://host.docker.internal:7687. The wizard's inline-textbox edits THIS port (HTTP is overridable via .env hand-edit). |
 | NEO4J_MEMORY_LIMIT | neo4j | 2g | Memory limit for neo4j-graph-db (deploy.resources.limits.memory). 2g is conservative for a 32 GB host. Single-node dev and staging workloads typically stay well under it. |
 | NEO4J_CPU_LIMIT | neo4j | 1.5 | Container CPU limit for neo4j-graph-db (deploy.resources.limits.cpus). 1.5 cores is sufficient for single-node Bolt + HTTP query serving. |
-| NEO4J_GRAPH_DB_IMAGE | neo4j | neo4j:5.26.31 | Used as build-arg BASE_IMAGE in graph-db/Dockerfile. |
+| NEO4J_GRAPH_DB_IMAGE | neo4j | neo4j:5.26.31 | Used as build-arg BASE_IMAGE in services/neo4j/build/Dockerfile. |
 | LLM_PROVIDER_SOURCE | ollama | ollama-container-cpu | Where LiteLLM's Ollama upstream runs: ollama-container-cpu, ollama-container-gpu, ollama-localhost (host daemon) or none (cloud providers only). Also accepts auto in a consumer manifest. |
 | OLLAMA_USER_MODELS | ollama | qwen3.8:latest,nomic-embed-text,qwen3-embedding:0.6b | Comma-separated Ollama model names to activate/pull. Pre-filled by env_assembler from the catalog's default-active Ollama set (see services/ollama/models.yaml); the wizard overwrites it with the user's selection. |
 | OLLAMA_CUSTOM_MODELS | ollama |  | Free-text extra Ollama models; a consumer's model_sidecars.ollama lands here. The ollama-pull init container pulls them for container-* sources, and ./start.sh pulls them onto the host daemon for ollama-localhost. |
@@ -785,7 +785,7 @@
 | HUGGING_FACE_HUB_TOKEN | parakeet |  | Shared by parakeet, speaches, chatterbox, docling for model downloads. Consumed by ${HUGGING_FACE_HUB_TOKEN} interpolation in those services' compose blocks; owned here as its historic home. |
 | PARAKEET_GPU_SCALE | parakeet |  | Set by ./start.sh from STT_PROVIDER_SOURCE; do not edit. 1 runs the parakeet-gpu container for parakeet-container-gpu, else 0. |
 | STT_ENDPOINT | parakeet |  | Resolved per STT_PROVIDER_SOURCE. Consumed by n8n, backend, jupyterhub, open-webui, hermes-init (the latter as STT_INTERNAL_URL — owned by services/hermes/). |
-| PARAKEET_GPU_IMAGE | parakeet | nvcr.io/nvidia/pytorch:26.06-py3 | Used as BASE_IMAGE in stt-provider/gpu/Dockerfile. |
+| PARAKEET_GPU_IMAGE | parakeet | nvcr.io/nvidia/pytorch:26.06-py3 | Used as BASE_IMAGE in services/parakeet/provider/gpu/Dockerfile. |
 | PROMETHEUS_SOURCE | prometheus | disabled | Prometheus deployment source: container or disabled. Also turns the node-exporter, cAdvisor, postgres-exporter and redis-exporter sidecars on or off. |
 | PROMETHEUS_PORT | prometheus | 63006 | Host port for Prometheus's HTTP UI + API (in-container 9090). |
 | NODE_EXPORTER_PORT | prometheus | 63007 | Host port for node-exporter (in-container 9100). Host-level metrics: CPU, memory, disk, network. |
