@@ -199,7 +199,7 @@ The canonical sections are **Summary**, **Context**, **Acceptance criteria** and
 
 | Rule | Checks | Blocks |
 |---|---|---|
-| R1 | Every evidence location names a line (`#L<n>` or `path:line`), or its caption starts `whole-file:` and says why | yes |
+| R1 | Every evidence location names a line (`#L<n>` or `path:line`), including a bare file name such as `Dockerfile` or `lint.py`; an empty location fails. A location without a line passes only when its caption starts `whole-file:` and says why | yes |
 | R3 | Any `F<n>` or `FIX-<n>` in prose, other than the ticket's own ID, has an issue link right next to it | yes |
 | R2 | No generic evidence caption; each says what its location shows | no |
 | R4, R5 | No "none identified" boilerplate, and no section that restates the specification | no |

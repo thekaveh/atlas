@@ -184,6 +184,7 @@ def test_verify_cache_reports_missing_unexpected_and_changed(tmp_path):
     ("sha256", "ABC", "sha256 must be"),
     ("url", "http://fonts.example.test/a.woff2", "url must be https"),
     ("path", "fonts/a.woff2", "must live under assets/external/"),
+    ("path", "assets/external/../../../etc/hosts", "must not contain '..'"),
 ])
 def test_malformed_inventory_entries_are_rejected(field, value, message):
     entry = {
@@ -194,6 +195,14 @@ def test_malformed_inventory_entries_are_rejected(field, value, message):
     entry[field] = value
     with pytest.raises(ea.InventoryError, match=message):
         ea.parse_inventory(yaml.safe_dump({"assets": [entry]}))
+
+
+@pytest.mark.parametrize("header", ["", "cache_root: \"\"\n"])
+def test_inventory_requires_a_non_empty_cache_root(header):
+    """An empty or absent cache_root is rejected, not resolved against the working directory."""
+    text = header + "assets: []\n"
+    with pytest.raises(ea.InventoryError, match="cache_root"):
+        ea.parse_inventory(text)
 
 
 def test_every_make_target_that_runs_mkdocs_preflights_first():

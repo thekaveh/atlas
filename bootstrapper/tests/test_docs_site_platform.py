@@ -9,6 +9,7 @@ from PIL import Image
 import pytest
 import yaml
 
+from scripts.docs import check_site
 from scripts.docs.build_docs import SITE_REDIRECTS, render_mkdocs_yml
 from scripts.docs.links import find_links, is_forbidden
 from scripts.docs.manifest import load_manifest
@@ -1008,3 +1009,51 @@ def test_neo4j_documented_allocations_leave_native_memory(surface: str) -> None:
         assert 0 < initial <= heap
         assert page_cache > 0
         assert heap + page_cache < limit, (surface, heap, page_cache, limit)
+
+
+def _write_site(site: Path, pages: dict[str, str]) -> None:
+    for relative, html in pages.items():
+        target = site / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(html, encoding="utf-8")
+
+
+def test_built_site_link_check_reports_only_broken_internal_targets(tmp_path: Path) -> None:
+    site = tmp_path / "site"
+    _write_site(site, {
+        "index.html": (
+            '<a href="guide/">guide</a> <a href="/atlas/assets/logo.png">logo</a>'
+            ' <a href="https://example.com/x">external</a> <a href="#top">anchor</a>'
+            ' <a href="mailto:owner@example.com">mail</a> <a href="missing/">gone</a>'
+            ' <a href="../../etc/passwd">escape</a>'
+        ),
+        "guide/index.html": '<a href="../index.html">home</a><img src="absent.png">',
+        "assets/logo.png": "",
+    })
+
+    assert sorted(check_site.validate_built_site_links(site)) == sorted([
+        "guide/index.html -> absent.png",
+        "index.html -> ../../etc/passwd",
+        "index.html -> missing/",
+    ])
+
+
+def test_built_site_link_check_fails_an_absent_site(tmp_path: Path) -> None:
+    site = tmp_path / "site"
+
+    assert check_site.validate_built_site_links(site) == [f"{site}/index.html (site not built)"]
+
+
+def test_built_only_check_passes_a_clean_site_and_fails_a_broken_one(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "argv", ["check_site", "--built-only"])
+    _write_site(tmp_path / "site", {"index.html": '<a href="about.html">about</a>'})
+
+    with pytest.raises(SystemExit, match="index.html -> about.html"):
+        check_site.main()
+
+    _write_site(tmp_path / "site", {"about.html": "<p>about</p>"})
+    assert check_site.main() == 0
+    assert "PASS built-site local links" in capsys.readouterr().out

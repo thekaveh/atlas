@@ -56,6 +56,12 @@ _LIFECYCLES = ("proposed", "planned", "deferred", "rejected", "shipped")
 _CLOSED_LIFECYCLES = frozenset({"rejected", "shipped"})
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+# README: row `category`, candidate `category-fit`, row `generator`, kebab-case `slug`.
+_CATEGORIES = ("infra", "data", "llm", "media", "agents", "apps")
+_ROW_GENERATORS = ("phase-b-subagent", "phase-b-controller", "phase-b-hand-edit")
+_CANDIDATE_TYPE = "external-service"
+_SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+_NO_FINDINGS = "_No high-confidence opportunities identified._"
 _URL_RE = re.compile(r"https?://\S+")
 
 _WORD_CAP = 800
@@ -75,6 +81,30 @@ def _parse_frontmatter(text: str) -> tuple[dict, str] | None:
     if not isinstance(fm, dict):
         return None
     return fm, m.group(2)
+
+
+def _unfilled(value: object) -> bool:
+    """True for a template value the author never replaced, such as `<Display Name>`."""
+    if isinstance(value, str):
+        text = value.strip()
+        return text in ("", "TBD", "TODO") or (text.startswith("<") and text.endswith(">"))
+    return False
+
+
+def _unfilled_errors(path: Path, fm: dict) -> list[str]:
+    errors = []
+    for key, value in fm.items():
+        values = value if isinstance(value, list) else [value]
+        if any(_unfilled(item) for item in values):
+            errors.append(f"{path}: frontmatter `{key}` is an unfilled template placeholder")
+    return errors
+
+
+def _section_body(body: str, match: re.Match[str]) -> str:
+    """The text under a matched heading, up to the next level-one or -two heading."""
+    rest = body[match.end():]
+    following = re.search(r"(?m)^#{1,2}\s", rest)
+    return rest[: following.start()] if following else rest
 
 
 def _section_match(body: str, title: str, *, nested: bool = False) -> re.Match[str] | None:
@@ -123,6 +153,12 @@ def _validate_row(path: Path, text: str) -> list[str]:
     missing = _ROW_FRONTMATTER_KEYS - set(fm)
     if missing:
         errors.append(f"{path}: frontmatter missing key(s): {sorted(missing)}")
+    errors.extend(_unfilled_errors(path, fm))
+
+    if "category" in fm and fm["category"] not in _CATEGORIES:
+        errors.append(f"{path}: frontmatter `category` must be one of {list(_CATEGORIES)}")
+    if "generator" in fm and fm["generator"] not in _ROW_GENERATORS:
+        errors.append(f"{path}: frontmatter `generator` must be one of {list(_ROW_GENERATORS)}")
 
     if "generated" in fm and not _DATE_RE.match(str(fm.get("generated", ""))):
         errors.append(f"{path}: frontmatter `generated` must be YYYY-MM-DD")
@@ -144,6 +180,8 @@ def _validate_row(path: Path, text: str) -> list[str]:
         if idx <= last_idx:
             errors.append(f"{path}: section out of order: ## {number}. {sec}")
         last_idx = idx
+        if not _section_body(body, match).strip():
+            errors.append(f"{path}: empty section ## {number}. {sec}; use the placeholder {_NO_FINDINGS}")
 
     word_count = len(body.split())
     if word_count > _WORD_CAP:
@@ -173,6 +211,21 @@ def _validate_candidate(path: Path, text: str) -> list[str]:
     missing = _CAND_FRONTMATTER_KEYS - set(fm)
     if missing:
         errors.append(f"{path}: frontmatter missing key(s): {sorted(missing)}")
+    errors.extend(_unfilled_errors(path, fm))
+
+    if "type" in fm and fm["type"] != _CANDIDATE_TYPE:
+        errors.append(f"{path}: frontmatter `type` must be `{_CANDIDATE_TYPE}`")
+    if "category-fit" in fm and fm["category-fit"] not in _CATEGORIES:
+        errors.append(f"{path}: frontmatter `category-fit` must be one of {list(_CATEGORIES)}")
+    if "slug" in fm:
+        slug = fm["slug"]
+        if not isinstance(slug, str) or not _SLUG_RE.match(slug):
+            errors.append(f"{path}: frontmatter `slug` must be kebab-case")
+        elif path.parent.name == "candidates" and slug != path.stem:
+            # The README names candidate files candidates/<slug>.md.
+            errors.append(f"{path}: frontmatter `slug` {slug!r} must match the file name {path.stem!r}")
+    if "license" in fm and not (isinstance(fm["license"], str) and fm["license"].strip()):
+        errors.append(f"{path}: frontmatter `license` must name an SPDX identifier or \"unknown\"")
 
     if "generated" in fm and not _DATE_RE.match(str(fm.get("generated", ""))):
         errors.append(f"{path}: frontmatter `generated` must be YYYY-MM-DD")

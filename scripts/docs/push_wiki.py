@@ -97,6 +97,9 @@ def push_wiki(source: Path, remote: str, key_path: Path | None, *, push: bool) -
         )
         if diff.returncode == 0:
             return
+        # The quiet diff exits 1 only for staged changes; any other status is a git error.
+        if diff.returncode != 1:
+            raise RuntimeError(redacted_failure("wiki staged-diff check", diff.returncode))
         # The bot commit ignores a developer's commit.gpgsign and hooks: they
         # made the --check dry run fail, or wait on a signer (2026-10-08 run,
         # cycle 43).

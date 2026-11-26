@@ -69,6 +69,17 @@ def test_a_canonical_ticket_meets_the_bar() -> None:
     # Older tickets list evidence as bullets.
     (f"- [README.md]({BLOB}/README.md) — Generic contribution instruction", [("R1", True)]),
     (f"- [README.md:155]({BLOB}/README.md#L155) — Generic contribution instruction", []),
+    # Bare file names with no directory need a line too (E1-03).
+    ("| lint_review_ticket.py | the flag parser |", [("R1", True)]),
+    ("| README.md | the intro |", [("R1", True)]),
+    ("| `Dockerfile` | the pinned base |", [("R1", True)]),
+    ("| `Makefile` | the target |", [("R1", True)]),
+    ("| Dockerfile:35 | the pinned base |", []),
+    ("| `lint_review_ticket.py:12` | the rule |", []),
+    # A command that merely mentions a file name is evidence, not a location.
+    ("| `grep -c Makefile x` → 86 | the count |", []),
+    # A row with no location at all is unworkable.
+    ("|  | the caption |", [("R1", True)]),
 ])
 def test_r1_evidence_must_be_line_anchored_or_say_why_not(evidence: str, expected: list) -> None:
     assert _rules(_ticket(evidence)) == expected

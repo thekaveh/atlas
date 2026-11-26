@@ -71,10 +71,10 @@ EXCLUDED_PARTS = {
     '.git', 'bootstrapper', 'textual', '__pycache__', '.venv', 'venv',
     'tts-venv', 'site-packages', 'plans', '.mypy_cache', '.superpowers', '.kilo',
     '.claude',  # Claude Code's worktrees / scratch dirs are ephemeral, not source
-    '.Codex',  # Codex worktrees / scratch dirs are ephemeral, not source
+    '.codex', '.Codex',  # Codex worktrees / scratch dirs (.gitignore lists both spellings)
     '.audit', '.pytest_cache', 'node_modules',  # gitignored logs and caches CI never sees
 }
-EXCLUDED_FILES = {'repo-issues-report.md', 'CLAUDE.md', 'upstream-drift-report.md'}
+EXCLUDED_FILES = {'CLAUDE.md', 'upstream-drift-report.md'}
 
 LINK_RE = re.compile(r'\[[^\]]*\]\(([^)]+)\)')
 URL_RE = re.compile(r'^[a-z][a-z0-9+.-]*:', re.I)

@@ -27,7 +27,7 @@ import re
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Callable
 
 import yaml
@@ -78,6 +78,9 @@ def _entry_problem(raw: dict[str, Any]) -> str | None:
         (str(raw["url"]).startswith("https://"), "url must be https"),
         (str(raw["path"]).startswith("assets/external/"),
          "path must live under assets/external/"),
+        # A `..` segment would let a cached copy resolve outside the cache root.
+        (".." not in PurePosixPath(str(raw["path"])).parts,
+         "path must not contain '..' segments"),
     )
     return next((message for ok, message in checks if not ok), None)
 
@@ -105,7 +108,11 @@ def parse_inventory(text: str) -> Inventory:
     duplicates = sorted({path for path in paths if paths.count(path) > 1})
     if duplicates:
         raise InventoryError(f"duplicate asset paths: {', '.join(duplicates)}")
-    return Inventory(cache_root=str(data.get("cache_root") or ""), assets=assets)
+    cache_root = data.get("cache_root")
+    if not cache_root:
+        # An empty root would make the cache path relative to the working directory.
+        raise InventoryError("inventory must set a non-empty cache_root")
+    return Inventory(cache_root=str(cache_root), assets=assets)
 
 
 def load_inventory(path: Path) -> Inventory:
