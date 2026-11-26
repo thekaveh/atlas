@@ -165,6 +165,7 @@ python-multipart==0.0.32
 python-slugify==8.0.4
 pytz==2026.3.post1
 pyyaml==6.0.3
+pyyaml-ft==8.0.0
 redis==8.1.0
 redshift-connector==2.1.15
 referencing==0.37.0
