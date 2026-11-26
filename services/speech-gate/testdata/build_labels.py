@@ -52,54 +52,52 @@ def _chunks(samples: np.ndarray):
     return lambda: (samples[i : i + CHUNK] for i in range(0, len(samples), CHUNK))
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--manifest", type=Path, required=True)
-    parser.add_argument("--out", type=Path, default=HERE / "labels.jsonl")
-    args = parser.parse_args()
-
-    vad = SileroVad()
-    rng = np.random.default_rng(7)
-    manifest = [json.loads(line) for line in args.manifest.read_text().splitlines() if line.strip()]
-    conversational = [m for m in manifest if m["subset"] in ("ami", "earnings22")]
-    clips: dict[str, np.ndarray] = {}
+def _load_clips(conversational: list[dict]) -> dict[str, tuple[str, np.ndarray]]:
+    """Map clip id to ``(subset, mono samples)``, keeping manifest order."""
+    clips: dict[str, tuple[str, np.ndarray]] = {}
     for item in conversational:
         samples, _ = sf.read(item["path"], dtype="float32")
-        clips[item["id"]] = samples.mean(axis=1) if samples.ndim > 1 else samples
-    ids = list(clips)
+        mono = samples.mean(axis=1) if samples.ndim > 1 else samples
+        clips[item["id"]] = (item["subset"], mono)
+    return clips
 
-    rows: list[dict] = []
-    for clip_id in ids:
-        rows.append(
-            {
-                "clip": clip_id,
-                "subset": next(m["subset"] for m in conversational if m["id"] == clip_id),
-                "condition": "clean",
-                "snr_db": None,
-                "label": "speech",
-                "gate_speech": vad.is_speech(_chunks(clips[clip_id])),
-                "status": STATUS,
-            }
-        )
 
+def _noise_for(kind: str, rng, n: int, pool: list[np.ndarray]) -> np.ndarray:
+    if kind == "white":
+        return rng.standard_normal(n).astype(np.float32)
+    if kind == "pink":
+        return _pink(rng, n)
+    pick = rng.choice(len(pool), size=3, replace=False)
+    joined = np.concatenate([pool[p] for p in pick])
+    return np.tile(joined, int(np.ceil(n / len(joined))) + 1)[:n].astype(np.float32)
+
+
+def _clean_rows(vad, clips: dict[str, tuple[str, np.ndarray]]) -> list[dict]:
+    return [
+        {
+            "clip": clip_id,
+            "subset": subset,
+            "condition": "clean",
+            "snr_db": None,
+            "label": "speech",
+            "gate_speech": vad.is_speech(_chunks(samples)),
+            "status": STATUS,
+        }
+        for clip_id, (subset, samples) in clips.items()
+    ]
+
+
+def _mixed_rows(vad, clips: dict[str, tuple[str, np.ndarray]], rng) -> list[dict]:
+    rows = []
     for kind in NOISE_KINDS:
-        for clip_id in ids:
-            x = clips[clip_id]
-            n = len(x)
-            if kind == "white":
-                noise = rng.standard_normal(n).astype(np.float32)
-            elif kind == "pink":
-                noise = _pink(rng, n)
-            else:
-                others = [i for i in ids if i != clip_id]
-                pick = rng.choice(others, size=3, replace=False)
-                joined = np.concatenate([clips[p] for p in pick])
-                noise = np.tile(joined, int(np.ceil(n / len(joined))) + 1)[:n].astype(np.float32)
-            mixed = _mix(x, noise, SNR_DB)
+        for clip_id, (subset, samples) in clips.items():
+            pool = [other for other_id, (_, other) in clips.items() if other_id != clip_id]
+            noise = _noise_for(kind, rng, len(samples), pool)
+            mixed = _mix(samples, noise, SNR_DB)
             rows.append(
                 {
                     "clip": clip_id,
-                    "subset": next(m["subset"] for m in conversational if m["id"] == clip_id),
+                    "subset": subset,
                     "condition": f"{kind}-{SNR_DB}dB",
                     "snr_db": SNR_DB,
                     "label": "speech",
@@ -107,8 +105,11 @@ def main() -> None:
                     "status": STATUS,
                 }
             )
+    return rows
 
-    seconds = 3
+
+def _noise_only_rows(vad, rng, seconds: int) -> list[dict]:
+    rows = []
     for level in NOISE_ONLY_LEVELS_DBFS:
         for index in range(NOISE_ONLY_PER_LEVEL):
             noise = (rng.standard_normal(seconds * 16000) * 10 ** (level / 20)).astype(np.float32)
@@ -123,24 +124,52 @@ def main() -> None:
                     "status": STATUS,
                 }
             )
-    silence = np.zeros(seconds * 16000, np.float32)
-    rows.append(
-        {
-            "clip": "digital-silence-3s",
-            "subset": "synthetic",
-            "condition": "digital silence",
-            "snr_db": None,
-            "label": "non-speech",
-            "gate_speech": vad.is_speech(_chunks(silence)),
-            "status": STATUS,
-        }
-    )
+    return rows
 
-    args.out.write_text("".join(json.dumps(row, sort_keys=True) + "\n" for row in rows))
+
+def _silence_row(vad, seconds: int) -> dict:
+    silence = np.zeros(seconds * 16000, np.float32)
+    return {
+        "clip": "digital-silence-3s",
+        "subset": "synthetic",
+        "condition": "digital silence",
+        "snr_db": None,
+        "label": "non-speech",
+        "gate_speech": vad.is_speech(_chunks(silence)),
+        "status": STATUS,
+    }
+
+
+def _summary(rows: list[dict]) -> str:
     speech_rows = [r for r in rows if r["label"] == "speech"]
     missed = sum(not r["gate_speech"] for r in speech_rows)
     false_pass = sum(r["gate_speech"] for r in rows if r["label"] == "non-speech")
-    print(f"wrote {len(rows)} rows: speech {len(speech_rows)} (missed {missed}), non-speech {len(rows) - len(speech_rows)} (passed {false_pass})")
+    return (
+        f"wrote {len(rows)} rows: speech {len(speech_rows)} (missed {missed}), "
+        f"non-speech {len(rows) - len(speech_rows)} (passed {false_pass})"
+    )
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--manifest", type=Path, required=True)
+    parser.add_argument("--out", type=Path, default=HERE / "labels.jsonl")
+    args = parser.parse_args()
+
+    vad = SileroVad()
+    rng = np.random.default_rng(7)
+    manifest = [json.loads(line) for line in args.manifest.read_text().splitlines() if line.strip()]
+    conversational = [m for m in manifest if m["subset"] in ("ami", "earnings22")]
+    clips = _load_clips(conversational)
+
+    # Order matters: the shared RNG is drawn in this sequence, so the labels stay reproducible.
+    rows = _clean_rows(vad, clips)
+    rows += _mixed_rows(vad, clips, rng)
+    rows += _noise_only_rows(vad, rng, seconds=3)
+    rows.append(_silence_row(vad, seconds=3))
+
+    args.out.write_text("".join(json.dumps(row, sort_keys=True) + "\n" for row in rows))
+    print(_summary(rows))
 
 
 if __name__ == "__main__":

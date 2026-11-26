@@ -69,6 +69,54 @@ class BodySizeLimit:
             await response(scope, receive, send)
 
 
+async def _health() -> dict[str, str]:
+    return {"status": "ok"}
+
+
+async def _read_upload(request: Request):
+    """Return ``(upload, fields, response_format)``, or a 422 response for a bad form."""
+    form = await request.form(max_files=1, max_fields=64, max_part_size=64 * 1024)
+    upload = form.get("file")
+    if not isinstance(upload, UploadFile):
+        return JSONResponse({"detail": "the file field is required"}, status_code=422)
+    fields = [(key, value) for key, value in form.multi_items() if key != "file" and isinstance(value, str)]
+    response_format = dict(fields).get("response_format", "json")
+    if response_format not in RESPONSE_FORMATS:
+        return JSONResponse(
+            {"detail": f"response_format must be one of {sorted(RESPONSE_FORMATS)}"},
+            status_code=422,
+        )
+    return upload, fields, response_format
+
+
+async def _classify(vad: SileroVad, data: bytes, response_format: str) -> tuple[bool, float]:
+    """Return ``(speech, duration)``. Duration is only measured for a non-speech verbose_json reply."""
+    speech = await to_thread.run_sync(lambda: vad.is_speech(lambda: iter_mono_16k(data)))
+    duration = 0.0
+    if not speech and response_format == "verbose_json":
+        duration = await to_thread.run_sync(lambda: _duration_seconds(data))
+    return speech, duration
+
+
+async def _transcribe(request: Request) -> Response:
+    parsed = await _read_upload(request)
+    if isinstance(parsed, Response):
+        return parsed
+    upload, fields, response_format = parsed
+    data = await upload.read()
+    if len(data) > MAX_UPLOAD_BYTES:
+        return JSONResponse({"detail": "upload exceeds the size limit"}, status_code=413)
+    try:
+        speech, duration = await _classify(request.app.state.vad, data, response_format)
+    except UndecodableAudio as exc:
+        return JSONResponse({"detail": str(exc)}, status_code=400)
+    if not speech:
+        log.info("speech gate: non-speech upload of %d bytes not forwarded", len(data))
+        return _empty_transcript(response_format, duration)
+    files = {"file": (upload.filename or "audio", data, upload.content_type or "application/octet-stream")}
+    return await _forward(request, files, fields)
+
+
 def create_app(
     *,
     vad: SileroVad | None = None,
@@ -106,43 +154,8 @@ def create_app(
     app.state.upstream_url = base_url
     app.add_middleware(BodySizeLimit, max_bytes=MAX_UPLOAD_BYTES + MULTIPART_OVERHEAD_BYTES)
 
-    @app.get("/health")
-    async def health() -> dict[str, str]:
-        return {"status": "ok"}
-
-    @app.post(TRANSCRIPTIONS_PATH)
-    async def transcribe(request: Request) -> Response:
-        form = await request.form(max_files=1, max_fields=64, max_part_size=64 * 1024)
-        upload = form.get("file")
-        if not isinstance(upload, UploadFile):
-            return JSONResponse({"detail": "the file field is required"}, status_code=422)
-        fields = [(key, value) for key, value in form.multi_items() if key != "file" and isinstance(value, str)]
-        response_format = dict(fields).get("response_format", "json")
-        if response_format not in RESPONSE_FORMATS:
-            return JSONResponse(
-                {"detail": f"response_format must be one of {sorted(RESPONSE_FORMATS)}"},
-                status_code=422,
-            )
-
-        data = await upload.read()
-        if len(data) > MAX_UPLOAD_BYTES:
-            return JSONResponse({"detail": "upload exceeds the size limit"}, status_code=413)
-        duration = 0.0
-        try:
-            speech = await to_thread.run_sync(
-                lambda: app.state.vad.is_speech(lambda: iter_mono_16k(data))
-            )
-            if not speech and response_format == "verbose_json":
-                duration = await to_thread.run_sync(lambda: _duration_seconds(data))
-        except UndecodableAudio as exc:
-            return JSONResponse({"detail": str(exc)}, status_code=400)
-
-        if not speech:
-            log.info("speech gate: non-speech upload of %d bytes not forwarded", len(data))
-            return _empty_transcript(response_format, duration)
-
-        files = {"file": (upload.filename or "audio", data, upload.content_type or "application/octet-stream")}
-        return await _forward(request, files, fields)
+    app.add_api_route("/health", _health, methods=["GET"])
+    app.add_api_route(TRANSCRIPTIONS_PATH, _transcribe, methods=["POST"])
 
     return app
 
