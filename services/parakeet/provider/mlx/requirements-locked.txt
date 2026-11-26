@@ -23,8 +23,8 @@ librosa==1.0.0
 llvmlite==0.49.0
 markdown-it-py==4.2.0
 mdurl==0.1.2
-mlx==0.29.3
-mlx-metal==0.29.3
+mlx==0.29.4
+mlx-metal==0.29.4
 msgpack==1.2.3
 narwhals==2.25.0
 numba==0.67.0

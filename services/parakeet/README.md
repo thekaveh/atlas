@@ -8,7 +8,7 @@ Parakeet is an STT engine selected with `STT_PROVIDER_SOURCE`. See
 - **Image:** built locally from `provider/gpu/Dockerfile` on `nvcr.io/nvidia/pytorch:26.06-py3` (GPU only; Parakeet-TDT model)
 - **License:** model CC-BY-4.0; container base NVIDIA-DLC
 - **Activation:** `STT_PROVIDER_SOURCE=parakeet-container-gpu` (or
-  `parakeet-localhost` — Parakeet-MLX on macOS / native Linux)
+  `parakeet-localhost` — Parakeet-MLX on macOS 14 or newer, or another operator-run Parakeet server on native Linux)
 - **In-container port:** 8000
 - **Host port:** `${STT_PROVIDER_PORT}` (computed from `BASE_PORT` by the
   bootstrapper)

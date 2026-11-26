@@ -16,6 +16,8 @@ This server wraps the pinned `parakeet-mlx==0.5.2` [aligned-result API](https://
 
 ### 2.1. Install Dependencies
 
+On Apple Silicon, the locked MLX wheels require macOS 14 or later, so macOS 13 is no longer supported. On macOS 13, `pip install` finds no matching `mlx` wheel.
+
 Run these installation commands from `services/parakeet/provider/mlx`:
 
 ```bash
@@ -29,6 +31,19 @@ This installs:
 - `parakeet-mlx` - Official transcription library
 - `fastapi` - Web framework
 - `uvicorn` - ASGI server
+
+The lock pins `mlx==0.29.4`. To regenerate it, run from this directory:
+
+```bash
+MACOSX_DEPLOYMENT_TARGET=14.0 uv pip compile requirements.txt \
+  --constraint requirements-locked.txt \
+  --python-version 3.12 --python-platform aarch64-apple-darwin \
+  --no-emit-index-url --no-annotate --no-header --quiet \
+  --output-file requirements-locked.new.txt
+mv requirements-locked.new.txt requirements-locked.txt
+```
+
+The lock has no header, and `--no-header --no-annotate` keep the output byte-identical to the checker's. From the repository root, `uv run --project bootstrapper python -m scripts.check_runtime_locks` must then pass for this lock.
 
 ### 2.2. Run Server
 
