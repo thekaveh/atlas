@@ -136,17 +136,7 @@ AUDIT_SPECS = (
         ),
         review_by=date(2027, 2, 9),
     ),
-    AuditSpec(
-        "services/parakeet/provider/mlx/requirements-locked.txt",
-        # mlx==0.29.3 retains PYSEC-2025-138/PYSEC-2025-139 because the fixed
-        # 0.29.4 Python 3.12 arm64 wheels require macOS 14/15, while Atlas'
-        # aarch64-apple-darwin lock preserves its generic macOS target. Atlas
-        # calls only parakeet_mlx.from_pretrained at api_server.py:64 for the
-        # operator-configured config.json + model.safetensors; neither that path
-        # nor audio transcription calls vulnerable .npy or GGUF loaders.
-        frozenset({"PYSEC-2025-138", "PYSEC-2025-139"}),
-        review_by=date(2027, 2, 9),
-    ),
+    AuditSpec("services/parakeet/provider/mlx/requirements-locked.txt"),
     AuditSpec("bootstrapper/requirements-locked.txt"),
     AuditSpec("services/asset-baker/app/requirements-locked.txt"),
     AuditSpec("services/asset-baker/app/requirements-blender-locked.txt"),

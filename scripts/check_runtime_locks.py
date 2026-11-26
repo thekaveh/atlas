@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,6 +27,10 @@ class RuntimeLock:
     lock: str
     python_version: str
     platforms: tuple[str, ...] = ("x86_64-manylinux_2_28",)
+    # uv resolves *-apple-darwin as macOS 13 unless MACOSX_DEPLOYMENT_TARGET says
+    # otherwise. Set only where a pinned wheel needs a newer macOS; applied to
+    # the apple-darwin platforms of this lock and no other.
+    macos_target: str | None = None
 
 
 @dataclass(frozen=True)
@@ -68,6 +73,7 @@ RUNTIME_LOCKS = (
         "services/parakeet/provider/mlx/requirements-locked.txt",
         "3.12",
         ("aarch64-apple-darwin",),
+        macos_target="14.0",  # mlx 0.29.4 wheels are macosx_14_0 and newer
     ),
     RuntimeLock(
         "services/asset-baker/app/requirements.txt",
@@ -123,6 +129,9 @@ def main() -> int:
             lock = ROOT / spec.lock
             for platform in spec.platforms:
                 candidate = temporary_dir / f"{index}-{platform}.lock"
+                env = None
+                if spec.macos_target is not None and platform.endswith("-apple-darwin"):
+                    env = {**os.environ, "MACOSX_DEPLOYMENT_TARGET": spec.macos_target}
                 try:
                     result = run_bounded(
                         [
@@ -144,6 +153,7 @@ def main() -> int:
                             "--quiet",
                         ],
                         cwd=ROOT,
+                        env=env,
                         timeout_seconds=COMMAND_TIMEOUT_SECONDS,
                     )
                 except CommandTimedOut:
