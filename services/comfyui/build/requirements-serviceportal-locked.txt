@@ -1,0 +1,30 @@
+# Python 3.10.12 lock for the AI-Dock serviceportal venv (/opt/environments/python/serviceportal), #2108 residual.
+# Consumers: the service portal (main.py, listens on 11111, proxied by Caddy) and the logviewer that
+#   supervisor-comfyui.sh starts while ComfyUI waits for workspace sync.
+# Resolved with uv 0.11.19 for linux/x86_64, Python 3.10. Installed by services/comfyui/build/Dockerfile stage 3.
+# starlette stays at 0.52.1: starlette 1.0 and later reject the portal's TemplateResponse(name, context)
+#   call and return HTTP 500 on / and /login. Open advisories, fixed only in starlette 1.0.1 to 1.3.1:
+#   PYSEC-2026-161, PYSEC-2026-2280, PYSEC-2026-2281, PYSEC-2026-248, PYSEC-2026-249 (Trivy: CVE-2026-48818,
+#   CVE-2026-54283). Clearing them needs the portal and logviewer templates ported to TemplateResponse(request, name, ctx).
+annotated-doc==0.0.6
+annotated-types==0.7.0
+anyio==4.14.2
+bcrypt==4.2.0
+click==8.1.7
+exceptiongroup==1.2.2
+fastapi==0.135.1
+h11==0.16.0
+idna==3.15
+jinja-partials==0.2.1
+jinja2==3.1.6
+markupsafe==2.1.5
+pydantic==2.8.2
+pydantic-core==2.20.1
+python-multipart==0.0.31
+setuptools==84.2.1
+sniffio==1.3.1
+starlette==0.52.1
+typing-extensions==4.12.2
+typing-inspection==0.4.2
+uvicorn==0.23.0
+websockets==12.0

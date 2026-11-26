@@ -165,6 +165,40 @@ AUDIT_SPECS = (
             {"torch==2.14.0+cpu", "torchvision==0.29.0+cpu"}
         ),
     ),
+    # Residual AI-Dock venvs in the ComfyUI image (#2108). Owner-approved 2026-11-25
+    # as recommended. The fixes need Python 3.11+ (tornado 6.6+, soupsieve 4.x) or a
+    # service-portal template port (starlette 1.x returns HTTP 500 on the portal).
+    # Atlas publishes none of these ports, so exposure is in-container only.
+    AuditSpec(
+        "services/comfyui/build/requirements-api-locked.txt",
+        frozenset({"CVE-2026-115927", "CVE-2026-116577", "CVE-2026-116578", "CVE-2026-126347"}),
+        review_by=date(2027, 2, 9),
+    ),
+    AuditSpec(
+        "services/comfyui/build/requirements-jupyter-locked.txt",
+        frozenset(
+            {
+                "CVE-2026-115927",
+                "CVE-2026-116577",
+                "CVE-2026-116578",
+                "CVE-2026-126190",
+                "CVE-2026-126191",
+                "CVE-2026-126193",
+                "CVE-2026-126347",
+            }
+        ),
+        review_by=date(2027, 2, 9),
+    ),
+    AuditSpec(
+        "services/comfyui/build/requirements-python_310-locked.txt",
+        frozenset({"CVE-2026-115927", "CVE-2026-116577", "CVE-2026-116578", "CVE-2026-126347"}),
+        review_by=date(2027, 2, 9),
+    ),
+    AuditSpec(
+        "services/comfyui/build/requirements-serviceportal-locked.txt",
+        frozenset({"PYSEC-2026-161", "PYSEC-2026-2280", "PYSEC-2026-2281", "PYSEC-2026-248", "PYSEC-2026-249"}),
+        review_by=date(2027, 2, 9),
+    ),
 )
 
 SOURCE_SPECS: tuple[SourceSpec, ...] = ()
@@ -185,11 +219,9 @@ _DOCLING_LOCALHOST_PLATFORMS = (("Linux", "x86_64"), ("Linux", "aarch64"), ("Dar
 _DOCLING_LOCALHOST_MARKER_ENVIRONMENTS = {
     f"{system.lower()}-{machine}": _cpython_marker_environment(system, machine, "3.11.15")
     for system, machine in _DOCLING_LOCALHOST_PLATFORMS
-} | {
-    # soupsieve 4.x needs Python 3.11.5, so uv locks 3.11.0-3.11.4 to soupsieve 2.10.
-    f"{system.lower()}-{machine}-py3.11.4": _cpython_marker_environment(system, machine, "3.11.4")
-    for system, machine in _DOCLING_LOCALHOST_PLATFORMS
 }
+# The provider requires Python 3.11.5 (#2156 follow-up). Its lock has no 3.11.0-3.11.4
+# fork, so the py3.11.4 targets and their soupsieve exception are gone.
 UV_PROJECT_MARKER_ENVIRONMENTS: dict[str, dict[str, dict[str, str]]] = {
     "services/docling/provider/localhost": _DOCLING_LOCALHOST_MARKER_ENVIRONMENTS,
 }
@@ -210,19 +242,10 @@ UV_PROJECT_EXCEPTIONS: dict[str, tuple[frozenset[str], date]] = {
 # project path and then target label. An entry applies only to its own target,
 # so a fork that exists on some targets does not make the others stale.
 UV_TARGET_EXCEPTIONS: dict[str, dict[str, tuple[frozenset[str], date]]] = {
-    # soupsieve 3.0.2 and every 4.x release need Python 3.11.5, so the
-    # 3.11.0-3.11.4 fork keeps soupsieve 2.10. CVE-2026-126190 is fixed only in
-    # 4.0.0; CVE-2026-126191 and CVE-2026-126193 are fixed in 3.0.2. Docling
-    # accepts .html uploads, so reachability is not ruled out. Owner-approved
-    # time-boxed exception on 2026-11-14 for that fork only; re-review by
-    # 2027-02-12.
-    "services/docling/provider/localhost": {
-        f"{system.lower()}-{machine}-py3.11.4": (
-            frozenset({"CVE-2026-126190", "CVE-2026-126191", "CVE-2026-126193"}),
-            date(2027, 2, 12),
-        )
-        for system, machine in _DOCLING_LOCALHOST_PLATFORMS
-    },
+    # The Python 3.11.0-3.11.4 soupsieve fork and its owner exception (2026-11-14,
+    # CVE-2026-126190/126191/126193) are retired: the provider now requires Python
+    # 3.11.5, so soupsieve 4.1.3 resolves on every target.
+    "services/docling/provider/localhost": {},
 }
 
 NPM_PROJECTS = (
@@ -291,6 +314,10 @@ AUDITED_RUNTIME_MANIFESTS = frozenset(
         "services/comfyui/custom-node-locks/gguf.in",
         "services/comfyui/custom-node-locks/gguf.txt",
         "services/comfyui/build/requirements-venv311-locked.txt",
+        "services/comfyui/build/requirements-api-locked.txt",
+        "services/comfyui/build/requirements-jupyter-locked.txt",
+        "services/comfyui/build/requirements-python_310-locked.txt",
+        "services/comfyui/build/requirements-serviceportal-locked.txt",
         "services/n8n/init/config/package-lock.json",
         "services/n8n/init/config/package.json",
         "services/parakeet/provider/gpu/requirements.txt",
