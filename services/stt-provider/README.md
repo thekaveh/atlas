@@ -10,7 +10,7 @@ Pluggable speech-to-text layer. All backends speak the OpenAI
 | `speaches-container-cpu` (default) | Speaches → Faster-Whisper | `ghcr.io/speaches-ai/speaches:0.9.0-rc.3-cpu` | MIT | Linux + macOS Docker, CPU |
 | `speaches-container-gpu` | Speaches → Faster-Whisper | `ghcr.io/speaches-ai/speaches:0.9.0-rc.3-cuda` | MIT | Not usable yet: CUDA image, but no GPU device is attached (#1373) |
 | `parakeet-container-gpu` | NVIDIA Parakeet-TDT (NeMo) | (built from `services/parakeet/provider/gpu/Dockerfile` on `nvcr.io/nvidia/pytorch`) | Model CC-BY-4.0; container base NVIDIA-DLC | NVIDIA |
-| `parakeet-localhost` | Parakeet-MLX (Mac) or another operator-run Parakeet server | — | Model CC-BY-4.0 | macOS MLX / Linux |
+| `parakeet-localhost` | Parakeet-MLX (Mac) or another operator-run Parakeet server | — | Model CC-BY-4.0 | macOS 14+ MLX / Linux |
 | `whisper-cpp-localhost` | whisper.cpp | — (host build of `whisper-server`) | MIT | macOS Metal (Core ML optional) / Linux |
 | `disabled` | — | — | — | — |
 

@@ -11,7 +11,7 @@ can use them interchangeably.
 | `speaches-container-cpu` | Speaches (Faster-Whisper inside) | MIT | Linux + macOS Docker, CPU |
 | `speaches-container-gpu` | Speaches CUDA build | MIT | Not usable yet: no GPU device is attached (#1373) |
 | `parakeet-container-gpu` | NVIDIA Parakeet-TDT (NeMo) | Model CC-BY-4.0 | NVIDIA |
-| `parakeet-localhost` | Parakeet-MLX or another operator-run Parakeet server | Model CC-BY-4.0 | macOS MLX / Linux |
+| `parakeet-localhost` | Parakeet-MLX or another operator-run Parakeet server | Model CC-BY-4.0 | macOS 14+ MLX / Linux |
 | `whisper-cpp-localhost` | whisper.cpp | MIT | macOS Metal / Linux |
 | `disabled` | none | — | — |
 
