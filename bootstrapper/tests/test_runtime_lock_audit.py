@@ -1188,7 +1188,7 @@ _DOCLING_SHAPED_EXPORT = (
     "pywin32==311 ; sys_platform == 'win32'\n"
     "scipy==1.15.3 ; sys_platform != 'darwin'\n"
     "scipy==1.16.0 ; sys_platform == 'darwin'\n"
-    "soupsieve==4.1.1 ; python_full_version >= '3.11.5'\n"
+    "soupsieve==4.1.3 ; python_full_version >= '3.11.5'\n"
     "soupsieve==2.10 ; python_full_version < '3.11.5'\n"
 )
 # soupsieve 2.10 is the newest release a Python 3.11.0-3.11.4 target can install.
@@ -1212,9 +1212,9 @@ def test_docling_localhost_uv_audit_projects_every_supported_target(monkeypatch)
     linux = {"accelerate": "1.15.0", "nvidia-cublas": "13.1.1.3", "scipy": "1.15.3"}
     darwin = {"accelerate": "1.15.0", "scipy": "1.16.0"}
     assert captured == [
-        {**linux, "soupsieve": "4.1.1"},
-        {**linux, "soupsieve": "4.1.1"},
-        {**darwin, "soupsieve": "4.1.1"},
+        {**linux, "soupsieve": "4.1.3"},
+        {**linux, "soupsieve": "4.1.3"},
+        {**darwin, "soupsieve": "4.1.3"},
         {**linux, "soupsieve": "2.10"},
         {**linux, "soupsieve": "2.10"},
         {**darwin, "soupsieve": "2.10"},
@@ -1262,7 +1262,7 @@ def test_docling_localhost_export_selects_the_platform_scipy_branches(monkeypatc
     assert [pairs["scipy"] for pairs in captured] == [
         "1.15.3", "1.15.3", "1.16.0", "1.15.3", "1.15.3", "1.16.0",
     ]
-    assert [pairs["soupsieve"] for pairs in captured] == ["4.1.1"] * 3 + ["2.10"] * 3
+    assert [pairs["soupsieve"] for pairs in captured] == ["4.1.3"] * 3 + ["2.10"] * 3
     assert "torch" in captured[2] and "nvidia-cublas" not in captured[2]
     assert "torch" in captured[5] and "nvidia-cublas" not in captured[5]
     assert all("nvidia-cublas" in pairs for pairs in captured[:2])

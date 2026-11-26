@@ -355,13 +355,13 @@ def test_image_http_and_parser_security_floors() -> None:
         _locked_version("services/docling/provider/localhost/uv.lock", "pillow")
         == "13.0.0"
     )
-    # CVE-2026-85999 / CVE-2026-86000 fixed in 2.9.0 (#1110). soupsieve 4.1.1
+    # CVE-2026-85999 / CVE-2026-86000 fixed in 2.9.0 (#1110). soupsieve 4.1.3
     # fixes CVE-2026-126190 but needs Python 3.11.5, so 3.11.0-3.11.4 keeps 2.10.
     soupsieve_lock = tomllib.loads(_text("services/docling/provider/localhost/uv.lock"))
     assert sorted(
         row["version"] for row in soupsieve_lock["package"]
         if row["name"] == "soupsieve"
-    ) == ["2.10", "4.1.1"]
+    ) == ["2.10", "4.1.3"]
     assert (
         _locked_version(
             "services/docling/provider/localhost/uv.lock", "pydantic-settings"
