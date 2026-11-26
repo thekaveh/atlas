@@ -1044,8 +1044,9 @@ def test_final_image_scan_reports_every_failing_image_before_failing(
     )
 
     assert result.returncode == 1, result.stderr
-    # 25 contexts on amd64 and arm64, except asset-baker (amd64 only).
-    assert len(scanned) == 49
+    # 26 contexts on amd64 and arm64, except asset-baker (amd64 only): 26 * 2 - 1 = 51.
+    # services/comfyui/build (#2102) is the 26th context.
+    assert len(scanned) == 51
     assert summary.splitlines() == [
         "### Final-image findings in 2 image(s)",
         "- services/airflow/build (amd64)",
@@ -1067,7 +1068,7 @@ def test_final_image_scan_stops_at_once_when_trivy_itself_fails(
 def test_final_image_scan_passes_when_every_image_is_clean(tmp_path: Path) -> None:
     result, scanned, summary = _run_final_image_scan(tmp_path, "")
 
-    assert (result.returncode, len(scanned), summary) == (0, 49, ""), result.stderr
+    assert (result.returncode, len(scanned), summary) == (0, 51, ""), result.stderr
 
 
 # --- compose dependency lint: .env.example only, derived edges (#1389) --------
