@@ -199,6 +199,7 @@ jobs:
             "services/local-deep-researcher/build|Dockerfile" \
             "services/mcp-servers/runtime|../build/Dockerfile" \
             "services/neo4j/build|Dockerfile" \
+            "services/speech-gate|Dockerfile" \
             "services/spark/build|Dockerfile" \
             "services/zeppelin/build|Dockerfile" \
             "services/label-studio/init|Dockerfile" \

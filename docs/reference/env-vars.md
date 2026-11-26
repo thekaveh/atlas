@@ -862,6 +862,10 @@
 | SPEACHES_PORT | speaches | 63060 | Host port for the Speaches container (in-container listen port is 8000). |
 | SPEACHES_SCALE | speaches |  | Computed by bootstrapper/services/service_config.py::_generate_stt_provider_config (or _generate_tts_provider_config) — set to 1 when STT_PROVIDER_SOURCE OR TTS_PROVIDER_SOURCE picks a speaches-* variant. |
 | SPEACHES_IMAGE | speaches | ghcr.io/speaches-ai/speaches:0.9.0-rc.3-cpu | CPU build (default). When the speaches-gpu profile wins, the bootstrapper rewrites this var from SPEACHES_GPU_IMAGE at generation time. |
+| SPEECH_GATE_SOURCE | speech-gate | container | container runs the voice-activity gate in front of Speaches when STT_PROVIDER_SOURCE is speaches-container-cpu or speaches-container-gpu. disabled sends consumers straight to Speaches, with no voice-activity check. |
+| SPEECH_GATE_PORT | speech-gate | 63061 | Host port for the speech gate (in-container listen port is 8000). Consumers reach the gate on the Docker network at http://speech-gate:8000. |
+| SPEECH_GATE_SCALE | speech-gate |  | Set by _generate_speech_gate_config to 1 when SPEECH_GATE_SOURCE=container and STT_PROVIDER_SOURCE is a speaches-container-* variant, else 0. |
+| SPEECH_GATE_BASE_IMAGE | speech-gate | python:3.12.14-slim | Base image for the speech gate. Same tag as the Docling LightRAG adapter. |
 | SUPABASE_DB_SOURCE | supabase | container | Single-option (container only). Kept for forward-compat with legacy source-validator. |
 | SUPABASE_DB_PORT | supabase | 63012 | Host port for supabase-db PostgreSQL (in-container 5432), bound to HOST_BIND_IP (loopback by default). |
 | SUPABASE_DB_USER | supabase | supabase_admin | Postgres superuser name, passed to supabase-db as POSTGRES_USER and used by supabase-db-init. |
@@ -1005,7 +1009,7 @@
 | TTS_PROVIDER_SCALE | tts-provider |  | Set by ./start.sh; do not edit. 1 when a container engine serves text-to-speech, else 0. The wizard uses it to colour the TTS row. |
 | TTS_ENDPOINT | tts-provider |  | Resolved per TTS_PROVIDER_SOURCE. Read by n8n and jupyterhub; hermes-init receives it as TTS_INTERNAL_URL, and Open WebUI gets derived OPEN_WEB_UI_TTS_* values. The backend receives it but does not use it. |
 | VERBA_SOURCE | verba | disabled | Deployment source for the Verba RAG UI: container or disabled (default). |
-| VERBA_PORT | verba | 63098 | Host port for the Verba UI/API (in-container 8000). |
+| VERBA_PORT | verba | 63098 | Reserved host-port slot for the Verba UI/API (in-container 8000). Not published; reach Verba through Kong at verba.localhost. |
 | VERBA_ENDPOINT | verba |  | In-network URL for Atlas services and notebooks. |
 | VERBA_SCALE | verba |  | Set by ./start.sh from VERBA_SOURCE; do not edit. 1 runs verba, 0 does not. |
 | VERBA_WEAVIATE_URL | verba |  | Resolved Weaviate URL passed to upstream WEAVIATE_URL_VERBA, which Verba reads only for its Weaviate (cloud) deployment; the default Docker deployment always dials weaviate:8080. For WEAVIATE_SOURCE=localhost pick Custom on Verba's connect screen. |

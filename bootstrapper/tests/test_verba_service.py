@@ -157,7 +157,9 @@ def test_verba_compose_contract() -> None:
     assert service["deploy"]["replicas"] == "${VERBA_SCALE:-0}"
     assert service["depends_on"]["weaviate"]["condition"] == "service_healthy"
     assert service["depends_on"]["litellm"]["condition"] == "service_started"
-    assert service["ports"] == ["${HOST_BIND_IP-127.0.0.1:}${VERBA_PORT}:8000"]
+    # #1458: no host port. The UI/API is reachable only through the Kong route,
+    # which carries dashboard basic-auth and ACL; a published port is ungated.
+    assert "ports" not in service
     assert service["volumes"] == ["verba-data:/data"]
 
     env = service["environment"]

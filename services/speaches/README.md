@@ -58,13 +58,14 @@ _No upstream calls._
 <a id="22-current-downstream-services-that-call-this"></a>
 <a id="22-current--downstream-services-that-call-this"></a>
 
-| Service | Category |
-|---|---|
-| kong | infra |
-| hermes | agents |
-| n8n | agents |
-| jupyterhub | apps |
-| open-webui | apps |
+| Service | Category | Status |
+|---|---|---|
+| kong | infra | current |
+| speech-gate | media | optional: SPEECH_GATE_SOURCE=container and STT_PROVIDER_SOURCE=speaches-container-cpu or speaches-container-gpu |
+| hermes | agents | current |
+| n8n | agents | current |
+| jupyterhub | apps | current |
+| open-webui | apps | current |
 
 ### 3.3. Architecture diagram
 

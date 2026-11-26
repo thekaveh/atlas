@@ -103,6 +103,11 @@ RUNTIME_LOCKS = (
         "3.12",
     ),
     RuntimeLock(
+        "services/speech-gate/requirements.txt",
+        "services/speech-gate/requirements-locked.txt",
+        "3.12",
+    ),
+    RuntimeLock(
         "services/mcp-servers/runtime/requirements.txt",
         "services/mcp-servers/runtime/requirements-locked.txt",
         "3.12",

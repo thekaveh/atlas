@@ -143,6 +143,7 @@ AUDIT_SPECS = (
     AuditSpec("services/asset-worker/app/requirements-locked.txt"),
     AuditSpec("services/docling/provider/gpu/requirements-locked.txt"),
     AuditSpec("services/docling/provider/adapter/requirements-locked.txt"),
+    AuditSpec("services/speech-gate/requirements-locked.txt"),
     AuditSpec("services/mcp-servers/runtime/requirements-locked.txt"),
     AuditSpec(
         "services/backend/app/app/requirements-test-locked.txt",
@@ -258,7 +259,7 @@ NPM_PROJECTS = (
 # entry that stops matching a live finding fails as stale. npm audit reports
 # each advisory as a GitHub advisory URL, so entries are GHSA ids.
 NPM_PROJECT_EXCEPTIONS: dict[str, tuple[frozenset[str], date]] = {
-    # zod 3.25.76 (GHSA-mrhx-c7xc-m3w5, fixed in 4.6.6): n8n-workflow 2.48.3
+    # zod 3.25.76 (GHSA-mrhx-c7xc-m3w5, fixed in 4.6.6): n8n-workflow 2.49.1
     # resolves @n8n/expression-runtime 0.39.3, which pins it exactly, as 0.38.0
     # under n8n-workflow 2.47.0 did (rechecked 2026-11-22). Reachability through
     # the community nodes is NOT proven; the owner approved a time-boxed
@@ -301,6 +302,8 @@ AUDITED_RUNTIME_MANIFESTS = frozenset(
         "services/jupyterhub/build/requirements-locked.txt",
         "services/mlflow/build/requirements.txt",
         "services/mlflow/build/requirements-locked.txt",
+        "services/speech-gate/requirements.txt",
+        "services/speech-gate/requirements-locked.txt",
         "services/local-deep-researcher/build/config/runtime-requirements.lock",
         "services/local-deep-researcher/locks/runtime-pyproject.toml",
         "services/local-deep-researcher/locks/runtime.uv.lock",

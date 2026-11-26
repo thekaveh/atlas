@@ -1,0 +1,7 @@
+av==19.0.2
+fastapi==0.141.1
+httpx2==2.12.0
+numpy==2.5.5
+onnxruntime==1.32.0
+python-multipart==0.0.32
+uvicorn==0.51.0

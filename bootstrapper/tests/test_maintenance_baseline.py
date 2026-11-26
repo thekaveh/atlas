@@ -31,7 +31,8 @@ EXPECTED_BASELINE_SNAPSHOT = {
     # #2111 (license gate) attributes the speech weight catalogue.
     # #2108 (ComfyUI Python 3.11) attributes the audited 3.11 lock.
     # #2108 (residual venvs) attributes the four audited AI-Dock venv locks.
-    "tracked_files": 1712,
+    # #2148 (speech gate) attributes the twenty-two speech-gate additions.
+    "tracked_files": 1734,
     "v0.1.0_tracked_files": 667,
 }
 EXPECTED_EXTENDED_PYTHON_SNAPSHOT = {

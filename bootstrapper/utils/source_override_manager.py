@@ -29,6 +29,7 @@ class SourceOverrideManager:
             'asset_worker_source': 'ASSET_WORKER_SOURCE',
             'asset_baker_source': 'ASSET_BAKER_SOURCE',
             'fal_source': 'FAL_SOURCE',
+            'speech_gate_source': 'SPEECH_GATE_SOURCE',
             'weaviate_source': 'WEAVIATE_SOURCE',
             'minio_source': 'MINIO_SOURCE',
             'n8n_source': 'N8N_SOURCE',

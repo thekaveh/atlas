@@ -662,6 +662,12 @@ images:
   upstream: Speaches 0.9.0-rc.3
   license: MIT
   url: https://github.com/speaches-ai/speaches/blob/24f209c90218187747a9205f0b84bc06b42ce775/LICENSE
+- service: speech-gate
+  var: SPEECH_GATE_BASE_IMAGE
+  image: python:3.12.14-slim
+  upstream: Python 3.12.14 (build base)
+  license: PSF-2.0
+  url: https://github.com/python/cpython/blob/2abcf904b8dac8c999d2b3aac76681abb333798a/LICENSE
 - service: supabase
   var: SUPABASE_DB_IMAGE
   image: supabase/postgres:17.6.1.139

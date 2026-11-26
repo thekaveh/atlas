@@ -1,0 +1,106 @@
+# services/speech-gate/service.yml — voice-activity gate in front of Speaches
+#
+# Each transcription upload passes the pinned Silero VAD rule first. Speech is
+# forwarded to Speaches unchanged. Silence and non-speech return an empty
+# transcript and Speaches is not called. Speaches returned "Teksting av Nicolai
+# Winther" for three seconds of digital silence (2026-11-25), so the gate sits
+# in front of Speaches only. Speaches itself is unchanged.
+#
+# The gate runs when SPEECH_GATE_SOURCE=container and STT_PROVIDER_SOURCE selects a
+# speaches-container-* variant. Then STT_ENDPOINT points at the gate
+# (bootstrapper/services/service_config.py::_generate_stt_provider_config).
+name: speech-gate
+label: "Speech gate (voice-activity check)"
+category: media
+docs: services/speech-gate/README.md
+
+capabilities:
+  - name: "Voice-activity check before transcription"
+    status: partial
+    verification: tested
+    note: "Silence and non-speech uploads return an empty transcript without calling Speaches. The check is the combined Silero rule at threshold 0.5 (raw or peak-normalised clip). Its decisions match the noisy-VAD bench for the noise conditions measured, but the real-audio threshold is not yet validated (see testdata/README.md)."
+  - name: "Pinned Silero model"
+    status: supported
+    verification: tested
+    note: "The bundled Silero VAD ONNX is checked against its sha256 at startup, and the container refuses to start on a mismatch."
+  - name: "Speaches transcription pass-through"
+    status: partial
+    verification: tested
+    note: "Only POST /v1/audio/transcriptions is proxied. The Authorization header passes to Speaches, which still enforces its own API key. TTS and the other Speaches routes are not gated and not proxied."
+
+containers:
+  - speech-gate
+
+images:
+  - var: SPEECH_GATE_BASE_IMAGE
+    default: "python:3.12.14-slim"
+    container: speech-gate
+    notes: "Base image for the speech gate. Same tag as the Docling LightRAG adapter."
+
+sources:
+  var: SPEECH_GATE_SOURCE
+  default: container
+  options:
+    - id: container
+      label: "Container (gate in front of Speaches)"
+    - id: disabled
+      label: "Disabled (consumers call Speaches directly)"
+
+env:
+  - name: SPEECH_GATE_SOURCE
+    default: container
+    description: "container runs the voice-activity gate in front of Speaches when STT_PROVIDER_SOURCE is speaches-container-cpu or speaches-container-gpu. disabled sends consumers straight to Speaches, with no voice-activity check."
+  - name: SPEECH_GATE_PORT
+    # default computed by services/topology.py slot allocator
+    description: "Host port for the speech gate (in-container listen port is 8000). Consumers reach the gate on the Docker network at http://speech-gate:8000."
+  - name: SPEECH_GATE_SCALE
+    auto_managed: true
+    description: "Set by _generate_speech_gate_config to 1 when SPEECH_GATE_SOURCE=container and STT_PROVIDER_SOURCE is a speaches-container-* variant, else 0."
+
+# Required edge to speaches. It is a real runtime dependency, because the gate
+# forwards to Speaches. It also pins the gate after the last media row in the
+# port allocator, so no existing service port moves (services/topology.py).
+depends_on:
+  required:
+    - speaches
+  optional: []
+
+exports: []
+
+rows:
+  - display_name: "Speech Gate"
+    source_var: SPEECH_GATE_SOURCE
+    port_var: SPEECH_GATE_PORT
+    scale_var: SPEECH_GATE_SCALE
+    description: "Voice-activity check in front of Speaches transcription."
+
+# The gate's own runtime slice. _generate_speech_gate_config sets the scale from
+# STT_PROVIDER_SOURCE and SPEECH_GATE_SOURCE; the STT_ENDPOINT rewrite lives in
+# _generate_stt_provider_config.
+runtime_sc:
+  speech-gate:
+    container:
+      scale: 0   # placeholder: _generate_speech_gate_config overwrites
+      environment: {}
+      deploy: {}
+      extra_hosts: []
+    disabled:
+      scale: 0
+      environment: {}
+      deploy: {}
+      extra_hosts: []
+
+data_flow:
+  calls:
+    - target: speaches
+      status: optional
+      condition: SPEECH_GATE_SOURCE=container and STT_PROVIDER_SOURCE=speaches-container-cpu or speaches-container-gpu
+      evidence: services/speech-gate/speech_gate/main.py
+
+# Support tier (#1050). Selectable is not validated: this family is `experimental`
+# until a cited cold-start, workflow, and upgrade qualification run promotes it.
+support:
+  tier: experimental
+  evidence: "Capability contract declared; the rule matches the noisy-VAD bench, and the live check passed on 2026-11-25. No cold-start or upgrade qualification run yet."
+  evidence_revision: v0.1.0
+  owner: Atlas maintainers

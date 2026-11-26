@@ -11,8 +11,9 @@ services:
         condition: service_healthy
       litellm:
         condition: service_started
-    ports:
-      - "${HOST_BIND_IP-127.0.0.1:}${VERBA_PORT}:8000"
+    # No host port: the UI/API is reached only through the Kong route
+    # (verba.localhost, dashboard basic-auth + ACL). A published port would be
+    # ungated and reachable by any web page in the operator's browser (#1458).
     environment:
       # No `:-` default: WEAVIATE_URL is auto-managed and the weaviate
       # manifest blanks it for `disabled`. `${VAR:-x}` substitutes on EMPTY,

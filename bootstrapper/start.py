@@ -2482,6 +2482,7 @@ class AtlasStarter:
             'STT_PROVIDER_PORT',
             'TTS_PROVIDER_PORT',
             'SPEACHES_PORT',
+            'SPEECH_GATE_PORT',
             'CHATTERBOX_PORT',
             'OPENCLAW_GATEWAY_PORT',
             'OPENCLAW_BRIDGE_PORT',
@@ -7771,6 +7772,9 @@ def _key_from_option(value, key_file, flag):
 @click.option('--fal-source',
               type=click.Choice(['enabled', 'disabled'], case_sensitive=False),
               help='Override FAL_SOURCE — cloud media provider for backend generation routes.')
+@click.option('--speech-gate-source',
+              type=click.Choice(['container', 'disabled'], case_sensitive=False),
+              help='Override SPEECH_GATE_SOURCE — container puts the voice-activity gate in front of Speaches; disabled sends consumers straight to Speaches.')
 @click.option('--weaviate-source',
               type=click.Choice(['container', 'localhost', 'disabled'], case_sensitive=False),
               help='Override WEAVIATE_SOURCE')
@@ -7981,7 +7985,7 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
          crawl4ai_source, tika_source, llm_graph_builder_source,
          celery_source, supavisor_source, mcp_servers_source, blender_mcp_source,
          jupyterhub_source, open_web_ui_source, local_deep_researcher_source,
-         stt_provider_source, tts_provider_source,
+         stt_provider_source, tts_provider_source, speech_gate_source,
          doc_processor_source, openclaw_source, hermes_source,
          lightrag_source, tei_reranker_source,
          vllm_metal_source,
@@ -8095,6 +8099,7 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
                     'open_web_ui_source': open_web_ui_source,
                     'local_deep_researcher_source': local_deep_researcher_source,
                     'stt_provider_source': stt_provider_source,
+                    'speech_gate_source': speech_gate_source,
                     'tts_provider_source': tts_provider_source,
                     'doc_processor_source': doc_processor_source,
                     'openclaw_source': openclaw_source,
@@ -8366,6 +8371,7 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
             'open_web_ui_source': open_web_ui_source,
             'local_deep_researcher_source': local_deep_researcher_source,
             'stt_provider_source': stt_provider_source,
+            'speech_gate_source': speech_gate_source,
             'tts_provider_source': tts_provider_source,
             'doc_processor_source': doc_processor_source,
             'openclaw_source': openclaw_source,

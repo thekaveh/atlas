@@ -37,13 +37,13 @@
   <img alt="Langfuse: tracing" src="https://img.shields.io/badge/Langfuse-tracing-FF7E29">
 </p>
 
-Atlas is a self-hosted engineering platform that bundles 58 service families behind a Kong gateway and an adaptive FastAPI backend. They cover LLM inference and a gateway, vector and graph databases, workflow and DAG automation, distributed compute, object storage, notebooks, and observability.
+Atlas is a self-hosted engineering platform that bundles 59 service families behind a Kong gateway and an adaptive FastAPI backend. They cover LLM inference and a gateway, vector and graph databases, workflow and DAG automation, distributed compute, object storage, notebooks, and observability.
 
 The services are integrated, not only co-located. Kong routes every `*.localhost` host, and LiteLLM puts local and cloud models behind one API. The backend connects to whichever vector, graph, workflow and media services you enable. Supabase supplies the shared database, storage and API identity.
 
 <a id="2-at-a-glance"></a>
 
-- **58 service families across 7 tracks**. Only configurable services belong to tracks, and tracks can overlap. A track preselects the services for one workload. The tracks are Generative AI · RAG, Generative AI · Engineering, Generative AI · Creative, ML Engineering, Data Engineering, Trading / Financial Research, and All / Custom. See [Tracks](docs/tracks.md).
+- **59 service families across 7 tracks**. Only configurable services belong to tracks, and tracks can overlap. A track preselects the services for one workload. The tracks are Generative AI · RAG, Generative AI · Engineering, Generative AI · Creative, ML Engineering, Data Engineering, Trading / Financial Research, and All / Custom. See [Tracks](docs/tracks.md).
 - **Core services**. The always-on core is Kong, Supabase, Redis, LiteLLM and the Backend API.
 - **Per-service SOURCE**. Each configurable service runs in a container, uses an instance on your host, or is disabled. The variants differ by family; see the [SOURCE Configuration Guide](docs/operations/source-configuration.md).
 - **Ports**. Every host port derives from one `BASE_PORT` (default `63000`). Both profiles bind published ports to loopback unless you set `HOST_BIND_IP`. See [Ports and Routes](docs/operations/ports-and-routes.md) and [Access and Credentials](docs/operations/access-and-credentials.md).
@@ -148,6 +148,7 @@ _Engine-only manifests (speaches, chatterbox) are not listed — they're selecte
 | Media | SearxNG | 63056 | search.localhost |
 | Media | Apache Tika | 63057 | tika.localhost |
 | Media | TTS Provider | 63058 | tts.localhost |
+| Media | Speech Gate | 63061 | — |
 | Agents & Workflows | Apache Airflow | 63070 | airflow.localhost |
 | Agents & Workflows | Celery Worker | — | — |
 | Agents & Workflows | Flower | 63071 | flower.localhost |

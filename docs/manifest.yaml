@@ -411,6 +411,12 @@ sections:
       source: services/zeppelin/README.md
       diagrams:
       - service-zeppelin
+    - id: service-speech-gate
+      number: 5.2.62
+      title: speech-gate
+      source: services/speech-gate/README.md
+      diagrams:
+      - service-speech-gate
   - id: provider-guides
     number: '5.3'
     title: Provider And Extension Guides
@@ -810,3 +816,5 @@ diagrams:
   master: services/weaviate/architecture.html
 - id: service-zeppelin
   master: services/zeppelin/architecture.html
+- id: service-speech-gate
+  master: services/speech-gate/architecture.html
