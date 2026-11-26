@@ -6,9 +6,18 @@ import re
 import sys
 import time
 import glob
-import jwt
 import requests
 import psycopg2
+
+from register_helpers import (
+    api_reachable,
+    artifact_exists,
+    create_artifact,
+    fetch_admin_row,
+    make_token,
+    parse_docstring_header,
+    update_artifact,
+)
 
 # Force line-buffered stdout so the init container's progress prints
 # reach `docker logs` immediately even when stdout is pipe-attached
@@ -38,16 +47,10 @@ def wait_for_webui():
     """Wait until Open WebUI API is reachable."""
     print("open-webui-init: Waiting for Open WebUI to be ready...")
     for attempt in range(1, MAX_RETRIES + 1):
-        try:
-            resp = requests.get(f"{WEBUI_URL}/api/v1/tools/", timeout=5)
-            # 401 (not authenticated) also means the service is up
-            if resp.status_code in (200, 401, 403):
-                print("open-webui-init: Open WebUI is ready")
-                return True
-        except requests.exceptions.ConnectionError:
-            pass
-        except requests.exceptions.Timeout:
-            pass
+        # 401 (not authenticated) also means the service is up
+        if api_reachable(WEBUI_URL, "/api/v1/tools/"):
+            print("open-webui-init: Open WebUI is ready")
+            return True
         print(f"open-webui-init: Waiting for Open WebUI (attempt {attempt}/{MAX_RETRIES})...")
         time.sleep(RETRY_INTERVAL)
     print("open-webui-init: ERROR - Open WebUI not available after max retries")
@@ -84,19 +87,11 @@ def get_admin_user_id():
     """Query the database for the admin user ID, creating one if needed."""
     print("open-webui-init: Looking for admin user in database...")
     for attempt in range(1, MAX_RETRIES + 1):
-        conn = None
-        cursor = None
+        # fetch_admin_row sets connect_timeout=5 and closes the connection on
+        # every path, including the error path (restart loops would otherwise
+        # leak one connection per attempt).
         try:
-            # connect_timeout caps the TCP-handshake stage so a stalled
-            # DB host doesn't push each attempt to the ~75s OS-level
-            # connect timeout — the 60-attempt loop would otherwise
-            # balloon past an hour worst-case.
-            conn = psycopg2.connect(DATABASE_URL, connect_timeout=5)
-            cursor = conn.cursor()
-            cursor.execute(
-                "SELECT id FROM public.\"user\" WHERE role = 'admin' LIMIT 1"
-            )
-            row = cursor.fetchone()
+            row = fetch_admin_row(DATABASE_URL)
             if row:
                 admin_id = row[0]
                 print(f"open-webui-init: Found admin user: {admin_id}")
@@ -105,14 +100,6 @@ def get_admin_user_id():
             print(f"open-webui-init: Database query failed: {e}")
             time.sleep(RETRY_INTERVAL)
             continue
-        finally:
-            # Close on every iteration, including the error path that
-            # bypassed the post-fetch cleanup — restart-loop scenarios
-            # would otherwise leak one connection per attempt.
-            if cursor is not None:
-                cursor.close()
-            if conn is not None:
-                conn.close()
 
         # No admin exists — try to create one via signup API
         admin_id = create_admin_user()
@@ -198,70 +185,24 @@ def install_backend_user_sync():
     print("open-webui-init: Backend owner synchronization ready")
 
 
-def generate_token(admin_id):
-    """Generate a JWT for the admin user."""
-    payload = {"id": admin_id, "exp": int(time.time()) + 3600}
-    return jwt.encode(payload, WEBUI_SECRET_KEY, algorithm="HS256")
-
-
 def parse_tool_metadata(content):
     """Extract title and description from the tool's docstring header."""
-    metadata = {}
-    # Match the triple-quoted docstring at the top of the file
-    match = re.search(r'^"""(.*?)"""', content, re.DOTALL)
-    if match:
-        docstring = match.group(1)
-        for line in docstring.strip().splitlines():
-            line = line.strip()
-            if line.startswith("title:"):
-                metadata["title"] = line.split(":", 1)[1].strip()
-            elif line.startswith("description:"):
-                metadata["description"] = line.split(":", 1)[1].strip()
-    return metadata
+    return parse_docstring_header(content, ("title", "description"))
 
 
 def tool_exists(tool_id, headers):
     """Check if a tool already exists in Open WebUI."""
-    resp = requests.get(
-        f"{WEBUI_URL}/api/v1/tools/id/{tool_id}", headers=headers, timeout=10
-    )
-    return resp.status_code == 200
+    return artifact_exists(WEBUI_URL, "tools", tool_id, headers)
 
 
 def create_tool(tool_id, name, content, description, headers):
     """Create a new tool via the API."""
-    payload = {
-        "id": tool_id,
-        "name": name,
-        "content": content,
-        "meta": {"description": description},
-    }
-    resp = requests.post(
-        f"{WEBUI_URL}/api/v1/tools/create",
-        json=payload,
-        headers=headers,
-        timeout=30,
-    )
-    resp.raise_for_status()
-    return resp.json()
+    return create_artifact(WEBUI_URL, "tools", tool_id, name, content, description, headers)
 
 
 def update_tool(tool_id, name, content, description, headers):
     """Update an existing tool via the API."""
-    payload = {
-        "id": tool_id,
-        "name": name,
-        "content": content,
-        "meta": {"description": description},
-    }
-    resp = requests.post(
-        f"{WEBUI_URL}/api/v1/tools/id/{tool_id}/update",
-        json=payload,
-        headers=headers,
-        timeout=30,
-    )
-    resp.raise_for_status()
-    return resp.json()
+    return update_artifact(WEBUI_URL, "tools", tool_id, name, content, description, headers)
 
 
 def register_tools(token):
@@ -320,7 +261,7 @@ def main():
         print("open-webui-init: ERROR - No admin user found. Cannot register tools.")
         sys.exit(1)
 
-    token = generate_token(admin_id)
+    token = make_token(admin_id, WEBUI_SECRET_KEY)
 
     # Verify token works
     resp = requests.get(
