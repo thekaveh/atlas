@@ -54,6 +54,7 @@ The start-order column comes from each manifest's `depends_on.required`. It orde
 | searxng | redis | - | - |
 | spark | minio | supabase, iceberg-rest, redpanda | minio, iceberg-rest, redpanda |
 | speaches | parakeet, tts-provider | - | - |
+| speech-gate | speaches | - | speaches (optional: SPEECH_GATE_SOURCE=container and STT_PROVIDER_SOURCE=speaches-container-cpu or speaches-container-gpu) |
 | stt-provider | - | - | - |
 | supabase | - | - | - |
 | supavisor | supabase | backend, n8n, celery | supabase |

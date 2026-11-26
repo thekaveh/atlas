@@ -4134,6 +4134,53 @@ services:
     networks:
       backend-network: null
     restart: unless-stopped
+  speech-gate:
+    build:
+      args:
+        BASE_IMAGE: python:3.12.14-slim
+      context: '{REPO_ROOT}/services/speech-gate'
+      dockerfile: Dockerfile
+    cap_drop:
+    - ALL
+    container_name: atlas-speech-gate
+    deploy:
+      replicas: 0
+    environment:
+      SPEECH_GATE_UPSTREAM_URL: http://speaches:8000
+    healthcheck:
+      interval: 30s
+      retries: 3
+      start_period: 10s
+      test:
+      - CMD
+      - python
+      - -c
+      - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health',
+        timeout=3)
+      timeout: 5s
+    image: atlas-speech-gate:local
+    labels:
+      com.atlas.category: ai
+      com.atlas.service: speech-gate
+    logging:
+      driver: json-file
+      options:
+        max-file: '3'
+        max-size: 10m
+    networks:
+      backend-network: null
+    ports:
+    - host_ip: 127.0.0.1
+      mode: ingress
+      protocol: tcp
+      published: '63061'
+      target: 8000
+    read_only: true
+    restart: unless-stopped
+    security_opt:
+    - no-new-privileges:true
+    tmpfs:
+    - /tmp:size=64m,mode=1777
   supabase-api:
     container_name: atlas-supabase-api
     depends_on:

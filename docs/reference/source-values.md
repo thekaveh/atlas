@@ -53,6 +53,7 @@
 | REDPANDA_SOURCE | redpanda | disabled | container, disabled |
 | SEARXNG_SOURCE | searxng | container | container, disabled |
 | SPARK_SOURCE | spark | disabled | container, disabled |
+| SPEECH_GATE_SOURCE | speech-gate | container | container, disabled |
 | SUPABASE_DB_SOURCE | supabase | container | container |
 | SUPABASE_DB_INIT_SOURCE | supabase | container | container |
 | SUPABASE_META_SOURCE | supabase | container | container, disabled |
