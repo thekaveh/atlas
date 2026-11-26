@@ -454,16 +454,6 @@ def _runtime_audit_spec(lock: str) -> audit_runtime_locks.AuditSpec:
             "PYSEC-2026-4221",
             "hydra-core==1.3.2",
         ),
-        (
-            "services/parakeet/provider/mlx/requirements-locked.txt",
-            "PYSEC-2025-138",
-            "mlx==0.29.3",
-        ),
-        (
-            "services/parakeet/provider/mlx/requirements-locked.txt",
-            "PYSEC-2025-139",
-            "mlx==0.29.3",
-        ),
     ),
 )
 def test_each_current_reviewed_advisory_names_its_exact_installed_version(
@@ -625,38 +615,27 @@ def test_parakeet_gpu_transformers_advisories_are_fixed_not_reviewed() -> None:
     assert "cuda-toolkit==13.0.3.0" in lock
 
 
-def test_parakeet_mlx_advisory_review_records_incompatible_fixed_wheel() -> None:
+def test_parakeet_mlx_lock_takes_fixed_mlx_without_an_exception() -> None:
     root = Path(audit_runtime_locks.__file__).parents[1]
     lock_path = "services/parakeet/provider/mlx/requirements-locked.txt"
     spec = _runtime_audit_spec(lock_path)
     requirements = (root / "services/parakeet/provider/mlx/requirements.txt").read_text(
         encoding="utf-8"
     )
-    provider = (root / "services/parakeet/provider/mlx/api_server.py").read_text(
-        encoding="utf-8"
-    )
     lock = (root / lock_path).read_text(encoding="utf-8")
 
-    assert spec.reviewed_advisories == frozenset(
-        {"PYSEC-2025-138", "PYSEC-2025-139"}
-    )
-    assert spec.review_by == date(2027, 2, 9)
-    assert "mlx==0.29.3" in lock
+    assert spec.reviewed_advisories == frozenset()
+    assert spec.review_by is None
+    assert "mlx==0.29.4" in lock
+    assert "mlx-metal==0.29.4" in lock
+    assert "mlx==0.29.3" not in lock
     for evidence in (
-        "mlx==0.29.3",
         "mlx 0.29.4",
-        "macOS 14/15",
-        "aarch64-apple-darwin",
-        "api_server.py:64",
-        "parakeet_mlx.from_pretrained",
-        "model.safetensors",
-        "mlx.core.load (.npy)",
-        "load_gguf",
-        "audio-only request path",
+        "mlx>=0.29.4",
+        "macOS 14",
+        "MACOSX_DEPLOYMENT_TARGET=14.0",
     ):
         assert evidence in requirements
-    assert "model = from_pretrained(model_name)" in provider
-    assert provider.splitlines()[63].strip() == "model = from_pretrained(model_name)"
 
 
 def test_jupyterhub_runtime_lock_is_checked_for_both_linux_architectures() -> None:
@@ -851,6 +830,7 @@ def test_bootstrapper_and_parakeet_mlx_runtime_locks_are_drift_checked() -> None
         and spec.lock
         == "services/parakeet/provider/mlx/requirements-locked.txt"
         and spec.platforms == ("aarch64-apple-darwin",)
+        and spec.macos_target == "14.0"
         for spec in check_runtime_locks.RUNTIME_LOCKS
     )
 
