@@ -169,6 +169,12 @@ AUDIT_SPECS = (
     AuditSpec("services/comfyui/custom-node-locks/instantid.txt"),
     AuditSpec("services/comfyui/custom-node-locks/gguf.txt"),
     AuditSpec("services/comfyui/custom-node-locks/certifi-overlay.txt"),
+    AuditSpec(
+        "services/comfyui/build/requirements-venv311-locked.txt",
+        reviewed_local_versions=frozenset(
+            {"torch==2.14.0+cpu", "torchvision==0.29.0+cpu"}
+        ),
+    ),
 )
 
 SOURCE_SPECS: tuple[SourceSpec, ...] = ()
@@ -294,6 +300,7 @@ AUDITED_RUNTIME_MANIFESTS = frozenset(
         "services/comfyui/custom-node-locks/instantid.txt",
         "services/comfyui/custom-node-locks/gguf.in",
         "services/comfyui/custom-node-locks/gguf.txt",
+        "services/comfyui/build/requirements-venv311-locked.txt",
         "services/n8n/init/config/package-lock.json",
         "services/n8n/init/config/package.json",
         "services/parakeet/provider/gpu/requirements.txt",

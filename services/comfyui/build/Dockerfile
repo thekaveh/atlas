@@ -46,21 +46,34 @@ RUN apt-get update \
       echo "emSign ECC Root CA - G3 is still linked in /etc/ssl/certs" >&2; exit 1; \
     fi
 
-# Stage 2 (#2108): bump the ComfyUI venv packages to their Trivy fixed versions. The base
-# image's venv is Python 3.10, so pillow, rembg and soupsieve stop at their newest Python
-# 3.10 releases. Their remaining fixes need Python 3.11 or later and stay on the ticket.
-RUN /opt/environments/python/comfyui/bin/python -m pip install --no-cache-dir \
-      "GitPython==3.2.1" "PyJWT==2.14.0" "aiohttp==3.14.4" "anyio==4.14.2" \
-      "certifi==2026.10.19" "cryptography==50.0.0" "fsspec==2026.6.0" "h11==0.16.0" \
-      "jaraco.context==6.1.0" "jupyter_core==5.8.1" "oauthlib==4.0.1" "opencv-python==4.8.1.78" \
-      "pillow==12.3.0" "wheel==0.46.2" \
-      "protobuf==6.33.5" "rembg==2.0.69" "sentencepiece==0.2.1" "setuptools==78.1.1" \
-      "soupsieve==2.10" "starlette==1.3.1" "tornado==6.5.9" "transformers==5.10.0" \
-      "urllib3==2.8.0" "torch==2.10.0+cpu" "torchvision==0.25.0+cpu" "torchaudio==2.10.0+cpu" \
-      --extra-index-url https://download.pytorch.org/whl/cpu \
+# Stage 2 (#2108): rebuild the ComfyUI venv on Python 3.11.15 from the audited lock. The
+# ai-dock base ships only Python 3.10, and its pins left pillow, rembg, soupsieve, tornado
+# and PyJWT with Trivy findings whose fixes need Python 3.11 or later. The lock
+# (requirements-venv311-locked.txt, CPU torch index) drops torchaudio, transparent-background,
+# flet, flet-runtime and matrix-client; the #2108 ticket records that trade-off.
+# uv downloads Python from its standalone builds. The uv binary itself is pinned by sha256.
+ARG UV_VERSION=0.11.19
+ARG UV_SHA256=7035608168e106375b36d0c818d537a889c51a8625fe7f8f7cad5e62b947c368
+ARG COMFYUI_PYTHON=3.11.15
+ENV UV_PYTHON_INSTALL_DIR=/opt/atlas/python
+COPY requirements-venv311-locked.txt /opt/atlas/comfyui-venv311-locked.txt
+RUN curl -fsSL -o /tmp/uv.tar.gz "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-x86_64-unknown-linux-gnu.tar.gz" \
+ && echo "${UV_SHA256}  /tmp/uv.tar.gz" | sha256sum -c - \
+ && tar -xzf /tmp/uv.tar.gz -C /usr/local/bin --strip-components=1 uv-x86_64-unknown-linux-gnu/uv \
+ && rm -f /tmp/uv.tar.gz \
+ && uv python install "${COMFYUI_PYTHON}" \
+ && rm -rf /opt/environments/python/comfyui \
+ && uv venv --seed --python "${COMFYUI_PYTHON}" /opt/environments/python/comfyui \
+ && VIRTUAL_ENV=/opt/environments/python/comfyui UV_INDEX_STRATEGY=unsafe-best-match \
+    uv pip install --no-cache --extra-index-url https://download.pytorch.org/whl/cpu \
+      -r /opt/atlas/comfyui-venv311-locked.txt -c /opt/atlas/comfyui-venv311-locked.txt \
+ && cp /opt/atlas/comfyui-venv311-locked.txt /opt/atlas/comfyui-venv311-constraints.txt \
+ && printf 'torchaudio<0\n' >> /opt/atlas/comfyui-venv311-constraints.txt \
+ && printf '[global]\nconstraint = /opt/atlas/comfyui-venv311-constraints.txt\n' > /opt/environments/python/comfyui/pip.conf \
  && if /opt/environments/python/comfyui/bin/python -c 'import certifi, sys; sys.exit(0 if b"emSign ECC Root CA - G3" in open(certifi.where(), "rb").read() else 1)'; then \
       echo "emSign ECC Root CA - G3 is still in the ComfyUI environment certifi" >&2; exit 1; \
-    fi
+    fi \
+ && rm -rf /root/.cache/uv
 
 # ai-dock starts Cloudflare quick tunnels for ComfyUI, Jupyter, the service portal and
 # syncthing unless CF_QUICK_TUNNELS=false. Atlas's ENABLE_QUICKTUNNEL flag is not read by
