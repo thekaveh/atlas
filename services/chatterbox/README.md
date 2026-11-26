@@ -14,6 +14,8 @@ Chatterbox is a TTS engine selected with `TTS_PROVIDER_SOURCE`. See
 - **Host port:** `${CHATTERBOX_PORT}` (computed from `BASE_PORT` by the
   bootstrapper)
 
+- **Status:** frozen (decision 2026-11-25, #1458). No tested replacement exists in Atlas. Retire the service after a candidate passes the same tests. The pinned revision has no CORS or auth hook. The port binds to 127.0.0.1 by default (`HOST_BIND_IP`).
+
 ## 2. Capabilities & limitations
 
 <a id="3-capabilities-limitations"></a>

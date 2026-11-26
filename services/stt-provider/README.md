@@ -23,6 +23,8 @@ wins and the bootstrapper prints a notice.
 > it runs on CPU or fails CUDA initialisation. Use `speaches-container-cpu`, or
 > `parakeet-container-gpu` for GPU transcription.
 
+**Recommended on macOS hosts (decision 2026-11-25).** `parakeet-localhost` (Parakeet-MLX) is the recommended transcription engine on Apple Silicon. It ties Qwen3-ASR-1.7B for the best result on the 297 conversational clips we scored, and whisper large-v3-turbo scored lower. The container default stays `speaches-container-cpu`, because Parakeet has no CPU container path. The voice-activity gate threshold stays at 0.5. Gate placement is tracked in #2148.
+
 ## 2. Engine comparison
 
 Speaches is the portable container option. Parakeet has NVIDIA and Apple
