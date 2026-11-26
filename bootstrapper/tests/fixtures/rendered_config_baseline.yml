@@ -3757,7 +3757,7 @@ services:
     - --kafka-addr
     - internal://0.0.0.0:9092,external://0.0.0.0:19092
     - --advertise-kafka-addr
-    - internal://redpanda:9092,external://localhost:63010
+    - internal://redpanda:9092,external://127.0.0.1:63010
     - --rpc-addr
     - redpanda:33145
     - --advertise-rpc-addr
@@ -3849,7 +3849,7 @@ services:
   searxng:
     container_name: atlas-searxng
     deploy:
-      replicas: 1
+      replicas: 0
     environment:
       FORCE_OWNERSHIP: 'false'
       SEARXNG_BASE_URL: http://localhost:63056
@@ -4579,7 +4579,7 @@ services:
     - /bin/sh
     - -c
     - /app/bin/migrate && /app/bin/supavisor eval "$$(cat /etc/pooler/pooler.exs)"
-      && /app/bin/server
+      && exec /app/bin/server
     container_name: atlas-supavisor
     depends_on:
       supabase-db-init:

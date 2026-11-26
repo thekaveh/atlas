@@ -28,6 +28,6 @@ COPY speech_gate /app/speech_gate
 
 USER speech-gate
 EXPOSE 8000
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-  CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+# The healthcheck is defined only in compose.yml; compose overrides any image
+# HEALTHCHECK, so a copy here could only drift from it.
 CMD ["python", "-m", "uvicorn", "speech_gate.main:app", "--host", "0.0.0.0", "--port", "8000"]
