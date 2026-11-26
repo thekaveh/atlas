@@ -985,3 +985,10 @@ def test_s3a_smoke_kills_runner_that_never_publishes_readiness(
     for pid in map(int, pid_log.read_text(encoding="utf-8").splitlines()):
         assert _wait_for_exit(pid), f"runner {pid} survived the S3A smoke"
     assert not list(runner_tmp.glob("atlas-s3a-ready.*"))
+
+
+def test_s3a_probe_verdict_is_an_explicit_check_not_a_stripped_assert():
+    """`assert` is removed under `python -O`; the round-trip verdict must always run (E1-13)."""
+    probe = S3A_PROBE.read_text(encoding="utf-8")
+    assert "assert rows ==" not in probe
+    assert 'raise SystemExit(f"S3A round-trip mismatch' in probe

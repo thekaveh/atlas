@@ -16,7 +16,9 @@ def main() -> None:
         rows = sorted(
             (row.id, row.value) for row in spark.read.parquet(target).collect()
         )
-        assert rows == expected, f"S3A round-trip mismatch: {rows!r}"
+        if rows != expected:
+            # An explicit check: `assert` is stripped under `python -O`.
+            raise SystemExit(f"S3A round-trip mismatch: {rows!r}")
     finally:
         spark.stop()
 

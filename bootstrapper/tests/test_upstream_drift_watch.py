@@ -722,6 +722,92 @@ def test_probe_curated_models_reports_each_non_success_catalog_entry(monkeypatch
     assert "ok:latest" not in result.detail
 
 
+def _digest_reply(returncode: int, stderr: str = "", stdout: str = "") -> subprocess.CompletedProcess:
+    return subprocess.CompletedProcess(["docker"], returncode, stdout, stderr)
+
+
+def test_registry_throttle_is_retried_with_bounded_backoff(monkeypatch):
+    """A throttled imagetools reply is retried; the third attempt's digest is used (E1-09)."""
+    digest = "sha256:" + "a" * 64
+    replies = [
+        _digest_reply(1, stderr="toomanyrequests: rate limit exceeded"),
+        _digest_reply(1, stderr="toomanyrequests: rate limit exceeded"),
+        _digest_reply(0, stdout=f"Digest: {digest}\n"),
+    ]
+    calls, sleeps = [], []
+    monkeypatch.setattr(watch.subprocess, "run", lambda command, **_kw: (calls.append(command), replies.pop(0))[1])
+    monkeypatch.setattr(watch.time, "sleep", sleeps.append)
+
+    assert watch._resolve_image_digest("ghcr.io/example/app:1", 5.0) == (digest, None)
+    assert len(calls) == 3
+    assert sleeps == [watch._REGISTRY_BACKOFF_SECONDS, watch._REGISTRY_BACKOFF_SECONDS * 2]
+
+
+def test_registry_throttle_gives_up_after_the_bounded_attempts(monkeypatch):
+    calls, sleeps = [], []
+    monkeypatch.setattr(
+        watch.subprocess, "run",
+        lambda command, **_kw: (calls.append(command), _digest_reply(1, stderr="429 Too Many Requests"))[1],
+    )
+    monkeypatch.setattr(watch.time, "sleep", sleeps.append)
+
+    digest, failure = watch._resolve_image_digest("ghcr.io/example/app:1", 5.0)
+    assert digest is None
+    assert "exit 1" in failure
+    assert len(calls) == watch._REGISTRY_ATTEMPTS
+    assert len(sleeps) == watch._REGISTRY_ATTEMPTS - 1
+
+
+def test_a_non_throttle_inspect_failure_is_not_retried(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        watch.subprocess, "run",
+        lambda command, **_kw: (calls.append(command), _digest_reply(1, stderr="manifest unknown"))[1],
+    )
+    monkeypatch.setattr(watch.time, "sleep", lambda _s: pytest.fail("slept"))
+
+    assert watch._resolve_image_digest("ghcr.io/example/app:1", 5.0)[0] is None
+    assert len(calls) == 1
+
+
+def test_curated_model_probe_retries_a_throttled_page_then_passes(monkeypatch):
+    from urllib.error import HTTPError
+
+    attempts, sleeps = [], []
+
+    def _open(request, *, timeout):
+        attempts.append(request.full_url)
+        if len(attempts) < 3:
+            raise HTTPError(request.full_url, 429, "Too Many Requests", {}, None)
+        return _HttpResponse(b"", status=200)
+
+    monkeypatch.setattr(watch.urllib.request, "urlopen", _open)
+    monkeypatch.setattr(watch.time, "sleep", sleeps.append)
+
+    result = watch.probe_curated_models(("gemma:latest",), timeout=1.5)
+    assert result.ok is True
+    assert len(attempts) == 3
+    assert sleeps == [watch._REGISTRY_BACKOFF_SECONDS, watch._REGISTRY_BACKOFF_SECONDS * 2]
+
+
+def test_curated_model_probe_does_not_retry_a_missing_page(monkeypatch):
+    from urllib.error import HTTPError
+
+    attempts = []
+
+    def _open(request, *, timeout):
+        attempts.append(request.full_url)
+        raise HTTPError(request.full_url, 404, "Not Found", {}, None)
+
+    monkeypatch.setattr(watch.urllib.request, "urlopen", _open)
+    monkeypatch.setattr(watch.time, "sleep", lambda _s: pytest.fail("slept"))
+
+    result = watch.probe_curated_models(("missing:latest",), timeout=1.5)
+    assert result.ok is False
+    assert "missing:latest" in result.detail
+    assert len(attempts) == 1
+
+
 def _write_fake_docker(tmp_path: Path, body: str) -> None:
     docker = tmp_path / "docker"
     docker.write_text(f"#!/bin/sh\n{body}\n", encoding="utf-8")

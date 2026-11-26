@@ -1133,3 +1133,13 @@ def test_zeppelin_trims_unused_plugins_and_pins_its_server_jar_swaps() -> None:
             if match:
                 prefixes.add(match.group(1))
     assert prefixes and not prefixes & set(ZEPPELIN_REMOVED_INTERPRETERS)
+
+
+def test_digest_pin_rule_matches_the_drift_watch_digest_rule() -> None:
+    """Both gates accept only lowercase sha256 hex (E1-18)."""
+    lower = "sha256:" + "a" * 64
+    upper = "sha256:" + "A" * 64
+    assert image_reference_is_pinned(f"ghcr.io/example/app@{lower}")
+    assert not image_reference_is_pinned(f"ghcr.io/example/app@{upper}")
+    assert watch._IMAGE_DIGEST.match(lower)
+    assert watch._IMAGE_DIGEST.match(upper) is None

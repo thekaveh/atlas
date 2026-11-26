@@ -73,7 +73,8 @@ _PINNED_IMAGE_TAGS = (
     re.compile(r"^\d{2}\.\d{2}-py\d+$"),
     re.compile(r"^.+[-_]v?\d+\.\d+\.\d+$"),
 )
-_DIGEST_PIN = re.compile(r"@sha256:[0-9a-fA-F]{64}$")
+# Lowercase only, as OCI digests are and as upstream_drift_watch accepts (E1-18).
+_DIGEST_PIN = re.compile(r"@sha256:[0-9a-f]{64}$")
 _EXACT_IMAGE_RELEASES = (
     re.compile(r"^postgres:\d+\.\d+-alpine$"),
     re.compile(r"^trinodb/trino:\d+$"),
