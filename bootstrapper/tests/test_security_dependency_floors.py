@@ -356,12 +356,13 @@ def test_image_http_and_parser_security_floors() -> None:
         == "13.0.0"
     )
     # CVE-2026-85999 / CVE-2026-86000 fixed in 2.9.0 (#1110). soupsieve 4.1.3
-    # fixes CVE-2026-126190 but needs Python 3.11.5, so 3.11.0-3.11.4 keeps 2.10.
+    # fixes CVE-2026-126190; the provider requires Python 3.11.5, so the lock has
+    # no 3.11.0-3.11.4 fork and holds 4.1.3 alone.
     soupsieve_lock = tomllib.loads(_text("services/docling/provider/localhost/uv.lock"))
     assert sorted(
         row["version"] for row in soupsieve_lock["package"]
         if row["name"] == "soupsieve"
-    ) == ["2.10", "4.1.3"]
+    ) == ["4.1.3"]
     assert (
         _locked_version(
             "services/docling/provider/localhost/uv.lock", "pydantic-settings"
@@ -499,13 +500,13 @@ def test_docling_slim_and_gpu_transformers_floor(mode) -> None:
 def test_docling_filelock_floor_covers_supported_python() -> None:
     base = "services/docling/provider/localhost"
     project = tomllib.loads(_text(f"{base}/pyproject.toml"))["project"]
-    assert project["requires-python"] == ">=3.11"
+    assert project["requires-python"] == ">=3.11.5"
     matching = _requirements_named(project["dependencies"], "filelock")
     assert len(matching) == 1, "Missing filelock security floor"
     requirement = matching[0]
     assert requirement.marker is None
     assert all(Version(python_version) in SpecifierSet(project["requires-python"])
-               for python_version in ("3.11", "3.12", "3.13"))
+               for python_version in ("3.11.5", "3.12", "3.13"))
     assert str(requirement.specifier) == ">=4.2.1"
     gpu = _text("services/docling/provider/gpu/requirements.txt")
     assert "\nfilelock>=4.2.1\n" in gpu
@@ -522,20 +523,18 @@ def test_docling_filelock_lock_covers_supported_python(python_version) -> None:
     assert Version(selected[0]) >= Version("4.2.1")
 
 
-@pytest.mark.parametrize(("python_version", "platform", "expected"), (
-    ("3.13", "darwin", "1.16.0"),
-    ("3.11", "darwin", "1.16.0"),
-    ("3.12", "darwin", "1.16.0"),
-    ("3.11", "linux", "1.15.3"),
-    ("3.12", "linux", "1.15.3"),
-    ("3.12", "win32", "1.15.3"),
+@pytest.mark.parametrize(("python_version", "platform"), (
+    ("3.13", "darwin"),
+    ("3.11", "darwin"),
+    ("3.12", "darwin"),
+    ("3.11", "linux"),
+    ("3.12", "linux"),
+    ("3.12", "win32"),
 ))
-def test_docling_native_scipy_floor_is_platform_scoped(
-    python_version, platform, expected,
-) -> None:
+def test_docling_native_scipy_floor_is_platform_scoped(python_version, platform) -> None:
     base = "services/docling/provider/localhost"
     project = tomllib.loads(_text(f"{base}/pyproject.toml"))["project"]
-    assert project["requires-python"] == ">=3.11"
+    assert project["requires-python"] == ">=3.11.5"
     matching = _requirements_named(project["dependencies"], "scipy")
     assert len(matching) == 1, "Missing native SciPy compatibility floor"
     requirement = matching[0]
@@ -543,9 +542,11 @@ def test_docling_native_scipy_floor_is_platform_scoped(
                    "python_full_version": f"{python_version}.0", "sys_platform": platform}
     assert str(requirement.specifier) == ">=1.16.0"
     assert requirement.marker is not None
-    assert requirement.marker.evaluate(environment) == (expected == "1.16.0")
+    # The floor itself still applies on darwin only. The lock resolves SciPy 1.16.0
+    # on every platform, so the selection below is the same for each one.
+    assert requirement.marker.evaluate(environment) == (platform == "darwin")
     selected = _uv_versions_for_environment(f"{base}/uv.lock", "scipy", environment)
-    assert selected == [expected]
+    assert selected == ["1.16.0"]
 
 
 def test_jupyter_binary_ml_stack_uses_supported_security_baseline() -> None:
