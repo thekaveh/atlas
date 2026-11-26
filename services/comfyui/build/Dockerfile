@@ -75,6 +75,30 @@ RUN curl -fsSL -o /tmp/uv.tar.gz "https://github.com/astral-sh/uv/releases/downl
     fi \
  && rm -rf /root/.cache/uv
 
+# Stage 3 (#2108 residual): the AI-Dock api, jupyter, python_310 and serviceportal venvs stay on
+# Python 3.10 and install from their audited locks. Trivy flagged tornado, starlette, aiohttp,
+# anyio, h11, the Jupyter server and notebook stack, python-multipart, setuptools, urllib3,
+# jupyter_core, idna, pygments and jinja2 in them. Each lock header lists the advisories it
+# leaves open and why: tornado and soupsieve fixes need Python 3.11, and the portal's starlette
+# stays below 1.0 because its templates break on 1.x. Each venv gets a pip.conf that constrains
+# boot-time pip installs to its own lock, and every venv must pass pip check at build time.
+COPY requirements-api-locked.txt /opt/atlas/api-venv-locked.txt
+COPY requirements-jupyter-locked.txt /opt/atlas/jupyter-venv-locked.txt
+COPY requirements-python_310-locked.txt /opt/atlas/python_310-venv-locked.txt
+COPY requirements-serviceportal-locked.txt /opt/atlas/serviceportal-venv-locked.txt
+RUN set -e; \
+    VIRTUAL_ENV=/opt/environments/python/api uv pip install --no-cache -r /opt/atlas/api-venv-locked.txt -c /opt/atlas/api-venv-locked.txt; \
+    VIRTUAL_ENV=/opt/environments/python/jupyter uv pip install --no-cache -r /opt/atlas/jupyter-venv-locked.txt -c /opt/atlas/jupyter-venv-locked.txt; \
+    VIRTUAL_ENV=/opt/environments/python/python_310 uv pip install --no-cache -r /opt/atlas/python_310-venv-locked.txt -c /opt/atlas/python_310-venv-locked.txt; \
+    VIRTUAL_ENV=/opt/environments/python/serviceportal uv pip install --no-cache -r /opt/atlas/serviceportal-venv-locked.txt -c /opt/atlas/serviceportal-venv-locked.txt; \
+    for venv in api jupyter python_310 serviceportal; do \
+      venv_dir="/opt/environments/python/${venv}"; \
+      cp "/opt/atlas/${venv}-venv-locked.txt" "/opt/atlas/${venv}-venv-constraints.txt"; \
+      printf '[global]\nconstraint = /opt/atlas/%s-venv-constraints.txt\n' "${venv}" > "${venv_dir}/pip.conf"; \
+      "${venv_dir}/bin/python" -m pip check; \
+    done \
+ && rm -rf /root/.cache/uv
+
 # ai-dock starts Cloudflare quick tunnels for ComfyUI, Jupyter, the service portal and
 # syncthing unless CF_QUICK_TUNNELS=false. Atlas's ENABLE_QUICKTUNNEL flag is not read by
 # this base, so the tunnels published those services on public trycloudflare.com URLs

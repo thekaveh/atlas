@@ -2,7 +2,7 @@
 name = "atlas-doc-processor-localhost"
 version = "1.0.0"
 description = "Atlas - Docling Document Processor localhost server"
-requires-python = ">=3.11"
+requires-python = ">=3.11.5"
 dependencies = [
     "docling==2.142.0",
     "fastapi>=0.115.6",
