@@ -45,6 +45,7 @@ Generated summary of model-backed service port variables and Kong aliases. For b
 | searxng | media | `SEARXNG_PORT` | `search.localhost` |
 | spark | data | `SPARK_MASTER_UI_PORT`, `SPARK_HISTORY_PORT` | `spark.localhost`, `spark-history.localhost` |
 | speaches | media | `SPEACHES_PORT` | `-` |
+| speech-gate | media | `SPEECH_GATE_PORT` | `-` |
 | supabase | data | `SUPABASE_DB_PORT`, `POSTGRES_EXPORTER_PORT`, `SUPABASE_META_PORT`, `SUPABASE_STORAGE_PORT`, `SUPABASE_AUTH_PORT`, `SUPABASE_API_PORT`, `SUPABASE_REALTIME_PORT`, `SUPABASE_STUDIO_PORT` | `supabase-studio.localhost` |
 | tei-reranker | llm | `TEI_RERANKER_PORT`, `TEI_RERANKER_LOCALHOST_PORT` | `rerank.localhost` |
 | tika | media | `TIKA_PORT`, `TIKA_LOCALHOST_PORT` | `tika.localhost` |

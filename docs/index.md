@@ -7,7 +7,7 @@
     <div class="atlas-home__copy">
       <p class="atlas-kicker">A self-hosted, pre-integrated gen-AI, ML, and data platform — one Docker Compose stack</p>
       <p>Chat, RAG, agents, distributed compute, and a full data platform — integrated services, each selectable among the deployment modes it supports.</p>
-      <p>Atlas is a self-hosted engineering platform that bundles 58 service families behind a Kong gateway and an adaptive FastAPI backend. They cover LLM inference and a gateway, vector and graph databases, workflow and DAG automation, distributed compute, object storage, notebooks, and observability.</p>
+      <p>Atlas is a self-hosted engineering platform that bundles 59 service families behind a Kong gateway and an adaptive FastAPI backend. They cover LLM inference and a gateway, vector and graph databases, workflow and DAG automation, distributed compute, object storage, notebooks, and observability.</p>
       <p>Seven tracks preselect coherent service families, while SOURCE modes choose container, localhost, or disabled operation where supported. Kong, Supabase, Redis, LiteLLM, and the Backend API form the always-on core, so every selected workload starts from the same integrated foundation.</p>
       <p>The launch wizard also offers the dev or prod profiles, then shows the launch summary.</p>
       <div class="atlas-home__actions">
@@ -24,7 +24,7 @@
 
 ## 1. Capabilities
 
-Atlas organizes 58 service families. Its configurable services are grouped into 7 tracks, which can overlap. Each track preselects a working subset for one class of workload. The wizard prompts for in-track services and force-disables the rest.
+Atlas organizes 59 service families. Its configurable services are grouped into 7 tracks, which can overlap. Each track preselects a working subset for one class of workload. The wizard prompts for in-track services and force-disables the rest.
 
 <div class="atlas-home__grid" markdown="1">
 

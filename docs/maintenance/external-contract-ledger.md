@@ -795,3 +795,18 @@ No advisory exceptions were added.
 | Integration point | Pinned/configured version | Latest/status check | Contract checked | Evidence / disposition |
 |---|---|---|---|---|
 | Residual AI-Dock venvs (`api`, `jupyter`, `python_310`, `serviceportal`) in `services/comfyui/build` | Four audited Python 3.10 locks (`requirements-{api,jupyter,python_310,serviceportal}-locked.txt`). starlette 0.52.1, tornado 6.5.10, soupsieve 2.10, jupyter-server 2.21.0 and others as in the locks. | Trivy HIGH/CRITICAL, `--ignore-unfixed`: 233 to 166 unique; Python 72 to 5. | Each venv passes `pip check`. Portal `/`, `/login`; API `/docs`; Jupyter `/api/status`; ComfyUI `/system_stats` return 200. | Owner-approved exceptions to 2027-02-09 for 4, 7, 4 and 5 findings. Open: tornado and soupsieve need Python 3.11; starlette 1.x breaks the portal templates; setuptools 70.3.0 sits in the base layer. The `python_310` kernel protocol fails on develop too, so it predates this change. |
+
+## 43. 2026-11-26 speech gate in front of Speaches (#2148)
+
+| Integration point | Pinned/configured version | Latest/status check | Contract checked | Evidence / disposition |
+|---|---|---|---|---|
+| Silero VAD model in `services/speech-gate/model` | ONNX, sha256 `f6f4407b41e05e277e7f5cfd9b9ae957b1dfe763c6076a934734c0b448e09b31`, checked at load. Redistributed in the repo (2.2 MB). | Silero VAD is MIT-licensed upstream. | The model hash is verified before the server binds. | Owner-approved design, #2148. |
+| Speech gate base image | `python:3.12.14-slim` (PSF-2.0) | Image pinned by tag in the Dockerfile. | Image scanned by the final-image scan (27 contexts, 53 images). | Added to the license inventory. |
+| Speech gate labels | 1,221 rows built from the v2 manifest. Speech 1,200, missed 19 at threshold 0.5. Non-speech 21, passed 0. | `build_labels.py` reproduces the committed file byte-for-byte after its refactor. | Labels are marked `pending-owner-review`. | Owner review pending. Threshold stays at 0.5 until the labels are reviewed. |
+| Live check | Silence: HTTP 200, empty text. Speech: transcribed. | Run against the stack's Speaches through a throwaway gate. Torn down afterwards. | Stack containers untouched. | Passed. |
+
+## 44. 2026-11-26 Verba host port removed (#1458)
+
+| Integration point | Pinned/configured version | Latest/status check | Contract checked | Evidence / disposition |
+|---|---|---|---|---|
+| Verba host port (`services/verba/compose.yml`) | Image digest unchanged (`verba@sha256:0947d289…`). | Upstream websocket skips the same-origin check and honours a client `rag_config` URL (#1458). | Host publish removed. Kong route `verba.localhost` only, with basic-auth and ACL. | `test_verba_publishes_no_host_port` and `test_verba_compose_contract` guard it. The pinned digest's behaviour is taken from the issue, not run here. Scoped LiteLLM key tracked in #1377. |

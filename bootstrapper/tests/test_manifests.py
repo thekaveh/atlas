@@ -1202,7 +1202,7 @@ def test_all_manifests_have_capabilities_and_agents_apps_meet_quality_floor():
     )
 
 
-def test_repository_has_exactly_58_nonempty_unique_capability_contracts():
+def test_repository_has_exactly_59_nonempty_unique_capability_contracts():
     repo_root = Path(__file__).resolve().parent.parent.parent
     manifests = load_manifests(repo_root / "services")
 
@@ -1216,7 +1216,7 @@ def test_repository_has_exactly_58_nonempty_unique_capability_contracts():
         len({manifest.name for manifest in manifests}),
         sorted(m.name for m in manifests if not m.capabilities),
         duplicate_names,
-    ) == (58, 58, [], {})
+    ) == (59, 59, [], {})
 
 
 def test_comfyui_ingress_contract_matches_compose_and_kong_boundaries():

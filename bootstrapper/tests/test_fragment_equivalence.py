@@ -374,6 +374,15 @@ def test_published_ports_default_to_loopback_and_allow_explicit_remote_bind() ->
         remote_env.unlink(missing_ok=True)
 
 
+def test_verba_publishes_no_host_port() -> None:
+    """#1458: the rendered Verba service has no host port. Its UI/API is
+    reached only through the Kong route (dashboard basic-auth + ACL), so a
+    published port would be an ungated path from any web page."""
+    verba = _render(COMPOSE)["services"]["verba"]
+
+    assert not verba.get("ports")
+
+
 def test_a_disabled_supabase_subservice_starts_no_container(monkeypatch):
     """SUPABASE_*_SOURCE=disabled was documented but wired to nothing, and
     Kong / Realtime hard-depended on every sub-service (#1462)."""

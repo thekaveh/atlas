@@ -1,0 +1,46 @@
+# services/speech-gate/compose.yml — voice-activity gate in front of Speaches
+#
+# Consumers (Open WebUI, n8n, Hermes, JupyterHub, Backend) reach the gate through
+# STT_ENDPOINT on backend-network. The gate forwards speech to speaches:8000 and
+# answers non-speech itself. Scale is set by _generate_speech_gate_config.
+services:
+  speech-gate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        BASE_IMAGE: ${SPEECH_GATE_BASE_IMAGE:-python:3.12.14-slim}
+    image: ${PROJECT_NAME}-speech-gate:local
+    container_name: ${PROJECT_NAME}-speech-gate
+    restart: unless-stopped
+    deploy:
+      replicas: ${SPEECH_GATE_SCALE:-0}
+    environment:
+      SPEECH_GATE_UPSTREAM_URL: http://speaches:8000
+    ports:
+      # Fallback must match the slot-allocator value in .env.example
+      # (SPEECH_GATE_PORT=63061). It applies only when the .env line is missing.
+      - "${HOST_BIND_IP:-127.0.0.1:}${SPEECH_GATE_PORT:-63061}:8000"
+    networks:
+      - backend-network
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "${LOG_MAX_SIZE:-10m}"
+        max-file: "${LOG_MAX_FILE:-3}"
+    labels:
+      - "com.${PROJECT_NAME}.service=speech-gate"
+      - "com.${PROJECT_NAME}.category=ai"
