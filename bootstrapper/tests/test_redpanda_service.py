@@ -109,7 +109,7 @@ def test_redpanda_compose_and_topic_init_contract() -> None:
     assert "--kafka-addr" in command
     assert "internal://0.0.0.0:9092,external://0.0.0.0:19092" in command
     assert "--advertise-kafka-addr" in command
-    assert "internal://redpanda:9092,external://localhost:${REDPANDA_KAFKA_PORT}" in command
+    assert "internal://redpanda:9092,external://${HOST_BIND_IP:-127.0.0.1:}${REDPANDA_KAFKA_PORT}" in command
     assert "--mode" in command and "dev-container" in command
 
     assert init["image"] == "${REDPANDA_IMAGE:-docker.redpanda.com/redpandadata/redpanda:v26.1.12}"

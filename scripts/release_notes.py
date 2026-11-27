@@ -335,7 +335,11 @@ def load_overrides(path: Path | None) -> dict[int, dict[str, str]]:
             raise ValueError(f"override for {key!r} may only set bucket and subject")
         if value.get("bucket") not in (None, *BUCKETS):
             raise ValueError(f"override for {key!r} names an unknown bucket")
-        overrides[int(key)] = {k: str(v) for k, v in value.items()}
+        pr = int(key)
+        # 509 and "509" both name PR 509; a silent overwrite would drop one correction.
+        if pr in overrides:
+            raise ValueError(f"duplicate override for PR {pr}: {key!r} collides with an earlier key")
+        overrides[pr] = {k: str(v) for k, v in value.items()}
     return overrides
 
 

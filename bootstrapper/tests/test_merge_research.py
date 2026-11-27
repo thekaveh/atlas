@@ -189,8 +189,7 @@ def test_cli_check_exits_2_on_drift(tmp_path):
 
 def test_emitted_frontmatter_round_trips_values_yaml_would_misread():
     """Unquoted, `Dagster #2` lost `#2` on the next parse and `a: b` made the
-    file unparseable; plain values keep their unquoted spelling (2026-10-08
-    run, cycle 43)."""
+    file unparseable; plain values keep their unquoted spelling."""
     import yaml
 
     from docs.merge_research import _emit_frontmatter
@@ -266,3 +265,50 @@ def test_public_decisions_fail_clearly_on_unparseable_opt_in(tmp_path):
     })
     with pytest.raises(ValueError, match="public-one.md.*public-summary.*unparseable"):
         load_public_decisions(root)
+
+
+def test_merge_refuses_a_duplicate_candidate_slug_before_writing(tmp_path):
+    from docs.merge_research import run_merge
+
+    cand = (FIXTURE_DIR / "example_candidate.md").read_text()
+    root = _build_research_tree(tmp_path, rows={}, candidates={"first": cand, "second": cand})
+
+    with pytest.raises(ValueError, match="duplicate candidate slug 'example-candidate'"):
+        run_merge(root)
+    assert not (root / "integration-matrix.md").exists()
+
+
+@pytest.mark.parametrize("folder", ["rows", "candidates"])
+def test_merge_reports_unparseable_front_matter_as_an_error(tmp_path, folder):
+    from docs.merge_research import run_merge
+
+    row = (FIXTURE_DIR / "example_row.md").read_text()
+    cand = (FIXTURE_DIR / "example_candidate.md").read_text()
+    broken = "no front matter at all\n"
+    if folder == "rows":
+        root = _build_research_tree(tmp_path, rows={"broken": broken}, candidates={"example-candidate": cand})
+    else:
+        root = _build_research_tree(tmp_path, rows={"example-service": row}, candidates={"broken": broken})
+
+    with pytest.raises(ValueError, match=r"broken\.md: front matter is missing or unparseable"):
+        run_merge(root)
+
+
+def test_closed_candidate_slugs_reports_unparseable_front_matter(tmp_path):
+    from docs.merge_research import closed_candidate_slugs
+
+    root = _build_research_tree(tmp_path, rows={}, candidates={
+        "broken": "---\nlifecycle: [unterminated\n---\nbody\n",
+    })
+    with pytest.raises(ValueError, match=r"broken\.md: front matter"):
+        closed_candidate_slugs(root)
+
+
+def test_cli_reports_a_duplicate_slug_as_an_error(tmp_path, capsys):
+    from docs.merge_research import main
+
+    cand = (FIXTURE_DIR / "example_candidate.md").read_text()
+    root = _build_research_tree(tmp_path, rows={}, candidates={"first": cand, "second": cand})
+
+    assert main(["--research-root", str(root)]) == 1
+    assert "duplicate candidate slug" in capsys.readouterr().err

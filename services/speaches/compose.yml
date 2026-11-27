@@ -1,13 +1,12 @@
 # services/speaches/compose.yml — Speaches (unified TTS + STT)
 services:
   speaches:
+    # Only the bootstrapper's speaches-cpu / speaches-gpu profiles activate this
+    # service. tts-gpu and stt-gpu are also chatterbox's and parakeet's profiles,
+    # so listing them here would start Speaches with those services.
     profiles:
       - speaches-cpu
       - speaches-gpu
-      - tts-cpu
-      - tts-gpu
-      - stt-cpu
-      - stt-gpu
     image: ${SPEACHES_IMAGE:-ghcr.io/speaches-ai/speaches:0.9.0-rc.3-cpu}
     container_name: ${PROJECT_NAME}-speaches
     restart: unless-stopped

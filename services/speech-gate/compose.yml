@@ -20,7 +20,7 @@ services:
     ports:
       # Fallback must match the slot-allocator value in .env.example
       # (SPEECH_GATE_PORT=63061). It applies only when the .env line is missing.
-      - "${HOST_BIND_IP:-127.0.0.1:}${SPEECH_GATE_PORT:-63061}:8000"
+      - "${HOST_BIND_IP-127.0.0.1:}${SPEECH_GATE_PORT:-63061}:8000"
     networks:
       - backend-network
     read_only: true

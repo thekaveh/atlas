@@ -14,11 +14,9 @@ import hashlib
 import logging
 import math
 import httpx
-import asyncpg
 import yaml
 import re
 import time
-import secrets
 import sys
 import traceback
 from datetime import datetime, timezone
@@ -86,7 +84,7 @@ from memory_service import MemoryCapacityError, MemoryService
 from memory_models import (
     MemoryExtractRequest, MemoryRecallRequest, MemoryConsolidateRequest,
     MemorySummarizeRequest, MemoryUpdateRequest,
-    MemoryFact, MemoryExtractResponse, MemoryRecallResponse,
+    MemoryExtractResponse, MemoryRecallResponse,
     MemoryConsolidateResponse, MemorySummarizeResponse,
     MemoryListResponse, MemoryHealthResponse,
 )

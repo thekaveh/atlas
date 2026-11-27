@@ -47,11 +47,20 @@ def _parse(text: str) -> tuple[dict, str] | None:
     return fm, m.group(2)
 
 
+def _parse_required(path: Path, text: str) -> tuple[dict, str]:
+    """``_parse`` for the records a merge reads: missing or unparseable front
+    matter is an error, not a record to skip."""
+    parsed = _parse(text)
+    if parsed is None:
+        raise ValueError(f"{path}: front matter is missing or unparseable")
+    return parsed
+
+
 def _scalar(value, *, in_flow: bool = False):
     """``value`` as written, quoted only when YAML would read it back as
-    something else: an unquoted ` #` truncated it and `: ` made the file
-    unparseable on the next regen (2026-10-08 run, cycle 43). ``None`` is
-    written as ``null``: a bare ``None`` reads back as the string 'None'."""
+    something else: an unquoted ` #` truncated it, and `: ` made the file
+    unparseable on the next regen. ``None`` is written as ``null``: a bare
+    ``None`` reads back as the string 'None'."""
     if value is None:
         return "null"
     if not isinstance(value, str):
@@ -91,9 +100,9 @@ def closed_candidate_slugs(root: Path = DEFAULT_ROOT) -> frozenset[str]:
     for path in sorted((root / "candidates").glob("*.md")):
         if path.name == "README.md":
             continue
-        parsed = _parse(path.read_text(encoding="utf-8"))
-        if parsed and parsed[0].get("lifecycle") in CLOSED_LIFECYCLES:
-            closed.add(str(parsed[0].get("slug", path.stem)))
+        fm, _body = _parse_required(path, path.read_text(encoding="utf-8"))
+        if fm.get("lifecycle") in CLOSED_LIFECYCLES:
+            closed.add(str(fm.get("slug", path.stem)))
     return frozenset(closed)
 
 
@@ -181,18 +190,23 @@ def run_merge(root: Path, *, check: bool = False) -> list[Path]:
         for p in sorted(rows_dir.glob("*.md")):
             if p.name in ("README.md", ".gitkeep"):
                 continue
-            parsed = _parse(p.read_text(encoding="utf-8"))
-            if parsed:
-                rows.append((p, parsed[0], parsed[1]))
+            fm, body = _parse_required(p, p.read_text(encoding="utf-8"))
+            rows.append((p, fm, body))
 
     cands: dict[str, tuple[Path, dict, str]] = {}
     if cands_dir.is_dir():
         for p in sorted(cands_dir.glob("*.md")):
             if p.name in ("README.md", ".gitkeep"):
                 continue
-            parsed = _parse(p.read_text(encoding="utf-8"))
-            if parsed:
-                cands[parsed[0].get("slug", p.stem)] = (p, parsed[0], parsed[1])
+            fm, body = _parse_required(p, p.read_text(encoding="utf-8"))
+            slug = fm.get("slug", p.stem)
+            if slug in cands:
+                # Refused before any file is written: a second record under the
+                # same slug would otherwise replace the first without a trace.
+                raise ValueError(
+                    f"{p}: duplicate candidate slug {slug!r} (also {cands[slug][0]})"
+                )
+            cands[slug] = (p, fm, body)
 
     referenced_by: dict[str, set[str]] = {slug: set() for slug in cands}
     for _, fm, body in rows:
@@ -300,7 +314,11 @@ def main(argv: list[str]) -> int:
     if not args.research_root.is_dir():
         print(f"error: research root not found: {args.research_root}", file=sys.stderr)
         return 1
-    changed = run_merge(args.research_root, check=args.check)
+    try:
+        changed = run_merge(args.research_root, check=args.check)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
     if args.check and changed:
         for path in changed:
             print(f"drift: {path}", file=sys.stderr)

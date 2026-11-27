@@ -1883,7 +1883,7 @@ class DatabaseCoordinator:
         try:
             self.runner.assert_no_owned_containers()
             self._require_stopped(enabled)
-        except ContractError as exc:
+        except ContractError:
             self._mark_poison("recovery could not prove an exclusive stopped boundary")
             raise
         for database, live, _stage in enabled:

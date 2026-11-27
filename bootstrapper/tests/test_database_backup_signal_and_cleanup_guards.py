@@ -1,4 +1,4 @@
-"""Behavioral regressions from the third database-backup adversarial review."""
+"""Behavioral regressions for database-backup signal delivery and cleanup."""
 
 from __future__ import annotations
 
@@ -59,7 +59,7 @@ def test_seed_cleanup_defers_deadline_interruptions_until_reconciled(
 
 
 def _module():
-    spec = importlib.util.spec_from_file_location("atlas_database_orchestrator_third", ORCHESTRATOR)
+    spec = importlib.util.spec_from_file_location("atlas_database_orchestrator_signal_guards", ORCHESTRATOR)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module

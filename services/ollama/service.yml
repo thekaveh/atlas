@@ -8,7 +8,7 @@ capabilities:
   - name: "Local Ollama source selection"
     status: supported
     verification: tested
-    note: "Atlas resolves CPU and NVIDIA containers, an existing host daemon, or no Ollama upstream behind the same LiteLLM contract."
+    note: "Atlas resolves CPU and NVIDIA containers, an existing host daemon, or no Ollama upstream behind the same LiteLLM contract. The NVIDIA container requests no GPU device, so it reaches a GPU only when Docker's default runtime is nvidia (see the deploy-resource row)."
   - name: "Declared model provisioning"
     status: partial
     verification: tested
@@ -170,13 +170,7 @@ runtime_sc:
         OLLAMA_NUM_PARALLEL: ${OLLAMA_NUM_PARALLEL:-8}
         OLLAMA_MAX_LOADED_MODELS: ${OLLAMA_MAX_LOADED_MODELS:-2}
         NVIDIA_VISIBLE_DEVICES: all
-      deploy:
-        resources:
-          reservations:
-            devices:
-            - driver: nvidia
-              capabilities:
-              - gpu
+      deploy: {}
       extra_hosts: []
     ollama-localhost:
       scale: 0

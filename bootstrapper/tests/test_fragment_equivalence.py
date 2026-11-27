@@ -155,6 +155,10 @@ _BASELINE_OVERRIDES: dict[str, str] = {
     "TTS_PROVIDER_SCALE": "1",
     "STT_ENDPOINT": "",
     "TTS_ENDPOINT": "",
+    # Required-variable guards (`${VAR:?...}`) fail the render on an empty value.
+    # The bootstrapper generates these; the fixture supplies fixed placeholders.
+    "GRAFANA_ADMIN_PASSWORD": "grafana-baseline-password",
+    "JENKINS_ADMIN_PASSWORD": "jenkins-baseline-password",
 }
 
 

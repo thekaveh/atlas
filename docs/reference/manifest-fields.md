@@ -4,7 +4,7 @@
 
 Generated from the top-level keys of `bootstrapper/schemas/service.schema.json`. See [Contributing §18](../CONTRIBUTING-services.md#18-schema-cheatsheet) for nested fields.
 
-Schema-required marks the keys the JSON schema requires. The validator and tests also require `support`, `containers` on non-virtual manifests (matching `compose.yml`), and `docs`, a sibling `README.md` or `docs_exception`.
+Schema-required marks the keys the JSON schema requires. The validator requires `containers` on non-virtual manifests (matching `compose.yml`), and `docs`, a sibling `README.md` or `docs_exception`. The test suite requires `support`.
 
 | Field | Schema-required | Purpose |
 | --- | --- | --- |

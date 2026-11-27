@@ -159,7 +159,7 @@ def test_jenkins_compose_contract() -> None:
     ]
     assert service["environment"]["CASC_JENKINS_CONFIG"] == "/var/jenkins_home/casc/jenkins.yaml"
     assert service["environment"]["JENKINS_ADMIN_USER"] == "${JENKINS_ADMIN_USER:-admin}"
-    assert service["environment"]["JENKINS_ADMIN_PASSWORD"] == "${JENKINS_ADMIN_PASSWORD}"
+    assert service["environment"]["JENKINS_ADMIN_PASSWORD"] == "${JENKINS_ADMIN_PASSWORD:?JENKINS_ADMIN_PASSWORD is required}"
     assert service["environment"]["KONG_HTTP_PORT"] == "${KONG_HTTP_PORT}"
     assert service["environment"]["MINIO_ENDPOINT"] == "http://minio:9000"
     assert service["environment"]["MINIO_BUCKET_ICEBERG_JARS"] == "${MINIO_BUCKET_ICEBERG_JARS:-jars}"

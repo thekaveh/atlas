@@ -25,8 +25,6 @@ def test_provider_upload_boundaries_remain_byte_equivalent():
     [
         "services/docling/provider/shared/api_server.py",
         "services/docling/provider/localhost/server.py",
-        "services/parakeet/provider/shared/api_server.py",
-        "services/parakeet/provider/mlx/api_server.py",
     ],
 )
 def test_provider_apps_cap_request_bodies_before_multipart(relative_path):
@@ -34,6 +32,30 @@ def test_provider_apps_cap_request_bodies_before_multipart(relative_path):
     assert "RequestBodyLimitMiddleware" in source
     assert "max_body_bytes=multipart_body_limit(_MAX_UPLOAD_BYTES)" in source
     assert "body_timeout_seconds=_UPLOAD_TIMEOUT_SECONDS" in source
+
+
+@pytest.mark.parametrize(
+    "relative_path",
+    [
+        "services/parakeet/provider/shared/api_server.py",
+        "services/parakeet/provider/mlx/api_server.py",
+    ],
+)
+def test_parakeet_providers_pass_upload_limits_to_the_shared_factory(relative_path):
+    # The body cap is installed by transcription_api.create_api(); each provider
+    # only supplies its own validated limits.
+    source = (ROOT / relative_path).read_text(encoding="utf-8")
+    assert "max_upload_bytes=_MAX_UPLOAD_BYTES" in source
+    assert "upload_timeout_seconds=_UPLOAD_TIMEOUT_SECONDS" in source
+
+
+def test_parakeet_shared_factory_installs_the_body_cap_before_multipart():
+    source = (ROOT / "services/parakeet/provider/transcription_api.py").read_text(
+        encoding="utf-8"
+    )
+    assert "RequestBodyLimitMiddleware" in source
+    assert "max_body_bytes=multipart_body_limit(max_upload_bytes)" in source
+    assert "body_timeout_seconds=upload_timeout_seconds" in source
 
 
 class FakeUpload:

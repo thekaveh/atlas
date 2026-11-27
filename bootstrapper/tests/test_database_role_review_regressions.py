@@ -523,7 +523,7 @@ def _supavisor_container(network: str, *, pool_size: int = 5, password: str | No
             "-e", "DB_POOL_SIZE=5",
             SUPAVISOR_IMAGE,
             "/bin/sh", "-c",
-            '/app/bin/migrate && /app/bin/supavisor eval "$(cat /etc/pooler/pooler.exs)" && /app/bin/server',
+            '/app/bin/migrate && /app/bin/supavisor eval "$(cat /etc/pooler/pooler.exs)" && exec /app/bin/server',
         ]
     return roles.owned_role_container("supavisor-review", args, timeout=30)
 

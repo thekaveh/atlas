@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from docs.sitegen.model import load_docs_model
 
 
@@ -93,3 +95,47 @@ def test_docs_model_preserves_all_track_as_no_filtering_sentinel() -> None:
     assert all_track.all_services is True
     assert all_track.services == []
     assert all_track.services_display == "all services (no filtering)"
+
+
+def test_docs_track_services_keep_tracks_yml_order() -> None:
+    model = load_docs_model(ROOT)
+
+    assert model.tracks_by_key["data-eng"].services[:3] == ["spark", "airflow", "jupyterhub"]
+
+
+def test_docs_track_loader_is_the_canonical_validator(tmp_path: Path) -> None:
+    from docs.sitegen.model import _load_tracks
+    from tracks import TracksLoadError
+
+    (tmp_path / "bootstrapper").mkdir()
+    (tmp_path / "bootstrapper" / "tracks.yml").write_text(
+        "tracks:\n"
+        "  - key: dup-one\n    display_name: A\n    description: one\n    services: [redis]\n"
+        "  - key: dup-one\n    display_name: A\n    description: two\n    services: [redis]\n"
+    )
+    with pytest.raises(TracksLoadError, match="duplicate track key 'dup-one'"):
+        _load_tracks(tmp_path)
+
+
+def test_docs_membership_differs_from_the_wizard_predicate_only_for_locked_services() -> None:
+    """Intended difference: the docs list locked always-running services and
+    the always-prompted LLM Engine in every track. The wizard predicate never
+    selects locked services, because it is never prompted for them."""
+    from tracks import LLM_ENGINE_FOLDER, is_in_track, load_tracks
+
+    model = load_docs_model(ROOT)
+    registry = load_tracks()
+    all_keys = {track.key for track in registry.tracks}
+    curated = [track for track in registry.tracks if track.services is not None]
+
+    assert set(model.services_by_name["supabase"].track_keys) == all_keys
+    assert set(model.services_by_name[LLM_ENGINE_FOLDER].track_keys) == all_keys
+    assert not any(
+        is_in_track(track, "supabase", always_on=registry.always_on) for track in curated
+    )
+
+
+def test_table_cells_escape_pipes_like_the_other_writers() -> None:
+    from docs.sitegen.rendering import table
+
+    assert table(["A"], [["x | y"]]).splitlines()[-1] == "| x \\| y |"

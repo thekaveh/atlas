@@ -236,7 +236,7 @@ def api(monkeypatch, gpu):
     monkeypatch.setenv("PARAKEET_API_TOKEN", "parakeet-test-token")
     monkeypatch.setenv("PARAKEET_AUTH_MODE", "required")
     monkeypatch.setenv("PARAKEET_CORS_ORIGINS", "")
-    for name in ("bounded_upload", "provider_boundary", "startup"):
+    for name in ("bounded_upload", "provider_boundary", "startup", "transcription_api"):
         _load(monkeypatch, name, PROVIDER / f"{name}.py")
     module = _load(
         monkeypatch, "parakeet_gpu_timing_api", PROVIDER / "shared" / "api_server.py"

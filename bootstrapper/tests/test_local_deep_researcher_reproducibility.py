@@ -321,6 +321,7 @@ def test_runtime_lock_check_fails_on_byte_drift(tmp_path, monkeypatch):
     monkeypatch.setattr(module, "RUNTIME_UV_LOCK", runtime_uv_lock)
     monkeypatch.setattr(module, "RUNTIME_REQUIREMENTS", runtime_requirements)
     monkeypatch.setattr(module, "_pins", lambda: ("ref", "sha", "cli"))
+    monkeypatch.setattr(module, "_verified_upstream_source", lambda *_args: tmp_path)
     monkeypatch.setattr(
         module,
         "_stable_export",
@@ -328,6 +329,31 @@ def test_runtime_lock_check_fails_on_byte_drift(tmp_path, monkeypatch):
     )
 
     with pytest.raises(SystemExit, match="runtime lock drift"):
+        module.check()
+
+
+def test_runtime_lock_check_verifies_the_upstream_uv_lock_digest(tmp_path, monkeypatch):
+    """--check clones the pinned upstream and rejects a digest mismatch before exporting (E1-10)."""
+    script_path = REPO / "scripts/refresh-local-deep-researcher-lock.py"
+    spec = importlib.util.spec_from_file_location("refresh_ldr_lock_digest", script_path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+
+    def fake_run(*args, cwd=None, quiet=False):
+        if args[:2] == ("git", "clone"):
+            source = Path(args[-1])
+            source.mkdir(parents=True)
+            (source / "uv.lock").write_bytes(b"upstream lock\n")
+
+    monkeypatch.setattr(module, "_run", fake_run)
+    monkeypatch.setattr(module, "_pins", lambda: ("ref", "0" * 64, "cli"))
+    monkeypatch.setattr(
+        module, "_stable_export",
+        lambda *_args: pytest.fail("export ran before the upstream digest was verified"),
+    )
+
+    with pytest.raises(SystemExit, match="upstream uv.lock digest mismatch"):
         module.check()
 
 
@@ -459,13 +485,15 @@ def test_registered_ldr_audit_coalesces_matching_active_duplicates(tmp_path, mon
     assert captured["text"].splitlines() == ["safe==1.0"]
 
 
-def test_unprojected_audit_specs_keep_their_original_marker_input(tmp_path, monkeypatch):
+def test_unprojected_audit_specs_project_markers_over_every_shipped_platform(tmp_path, monkeypatch):
+    # A plain spec with a marker is projected over every shipped target (E1-02),
+    # so the marker resolves to the 3.11 pin rather than the host interpreter.
     text = "safe==1.0 ; python_full_version >= '3.11'\n"
     (tmp_path / "other.txt").write_text(text)
     captured = {}
     _marker_collector(monkeypatch, _audit_marker_host("3.12.9", "Linux", "x86_64"), captured)
     assert audit_runtime_locks.audit_spec(audit_runtime_locks.AuditSpec("other.txt"), root=tmp_path) == []
-    assert captured["text"] == text
+    assert captured["text"] == "safe==1.0\n"
 
 
 def test_ldr_audit_marker_context_matches_the_shipped_container():

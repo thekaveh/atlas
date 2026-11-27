@@ -31,6 +31,7 @@ from utils.comfyui_library import (
     CATEGORY_DISPLAY_GROUPS,
     _family_root,
 )
+from core.config_parser import DEFAULT_PROJECT_NAME
 from ui.textual.widgets.prompt_panel import (
     PromptOption,
     PromptStep,
@@ -120,7 +121,7 @@ def _resolve_models_volume_root(env_vars: Dict[str, str]) -> Path | None:
     (Docker Desktop keeps it inside the VM) — callers then skip the
     [pulled] badges instead of scanning a path that can never match.
     """
-    project = (env_vars.get("PROJECT_NAME", "atlas") or "atlas").strip()
+    project = (env_vars.get("PROJECT_NAME", DEFAULT_PROJECT_NAME) or DEFAULT_PROJECT_NAME).strip()
     volume_name = f"{project}-comfyui-models"
     try:
         out = subprocess.run(

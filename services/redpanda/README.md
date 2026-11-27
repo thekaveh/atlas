@@ -11,7 +11,7 @@ The Atlas Spark image includes the Kafka Structured Streaming jars. Spark Connec
 | Surface | URL / endpoint | Notes |
 | --- | --- | --- |
 | Kafka API, in-network | `redpanda:9092` | Use from Spark, Airflow tasks, notebooks, and other containers. |
-| Kafka API, host | `localhost:${REDPANDA_KAFKA_PORT}` | Direct Kafka client access, with no authentication. Loopback-only by default (`HOST_BIND_IP=127.0.0.1:`). |
+| Kafka API, host | `localhost:${REDPANDA_KAFKA_PORT}` | Direct Kafka client access, with no authentication. Loopback-only by default (`HOST_BIND_IP=127.0.0.1:`). The broker advertises the `HOST_BIND_IP` address plus the port. Remote clients need a concrete LAN bind; a wildcard or empty value is unreachable. |
 | Redpanda Console, direct | `http://localhost:${REDPANDA_CONSOLE_PORT}` | Direct host port for local development. Not gated by Redpanda. Loopback-only by default (`HOST_BIND_IP=127.0.0.1:`); keep that value on shared hosts. |
 | Redpanda Console, Kong | `http://redpanda.localhost:${KONG_HTTP_PORT}` | Routed through Kong with dashboard basic auth. |
 

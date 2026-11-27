@@ -1,4 +1,4 @@
-"""Behavioral regressions from the second database-backup adversarial review."""
+"""Behavioral regressions for database-backup resource ownership, locks and rollback."""
 
 from __future__ import annotations
 
@@ -55,7 +55,7 @@ def test_exact_image_fixture_normalizes_probe_launch_failures(
 
 
 def _module():
-    spec = importlib.util.spec_from_file_location("atlas_database_orchestrator_rereview", ORCHESTRATOR)
+    spec = importlib.util.spec_from_file_location("atlas_database_orchestrator_resource_guards", ORCHESTRATOR)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module

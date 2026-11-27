@@ -19,6 +19,6 @@ def test_dockerfile_installs_the_preflight_hook_before_the_update_runs():
 def test_hook_restores_only_tracked_custom_nodes_paths():
     hook = (BUILD / "atlas-preflight-custom-nodes.sh").read_text(encoding="utf-8")
     assert "git -C /opt/ComfyUI ls-files -- custom_nodes" in hook
-    assert "git -C /opt/ComfyUI checkout -- $tracked" in hook
+    assert 'git -C /opt/ComfyUI checkout -- "$tracked"' in hook
     assert "rm -rf" not in hook
     assert "clean" not in hook

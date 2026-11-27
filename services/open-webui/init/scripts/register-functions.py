@@ -6,9 +6,19 @@ import re
 import sys
 import time
 import glob
-import jwt
 import requests
 import psycopg2
+
+from register_helpers import (
+    Artifact,
+    api_reachable,
+    artifact_exists,
+    create_artifact,
+    fetch_admin_row,
+    make_token,
+    parse_docstring_header,
+    update_artifact,
+)
 
 # Force line-buffered stdout so the init container's progress prints
 # reach `docker logs` immediately even when stdout is pipe-attached
@@ -30,12 +40,8 @@ RETRY_INTERVAL = 5
 def wait_for_webui():
     """Wait until Open WebUI API is reachable."""
     for attempt in range(1, MAX_RETRIES + 1):
-        try:
-            resp = requests.get(f"{WEBUI_URL}/api/v1/functions/", timeout=5)
-            if resp.status_code in (200, 401, 403):
-                return True
-        except (requests.exceptions.ConnectionError, requests.exceptions.Timeout):
-            pass
+        if api_reachable(WEBUI_URL, "/api/v1/functions/"):
+            return True
         time.sleep(RETRY_INTERVAL)
     print("open-webui-init: ERROR - Open WebUI not available for function registration")
     return False
@@ -43,97 +49,39 @@ def wait_for_webui():
 
 def get_admin_user_id():
     """Query the database for the admin user ID."""
-    conn = None
-    cursor = None
     try:
-        # connect_timeout caps the TCP-handshake stage.
-        conn = psycopg2.connect(DATABASE_URL, connect_timeout=5)
-        cursor = conn.cursor()
-        cursor.execute(
-            "SELECT id FROM public.\"user\" WHERE role = 'admin' LIMIT 1"
-        )
-        row = cursor.fetchone()
+        row = fetch_admin_row(DATABASE_URL)
         if row:
             return row[0]
     except psycopg2.Error as e:
         print(f"open-webui-init: Function registration - DB query failed: {e}")
-    finally:
-        # Close on the error path too so a restart loop doesn't leak
-        # one connection per attempt.
-        if cursor is not None:
-            cursor.close()
-        if conn is not None:
-            conn.close()
     return None
-
-
-def generate_token(admin_id):
-    """Generate a JWT for the admin user."""
-    payload = {"id": admin_id, "exp": int(time.time()) + 3600}
-    return jwt.encode(payload, WEBUI_SECRET_KEY, algorithm="HS256")
 
 
 def parse_function_metadata(content):
     """Extract title, description, and type from the function's docstring header."""
-    metadata = {}
-    match = re.search(r'^"""(.*?)"""', content, re.DOTALL)
-    if match:
-        docstring = match.group(1)
-        for line in docstring.strip().splitlines():
-            line = line.strip()
-            if line.startswith("title:"):
-                metadata["title"] = line.split(":", 1)[1].strip()
-            elif line.startswith("description:"):
-                metadata["description"] = line.split(":", 1)[1].strip()
-            elif line.startswith("type:"):
-                metadata["type"] = line.split(":", 1)[1].strip()
-    return metadata
+    return parse_docstring_header(content, ("title", "description", "type"))
 
 
 def function_exists(function_id, headers):
     """Check if a function already exists in Open WebUI."""
-    resp = requests.get(
-        f"{WEBUI_URL}/api/v1/functions/id/{function_id}", headers=headers, timeout=10
-    )
-    return resp.status_code == 200
+    return artifact_exists(WEBUI_URL, "functions", function_id, headers)
 
 
 def create_function(function_id, name, content, description, func_type, headers):
     """Create a new function via the API."""
-    payload = {
-        "id": function_id,
-        "name": name,
-        "content": content,
-        "type": func_type,
-        "meta": {"description": description},
-    }
-    resp = requests.post(
-        f"{WEBUI_URL}/api/v1/functions/create",
-        json=payload,
-        headers=headers,
-        timeout=30,
+    return create_artifact(
+        WEBUI_URL, "functions", Artifact(function_id, name, content, description), headers,
+        type=func_type,
     )
-    resp.raise_for_status()
-    return resp.json()
 
 
 def update_function(function_id, name, content, description, func_type, headers):
     """Update an existing function via the API."""
-    payload = {
-        "id": function_id,
-        "name": name,
-        "content": content,
-        "type": func_type,
-        "meta": {"description": description},
-    }
-    resp = requests.post(
-        f"{WEBUI_URL}/api/v1/functions/id/{function_id}/update",
-        json=payload,
-        headers=headers,
-        timeout=30,
+    return update_artifact(
+        WEBUI_URL, "functions", Artifact(function_id, name, content, description), headers,
+        type=func_type,
     )
-    resp.raise_for_status()
-    return resp.json()
 
 
 def register_functions(token):
@@ -199,7 +147,7 @@ def main():
         print("open-webui-init: ERROR - No admin user found. Cannot register functions.")
         sys.exit(1)
 
-    token = generate_token(admin_id)
+    token = make_token(admin_id, WEBUI_SECRET_KEY)
 
     # Verify token works
     resp = requests.get(

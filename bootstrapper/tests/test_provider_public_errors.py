@@ -10,6 +10,8 @@ PROVIDERS = (
     "services/docling/provider/localhost/server.py",
     "services/parakeet/provider/shared/api_server.py",
     "services/parakeet/provider/mlx/api_server.py",
+    # Parakeet's HTTP error handlers now live in the shared factory.
+    "services/parakeet/provider/transcription_api.py",
 )
 DIAGNOSTIC_MODULES = PROVIDERS + (
     "services/parakeet/provider/startup.py",

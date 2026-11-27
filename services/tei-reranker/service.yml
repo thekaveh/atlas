@@ -132,13 +132,7 @@ runtime_sc:
       scale: 1
       environment:
         TEI_RERANKER_ENDPOINT: "http://tei-reranker:80"
-      deploy:
-        resources:
-          reservations:
-            devices:
-              - driver: nvidia
-                count: 1
-                capabilities: [gpu]
+      deploy: {}
       extra_hosts: []
     localhost:
       scale: 0
