@@ -3,7 +3,7 @@ name: services-lint
 # Lints and tests the per-service modular configuration layout.
 #
 # Gates:
-#   - manifest validator (8 cross-manifest checks)
+#   - manifest validator (20 cross-manifest checks)
 #   - unit tests (loader, validator, assembler, hooks, validate_fragments CLI),
 #     split into parallel jobs behind the required `Manifest lint + unit tests`
 #     gate: `lint` (with containers + Backend), `unit-fast` (no Docker, the

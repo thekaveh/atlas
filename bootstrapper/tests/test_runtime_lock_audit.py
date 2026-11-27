@@ -807,8 +807,9 @@ def test_local_deep_researcher_nonstandard_runtime_graph_is_audited() -> None:
 
 
 def test_all_unlocked_runtime_graphs_are_resolved_before_audit() -> None:
-    paths = {spec.requirements for spec in audit_runtime_locks.SOURCE_SPECS}
-    assert paths == set()
+    # The unused source-spec path (SOURCE_SPECS, audit_source_spec) was removed.
+    assert not hasattr(audit_runtime_locks, "SOURCE_SPECS")
+    assert not hasattr(audit_runtime_locks, "audit_source_spec")
     assert audit_runtime_locks.UV_PROJECTS == (
         "bootstrapper",
         "services/docling/provider/localhost",
@@ -839,7 +840,7 @@ def test_every_networked_lock_and_audit_subprocess_has_a_deadline() -> None:
     audit_source = Path(audit_runtime_locks.__file__).read_text(encoding="utf-8")
     check_source = Path(check_runtime_locks.__file__).read_text(encoding="utf-8")
     test_check_source = Path(check_test_locks.__file__).read_text(encoding="utf-8")
-    assert audit_source.count("timeout_seconds=COMMAND_TIMEOUT_SECONDS") == 3
+    assert audit_source.count("timeout_seconds=COMMAND_TIMEOUT_SECONDS") == 2
     # npm audit resolves the whole dependency graph against the registry and
     # runs just over four minutes for services/asset-worker/app, so it carries
     # its own longer deadline rather than sitting on the edge of the shared one.
@@ -1255,3 +1256,76 @@ def test_docling_localhost_export_selects_the_platform_branches(monkeypatch):
     assert [pairs["soupsieve"] for pairs in captured] == ["4.1.3"] * 3
     assert "torch" in captured[2] and "nvidia-cublas" not in captured[2]
     assert all("nvidia-cublas" in pairs for pairs in captured[:2])
+
+
+_DIGEST_LINE = "    --hash=sha256:" + "a" * 64 + "\n"
+
+
+def test_plain_lock_windows_only_pin_is_projected_into_the_audit(tmp_path, monkeypatch):
+    """A plain lock's marker-gated pin reaches pip-audit instead of being dropped."""
+    (tmp_path / "gguf.txt").write_text(
+        "colorama==0.4.6 ; sys_platform == 'win32' \\\n" + _DIGEST_LINE
+        + "numpy==2.0.2 \\\n" + _DIGEST_LINE,
+        encoding="utf-8",
+    )
+    audited = {}
+
+    def fake_report(display_name, public_requirements, *, root):
+        audited["requirements"] = public_requirements
+        return {"dependencies": [
+            {"name": "colorama", "version": "0.4.6", "vulns": []},
+            {"name": "numpy", "version": "2.0.2", "vulns": []},
+        ]}, []
+
+    monkeypatch.setattr(audit_runtime_locks, "_pip_audit_report", fake_report)
+    spec = audit_runtime_locks.AuditSpec("gguf.txt")
+
+    assert audit_runtime_locks.audit_spec(spec, root=tmp_path) == []
+    assert audited["requirements"] == "colorama==0.4.6\nnumpy==2.0.2\n"
+
+
+def test_plain_lock_marker_pin_missing_from_pip_audit_fails_coverage(tmp_path, monkeypatch):
+    """pip-audit on Linux skips the win32 pin; the projected coverage check catches it."""
+    (tmp_path / "gguf.txt").write_text(
+        "colorama==0.4.6 ; sys_platform == 'win32' \\\n" + _DIGEST_LINE
+        + "numpy==2.0.2 \\\n" + _DIGEST_LINE,
+        encoding="utf-8",
+    )
+
+    def linux_report(display_name, public_requirements, *, root):
+        return {"dependencies": [{"name": "numpy", "version": "2.0.2", "vulns": []}]}, []
+
+    monkeypatch.setattr(audit_runtime_locks, "_pip_audit_report", linux_report)
+
+    assert audit_runtime_locks.audit_spec(
+        audit_runtime_locks.AuditSpec("gguf.txt"), root=tmp_path
+    ) == ["gguf.txt: incomplete pip-audit dependency coverage: 1 missing, 0 unexpected"]
+
+
+def test_unmarked_plain_lock_keeps_the_direct_audit_input(tmp_path, monkeypatch):
+    """Locks without markers are audited exactly as before: hashed input, no coverage check."""
+    (tmp_path / "plain.txt").write_text(
+        "numpy==2.0.2 \\\n" + _DIGEST_LINE, encoding="utf-8",
+    )
+    audited = {}
+
+    def empty_report(display_name, public_requirements, *, root):
+        audited["requirements"] = public_requirements
+        return {"dependencies": []}, []
+
+    monkeypatch.setattr(audit_runtime_locks, "_pip_audit_report", empty_report)
+
+    assert audit_runtime_locks.audit_spec(
+        audit_runtime_locks.AuditSpec("plain.txt"), root=tmp_path
+    ) == []
+    assert "--hash=sha256:" in audited["requirements"]
+
+
+def test_windows_marker_environment_uses_win32_sys_platform():
+    windows = audit_runtime_locks._cpython_marker_environment("Windows", "AMD64", "3.11.15")
+    darwin = audit_runtime_locks._cpython_marker_environment("Darwin", "arm64", "3.11.15")
+
+    assert windows["sys_platform"] == "win32"
+    assert windows["os_name"] == "nt"
+    assert darwin["sys_platform"] == "darwin"
+    assert darwin["os_name"] == "posix"

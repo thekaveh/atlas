@@ -675,7 +675,7 @@ def test_extract_generation_caps_are_documented():
 _FAKE_DOCKER = """#!/bin/sh
 echo "docker $*" >>"$DOCKER_LOG"
 case "$*" in
-  *" exec "*) echo "EXTRACT_LLM_MODEL=x" ;;
+  *" exec "*) printf 'EXTRACT_LLM_MODEL=%s\\nQUERY_LLM_MODEL=%s\\n' "${LIGHTRAG_EXTRACT_LLM_MODEL:-gpt-4o}" "${LIGHTRAG_QUERY_LLM_MODEL:-qwen3:8b}" ;;
   *" logs "*) printf '%s\\n' "$FAKE_LITELLM_LOGS" ;;
 esac
 """

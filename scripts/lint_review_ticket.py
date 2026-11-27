@@ -46,6 +46,14 @@ PLAIN_PATH = re.compile(r"(?<![\w/.`-])(?P<path>[\w.-]+(?:/[\w.*-]+)+)(?P<line>:
 PATH_TOKEN = re.compile(
     r"`(?P<path>[\w.*-]*/[\w.*/-]*|[\w-]+\.[A-Za-z][A-Za-z0-9]*)(?P<line>:\d+(?:-\d+)?)?`"
 )
+# A bare file name with no directory: "lint.py", "Dockerfile", "`Makefile`".
+# Extensionless names are listed; a name glued to a word or slash is not one.
+BARE_NAME = re.compile(
+    r"(?<![\w/.-])(?P<name>[\w-]+\.[A-Za-z][A-Za-z0-9]*|Dockerfile|Makefile|Containerfile"
+    r"|Procfile|Jenkinsfile|Vagrantfile|LICENSE|CODEOWNERS)(?P<line>:\d+(?:-\d+)?)?(?![\w/-])"
+)
+# A backticked command (any backticked span with whitespace) is evidence, not a path.
+COMMAND_SPAN = re.compile(r"`[^`\n]*\s[^`\n]*`")
 WHOLE_FILE = "whole-file:"
 GENERIC_CAPTIONS = (
     "existing foundation or integration seam; this proposal extends it",
@@ -124,7 +132,8 @@ def _table_rows(lines: list[tuple[int, str]]) -> list[tuple[int, str, str]]:
     rows = []
     for number, line in lines:
         cells = [cell.strip() for cell in line.strip().strip("|").split("|")]
-        if line.strip().startswith("|") and len(cells) >= 2 and not set(cells[0]) <= set("-: "):
+        # A separator row has dash cells; an empty location cell is data, not a separator.
+        if line.strip().startswith("|") and len(cells) >= 2 and not (cells[0] and set(cells[0]) <= set("-: ")):
             rows.append((number, cells[0], cells[-1]))
     return rows[1:] if rows and rows[0][1].lower() in {"location", "where"} else rows
 
@@ -154,8 +163,16 @@ def _cited_locations(location: str) -> list[bool]:
         return links
     tokens = [bool(token["line"]) for token in PATH_TOKEN.finditer(location)]
     if tokens or "`" in location:
-        return tokens
-    return [bool(token["line"]) for token in PLAIN_PATH.finditer(location)]
+        cited = tokens
+    else:
+        cited = [bool(token["line"]) for token in PLAIN_PATH.finditer(location)]
+    # Bare file names (no directory): "Dockerfile", "lint.py", "`Makefile`".
+    # Everything the path patterns matched, and every command span, is blanked
+    # first so that no name is counted twice or read out of a command.
+    rest = location
+    for pattern in (PATH_TOKEN, PLAIN_PATH, COMMAND_SPAN):
+        rest = pattern.sub(lambda m: " " * len(m.group()), rest)
+    return cited + [bool(name["line"]) for name in BARE_NAME.finditer(rest)]
 
 
 def check_anchors(sections: dict) -> list[Violation]:
@@ -164,7 +181,9 @@ def check_anchors(sections: dict) -> list[Violation]:
     for number, location, caption in _evidence_rows(sections):
         cited = _cited_locations(location)
         explained = caption.lower().startswith(WHOLE_FILE) and caption[len(WHOLE_FILE):].strip()
-        if cited and not all(cited) and not explained:
+        if not location.strip():
+            found.append(Violation("R1", number, "evidence row has no location"))
+        elif cited and not all(cited) and not explained:
             found.append(Violation("R1", number, f"evidence {location[:80]!r} has no #L line anchor "
                                                  f"and no '{WHOLE_FILE}' caption saying why"))
     return found

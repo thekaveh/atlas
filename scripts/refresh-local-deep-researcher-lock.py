@@ -147,17 +147,23 @@ def _atomic_write(path: Path, content: str) -> None:
     temporary.replace(path)
 
 
+def _verified_upstream_source(ref: str, lock_sha: str, workdir: Path) -> Path:
+    """Clone the pinned upstream ref and fail unless its uv.lock has the pinned digest."""
+    source = workdir / "source"
+    _run("git", "clone", "-q", UPSTREAM_URL, str(source))
+    _run("git", "checkout", "-q", "--detach", ref, cwd=source)
+    actual_sha = hashlib.sha256((source / "uv.lock").read_bytes()).hexdigest()
+    if actual_sha != lock_sha:
+        raise SystemExit(
+            f"upstream uv.lock digest mismatch: manifest={lock_sha}, actual={actual_sha}"
+        )
+    return source
+
+
 def refresh() -> None:
     ref, lock_sha, cli = _pins()
     with tempfile.TemporaryDirectory(prefix="atlas-ldr-lock-") as raw_tmp:
-        source = Path(raw_tmp) / "source"
-        _run("git", "clone", "-q", UPSTREAM_URL, str(source))
-        _run("git", "checkout", "-q", "--detach", ref, cwd=source)
-        actual_sha = hashlib.sha256((source / "uv.lock").read_bytes()).hexdigest()
-        if actual_sha != lock_sha:
-            raise SystemExit(
-                f"upstream uv.lock digest mismatch: manifest={lock_sha}, actual={actual_sha}"
-            )
+        source = _verified_upstream_source(ref, lock_sha, Path(raw_tmp))
         _run(
             "uv",
             "add",
@@ -182,6 +188,9 @@ def refresh() -> None:
 def check() -> None:
     ref, lock_sha, cli = _pins()
     with tempfile.TemporaryDirectory(prefix="atlas-ldr-lock-check-") as raw_tmp:
+        # refresh verifies the upstream digest before it writes; check must too,
+        # or a manifest digest that no longer matches upstream would still pass (E1-10).
+        _verified_upstream_source(ref, lock_sha, Path(raw_tmp))
         project = Path(raw_tmp)
         shutil.copy2(RUNTIME_PYPROJECT, project / "pyproject.toml")
         shutil.copy2(RUNTIME_UV_LOCK, project / "uv.lock")

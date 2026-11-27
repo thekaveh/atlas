@@ -368,18 +368,35 @@ def generate_default_kong_config(out_dir: Path) -> Path:
     return out_path
 
 
-def host_url_map(config: dict) -> dict[str, str]:
-    """Host -> upstream for every route with hosts, except the Supabase API
-    routes, whose hosts are an allowlist rather than an alias (#1382)."""
-    mapping: dict[str, str] = {}
+def _host_upstreams(config: dict) -> dict[str, list[str]]:
+    """Host -> every upstream a route sends it to, in config order, for every
+    route with hosts except the Supabase API routes (#1382)."""
+    upstreams: dict[str, list[str]] = {}
     for service in config.get("services") or []:
         url = service.get("url")
         for route in service.get("routes") or []:
             if SUPABASE_API_ROUTE_TAG in (route.get("tags") or []):
                 continue
             for host in route.get("hosts") or []:
-                mapping[host] = url
-    return mapping
+                upstreams.setdefault(host, []).append(url)
+    return upstreams
+
+
+def host_url_map(config: dict) -> dict[str, str]:
+    """Host -> upstream. Use _duplicate_host_issues to see a host routed twice."""
+    return {host: urls[-1] for host, urls in _host_upstreams(config).items()}
+
+
+def _conflicting_host_issues(config: dict) -> list[str]:
+    """A host routed to two or more upstreams is an error: the host map keeps
+    only the last one, so the others would be hidden (E1-12). Several routes to
+    one upstream are allowed (a path-scoped guard such as minio-s3-metrics-blocked);
+    any extra route to that upstream is caught by the route-name checks."""
+    return [
+        f"  {host}: CONFLICTING host routed to {len(set(urls))} upstreams -> {', '.join(dict.fromkeys(urls))}"
+        for host, urls in sorted(_host_upstreams(config).items())
+        if len(set(urls)) > 1
+    ]
 
 
 def _plugin_names(owner: dict) -> list[str]:
@@ -397,6 +414,21 @@ def _route_signature(service: dict, route: dict) -> dict:
         "service_plugins": _plugin_names(service),
         "route_plugins": _plugin_names(route),
     }
+
+
+def _duplicate_route_name_issues(config: dict) -> list[str]:
+    """A route name on two routes would overwrite one in route_signatures, so
+    the second route could go unchecked (same class as E1-12)."""
+    counts: dict[str, int] = {}
+    for service in config.get("services") or []:
+        for route in service.get("routes") or []:
+            name = route.get("name") or "<unnamed>"
+            counts[name] = counts.get(name, 0) + 1
+    return [
+        f"  route {name}: DUPLICATE name on {count} routes"
+        for name, count in sorted(counts.items())
+        if count > 1
+    ]
 
 
 def route_signatures(config: dict) -> dict[str, dict]:
@@ -430,7 +462,7 @@ def _signature_issues(config: dict) -> list[str]:
 
 def route_issues(config: dict) -> list[str]:
     """Every difference from the expected default routes, in both directions."""
-    issues = []
+    issues = _conflicting_host_issues(config) + _duplicate_route_name_issues(config)
     hosts = host_url_map(config)
     for host, expected_url in EXPECTED_HOST_ROUTES.items():
         actual_url = hosts.get(host)
