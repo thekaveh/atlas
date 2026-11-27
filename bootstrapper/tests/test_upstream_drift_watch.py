@@ -593,8 +593,10 @@ def test_discovery_allows_manifest_without_images_when_inventory_is_nonempty(tmp
     assert watch.load_manifest_image_refs(services) == ("demo:1",)
 
 
-def test_repository_manifest_inventory_has_72_unique_literal_image_refs():
-    assert len(watch.load_manifest_image_refs(REPO_ROOT / "services")) == 72
+def test_repository_manifest_inventory_has_71_unique_literal_image_refs():
+    # 72 before the asset base-image pin (C1-05): python:3.12.9-slim is gone, and
+    # the ComfyUI base is now a digest reference, which counts as one literal.
+    assert len(watch.load_manifest_image_refs(REPO_ROOT / "services")) == 71
 
 
 @pytest.mark.parametrize("count", (0, watch.ollama_library.MIN_PLAUSIBLE_ENTRIES - 1, watch.ollama_library.MIN_PLAUSIBLE_ENTRIES))
