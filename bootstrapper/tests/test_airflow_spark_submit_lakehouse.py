@@ -609,7 +609,7 @@ def test_required_ci_runs_a_real_spark_minio_s3a_round_trip() -> None:
             ".write.mode(",
             ".parquet(target)",
             "spark.read.parquet",
-            "assert rows ==",
+            'raise SystemExit(f"S3A round-trip mismatch',
         )
     )
 

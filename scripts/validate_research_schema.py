@@ -200,6 +200,30 @@ def _validate_row(path: Path, text: str) -> list[str]:
     return errors
 
 
+def _slug_errors(path: Path, fm: dict) -> list[str]:
+    if "slug" not in fm:
+        return []
+    slug = fm["slug"]
+    if not isinstance(slug, str) or not _SLUG_RE.match(slug):
+        return [f"{path}: frontmatter `slug` must be kebab-case"]
+    if path.parent.name == "candidates" and slug != path.stem:
+        # The README names candidate files candidates/<slug>.md.
+        return [f"{path}: frontmatter `slug` {slug!r} must match the file name {path.stem!r}"]
+    return []
+
+
+def _candidate_field_errors(path: Path, fm: dict) -> list[str]:
+    """README rules for candidate frontmatter values: type, category-fit, slug, license."""
+    errors: list[str] = _slug_errors(path, fm)
+    if "type" in fm and fm["type"] != _CANDIDATE_TYPE:
+        errors.append(f"{path}: frontmatter `type` must be `{_CANDIDATE_TYPE}`")
+    if "category-fit" in fm and fm["category-fit"] not in _CATEGORIES:
+        errors.append(f"{path}: frontmatter `category-fit` must be one of {list(_CATEGORIES)}")
+    if "license" in fm and not (isinstance(fm["license"], str) and fm["license"].strip()):
+        errors.append(f"{path}: frontmatter `license` must name an SPDX identifier or \"unknown\"")
+    return errors
+
+
 def _validate_candidate(path: Path, text: str) -> list[str]:
     errors: list[str] = []
     parsed = _parse_frontmatter(text)
@@ -213,19 +237,7 @@ def _validate_candidate(path: Path, text: str) -> list[str]:
         errors.append(f"{path}: frontmatter missing key(s): {sorted(missing)}")
     errors.extend(_unfilled_errors(path, fm))
 
-    if "type" in fm and fm["type"] != _CANDIDATE_TYPE:
-        errors.append(f"{path}: frontmatter `type` must be `{_CANDIDATE_TYPE}`")
-    if "category-fit" in fm and fm["category-fit"] not in _CATEGORIES:
-        errors.append(f"{path}: frontmatter `category-fit` must be one of {list(_CATEGORIES)}")
-    if "slug" in fm:
-        slug = fm["slug"]
-        if not isinstance(slug, str) or not _SLUG_RE.match(slug):
-            errors.append(f"{path}: frontmatter `slug` must be kebab-case")
-        elif path.parent.name == "candidates" and slug != path.stem:
-            # The README names candidate files candidates/<slug>.md.
-            errors.append(f"{path}: frontmatter `slug` {slug!r} must match the file name {path.stem!r}")
-    if "license" in fm and not (isinstance(fm["license"], str) and fm["license"].strip()):
-        errors.append(f"{path}: frontmatter `license` must name an SPDX identifier or \"unknown\"")
+    errors.extend(_candidate_field_errors(path, fm))
 
     if "generated" in fm and not _DATE_RE.match(str(fm.get("generated", ""))):
         errors.append(f"{path}: frontmatter `generated` must be YYYY-MM-DD")

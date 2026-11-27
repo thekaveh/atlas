@@ -142,18 +142,20 @@ def test_custom_node_locks_overlay_exact_ai_dock_runtime(tmp_path: Path) -> None
     )
     assert "check_comfyui_custom_node_overlays.py" in workflow
 
-    # The gate must check the base the build pulls: the compose BASE_IMAGE
-    # argument is ${COMFYUI_IMAGE}, and the manifest default is that value.
-    compose = (ROOT / "services/comfyui/compose.yml").read_text(encoding="utf-8")
-    assert "BASE_IMAGE: ${COMFYUI_IMAGE}" in compose
     assert IMAGE == overlay_checker.build_base_image(ROOT)
-    assert IMAGE == "ghcr.io/ai-dock/comfyui:v2-cpu-22.04-v0.2.7"
     commands = overlay_commands(ROOT)
     assert {command[-1] for command in commands} == {"instantid.txt", "gguf.txt"}
     for command in commands:
         rendered = " ".join(command)
         assert "--no-deps --require-hashes" in rendered
         assert "pip check" in rendered
+
+
+def test_overlay_gate_checks_the_base_the_build_pulls() -> None:
+    """The compose BASE_IMAGE argument is ${COMFYUI_IMAGE}, so the gate checks that default (E1-01)."""
+    compose = (ROOT / "services/comfyui/compose.yml").read_text(encoding="utf-8")
+    assert "BASE_IMAGE: ${COMFYUI_IMAGE}" in compose
+    assert IMAGE == "ghcr.io/ai-dock/comfyui:v2-cpu-22.04-v0.2.7"
 
 
 def test_overlay_runtime_checks_are_time_bounded(monkeypatch) -> None:

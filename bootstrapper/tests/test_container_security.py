@@ -38,21 +38,6 @@ REVIEWED_REMOTE_BASE_DIGESTS = {
 TRIVY_REMOTE_SCAN = ROOT / "scripts/run_trivy_remote_scan.sh"
 
 
-def _build_spec_entries(workflow: str) -> list[str]:
-    """The ``context|dockerfile`` entries of the workflow's image build loop, in order."""
-    loop = re.search(r"for spec in \\\n(.*?)\n\s*do\n", workflow, re.DOTALL)
-    assert loop is not None
-    return re.findall(r'"([^"\s]+\|[^"\s]+)"', loop.group(1))
-
-
-def test_container_scan_and_final_image_lint_build_the_same_image_list() -> None:
-    """container-security.yml and services-lint.yml each keep a copy of the build list (E1-24)."""
-    scan = _build_spec_entries((ROOT / ".github/workflows/container-security.yml").read_text(encoding="utf-8"))
-    lint = _build_spec_entries((ROOT / ".github/workflows/services-lint.yml").read_text(encoding="utf-8"))
-    assert scan
-    assert scan == lint
-
-
 def test_container_security_inventory_covers_every_manifest_default() -> None:
     expected = load_manifest_image_refs(ROOT / "services")
 

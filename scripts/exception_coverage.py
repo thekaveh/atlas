@@ -227,6 +227,12 @@ def summarize(lines: Iterable[str], rows: Sequence[Row]) -> str:
     return "\n".join(report)
 
 
+def _require_shard_in_range(parser: argparse.ArgumentParser, args: argparse.Namespace) -> None:
+    """A shard outside [0, --shards) selects no image and would pass silently (E1-06)."""
+    if args.shard is not None and not 0 <= args.shard < args.shards:
+        parser.error(f"--shard must be in [0, --shards): got {args.shard} with --shards {args.shards}")
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--ignorefile", type=Path, default=ROOT / ".trivyignore.yaml")
@@ -242,9 +248,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="ignore unfixed findings, as the local-image gate does",
     )
     args = parser.parse_args(argv)
-    # A shard outside [0, --shards) selects no image and would pass silently (E1-06).
-    if args.shard is not None and not 0 <= args.shard < args.shards:
-        parser.error(f"--shard must be in [0, --shards): got {args.shard} with --shards {args.shards}")
+    _require_shard_in_range(parser, args)
     args.ignorefile = args.ignorefile.resolve()
     rows = load_rows(args.ignorefile)
     if args.summarize:
