@@ -24,8 +24,10 @@ Atlas does not run a FAL container. The backend reads `FAL_SOURCE`, `FAL_API_KEY
 Enable from the CLI with:
 
 ```bash
-./start.sh --fal-source enabled --fal-api-key <your-fal-key>
+./start.sh --fal-source enabled --fal-api-key-file ~/path/to/fal-key
 ```
+
+Pass the key from a file, or with `-` to read it from stdin, so it stays out of argv and shell history. `--fal-api-key <your-fal-key>` works too, but the key then stays in shell history and `ps` (#1381).
 
 **Interactive wizard.** FAL is a paid cloud provider. Like the OpenAI, Anthropic and OpenRouter keys, it has a **masked API-key step**, placed after the ComfyUI step (both are `media`). There is no plain enabled/disabled tile. **Enter a key to enable FAL, or leave it blank to keep it disabled.** A key sets `FAL_SOURCE=enabled` and `FAL_API_KEY`. When a key is already saved, the step takes the same words as the cloud key steps:
 
