@@ -27,6 +27,13 @@ if [ "${OPENAI_API_KEY+x}" != x ]; then
     export OPENAI_API_KEY="${LITELLM_API_KEY:-}"
 fi
 
+# NEO4J_PASSWORD has no literal fallback. An empty value stops startup here,
+# before the notebook .env below is written, so no credential is guessed.
+if [ -z "${NEO4J_PASSWORD:-}" ]; then
+    echo "ERROR: NEO4J_PASSWORD is empty; refusing to start JupyterHub without the Neo4j credential." >&2
+    exit 1
+fi
+
 # Create .env file in work directory with all environment variables.
 # It holds the LiteLLM master key and DB/S3 secrets inside the notebook-visible
 # work volume, so keep it owner-only (umask covers creation, chmod an old file).
@@ -47,7 +54,7 @@ OPENAI_API_KEY=${OPENAI_API_KEY}
 WEAVIATE_URL=${WEAVIATE_URL:-}
 NEO4J_URI=${NEO4J_URI:-}
 NEO4J_USER=${NEO4J_USER:-neo4j}
-NEO4J_PASSWORD=${NEO4J_PASSWORD:-password}
+NEO4J_PASSWORD=${NEO4J_PASSWORD}
 COMFYUI_BASE_URL=${COMFYUI_BASE_URL:-http://comfyui:18188}
 
 # Lakehouse

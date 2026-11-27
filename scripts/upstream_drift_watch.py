@@ -13,6 +13,7 @@ from pathlib import Path
 import re
 import socket
 import subprocess
+import time
 from typing import Any, Sequence
 import urllib.error
 import urllib.parse
@@ -31,6 +32,11 @@ _DEFAULT_REMOTE_BASE_DIGESTS = Path(".container-scan-exclusions.yml")
 # The watch only resolves registry manifests, but it still keeps this small so
 # a caller cannot turn one nightly check into an unbounded registry fan-out.
 _MAX_IMAGE_WORKERS = 8
+# Registry throttling (Docker Hub, ollama.com) usually clears within seconds, so a
+# throttled reply is retried a bounded number of times with linear backoff.
+_REGISTRY_ATTEMPTS = 3
+_REGISTRY_BACKOFF_SECONDS = 2.0
+_THROTTLE_MARKERS = ("toomanyrequests", "too many requests", "rate limit")
 # Both HTTP and image requests use this practical ceiling; it is well above
 # the 5s/15s defaults while remaining representable by their wait APIs.
 _MAX_TIMEOUT_SECONDS = 60.0
@@ -466,15 +472,15 @@ def probe_ollama_tags(url: str, *, timeout: float) -> ProbeResult:
     return ProbeResult("ollama tags", True, f"valid response with {len(models)} model(s)")
 
 
-def probe_curated_models(models: Sequence[str], *, timeout: float) -> ProbeResult:
-    """Check that every curated model family still has a public library page."""
+def _throttled_status(code: int) -> bool:
+    return code == 429 or code >= 500
 
-    if not _valid_timeout(timeout):
-        return ProbeResult("curated Ollama models", False, "timeout must be a positive finite number")
-    failures: list[str] = []
-    for model in models:
-        family = model.split(":", 1)[0]
-        encoded_family = urllib.parse.quote(family, safe="-._")
+
+def _curated_model_failure(model: str, timeout: float) -> str | None:
+    """Return the failure for one curated model page, or None when it resolves."""
+    family = model.split(":", 1)[0]
+    encoded_family = urllib.parse.quote(family, safe="-._")
+    for attempt in range(1, _REGISTRY_ATTEMPTS + 1):
         try:
             request = urllib.request.Request(
                 f"https://ollama.com/library/{encoded_family}",
@@ -482,8 +488,14 @@ def probe_curated_models(models: Sequence[str], *, timeout: float) -> ProbeResul
             )
             with urllib.request.urlopen(request, timeout=timeout) as response:
                 status = _response_status(response)
-                if not 200 <= status < 300:
-                    failures.append(f"{model} (HTTP {status})")
+                if 200 <= status < 300:
+                    return None
+                return f"{model} (HTTP {status})"
+        except urllib.error.HTTPError as exc:
+            if _throttled_status(exc.code) and attempt < _REGISTRY_ATTEMPTS:
+                time.sleep(_REGISTRY_BACKOFF_SECONDS * attempt)
+                continue
+            return f"{model} ({_http_failure_detail(exc)})"
         except (
             urllib.error.URLError,
             http.client.HTTPException,
@@ -492,14 +504,28 @@ def probe_curated_models(models: Sequence[str], *, timeout: float) -> ProbeResul
             OSError,
             ValueError,
         ) as exc:
-            failures.append(f"{model} ({_http_failure_detail(exc)})")
+            return f"{model} ({_http_failure_detail(exc)})"
+    raise AssertionError("unreachable: the last attempt always returns")
+
+
+def probe_curated_models(models: Sequence[str], *, timeout: float) -> ProbeResult:
+    """Check that every curated model family still has a public library page."""
+
+    if not _valid_timeout(timeout):
+        return ProbeResult("curated Ollama models", False, "timeout must be a positive finite number")
+    failures: list[str] = []
+    for model in models:
+        failure = _curated_model_failure(model, timeout)
+        if failure:
+            failures.append(failure)
     if failures:
         return ProbeResult("curated Ollama models", False, _bounded_detail("; ".join(failures)))
     return ProbeResult("curated Ollama models", True, f"checked {len(models)} model(s)")
 
 
-def _inspect_image(reference: str, timeout: float) -> str | None:
-    try:
+def _imagetools_inspect(reference: str, timeout: float) -> subprocess.CompletedProcess:
+    """Run ``docker buildx imagetools inspect``, retrying only a registry throttle."""
+    for attempt in range(1, _REGISTRY_ATTEMPTS + 1):
         result = subprocess.run(
             ["docker", "buildx", "imagetools", "inspect", reference],
             timeout=timeout,
@@ -507,6 +533,17 @@ def _inspect_image(reference: str, timeout: float) -> str | None:
             capture_output=True,
             text=True,
         )
+        output = f"{result.stdout}\n{result.stderr}".lower()
+        throttled = result.returncode != 0 and any(marker in output for marker in _THROTTLE_MARKERS)
+        if not throttled or attempt == _REGISTRY_ATTEMPTS:
+            return result
+        time.sleep(_REGISTRY_BACKOFF_SECONDS * attempt)
+    raise AssertionError("unreachable: the last attempt always returns")
+
+
+def _inspect_image(reference: str, timeout: float) -> str | None:
+    try:
+        result = _imagetools_inspect(reference, timeout)
     except subprocess.TimeoutExpired:
         return f"{reference} (timed out after {timeout}s)"
     except OSError as exc:
@@ -520,13 +557,7 @@ def _inspect_image(reference: str, timeout: float) -> str | None:
 
 def _resolve_image_digest(reference: str, timeout: float) -> tuple[str | None, str | None]:
     try:
-        result = subprocess.run(
-            ["docker", "buildx", "imagetools", "inspect", reference],
-            timeout=timeout,
-            check=False,
-            capture_output=True,
-            text=True,
-        )
+        result = _imagetools_inspect(reference, timeout)
     except subprocess.TimeoutExpired:
         return None, f"{reference} (timed out after {timeout}s)"
     except OSError as exc:

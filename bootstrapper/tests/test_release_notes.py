@@ -448,3 +448,12 @@ def test_the_counted_line_does_not_claim_the_counts_are_itemized():
     line = release_notes._counted_line([])
     assert "detailed in the curated entries below" not in line
     assert "not itemized" in line
+
+
+def test_override_keys_naming_the_same_pr_are_a_collision(tmp_path) -> None:
+    """509 and "509" both name PR 509; the second must not silently replace the first (E1-11)."""
+    overrides = tmp_path / "overrides.yml"
+    overrides.write_text('509:\n  subject: first\n"509":\n  subject: second\n', encoding="utf-8")
+
+    with pytest.raises(ValueError, match="duplicate override for PR 509"):
+        release_notes.load_overrides(overrides)

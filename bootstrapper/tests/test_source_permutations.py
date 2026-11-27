@@ -67,9 +67,32 @@ _CLOUD_PROVIDER_PERMUTATIONS = [
 _PERMUTATIONS = _manifest_permutations() + _CLOUD_PROVIDER_PERMUTATIONS
 
 
+_GENERATED_SECRET_PLACEHOLDERS: dict[str, str] = {
+    "GRAFANA_ADMIN_PASSWORD": "grafana-permutation-placeholder",
+    "JENKINS_ADMIN_PASSWORD": "jenkins-permutation-placeholder",
+}
+
+
+def _with_placeholder_secrets(text: str) -> str:
+    """Fill empty generated secrets (`_GENERATED_SECRET_PLACEHOLDERS`) in .env text.
+
+    The bootstrapper generates these at start. Compose refuses an empty
+    `${VAR:?...}` value, so every harness that renders compose from
+    .env.example must supply them.
+    """
+    out = []
+    for line in text.splitlines():
+        key = line.split("=", 1)[0]
+        if key in _GENERATED_SECRET_PLACEHOLDERS and line == f"{key}=":
+            out.append(f"{key}={_GENERATED_SECRET_PLACEHOLDERS[key]}")
+        else:
+            out.append(line)
+    return "\n".join(out) + "\n"
+
+
 def _write_env_with_override(target: Path, var: str, value: str) -> None:
     """Copy .env.example to `target` with one variable overridden."""
-    lines = ENV_EXAMPLE.read_text().splitlines()
+    lines = _with_placeholder_secrets(ENV_EXAMPLE.read_text()).splitlines()
     out = []
     found = False
     for line in lines:
@@ -148,6 +171,9 @@ def _synthesize_env(env_file: Path, monkeypatch, overrides: dict[str, str]) -> N
     from core.config_parser import ConfigParser
     from services.service_config import ServiceConfig
 
+    # The bootstrapper generates these secrets at start; compose refuses an empty
+    # value (`${VAR:?...}`), so the harness supplies fixed placeholders.
+    overrides = {**_GENERATED_SECRET_PLACEHOLDERS, **overrides}
     monkeypatch.setattr("services.service_config.resolve_host_gateway_ip", lambda: "host-gateway")
     parser = ConfigParser(str(REPO_ROOT))
     parser.env_file_path = env_file
@@ -242,7 +268,7 @@ def test_spark_renders_at_every_supported_worker_count(worker_count: str, tmp_pa
     # (Pass 2 added the dedicated spark-connect sidecar — SPARK_CONNECT_SCALE
     # must be 1 alongside the rest for the merged compose to render the
     # full topology that ships at runtime.)
-    env_text = ENV_EXAMPLE.read_text(encoding="utf-8")
+    env_text = _with_placeholder_secrets(ENV_EXAMPLE.read_text(encoding="utf-8"))
     out_lines = []
     for line in env_text.splitlines():
         if line.startswith("SPARK_SOURCE="):
@@ -361,7 +387,7 @@ def _regenerate_redis_env(path):
 
 def _redis_generated_env(tmp_path, monkeypatch, settings):
     from utils.atomic_write import render_env_assignment, set_env_assignment
-    content = ENV_EXAMPLE.read_text()
+    content = _with_placeholder_secrets(ENV_EXAMPLE.read_text())
     defaults = {"REDIS_PASSWORD": "synthetic-file-secret", "REDIS_SOURCE": "container",
                 "CELERY_SOURCE": "container", "LIGHTRAG_SOURCE": "container",
                 "JUPYTERHUB_SOURCE": "container", "OPEN_WEB_UI_SOURCE": "container",

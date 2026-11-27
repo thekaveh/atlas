@@ -21,7 +21,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
-from shared_state import StateStoreUnavailable, backend_state_store_mode, redis_url
+from shared_state import backend_state_store_mode, redis_url
 
 from .models import (
     DISPATCH_ACCEPTED,

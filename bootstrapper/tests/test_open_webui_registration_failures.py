@@ -30,6 +30,11 @@ def _load_script(monkeypatch, filename: str):
         "psycopg2",
         types.SimpleNamespace(Error=DatabaseError, connect=lambda *_args, **_kwargs: None),
     )
+    # In the container Python puts the script directory on sys.path, so the
+    # scripts can `import register_helpers`. Reproduce that here, and drop any
+    # helper module a previous test cached with its own jwt/psycopg2 stubs.
+    monkeypatch.syspath_prepend(str(SCRIPTS))
+    monkeypatch.delitem(sys.modules, "register_helpers", raising=False)
     module_name = f"test_{filename.replace('-', '_').replace('.', '_')}"
     spec = importlib.util.spec_from_file_location(module_name, SCRIPTS / filename)
     module = importlib.util.module_from_spec(spec)

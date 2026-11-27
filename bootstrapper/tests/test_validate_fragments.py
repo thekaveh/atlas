@@ -203,3 +203,37 @@ def test_check_env_example_drift_exits_nonzero(tmp_path: Path, capsys):
     assert exit_code != 0
     captured = capsys.readouterr()
     assert "drift" in (captured.out + captured.err).lower() or "diff" in (captured.out + captured.err).lower()
+
+
+def test_duplicated_topology_markers_fail_the_lint(tmp_path: Path, capsys):
+    """A README with two TOPOLOGY marker pairs is refused, as the generator
+    refuses it on write. `first-match` lookup used to let it pass."""
+    import yaml
+
+    from tools.generate_readme_topology import generate_block
+
+    project = tmp_path / "project"
+    (project / "services" / "redis").mkdir(parents=True)
+    (project / "services" / "redis" / "service.yml").write_text(
+        yaml.safe_dump(
+            {
+                "name": "redis",
+                "label": "Redis",
+                "category": "data",
+                "containers": ["redis"],
+                "capabilities": _synthetic_capabilities(),
+                "env": [{"name": "REDIS_PORT", "default": 6379}],
+            }
+        )
+    )
+    (project / "services" / "redis" / "compose.yml").write_text(
+        "services:\n  redis:\n    image: redis:latest\n"
+    )
+    _scaffold_generated_artifacts(project)
+    readme = project / "README.md"
+    readme.write_text(readme.read_text(encoding="utf-8") + "\n" + generate_block(project / "services"))
+
+    exit_code = run(project_root=project, check_env_example=False)
+
+    assert exit_code == 1
+    assert "exactly one pair" in capsys.readouterr().err

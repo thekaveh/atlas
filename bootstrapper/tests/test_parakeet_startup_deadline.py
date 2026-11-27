@@ -19,6 +19,7 @@ STARTUP = PROVIDER / "startup.py"
 GPU_TRANSCRIBE = PROVIDER / "gpu" / "transcribe.py"
 GPU_API = PROVIDER / "shared" / "api_server.py"
 MLX_API = PROVIDER / "mlx" / "api_server.py"
+FACTORY_API = PROVIDER / "transcription_api.py"
 
 
 def _load(path: Path, name: str):
@@ -312,16 +313,22 @@ def test_gpu_loader_preserves_nemo3_model_load_contract(
 
 
 def test_both_parakeet_apis_use_lifespan_boundary_and_deadline():
+    # Lifespan, boundary, body cap, and deadline wiring live in the factory that
+    # both providers call. Each provider must go through create_api().
+    factory = FACTORY_API.read_text(encoding="utf-8")
+    assert "lifespan=lifespan" in factory
+    assert "model_lifespan(app, model_startup)" in factory
+    assert "load_boundary_settings(provider, TRANSCRIPTION_PATHS)" in factory
+    assert '"/v1/audio/transcriptions"' in factory
+    assert '"/v1/audio/transcriptions/advanced"' in factory
+    assert "install_provider_boundary(app, " in factory
+    assert "run_with_deadline(" in factory
+    assert "fatal_timeout_response(provider)" in factory
+    assert "CORSMiddleware" not in factory
     for path in (GPU_API, MLX_API):
         source = path.read_text(encoding="utf-8")
-        assert "lifespan=" in source
-        assert "model_lifespan(app, _model_startup)" in source
-        assert "load_boundary_settings(" in source
-        assert '"/v1/audio/transcriptions"' in source
-        assert '"/v1/audio/transcriptions/advanced"' in source
-        assert "install_provider_boundary(app," in source
-        assert "run_with_deadline(" in source
-        assert "fatal_timeout_response(" in source
+        assert "create_api(" in source
+        assert 'provider="PARAKEET"' in source
         assert "CORSMiddleware" not in source
 
 
@@ -335,3 +342,4 @@ def test_parakeet_gpu_image_copies_boundary_and_startup_modules():
     dockerfile = (PROVIDER / "gpu" / "Dockerfile").read_text(encoding="utf-8")
     assert "COPY provider_boundary.py /app/" in dockerfile
     assert "COPY startup.py /app/" in dockerfile
+    assert "COPY transcription_api.py /app/" in dockerfile

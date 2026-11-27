@@ -1136,3 +1136,25 @@ def test_compose_deps_lint_flags_unreviewed_edges_into_replaceable_services() ->
     # New edges fail, including one into a provider-scaled engine (speaches has
     # no sources: of its own); a reviewed one and a same-family one pass.
     assert lint.forbidden_edges(edges, replaceable) == [("backend", "searxng"), ("backend", "speaches")]
+
+
+def test_compose_source_deps_turns_a_rejected_manifest_into_exit_2(monkeypatch, capsys) -> None:
+    """The docs say exit 2 is an internal failure; a loader error must print FAIL and exit 2 (E1-07)."""
+    import importlib.util
+
+    # The script imports its sibling helper as a top-level module, as a direct run does.
+    monkeypatch.syspath_prepend(str(ROOT / "scripts"))
+    spec = importlib.util.spec_from_file_location(
+        "check_compose_source_deps", ROOT / "scripts/check-compose-source-deps.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    monkeypatch.setattr(module, "load_compose", lambda _env_file: {"services": {}})
+
+    def rejected_manifest():
+        raise ValueError("services/example/service.yml is malformed")
+
+    monkeypatch.setattr(module, "replaceable_families", rejected_manifest)
+
+    assert module.main(["--env-file", str(ROOT / ".env.example")]) == 2
+    assert "FAIL load_manifests: ValueError" in capsys.readouterr().err

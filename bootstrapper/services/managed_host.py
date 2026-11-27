@@ -57,7 +57,6 @@ from utils.atomic_write import atomic_replace_text
 from services import (
     clear_owned_process_tracking,
     clear_owned_group_if_reaped,
-    LaunchCompensation,
     add_lifecycle_preflight,
     acquire_lifecycle_lock,
     await_owned_process_readiness,
@@ -640,7 +639,7 @@ class ManagedHostManager:
         # ATOMIC. `write_text` truncates and then writes, and the `start_utc=`
         # line lands after the pid in the same call — so a crash or a
         # concurrent read mid-write yields a file with a pid and NO stamp.
-        # `_recorded_start_time` then returns None and ownership becomes
+        # `read_recorded_start_time` then returns None and ownership becomes
         # untrusted. Atomic replacement prevents that torn state.
         atomic_replace_text(self.pid_file, body + "\n")
 
@@ -746,6 +745,9 @@ class ManagedHostManager:
         ``_untracked_pid``). A stale pid file is not proof: its old group can
         disappear, the number can be reused by another group, and that new
         leader can exit. Signalling that leaderless PGID would hit strangers.
+
+        Escalates SIGTERM then SIGKILL, unlike ``services.terminate_process_group``
+        (SIGINT first); the difference is pinned in test_managed_host_lifecycle_shared.py.
         """
         if not ManagedHostManager._group_survives(pid):
             return True
@@ -972,10 +974,6 @@ class ManagedHostManager:
         rendered value a function of the process alone.
         """
         return process_start_identity(pid)
-
-    def _recorded_start_time(self) -> Optional[str]:
-        """The start time stamped into the pid file at spawn, if present."""
-        return read_recorded_start_time(self.pid_file)
 
     def _pid_is_stranger(self, pid: int) -> bool:
         """True unless ``pid`` can be positively proven to be our process.

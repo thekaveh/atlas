@@ -15,7 +15,7 @@ Atlas provides the Jenkins server, JCasC, Maven, and MinIO publishing seam. Down
 | Direct | `http://localhost:${JENKINS_PORT}` | `${JENKINS_ADMIN_USER}` / `${JENKINS_ADMIN_PASSWORD}` |
 | Kong | `http://jenkins.localhost:${KONG_HTTP_PORT}` | Same Jenkins login |
 
-`JENKINS_ADMIN_PASSWORD` is auto-generated on first bootstrap and persisted to `.env`.
+`JENKINS_ADMIN_PASSWORD` is auto-generated on first bootstrap and persisted to `.env`. Compose has no default password: while the value is empty, `docker compose` stops with `JENKINS_ADMIN_PASSWORD is required`.
 
 The direct port binds through `HOST_BIND_IP` (default `127.0.0.1:`, loopback only). The Kong route adds no separate auth layer, so the Jenkins login is the only protection. Use Jenkins only on a local host or a trusted VPN; do not expose it to the public internet.
 

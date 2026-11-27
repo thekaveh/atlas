@@ -145,7 +145,7 @@ def test_all_mode_walks_research_tree(tmp_path):
     good_row = FIXTURE_DIR / "example_row.md"
     good_cand = FIXTURE_DIR / "example_candidate.md"
     (rows / "example.md").write_text(good_row.read_text())
-    (cands / "example.md").write_text(good_cand.read_text())
+    (cands / "example-candidate.md").write_text(good_cand.read_text())
 
     r = subprocess.run(
         [sys.executable, str(VALIDATOR), "--all", "--research-root", str(tmp_path / "docs" / "research")],
@@ -168,7 +168,8 @@ def _all_mode(tmp_path: Path, candidate_text: str) -> subprocess.CompletedProces
     research = tmp_path / "docs" / "research"
     (research / "rows").mkdir(parents=True)
     (research / "candidates").mkdir(parents=True)
-    (research / "candidates" / "example.md").write_text(candidate_text)
+    # The README names candidate files candidates/<slug>.md; the fixture slug is example-candidate.
+    (research / "candidates" / "example-candidate.md").write_text(candidate_text)
     return _run("--all", "--research-root", str(research))
 
 
@@ -302,3 +303,79 @@ def test_a_nested_upstream_evidence_section_still_needs_a_url(tmp_path):
 
     assert result.returncode == 1
     assert "Upstream evidence section must contain at least one URL" in result.stdout
+
+
+def _row_with(old: str, new: str, tmp_path: Path) -> subprocess.CompletedProcess[str]:
+    source = (FIXTURE_DIR / "example_row.md").read_text()
+    assert source.count(old) == 1, old
+    row = tmp_path / "example_row.md"
+    row.write_text(source.replace(old, new))
+    return _run(str(row))
+
+
+@pytest.mark.parametrize(("old", "new", "message"), [
+    ("category: data", "category: databases", "frontmatter `category` must be one of"),
+    ("generator: phase-b-hand-edit", "generator: a-person", "frontmatter `generator` must be one of"),
+    ("category: data", "category: <infra | data>", "unfilled template placeholder"),
+])
+def test_row_frontmatter_follows_the_readme_enumerations(tmp_path, old, new, message):
+    result = _row_with(old, new, tmp_path)
+
+    assert result.returncode == 1
+    assert message in result.stdout
+
+
+def test_row_section_with_no_findings_must_use_the_placeholder(tmp_path):
+    source = (FIXTURE_DIR / "example_row.md").read_text()
+    body = source.split("## 2. Candidate new services", 1)
+    emptied = body[0] + "## 2. Candidate new services\n\n" + "## 3." + body[1].split("## 3.", 1)[1]
+    row = tmp_path / "example_row.md"
+    row.write_text(emptied)
+
+    result = _run(str(row))
+
+    assert result.returncode == 1
+    assert "empty section ## 2. Candidate new services" in result.stdout
+    assert "_No high-confidence opportunities identified._" in result.stdout
+
+    row.write_text(emptied.replace(
+        "## 2. Candidate new services\n\n",
+        "## 2. Candidate new services\n\n_No high-confidence opportunities identified._\n\n",
+    ))
+    assert _run(str(row)).returncode == 0
+
+
+def _candidate_with(old: str, new: str, tmp_path: Path, name: str = "example-candidate.md"):
+    source = (FIXTURE_DIR / "example_candidate.md").read_text()
+    assert source.count(old) == 1, old
+    candidates = tmp_path / "candidates"
+    candidates.mkdir(exist_ok=True)
+    candidate = candidates / name
+    candidate.write_text(source.replace(old, new))
+    return _run(str(candidate))
+
+
+@pytest.mark.parametrize(("old", "new", "message"), [
+    ("category-fit: agents", "category-fit: observability", "frontmatter `category-fit` must be one of"),
+    ("type: external-service", "type: internal-service", "frontmatter `type` must be `external-service`"),
+    ("slug: example-candidate", "slug: Example_Candidate", "frontmatter `slug` must be kebab-case"),
+    ("license: MIT", "license: ''", "frontmatter `license` must name an SPDX identifier"),
+    ("license: MIT", "license: <SPDX identifier or \"unknown\">", "unfilled template placeholder"),
+])
+def test_candidate_frontmatter_follows_the_readme(tmp_path, old, new, message):
+    result = _candidate_with(old, new, tmp_path)
+
+    assert result.returncode == 1
+    assert message in result.stdout
+
+
+def test_candidate_slug_must_match_its_file_name_in_the_candidates_directory(tmp_path):
+    candidates = tmp_path / "candidates"
+    candidates.mkdir()
+    candidate = candidates / "renamed.md"
+    candidate.write_text((FIXTURE_DIR / "example_candidate.md").read_text())
+
+    result = _run(str(candidate))
+
+    assert result.returncode == 1
+    assert "must match the file name 'renamed'" in result.stdout

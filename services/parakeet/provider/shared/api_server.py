@@ -2,30 +2,13 @@
 
 import logging
 import os
-from contextlib import asynccontextmanager
-from typing import Literal, Optional
 
-from fastapi import FastAPI, File, Form, HTTPException, Response, UploadFile, status
 from fastapi.responses import PlainTextResponse
 
-from bounded_upload import (
-    MAX_BODY_TIMEOUT_SECONDS,
-    EmptyUploadError,
-    RequestBodyLimitMiddleware,
-    UploadTooLargeError,
-    multipart_body_limit,
-    spool_upload,
-)
-from provider_boundary import (
-    ProviderDeadlineExceeded,
-    fatal_timeout_response,
-    install_provider_boundary,
-    load_boundary_settings,
-    parse_positive_int,
-    parse_timeout_seconds,
-    run_with_deadline,
-)
-from startup import ModelStartup, model_lifespan
+from bounded_upload import MAX_BODY_TIMEOUT_SECONDS
+from provider_boundary import parse_positive_int, parse_timeout_seconds
+from startup import ModelStartup
+from transcription_api import ProviderHooks, create_api
 
 try:
     from transcribe import load_model, model_is_loaded, transcribe_audio_sync
@@ -38,7 +21,6 @@ except ImportError as exc:
 
 
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 _DEFAULT_MODEL = "nvidia/parakeet-tdt-0.6b-v3"
 _MAX_UPLOAD_BYTES = parse_positive_int(
     "PARAKEET_MAX_UPLOAD_BYTES", default=104_857_600
@@ -55,147 +37,61 @@ _model_startup = ModelStartup(
 )
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    async with model_lifespan(app, _model_startup):
-        yield
-
-
-app = FastAPI(
-    title="Parakeet STT API",
-    version="1.0.0",
-    description="OpenAI-compatible Speech-to-Text API using NVIDIA Parakeet-TDT",
-    lifespan=lifespan,
-)
-app.add_middleware(
-    RequestBodyLimitMiddleware,
-    max_body_bytes=multipart_body_limit(_MAX_UPLOAD_BYTES),
-    body_timeout_seconds=_UPLOAD_TIMEOUT_SECONDS,
-    paths={"/v1/audio/transcriptions", "/v1/audio/transcriptions/advanced"},
-)
-_BOUNDARY_SETTINGS = load_boundary_settings(
-    "PARAKEET",
-    {"/v1/audio/transcriptions", "/v1/audio/transcriptions/advanced"},
-)
-install_provider_boundary(app, _BOUNDARY_SETTINGS)
-
-
-def _require_ready() -> None:
-    if _model_startup.state != "healthy" or not model_is_loaded():
-        detail = (
-            "Service is loading"
-            if _model_startup.state == "loading"
-            else "Service is unhealthy"
-        )
-        raise HTTPException(status_code=503, detail=detail)
-
-
-@app.get("/")
-async def root():
+def _describe() -> dict[str, str]:
     return {
-        "name": "Parakeet STT API",
-        "version": "1.0.0",
-        "description": "OpenAI-compatible Speech-to-Text API",
         "backend": os.getenv("PARAKEET_BACKEND", "cuda"),
         "device": os.getenv("PARAKEET_DEVICE", "unknown"),
         "model": os.getenv("PARAKEET_MODEL", _DEFAULT_MODEL),
     }
 
 
-@app.get("/health")
-async def health_check(response: Response):
-    ready = _model_startup.state == "healthy" and model_is_loaded()
-    if not ready:
-        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
-    return {
-        "status": "healthy" if ready else _model_startup.state,
-        "model_loaded": ready,
-        "backend": os.getenv("PARAKEET_BACKEND", "cuda"),
-        "device": os.getenv("PARAKEET_DEVICE", "unknown"),
-        "model": os.getenv("PARAKEET_MODEL", _DEFAULT_MODEL),
-    }
-
-
-@app.post("/v1/audio/transcriptions")
-async def transcribe(
-    file: UploadFile = File(...),
-    model: str = Form(default="parakeet-tdt-0.6b-v3"),
-    language: Optional[str] = Form(default=None),
-    prompt: Optional[str] = Form(default=None),
-    response_format: Literal["json", "verbose_json", "text"] = Form(default="json"),
-    temperature: float = Form(default=0.0),
+def _transcribe_standard(
+    file_path: str,
+    *,
+    response_format: str,
+    language: str | None,
+    temperature: float,
 ):
-    del model, prompt
-    _require_ready()
-    tmp_path = None
-    try:
-        suffix = os.path.splitext(file.filename or "audio.wav")[1] or ".wav"
-        tmp_path = await spool_upload(file, max_bytes=_MAX_UPLOAD_BYTES, suffix=suffix)
-        result = await run_with_deadline(
-            "PARAKEET",
-            lambda: transcribe_audio_sync(
-                audio_path=str(tmp_path),
-                language=language,
-                temperature=temperature,
-            ),
-        )
-        if response_format == "json":
-            return {"text": result["text"]}
-        if response_format == "verbose_json":
-            return result
-        return PlainTextResponse(result["text"])  # OpenAI's text format is raw text
-    except ProviderDeadlineExceeded:
-        return fatal_timeout_response("PARAKEET")
-    except UploadTooLargeError as exc:
-        raise HTTPException(status_code=413, detail=str(exc)) from exc
-    except EmptyUploadError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.error("Transcription failed (error_type=%s)", type(exc).__name__)
-        raise HTTPException(status_code=500, detail="Transcription failed") from exc
-    finally:
-        if tmp_path is not None:
-            tmp_path.unlink(missing_ok=True)
+    result = transcribe_audio_sync(
+        audio_path=file_path,
+        language=language,
+        temperature=temperature,
+    )
+    if response_format == "json":
+        return {"text": result["text"]}
+    if response_format == "verbose_json":
+        return result
+    return PlainTextResponse(result["text"])  # OpenAI's text format is raw text
 
 
-@app.post("/v1/audio/transcriptions/advanced")
-async def transcribe_advanced(
-    file: UploadFile = File(...),
-    return_timestamps: bool = Form(default=False),
-    word_timestamps: bool = Form(default=False),
+def _transcribe_advanced(
+    file_path: str,
+    *,
+    return_timestamps: bool,
+    word_timestamps: bool,
 ):
-    _require_ready()
-    tmp_path = None
-    try:
-        suffix = os.path.splitext(file.filename or "audio.wav")[1] or ".wav"
-        tmp_path = await spool_upload(file, max_bytes=_MAX_UPLOAD_BYTES, suffix=suffix)
-        return await run_with_deadline(
-            "PARAKEET",
-            lambda: transcribe_audio_sync(
-                audio_path=str(tmp_path),
-                return_timestamps=return_timestamps,
-                word_timestamps=word_timestamps,
-            ),
-        )
-    except ProviderDeadlineExceeded:
-        return fatal_timeout_response("PARAKEET")
-    except UploadTooLargeError as exc:
-        raise HTTPException(status_code=413, detail=str(exc)) from exc
-    except EmptyUploadError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.error(
-            "Advanced transcription failed (error_type=%s)",
-            type(exc).__name__,
-        )
-        raise HTTPException(status_code=500, detail="Transcription failed") from exc
-    finally:
-        if tmp_path is not None:
-            tmp_path.unlink(missing_ok=True)
+    return transcribe_audio_sync(
+        audio_path=file_path,
+        return_timestamps=return_timestamps,
+        word_timestamps=word_timestamps,
+    )
+
+
+app = create_api(
+    ProviderHooks(
+        provider="PARAKEET",
+        title="Parakeet STT API",
+        description="OpenAI-compatible Speech-to-Text API using NVIDIA Parakeet-TDT",
+        logger_name=__name__,
+        model_startup=_model_startup,
+        is_loaded=model_is_loaded,
+        describe=_describe,
+        transcribe_standard=_transcribe_standard,
+        transcribe_advanced=_transcribe_advanced,
+        max_upload_bytes=_MAX_UPLOAD_BYTES,
+        upload_timeout_seconds=_UPLOAD_TIMEOUT_SECONDS,
+    )
+)
 
 
 if __name__ == "__main__":

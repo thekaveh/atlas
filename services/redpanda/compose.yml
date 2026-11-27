@@ -24,7 +24,11 @@ services:
       - --kafka-addr
       - internal://0.0.0.0:9092,external://0.0.0.0:19092
       - --advertise-kafka-addr
-      - internal://redpanda:9092,external://localhost:${REDPANDA_KAFKA_PORT}
+      # The external address follows the published bind (HOST_BIND_IP keeps its
+      # trailing colon, so the port is appended directly). `:-` keeps an empty
+      # value from advertising a bare port. Remote clients need a concrete LAN
+      # bind: a wildcard or empty bind has no address a client can reach.
+      - internal://redpanda:9092,external://${HOST_BIND_IP:-127.0.0.1:}${REDPANDA_KAFKA_PORT}
       - --rpc-addr
       - redpanda:33145
       - --advertise-rpc-addr

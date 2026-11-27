@@ -100,14 +100,12 @@ runtime_sc:
         VERBA_ENDPOINT: http://verba:8000
         VERBA_WEAVIATE_URL: http://weaviate:8080
       deploy: {}
-      extra_hosts: []
     disabled:
       scale: 0
       environment:
         VERBA_ENDPOINT: ''
         VERBA_WEAVIATE_URL: ''
       deploy: {}
-      extra_hosts: []
 
 data_flow:
   calls:

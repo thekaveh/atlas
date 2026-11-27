@@ -39,7 +39,7 @@ Keep `REDIS_PASSWORD` as the raw password. Startup synchronizes `REDIS_PASSWORD_
 URL consumers use the encoded value; Redis server arguments, `REDISCLI_AUTH` and separate password fields use the raw value.
 Treat both values as secrets. Encoding does not hide a password.
 
-Compose refuses a blank `REDIS_PASSWORD`, because Redis would otherwise start without authentication. `./start.sh` replaces a blank value in `.env` with a random one.
+Compose refuses a blank `REDIS_PASSWORD`, because Redis would otherwise start without authentication. `./start.sh` replaces a blank value, or the shipped placeholder `redis_password`, in `.env` with a random one, and rewrites `REDIS_PASSWORD_URI` to match.
 
 Atlas resolves password references and shell overrides for its Compose child processes. It keeps resolved credentials out of the saved file.
 In those cases, recreate services through `./start.sh`; a bare Compose command does not receive those derived values.
@@ -184,7 +184,7 @@ With AOF enabled, Redis loads the AOF files at startup instead of the standalone
 **Memory cap and eviction.**
 
 - `REDIS_MAXMEMORY` defaults to `0` (no cap). Redis then grows until Docker's memory limit kills it, which loses in-flight queue state.
-- A cap of about 75% of the container's memory budget, for example `REDIS_MAXMEMORY=512mb`, bounds memory. Read the key table below first.
+- Atlas sets no container memory limit, so there is no container budget to take a share of. Set a cap below the memory you give the host or container yourself, for example `REDIS_MAXMEMORY=512mb`. Read the key table below first.
 - `REDIS_MAXMEMORY_POLICY` defaults to `volatile-lru`, which evicts only keys with a TTL. These include LiteLLM's response cache, ordinary Backend media records, and two coordination leases (table below).
 - Media retention defaults to seven days, but a memory cap can evict TTL-bearing records earlier, including operations without budget tracking.
 - Budget-tracked in-flight records, unresolved `submission_unknown` records and pending ledger intents remain persistent until settlement. See [Backend media retention](../backend/README.md#36-hosted-media-gateway).
@@ -209,7 +209,7 @@ Stack-relevant knobs (the first two are `.env` settings; the rest need a Compose
 
 | Knob | Default | Recommended for stack |
 |---|---|---|
-| `maxmemory` | unbounded | 75% of container memory budget, but only on a stack without RAG ingestion or memory consolidation (table above) |
+| `maxmemory` | unbounded | A cap below the container's memory (Atlas sets no limit); only without RAG ingestion or memory consolidation (table above) |
 | `maxmemory-policy` | `volatile-lru` | Keep for the mixed stock workload; use a dedicated cache instance before selecting `allkeys-lru`. |
 | `appendfsync` | `everysec` | leave as-is; `always` is overkill, `no` loses queue state on crash |
 | `save` (RDB) | Enabled: 3600 seconds / 1 change; 300 seconds / 100 changes; 60 seconds / 10000 changes | Account for background snapshot CPU and disk use. |

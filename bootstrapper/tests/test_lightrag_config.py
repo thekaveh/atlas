@@ -172,3 +172,35 @@ def test_lightrag_init_splits_the_postgres_uri_and_decodes_its_password(tmp_path
     password, uri = result.stdout.split("\n")[:2]
     assert (password, uri) == ("p@ss:w0rd", "postgresql://lightrag@supabase-db:5432/lightrag")
     assert "p%40ss" not in uri and "w0rd" not in uri
+
+
+def test_role_smoke_fails_before_upload_when_a_runtime_role_model_differs(tmp_path) -> None:
+    """The smoke checks the runtime role values it prints, not only the LiteLLM log (E1-05)."""
+    import os
+    import subprocess
+
+    root = Path(__file__).resolve().parents[2]
+    (tmp_path / ".env").write_text(
+        "LIGHTRAG_API_KEY=test-key\n"
+        "LIGHTRAG_EXTRACT_LLM_MODEL=model-a\n"
+        "LIGHTRAG_QUERY_LLM_MODEL=model-b\n",
+        encoding="utf-8",
+    )
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    fake_docker = bindir / "docker"
+    fake_docker.write_text(
+        "#!/bin/sh\nprintf 'EXTRACT_LLM_MODEL=model-a\\nQUERY_LLM_MODEL=model-a\\n'\n",
+        encoding="utf-8",
+    )
+    fake_docker.chmod(0o755)
+    env = {**os.environ, "PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}"}
+
+    result = subprocess.run(
+        ["bash", str(root / "scripts" / "smoke-lightrag-role-models.sh")],
+        cwd=tmp_path, env=env, capture_output=True, text=True, timeout=60,
+    )
+
+    assert result.returncode == 1
+    assert "runtime QUERY_LLM_MODEL does not match" in result.stderr
+    assert "[smoke] uploading" not in result.stdout

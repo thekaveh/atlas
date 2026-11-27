@@ -8,6 +8,6 @@ if [[ -d /opt/ComfyUI/.git ]]; then
     tracked=$(git -C /opt/ComfyUI ls-files -- custom_nodes 2>/dev/null)
     if [[ -n "$tracked" ]]; then
         printf "Restoring tracked custom_nodes files to the checked-out core\n"
-        git -C /opt/ComfyUI checkout -- $tracked 2>/dev/null || true
+        git -C /opt/ComfyUI checkout -- "$tracked" 2>/dev/null || true
     fi
 fi

@@ -327,3 +327,54 @@ def test_dashboard_basic_auth_hides_credentials_except_listed_apps():
 
     assert keeping == set(_BASIC_AUTH_KEEPS_CREDENTIALS)
     assert {"meta", "dashboard", "ray-dashboard", "langfuse", "mlflow", "crawl4ai"} <= hiding
+
+
+def test_a_host_routed_to_two_upstreams_is_reported_not_hidden():
+    import importlib.util
+
+    script = Path(__file__).resolve().parents[2] / "scripts" / "check-kong-routes.py"
+    spec = importlib.util.spec_from_file_location("check_kong_routes_dupes", script)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    config = {"services": [
+        {"url": "http://kong-a:1/", "routes": [
+            {"name": "a", "paths": ["/a"], "hosts": ["dup.localhost"]}]},
+        {"url": "http://kong-b:2/", "routes": [
+            {"name": "b", "paths": ["/b"], "hosts": ["dup.localhost"]}]},
+    ]}
+    assert module.host_url_map(config) == {"dup.localhost": "http://kong-b:2/"}
+    assert module._conflicting_host_issues(config) == [
+        "  dup.localhost: CONFLICTING host routed to 2 upstreams -> http://kong-a:1/, http://kong-b:2/"
+    ]
+    assert any("CONFLICTING host" in issue for issue in module.route_issues(config))
+
+
+def test_a_path_scoped_guard_to_the_same_upstream_is_not_a_conflict():
+    import importlib.util
+
+    script = Path(__file__).resolve().parents[2] / "scripts" / "check-kong-routes.py"
+    spec = importlib.util.spec_from_file_location("check_kong_routes_guard", script)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    config = {"services": [
+        {"url": "http://minio:9000/", "routes": [{"name": "s3-all", "hosts": ["s3.localhost"]}]},
+        {"url": "http://minio:9000/", "routes": [
+            {"name": "s3-guard", "hosts": ["s3.localhost"], "paths": ["/minio/metrics"]}]},
+    ]}
+    assert module._conflicting_host_issues(config) == []
+
+
+def test_a_route_name_used_twice_is_reported_not_overwritten():
+    import importlib.util
+
+    script = Path(__file__).resolve().parents[2] / "scripts" / "check-kong-routes.py"
+    spec = importlib.util.spec_from_file_location("check_kong_routes_names", script)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    config = {"services": [
+        {"url": "http://kong-a:1/", "routes": [{"name": "same", "paths": ["/a"], "hosts": ["a.localhost"]}]},
+        {"url": "http://kong-b:2/", "routes": [{"name": "same", "paths": ["/b"], "hosts": ["b.localhost"]}]},
+    ]}
+    assert module._duplicate_route_name_issues(config) == [
+        "  route same: DUPLICATE name on 2 routes"
+    ]

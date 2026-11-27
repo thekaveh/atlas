@@ -25,6 +25,9 @@ ENV_EXAMPLE = REPO_ROOT / ".env.example"
 COMPOSE = REPO_ROOT / "docker-compose.yml"
 
 
+pytestmark = pytest.mark.usefixtures("throwaway_admin_secrets")
+
+
 def _sc(stt_source: str, gate_source: str, stt_endpoint: str = "http://speaches:8000") -> ServiceConfig:
     sc = ServiceConfig(config_parser=MagicMock())
     sc.localhost_host = "host.docker.internal"

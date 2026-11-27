@@ -44,7 +44,7 @@ images:
   - var: PARAKEET_GPU_IMAGE
     default: "nvcr.io/nvidia/pytorch:26.06-py3"
     container: parakeet-gpu
-    notes: "Used as BASE_IMAGE in stt-provider/gpu/Dockerfile."
+    notes: "Used as BASE_IMAGE in services/parakeet/provider/gpu/Dockerfile."
 
 # STT source set — enumerates EVERY STT option, not just parakeet's own.
 # Mirrors how the legacy `bootstrapper/service-configs.yml` grouped them
@@ -173,14 +173,7 @@ runtime_sc:
       scale: 1
       environment:
         STT_ENDPOINT: http://speaches:8000
-      deploy:
-        resources:
-          reservations:
-            devices:
-            - driver: nvidia
-              count: 1
-              capabilities:
-              - gpu
+      deploy: {}
       extra_hosts: []
     parakeet-container-gpu:
       scale: 1
@@ -190,14 +183,7 @@ runtime_sc:
         PARAKEET_MODEL: ${PARAKEET_MODEL:-nvidia/parakeet-tdt-0.6b-v3}
         NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-all}
         HF_TOKEN: ${HUGGING_FACE_HUB_TOKEN}
-      deploy:
-        resources:
-          reservations:
-            devices:
-            - driver: nvidia
-              count: 1
-              capabilities:
-              - gpu
+      deploy: {}
       extra_hosts: []
     parakeet-localhost:
       scale: 0

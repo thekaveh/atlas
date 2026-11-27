@@ -36,7 +36,8 @@ Host connections require SCRAM passwords:
 - That `pg_hba.conf` requires `scram-sha-256` for every network range. It trusts only in-container connections: loopback, plus the local socket for `supabase_admin` and peer-mapped users.
 - The `supabase-db-config` volume holds `/etc/postgresql-custom`, including `pgsodium_root.key`. Without that key, Vault and pgsodium secrets cannot be decrypted, so keep this volume with the data volume.
 - On start, the wrapper rewrites legacy `trust` or `password` host rules in the data directory's `pg_hba.conf` to `scram-sha-256`. Local socket rules and explicit rejects stay.
-- A file with `md5` host rules is reported and left unchanged, because MD5-only role verifiers must be migrated first.
+- Compose starts Postgres with `-D /etc/postgresql`, so the server ignores that data-directory file. In this setup the rewrite changes no connection rule and the guard enforces nothing; the rules listed above are the ones that apply.
+- In this setup, a data-directory file with `md5` host rules is reported and left unchanged, because MD5-only role verifiers must be migrated first. Without `-D`, the wrapper refuses to start on such a file, and on an `include` directive.
 - Application containers use generated scoped roles. Only database initialization and backup/restore use `SUPABASE_DB_USER`.
 
 ### 2.2. `supabase_admin` password drift

@@ -5,8 +5,7 @@ Speaches is an STT and TTS engine. One container serves
 and Piper voices). Select it with `STT_PROVIDER_SOURCE=speaches-*` or
 `TTS_PROVIDER_SOURCE=speaches-*`. When both select it, one container serves both.
 
-Atlas preloads no model, and Speaches does not download a model on request.
-Requests return `404` until you download the model (issue #799). See
+Atlas preloads two models at boot: `speaches-ai/Kokoro-82M-v1.0-ONNX` (text-to-speech) and `Systran/faster-whisper-large-v3` (speech-to-text). Speaches does not download a model when a request names it. A request for any other uncached model returns `404` until you download it (issue #799). See
 [the STT Provider README](../stt-provider/README.md) for STT and
 [the TTS Provider README](../tts-provider/README.md) for TTS.
 
@@ -25,7 +24,7 @@ Requests return `404` until you download the model (issue #799). See
 - **Models:** Speaches answers only models in its cache, so Atlas preloads two at boot. They are `speaches-ai/Kokoro-82M-v1.0-ONNX` (text-to-speech) and `Systran/faster-whisper-large-v3` (the `whisper-1` target). The first start downloads about 3 GB from Hugging Face, and the healthcheck allows 600 s for it. Once both models are cached, the start command skips the preload, so the container restarts offline. To force a fresh download, remove the `speaches-cache` volume.
 - **In-container port:** 8000
 - **Host port:** `${SPEACHES_PORT}` (computed from `BASE_PORT`)
-- **Pinned cache (#2111):** when both preload models are cached, the compose command checks each file's sha256 against its pinned commit, then runs offline. A cold cache still preloads the unpinned main branch. To stage the pinned files first, run `docker compose ... create speaches`, then `services/speaches/pin-cache.sh <volume>`.
+- **Pinned cache (#2111):** once both preload models are cached, the compose command checks three weight files against their pins, then runs offline. Those are Kokoro `model.onnx` and `voices.bin`, and faster-whisper `model.bin`. The other six are checked only by `services/speaches/pin-cache.sh`, which checks all nine when it stages the cache. A cold cache still preloads the unpinned main branch. To stage the pinned files, run `docker compose ... create speaches`, then `services/speaches/pin-cache.sh <volume>`.
 - **API key:** every route except `/health` requires `Authorization: Bearer ${SPEACHES_API_KEY}`. A missing or wrong key gets `403`. The bootstrapper generates the key. Open WebUI and Hermes send it; notebooks, n8n workflows and the Gradio UI at `/` must send it too. Without a key, any web page could download models into the cache and load them into RAM (#1458).
 
 ## 2. Capabilities & limitations
