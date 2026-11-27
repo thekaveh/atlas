@@ -99,6 +99,7 @@ Also in this range: 160 fixes, 75 documentation, 4 build and ci, 42 maintenance,
 - **Bootstrapper.** The host-privilege path is hardened and tested. Shared host-stop and process-termination helpers replace copies. Unused code is removed. A consumer-manifest load failure now prints a warning. The managed-host lifecycle tests are factored.
 - **Docs and sitegen.** Stale counts, paths, a variable name and the track list are corrected. Table pipes escape. Diagram text escapes. The sitegen tracks reuse the canonical loader.
 - **Services.** Grafana and Jenkins fail closed on empty admin credentials. The asset base-image pin (C1-05) is held for owner approval, so both images stay on `python:3.12.9-slim`. Speaches, TTS and STT READMEs match their compose files. Parakeet's transcription API is shared. The Open WebUI registration helpers are shared, and an artifact value object keeps their signatures short.
+- **CI.** The backup init image installs `openssl=3.5.9-r1`, the only build Alpine still serves (r0 removed). The compose jobs seed throwaway admin secrets into their `.env`, which keeps the fail-closed values blank in the template.
 - **Left for owner decision.** Non-root users for the asset images. The asset base-image pin (C1-05). The Hermes dashboard default. Digest pins for tag-only base images. The Supabase grant review. The ROADMAP service-count wording. The speech-gate open-webui admin defaults.
 
 ### 1.3. Security — 2026-11-26 — Verba no longer publishes a host port (#1458)
