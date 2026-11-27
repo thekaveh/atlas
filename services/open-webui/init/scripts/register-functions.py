@@ -10,6 +10,7 @@ import requests
 import psycopg2
 
 from register_helpers import (
+    Artifact,
     api_reachable,
     artifact_exists,
     create_artifact,
@@ -70,7 +71,7 @@ def function_exists(function_id, headers):
 def create_function(function_id, name, content, description, func_type, headers):
     """Create a new function via the API."""
     return create_artifact(
-        WEBUI_URL, "functions", function_id, name, content, description, headers,
+        WEBUI_URL, "functions", Artifact(function_id, name, content, description), headers,
         type=func_type,
     )
 
@@ -78,7 +79,7 @@ def create_function(function_id, name, content, description, func_type, headers)
 def update_function(function_id, name, content, description, func_type, headers):
     """Update an existing function via the API."""
     return update_artifact(
-        WEBUI_URL, "functions", function_id, name, content, description, headers,
+        WEBUI_URL, "functions", Artifact(function_id, name, content, description), headers,
         type=func_type,
     )
 

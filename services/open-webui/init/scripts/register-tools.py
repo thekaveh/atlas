@@ -10,6 +10,7 @@ import requests
 import psycopg2
 
 from register_helpers import (
+    Artifact,
     api_reachable,
     artifact_exists,
     create_artifact,
@@ -197,12 +198,12 @@ def tool_exists(tool_id, headers):
 
 def create_tool(tool_id, name, content, description, headers):
     """Create a new tool via the API."""
-    return create_artifact(WEBUI_URL, "tools", tool_id, name, content, description, headers)
+    return create_artifact(WEBUI_URL, "tools", Artifact(tool_id, name, content, description), headers)
 
 
 def update_tool(tool_id, name, content, description, headers):
     """Update an existing tool via the API."""
-    return update_artifact(WEBUI_URL, "tools", tool_id, name, content, description, headers)
+    return update_artifact(WEBUI_URL, "tools", Artifact(tool_id, name, content, description), headers)
 
 
 def register_tools(token):

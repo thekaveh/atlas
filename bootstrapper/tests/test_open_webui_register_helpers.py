@@ -164,7 +164,7 @@ def test_create_artifact_without_extra_sends_no_type(helpers, monkeypatch):
 
     monkeypatch.setattr(requests, "post", fake_post)
 
-    helpers.create_artifact(WEBUI, "tools", "t1", "Tool One", "code", "desc", {"h": "1"})
+    helpers.create_artifact(WEBUI, "tools", helpers.Artifact("t1", "Tool One", "code", "desc"), {"h": "1"})
 
     assert seen["url"] == f"{WEBUI}/api/v1/tools/create"
     assert list(seen["json"]) == ["id", "name", "content", "meta"]
@@ -181,7 +181,7 @@ def test_create_artifact_extra_fields_sit_before_meta(helpers, monkeypatch):
 
     monkeypatch.setattr(requests, "post", fake_post)
 
-    helpers.create_artifact(WEBUI, "functions", "f1", "F", "code", "d", {}, type="filter")
+    helpers.create_artifact(WEBUI, "functions", helpers.Artifact("f1", "F", "code", "d"), {}, type="filter")
 
     assert seen["url"] == f"{WEBUI}/api/v1/functions/create"
     assert list(seen["json"]) == ["id", "name", "content", "type", "meta"]
@@ -199,7 +199,7 @@ def test_update_artifact_targets_id_path_and_propagates_http_errors(helpers, mon
     monkeypatch.setattr(requests, "post", fake_post)
 
     with pytest.raises(requests.exceptions.HTTPError):
-        helpers.update_artifact(WEBUI, "functions", "f1", "F", "code", "d", {}, type="pipe")
+        helpers.update_artifact(WEBUI, "functions", helpers.Artifact("f1", "F", "code", "d"), {}, type="pipe")
     assert seen == {"url": f"{WEBUI}/api/v1/functions/id/f1/update", "timeout": 30}
 
 

@@ -13,9 +13,11 @@ script, because the two scripts deliberately differ there.
 
 import re
 import time
+from typing import NamedTuple
 
 import jwt
 import psycopg2
+
 import requests
 
 
@@ -92,23 +94,32 @@ def artifact_exists(base_url, resource, artifact_id, headers):
     return resp.status_code == 200
 
 
-def _artifact_payload(artifact_id, name, content, description, extra):
+class Artifact(NamedTuple):
+    """The four fields every Open WebUI tool or function artifact shares."""
+
+    id: str
+    name: str
+    content: str
+    description: str
+
+
+def _artifact_payload(artifact, extra):
     return {
-        "id": artifact_id,
-        "name": name,
-        "content": content,
+        "id": artifact.id,
+        "name": artifact.name,
+        "content": artifact.content,
         **extra,
-        "meta": {"description": description},
+        "meta": {"description": artifact.description},
     }
 
 
-def create_artifact(base_url, resource, artifact_id, name, content, description, headers, **extra):
+def create_artifact(base_url, resource, artifact, headers, **extra):
     """POST a new artifact to ``/api/v1/<resource>/create``.
 
     ``extra`` adds payload fields that only some artifact types send, such as
     ``type`` for functions.
     """
-    payload = _artifact_payload(artifact_id, name, content, description, extra)
+    payload = _artifact_payload(artifact, extra)
     resp = requests.post(
         f"{base_url}/api/v1/{resource}/create",
         json=payload,
@@ -119,11 +130,11 @@ def create_artifact(base_url, resource, artifact_id, name, content, description,
     return resp.json()
 
 
-def update_artifact(base_url, resource, artifact_id, name, content, description, headers, **extra):
+def update_artifact(base_url, resource, artifact, headers, **extra):
     """POST changes to ``/api/v1/<resource>/id/<artifact_id>/update``."""
-    payload = _artifact_payload(artifact_id, name, content, description, extra)
+    payload = _artifact_payload(artifact, extra)
     resp = requests.post(
-        f"{base_url}/api/v1/{resource}/id/{artifact_id}/update",
+        f"{base_url}/api/v1/{resource}/id/{artifact.id}/update",
         json=payload,
         headers=headers,
         timeout=30,
