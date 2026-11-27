@@ -12,6 +12,6 @@ builds:
     reason: "Remote-context final-image scanning needs a separately pinned source archive; the nightly upstream drift watch fetches this commit-pinned Dockerfile and compares each literal FROM image's index digest with a reviewed baseline. Renewed by the owner on 2026-11-14 for 90 days."
     expired_at: 2027-02-12
 remote_base_digests:
-  nginx:alpine: sha256:fb4658584bd9a916ffb6f6e365f97c25cfdb2923801f551ea08356e695f14ff7
+  nginx:alpine: sha256:7fc0fb4af7bf006aeb31aea88069976060f8f0a0a86b667126742cc17f4e31ae
   node:20: sha256:8f693eaa7e0a8e71560c9a82b55fd54c2ae920a2ba5d2cde28bac7d1c01c9ba5
-  python:3.12-slim: sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b
+  python:3.12-slim: sha256:191083cdf6c7bda8c76158983163ead5d5cf7b77cf3033e805bb0f5296f51b4b
