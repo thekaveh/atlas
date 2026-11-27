@@ -25,7 +25,11 @@ services:
       - "host.docker.internal:${HOST_GATEWAY_IP}"
     environment:
       LITELLM_BASE_URL: http://litellm:4000
+      # Master key: this init container only reads the model catalog and
+      # registers HERMES_LITELLM_API_KEY. It is never written to config.yaml.
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
+      # Hermes's scoped LiteLLM virtual key, rendered into config.yaml (#1377).
+      HERMES_LITELLM_API_KEY: ${HERMES_LITELLM_API_KEY:-}
       HERMES_DEFAULT_MODEL: ${HERMES_DEFAULT_MODEL:-}
       HERMES_API_KEY: ${HERMES_API_KEY:-}
       HERMES_CONTEXT_LENGTH: ${HERMES_CONTEXT_LENGTH:-65536}
@@ -104,8 +108,9 @@ services:
       HERMES_DASHBOARD_PORT: "9119"
       # Inert in v2026.6.19: web_server.py hard-codes the embedded Chat tab
       # (/api/pty, /api/ws) on and nothing reads this variable, so ``0`` does
-      # NOT give a read-only dashboard. Only HERMES_DASHBOARD_ENABLED=false
-      # removes the Chat tab. Kept so existing .env files stay valid.
+      # NOT give a read-only dashboard. HERMES_DASHBOARD_ENABLED (default
+      # false) decides whether the dashboard, and so the Chat tab, is served.
+      # Kept so existing .env files stay valid.
       HERMES_DASHBOARD_TUI: ${HERMES_DASHBOARD_TUI:-1}
       # Allow the dashboard to bind to 0.0.0.0 without a Nous Portal OAuth
       # provider. The upstream image stopped implicitly inferring insecure
@@ -125,9 +130,10 @@ services:
       API_SERVER_HOST: 0.0.0.0
       API_SERVER_KEY: ${HERMES_API_KEY:-}
       API_SERVER_CORS_ORIGINS: "*"
-      # Provider keys forwarded so config.yaml custom_providers can
-      # resolve at runtime.
-      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
+      # The agent (including the dashboard's PTY Chat tab) holds only a
+      # scoped LiteLLM virtual key, never LITELLM_MASTER_KEY (#1377).
+      # config.yaml reads it through providers.litellm.key_env.
+      HERMES_LITELLM_API_KEY: ${HERMES_LITELLM_API_KEY:-}
       # Empty unless CLOUD_<PROVIDER>_SOURCE=enabled (#1886).
       OPENAI_API_KEY: ${HERMES_OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${HERMES_ANTHROPIC_API_KEY:-}

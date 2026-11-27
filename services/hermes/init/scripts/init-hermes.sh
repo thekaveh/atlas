@@ -7,7 +7,7 @@
 # Idempotent: re-running overwrites the GENERATED files but leaves
 # user-edited files (sessions/, memories/MEMORY.md, etc.) intact.
 #
-# Three responsibilities:
+# Four responsibilities:
 #   1. Ensure /opt/data exists and is owned by HERMES_UID:HERMES_GID
 #      (the hermes container runs as that user).
 #   2. Render /opt/data/config.yaml from /templates/config.yaml.tmpl
@@ -17,6 +17,9 @@
 #   3. Install a companion skill at skills/creative/atlas-comfyui-host/SKILL.md
 #      naming COMFYUI_INTERNAL_URL, because the bundled comfyui skill
 #      defaults to 127.0.0.1:8188.
+#   4. Register HERMES_LITELLM_API_KEY with LiteLLM as a virtual key limited
+#      to the models Hermes offers (#1377). The agent never receives the
+#      master key; only this init container holds it.
 #
 # Exits non-zero on any unexpected condition so docker compose surfaces
 # the failure instead of letting hermes start with a broken config.
@@ -67,6 +70,15 @@ mkdir -p "${DATA_DIR}" "${SKILLS_DIR}"
 export HERMES_DEFAULT_MODEL="${HERMES_DEFAULT_MODEL:-}"
 export HERMES_CONTEXT_LENGTH="${HERMES_CONTEXT_LENGTH:-65536}"
 export LITELLM_MASTER_KEY="${LITELLM_MASTER_KEY:-}"
+export HERMES_LITELLM_API_KEY="${HERMES_LITELLM_API_KEY:-}"
+
+# Both keys are required: the master key registers the scoped key, and the
+# scoped key is what config.yaml carries. Refuse to start rather than fall
+# back to the master key.
+if [[ -z "${HERMES_LITELLM_API_KEY}" || -z "${LITELLM_MASTER_KEY}" ]]; then
+  log "✖ HERMES_LITELLM_API_KEY or LITELLM_MASTER_KEY is empty; run ./start.sh to generate the keys"
+  exit 1
+fi
 
 # ─── auto-pick HERMES_DEFAULT_MODEL when blank ─────────────────────
 # Hermes is single-default-model: it cannot dispatch a request unless
@@ -257,15 +269,59 @@ if [[ -n "${models_json:-}" ]]; then
 fi
 export LITELLM_MODELS_LIST
 
+# ─── scoped LiteLLM key (#1377) ────────────────────────────────────
+# Hermes's agent holds HERMES_LITELLM_API_KEY, a LiteLLM virtual key limited
+# to the models its picker offers, instead of the master key. Registration
+# follows the update-then-generate pattern of
+# services/weaviate/init/scripts/init-weaviate.sh. The key travels in a
+# request body file and the master key on curl's stdin, never in argv
+# (#1381). A failure stops the start; it never falls back to the master key.
+litellm_post() {
+  local path=$1 body=$2 body_file rc=0
+  body_file=$(mktemp)
+  printf '%s' "$body" > "$body_file"
+  printf 'Authorization: Bearer %s\n' "${LITELLM_MASTER_KEY}" \
+    | curl -fsS --max-time 30 --header @- --header 'Content-Type: application/json' \
+        --data-binary "@${body_file}" -o /dev/null "${litellm_url}${path}" || rc=$?
+  rm -f "$body_file"
+  return "$rc"
+}
+
+register_scoped_key() {
+  # Serializer failures return jq's own status. set -e does not apply inside a
+  # function called with ||, so each assignment checks its status explicitly.
+  local scope=$1 update generate
+  update=$(jq -cn --argjson models "$scope" '{key: $ENV.HERMES_LITELLM_API_KEY, models: $models}') || return $?
+  if litellm_post /key/update "$update"; then
+    log "refreshed Hermes's LiteLLM key (scoped to ${scope})"
+    return 0
+  fi
+  litellm_post /key/delete '{"key_aliases":["atlas-hermes"]}' || true
+  generate=$(jq -cn --argjson models "$scope" \
+    '{key: $ENV.HERMES_LITELLM_API_KEY, key_alias: "atlas-hermes", models: $models}') || return $?
+  if litellm_post /key/generate "$generate"; then
+    log "registered Hermes's LiteLLM key (scoped to ${scope})"
+    return 0
+  fi
+  log "✖ could not register Hermes's LiteLLM key with LiteLLM; Hermes needs it to call models"
+  return 1
+}
+
+# Scope = the picker's model list plus the default model. An empty scope would
+# mean "all models" to LiteLLM, so the default model guarantees a non-empty list.
+scope_models=$(printf '%s\n%s\n' "${filtered:-}" "${HERMES_DEFAULT_MODEL}" \
+  | jq -Rsc 'split("\n") | map(select(length > 0)) | unique')
+register_scoped_key "$scope_models" || exit $?
+
 # Encode YAML credential scalars without placing keys in command arguments.
-LITELLM_MASTER_KEY_YAML=$(jq -cn '$ENV.LITELLM_MASTER_KEY')
+HERMES_LITELLM_API_KEY_YAML=$(jq -cn '$ENV.HERMES_LITELLM_API_KEY')
 STT_INTERNAL_API_KEY_YAML=$(jq -cn '$ENV.STT_INTERNAL_API_KEY')
-export LITELLM_MASTER_KEY_YAML STT_INTERNAL_API_KEY_YAML
+export HERMES_LITELLM_API_KEY_YAML STT_INTERNAL_API_KEY_YAML
 
 # Build the variable list explicitly so envsubst only touches the
 # ones we know about.
 # shellcheck disable=SC2016
-VARS='${HERMES_DEFAULT_MODEL} ${HERMES_CONTEXT_LENGTH} ${LITELLM_MASTER_KEY_YAML}
+VARS='${HERMES_DEFAULT_MODEL} ${HERMES_CONTEXT_LENGTH} ${HERMES_LITELLM_API_KEY_YAML}
 ${LITELLM_MODELS_LIST}
 ${TTS_INTERNAL_URL} ${TTS_INTERNAL_MODEL} ${TTS_INTERNAL_VOICE}
 ${STT_INTERNAL_URL} ${STT_INTERNAL_API_KEY_YAML}'

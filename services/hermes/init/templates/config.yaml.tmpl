@@ -17,7 +17,7 @@ model:
   default: ${HERMES_DEFAULT_MODEL}
   provider: custom
   base_url: http://litellm:4000/v1
-  api_key: ${LITELLM_MASTER_KEY_YAML}
+  api_key: ${HERMES_LITELLM_API_KEY_YAML}
   context_length: ${HERMES_CONTEXT_LENGTH}
 
 # ─── TTS — engine-neutral OpenAI-compatible endpoint ─────────────────
@@ -93,7 +93,7 @@ providers:
   litellm:
     name: LiteLLM
     base_url: http://litellm:4000/v1
-    key_env: LITELLM_MASTER_KEY
+    key_env: HERMES_LITELLM_API_KEY
     discover_models: false
     models: ${LITELLM_MODELS_LIST}
 

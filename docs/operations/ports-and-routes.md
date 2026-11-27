@@ -78,6 +78,7 @@ The Kong gateway listens on `KONG_HTTP_PORT`, which is `BASE_PORT + 0` (`63000` 
 Hermes publishes only its API port, `HERMES_API_PORT` → 8642. `HERMES_DASHBOARD_PORT` remains a reserved compatibility allocation; no container host mapping reaches 9119.
 
 Atlas computes `HERMES_DASHBOARD_EFFECTIVE` from the request and configured sources; raw Compose defaults it to `false`.
+The requested setting, `HERMES_DASHBOARD_ENABLED`, defaults to `false`, so the `hermes.localhost` route exists only after you set it to `true`.
 Container Hermes requires configured container Kong to enable its dashboard. This does not monitor gateway health; backend-network peers remain unauthenticated in insecure mode.
 
 Localhost Hermes stays operator-managed, and its Kong route uses `HERMES_LOCALHOST_DASHBOARD_PORT`.
