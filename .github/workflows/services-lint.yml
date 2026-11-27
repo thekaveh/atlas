@@ -450,7 +450,8 @@ jobs:
       - name: Materialize .env from .env.example
         # Compose interpolation reads .env at the project root. The matrix
         # tests then override one SOURCE var at a time in a tmp file.
-        run: cp .env.example .env
+        # Fail-closed admin secrets ship blank (#2107). CI supplies throwaway values so compose renders.
+        run: cp .env.example .env && sed -e 's/^GRAFANA_ADMIN_PASSWORD=$/GRAFANA_ADMIN_PASSWORD=ci-throwaway-grafana/' -e 's/^JENKINS_ADMIN_PASSWORD=$/JENKINS_ADMIN_PASSWORD=ci-throwaway-jenkins/' .env > .env.seeded && mv .env.seeded .env && grep -q '^GRAFANA_ADMIN_PASSWORD=ci-throwaway' .env && grep -q '^JENKINS_ADMIN_PASSWORD=ci-throwaway' .env
 
       - name: Compose merge sanity (docker compose config -q)
         run: docker compose --env-file .env -f docker-compose.yml config -q
@@ -502,7 +503,8 @@ jobs:
         # check-compose-source-deps.py renders against .env.example itself
         # and exits 2 on a compose failure; the track-membership audit below
         # still builds a ConfigParser over the project .env.
-        run: cp .env.example .env
+        # Fail-closed admin secrets ship blank (#2107). CI supplies throwaway values so compose renders.
+        run: cp .env.example .env && sed -e 's/^GRAFANA_ADMIN_PASSWORD=$/GRAFANA_ADMIN_PASSWORD=ci-throwaway-grafana/' -e 's/^JENKINS_ADMIN_PASSWORD=$/JENKINS_ADMIN_PASSWORD=ci-throwaway-jenkins/' .env > .env.seeded && mv .env.seeded .env && grep -q '^GRAFANA_ADMIN_PASSWORD=ci-throwaway' .env && grep -q '^JENKINS_ADMIN_PASSWORD=ci-throwaway' .env
 
       - name: Docs drift gate (regen --all --check)
         # Per CLAUDE.md: gates that committed READMEs / SVGs / HTMLs match
@@ -513,7 +515,8 @@ jobs:
         run: uv run --project bootstrapper python scripts/check_doc_links.py
 
       - name: Compose source-deps audit
-        run: uv run --project bootstrapper python scripts/check-compose-source-deps.py
+        # Renders the seeded CI .env (throwaway admin secrets), not the blank template.
+        run: uv run --project bootstrapper python scripts/check-compose-source-deps.py --env-file .env
 
       - name: Docs-drift structural audit
         run: uv run --project bootstrapper python scripts/check-docs-drift.py
