@@ -91,6 +91,9 @@ QUERY_INPUTS = {
 }
 
 
+pytestmark = pytest.mark.usefixtures("throwaway_admin_secrets")
+
+
 def _manifest_env_by_name() -> dict[str, dict]:
     data = yaml.safe_load(LIGHTRAG_MANIFEST.read_text(encoding="utf-8"))
     return {entry["name"]: entry for entry in data["env"]}
