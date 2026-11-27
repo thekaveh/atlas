@@ -99,6 +99,10 @@ Extra consumers in `MINIO_EXTRA_CONSUMERS` get the same idempotent bucket, named
 
 Built-in credentials are auto-generated to `.env` and exposed as `MINIO_<NAME>_ACCESS_KEY` and `MINIO_<NAME>_SECRET_KEY` where `<NAME>` is one of the built-in consumers. Parent-owned extra consumer credentials are supplied by the parent overlay. A cross-bucket access attempt with a consumer credential returns `403 AccessDenied`.
 
+**Accepted exception: service-account secrets on the `mc` command line (#1381).** `minio-init` passes each service-account secret to `mc admin user svcacct add` or `edit` as `--secret-key`. The pinned `pgsty/mc` image takes that flag only as a value, with no stdin, environment or file form.
+
+The secret is in the `mc` argv for each call. Each call runs once per consumer at `minio-init` start and exits at once. The root credential and alias use stdin, and the secret stays out of the container log (#1974). Removing the exception needs an `mc` release that takes the secret from a non-argv source.
+
 <a id="6-consumer-integration-recipe-for-follow-up-prs"></a>
 
 ## 6. Consumer integration recipe
