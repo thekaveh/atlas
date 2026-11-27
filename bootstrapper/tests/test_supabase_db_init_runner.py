@@ -453,6 +453,34 @@ def test_gotrue_tracked_list_matches_the_pinned_image(tmp_path: Path) -> None:
     )
 
 
+def _seed_legacy_tracker(pg: str) -> None:
+    """Legacy state from #1825: auth ends at the cutoff; public holds GoTrue and Realtime rows."""
+    _psql(pg, f"DELETE FROM auth.schema_migrations WHERE version > '{GOTRUE_LEGACY_CUTOFF}'")
+    assert set(REALTIME_STYLE_VERSIONS).isdisjoint(_tracked_gotrue_versions())
+    values = ", ".join(
+        f"({version}, now())" for version in [*_tracked_gotrue_versions(), *REALTIME_STYLE_VERSIONS]
+    )
+    _psql(pg, f"INSERT INTO public.schema_migrations (version, inserted_at) VALUES {values} ON CONFLICT DO NOTHING")
+    assert _tracker_counts(pg) == {"auth": f"62|{GOTRUE_LEGACY_CUTOFF}", "public": "100|20260422000000"}
+
+
+def _assert_gotrue_fails_without_slice(red: str, net: str) -> None:
+    """Without the slice GoTrue re-runs an applied migration and fails on it (the ticket's error)."""
+    healthy, logs = _start_gotrue(red, net)
+    assert not healthy
+    assert "20250731150234_add_oauth_clients_table" in logs
+    assert "client_id\\\" does not exist (SQLSTATE 42703)" in logs  # JSON-escaped quotes in the log
+    _remove(red)
+
+
+def _assert_gotrue_boots_with_slice(green: str, net: str) -> None:
+    healthy, logs = _start_gotrue(green, net)
+    assert healthy, logs[-2000:]
+    assert "Migrations already up to date" in logs
+    assert "error executing migrations" not in logs
+    _remove(green)
+
+
 @pytest.mark.live
 @GOTRUE_TRACKER_LIVE
 def test_legacy_tracker_volume_boots_gotrue_only_after_the_slice() -> None:
@@ -468,21 +496,8 @@ def test_legacy_tracker_volume_boots_gotrue_only_after_the_slice() -> None:
         assert healthy, logs[-2000:]
         _remove(first)
 
-        # Legacy state from #1825: auth ends at the cutoff; public holds GoTrue and Realtime rows.
-        _psql(pg, f"DELETE FROM auth.schema_migrations WHERE version > '{GOTRUE_LEGACY_CUTOFF}'")
-        assert set(REALTIME_STYLE_VERSIONS).isdisjoint(_tracked_gotrue_versions())
-        values = ", ".join(
-            f"({version}, now())" for version in [*_tracked_gotrue_versions(), *REALTIME_STYLE_VERSIONS]
-        )
-        _psql(pg, f"INSERT INTO public.schema_migrations (version, inserted_at) VALUES {values} ON CONFLICT DO NOTHING")
-        assert _tracker_counts(pg) == {"auth": f"62|{GOTRUE_LEGACY_CUTOFF}", "public": "100|20260422000000"}
-
-        # Without the slice GoTrue re-runs an applied migration and fails on it (the ticket's error).
-        healthy, logs = _start_gotrue(red, net)
-        assert not healthy
-        assert "20250731150234_add_oauth_clients_table" in logs
-        assert "client_id\\\" does not exist (SQLSTATE 42703)" in logs  # JSON-escaped quotes in the log
-        _remove(red)
+        _seed_legacy_tracker(pg)
+        _assert_gotrue_fails_without_slice(red, net)
 
         # With the slice: the init chain copies the GoTrue versions, GoTrue boots and applies nothing.
         _run_init_chain(pg)
@@ -490,11 +505,7 @@ def test_legacy_tracker_volume_boots_gotrue_only_after_the_slice() -> None:
         assert counts == {"auth": "76|20260302000000", "public": "100|20260422000000"}
         realtime = ", ".join(f"'{v}'" for v in REALTIME_STYLE_VERSIONS)
         assert _psql(pg, f"SELECT count(*) FROM auth.schema_migrations WHERE version IN ({realtime})") == "0"
-        healthy, logs = _start_gotrue(green, net)
-        assert healthy, logs[-2000:]
-        assert "Migrations already up to date" in logs
-        assert "error executing migrations" not in logs
-        _remove(green)
+        _assert_gotrue_boots_with_slice(green, net)
 
         # The init chain is idempotent: a second run leaves both trackers unchanged.
         _run_init_chain(pg)
