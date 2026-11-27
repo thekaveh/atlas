@@ -163,17 +163,17 @@ The exclusion ledger is machine-checked against the complete Compose build inven
 | GitHub Actions cache action | `actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9` (`v6.1.0`) | The v6.1.0 release tag was resolved to this commit through the GitHub API on 2026-09-16 (previously `v4` at `0057852b…`, resolved 2026-08-25); v5+ runs on the Node.js 24 runtime, which the hosted `ubuntu-24.04` runners provide | Workflow execution is bound to the reviewed commit rather than a mutable major tag | Repository tests scan every workflow action reference and reject mutable pins |
 | GitHub repository security settings | Secret scanning, push protection, and Dependabot security updates enabled | Live repository settings re-read through the GitHub API on 2026-08-25 | New committed secrets are blocked and supported dependency advisories receive automated security-update PRs | Enabled all three controls. Five additional alerts whose only manifest path was the retired `tts-provider/localhost/uv.lock` were dismissed individually as `not_used`; 12 active-path alerts remain governed by the repository's exact, stale-checked reachability exceptions. |
 | Container image vulnerability gate | Trivy `v0.74.0`; `aquasecurity/setup-trivy` pinned to commit `81e51434…f567` | Official release and immutable action commit resolved through the GitHub API on 2026-08-25 | Inputs are attempted on both declared scan platforms; failures remain visible. See [detailed evidence](#71-container-image-vulnerability-gate-evidence) for inventory counts, gating, exceptions and resource limits. | Inventory, source contracts and exclusions are executable. The [detailed evidence](#71-container-image-vulnerability-gate-evidence) names their owners and retains the distinction from registry discovery. |
-| LLM Graph Builder remote base images | Upstream source commit `4a412f4688cf4096976045c019edc0a7f6ddcb6b`; `python:3.12-slim@sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b`; `node:20@sha256:8f693eaa7e0a8e71560c9a82b55fd54c2ae920a2ba5d2cde28bac7d1c01c9ba5`; `nginx:alpine@sha256:fb4658584bd9a916ffb6f6e365f97c25cfdb2923801f551ea08356e695f14ff7` | The pinned Dockerfiles and all index moves were reviewed. See [dated base-image evidence](#72-llm-graph-builder-base-image-evidence) for content changes, unchanged platforms and the package-closure limitation. | The reviewed baseline must exactly equal the three literal bases discovered from the two pinned Dockerfiles; every nightly check resolves their current multi-platform index digests and fails closed on added, removed, or changed bases. | `.container-scan-exclusions.yml` records only the reviewed registry indexes. `bootstrapper/tests/test_container_security.py` pins the reviewed fixture and ledger evidence, while `scripts.upstream_drift_watch` owns bounded live source and registry verification. |
+| LLM Graph Builder remote base images | Upstream source commit `4a412f4688cf4096976045c019edc0a7f6ddcb6b`; `python:3.12-slim@sha256:191083cdf6c7bda8c76158983163ead5d5cf7b77cf3033e805bb0f5296f51b4b`; `node:20@sha256:8f693eaa7e0a8e71560c9a82b55fd54c2ae920a2ba5d2cde28bac7d1c01c9ba5`; `nginx:alpine@sha256:7fc0fb4af7bf006aeb31aea88069976060f8f0a0a86b667126742cc17f4e31ae` | The pinned Dockerfiles and all index moves were reviewed. See [dated base-image evidence](#72-llm-graph-builder-base-image-evidence) for content changes, unchanged platforms and the package-closure limitation. | The reviewed baseline must exactly equal the three literal bases discovered from the two pinned Dockerfiles; every nightly check resolves their current multi-platform index digests and fails closed on added, removed, or changed bases. | `.container-scan-exclusions.yml` records only the reviewed registry indexes. `bootstrapper/tests/test_container_security.py` pins the reviewed fixture and ledger evidence, while `scripts.upstream_drift_watch` owns bounded live source and registry verification. |
 
 ### 7.1. Container image vulnerability gate evidence
 
 The reviewed inventory contains:
 
-- All 72 manifest-owned image defaults.
+- All 71 manifest-owned image defaults.
 - 2 Dockerfile-only build inputs.
 - 3 digest-qualified bases from commit-pinned remote build contexts.
 
-Inputs are attempted on both `linux/amd64` and `linux/arm64` unless the manifest declares an explicit single architecture. This is currently producing 147 isolated image-platform scans. Scheduled scan failures expose unsupported registry variants instead of silently omitting them.
+Inputs are attempted on both `linux/amd64` and `linux/arm64` unless the manifest declares an explicit single architecture. This is currently producing 145 isolated image-platform scans. Scheduled scan failures expose unsupported registry variants instead of silently omitting them.
 
 The required Build-validation job fetches and parses the pinned remote Dockerfiles, verifies their reviewed base digests, and scans those bases when remote inputs change. It builds no local Dockerfile. The Final-image scan job builds and scans every hosted-runner-supported local runtime image, then removes it. That job reports on every run but is not a required check (#1002).
 
@@ -382,6 +382,42 @@ nginx moved from 1.31.8 to 1.31.9. Alpine stayed at 3.24.4. Pinned Trivy 0.74.0 
 The outgoing amd64 manifest reported four fixed HIGH findings: CVE-2026-86144 in `libxml2` 2.13.9-r2 (fixed in 2.13.9-r3), and CVE-2026-125350, CVE-2026-87636 and CVE-2026-9947 in `libxslt` 1.1.43-r3 (fixed in 1.1.43-r4). The incoming amd64 and arm64 manifests report one: CVE-2026-86144. The libxslt findings are gone, and the libxml2 finding carries over unchanged. The outgoing arm64 manifest was not scanned.
 
 The baseline advances because the replacement removes three fixed HIGH findings and adds none. No exception is added. CVE-2026-86144 stays a fixable HIGH in the base image. The remote-context final-image scan is excluded in `.container-scan-exclusions.yml`, so this finding is not gate-enforced today. It clears when upstream rebuilds with libxml2 2.13.9-r3. The next digest move needs its own review.
+
+#### 7.2.13. 2026-11-27 — Nginx and Python rebuilds
+
+The Build-validation drift probe failed on 2026-11-27 because `nginx:alpine` and `python:3.12-slim` both moved. `docker buildx imagetools inspect` on 2026-11-27 UTC confirmed the observed indexes. `node:20` stayed at `sha256:8f693eaa...`.
+
+The Nginx index moved from `sha256:fb465858...` to `sha256:7fc0fb4a...` with new content:
+
+- `linux/amd64`: `sha256:e68702ef...` to `sha256:54845972134f849c623fe5cfbedee7e1d35a5708c84a4f36bf9471a9b7aa673d`.
+- `linux/arm64/v8`: `sha256:d9c353d3...` to `sha256:0479a5870f142f22fef1c11983253f4dee7fb63ed3e5483e751950493cd7812d`.
+
+nginx moved from 1.31.9 to 1.31.10, built from `nginx/docker-nginx@d6e8ee84e5fa87b7279a3a25b0b6de7d55c24f3e` and created on 2026-11-23. Alpine stayed at 3.24.4.
+
+Pinned Trivy 0.74.0 (`aquasec/trivy:0.74.0`, run through Docker with `--image-src remote --platform` and `--severity HIGH,CRITICAL`) scanned the incoming manifests on 2026-11-27. Each platform reported 6 fixed HIGH and 0 CRITICAL findings, all in `libxml2` 2.13.9-r3: CVE-2026-11979 (fixed in 2.13.9-r5), and CVE-2026-86138, CVE-2026-86139, CVE-2026-86140, CVE-2026-86142 and CVE-2026-86143 (fixed in 2.13.9-r4).
+
+The outgoing `fb465858` manifests, scanned the same day, reported 7 fixed HIGH findings: the same six plus CVE-2026-86144 (fixed in 2.13.9-r3). §7.2.12 recorded one finding for these manifests on the 2026-11-21 database. The digest is unchanged, so the extra findings come from database growth. The replacement removes CVE-2026-86144 and adds no finding.
+
+The six remaining findings are fixable, and none is CRITICAL. They are not enforced by a required check on this change. Build-validation rescans remote bases only when a service with a commit-pinned GitHub build context changes (`.github/workflows/services-lint.yml`, "Scan changed manifest-owned remote images"). The LLM Graph Builder `builds:` entries in `.container-scan-exclusions.yml` cover these contexts. The next review should record whether upstream rebuilds with fixed `libxml2`.
+
+The Python index moved from `sha256:5e2bdb1b...` to `sha256:191083cd...` with new content:
+
+- `linux/amd64`: `sha256:05a994d2...` to `sha256:4a68d3169325c47e1bafbb86425220f03fbdff6f079a419e8d39407183288217`.
+- `linux/arm64/v8`: `sha256:c61cffc3...` to `sha256:d85015f061f0c189e6cc615135bf107d344b9eedcfaaf9d13c45aca0377c6a35`.
+
+Python stayed at 3.12.16 from `docker-library/python@3d7e95597e56a415d9e4abc0f15877e005d2cb2e`. The incoming manifests were created on 2026-11-24 on Debian 13.8. The outgoing manifests report Debian 13.7.
+
+Pinned Trivy 0.74.0 reported 54 HIGH and 0 CRITICAL findings on each incoming platform. One is fixable: CVE-2026-124851 in `libzstd1`, fixed in 1.5.7+dfsg-1+deb13u1. The other 53 are unfixed Debian findings, which remain visible in the scheduled scan as §7.1 describes.
+
+The outgoing `5e2bdb1b` manifests, scanned the same day, reported 55 HIGH: the same `libzstd1` finding, CVE-2026-85091 in `zlib1g` (fixed in deb13u1), and the same 53 unfixed findings. The replacement removes CVE-2026-85091 and adds no finding. §7.2.10 recorded 47 unfixed Debian findings for the amd64 manifest on 2026-11-08. Today's rescan reports 53, so the difference is database growth. Compare only same-day scans.
+
+Limits of this review:
+
+- Only `linux/amd64` and `linux/arm64/v8` were inspected and scanned. Other platforms in both indexes were not compared, and they carry forward as in §7.2.8 and §7.2.11 because Atlas neither builds nor scans them.
+- The repository's `.trivyignore.yaml` was applied to each incoming digest in a second pass. It matched none of these findings, so the counts are unchanged.
+- The scans ran on a local Docker host, not the CI runner. They used the same Trivy version the workflows pin.
+
+The reviewed baseline now carries these digests at `.container-scan-exclusions.yml`, in the `test_container_security.py` fixture and in the row above. The Python provenance assertions in `test_container_security.py` point at the incoming `linux/amd64` and `linux/arm64/v8` manifests recorded here.
 
 ## 8. 2026-09-20 TrueForge Adoption (#1159)
 
@@ -815,7 +851,7 @@ No advisory exceptions were added.
 
 | Integration point | Pinned/configured version | Latest/status check | Contract checked | Evidence / disposition |
 |---|---|---|---|---|
-| Asset-baker and asset-worker base image (`services/asset-baker`, `services/asset-worker`) | Unchanged: `python:3.12.9-slim` (floating tag). | Audit finding C1-05 proposes a digest pin. CLAUDE.md requires explicit approval for base-image changes. | None. | Change reverted from the repair branch. Owner decision pending. |
+| Asset-baker and asset-worker base image (`services/asset-baker`, `services/asset-worker`) | Superseded 2026-11-27. See the asset pin row below. | Audit finding C1-05 proposed a digest pin. CLAUDE.md requires explicit approval for base-image changes. | None. | Held on 2026-11-26. The owner approved the pin on 2026-11-27. |
 | Grafana and Jenkins admin credentials (`services/grafana`, `services/jenkins`) | Empty values now fail closed with `${VAR:?…}`. No literal `admin` fallback. | Audit finding C1-01 and a new Jenkins finding. | Fail-closed credential defaults test. | Repaired. The bootstrapper generates values at bootstrap. |
 | JupyterHub Neo4j password (`services/jupyterhub/build/scripts/startup.sh`) | Literal fallback removed. | Audit finding C1-08. | Startup refuses an empty value. | Repaired. |
 | Hermes dashboard default (`services/hermes`) | `HERMES_DASHBOARD_INSECURE=true` default unchanged. | Audit finding C1-06. | Kong already applies Basic auth and ACL. The residual is backend-network access to 9119 and the LiteLLM master key inside the PTY container. | Unresolved, owner decision. |
@@ -828,3 +864,5 @@ No advisory exceptions were added.
 | Audit ROADMAP count wording | No hard-coded container count remains in `docs/ROADMAP.md` | Removed by `807af1a9` | Nothing to replace. | Resolved, no change. |
 | Speech-gate labels (`services/speech-gate/testdata`) | 1,221 rows now `machine-labelled-unverified` | Reference transcripts (AMI, Earnings-22) are not in the repository | Verification not run, so the status claims no verification. | Status corrected (owner decision 2026-11-27). |
 | Realtime database grants (`services/supabase/db/scripts/05-scoped-roles.sh`, `atlas_realtime`) | `supabase/realtime:v2.112.0`, unchanged. | The pinned `realtime.apply_rls` runs the RLS check as `authenticated` (`set_config('role')`, then a prepared `SELECT`). Streaming reads the replication slot. The app repository tracker is `public.schema_migrations`. | `public` reads limited to `public.schema_migrations`. No `ON ALL TABLES` grant to the realtime role. Every run revokes the old bulk `SELECT` from non-owned tables. | Repaired, owner-approved option A. `test_supabase_realtime_role_grants.py` checks the grant text and, against the disposable drill, that the realtime login is denied an unlisted table and allowed the tracker. The seed golden loses 15 `public` SELECT lines. Realtime has no membership in `authenticated`, `anon` or `service_role` (`SET ROLE` refused, checked 2026-11-27), so RLS-checked subscriptions stay unresolved. |
+| Asset-baker and asset-worker base image (`services/asset-baker`, `services/asset-worker`, C1-05) | `python:3.12.14-slim-bookworm@sha256:0f5b26b9…` (was `python:3.12.9-slim`). Same digest as the open-webui and litellm init images. | Audit finding C1-05. The owner approved the digest pin on 2026-11-27. | Both images build locally from their Dockerfiles with the compose build args. Asset-worker builds natively on arm64 and reports Python 3.12.14. Asset-baker builds as linux/amd64 and reports Blender 4.5.16 LTS. Both `pip check` steps pass. | Pinned in the Dockerfile ARGs, compose defaults, `service.yml`, README, `.env.example`, env-vars reference, license inventory and the golden fixture. The container-security matrix drops two `python:3.12.9-slim` scans (147 to 145). The pinned digest was already scanned on both platforms. |
+| LLM Graph Builder remote base digests (`nginx:alpine`, `python:3.12-slim`) | `nginx:alpine@sha256:7fc0fb4a…` (1.31.10, was `fb465858…`). `python:3.12-slim@sha256:191083cd…` (3.12.16 on Debian 13.8, was `5e2bdb1b…`). `node:20` unchanged. | Build-validation drift probe failed on both moves. | `upstream_drift_watch --remote-contexts-only` passes (2 Dockerfiles, 3 digests). The reviewed-baseline and provenance tests pass. | Refreshed at `.container-scan-exclusions.yml`, the test fixture and the section 7 table row. Evidence in §7.2.13. Trivy 0.74.0 finds no CRITICAL. Nginx keeps six fixable HIGH findings in `libxml2`. Python keeps one fixable HIGH finding. |

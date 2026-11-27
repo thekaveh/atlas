@@ -51,7 +51,7 @@
 | ASSET_BAKER_TIMEOUT_SECONDS | asset-baker | 600 | Hard wall-clock ceiling for a single bake subprocess; exceeded bakes are killed and reported as timeout. |
 | ASSET_BAKER_MAX_UPLOAD_MB | asset-baker | 200 | Maximum accepted GLB input size (MiB). Larger uploads/refs are rejected before a Blender process is spawned. |
 | ASSET_BAKER_CONCURRENCY | asset-baker | 1 | Maximum concurrent bake subprocesses. Default 1 — a single Cycles bake saturates CPU and concurrent bakes are net-negative. |
-| ASSET_BAKER_IMAGE | asset-baker | python:3.12.9-slim | Base image; the Dockerfile downloads a pinned headless Blender (ASSET_BAKER_BLENDER_VERSION) on top. |
+| ASSET_BAKER_IMAGE | asset-baker | python:3.12.14-slim-bookworm@sha256:0f5b26b9518d002b6173fd61daad821fa340635ebfec5bba471013f9ca114579 | Base image; the Dockerfile downloads a pinned headless Blender (ASSET_BAKER_BLENDER_VERSION) on top. |
 | ASSET_WORKER_SOURCE | asset-worker | disabled | Deployment mode for the glTF post-processing worker. |
 | ASSET_WORKER_PORT | asset-worker | 63053 | Host port for the asset-worker API (in-container listen port is 8095). |
 | ASSET_WORKER_SCALE | asset-worker |  | Set by ./start.sh from ASSET_WORKER_SOURCE; do not edit. 1 runs asset-worker (container), 0 does not. |
@@ -70,7 +70,7 @@
 | ASSET_WORKER_MINIO_ENDPOINT | asset-worker |  | In-network MinIO S3 API endpoint used by the worker. |
 | ASSET_WORKER_MINIO_ACCESS_KEY | asset-worker |  | Optional MinIO access key override. Empty uses the generated asset-worker scoped MinIO account. |
 | ASSET_WORKER_MINIO_SECRET_KEY | asset-worker |  | Optional MinIO secret key override. Empty uses the generated asset-worker scoped MinIO account. |
-| ASSET_WORKER_IMAGE | asset-worker | python:3.12.9-slim | Container image for `asset-worker`. |
+| ASSET_WORKER_IMAGE | asset-worker | python:3.12.14-slim-bookworm@sha256:0f5b26b9518d002b6173fd61daad821fa340635ebfec5bba471013f9ca114579 | Container image for `asset-worker`. |
 | BACKEND_DB_USER | backend | atlas_backend | Scoped PostgreSQL login for Backend and its Celery worker. |
 | BACKEND_DB_PASSWORD | backend | atlas-db-password | Auto-generated password for the scoped Backend database role. |
 | BACKEND_DB_USER_URI | backend | atlas_backend | Bootstrapper-synchronized percent-encoded BACKEND_DB_USER for DSN userinfo. |

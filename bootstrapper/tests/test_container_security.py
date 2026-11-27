@@ -29,9 +29,9 @@ GPU_DOCKERFILE_EXCLUSIONS = {
     "services/parakeet/provider/gpu/Dockerfile",
 }
 REVIEWED_REMOTE_BASE_DIGESTS = {
-    "nginx:alpine": "sha256:fb4658584bd9a916ffb6f6e365f97c25cfdb2923801f551ea08356e695f14ff7",
+    "nginx:alpine": "sha256:7fc0fb4af7bf006aeb31aea88069976060f8f0a0a86b667126742cc17f4e31ae",
     "node:20": "sha256:8f693eaa7e0a8e71560c9a82b55fd54c2ae920a2ba5d2cde28bac7d1c01c9ba5",
-    "python:3.12-slim": "sha256:5e2bdb1b0d542d5039cffb8181c65930093949194a65c365dfb1b0fe13a4fa5b",
+    "python:3.12-slim": "sha256:191083cdf6c7bda8c76158983163ead5d5cf7b77cf3033e805bb0f5296f51b4b",
 }
 
 
@@ -1411,8 +1411,8 @@ def test_contract_ledger_records_remote_base_digest_review_provenance() -> None:
     assert "4a412f4688cf4096976045c019edc0a7f6ddcb6b" in ledger
     assert REVIEWED_REMOTE_BASE_DIGESTS["python:3.12-slim"] in ledger
     assert "docker-library/python@3d7e95597e56a415d9e4abc0f15877e005d2cb2e" in ledger
-    assert "sha256:05a994d2344eb364cc186910f4fc8786a38215f39f00d0acc25bff33a08f4177" in ledger
-    assert "sha256:c61cffc3bacb94ed026ff8b45d5114b7693dd0420baca0a1ace0e3d0ce9035fd" in ledger
+    assert "sha256:4a68d3169325c47e1bafbb86425220f03fbdff6f079a419e8d39407183288217" in ledger
+    assert "sha256:d85015f061f0c189e6cc615135bf107d344b9eedcfaaf9d13c45aca0377c6a35" in ledger
 
 
 _POLICY_REJECTION_CASES = (
