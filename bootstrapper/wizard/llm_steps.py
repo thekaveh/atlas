@@ -56,7 +56,7 @@ from ui.textual.widgets.prompt_panel import (
     PromptOption,
     PromptStep,
 )
-from wizard.model.cloud_rules import resolve_cloud_provider, resolve_secret_verdict
+from wizard.model.cloud_rules import resolve_cloud_provider
 from wizard.model.llm_rules import (
     is_container_ollama as _is_container_ollama,
     is_localhost_or_external as _is_localhost_or_external,

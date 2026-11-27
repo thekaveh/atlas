@@ -2382,10 +2382,11 @@ class KongConfigGenerator:
         """
         try:
             # The file carries the service-role JWT, the anon key and gateway
-            # credentials. It stays 0644 because Kong reads the bind mount as
-            # its own in-container uid, which need not match the host owner;
-            # the directory is owner-only instead, so other host users cannot
-            # reach it (dockerd sets up the bind mount as root, unaffected).
+            # credentials. It stays 0644 because Kong runs as its own
+            # in-container uid, which need not match the host owner. Kong
+            # mounts this single file, so the container opens the file inode
+            # directly and never traverses this directory: the owner-only
+            # directory blocks other host users without blocking Kong.
             output_path.parent.mkdir(parents=True, exist_ok=True)
             output_path.parent.chmod(0o700)
             # The 0700 directory above protects this secret-bearing file;

@@ -36,7 +36,6 @@ import os
 import shlex
 import signal
 import sys
-import tempfile
 import threading
 from time import monotonic as _teardown_clock
 from pathlib import Path
