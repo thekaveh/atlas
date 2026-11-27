@@ -6,7 +6,6 @@ Generates N8N_ENCRYPTION_KEY and SEARXNG_SECRET for secure operation.
 
 import base64
 import secrets
-import re
 from pathlib import Path
 from typing import Optional, Dict
 from urllib.parse import quote

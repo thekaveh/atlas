@@ -33,6 +33,7 @@ from services.managed_host import (
     ManagedHostManager,
     PreflightResult,
     VenvSpec,
+    read_recorded_start_time,
     split_command,
 )
 
@@ -557,7 +558,7 @@ def test_start_records_the_process_start_time_alongside_the_pid(tmp_path: Path) 
     try:
         manager._write_pid_file(proc.pid)
         assert manager._read_pid() == proc.pid
-        recorded = manager._recorded_start_time()
+        recorded = read_recorded_start_time(manager.pid_file)
         assert recorded, "start time must be stamped so a recycled pid is detectable"
         assert recorded == manager._process_start_time(proc.pid)
         # The process we launched is never a stranger to itself.
@@ -625,7 +626,7 @@ def test_a_legacy_single_line_pid_file_is_treated_as_unknown(
     manager.pid_file.write_text("4242\n", encoding="utf-8")
 
     assert manager._read_pid() == 4242
-    assert manager._recorded_start_time() is None
+    assert read_recorded_start_time(manager.pid_file) is None
     assert manager._pid_is_stranger(4242) is True
 
 
@@ -691,7 +692,7 @@ def test_a_pre_normalization_start_stamp_is_ignored_not_trusted(tmp_path: Path) 
     manager.pid_file.write_text("4242\nstart=Thu Aug 20 19:00:00 2026\n", encoding="utf-8")
 
     assert manager._read_pid() == 4242
-    assert manager._recorded_start_time() is None
+    assert read_recorded_start_time(manager.pid_file) is None
     assert manager._pid_is_stranger(4242) is True
 
 
@@ -813,7 +814,7 @@ def test_the_pid_file_is_written_atomically(tmp_path, monkeypatch):
 
     `write_text` truncates and then writes, and `start_utc=` lands after the
     pid in the same call — so a reader arriving mid-write sees a pid with no
-    stamp. `_recorded_start_time` returns None and `_pid_is_stranger` treats
+    stamp. `read_recorded_start_time` returns None and `_pid_is_stranger` treats
     ownership as untrusted. Atomic replacement prevents the torn state while
     retaining the fail-closed signal guard.
     """
@@ -963,7 +964,7 @@ def test_a_live_or_unreadable_pid_is_never_swept():
 def test_an_ambiguous_start_time_probe_is_treated_as_unknowable(tmp_path, monkeypatch):
     """A two-line `ps` answer wrote extra pid-file lines.
 
-    `_recorded_start_time` reads only the first `start_utc=` line, so a
+    `read_recorded_start_time` reads only the first `start_utc=` line, so a
     multi-line stamp could never match a later probe — and our own live
     process was disowned as a stranger.
     """
@@ -1051,4 +1052,5 @@ def test_remove_does_not_self_deadlock_on_the_lifecycle_lock(tmp_path):
     manager = ManagedHostManager(_spec(), tmp_path)
     manager.state_dir.mkdir(parents=True, exist_ok=True)
     manager.remove()  # must return, not hang
+
 

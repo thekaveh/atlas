@@ -24,6 +24,7 @@ import functools
 from dataclasses import dataclass
 from pathlib import Path
 
+from core.config_parser import DEFAULT_BASE_PORT
 from services.manifests import Manifest, load_manifests
 
 
@@ -147,7 +148,7 @@ class TopologyError(Exception):
     """Topology cannot be computed (cycle, unknown dep, overflow)."""
 
 
-def build_topology(services_root: Path, base_port: int = 63000) -> Topology:
+def build_topology(services_root: Path, base_port: int = DEFAULT_BASE_PORT) -> Topology:
     """Top-level entry point — loads manifests then computes the topology.
 
     Prefer ``get_topology()`` for app code — it caches the result so the
@@ -163,7 +164,7 @@ def _cached_topology(services_root_str: str, base_port: int) -> "Topology":
 
 
 def get_topology(
-    services_root: Path | None = None, base_port: int = 63000
+    services_root: Path | None = None, base_port: int = DEFAULT_BASE_PORT
 ) -> "Topology":
     """Cached topology accessor — single canonical entry point for app code.
 
