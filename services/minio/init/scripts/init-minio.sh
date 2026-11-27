@@ -202,7 +202,8 @@ EOF
     atlas_managed_description="atlas-managed:${consumer}"
     if mc admin user svcacct info local "$access" >/dev/null 2>&1; then
         echo "minio-init: service account '$access' exists - refreshing secret + policy..."
-        # mc has no stdin form for --secret-key; this argv exposure is #1381.
+        # mc has no stdin, env or file form for --secret-key (pgsty/mc RELEASE.2026-09-16).
+        # This argv exposure is the accepted exception in services/minio/README.md (#1381).
         # stdout carries the keys back, so it goes nowhere; stderr stays so a
         # failure still names its cause (#1974).
         mc admin user svcacct edit local "$access" \
@@ -212,6 +213,7 @@ EOF
     else
         echo "minio-init: creating service account '$access' for bucket(s) '$buckets'..."
         # `svcacct add` prints "Access Key:" and "Secret Key:" on success (#1974).
+        # Same --secret-key argv exception as the edit branch above (#1381).
         mc admin user svcacct add local "$MINIO_ROOT_USER" \
             --access-key "$access" \
             --secret-key "$secret" \
