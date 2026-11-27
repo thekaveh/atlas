@@ -29,7 +29,7 @@ Every route except `GET /health` and `GET /metrics` requires `Authorization: Bea
 | Variable | Default | Purpose |
 |---|---:|---|
 | `ASSET_BAKER_SOURCE` | `disabled` | Enables the containerized worker when set to `container-cpu`. |
-| `ASSET_BAKER_IMAGE` | `python:3.12.9-slim` | Base image; the Dockerfile downloads pinned Blender on top. |
+| `ASSET_BAKER_IMAGE` | `python:3.12.14-slim-bookworm@sha256:0f5b26b9518d002b6173fd61daad821fa340635ebfec5bba471013f9ca114579` | Base image; the Dockerfile downloads pinned Blender on top. |
 | `ASSET_BAKER_BLENDER_VERSION` | `4.5.16` | Pinned headless Blender (4.5 LTS line) installed in the image; bundles Python 3.11 + numpy. |
 | `ASSET_BAKER_BLENDER_SHA256` | `23432b06...b10c11` | Published SHA-256 verified before the pinned Blender archive is extracted. |
 | `ASSET_BAKER_PORT` | computed | Host port assigned by Atlas' topology allocator. |

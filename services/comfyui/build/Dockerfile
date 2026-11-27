@@ -3,7 +3,7 @@
 # Pinning ca-certificates to the jammy-updates build that drops it removes G3
 # from the system store. That build removes 44 roots and adds 27 (ledger
 # section 24). The build fails if G3 is still trusted.
-ARG BASE_IMAGE=ghcr.io/ai-dock/comfyui:v2-cpu-22.04-v0.2.7
+ARG BASE_IMAGE=ghcr.io/ai-dock/comfyui:v2-cpu-22.04-v0.2.7@sha256:b47cd16007c309ebbb78b85f87bbc69ac9f7f3fc7596607e81940eeb7dca2421
 FROM ${BASE_IMAGE}
 
 # Stage 1 (#2108): pin the Ubuntu packages whose HIGH and CRITICAL findings cleared in

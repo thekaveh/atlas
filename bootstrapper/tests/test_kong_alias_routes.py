@@ -906,7 +906,8 @@ def test_kong_localhost_route_reads_port_var(
     env_path.write_text(
         f"{svc_source_var}={svc_source_value}\n"
         f"{env_var}={expected_port}\n"
-        "DASHBOARD_USERNAME=u\nDASHBOARD_PASSWORD=p\n",
+        "DASHBOARD_USERNAME=u\nDASHBOARD_PASSWORD=p\n"
+        "HERMES_DASHBOARD_ENABLED=true\n",
         encoding="utf-8",
     )
     cp = ConfigParser(str(tmp_path))

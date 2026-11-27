@@ -8,8 +8,8 @@ fi
 
 spark_image="$1"
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-minio_image="pgsty/silo:RELEASE.2026-09-16T00-00-00Z"
-mc_image="pgsty/mc:RELEASE.2026-09-16T00-00-00Z"
+minio_image="pgsty/silo:RELEASE.2026-09-16T00-00-00Z@sha256:635197cb9f36d01bee221d34d1c7d7960f6a95c48b0b6c01d99cd13bdae51a46"
+mc_image="pgsty/mc:RELEASE.2026-09-16T00-00-00Z@sha256:cfc83108c3abb371f8fb84d99c1fdc88f8c237e022409b0081fb7c0a3be634dd"
 access_key="atlasS3aAccess"
 secret_key="atlasS3aSecret123"
 overall_timeout="${ATLAS_S3A_SMOKE_TIMEOUT_SECONDS:-600}"

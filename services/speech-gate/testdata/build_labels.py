@@ -29,7 +29,7 @@ SNR_DB = 0
 NOISE_KINDS = ("white", "pink", "babble")
 NOISE_ONLY_LEVELS_DBFS = (-50, -70)
 NOISE_ONLY_PER_LEVEL = 10
-STATUS = "pending-owner-review"
+STATUS = "machine-labelled-unverified"
 CHUNK = 1000
 
 

@@ -243,6 +243,12 @@ Realtime is an Erlang node. The image ships one fixed release cookie, so Atlas b
 
 Realtime creates and manages its own logical replication slots. Database initialization does not create a `supabase_realtime_slot`. It drops an idle slot of that name on startup, because Realtime never uses it and it only retains WAL.
 
+Realtime connects as `SUPABASE_REALTIME_DB_USER` (`atlas_realtime`). That role owns the `realtime` schema and Realtime's own `public` tables (`tenants`, `extensions`, `feature_flags`). Its only other `public` access is `SELECT, INSERT, UPDATE, DELETE` on `public.schema_migrations`, the application-repository tracker. It holds `REPLICATION` and no `SELECT` on application tables.
+
+Streaming reads the replication slot. RLS checks run as the subscriber role, so a subscribed table is granted to that role, not to Realtime. Atlas grants Realtime no membership in `anon`, `authenticated` or `service_role`, so `SET ROLE` to them is refused (checked 2026-11-27). RLS-checked subscriptions need that decided separately.
+
+`05-scoped-roles.sh` revokes the bulk `SELECT` on `public` that earlier installs hold, on every run. The `studio_role` and `anon`/`authenticated` grants are not part of this change.
+
 ### 4.6. Studio Dashboard
 
 - **Protected access**: `http://supabase-studio.localhost:${KONG_HTTP_PORT}`
