@@ -78,6 +78,7 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 
 - **"Datasource unreachable" on every panel** — Prometheus is `disabled`; Grafana runs, but its Prometheus datasource has no target. Set `PROMETHEUS_SOURCE=container` in `.env` and re-run `./start.sh`. The datasource URL is interpolated at provisioning time, so a Grafana restart is required after changing `PROMETHEUS_ENDPOINT`.
 - **Admin login rejected** — check `GRAFANA_ADMIN_PASSWORD` in `.env`. The bootstrapper generates it only when the value is empty (first run). Grafana reads the value only when it first creates its database in the `grafana-data` volume, so editing `.env` afterwards does not change the stored password.
+- **Compose stops with `GRAFANA_ADMIN_PASSWORD is required`** — the value is empty. Compose has no default password, so Grafana never starts with `admin`. Run `./start.sh` to generate the value, or set `GRAFANA_ADMIN_PASSWORD` in `.env`.
 
     Set `PROJECT_NAME` and `GRAFANA_ADMIN_PASSWORD` in your shell to their values in the active env file. Then apply the new password with `docker exec ${PROJECT_NAME}-grafana grafana cli admin reset-admin-password "$GRAFANA_ADMIN_PASSWORD"`, or remove the `grafana-data` volume to start over.
 - **Stack Overview "Targets DOWN" is never 0** — the scrape list is static, so disabled services count as down. By default these are `asset-worker` and `asset-baker`; narrower tracks add n8n, Weaviate, MinIO and others. Check Prometheus' Targets page before you treat the number as an outage.
