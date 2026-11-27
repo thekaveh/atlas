@@ -36,11 +36,18 @@ __all__ = [
 ]
 
 
-# The wizard-step ``service_key``s a track-skip predicate must NEVER filter:
-# the three services that survive ``ServiceDiscovery.discover()`` and are
-# asked in every track. Locked manifests and cloud-provider keys are filtered
-# out upstream and never see the predicate.
+# The always-PROMPTED set, not the always-running set. These wizard-step
+# ``service_key``s a track-skip predicate must NEVER filter: the three services
+# that survive ``ServiceDiscovery.discover()`` and are asked in every track.
+# Being prompted does not mean running (Prometheus and Grafana ship disabled).
+# The name is kept for existing callers. Locked manifests and cloud-provider
+# keys are filtered out upstream and never see the predicate.
 ALWAYS_ON_SERVICE_KEYS = frozenset({"llm-provider", "prometheus", "grafana"})
+
+# Folder under services/ that realises the always-prompted ``llm-provider``
+# wizard key (LLM Engine = Ollama). Callers keyed by folder name use this
+# instead of repeating the literal.
+LLM_ENGINE_FOLDER = "ollama"
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -64,13 +71,16 @@ class Track:
     description: str
     # None == "*" sentinel (the "all" track — never filter).
     # Otherwise: folder keys for services curated by this track,
-    # on top of the always-on tier.
+    # on top of the always-prompted tier.
     services: frozenset[str] | None
+    # The same folder keys in tracks.yml order (empty for the "*" sentinel).
+    # ``services`` answers membership; this keeps the order docs render.
+    ordered_services: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
 class TrackRegistry:
-    """All tracks + the always-on set, both consumed by the wizard."""
+    """All tracks + the always-prompted set, both consumed by the wizard."""
     tracks: tuple[Track, ...]            # canonical display order
     by_key: dict[str, Track]             # quick lookup
     always_on: frozenset[str]            # service keys exempted from skip
@@ -231,6 +241,7 @@ def load_tracks(path: Path | None = None) -> TrackRegistry:
             display_name=entry["display_name"],
             description=entry["description"],
             services=services,
+            ordered_services=() if services is None else tuple(svc_field),
         ))
 
     # Cross-validate: every listed service must be a real folder key.
@@ -276,7 +287,7 @@ def is_in_track(
     default under ``track``.
 
     Implements the rule from the spec:
-      1. Service is in the always-on tier → always in-track.
+      1. Service is in the always-prompted tier → always in-track.
       2. Track is the "*" sentinel (services is None) → always in-track.
       3. Service is explicitly listed in track.services after family
          alias normalization → in-track.

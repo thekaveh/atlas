@@ -412,7 +412,7 @@ def test_focused_reference_renderers_preserve_metadata_tables(
             patch.setattr(owner, "table", _record_table(owner.table, calls))
             outputs[name] = getattr(owner, name)(focused_reference_model)
         assert calls == focused_reference_tables[name]
-    assert "| z-track | Z / &lt;group&gt; second line | zulu, beta |" in outputs["track_index"]
+    assert "| z-track | Z \\| &lt;group&gt; second line | zulu, beta |" in outputs["track_index"]
 
 
 def test_sitegen_namespaces_expose_the_package_and_live_renderers():
