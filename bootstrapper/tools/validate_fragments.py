@@ -93,16 +93,17 @@ def _check_readme_topology_block_is_current(project_root: Path) -> list[str]:
         return []
     if not readme.is_file():
         return ["README.md missing from real repo"]
-    from tools.generate_readme_topology import generate_block
-    expected = generate_block(project_root / "services").rstrip()
+    from tools.generate_readme_topology import _rendered, generate_block
     text = readme.read_text(encoding="utf-8")
-    start = text.find("<!-- TOPOLOGY:BEGIN -->")
-    end = text.find("<!-- TOPOLOGY:END -->")
-    if start == -1 or end == -1:
+    if "<!-- TOPOLOGY:BEGIN -->" not in text or "<!-- TOPOLOGY:END -->" not in text:
         return ["README.md missing TOPOLOGY markers"]
-    end += len("<!-- TOPOLOGY:END -->")
-    actual = text[start:end].rstrip()
-    if expected != actual:
+    try:
+        # The generator's own rule: exactly one marker pair, BEGIN before END.
+        # Duplicated or swapped markers fail here as they do on write.
+        rendered = _rendered(text, generate_block(project_root / "services"))
+    except RuntimeError as exc:
+        return [str(exc)]
+    if rendered != text:
         return ["README.md TOPOLOGY block is stale — run `uv run --project bootstrapper python -m tools.generate_readme_topology`"]
     return []
 

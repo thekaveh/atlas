@@ -11,10 +11,9 @@ rather than only whatever you can physically drag over, and they're
 keyboard-driven; the command summary and stack overview are separately
 selectable via their inner Static widgets.
 
-Round 2 additions (post-review): ``visible_text()`` must respect the active
-level/source filter (Important 2), ``action_copy_session_log`` must offload
-its file read off the UI thread and cap it (Important 1), and both new
-``WizardScreen`` actions need direct coverage (Important 3).
+``visible_text()`` must respect the active level/source filter,
+``action_copy_session_log`` must read its file off the UI thread with a size
+cap, and both ``WizardScreen`` copy actions need direct test coverage.
 """
 from __future__ import annotations
 
@@ -61,7 +60,7 @@ def test_visible_text_joins_the_buffered_records():
 
 
 def test_visible_text_respects_the_active_level_filter():
-    """Important 2: `y` must copy what's ON SCREEN, not the whole buffer —
+    """`y` must copy what's ON SCREEN, not the whole buffer —
     its hint sits directly beside the a/e/w/i/s filter chips."""
     async def scenario():
         async with _App().run_test(size=(100, 20)) as pilot:

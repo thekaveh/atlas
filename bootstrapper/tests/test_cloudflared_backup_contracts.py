@@ -1354,7 +1354,24 @@ def test_contained_probe_reaps_a_late_publishing_detached_child(
         identity = _process_identity(child_pid)
         if identity is not None:
             emergency_owned[child_pid] = identity
-        time.sleep(1.4)
+        # Settle on an observed event instead of a fixed 1.4 s sleep: the late
+        # child either publishes its real pid (its 1.3 s delay, above) or is
+        # already dead. A child the probe killed before publishing never
+        # writes the pid, so "dead" must end the wait too. The bound keeps a
+        # child that is alive but silent from hanging the test.
+        settle_deadline = time.monotonic() + 5
+        while time.monotonic() < settle_deadline:
+            published = (
+                child_pid_file.exists()
+                and child_pid_file.read_text(encoding="utf-8") == str(child_pid)
+            )
+            try:
+                os.kill(child_pid, 0)
+            except ProcessLookupError:
+                break
+            if published:
+                break
+            time.sleep(0.01)
         deadline = time.monotonic() + 2
         while time.monotonic() < deadline:
             try:
@@ -5554,7 +5571,7 @@ def test_backup_orchestrator_scopes_compose_to_the_atlas_project(tmp_path: Path)
 def test_poisoned_boundary_keeps_rollback_and_stage_volumes(tmp_path: Path):
     # After a failed copy-back the rollback volume can be the only original
     # data; cleanup deleted it with every other tracked volume.
-    from tests.test_database_backup_third_rereview import _coordinator, _module
+    from tests.test_database_backup_signal_and_cleanup_guards import _coordinator, _module
 
     module = _module(); lock = module.OwnedFileLock(tmp_path / "boundary.lock", token="a" * 32)
     lock.acquire()
@@ -5578,7 +5595,7 @@ def test_poisoned_boundary_keeps_rollback_and_stage_volumes(tmp_path: Path):
 
 
 def test_bulk_volume_steps_use_the_data_timeout():
-    from tests.test_database_backup_third_rereview import _coordinator, _module
+    from tests.test_database_backup_signal_and_cleanup_guards import _coordinator, _module
 
     module = _module(); coordinator = _coordinator(module)
     coordinator.timeout = 120
@@ -5596,7 +5613,7 @@ def test_neo4j_dump_and_load_are_bounded_by_the_data_timeout():
     covers every chained step: 8 restore steps and 4 backup steps of 910 s."""
     from types import SimpleNamespace
 
-    from tests.test_database_backup_third_rereview import _coordinator, _module
+    from tests.test_database_backup_signal_and_cleanup_guards import _coordinator, _module
 
     module = _module(); coordinator = _coordinator(module)
     coordinator.timeout = 120
@@ -5785,7 +5802,7 @@ _BACKUP_SCRIPTS = REPO / "services/backup/init/scripts"
 def test_a_disabled_source_placeholder_archives_under_busybox_tar(tmp_path):
     """The backup image is alpine; BusyBox tar refuses `-T /dev/null` ("empty
     archive"), so every consistent backup failed while Neo4j or Weaviate was
-    disabled (2026-10-08 run, cycle 34). Host GNU/bsd tar hid it."""
+    disabled. Host GNU/bsd tar hid it."""
     import shutil
 
     if shutil.which("docker") is None:
@@ -5794,7 +5811,7 @@ def test_a_disabled_source_placeholder_archives_under_busybox_tar(tmp_path):
     if subprocess.run(["docker", "image", "inspect", image], capture_output=True).returncode != 0:
         pytest.skip(f"{image} not local")
     # The capture itself, not only the helper: a call site reverted to
-    # `tar -T /dev/null` stayed green on the host (cycle 44).
+    # `tar -T /dev/null` stayed green on the host.
     script = (
         ". /s/database-snapshots.sh; run_bounded() { \"$@\"; }; "
         "database_empty_archive /tmp/neo4j.snapshot.tar.gz && tar tzf /tmp/neo4j.snapshot.tar.gz && "
@@ -5812,8 +5829,7 @@ def test_a_disabled_source_placeholder_archives_under_busybox_tar(tmp_path):
 
 
 def _ensure_setsid(bin_dir) -> None:
-    """macOS has no setsid(1), so the restore harness always skipped there
-    (2026-10-08 run, cycle 44); the shim starts a real new session."""
+    """macOS has no setsid(1), so the restore harness always skipped there; the shim starts a real new session."""
     import shutil
 
     if shutil.which("setsid") is None:
@@ -5872,7 +5888,7 @@ def _restore_harness(tmp_path, *, token: str, publish_postgres: bool, marker: st
 def test_a_database_restore_needs_the_published_postgres_marker(tmp_path):
     """databases.complete is uploaded before postgres.complete; prepare
     authenticated only the former, so a backup whose final upload failed
-    still cut over Neo4j/Weaviate alone (2026-10-08 run, cycle 34)."""
+    still cut over Neo4j/Weaviate alone."""
     import shutil
 
     token = uuid.uuid4().hex
@@ -5883,7 +5899,7 @@ def test_a_database_restore_needs_the_published_postgres_marker(tmp_path):
         accepted = _restore_harness(tmp_path / "b", token=token, publish_postgres=True)
         assert accepted.returncode == 0, accepted.stderr
         # A forged marker or one from another backup authorizes nothing;
-        # neither case was tested (cycle 44).
+        # neither case was tested.
         for marker in ("bad-hmac", "other-id"):
             shutil.rmtree(f"/tmp/atlas-database-restore-test-{token}", ignore_errors=True)
             forged = _restore_harness(tmp_path / marker, token=token, publish_postgres=True, marker=marker)
@@ -5909,7 +5925,7 @@ def _writable_repo_init_mounts(repo):
 def test_init_containers_mount_repo_sources_read_only_and_label_studio_blocks_ssrf():
     """comfyui-init mounted ./init/scripts writable, so a compromised download
     step could rewrite the script in the checkout; Label Studio 1.23 ships
-    SSRF protection off (2026-10-08 run, cycle 60)."""
+    SSRF protection off."""
     import yaml
 
     repo = Path(__file__).resolve().parents[2]

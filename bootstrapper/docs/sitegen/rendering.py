@@ -37,7 +37,7 @@ def table(headers: list[str], rows: Iterable[list[str]]) -> str:
         # split one logical row across physical lines (invalid GFM/MkDocs), and
         # escape pipes so cell content cannot introduce spurious columns.
         cells = [
-            _escape_angle_brackets(" ".join(cell.split()).replace("|", "/"))
+            _escape_angle_brackets(" ".join(cell.split()).replace("|", "\\|"))
             for cell in row
         ]
         lines.append("| " + " | ".join(cells) + " |")

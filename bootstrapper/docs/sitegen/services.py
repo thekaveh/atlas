@@ -1,21 +1,11 @@
 from __future__ import annotations
 
-from .model import DocsModel, ServicePage
+from .model import DocsModel, ServicePage, _dedupe_stable
 from .rendering import csv_or_dash, table
 
 
 def _service_link(service: ServicePage) -> str:
     return f"[{service.name}]({service.name}.md)"
-
-
-def _dedupe_stable(values: list[str]) -> list[str]:
-    seen: set[str] = set()
-    result: list[str] = []
-    for value in values:
-        if value and value not in seen:
-            seen.add(value)
-            result.append(value)
-    return result
 
 
 def _source_summary_defaults(service: ServicePage) -> str:

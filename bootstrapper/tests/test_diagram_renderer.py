@@ -26,6 +26,16 @@ def test_renders_svg_with_focus_label():
     assert "HERMES" in svg
 
 
+def test_html_escapes_focus_and_subtitle_text():
+    from docs.deps_resolver import DepGraph
+    from docs.diagram_renderer import render_html
+    g = DepGraph(focus="<i>svc</i>", category="infra", port_var=None, source="a&b")
+    html = render_html(g)
+    assert "<i>svc</i>" not in html
+    assert "&lt;i&gt;svc&lt;/i&gt;" in html
+    assert "source: a&amp;b" in html
+
+
 def test_renders_html_uses_local_monospace_stack():
     from docs.deps_resolver import build_doc_graph
     from docs.diagram_renderer import render_html

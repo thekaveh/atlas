@@ -846,9 +846,8 @@ _MANIFEST_FIELD_PURPOSES = {
 
 
 def _manifest_field_rows(root: Path) -> list[list[str]]:
-    """Every top-level property of service.schema.json. A hand list showed
-    10 of 22 fields and none of the required name/label/capabilities
-    (2026-10-08 run, cycle 40)."""
+    """Every top-level property of service.schema.json. A hand-written list
+    omitted most fields, including the required name, label and capabilities."""
     import json  # noqa: PLC0415
 
     schema = json.loads((root / "bootstrapper" / "schemas" / "service.schema.json").read_text(encoding="utf-8"))
@@ -919,8 +918,8 @@ def reference_pages(model: DocsModel) -> dict[Path, str]:
         ref / "manifest-fields.md": "# Manifest Fields\n\n## 1. Manifest Schema Quick Reference\n\n"
         "Generated from the top-level keys of `bootstrapper/schemas/service.schema.json`. See "
         "[Contributing §18](../CONTRIBUTING-services.md#18-schema-cheatsheet) for nested fields.\n\n"
-        "Schema-required marks the keys the JSON schema requires. The validator and tests also "
-        "require `support`, `containers` on non-virtual manifests (matching `compose.yml`), and "
-        "`docs`, a sibling `README.md` or `docs_exception`.\n\n"
+        "Schema-required marks the keys the JSON schema requires. The validator requires "
+        "`containers` on non-virtual manifests (matching `compose.yml`), and `docs`, a sibling "
+        "`README.md` or `docs_exception`. The test suite requires `support`.\n\n"
         + table(["Field", "Schema-required", "Purpose"], _manifest_field_rows(model.root)),
     }
