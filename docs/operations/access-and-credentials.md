@@ -51,7 +51,7 @@ A Kong gate applies only through the `*.localhost` alias. The service's direct p
 | JupyterHub | `jupyter.localhost` | Service-native | A Jupyter token (`?token=…`). With `JUPYTERHUB_TOKEN` empty, the default, Jupyter generates one and prints it in the container log on every start. | `services/jupyterhub/README.md` |
 | OpenClaw | `openclaw.localhost` | Atlas-generated secret | `OPENCLAW_GATEWAY_TOKEN`, generated into `.env` on start when empty and kept once set. | `services/openclaw/README.md` |
 | Prometheus | `prometheus.localhost` | No login | The route adds no auth; the scrape paths stay internal. | `services/prometheus/README.md` |
-| Hermes dashboard | `hermes.localhost` | Atlas-generated secret | Kong dashboard basic-auth. No container dashboard host port is published. Backend-network peers remain unauthenticated in insecure mode. | `services/hermes/README.md` |
+| Hermes dashboard | `hermes.localhost` | Atlas-generated secret | Off by default (`HERMES_DASHBOARD_ENABLED=false`). When enabled, Kong dashboard basic-auth. No container dashboard host port is published. Backend-network peers remain unauthenticated in insecure mode. | `services/hermes/README.md` |
 | Spark | `spark.localhost`, `spark-history.localhost` | No login | Master and History Server UIs are open. | `services/spark/README.md` |
 | Zeppelin | direct `localhost:${ZEPPELIN_PORT}` (no Kong alias) | No login | Loopback-bound. | `services/zeppelin/README.md` |
 | Weaviate | `weaviate.localhost` | No login | Anonymous access is enabled. Weaviate holds `WEAVIATE_LITELLM_API_KEY`, a LiteLLM key limited to the embedding models, and sends it to any `text2vec-openai` base URL a caller sets. Weaviate access therefore exposes embedding calls, not the master key. | `services/weaviate/README.md` |
@@ -65,7 +65,8 @@ A Kong gate applies only through the `*.localhost` alias. The service's direct p
 
 **Supabase routes without `apikey`.** Public-bucket, signed and signed-upload object URLs (`/storage/v1/object/public/`, `/storage/v1/object/sign/`, `/storage/v1/object/upload/sign/`) need no `apikey`. Storage checks the bucket flag or token; creating a signed URL still needs a user JWT. The GoTrue browser redirects `/auth/v1/verify`, `/auth/v1/callback` and `/auth/v1/authorize` are also routed without key-auth. Realtime is not functional (Supabase README §4.5). `/graphql/v1` returns 404 because `pg_graphql` is not installed.
 
-Hermes keeps its requested dashboard setting, but Atlas enables its container dashboard only with configured container Kong.
+The Hermes dashboard is off by default (`HERMES_DASHBOARD_ENABLED=false`). Hermes keeps its requested dashboard setting, and Atlas enables its container dashboard only with configured container Kong.
+Hermes's agent holds `HERMES_LITELLM_API_KEY`, a LiteLLM virtual key limited to the models Hermes offers, not the master key.
 Raw Compose defaults the effective flag to `false`. This checks configuration, not ongoing gateway health.
 For OAuth provider and provisioned-client requirements, see the [Hermes guide](../../services/hermes/README.md#4-configuration).
 

@@ -30,14 +30,15 @@ def _parser(directory, monkeypatch, values):
 
 
 @pytest.mark.parametrize("case", [
-    ({}, "true"),
-    ({"HERMES_DASHBOARD_ENABLED": ""}, "true"),
+    ({}, "false"),
+    ({"HERMES_DASHBOARD_ENABLED": ""}, "false"),
     ({"HERMES_DASHBOARD_ENABLED": "false"}, "false"),
     ({"HERMES_DASHBOARD_ENABLED": "TRUE"}, "TRUE"),
     ({"HERMES_DASHBOARD_ENABLED": "1"}, "1"),
     ({"HERMES_DASHBOARD_ENABLED": "yes"}, "yes"),
     ({"HERMES_DASHBOARD_ENABLED": "on"}, "on"),
-    ({"KONG_API_GATEWAY_SOURCE": "container"}, "true"),
+    ({"KONG_API_GATEWAY_SOURCE": "container"}, "false"),
+    ({"KONG_API_GATEWAY_SOURCE": "container", "HERMES_DASHBOARD_ENABLED": "true"}, "true"),
     ({"KONG_API_GATEWAY_SOURCE": "disabled"}, "false"),
     ({"KONG_API_GATEWAY_SOURCE": "localhost"}, "false"),
     ({"KONG_API_GATEWAY_SOURCE": ""}, "false"),
@@ -46,8 +47,8 @@ def _parser(directory, monkeypatch, values):
     ({"HERMES_SOURCE": "disabled", "HERMES_DASHBOARD_EFFECTIVE": "true"}, "false"),
     ({"HERMES_SOURCE": "localhost", "HERMES_LOCALHOST_PORT": "18642"}, "false"),
 ], ids=["default", "blank-request", "explicit-disable", "uppercase", "numeric", "yes", "on",
-        "container-kong", "disabled-kong", "localhost-kong", "blank-kong", "unsupported-kong",
-        "stale-effective", "disabled-hermes", "localhost-hermes"])
+        "container-kong-default-off", "container-kong-enabled", "disabled-kong", "localhost-kong",
+        "blank-kong", "unsupported-kong", "stale-effective", "disabled-hermes", "localhost-hermes"])
 def test_hermes_effective_dashboard_uses_active_launch_sources(case, tmp_path, monkeypatch):
     values, expected = case
     parser = _parser(tmp_path, monkeypatch, values)
@@ -166,9 +167,28 @@ def test_hermes_route_omits_unconfigured_gateway_before_localhost_probe(kong, tm
     assert probes == []
 
 
+def test_hermes_dashboard_is_off_by_default(tmp_path, monkeypatch):
+    manifest = yaml.safe_load((ROOT / "services/hermes/service.yml").read_text(encoding="utf-8"))
+    requested = next(item for item in manifest["env"] if item["name"] == "HERMES_DASHBOARD_ENABLED")
+    assert requested["default"] is False
+    assert "\nHERMES_DASHBOARD_ENABLED=false\n" in (ROOT / ".env.example").read_text(encoding="utf-8")
+    route, probes = _route(tmp_path, monkeypatch, {"HERMES_SOURCE": "container"})
+    assert route is None and probes == []
+
+
+@_requires_compose
+def test_hermes_compose_dashboard_is_off_with_example_defaults(tmp_path):
+    service = _compose(tmp_path, {})
+    assert service["environment"]["HERMES_DASHBOARD"] == "false"
+    assert [p["target"] for p in service["ports"]] == [8642], service["ports"]
+
+
+# The security assertions below run with the dashboard explicitly enabled,
+# because the dashboard is off by default.
 @pytest.mark.parametrize("source", ["container", "localhost", "disabled"])
 def test_hermes_route_keeps_auth_and_api_separation(source, tmp_path, monkeypatch):
-    route, probes = _route(tmp_path, monkeypatch, {"HERMES_SOURCE": source})
+    route, probes = _route(tmp_path, monkeypatch,
+                           {"HERMES_SOURCE": source, "HERMES_DASHBOARD_ENABLED": "true"})
     if source == "disabled":
         assert route is None and probes == []
         return
@@ -185,8 +205,8 @@ def test_hermes_route_respects_explicit_dashboard_disable(tmp_path, monkeypatch)
     assert route is None and probes == []
 
 
-@pytest.mark.parametrize("requested,enabled", [(None, True), ("", True), ("false", False)],
-                         ids=["missing-request", "empty-request", "disabled-request"])
+@pytest.mark.parametrize("requested,enabled", [(None, False), ("", False), ("false", False), ("true", True)],
+                         ids=["missing-request", "empty-request", "disabled-request", "enabled-request"])
 def test_hermes_route_uses_requested_default_consistently(requested, enabled, tmp_path, monkeypatch):
     values = {"HERMES_SOURCE": "container"}
     if requested is not None:
