@@ -23,7 +23,7 @@ Every route except `GET /health` and `GET /metrics` requires `Authorization: Bea
 | Variable | Default | Purpose |
 |---|---:|---|
 | `ASSET_WORKER_SOURCE` | `disabled` | Enables the containerized worker when set to `container`. |
-| `ASSET_WORKER_IMAGE` | `python:3.12.14-slim-bookworm@sha256:0f5b26b9…` | Base image for the local build. |
+| `ASSET_WORKER_IMAGE` | `python:3.12.9-slim` | Base image for the local build. |
 | `ASSET_WORKER_GLTF_TRANSFORM_VERSION` | `4.5.1` | Expected pinned `@gltf-transform/cli` lock version. The build stops unless it matches both `package.json` and `package-lock.json`; update those files together when refreshing the dependency. Every `.env` holds a copy. Startup replaces a copy that still holds an earlier shipped default and keeps any other value (§7). A shipped bump adds the old default to `RETIRED_DEFAULTS` in `bootstrapper/services/migrations/build_pin_refresh.py`. |
 | `ASSET_WORKER_MAX_UPLOAD_MB` | `200` | Maximum uploaded or MinIO-referenced GLB size in MiB. Raw multipart reception permits 1 MiB additional framing; oversized bodies return `413` before parsing. |
 | `ASSET_WORKER_UPLOAD_TIMEOUT_SECONDS` | `300` | Complete multipart reception deadline in seconds. Must be finite and positive; expiry returns `408`. Excludes conversion and reference requests. |

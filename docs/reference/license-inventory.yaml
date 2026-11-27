@@ -239,19 +239,19 @@ images:
   redistribution: unresolved
 - service: asset-baker
   var: ASSET_BAKER_IMAGE
-  image: python:3.12.14-slim-bookworm@sha256:0f5b26b9518d002b6173fd61daad821fa340635ebfec5bba471013f9ca114579
-  upstream: Python 3.12.14 (build base)
+  image: python:3.12.9-slim
+  upstream: Python 3.12.9 (build base)
   license: PSF-2.0
-  url: https://github.com/python/cpython/blob/2abcf904b8dac8c999d2b3aac76681abb333798a/LICENSE
+  url: https://github.com/python/cpython/blob/fdb81425a9ad683f8c24bf5cbedc9b96baf00cd2/LICENSE
   open:
   - R-BUILD
   redistribution: unresolved
 - service: asset-worker
   var: ASSET_WORKER_IMAGE
-  image: python:3.12.14-slim-bookworm@sha256:0f5b26b9518d002b6173fd61daad821fa340635ebfec5bba471013f9ca114579
-  upstream: Python 3.12.14 (build base)
+  image: python:3.12.9-slim
+  upstream: Python 3.12.9 (build base)
   license: PSF-2.0
-  url: https://github.com/python/cpython/blob/2abcf904b8dac8c999d2b3aac76681abb333798a/LICENSE
+  url: https://github.com/python/cpython/blob/fdb81425a9ad683f8c24bf5cbedc9b96baf00cd2/LICENSE
   open:
   - R-BUILD
   redistribution: unresolved

@@ -289,7 +289,7 @@ services:
       context: '{REPO_ROOT}/services/asset-baker/app'
       dockerfile: Dockerfile
       args:
-        BASE_IMAGE: python:3.12.14-slim-bookworm@sha256:0f5b26b9518d002b6173fd61daad821fa340635ebfec5bba471013f9ca114579
+        BASE_IMAGE: python:3.12.9-slim
         BLENDER_SHA256: 23432b064977908beb1ab4b7f32f024e7331105c875c187dce002aff84b10c11
         BLENDER_VERSION: 4.5.16
     container_name: atlas-asset-baker
@@ -355,7 +355,7 @@ services:
       context: '{REPO_ROOT}/services/asset-worker/app'
       dockerfile: Dockerfile
       args:
-        BASE_IMAGE: python:3.12.14-slim-bookworm@sha256:0f5b26b9518d002b6173fd61daad821fa340635ebfec5bba471013f9ca114579
+        BASE_IMAGE: python:3.12.9-slim
         GLTF_TRANSFORM_VERSION: 4.5.1
     container_name: atlas-asset-worker
     depends_on:

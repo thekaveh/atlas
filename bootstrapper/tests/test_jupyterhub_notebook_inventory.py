@@ -368,7 +368,7 @@ def _run_jupyter_startup(tmp_path, settings):
         ["/bin/bash", "-c", 'umask 027; exec "$@"', "owned-launch",
          "/bin/bash", str(script), sys.executable, "-c", recorder, str(proof),
          "--owned=two words", "literal$argument"],
-        env={"PATH": os.defpath, "HOME": str(home), **settings},
+        env={"PATH": os.defpath, "HOME": str(home), "NEO4J_PASSWORD": "test-only-neo4j", **settings},
         capture_output=True, text=True, timeout=5,
     )
     assert result.returncode == 0, result.stderr

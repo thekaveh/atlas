@@ -42,6 +42,9 @@ from tests.seed_harness import (
 REPO = Path(__file__).resolve().parents[2]
 
 
+pytestmark = pytest.mark.usefixtures("throwaway_admin_secrets")
+
+
 def _stage_backup_script_siblings(tmp_path: Path) -> None:
     """Copy the shell libraries that the backup/restore scripts source.
 
