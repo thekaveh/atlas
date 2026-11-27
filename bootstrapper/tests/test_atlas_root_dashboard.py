@@ -212,6 +212,7 @@ def _kong_services_with_every_gated_service_enabled(tmp_path: Path) -> list[dict
         )},
         "RAY_SOURCE": "ray-container-cpu",
         "SUPABASE_ANON_KEY": "test-anon", "SUPABASE_SERVICE_KEY": "test-service",
+        "HERMES_DASHBOARD_ENABLED": "true",
     }
     env = (_REPO / ".env.example").read_text(encoding="utf-8").splitlines()
     env = [line for line in env if line.split("=", 1)[0] not in enabled]
