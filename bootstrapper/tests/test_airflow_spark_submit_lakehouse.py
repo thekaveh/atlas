@@ -75,6 +75,11 @@ _FAKE_DOCKER_SOURCE = (
     "    [[ \"${args[$i]}\" != --detach ]] || detached=true\n"
     "    [[ \"${args[$i]}\" != --rm ]] || auto_remove=true\n"
     "  done\n"
+    "  for ((i=0; i<${#args[@]}; i++)); do\n"
+    "    [[ \"${args[$i]}\" = --env-file ]] || continue\n"
+    "    cp \"${args[$((i+1))]}\" \"$(resource_file envfile \"$name\")\"\n"
+    "    if [[ -n \"$(find \"${args[$((i+1))]}\" -perm 600)\" ]]; then printf '600' > \"$(resource_file envmode \"$name\")\"; fi\n"
+    "  done\n"
     "  if [[ -n \"$name\" ]]; then\n"
     "    token=\"$ATLAS_S3A_OWNER_TOKEN\"\n"
     "    if [[ \"${FAKE_DOCKER_COLLISION:-}\" = \"$name\" ]]; then token=foreign; fi\n"
@@ -600,9 +605,12 @@ def test_required_ci_runs_a_real_spark_minio_s3a_round_trip() -> None:
             'owner_label="com.atlas.s3a-smoke-token"',
             '--label "${owner_label}=${owner_token}"',
             '--name "$probe"',
+            '--env-file "$server_env_file"',
+            '--env-file "$client_env_file"',
         )
     )
     assert "handshake_deadline=$((SECONDS" not in smoke
+    assert "--env " not in smoke
     assert all(
         fragment in probe
         for fragment in (
@@ -684,6 +692,106 @@ def test_s3a_smoke_never_removes_foreign_network_collision(tmp_path: Path) -> No
     assert "network rm atlas-s3a-smoke-" not in calls
     foreign = next((tmp_path / "docker-state").glob("network-atlas-s3a-smoke-*"))
     assert foreign.read_text(encoding="utf-8") == "foreign"
+
+
+def _smoke_credentials() -> tuple[str, str]:
+    """The S3A smoke's own access and secret keys, read from the script."""
+    smoke = S3A_SMOKE.read_text(encoding="utf-8")
+    access = re.search(r'^access_key="([^"]+)"', smoke, re.MULTILINE)
+    secret = re.search(r'^secret_key="([^"]+)"', smoke, re.MULTILINE)
+    assert access and secret, "S3A smoke no longer declares its test credentials"
+    return access.group(1), secret.group(1)
+
+
+def _docker_run_line(lines: list[str], container_prefix: str) -> str:
+    runs = [
+        line
+        for line in lines
+        if line.startswith("run ") and f"--name {container_prefix}" in line
+    ]
+    assert len(runs) == 1, runs
+    return runs[0]
+
+
+def _env_file_path(run_line: str) -> Path:
+    match = re.search(r"--env-file (\S+)", run_line)
+    assert match, run_line
+    return Path(match.group(1))
+
+
+def _run_s3a_smoke(env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [str(S3A_SMOKE), "atlas-test-spark:latest"],
+        cwd=ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=_S3A_HANG_BOUND_SECONDS,
+        check=False,
+    )
+
+
+def test_s3a_smoke_passes_secrets_by_env_file_not_argv(tmp_path: Path) -> None:
+    access, secret = _smoke_credentials()
+    env, log = _fake_docker_environment(tmp_path, "none")
+
+    result = _run_s3a_smoke(env)
+
+    assert result.returncode == 0, result.stderr
+    lines = log.read_text(encoding="utf-8").splitlines()
+    state = tmp_path / "docker-state"
+    # Each container still receives exactly the variables it received before.
+    expected_env = {
+        "atlas-s3a-minio-": [f"MINIO_ROOT_USER={access}", f"MINIO_ROOT_PASSWORD={secret}"],
+        "atlas-s3a-mc-": [f"MC_HOST_atlas=http://{access}:{secret}@minio:9000"],
+    }
+    for prefix, variables in expected_env.items():
+        run_line = _docker_run_line(lines, prefix)
+        name = re.search(r"--name (\S+)", run_line).group(1)
+        assert "--env-file " in run_line
+        assert "--env " not in run_line
+        assert (state / f"envmode-{name}").read_text(encoding="utf-8") == "600"
+        received = (state / f"envfile-{name}").read_text(encoding="utf-8")
+        assert received.splitlines() == variables
+        assert not _env_file_path(run_line).exists()
+
+    # The Spark round trip still passes its S3A keys as --conf argv; the strict
+    # xfail below pins that gap. Every other recorded docker argv must be clean.
+    for line in lines:
+        if "spark-submit" not in line:
+            assert access not in line, line
+            assert secret not in line, line
+
+
+def test_s3a_smoke_removes_secret_env_files_when_cleanup_fails(tmp_path: Path) -> None:
+    env, log = _fake_docker_environment(tmp_path, "none")
+    env["FAKE_DOCKER_CLEANUP_FAIL"] = "1"
+
+    result = _run_s3a_smoke(env)
+
+    assert result.returncode != 0
+    assert "S3A smoke cleanup could not be proven" in result.stderr
+    lines = log.read_text(encoding="utf-8").splitlines()
+    for prefix in ("atlas-s3a-minio-", "atlas-s3a-mc-"):
+        assert not _env_file_path(_docker_run_line(lines, prefix)).exists()
+
+
+@pytest.mark.xfail(
+    strict=True,
+    raises=AssertionError,
+    reason="spark-submit --conf still passes the S3A keys in docker argv",
+)
+def test_s3a_spark_round_trip_keeps_secrets_out_of_argv(tmp_path: Path) -> None:
+    access, secret = _smoke_credentials()
+    env, log = _fake_docker_environment(tmp_path, "none")
+
+    result = _run_s3a_smoke(env)
+
+    assert result.returncode == 0, result.stderr
+    lines = log.read_text(encoding="utf-8").splitlines()
+    (spark_run,) = [line for line in lines if "spark-submit" in line]
+    assert access not in spark_run
+    assert secret not in spark_run
 
 
 def test_s3a_probe_reconciles_beyond_short_command_timeout(tmp_path: Path) -> None:

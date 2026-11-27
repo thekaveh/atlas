@@ -35,6 +35,8 @@ server="atlas-s3a-minio-${suffix}"
 client="atlas-s3a-mc-${suffix}"
 probe="atlas-s3a-spark-${suffix}"
 ready_dir=""
+server_env_file=""
+client_env_file=""
 ready_counter=0
 active_bounded_pid=""
 bounded_phase="idle"
@@ -333,6 +335,7 @@ cleanup() {
   local cleanup_failed=0
   local final_status="$original_status"
   local ready_index
+  local env_file
   # EXIT traps inherit errexit.  Cleanup is intentionally best-effort, and a
   # failed container removal must not prevent the network and handshake files
   # from being removed.
@@ -357,6 +360,11 @@ cleanup() {
     rm -f "${ready_dir}"/.*.pending
     rmdir "$ready_dir" 2>/dev/null || true
   fi
+  for env_file in "$server_env_file" "$client_env_file"; do
+    if [[ -n "$env_file" ]]; then
+      rm -f "$env_file"
+    fi
+  done
   trap - EXIT
   bounded_phase="idle"
   if ((cleanup_failed != 0)); then
@@ -387,6 +395,11 @@ network_uncertain=true
 run_bounded "create S3A smoke network" "$command_timeout" \
   docker network create --label "${owner_label}=${owner_token}" "$network" >/dev/null
 network_uncertain=false
+# Secrets reach docker through a 0600 env file, not --env, so they never
+# appear in host argv (ps). The file is removed by cleanup().
+server_env_file="$(mktemp "${TMPDIR:-/tmp}/atlas-s3a-env.XXXXXX")"
+chmod 600 "$server_env_file"
+printf 'MINIO_ROOT_USER=%s\nMINIO_ROOT_PASSWORD=%s\n' "$access_key" "$secret_key" >"$server_env_file"
 server_reconcile_timeout="$(remaining_reconcile_timeout "$command_timeout")"
 server_registered=true
 server_uncertain=true
@@ -397,11 +410,14 @@ run_bounded "start S3A smoke MinIO" "$command_timeout" docker run \
   --label "${owner_label}=${owner_token}" \
   --network "$network" \
   --network-alias minio \
-  --env "MINIO_ROOT_USER=${access_key}" \
-  --env "MINIO_ROOT_PASSWORD=${secret_key}" \
+  --env-file "$server_env_file" \
   --tmpfs /data:rw,size=128m \
   "$minio_image" server /data --address :9000 >/dev/null
 server_uncertain=false
+
+client_env_file="$(mktemp "${TMPDIR:-/tmp}/atlas-s3a-env.XXXXXX")"
+chmod 600 "$client_env_file"
+printf 'MC_HOST_atlas=http://%s:%s@minio:9000\n' "$access_key" "$secret_key" >"$client_env_file"
 
 ready=false
 for _attempt in $(seq 1 60); do
@@ -414,7 +430,7 @@ for _attempt in $(seq 1 60); do
     --label "${owner_label}=${owner_token}" \
     --rm \
     --network "$network" \
-    --env "MC_HOST_atlas=http://${access_key}:${secret_key}@minio:9000" \
+    --env-file "$client_env_file" \
     "$mc_image" mb --ignore-existing atlas/spark-history >/dev/null 2>&1; then
     client_uncertain=false
     ready=true
