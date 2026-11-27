@@ -145,6 +145,6 @@ LABELS = TESTDATA / "labels.jsonl"
 def test_threshold_labels_are_marked_pending_owner_review() -> None:
     rows = [json.loads(line) for line in LABELS.read_text().splitlines() if line.strip()]
     assert len(rows) == 1221
-    assert {row["status"] for row in rows} == {"pending-owner-review"}
+    assert {row["status"] for row in rows} == {"machine-labelled-unverified"}
     assert {row["label"] for row in rows} == {"speech", "non-speech"}
     assert sum(row["label"] == "speech" for row in rows) == 1200

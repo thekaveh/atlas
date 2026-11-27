@@ -1337,8 +1337,8 @@ class KongConfigGenerator:
 
         Gated on:
           - HERMES_SOURCE != disabled
-          - HERMES_DASHBOARD_ENABLED is truthy (when false, no dashboard
-            to route to — drop the route to avoid a 502).
+          - HERMES_DASHBOARD_ENABLED is truthy (default false; when false,
+            no dashboard to route to — drop the route to avoid a 502).
         """
         source = self.get_env_value('HERMES_SOURCE')
 
@@ -1348,7 +1348,7 @@ class KongConfigGenerator:
         if source == 'disabled':
             return None
 
-        dashboard_enabled = (self.get_env_value('HERMES_DASHBOARD_ENABLED', 'true') or 'true').lower()
+        dashboard_enabled = (self.get_env_value('HERMES_DASHBOARD_ENABLED', 'false') or 'false').lower()
         if dashboard_enabled not in ('true', '1', 'yes', 'on'):
             return None
 

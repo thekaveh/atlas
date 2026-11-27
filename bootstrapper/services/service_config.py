@@ -893,8 +893,9 @@ class ServiceConfig:
         env_vars: Dict[str, str] = {'HERMES_DASHBOARD_EFFECTIVE': 'false'}
         # Launch configuration gates the managed dashboard; stale derived values
         # never override the operator's request or prove gateway runtime health.
+        # The dashboard is off unless the operator requests it (default false).
         if source_value == 'container' and self.service_sources.get('KONG_API_GATEWAY_SOURCE', 'container') == 'container':
-            env_vars['HERMES_DASHBOARD_EFFECTIVE'] = current_env.get('HERMES_DASHBOARD_ENABLED') or 'true'
+            env_vars['HERMES_DASHBOARD_EFFECTIVE'] = current_env.get('HERMES_DASHBOARD_ENABLED') or 'false'
 
         if source_value == 'disabled':
             env_vars['HERMES_ENDPOINT'] = ''

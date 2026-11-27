@@ -289,7 +289,7 @@ services:
       context: '{REPO_ROOT}/services/asset-baker/app'
       dockerfile: Dockerfile
       args:
-        BASE_IMAGE: python:3.12.9-slim
+        BASE_IMAGE: python:3.12.14-slim-bookworm@sha256:0f5b26b9518d002b6173fd61daad821fa340635ebfec5bba471013f9ca114579
         BLENDER_SHA256: 23432b064977908beb1ab4b7f32f024e7331105c875c187dce002aff84b10c11
         BLENDER_VERSION: 4.5.16
     container_name: atlas-asset-baker
@@ -355,7 +355,7 @@ services:
       context: '{REPO_ROOT}/services/asset-worker/app'
       dockerfile: Dockerfile
       args:
-        BASE_IMAGE: python:3.12.9-slim
+        BASE_IMAGE: python:3.12.14-slim-bookworm@sha256:0f5b26b9518d002b6173fd61daad821fa340635ebfec5bba471013f9ca114579
         GLTF_TRANSFORM_VERSION: 4.5.1
     container_name: atlas-asset-worker
     depends_on:
@@ -920,7 +920,7 @@ services:
       context: '{REPO_ROOT}/services/comfyui/build'
       dockerfile: Dockerfile
       args:
-        BASE_IMAGE: ghcr.io/ai-dock/comfyui:v2-cpu-22.04-v0.2.7
+        BASE_IMAGE: ghcr.io/ai-dock/comfyui:v2-cpu-22.04-v0.2.7@sha256:b47cd16007c309ebbb78b85f87bbc69ac9f7f3fc7596607e81940eeb7dca2421
     image: atlas-comfyui:local
     labels:
       com.atlas.category: ai
@@ -1243,8 +1243,8 @@ services:
       HERMES_DASHBOARD_PORT: '9119'
       HERMES_DASHBOARD_TUI: '1'
       HERMES_GID: '10000'
+      HERMES_LITELLM_API_KEY: ''
       HERMES_UID: '10000'
-      LITELLM_MASTER_KEY: ''
       OPENAI_API_KEY: ''
       OPENROUTER_API_KEY: ''
       SEARXNG_URL: ''
@@ -1305,6 +1305,7 @@ services:
       HERMES_CONTEXT_LENGTH: '65536'
       HERMES_DEFAULT_MODEL: ''
       HERMES_GID: '10000'
+      HERMES_LITELLM_API_KEY: ''
       HERMES_UID: '10000'
       LIGHTRAG_API_KEY: ''
       LIGHTRAG_INTERNAL_URL: ''
@@ -1759,7 +1760,7 @@ services:
       context: '{REPO_ROOT}/services/label-studio/init'
       dockerfile: Dockerfile
       args:
-        BASE_IMAGE: alpine:3.24.4
+        BASE_IMAGE: alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
     container_name: atlas-label-studio-init
     depends_on:
       minio-init:
@@ -1842,7 +1843,7 @@ services:
       context: '{REPO_ROOT}/services/langfuse/init'
       dockerfile: Dockerfile
       args:
-        BASE_IMAGE: alpine:3.24.4
+        BASE_IMAGE: alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
     container_name: atlas-langfuse-init
     depends_on:
       minio-init:
@@ -2818,7 +2819,7 @@ services:
       context: '{REPO_ROOT}/services/mlflow/init'
       dockerfile: Dockerfile
       args:
-        BASE_IMAGE: alpine:3.24.4
+        BASE_IMAGE: alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
     container_name: atlas-mlflow-init
     depends_on:
       minio-init:

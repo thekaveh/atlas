@@ -50,11 +50,10 @@ EXPECTED_HOST_ROUTES = {
     "jupyter.localhost": "http://jupyterhub:8888/",
     "api.localhost": "http://backend:8000/",
     "chat.localhost": "http://open-web-ui:8080/",
-    # Hermes Agent's web dashboard. Default-on (HERMES_SOURCE=container,
-    # HERMES_DASHBOARD_ENABLED=true), so the generator emits this route
-    # for .env.example. If the default ever flips to disabled, drop this
-    # entry from the expected map.
-    "hermes.localhost": "http://hermes:9119/",
+    # hermes.localhost is NOT listed here. HERMES_DASHBOARD_ENABLED defaults
+    # to false (the Chat tab is off), so the generator omits the route at
+    # default-env runtime. If the default ever flips to true, add:
+    #   "hermes.localhost": "http://hermes:9119/",
     # LiteLLM gateway + admin dashboard. Always-on (no SOURCE variation).
     # Same alias exposes /ui/ (dashboard), /v1/* (proxy API), and
     # /spend/* (usage telemetry) — Kong routes the entire surface, not
@@ -190,12 +189,10 @@ EXPECTED_ROUTES: dict[str, dict] = {
         "strip_path": True, "preserve_host": None,
         "service_plugins": ["acl", "cors", "key-auth"], "route_plugins": [],
     },
-    "hermes-dashboard-all": {
-        "service": "hermes-dashboard", "url": "http://hermes:9119/",
-        "hosts": ["hermes.localhost"], "paths": [],
-        "strip_path": False, "preserve_host": True,
-        "service_plugins": ["acl", "basic-auth", "cors"], "route_plugins": [],
-    },
+    # hermes-dashboard-all is NOT listed: HERMES_DASHBOARD_ENABLED defaults to
+    # false, so the generator omits the route. Opt-in route shape is locked by
+    # bootstrapper/tests/test_hermes_dashboard_security.py. If the default ever
+    # flips, add the entry back here (and its hermes.localhost host above).
     "jupyterhub-api-all": {
         "service": "jupyterhub-api", "url": "http://jupyterhub:8888/",
         "hosts": ["jupyter.localhost"], "paths": [],

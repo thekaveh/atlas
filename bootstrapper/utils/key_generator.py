@@ -1260,6 +1260,11 @@ class KeyGenerator:
         results['CRAWL4AI_API_TOKEN'] = self.generate_and_update_crawl4ai_api_token(force=False)
         results['SPEACHES_API_KEY'] = self.generate_and_update_speaches_api_key(force=False)
         results['WEAVIATE_LITELLM_API_KEY'] = self.generate_and_update_weaviate_litellm_api_key(force=False)
+        # HERMES_LITELLM_API_KEY (#1377): hermes-init registers this value as a LiteLLM
+        # virtual key scoped to the models Hermes offers, so the agent never holds the
+        # master key. Existing keys stick.
+        results['HERMES_LITELLM_API_KEY'] = bool(self.get_current_env_value('HERMES_LITELLM_API_KEY')) or \
+            self.update_env_key('HERMES_LITELLM_API_KEY', 'sk-atlas-hermes-' + _cli_safe_token_urlsafe(32))
         results['OPENCLAW_GATEWAY_TOKEN'] = self.generate_and_update_openclaw_gateway_token(force=False)
         results['SUPABASE_META_CRYPTO_KEY'] = self.generate_and_update_meta_crypto_key(force=False)
 

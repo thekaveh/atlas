@@ -1,9 +1,11 @@
 # 5.2.63. Speech gate threshold test set
 
-> **Status: labels pending owner review.** Every row in `labels.jsonl` carries
-> `"status": "pending-owner-review"`. Until the owner signs off each label, the
-> 0.5 threshold is not validated on real audio. The bench shows only the
-> synthetic-noise behaviour.
+> **Status: labels machine-generated, not verified against audio.** Every row in
+> `labels.jsonl` carries `"status": "machine-labelled-unverified"`. The owner has
+> declined manual review. Verification against reference transcripts (AMI,
+> Earnings-22) needs the bench audio, which is not in this repository, so it has
+> not been run. Until it is, the 0.5 threshold is not validated on real audio.
+> The bench shows only the synthetic-noise behaviour.
 
 ## 1. Contents
 
@@ -32,7 +34,7 @@ The labels follow from how the rows were built. Nobody listened to them. Some
 conversational clips may contain little or no speech, so the owner review
 covers every label.
 
-## 4. Recorded decisions (labels run, not yet reviewed)
+## 4. Recorded decisions (labels run, machine-generated, not verified)
 
 | Label | Condition | Rows | Gate speech |
 |---|---|---:|---:|

@@ -22,7 +22,7 @@
       "functions_over_100_physical_lines": 85,
       "functions_over_4_parameters": 156,
       "modules_over_600_logical_lines": 21,
-      "tracked_files": 1740,
+      "tracked_files": 1743,
       "v0.1.0_tracked_files": 667
     },
     "extended_python_baseline_snapshot": {
@@ -40,6 +40,8 @@
 "refresh_notes_2026_11_25_issue_2111": "Issue #2111 from base aed330ac (develop): tracked_files 1704 -> 1706 attributes exactly two additions: services/speaches/pin-cache.sh (stages the Speaches preload models at their pinned Hugging Face commits, verifying each sha256) and bootstrapper/tests/test_speaches_pin_cache.py (keeps the compose and script pins in step). Every code-complexity ceiling, counting rule, accepted disposition, exclusion and review deadline remains unchanged; no unrelated file is excluded, removed or compressed to offset growth.",
     "refresh_notes_2026_11_26_issue_2148_speech_gate": "Issue #2148 speech gate from base e3e783e7 (develop): tracked_files 1712 -> 1734 attributes exactly twenty-two additions: services/speech-gate (service manifest, compose fragment, Dockerfile, requirements, the pinned Silero VAD model, the service code, its README and architecture diagrams) and its test-label data.",
     "refresh_notes_2026_11_25_issue_2108_residual": "Issue #2108 residual AI-Dock venvs from base c24aaecd (develop): tracked_files 1708 -> 1712 attributes exactly four additions: services/comfyui/build/requirements-api-locked.txt, requirements-jupyter-locked.txt, requirements-python_310-locked.txt and requirements-serviceportal-locked.txt (the audited locks for the four residual AI-Dock venvs).",
+    "refresh_notes_2026_11_27_owner_items": "Owner-decision pass (#2107) on fix/owner-items-misc-2026-11-27: tracked_files 1740 -> 1742. Adds the anchor-number gate test and its per-file baseline fixture (audit D1-24). Other changes in the pass are edits to tracked files, not new ones.",
+    "refresh_notes_2026_11_27_realtime_grant": "Realtime grant narrowing (#2107 owner item, option A): tracked_files 1742 -> 1743 for bootstrapper/tests/test_supabase_realtime_role_grants.py.",
     "refresh_notes_2026_11_26_audit_repairs": "Audit repair pass (#2107) from base 2b6c28b4: tracked_files 1734 -> 1740 attributes the new test and helper modules added by the repair streams (fail-closed credential defaults, managed-host lifecycle, shared test helpers, shared transcription API and register helpers, the lock and validator tests), the speech-gate test-set README and the new audit scripts. The list is reproducible from git diff --diff-filter=A against develop.",
     "refresh_notes_2026_11_25_issue_2108_python311": "Issue #2108 (ComfyUI Python 3.11) from base c24aaecd (develop): tracked_files 1707 -> 1708 attributes exactly one addition: services/comfyui/build/requirements-venv311-locked.txt (the audited Python 3.11.15 lock for the ComfyUI venv).",
     "refresh_notes_2026_11_23_issue_2108": "Issue #2108 stage 2 from base 5bd52fbf (develop): tracked_files 1703 -> 1704 attributes exactly one addition: bootstrapper/tests/test_comfyui_derived_image_pins.py (the static pins for the ComfyUI venv bumps in services/comfyui/build/Dockerfile). Every code-complexity ceiling, counting rule, accepted disposition, exclusion and review deadline remains unchanged; no unrelated file is excluded, removed or compressed to offset growth.",

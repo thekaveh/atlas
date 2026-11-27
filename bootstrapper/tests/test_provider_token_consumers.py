@@ -151,8 +151,8 @@ def test_hermes_template_renders_server_side_stt_key(api_key):
         {
             "HERMES_DEFAULT_MODEL": "test-model",
             "HERMES_CONTEXT_LENGTH": "65536",
-            "LITELLM_MASTER_KEY": "litellm-test",
-            "LITELLM_MASTER_KEY_YAML": json.dumps("litellm-test"),
+            "HERMES_LITELLM_API_KEY": "scoped-test",
+            "HERMES_LITELLM_API_KEY_YAML": json.dumps("scoped-test"),
             "TTS_INTERNAL_URL": "http://tts",
             "TTS_INTERNAL_MODEL": "tts-1-hd",
             "TTS_INTERNAL_VOICE": "alloy",
@@ -263,9 +263,16 @@ def _hermes_init_tools(tmp_path, serializer_status):
     programs = {
         "curl": (
             "import json, os, sys\n"
+            "args = sys.argv[1:]\n"
+            "record = {'argv': args, 'stdin': sys.stdin.read(), 'raw_key': os.environ['LITELLM_MASTER_KEY']}\n"
+            "if '--data-binary' in args:\n"
+            "    with open(args[args.index('--data-binary') + 1][1:]) as source:\n"
+            "        record['body'] = json.load(source)\n"
             "with open(os.environ['INIT_RECEIPT'], 'a') as output:\n"
-            "    output.write(json.dumps({'argv': sys.argv[1:], 'stdin': sys.stdin.read(), "
-            "'raw_key': os.environ['LITELLM_MASTER_KEY']}) + '\\n')\n"
+            "    output.write(json.dumps(record) + '\\n')\n"
+            "if 'body' in record:\n"
+            "    path = args[-1].split(':4000', 1)[1]\n"
+            "    sys.exit(22 if path in os.environ.get('FAKE_FAIL_PATHS', '').split(',') else 0)\n"
             "print(os.environ['INIT_CATALOG'])\n"
         ),
         "jq": (
@@ -303,6 +310,7 @@ def _run_hermes_init_fixture(tmp_path, overrides, serializer_status=0):
         "PATH": f"{fake_bin}:{os.defpath}",
         "HERMES_DEFAULT_MODEL": "ollama/qwen3.8:latest",
         "LITELLM_MASTER_KEY": "synthetic-master-key",
+        "HERMES_LITELLM_API_KEY": "synthetic-scoped-key",
         "STT_INTERNAL_URL": "http://synthetic-stt",
         "STT_INTERNAL_API_KEY": "synthetic-stt-key",
         "TTS_INTERNAL_URL": "http://synthetic-tts",
@@ -322,11 +330,19 @@ def _run_hermes_init_fixture(tmp_path, overrides, serializer_status=0):
         ["/bin/sh", "-c", 'umask 027\nexec /bin/sh "$1"', "hermes-fixture", str(script)],
         cwd=tmp_path, env=env, capture_output=True, text=True, timeout=15,
     )
-    requests = [json.loads(line) for line in (tmp_path / "requests.jsonl").read_text().splitlines()]
+    receipt = tmp_path / "requests.jsonl"
+    requests = [json.loads(line) for line in receipt.read_text().splitlines()] if receipt.exists() else []
     return result, data, requests
 
 
-@pytest.mark.parametrize("field", ["LITELLM_MASTER_KEY", "STT_INTERNAL_API_KEY"])
+_FULL_SCOPE = ["gpt-5", "ollama/qwen3.8:latest", "openrouter/openai/gpt-5"]
+
+
+def _litellm_path(record):
+    return record["argv"][-1].split(":4000", 1)[1]
+
+
+@pytest.mark.parametrize("field", ["HERMES_LITELLM_API_KEY", "STT_INTERNAL_API_KEY"])
 @pytest.mark.parametrize("value", [
     "synthetic-key", "true", "12345678901234567890", "synthetic #suffix",
     "synthetic: suffix", 'synthetic"quote', r"synthetic\backslash",
@@ -336,29 +352,37 @@ def test_hermes_full_init_preserves_literal_yaml_credentials(tmp_path, field, va
     result, data, requests = _run_hermes_init_fixture(tmp_path, {field: value})
     assert result.returncode == 0, result.stderr
     config = yaml.safe_load((data / "config.yaml").read_text(encoding="utf-8"))
-    expected_master = value if field == "LITELLM_MASTER_KEY" else "synthetic-master-key"
+    expected_scoped = value if field == "HERMES_LITELLM_API_KEY" else "synthetic-scoped-key"
     expected_stt = value if field == "STT_INTERNAL_API_KEY" else "synthetic-stt-key"
-    assert config["model"]["api_key"] == expected_master
+    assert config["model"]["api_key"] == expected_scoped
     assert config["stt"]["openai"]["api_key"] == expected_stt
     assert all(isinstance(key, str) for key in (config["model"]["api_key"], config["stt"]["openai"]["api_key"]))
-    assert requests == [{
+    assert requests[0] == {
         "argv": ["-fsS", "--max-time", "15", "--header", "@-", "http://litellm:4000/v1/models"],
-        "stdin": f"Authorization: Bearer {expected_master}\n", "raw_key": expected_master,
-    }]
+        "stdin": "Authorization: Bearer synthetic-master-key\n", "raw_key": "synthetic-master-key",
+    }
+    assert [_litellm_path(r) for r in requests] == ["/v1/models", "/key/update"]
+    assert requests[1]["stdin"] == "Authorization: Bearer synthetic-master-key\n"
+    assert requests[1]["body"] == {"key": expected_scoped, "models": _FULL_SCOPE}
     assert value not in result.stdout.replace(str(tmp_path), "<fixture>") + result.stderr
 
 
 @pytest.mark.parametrize("stt_key", [None, ""])
-@pytest.mark.parametrize("master_key", [None, ""])
-def test_hermes_full_init_keeps_blank_credential_defaults(tmp_path, stt_key, master_key):
-    result, data, requests = _run_hermes_init_fixture(
-        tmp_path, {"STT_INTERNAL_API_KEY": stt_key, "LITELLM_MASTER_KEY": master_key},
-    )
+def test_hermes_full_init_keeps_blank_stt_key_default(tmp_path, stt_key):
+    result, data, _requests = _run_hermes_init_fixture(tmp_path, {"STT_INTERNAL_API_KEY": stt_key})
     assert result.returncode == 0, result.stderr
     config = yaml.safe_load((data / "config.yaml").read_text(encoding="utf-8"))
-    assert config["model"]["api_key"] == ""
     assert config["stt"]["openai"]["api_key"] == "not-required"
-    assert requests[0]["raw_key"] == "" and requests[0]["stdin"] == 'Authorization: Bearer \n'
+    assert config["model"]["api_key"] == "synthetic-scoped-key"
+
+
+@pytest.mark.parametrize("field", ["LITELLM_MASTER_KEY", "HERMES_LITELLM_API_KEY"])
+def test_hermes_full_init_refuses_to_start_without_both_keys(tmp_path, field):
+    result, data, requests = _run_hermes_init_fixture(tmp_path, {field: ""})
+    assert result.returncode == 1
+    assert "HERMES_LITELLM_API_KEY or LITELLM_MASTER_KEY is empty" in result.stdout
+    assert requests == []
+    assert (data / "config.yaml").read_text() == "previous config\n"
 
 
 def _assert_hermes_init_artifacts(tmp_path, data):
@@ -380,7 +404,8 @@ def test_hermes_full_init_preserves_models_blocks_output_and_ownership(tmp_path)
     assert not {"tts", "stt", "web"}.intersection(config)
     _assert_hermes_init_artifacts(tmp_path, data)
     assert result.stdout.endswith("[hermes-init] done\n") and result.stderr == ""
-    assert len(requests) == 1
+    assert [_litellm_path(r) for r in requests] == ["/v1/models", "/key/update"]
+    assert requests[1]["body"] == {"key": "synthetic-scoped-key", "models": _FULL_SCOPE}
 
 
 def test_hermes_full_init_serializer_failure_preserves_published_config(tmp_path):
@@ -392,6 +417,25 @@ def test_hermes_full_init_serializer_failure_preserves_published_config(tmp_path
     assert not (tmp_path / "ownership.json").exists()
     assert "wrote " not in result.stdout and not result.stdout.endswith("[hermes-init] done\n")
     assert len(requests) == 1
+
+
+def test_hermes_full_init_generates_the_scoped_key_when_the_update_is_refused(tmp_path):
+    result, _data, requests = _run_hermes_init_fixture(tmp_path, {"FAKE_FAIL_PATHS": "/key/update"})
+    assert result.returncode == 0, result.stderr
+    assert [_litellm_path(r) for r in requests] == ["/v1/models", "/key/update", "/key/delete", "/key/generate"]
+    assert requests[2]["body"] == {"key_aliases": ["atlas-hermes"]}
+    assert requests[3]["body"] == {"key": "synthetic-scoped-key", "key_alias": "atlas-hermes",
+                                   "models": _FULL_SCOPE}
+
+
+def test_hermes_full_init_stops_rather_than_falling_back_to_the_master_key(tmp_path):
+    result, data, requests = _run_hermes_init_fixture(
+        tmp_path, {"FAKE_FAIL_PATHS": "/key/update,/key/generate"})
+    assert result.returncode == 1
+    assert "could not register" in result.stdout
+    assert (data / "config.yaml").read_text() == "previous config\n"
+    assert [_litellm_path(r) for r in requests] == ["/v1/models", "/key/update", "/key/delete", "/key/generate"]
+    assert "synthetic-master-key" not in json.dumps([r.get("body") for r in requests])
 
 
 class _HermesAuthorizationRecorder(socketserver.StreamRequestHandler):
@@ -634,3 +678,38 @@ def test_weaviate_litellm_key_is_generated_once_with_the_sk_prefix(tmp_path):
     assert key.startswith("sk-atlas-weaviate-") and len(key) > 40
     assert generator.generate_and_update_weaviate_litellm_api_key()
     assert generator.get_current_env_value("WEAVIATE_LITELLM_API_KEY") == key
+
+
+# ── #1377: Hermes holds a scoped LiteLLM key, not the master key ──
+
+def test_hermes_agent_container_gets_the_scoped_key_and_only_init_keeps_the_master_key():
+    compose = _yaml("services/hermes/compose.yml")["services"]
+    agent_env = compose["hermes"]["environment"]
+    assert agent_env["HERMES_LITELLM_API_KEY"] == "${HERMES_LITELLM_API_KEY:-}"
+    assert "LITELLM_MASTER_KEY" not in agent_env
+    init_env = compose["hermes-init"]["environment"]
+    assert init_env["LITELLM_MASTER_KEY"] == "${LITELLM_MASTER_KEY}"
+    assert init_env["HERMES_LITELLM_API_KEY"] == "${HERMES_LITELLM_API_KEY:-}"
+
+
+def test_hermes_config_template_names_only_the_scoped_key():
+    template = (ROOT / "services/hermes/init/templates/config.yaml.tmpl").read_text(encoding="utf-8")
+    assert "LITELLM_MASTER_KEY" not in template
+    assert "api_key: ${HERMES_LITELLM_API_KEY_YAML}" in template
+    assert "key_env: HERMES_LITELLM_API_KEY" in template
+
+
+def test_hermes_manifest_adapts_the_scoped_key_not_the_master_key():
+    adaptation = _yaml("services/hermes/service.yml")["runtime_adaptive"]["hermes"]["environment_adaptation"]
+    assert adaptation == {"HERMES_LITELLM_API_KEY": "${HERMES_LITELLM_API_KEY}"}
+
+
+def test_hermes_litellm_key_is_generated_once_with_the_sk_prefix(tmp_path):
+    from utils.key_generator import KeyGenerator
+    (tmp_path / ".env").write_text("HERMES_LITELLM_API_KEY=\n")
+    generator = KeyGenerator(str(tmp_path))
+    assert generator.generate_missing_keys()["HERMES_LITELLM_API_KEY"]
+    key = generator.get_current_env_value("HERMES_LITELLM_API_KEY")
+    assert key.startswith("sk-atlas-hermes-") and len(key) > 40
+    assert generator.generate_missing_keys()["HERMES_LITELLM_API_KEY"]
+    assert generator.get_current_env_value("HERMES_LITELLM_API_KEY") == key
