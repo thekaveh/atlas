@@ -33,7 +33,7 @@ EXPECTED_BASELINE_SNAPSHOT = {
     # #2108 (residual venvs) attributes the four audited AI-Dock venv locks.
     # #2148 (speech gate) attributes the twenty-two speech-gate additions.
     # #2107 audit repair pass attributes the new test and helper modules (see refresh_notes_2026_11_26_audit_repairs).
-    "tracked_files": 1742,
+    "tracked_files": 1743,
     "v0.1.0_tracked_files": 667,
 }
 EXPECTED_EXTENDED_PYTHON_SNAPSHOT = {
