@@ -590,10 +590,25 @@ SELECT format('GRANT authenticator TO %I', :'api_role')
 WHERE :'api_role' <> 'authenticator' \gexec
 GRANT ALL ON SCHEMA realtime TO :"realtime_role";
 GRANT USAGE, CREATE ON SCHEMA public TO :"realtime_role";
-GRANT ALL ON ALL TABLES IN SCHEMA realtime TO :"realtime_role";
 GRANT ALL ON ALL SEQUENCES IN SCHEMA realtime TO :"realtime_role";
 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA realtime TO :"realtime_role";
-GRANT SELECT ON ALL TABLES IN SCHEMA public TO :"realtime_role";
+-- Realtime owns every table in its schema (the ownership pass above), so it
+-- needs no bulk table grant there. Its reads in public are limited to the
+-- tracker below. Streaming runs through its replication slot, and RLS checks
+-- run as the subscriber role, so no application table is granted to it.
+-- Installs that ran the former bulk grant still hold table-level SELECT in
+-- their ACLs, so every run revokes it. Relations Realtime owns (tenants,
+-- extensions, feature_flags) are skipped: revoking an owner's own privileges
+-- would lock Realtime out of them.
+BEGIN;
+SELECT format('REVOKE SELECT ON TABLE %I.%I FROM %I',
+              n.nspname, c.relname, :'realtime_role')
+FROM pg_catalog.pg_class c JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = 'public'
+  AND c.relkind IN ('r', 'p', 'v', 'm', 'f')
+  AND pg_catalog.pg_get_userbyid(c.relowner) <> :'realtime_role' \gexec
+GRANT SELECT ON public.schema_migrations TO :"realtime_role";
+COMMIT;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.schema_migrations TO
   :"auth_role", :"realtime_role";
 SELECT set_config('atlas.auth_role', :'auth_role', false);
