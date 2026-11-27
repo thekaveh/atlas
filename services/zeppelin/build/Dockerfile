@@ -14,6 +14,18 @@ ARG HADOOP_AWS_SHA512=c64c5f39a58b2d6b1f33ff5c14f0575b57e29401cddc599899e8b4499b
 ARG AWS_SDK_BUNDLE_SHA512=a909eb82364c6272cd4ff67aaff4123e4e5de9205d21c27d1f286e7748780a7b4c2b570c41d184f0600fabe482b1dc3f28d9c60ebbd4b8795666e45ecfb4802a
 ARG ICEBERG_SPARK_RUNTIME_SHA512=f4620bb2d20777146a769a8a939a5bed658e1d5708b6a5155e1f6e831c0bfd29bd1f82618dc59bc0f30399ffcb03add3e66656286692dc6c2be94e4e1f4e7479
 ARG ICEBERG_AWS_BUNDLE_SHA512=bb50f7dc5f36a001efecf15e4d03eff955466f06557261fbacdd7fe0d88113c82e0b9b2af96cd554cef4a1d4c2348fc950270bc3f51cf6bf1e4526f46ce336a0
+# Kafka connector jars for format("kafka") from %spark (#1376). These are the
+# same four jars, ARG names and SHA-512 pins as services/spark/build/Dockerfile.
+# Keep the two files in step: test_dockerfile_pins.py compares them.
+ARG SPARK_SQL_KAFKA_VERSION=4.1.2
+ARG SPARK_SQL_KAFKA_ARTIFACT=spark-sql-kafka-0-10_2.13
+ARG SPARK_KAFKA_CONNECTOR_ARTIFACT=spark-token-provider-kafka-0-10_2.13
+ARG KAFKA_CLIENTS_VERSION=3.9.2
+ARG COMMONS_POOL2_VERSION=2.12.1
+ARG SPARK_SQL_KAFKA_SHA512=57212eeb69ec417a2ab84dcf9de882fea95eb5554bd9adf10698fb5621fe0127283fd3bad4bb19897598673d06fa087de9fdf0f9614ec4004248e56e8a80ba94
+ARG SPARK_KAFKA_CONNECTOR_SHA512=68a83987ad79923effa7b0e1657a8eb987857714502fffc59326a2784312b15bf943fbc88b257215869f68853be79322687c443806f9f78e15a6cae2ceffbe5c
+ARG KAFKA_CLIENTS_SHA512=dd824c9a31f38a5a6d2b2c7ac03e9f31d8c5a7f1d8a6baefbe7d55552f4ab961ec831f040bb87a3c52dab6d464ee0954c31d256c1ea323140139465697806369
+ARG COMMONS_POOL2_SHA512=186dabefa07a38cc106e5aca3fcec6d2d8c79fc2787d448632c24a61cad3574c53809895f85181ba097012b60a86116eec22ae3ab4c6e47ac7dddac00a0b71a7
 
 RUN set -eux; \
     curl -fsSL -o /opt/spark/jars/hadoop-aws-${HADOOP_AWS_VERSION}.jar \
@@ -28,6 +40,24 @@ RUN set -eux; \
     curl -fsSL -o /opt/spark/jars/${ICEBERG_AWS_BUNDLE_ARTIFACT}-${ICEBERG_VERSION}.jar \
         "https://repo.maven.apache.org/maven2/org/apache/iceberg/${ICEBERG_AWS_BUNDLE_ARTIFACT}/${ICEBERG_VERSION}/${ICEBERG_AWS_BUNDLE_ARTIFACT}-${ICEBERG_VERSION}.jar"; \
     echo "${ICEBERG_AWS_BUNDLE_SHA512}  /opt/spark/jars/${ICEBERG_AWS_BUNDLE_ARTIFACT}-${ICEBERG_VERSION}.jar" | sha512sum -c -
+
+# The %spark driver runs in this container, so the Kafka jars must sit in its
+# SPARK_HOME jars directory, as the Iceberg and S3A jars above do. The Spark
+# workers get the same copies from services/spark. --retry rides out a Maven
+# Central 429, as the jackson steps below do.
+RUN set -eux; \
+    curl -fsSL --retry 5 -o /opt/spark/jars/spark-sql-kafka-0-10_2.13-${SPARK_SQL_KAFKA_VERSION}.jar \
+        "https://repo.maven.apache.org/maven2/org/apache/spark/${SPARK_SQL_KAFKA_ARTIFACT}/${SPARK_SQL_KAFKA_VERSION}/${SPARK_SQL_KAFKA_ARTIFACT}-${SPARK_SQL_KAFKA_VERSION}.jar"; \
+    echo "${SPARK_SQL_KAFKA_SHA512}  /opt/spark/jars/spark-sql-kafka-0-10_2.13-${SPARK_SQL_KAFKA_VERSION}.jar" | sha512sum -c -; \
+    curl -fsSL --retry 5 -o /opt/spark/jars/spark-token-provider-kafka-0-10_2.13-${SPARK_SQL_KAFKA_VERSION}.jar \
+        "https://repo.maven.apache.org/maven2/org/apache/spark/${SPARK_KAFKA_CONNECTOR_ARTIFACT}/${SPARK_SQL_KAFKA_VERSION}/${SPARK_KAFKA_CONNECTOR_ARTIFACT}-${SPARK_SQL_KAFKA_VERSION}.jar"; \
+    echo "${SPARK_KAFKA_CONNECTOR_SHA512}  /opt/spark/jars/spark-token-provider-kafka-0-10_2.13-${SPARK_SQL_KAFKA_VERSION}.jar" | sha512sum -c -; \
+    curl -fsSL --retry 5 -o /opt/spark/jars/kafka-clients-${KAFKA_CLIENTS_VERSION}.jar \
+        "https://repo.maven.apache.org/maven2/org/apache/kafka/kafka-clients/${KAFKA_CLIENTS_VERSION}/kafka-clients-${KAFKA_CLIENTS_VERSION}.jar"; \
+    echo "${KAFKA_CLIENTS_SHA512}  /opt/spark/jars/kafka-clients-${KAFKA_CLIENTS_VERSION}.jar" | sha512sum -c -; \
+    curl -fsSL --retry 5 -o /opt/spark/jars/commons-pool2-${COMMONS_POOL2_VERSION}.jar \
+        "https://repo.maven.apache.org/maven2/org/apache/commons/commons-pool2/${COMMONS_POOL2_VERSION}/commons-pool2-${COMMONS_POOL2_VERSION}.jar"; \
+    echo "${COMMONS_POOL2_SHA512}  /opt/spark/jars/commons-pool2-${COMMONS_POOL2_VERSION}.jar" | sha512sum -c -
 
 # The same jackson-core and jackson-databind 2.21.2 -> 2.21.7 swap as
 # services/spark/build/Dockerfile, which explains it. The final stage copies

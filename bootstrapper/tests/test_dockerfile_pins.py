@@ -1136,6 +1136,68 @@ def test_zeppelin_trims_unused_plugins_and_pins_its_server_jar_swaps() -> None:
     assert prefixes and not prefixes & set(ZEPPELIN_REMOVED_INTERPRETERS)
 
 
+_KAFKA_JAR_FETCH_RE = re.compile(r'curl -fsSL(?: --retry \d+)? -o (/opt/spark/jars/[^\s;]+)\s+"([^"\s]+)"')
+_KAFKA_JAR_CHECK_RE = re.compile(r'echo "\$\{(\w+_SHA512)\}\s+(/opt/spark/jars/[^"\s]+)" \| sha512sum -c -')
+
+
+def _kafka_jar_fetches(run: str) -> dict[str, tuple[str, str]]:
+    """Maps each Kafka connector jar a RUN fetches to (Maven URL, SHA-512 ARG)."""
+    urls = dict(_KAFKA_JAR_FETCH_RE.findall(run))
+    checks = {dest: arg for arg, dest in _KAFKA_JAR_CHECK_RE.findall(run)}
+    kafka = r"/(spark-sql-kafka|spark-token-provider-kafka|kafka-clients|commons-pool2)-"
+    return {
+        dest: (url, checks[dest])
+        for dest, url in urls.items()
+        if re.search(kafka, dest) and dest in checks
+    }
+
+
+def test_zeppelin_spark_runtime_bakes_the_spark_kafka_jars_at_the_same_pins() -> None:
+    """#1376: %spark drives Spark from the Zeppelin container, so format("kafka")
+    needs the four connector jars the Spark workers load: the same versions,
+    ARG names and SHA-512 pins, fetched into the same SPARK_HOME jars directory,
+    in the spark-runtime stage that the final stage copies.
+    """
+    pin_args = (
+        "SPARK_SQL_KAFKA_VERSION",
+        "SPARK_SQL_KAFKA_ARTIFACT",
+        "SPARK_KAFKA_CONNECTOR_ARTIFACT",
+        "KAFKA_CLIENTS_VERSION",
+        "COMMONS_POOL2_VERSION",
+        "SPARK_SQL_KAFKA_SHA512",
+        "SPARK_KAFKA_CONNECTOR_SHA512",
+        "KAFKA_CLIENTS_SHA512",
+        "COMMONS_POOL2_SHA512",
+    )
+    spark_text = (REPO_ROOT / "services/spark/build/Dockerfile").read_text(encoding="utf-8")
+    zeppelin_text = (REPO_ROOT / "services/zeppelin/build/Dockerfile").read_text(
+        encoding="utf-8"
+    )
+    spark_args = dict(re.findall(r"^ARG (\w+)=(\S+)$", spark_text, flags=re.MULTILINE))
+    zeppelin_args = dict(
+        re.findall(r"^ARG (\w+)=(\S+)$", zeppelin_text, flags=re.MULTILINE)
+    )
+
+    assert {name: zeppelin_args.get(name) for name in pin_args} == {
+        name: spark_args[name] for name in pin_args
+    }
+    assert all(
+        re.fullmatch(r"[0-9a-f]{128}", zeppelin_args[name])
+        for name in pin_args
+        if name.endswith("_SHA512")
+    )
+
+    (spark_run,) = _runs_mentioning(spark_text, "KAFKA_CLIENTS_SHA512")
+    (zeppelin_run,) = _runs_mentioning(zeppelin_text, "KAFKA_CLIENTS_SHA512")
+    spark_jars = _kafka_jar_fetches(spark_run)
+    assert len(spark_jars) == 4
+    assert _kafka_jar_fetches(zeppelin_run) == spark_jars
+
+    lines = container_security._dockerfile_logical_lines(zeppelin_text.splitlines())
+    from_lines = [index for index, line in enumerate(lines) if line.startswith("FROM ")]
+    assert from_lines[0] < lines.index(zeppelin_run) < from_lines[1]
+
+
 def test_digest_pin_rule_matches_the_drift_watch_digest_rule() -> None:
     """Both gates accept only lowercase sha256 hex (E1-18)."""
     lower = "sha256:" + "a" * 64
