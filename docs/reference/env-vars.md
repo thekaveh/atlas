@@ -249,7 +249,7 @@
 | COMFYUI_DEPLOY_RESOURCES | comfyui | ~ | Derived by ./start.sh from the source's runtime deploy block ('~' when empty); do not set. No compose file reads it. |
 | COMFYUI_MEMORY_LIMIT | comfyui | 40g | Hard container-memory ceiling for ComfyUI (deploy.resources.limits.memory). The limit does not reserve memory; 40 g permits large multi-file bundles such as Krea 2 while smaller workloads consume only what they need. |
 | COMFYUI_CPU_LIMIT | comfyui | 2.0 | CPU limit for the comfyui container (deploy.resources.limits.cpus). The 2.0 default stops CPU-mode inference from monopolising the host. GPU mode is GPU-bound, so the cap rarely matters. |
-| COMFYUI_IMAGE | comfyui | ghcr.io/ai-dock/comfyui:v2-cpu-22.04-v0.2.7 | AI-Dock base image; COMFYUI_AUTO_UPDATE + COMFYUI_REF pin the upstream ComfyUI core at startup. |
+| COMFYUI_IMAGE | comfyui | ghcr.io/ai-dock/comfyui:v2-cpu-22.04-v0.2.7@sha256:b47cd16007c309ebbb78b85f87bbc69ac9f7f3fc7596607e81940eeb7dca2421 | AI-Dock base image; COMFYUI_AUTO_UPDATE + COMFYUI_REF pin the upstream ComfyUI core at startup. |
 | COMFYUI_INIT_IMAGE | comfyui | alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf | Container image for `comfyui-init`. |
 | CRAWL4AI_SOURCE | crawl4ai | disabled | Deployment source for Crawl4AI: container or disabled (default). |
 | CRAWL4AI_PORT | crawl4ai | 63050 | Host port that publishes the crawl4ai container API (in-container port 11235). |
@@ -417,7 +417,7 @@
 | LABEL_STUDIO_USER_TOKEN | label-studio |  | Auto-generated legacy API token for notebook/API smoke paths. |
 | LABEL_STUDIO_SECRET_KEY | label-studio |  | Django SECRET_KEY used by the Label Studio container. |
 | LABEL_STUDIO_IMAGE | label-studio | heartexlabs/label-studio:1.23.0 | Container image for `label-studio`. |
-| LABEL_STUDIO_INIT_IMAGE | label-studio | alpine:3.24.4 | Container image for `label-studio-init`. |
+| LABEL_STUDIO_INIT_IMAGE | label-studio | alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf | Container image for `label-studio-init`. |
 | LANGFUSE_SOURCE | langfuse | disabled | Deployment source for Langfuse (web, worker and ClickHouse): container or disabled. The container source requires MINIO_SOURCE to be enabled. |
 | LANGFUSE_PORT | langfuse | 63005 | Host port for the Langfuse web UI/API (in-container 3000). |
 | LANGFUSE_ENDPOINT | langfuse |  | In-network URL used by LiteLLM when Langfuse tracing is enabled. |
@@ -449,7 +449,7 @@
 | LANGFUSE_IMAGE | langfuse | langfuse/langfuse:3.115.0 | Container image for `langfuse-web`. |
 | LANGFUSE_WORKER_IMAGE | langfuse | langfuse/langfuse-worker:3.115.0 | Container image for `langfuse-worker`. |
 | LANGFUSE_CLICKHOUSE_IMAGE | langfuse | clickhouse/clickhouse-server:25.8.33.6 | Container image for `langfuse-clickhouse`. |
-| LANGFUSE_INIT_IMAGE | langfuse | alpine:3.24.4 | Container image for `langfuse-init`. |
+| LANGFUSE_INIT_IMAGE | langfuse | alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf | Container image for `langfuse-init`. |
 | LIGHTRAG_DB_USER | lightrag | atlas_lightrag | Scoped PostgreSQL owner for LightRAG PGVectorStorage relations. |
 | LIGHTRAG_DB_PASSWORD | lightrag | atlas-db-password | Auto-generated password for the scoped LightRAG database role. |
 | LIGHTRAG_DB_USER_URI | lightrag | atlas_lightrag | Bootstrapper-synchronized percent-encoded LIGHTRAG_DB_USER for DSN userinfo. |
@@ -663,7 +663,7 @@
 | MLFLOW_DB_USER_URI | mlflow | mlflow | Bootstrapper-synchronized percent-encoded MLFLOW_DB_USER for DSN userinfo. |
 | MLFLOW_DB_PASSWORD_URI | mlflow | atlas-db-password | Bootstrapper-synchronized percent-encoded MLFLOW_DB_PASSWORD for DSN userinfo. |
 | MLFLOW_IMAGE | mlflow | ghcr.io/mlflow/mlflow:v3.17.2 | Container image for `mlflow`. |
-| MLFLOW_INIT_IMAGE | mlflow | alpine:3.24.4 | Container image for `mlflow-init`. |
+| MLFLOW_INIT_IMAGE | mlflow | alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf | Container image for `mlflow-init`. |
 | N8N_SOURCE | n8n | container | n8n deployment source: container or disabled. Drives the n8n, n8n-worker and n8n-init scales. |
 | N8N_DB_USER | n8n | atlas_n8n | Owner of the isolated n8n schema in Supabase PostgreSQL. |
 | N8N_DB_PASSWORD | n8n | atlas-db-password | Auto-generated password for the scoped n8n database role. |

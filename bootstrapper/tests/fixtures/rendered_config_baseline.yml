@@ -920,7 +920,7 @@ services:
       context: '{REPO_ROOT}/services/comfyui/build'
       dockerfile: Dockerfile
       args:
-        BASE_IMAGE: ghcr.io/ai-dock/comfyui:v2-cpu-22.04-v0.2.7
+        BASE_IMAGE: ghcr.io/ai-dock/comfyui:v2-cpu-22.04-v0.2.7@sha256:b47cd16007c309ebbb78b85f87bbc69ac9f7f3fc7596607e81940eeb7dca2421
     image: atlas-comfyui:local
     labels:
       com.atlas.category: ai
@@ -1760,7 +1760,7 @@ services:
       context: '{REPO_ROOT}/services/label-studio/init'
       dockerfile: Dockerfile
       args:
-        BASE_IMAGE: alpine:3.24.4
+        BASE_IMAGE: alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
     container_name: atlas-label-studio-init
     depends_on:
       minio-init:
@@ -1843,7 +1843,7 @@ services:
       context: '{REPO_ROOT}/services/langfuse/init'
       dockerfile: Dockerfile
       args:
-        BASE_IMAGE: alpine:3.24.4
+        BASE_IMAGE: alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
     container_name: atlas-langfuse-init
     depends_on:
       minio-init:
@@ -2819,7 +2819,7 @@ services:
       context: '{REPO_ROOT}/services/mlflow/init'
       dockerfile: Dockerfile
       args:
-        BASE_IMAGE: alpine:3.24.4
+        BASE_IMAGE: alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
     container_name: atlas-mlflow-init
     depends_on:
       minio-init:

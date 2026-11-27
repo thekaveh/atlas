@@ -155,7 +155,7 @@ def test_overlay_gate_checks_the_base_the_build_pulls() -> None:
     """The compose BASE_IMAGE argument is ${COMFYUI_IMAGE}, so the gate checks that default (E1-01)."""
     compose = (ROOT / "services/comfyui/compose.yml").read_text(encoding="utf-8")
     assert "BASE_IMAGE: ${COMFYUI_IMAGE}" in compose
-    assert IMAGE == "ghcr.io/ai-dock/comfyui:v2-cpu-22.04-v0.2.7"
+    assert IMAGE == "ghcr.io/ai-dock/comfyui:v2-cpu-22.04-v0.2.7@sha256:b47cd16007c309ebbb78b85f87bbc69ac9f7f3fc7596607e81940eeb7dca2421"
 
 
 def test_overlay_runtime_checks_are_time_bounded(monkeypatch) -> None:
