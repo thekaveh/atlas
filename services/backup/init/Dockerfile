@@ -16,7 +16,7 @@ FROM ${BASE_IMAGE}
 # Manifest authentication uses OpenSSL. Resolve it during the image build so
 # backup and restore execution never depend on a mutable package repository.
 RUN apk upgrade --no-cache \
-    && apk add --no-cache openssl=3.5.9-r0
+    && apk add --no-cache openssl=3.5.9-r1
 
 # Baked, not downloaded: the statically linked client is taken from the
 # digest-pinned image above, and the entrypoint verifies its checksum and

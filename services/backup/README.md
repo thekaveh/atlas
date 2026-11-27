@@ -356,7 +356,7 @@ Arbitrary authenticated archives generally require superuser-equivalent restore 
 - The shared entrypoint (`init/scripts/entrypoint.sh`) accepts only amd64 or arm64. It verifies the architecture-specific SHA-256 of the binary and `mc --version`, and fails closed.
 - A missing `mc` exits 69. A checksum or version mismatch exits 65.
 - The disposable S3 contracts exercise that same client, including temporary-session-token behavior.
-- The Dockerfile installs exact `openssl=3.5.9-r0` while it builds `${PROJECT_NAME}-backup:local`. Backup and restore never resolve OpenSSL from a package repository at runtime. The entrypoint fails clearly if the built-image invariant is broken.
+- The Dockerfile installs exact `openssl=3.5.9-r1` while it builds `${PROJECT_NAME}-backup:local`. Backup and restore never resolve OpenSSL from a package repository at runtime. The entrypoint fails clearly if the built-image invariant is broken.
 - The entrypoint and target are invoked via `sh`, so the bind-mounted scripts (read-only, mode 0644) need no executable bit.
 
 **CI.** CI builds `atlas-backup:local` from the same digest-pinned Postgres base and pulls the pinned MinIO server and client images. It runs the built image's real entrypoint checksum and version check of its baked `mc` against isolated tmpfs S3 on an internal network. Local test runs stay offline-safe: the production-image test is skipped unless `ATLAS_BACKUP_PRODUCTION_IMAGE_INTEGRATION=1`. An opted-in run fails, rather than skipping, when an exact image is absent.
