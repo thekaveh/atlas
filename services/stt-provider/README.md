@@ -45,21 +45,24 @@ The default Speaches container starts without a model:
 curl http://localhost:63060/health
 ```
 
-`/health` reports process liveness only. Speaches does not download models
-itself (verified against `speaches @ v0.9.0-rc.3`), and the compose file sets
-`PRELOAD_MODELS: '[]'`. Until a model is installed,
-`/v1/audio/transcriptions` returns HTTP 404 ("Model is not installed
-locally"); issue #799 tracks this.
+`/health` reports process liveness only. Speaches preloads
+`Systran/faster-whisper-large-v3`, the `whisper-1` target, at boot (see
+`services/speaches/compose.yml`), so the first start downloads about 3 GB.
+Speaches does not download a model when a request names it (verified against
+`speaches @ v0.9.0-rc.3`). A transcription request for any other uncached model
+returns HTTP 404 ("Model is not installed locally"); issue #799 tracks this.
 
-Download the `whisper-1` target once:
+To use another model, download it once:
 
 ```bash
-curl -X POST http://localhost:63060/v1/models/Systran/faster-whisper-large-v3
+curl -X POST http://localhost:63060/v1/models/<repo-id>
 ```
 
-The model persists in the `speaches-cache` volume. As an alternative, add the
-ID to the JSON array in `PRELOAD_MODELS` in `services/speaches/compose.yml`.
-The direct endpoint is then `http://localhost:63060/v1/audio/transcriptions`.
+The model persists in the `speaches-cache` volume. To preload it at boot
+instead, add its ID to the JSON array in `PRELOAD_MODELS` in
+`services/speaches/compose.yml`. That list applies only on a cold cache: once
+the two pinned models are cached, the compose command runs offline with an
+empty list. The direct endpoint is `http://localhost:63060/v1/audio/transcriptions`.
 
 NVIDIA Parakeet (run from the repository root, which holds `.env`):
 

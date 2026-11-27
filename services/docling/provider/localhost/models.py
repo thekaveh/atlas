@@ -3,7 +3,7 @@ Pydantic models for Docling Document Processor API
 """
 
 from pydantic import BaseModel
-from typing import Optional, List, Dict, Any
+from typing import Optional, List
 
 
 class DocumentMetadata(BaseModel):

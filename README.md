@@ -66,7 +66,7 @@ Before you start, install:
 - `uv`, or Python 3.11 or newer.
 - Git.
 
-The wizard preselects the `gen-ai-rag` track: chat UI, workflow automation, vector and graph databases, private web search, and deep research on a CPU Ollama engine. The `all` track (the `.env.example` defaults) adds ComfyUI, JupyterHub, Hermes, MinIO, speech-to-text, text-to-speech and CLIP. Measured setup time, memory and disk per track are not published yet; larger tracks need more of each.
+The wizard preselects the `gen-ai-rag` track: chat UI, workflow automation, vector and graph databases, private web search, and deep research on a CPU Ollama engine. The `all` track (the `.env.example` defaults) adds ComfyUI, JupyterHub, Hermes, MinIO, speech-to-text, text-to-speech, Speech Gate and CLIP. Measured setup time, memory and disk per track are not published yet; larger tracks need more of each.
 
 Clone the repository and run `./start.sh` from the repository root (`atlas/`):
 
@@ -166,7 +166,7 @@ _Engine-only manifests (speaches, chatterbox) are not listed — they're selecte
 | Apps & UIs | Neo4j LLM Graph Builder | 63095 | graphbuilder.localhost |
 | Apps & UIs | Open WebUI | 63096 | chat.localhost |
 | Apps & UIs | Local Deep Researcher | 63097 | research.localhost |
-| Apps & UIs | Verba | 63098 | verba.localhost |
+| Apps & UIs | Verba | — (Kong only) | verba.localhost |
 | Apps & UIs | Apache Zeppelin | 63099 | — |
 <!-- TOPOLOGY:END -->
 

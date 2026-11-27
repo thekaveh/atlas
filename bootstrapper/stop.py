@@ -5,6 +5,7 @@ Atlas - Stop Script
 Cross-platform stop script for Atlas — the self-hosted engineering platform.
 """
 
+import importlib
 import os
 import subprocess
 import sys
@@ -41,7 +42,16 @@ def _report_managed_host_advisory(
 
 
 def _run_privileged_hosts_cleanup() -> bool:
-    """Elevate only the hosts-file mutation, never the repository workflow."""
+    """Run the hosts-file cleanup as root.
+
+    Only the hosts-file write needs root, but the elevated child is this
+    bootstrapper's Python importing HostsManager, so repository code runs as
+    root too. The atomic write, symlink resolution and backup handling live in
+    that module, and a root-side copy would drift from it, so the child is
+    hardened instead: PYTHONPATH is the bootstrapper directory alone (never the
+    caller's), ``-s`` skips the user site-packages and ``-P`` keeps the working
+    directory off sys.path.
+    """
     from utils.system import is_elevated
 
     if is_elevated():
@@ -53,12 +63,7 @@ def _run_privileged_hosts_cleanup() -> bool:
     bootstrapper_dir = Path(__file__).resolve().parent
     repo_root = bootstrapper_dir.parent
     env = os.environ.copy()
-    existing_pythonpath = env.get("PYTHONPATH")
-    env["PYTHONPATH"] = (
-        str(bootstrapper_dir)
-        if not existing_pythonpath
-        else f"{bootstrapper_dir}{os.pathsep}{existing_pythonpath}"
-    )
+    env["PYTHONPATH"] = str(bootstrapper_dir)
     env["PYTHONDONTWRITEBYTECODE"] = "1"
     helper = (
         "from utils.hosts_manager import HostsManager; "
@@ -73,6 +78,8 @@ def _run_privileged_hosts_cleanup() -> bool:
                 f"PYTHONPATH={env['PYTHONPATH']}",
                 "PYTHONDONTWRITEBYTECODE=1",
                 sys.executable,
+                "-s",
+                "-P",
                 "-c",
                 helper,
             ],
@@ -243,6 +250,51 @@ Examples:
         finally:
             self.docker_manager.project_name_override = previous_project
                 
+    def _stop_host_manager(self, manager, *, stopped_message: str,
+                           still_running_message: str) -> bool:
+        """Stop one managed-host instance and report the outcome.
+
+        Shared by the single-instance hosts (ComfyUI-MPS, vLLM-Metal) and each
+        Blender MCP pool instance. Exceptions propagate to the caller, which
+        owns the per-host failure message.
+        """
+        before = manager.status()
+        stopped = manager.stop()
+        after = manager.status()
+        if after.running or (
+            not stopped and getattr(manager, "pid_file", None) is not None
+            and manager.pid_file.exists()
+        ):
+            self.banner.show_status_message(still_running_message, "warning")
+            return False
+        if before.running and stopped:
+            self.banner.show_status_message(stopped_message, "info")
+        return True
+
+    def _stop_single_host(self, module_name: str, messages: tuple[str, str, str]) -> bool:
+        """Stop a single-instance host-global manager, named by its module.
+
+        ``messages`` is ``(stopped, still_running, failure)``. The module is
+        imported inside the guard, so a failure to load it is reported as a
+        warning and never breaks the stop flow.
+        """
+        stopped_message, still_running_message, failure_message = messages
+        try:
+            env = (
+                self.config_parser.parse_env_file()
+                if self.config_parser.env_file_exists()
+                else {}
+            )
+            manager = importlib.import_module(module_name).manager_from_env(env)
+            return self._stop_host_manager(
+                manager,
+                stopped_message=stopped_message,
+                still_running_message=still_running_message,
+            )
+        except Exception as exc:  # noqa: BLE001 — teardown must never break stop
+            self.banner.show_status_message(f"{failure_message}: {exc}", "warning")
+            return False
+
     def stop_managed_comfyui_mps(self) -> bool:
         """Stop the Atlas-managed Apple-Silicon/Metal ComfyUI host process (#335).
 
@@ -252,38 +304,14 @@ Examples:
         current SOURCE value is intentionally ignored: a prior launch may still
         own a process after the selection changed.
         """
-        try:
-            env = (
-                self.config_parser.parse_env_file()
-                if self.config_parser.env_file_exists()
-                else {}
-            )
-            from services.comfyui_mps_manager import manager_from_env
-
-            manager = manager_from_env(env)
-            before = manager.status()
-            stopped = manager.stop()
-            after = manager.status()
-            if after.running or (
-                not stopped and getattr(manager, "pid_file", None) is not None
-                and manager.pid_file.exists()
-            ):
-                self.banner.show_status_message(
-                    "Managed ComfyUI (MPS) host is still running after stop.",
-                    "warning",
-                )
-                return False
-            if before.running and stopped:
-                self.banner.show_status_message(
-                    "Stopped the managed Apple-Silicon/Metal ComfyUI host process.",
-                    "info",
-                )
-            return True
-        except Exception as exc:  # noqa: BLE001 — teardown must never break stop
-            self.banner.show_status_message(
-                f"Could not stop the managed ComfyUI (MPS) host: {exc}", "warning"
-            )
-            return False
+        return self._stop_single_host(
+            "services.comfyui_mps_manager",
+            (
+                "Stopped the managed Apple-Silicon/Metal ComfyUI host process.",
+                "Managed ComfyUI (MPS) host is still running after stop.",
+                "Could not stop the managed ComfyUI (MPS) host",
+            ),
+        )
 
     def stop_managed_blender_mcp(self) -> bool:
         """Stop the Atlas-managed headless Blender MCP bridge (#759).
@@ -316,25 +344,15 @@ Examples:
         index = getattr(manager, "pool_index", 0)
         label = f"Managed Blender MCP bridge #{index}" if index else "Managed Blender MCP bridge"
         try:
-            before = manager.status()
-            stopped = manager.stop()
-            after = manager.status()
+            return self._stop_host_manager(
+                manager,
+                stopped_message="Stopped the managed headless Blender MCP bridge"
+                + (f" #{index}." if index else "."),
+                still_running_message=f"{label} is still running after stop.",
+            )
         except Exception as exc:  # noqa: BLE001 — the other instances still stop
             self.banner.show_status_message(f"Could not stop the {label}: {exc}", "warning")
             return False
-        if after.running or (
-            not stopped and getattr(manager, "pid_file", None) is not None
-            and manager.pid_file.exists()
-        ):
-            self.banner.show_status_message(f"{label} is still running after stop.", "warning")
-            return False
-        if before.running and stopped:
-            self.banner.show_status_message(
-                "Stopped the managed headless Blender MCP bridge"
-                + (f" #{index}." if index else "."),
-                "info",
-            )
-        return True
 
     def stop_managed_vllm_metal(self) -> bool:
         """Stop the Atlas-managed vLLM Metal host process (#379).
@@ -345,38 +363,14 @@ Examples:
         current SOURCE value is intentionally ignored: a prior launch may still
         own a process after the selection changed.
         """
-        try:
-            env = (
-                self.config_parser.parse_env_file()
-                if self.config_parser.env_file_exists()
-                else {}
-            )
-            from services.vllm_metal_manager import manager_from_env
-
-            manager = manager_from_env(env)
-            before = manager.status()
-            stopped = manager.stop()
-            after = manager.status()
-            if after.running or (
-                not stopped and getattr(manager, "pid_file", None) is not None
-                and manager.pid_file.exists()
-            ):
-                self.banner.show_status_message(
-                    "Managed vLLM (Metal) host is still running after stop.",
-                    "warning",
-                )
-                return False
-            if before.running and stopped:
-                self.banner.show_status_message(
-                    "Stopped the managed Apple-Silicon/Metal vLLM host process.",
-                    "info",
-                )
-            return True
-        except Exception as exc:  # noqa: BLE001 — teardown must never break stop
-            self.banner.show_status_message(
-                f"Could not stop the managed vLLM (Metal) host: {exc}", "warning"
-            )
-            return False
+        return self._stop_single_host(
+            "services.vllm_metal_manager",
+            (
+                "Stopped the managed Apple-Silicon/Metal vLLM host process.",
+                "Managed vLLM (Metal) host is still running after stop.",
+                "Could not stop the managed vLLM (Metal) host",
+            ),
+        )
 
     def _report_blender_mcp_left_running(self, env: dict) -> None:
         """The Blender MCP part of the advisory, once per pool instance (#851)."""
@@ -403,6 +397,21 @@ Examples:
             except Exception:  # noqa: BLE001 — advisory only
                 pass
 
+    def _report_single_host_left_running(self, module_name: str, env: dict,
+                                         messages: tuple[str, str]) -> None:
+        """Advisory for one single-instance host; never breaks stop.
+
+        ``messages`` is ``(running, unknown)``.
+        """
+        running_message, unknown_message = messages
+        try:
+            manager = importlib.import_module(module_name).manager_from_env(env)
+            _report_managed_host_advisory(
+                self.banner, manager, running_message, unknown_message
+            )
+        except Exception:  # noqa: BLE001 — advisory must never break stop
+            pass
+
     def report_managed_hosts_left_running(self) -> None:
         """Advisory-only counterpart to the managed-host stop methods (#655).
 
@@ -419,34 +428,28 @@ Examples:
             else {}
         )
         self._report_blender_mcp_left_running(env)
-        try:
-            from services.comfyui_mps_manager import manager_from_env
-
-            _report_managed_host_advisory(
-                self.banner,
-                manager_from_env(env),
+        self._report_single_host_left_running(
+            "services.comfyui_mps_manager",
+            env,
+            (
                 "Managed ComfyUI (MPS) host left running (host-global, shared "
                 "across consumers). Run ./stop.sh --stop-managed-hosts to stop it.",
                 "Managed ComfyUI (MPS) tracking evidence remains, but process "
                 "ownership is unknown and the host may still be running. Inspect "
                 "it or use ./stop.sh --stop-managed-hosts.",
-            )
-        except Exception:  # noqa: BLE001 — advisory must never break stop
-            pass
-        try:
-            from services.vllm_metal_manager import manager_from_env
-
-            _report_managed_host_advisory(
-                self.banner,
-                manager_from_env(env),
+            ),
+        )
+        self._report_single_host_left_running(
+            "services.vllm_metal_manager",
+            env,
+            (
                 "Managed vLLM (Metal) host left running (host-global, shared "
                 "across consumers). Run ./stop.sh --stop-managed-hosts to stop it.",
                 "Managed vLLM (Metal) tracking evidence remains, but process "
                 "ownership is unknown and the host may still be running. Inspect "
                 "it or use ./stop.sh --stop-managed-hosts.",
-            )
-        except Exception:  # noqa: BLE001 — advisory must never break stop
-            pass
+            ),
+        )
 
     def cleanup_hosts_entries(self) -> bool:
         """Clean up hosts file entries if requested."""

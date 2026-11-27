@@ -33,6 +33,7 @@ services/parakeet/provider/
 ├── bounded_upload.py     Upload size and time bounds (both servers)
 ├── provider_boundary.py  Auth, admission, deadlines and CORS (both servers)
 ├── startup.py            Background model load (both servers)
+├── transcription_api.py  OpenAI routes, upload spooling, readiness (both servers)
 ├── mlx/                  Apple Silicon MLX server for Parakeet (parakeet-localhost)
 │   ├── alignment.py
 │   ├── api_server.py

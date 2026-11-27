@@ -402,3 +402,17 @@ def fake_role_client_docker(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         return runs
 
     return _install
+
+
+@pytest.fixture
+def throwaway_admin_secrets(monkeypatch):
+    """Throwaway values for the fail-closed admin secrets (#2107).
+
+    `.env.example` ships GRAFANA_ADMIN_PASSWORD and JENKINS_ADMIN_PASSWORD
+    blank, and compose refuses to render an empty value. Opt in per module
+    with `pytestmark = pytest.mark.usefixtures("throwaway_admin_secrets")`.
+    It is not autouse: shell variables outrank `--env-file` values in compose,
+    so a global value would hide fixtures that set their own.
+    """
+    monkeypatch.setenv("GRAFANA_ADMIN_PASSWORD", "test-only-grafana")
+    monkeypatch.setenv("JENKINS_ADMIN_PASSWORD", "test-only-jenkins")

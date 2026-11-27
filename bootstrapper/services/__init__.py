@@ -11,8 +11,10 @@ from pathlib import Path
 import shlex
 import shutil
 import socket
+import signal
 import subprocess
 import sys
+import time
 
 if __package__ == "bootstrapper.services":
     from ..utils.atomic_write import atomic_replace_text, remove_state_directory  # noqa: F401 - re-export
@@ -616,6 +618,37 @@ def _retain_pid_evidence(pid_file: Path, pid: int) -> tuple[str, tuple[str, ...]
     except BaseException as exc:
         return "none", (_cleanup_error(exc),)
     return "pid", ()
+
+
+def terminate_process_group(pid: int, *, alive, reap) -> bool:
+    """SIGINT a managed process group, escalate to SIGKILL, report whether it is gone.
+
+    ComfyUI-MPS and vLLM-Metal stop their host this way: 10 s for SIGINT to
+    take, then 5 s after SIGKILL. Blender MCP and the generic ManagedHostManager
+    differ on purpose (SIGTERM first, 5 s window, see their own stop paths), and
+    pin that difference in tests/test_managed_host_lifecycle_shared.py.
+
+    ``alive`` and ``reap`` are the caller's own liveness and reap hooks, so the
+    loop observes exactly what the rest of that manager's lifecycle observes.
+    """
+    try:
+        os.killpg(pid, signal.SIGINT)
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            reap(pid)
+            if not alive(pid):
+                break
+            time.sleep(0.2)
+        else:
+            os.killpg(pid, signal.SIGKILL)
+            deadline = time.monotonic() + 5
+            while alive(pid) and time.monotonic() < deadline:
+                reap(pid)
+                time.sleep(0.1)
+    except OSError:
+        pass
+    reap(pid)
+    return not alive(pid)
 
 
 def compensate_failed_launch(pid: int, pid_file: Path, terminate) -> LaunchCompensation:

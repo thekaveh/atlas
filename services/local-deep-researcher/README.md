@@ -71,7 +71,7 @@ To upgrade:
 2. Regenerate `.env.example` with `uv run --project bootstrapper python -m services.env_assembler`.
 3. Add each replaced pin value to `RETIRED_DEFAULTS` in `bootstrapper/services/migrations/build_pin_refresh.py`.
 4. Run `uv run --project bootstrapper python scripts/refresh-local-deep-researcher-lock.py`.
-5. Run the same command with `--check`.
+5. Run the same command with `--check`. It clones the pinned upstream to re-verify the `uv.lock` digest, so it needs network access.
 6. Commit the regenerated files under `locks/` and `build/config/`.
 7. Re-test the LDR patches and the backend research contract.
 

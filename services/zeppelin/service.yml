@@ -132,6 +132,8 @@ runtime_sc:
         AWS_ACCESS_KEY_ID: ${MINIO_SPARK_ACCESS_KEY}
         AWS_SECRET_ACCESS_KEY: ${MINIO_SPARK_SECRET_KEY}
         MINIO_BUCKET_ICEBERG_LAKEHOUSE: ${MINIO_BUCKET_ICEBERG_LAKEHOUSE:-lakehouse}
+        MINIO_BUCKET_ICEBERG_LANDING: ${MINIO_BUCKET_ICEBERG_LANDING:-landing}
+        MINIO_BUCKET_ICEBERG_CHECKPOINTS: ${MINIO_BUCKET_ICEBERG_CHECKPOINTS:-checkpoints}
         MINIO_ICEBERG_ACCESS_KEY: ${MINIO_ICEBERG_ACCESS_KEY}
         MINIO_ICEBERG_SECRET_KEY: ${MINIO_ICEBERG_SECRET_KEY}
         ICEBERG_REST_URI: http://iceberg-rest:8181
@@ -146,6 +148,7 @@ runtime_sc:
           --conf spark.driver.bindAddress=0.0.0.0
           --conf spark.driver.host=zeppelin
           --conf spark.cores.max=${ZEPPELIN_SPARK_CORES_MAX:-1}
+          --conf spark.driver.memory=${ZEPPELIN_SPARK_DRIVER_MEMORY:-512m}
           --conf spark.hadoop.fs.s3a.endpoint=http://minio:9000
           --conf spark.hadoop.fs.s3a.aws.credentials.provider=software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider
           --conf spark.hadoop.fs.s3a.path.style.access=true

@@ -45,7 +45,7 @@ import urllib.error
 import urllib.request
 from collections.abc import Mapping
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
@@ -501,6 +501,10 @@ class BlenderMcpManager:
             # Ownership is mismatched or unknowable. Preserve the pid file for
             # manual inspection; never signal or silently orphan the process.
             return False
+        # Deliberately not terminate_process_group: this bridge gets SIGTERM
+        # first (not SIGINT), a 5 s window, and one kill(pid) fallback. Pinned
+        # by test_blender_stop_sends_sigterm_first in
+        # tests/test_managed_host_lifecycle_shared.py.
         try:
             os.killpg(pid, signal.SIGTERM)
         except (ProcessLookupError, PermissionError, OSError):

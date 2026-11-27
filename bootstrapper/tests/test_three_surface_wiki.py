@@ -79,3 +79,26 @@ def test_the_check_dry_run_ignores_a_global_signing_config(tmp_path: Path, monke
     monkeypatch.setenv("GIT_CONFIG_KEY_1", "gpg.program")
     monkeypatch.setenv("GIT_CONFIG_VALUE_1", "false")
     push_wiki(source, "unused", key_path=None, push=False)
+
+
+def test_a_failed_staged_diff_check_stops_the_publish(tmp_path, monkeypatch) -> None:
+    """Only exit 1 from the quiet staged diff means changes; any other status is a git error (E1-08)."""
+    from types import SimpleNamespace
+
+    from scripts.docs import push_wiki as wiki
+
+    source = tmp_path / "source"
+    source.mkdir()
+    calls = []
+
+    def fake_run_git(args, *, cwd=None, env=None, check=True):
+        calls.append(list(args))
+        status = 128 if args[:2] == ["diff", "--cached"] else 0
+        return SimpleNamespace(returncode=status, stdout="", stderr="")
+
+    monkeypatch.setattr(wiki, "_run_git", fake_run_git)
+    monkeypatch.setattr(wiki, "sync_wiki", lambda _source, _repo: None)
+
+    with pytest.raises(RuntimeError, match="wiki staged-diff check"):
+        wiki.push_wiki(source, "unused-remote", None, push=False)
+    assert not any(args[:1] == ["commit"] for args in calls)

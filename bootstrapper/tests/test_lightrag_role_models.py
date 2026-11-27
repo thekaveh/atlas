@@ -91,6 +91,9 @@ QUERY_INPUTS = {
 }
 
 
+pytestmark = pytest.mark.usefixtures("throwaway_admin_secrets")
+
+
 def _manifest_env_by_name() -> dict[str, dict]:
     data = yaml.safe_load(LIGHTRAG_MANIFEST.read_text(encoding="utf-8"))
     return {entry["name"]: entry for entry in data["env"]}
@@ -675,7 +678,7 @@ def test_extract_generation_caps_are_documented():
 _FAKE_DOCKER = """#!/bin/sh
 echo "docker $*" >>"$DOCKER_LOG"
 case "$*" in
-  *" exec "*) echo "EXTRACT_LLM_MODEL=x" ;;
+  *" exec "*) printf 'EXTRACT_LLM_MODEL=%s\\nQUERY_LLM_MODEL=%s\\n' "${LIGHTRAG_EXTRACT_LLM_MODEL:-gpt-4o}" "${LIGHTRAG_QUERY_LLM_MODEL:-qwen3:8b}" ;;
   *" logs "*) printf '%s\\n' "$FAKE_LITELLM_LOGS" ;;
 esac
 """

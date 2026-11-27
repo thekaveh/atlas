@@ -45,11 +45,7 @@ class AuditSpec:
     marker_environments: tuple[dict[str, str], ...] = ()
 
 
-@dataclass(frozen=True)
-class SourceSpec:
-    requirements: str
-    python_platform: str = "x86_64-manylinux_2_28"
-    reviewed_advisories: frozenset[str] = frozenset()
+_SYS_PLATFORM = {"Linux": "linux", "Darwin": "darwin", "Windows": "win32"}
 
 
 def _cpython_marker_environment(
@@ -58,11 +54,11 @@ def _cpython_marker_environment(
     """Return the PEP 508 marker environment of one CPython target."""
     return {
         "implementation_name": "cpython", "implementation_version": python_full,
-        "os_name": "posix", "platform_machine": machine,
+        "os_name": "nt" if system == "Windows" else "posix", "platform_machine": machine,
         "platform_release": "", "platform_system": system, "platform_version": "",
         "python_full_version": python_full, "platform_python_implementation": "CPython",
         "python_version": ".".join(python_full.split(".")[:2]),
-        "sys_platform": system.lower(),
+        "sys_platform": _SYS_PLATFORM.get(system, system.lower()),
     }
 
 
@@ -70,6 +66,17 @@ def _cpython_marker_environment(
 _LDR_LINUX311_MARKER_ENVIRONMENTS = tuple(
     _cpython_marker_environment("Linux", machine, "3.11.15")
     for machine in ("x86_64", "aarch64")
+)
+
+# Plain locks carry no declared target, so a marker-gated pin (for example
+# colorama under sys_platform == 'win32') would be dropped by pip-audit on the
+# CI runner. Projecting over every platform Atlas ships keeps those pins audited.
+_ALL_TARGET_MARKER_ENVIRONMENTS = tuple(
+    _cpython_marker_environment(system, machine, "3.11.15")
+    for system, machine in (
+        ("Linux", "x86_64"), ("Linux", "aarch64"),
+        ("Darwin", "arm64"), ("Windows", "AMD64"),
+    )
 )
 
 
@@ -201,8 +208,6 @@ AUDIT_SPECS = (
         review_by=date(2027, 2, 9),
     ),
 )
-
-SOURCE_SPECS: tuple[SourceSpec, ...] = ()
 
 UV_PROJECTS = (
     "bootstrapper",
@@ -427,6 +432,11 @@ def _pinned_requirement(block: str) -> tuple[Requirement, str]:
     return requirement, str(Version(bounds[0].version))
 
 
+def _has_markers(text: str) -> bool:
+    """Return True when any requirement line carries a PEP 508 marker."""
+    return any(";" in block for block in _requirement_blocks(text))
+
+
 def _project_requirements(text: str, environments: tuple[dict[str, str], ...]):
     selected: dict[str, str] = {}
     for block in _requirement_blocks(text):
@@ -500,13 +510,19 @@ def audit_spec(
             f"{display_name}: stale local-version exclusions: {', '.join(stale_local)}"
         )
     expected = None
-    if spec.marker_environments:
-        try:
+    # A declared target projects its own environments. A plain spec projects over
+    # every shipped platform only when it carries a marker; unmarked locks keep
+    # the direct path, so their audit input and coverage check are unchanged.
+    try:
+        environments = spec.marker_environments
+        if not environments and _has_markers(public_requirements):
+            environments = _ALL_TARGET_MARKER_ENVIRONMENTS
+        if environments:
             public_requirements, expected = _project_requirements(
-                public_requirements, spec.marker_environments
+                public_requirements, environments
             )
-        except ValueError:
-            return failures + [f"{display_name}: invalid marker projection (details redacted)"]
+    except ValueError:
+        return failures + [f"{display_name}: invalid marker projection (details redacted)"]
     payload, audit_failures = _pip_audit_report(
         display_name, public_requirements, root=root
     )
@@ -607,44 +623,6 @@ def _pip_audit_report_once(
             f"{display_name}: invalid pip-audit JSON: report is not an object"
         ], False
     return payload, [], False
-
-
-def audit_source_spec(spec: SourceSpec, *, root: Path = ROOT) -> list[str]:
-    with tempfile.TemporaryDirectory(prefix="atlas-runtime-compile-") as raw_temp:
-        lock = Path(raw_temp) / "requirements-locked.txt"
-        try:
-            result = run_bounded(
-                [
-                    "uv", "pip", "compile", str(root / spec.requirements),
-                    "--python-version", "3.12", "--python-platform", spec.python_platform,
-                    "--no-header", "--output-file", str(lock),
-                ],
-                cwd=root,
-                timeout_seconds=COMMAND_TIMEOUT_SECONDS,
-            )
-        except CommandTimedOut:
-            return [
-                f"{spec.requirements}: uv compile timed out after "
-                f"{COMMAND_TIMEOUT_SECONDS} seconds"
-            ]
-        except (CommandLaunchError, CommandOutputTooLarge):
-            return [
-                f"{spec.requirements}: uv compile could not complete "
-                "(subprocess details redacted)"
-            ]
-        if result.returncode != 0:
-            return [
-                redacted_failure(
-                    f"{spec.requirements}: uv compile", result.returncode
-                )
-            ]
-        return audit_spec(
-            AuditSpec(
-                str(lock), spec.reviewed_advisories,
-                display_name=spec.requirements,
-            ),
-            root=Path("/"),
-        )
 
 
 def audit_uv_project(project: str, *, root: Path = ROOT) -> list[str]:
@@ -809,7 +787,6 @@ def main() -> int:
     if stale:
         failures.append(f"stale runtime manifest inventory: {', '.join(stale)}")
     failures.extend(f for spec in AUDIT_SPECS for f in audit_spec(spec))
-    failures.extend(f for spec in SOURCE_SPECS for f in audit_source_spec(spec))
     failures.extend(f for project in UV_PROJECTS for f in audit_uv_project(project))
     failures.extend(f for project in NPM_PROJECTS for f in audit_npm_project(project))
     if failures:

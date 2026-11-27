@@ -580,6 +580,28 @@ def _preflight_declared(consumer_config, env_vars: dict) -> dict:
     }
 
 
+def _consumer_declared_source_keys(starter, source_args) -> frozenset:
+    """SOURCE vars the consumer manifest declares in env.values (#783).
+
+    A failed manifest load is reported as a warning and yields an empty set,
+    so the track force-disable runs without the manifest's declared intent.
+    """
+    try:
+        _cc = starter.config_parser.load_consumer_config()
+        return frozenset(
+            var.lower()
+            for var in (_cc.env_overrides or {})
+            if var.endswith("_SOURCE") and var.lower() in source_args
+        )
+    except Exception as exc:  # noqa: BLE001 — reported as a warning, not fatal
+        starter.banner.show_status_message(
+            "Consumer manifest failed to load; its declared *_SOURCE values "
+            f"are not applied on this run: {exc}",
+            "warning",
+        )
+        return frozenset()
+
+
 def _validate_consumer_manifests_early(starter, from_cli: bool) -> None:
     """Fail on a bad --consumer / ATLAS_CONSUMER_MANIFEST manifest as a usage
     error before anything mutates the checkout (not a traceback mid-setup)."""
@@ -8476,16 +8498,9 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
         # declared intent must survive the track force-disable (a manifest's
         # MINIO_SOURCE: container was silently reverted to disabled when the
         # track excluded minio, forcing consumers into workaround flags).
-        consumer_declared_source_keys: frozenset = frozenset()
-        try:
-            _cc = starter.config_parser.load_consumer_config()
-            consumer_declared_source_keys = frozenset(
-                var.lower()
-                for var in (_cc.env_overrides or {})
-                if var.endswith("_SOURCE") and var.lower() in source_args
-            )
-        except Exception:  # noqa: BLE001 — malformed manifests surface via doctor
-            pass
+        consumer_declared_source_keys: frozenset = _consumer_declared_source_keys(
+            starter, source_args
+        )
 
         overridden_services: set = set()
         if track is not None:

@@ -36,6 +36,7 @@ def test_gpu_api_authenticates_and_runs_both_transcription_contracts(monkeypatch
     _load_named(monkeypatch, "bounded_upload", PROVIDER / "bounded_upload.py")
     _load_named(monkeypatch, "provider_boundary", PROVIDER / "provider_boundary.py")
     _load_named(monkeypatch, "startup", PROVIDER / "startup.py")
+    _load_named(monkeypatch, "transcription_api", PROVIDER / "transcription_api.py")
 
     calls = []
     transcribe = types.ModuleType("transcribe")

@@ -230,3 +230,13 @@ def test_selected_policy_summary_reads_custom_rows_without_scanning(monkeypatch,
         "ROW 1\tCVE-UNUSED\tUNUSED\t",
     ]
     assert state.calls == []
+
+
+def test_a_shard_outside_the_shard_count_is_an_argument_error(capsys):
+    """--shard >= --shards selects no image; it must fail rather than exit 0 (E1-06)."""
+    for argv in (["--shard", "2", "--shards", "2"], ["--shard", "0", "--shards", "0"],
+                 ["--shard=-1", "--shards", "2"]):
+        with pytest.raises(SystemExit) as exc:
+            coverage.main(argv)
+        assert exc.value.code == 2, argv
+    assert "--shard must be in [0, --shards)" in capsys.readouterr().err

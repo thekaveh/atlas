@@ -6,16 +6,13 @@ from pathlib import Path
 import pytest
 import yaml
 
+from tests.shared_helpers import assert_contains
+
 REPO = Path(__file__).resolve().parent.parent.parent
 SCRIPT = REPO / "services" / "airflow" / "init" / "scripts" / "init-airflow.sh"
 ROLE_SCRIPT = REPO / "services" / "supabase" / "db" / "scripts" / "05-scoped-roles.sh"
 COMPOSE = REPO / "services" / "airflow" / "compose.yml"
 MANIFEST = REPO / "services" / "airflow" / "service.yml"
-
-
-def _assert_contains(text, fragments):
-    missing = tuple(fragment for fragment in fragments if fragment not in text)
-    assert missing == ()
 
 
 def test_init_script_exists_and_is_executable():
@@ -230,7 +227,7 @@ def test_airflow_contract_discloses_unsandboxed_privileged_dag_execution():
     body = SCRIPT.read_text(encoding="utf-8")
     scheduler = yaml.safe_load(COMPOSE.read_text())["services"]["airflow-scheduler"]
 
-    _assert_contains(body, (
+    assert_contains(body, (
         'os.environ["MINIO_SPARK_ACCESS_KEY"]',
         'os.environ["MINIO_SPARK_SECRET_KEY"]',
         "${LITELLM_MASTER_KEY}",
@@ -252,7 +249,7 @@ def test_airflow_contract_discloses_unsandboxed_privileged_dag_execution():
         "./dags:/opt/airflow/dags" in scheduler["volumes"],
         (capability["status"], capability["verification"]),
     ) == ("LocalExecutor", True, ("not-supported", "tested"))
-    _assert_contains(capability["note"], (
+    assert_contains(capability["note"], (
         "operator-authored DAGs execute unsandboxed",
         "scoped MinIO spark pair",
         "LiteLLM master",

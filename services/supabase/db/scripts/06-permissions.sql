@@ -60,10 +60,10 @@ DO $$ BEGIN
 
     -- Grant access to the storage schema (assuming base image created necessary tables/functions)
     GRANT ALL ON SCHEMA storage TO service_role; -- service_role needs full access
-    -- `anon` EXCLUDED for storage. Unlike `public`, RLS is DISABLED on
-    -- storage.buckets/objects (04-storage.sql, "managing access through
-    -- GRANTs instead"), so this grant is the ONLY control — and PostgREST
-    -- publishes `storage` (PGRST_DB_SCHEMA: "public,storage") on a port that
+    -- `anon` EXCLUDED for storage. RLS is ENABLED on storage.buckets/objects
+    -- (04-storage.sql) with no policy for anon, so RLS is one control and this
+    -- grant exclusion is the second. PostgREST publishes `storage`
+    -- (PGRST_DB_SCHEMA: "public,storage") on a port that
     -- binds loopback by default (HOST_BIND_IP=127.0.0.1:) and every interface
     -- when HOST_BIND_IP is empty or 0.0.0.0:. Granting anon here made every
     -- object path, owner and bucket row readable by any unauthenticated

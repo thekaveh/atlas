@@ -5,7 +5,7 @@ services:
     container_name: ${PROJECT_NAME}-searxng
     restart: unless-stopped
     deploy:
-      replicas: ${SEARXNG_SCALE:-1}
+      replicas: ${SEARXNG_SCALE:-0}
     networks:
       - backend-network
     ports:

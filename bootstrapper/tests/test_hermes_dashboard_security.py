@@ -19,6 +19,9 @@ ROOT = Path(__file__).resolve().parents[2]
 _requires_compose = pytest.mark.skipif(shutil.which("docker") is None, reason="docker not on PATH")
 
 
+pytestmark = pytest.mark.usefixtures("throwaway_admin_secrets")
+
+
 def _parser(directory, monkeypatch, values):
     active = directory / "selected.env"
     active.write_text("".join(k + "=" + render_env_assignment(k, v) + "\n" for k, v in values.items()))

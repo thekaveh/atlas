@@ -321,7 +321,12 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     edges = compose_edges(load_compose(env_file))
 
-    forbidden = forbidden_edges(edges, replaceable_families())
+    try:
+        replaceable = replaceable_families()
+    except Exception as exc:  # noqa: BLE001 - a rejected manifest is an internal failure (exit 2)
+        print(f"FAIL load_manifests: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 2
+    forbidden = forbidden_edges(edges, replaceable)
     missing_required = sorted(REQUIRED_DEPENDS_ON - edges)
 
     failed = False

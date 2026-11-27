@@ -200,7 +200,7 @@ otel-collector, loki, tempo: not published                   policy check + cred
 What follows from this layout:
 
 - **Reachability.** A sandbox reaches an Atlas service only through a port Atlas publishes on the host, addressed as `host.openshell.internal:<port>`. With the default `BASE_PORT`, LiteLLM is `http://host.openshell.internal:63040/v1`.
-- **Ports must be generated.** Ports derive from `BASE_PORT`, so Atlas must generate OpenShell profiles and policies from `services/topology.py`, the same way it generates Kong routes. A static file would break on `--base-port`.
+- **Ports must be generated.** Ports derive from `BASE_PORT`, so Atlas must generate OpenShell profiles and policies from `bootstrapper/services/topology.py`, the same way it generates Kong routes. A static file would break on `--base-port`.
 - **Unpublished services are unreachable.** Services with no host port (Loki, Tempo, the OTel collector) cannot be reached from sandboxes unless Atlas publishes a port. Supervisor trace export needs the collector's OTLP gRPC port published on loopback.
 - **Prometheus already listens on the host when enabled.** With `PROMETHEUS_SOURCE=container`, Compose publishes it on `PROMETHEUS_PORT` (default 63006) at `HOST_BIND_IP` (default `127.0.0.1`). A sandbox reaches it only if the gateway can reach that address; this evaluation did not test that. (Corrected 2026-11-08, #1770: the original text listed Prometheus as having no host port.)
 - **Atlas services need a route to the gateway.** Services that call the gateway (Backend, JupyterHub) can use its service name only if it runs in Compose. Otherwise the host gateway must listen on an interface containers can reach, protected by mTLS.
@@ -407,7 +407,7 @@ Add the service to the `gen-ai-eng` track, the track that already holds Hermes, 
 - a row in `docs/reference/license-inventory.yaml`;
 - `test_wizard_app_discovery.py`, `test_env_forwarding_contract.py` and `test_manifests.py`.
 
-Confirm whether a new `agents` service shifts existing agent ports in the `services/topology.py` slot allocator.
+Confirm whether a new `agents` service shifts existing agent ports in the `bootstrapper/services/topology.py` slot allocator.
 
 ### 7.3. Phase 2: first consumers
 
@@ -472,7 +472,7 @@ Ideas for `./start.sh`, ranked:
 | # | Idea | Atlas target | Effort |
 |---|---|---|---|
 | 1 | `./start.sh status [-o json]` and `./start.sh attach`, which reopens the launch screen in observe mode. Today a user who quits the TUI is pointed at `docker compose logs -f`. | `bootstrapper/ui/textual/integration.py` (`run_attach_flow`), `start.py` | M-L |
-| 2 | Remediation-first doctor: a structured `fix` command in each result, rendered as "fix: ..." and carried into JSON and the support bundle | `_doctor_result` in `bootstrapper/start.py`, `core/support_bundle.py` | S-M |
+| 2 | Remediation-first doctor: a structured `fix` command in each result, rendered as "fix: ..." and carried into JSON and the support bundle | `_doctor_result` in `bootstrapper/start.py`, `bootstrapper/core/support_bundle.py` | S-M |
 | 3 | A uniform `-o/--output` flag taking `table` or `json`, keeping `--json` and `--format` as aliases | `start.py` root, `doctor`, `endpoints export` | S-M |
 | 4 | Grouped root help with examples, with `--*-source` flags grouped by manifest category, plus a help-contract test | `AtlasStartGroup` in `start.py` | S-M |
 | 5 | A CLI reference generated from the click tree, under the existing drift gate. OpenShell's hand-written man page has drifted. | `docs/reference/cli.md`, `bootstrapper.docs.regen` | S-M |
@@ -480,7 +480,7 @@ Ideas for `./start.sh`, ranked:
 | 7 | Confirmation for `./stop.sh --cold` on a TTY, skipped with `--yes`; the TUI already needs two presses | `bootstrapper/stop.py` | S |
 | 8 | `./start.sh logs [service...] --level --follow`, after moving `_classify_compose_line` out of the view | `bootstrapper/core/`, `wizard_screen.py` | S-M |
 | 9 | One color policy, tested on pipes | Rich consoles and click in the bootstrapper | S-M |
-| 10 | Three progress modes for `--no-tui`: an interactive checklist, timestamped CI lines, and silence under JSON | `core/linear_startup.py`, `core/launch_outcome.py` | S-M |
+| 10 | Three progress modes for `--no-tui`: an interactive checklist, timestamped CI lines, and silence under JSON | `bootstrapper/core/linear_startup.py`, `bootstrapper/core/launch_outcome.py` | S-M |
 
 ### 8.4. The TUI (`openshell term`)
 
@@ -524,13 +524,13 @@ Ideas for Atlas's wizard, ranked by value for effort:
 | 3 | A one-question express preset from detected hardware (NVIDIA GPU, Apple Silicon, CPU only) offering a recommended track and sources | `bootstrapper/wizard/model/state_builder.py`, near the track prompt | M |
 | 4 | A secret-free wizard checkpoint with `--resume` after an interrupted run | `bootstrapper/wizard/model/state.py`, `run_setup_flow` | M |
 | 5 | Format checks and "where to find this key" help for secret prompts (`sk-ant-`, `sk-or-`, `nvapi-`) | `bootstrapper/wizard/model/cloud_rules.py`, `widgets/prompt_panel.py` | S |
-| 6 | An abort message stating exactly what was and was not written (`.env`, volumes) | `ui/textual/screens/wizard_screen.py` | S |
+| 6 | An abort message stating exactly what was and was not written (`.env`, volumes) | `bootstrapper/ui/textual/screens/wizard_screen.py` | S |
 | 7 | A heartbeat ("still working on X, N s") during long pulls, paused while a prompt is open | `bootstrapper/core/docker_manager.py` | S |
 | 8 | Port-conflict reports that name the owning process and the exact `--base-port` or `*_PORT` override | `bootstrapper/core/port_manager.py` | S |
 | 9 | Offer to use a key already exported in the user's shell when `.env` lacks it, similar to OpenShell's `--from-existing` | `bootstrapper/wizard/model/cloud_rules.py`, step builder | S-M |
-| 10 | `--events=jsonl` start events on stdout, with human output on stderr | `start.py`, `core/launch_outcome.py` | M |
+| 10 | `--events=jsonl` start events on stdout, with human output on stderr | `bootstrapper/start.py`, `bootstrapper/core/launch_outcome.py` | M |
 | 11 | A coding-agent starter prompt doc that maps every choice to a `./start.sh` flag | docs tree, linked from `AGENTS.md` | S |
-| 12 | One structured readiness report shared by `doctor` and wizard gating, for example GPU or CDI health deciding `*-container-gpu` | `start.py` doctor, `core/support_bundle.py` | L |
+| 12 | One structured readiness report shared by `doctor` and wizard gating, for example GPU or CDI health deciding `*-container-gpu` | `bootstrapper/start.py` doctor, `bootstrapper/core/support_bundle.py` | L |
 | 13 | An agent posture step (restricted, balanced, open) when `openshell` is enabled | depends on Phase 3 | L |
 
 ### 8.6. Where Atlas is already ahead

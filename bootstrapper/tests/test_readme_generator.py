@@ -51,8 +51,8 @@ def test_generate_block_contains_known_row():
 
 
 def test_check_mode_reports_drift_without_writing_and_bad_markers_are_refused(tmp_path):
-    """`--check` rewrote the README, and swapped markers duplicated the text
-    between them (2026-10-08 run, cycle 66)."""
+    """`--check` must not rewrite the README, and swapped markers must be
+    refused instead of duplicating the text between them."""
     import pytest
 
     from tools.generate_readme_topology import update_readme
@@ -70,3 +70,15 @@ def test_check_mode_reports_drift_without_writing_and_bad_markers_are_refused(tm
     with pytest.raises(RuntimeError):
         update_readme(readme, services)
     assert readme.read_text() == swapped
+
+
+def test_committed_readme_topology_block_matches_the_generator():
+    """The CI "Lint manifests" gate checks the committed README's TOPOLOGY
+    block through tools.validate_fragments; this keeps that check under pytest."""
+    from tools.generate_readme_topology import update_readme
+    from tools.validate_fragments import _check_readme_topology_block_is_current
+
+    assert update_readme(_REPO_ROOT / "README.md", _REPO_ROOT / "services", check=True), (
+        "README.md TOPOLOGY block is stale; run `python -m tools.generate_readme_topology`"
+    )
+    assert _check_readme_topology_block_is_current(_REPO_ROOT) == []

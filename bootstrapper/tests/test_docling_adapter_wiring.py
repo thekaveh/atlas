@@ -22,6 +22,9 @@ DOCLING_MANIFEST = ROOT / "services" / "docling" / "service.yml"
 LIGHTRAG_MANIFEST = ROOT / "services" / "lightrag" / "service.yml"
 
 
+pytestmark = pytest.mark.usefixtures("throwaway_admin_secrets")
+
+
 def _service_config(env_path: Path) -> ServiceConfig:
     parser = ConfigParser(str(ROOT))
     parser.env_file_path = env_path

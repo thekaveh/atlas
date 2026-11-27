@@ -8,6 +8,9 @@ import pytest
 REPO = Path(__file__).resolve().parents[2]
 
 
+pytestmark = pytest.mark.usefixtures("throwaway_admin_secrets")
+
+
 @pytest.mark.skipif(shutil.which("docker") is None, reason="docker not available")
 def test_prod_bind_ip_localhost():
     # Render compose with HOST_BIND_IP set; every published port must be 127.0.0.1-bound.

@@ -5,6 +5,7 @@ sys.path.insert(0, str(_R))
 
 from scripts.docs.build_docs import render_mkdocs_yml  # noqa: E402
 from scripts.docs.manifest import load_manifest  # noqa: E402
+from scripts.docs import check_site  # noqa: E402
 
 
 def _cfg():
@@ -184,6 +185,7 @@ def test_verify_cache_reports_missing_unexpected_and_changed(tmp_path):
     ("sha256", "ABC", "sha256 must be"),
     ("url", "http://fonts.example.test/a.woff2", "url must be https"),
     ("path", "fonts/a.woff2", "must live under assets/external/"),
+    ("path", "assets/external/../../../etc/hosts", "must not contain '..'"),
 ])
 def test_malformed_inventory_entries_are_rejected(field, value, message):
     entry = {
@@ -194,6 +196,14 @@ def test_malformed_inventory_entries_are_rejected(field, value, message):
     entry[field] = value
     with pytest.raises(ea.InventoryError, match=message):
         ea.parse_inventory(yaml.safe_dump({"assets": [entry]}))
+
+
+@pytest.mark.parametrize("header", ["", "cache_root: \"\"\n"])
+def test_inventory_requires_a_non_empty_cache_root(header):
+    """An empty or absent cache_root is rejected, not resolved against the working directory."""
+    text = header + "assets: []\n"
+    with pytest.raises(ea.InventoryError, match="cache_root"):
+        ea.parse_inventory(text)
 
 
 def test_every_make_target_that_runs_mkdocs_preflights_first():
@@ -376,3 +386,51 @@ def test_canonical_stylesheet_propagates_exact_bytes_and_loaded_site_wiring(tmp_
         config = load_config(config_file=str(tmp_path / "mkdocs.yml"))
         assert config.extra_css == ["stylesheets/atlas.css"]
         assert (Path(config.docs_dir) / config.extra_css[0]).read_bytes() == stylesheet
+
+
+def _write_site(site: Path, pages: dict[str, str]) -> None:
+    for relative, html in pages.items():
+        target = site / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(html, encoding="utf-8")
+
+
+def test_built_site_link_check_reports_only_broken_internal_targets(tmp_path: Path) -> None:
+    site = tmp_path / "site"
+    _write_site(site, {
+        "index.html": (
+            '<a href="guide/">guide</a> <a href="/atlas/assets/logo.png">logo</a>'
+            ' <a href="https://example.com/x">external</a> <a href="#top">anchor</a>'
+            ' <a href="mailto:owner@example.com">mail</a> <a href="missing/">gone</a>'
+            ' <a href="../../etc/passwd">escape</a>'
+        ),
+        "guide/index.html": '<a href="../index.html">home</a><img src="absent.png">',
+        "assets/logo.png": "",
+    })
+
+    assert sorted(check_site.validate_built_site_links(site)) == sorted([
+        "guide/index.html -> absent.png",
+        "index.html -> ../../etc/passwd",
+        "index.html -> missing/",
+    ])
+
+
+def test_built_site_link_check_fails_an_absent_site(tmp_path: Path) -> None:
+    site = tmp_path / "site"
+
+    assert check_site.validate_built_site_links(site) == [f"{site}/index.html (site not built)"]
+
+
+def test_built_only_check_passes_a_clean_site_and_fails_a_broken_one(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "argv", ["check_site", "--built-only"])
+    _write_site(tmp_path / "site", {"index.html": '<a href="about.html">about</a>'})
+
+    with pytest.raises(SystemExit, match="index.html -> about.html"):
+        check_site.main()
+
+    _write_site(tmp_path / "site", {"about.html": "<p>about</p>"})
+    assert check_site.main() == 0
+    assert "PASS built-site local links" in capsys.readouterr().out

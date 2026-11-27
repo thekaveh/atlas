@@ -62,8 +62,27 @@ echo "[smoke] expected QUERY model: $query_model"
 smoke_started_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
 echo "[smoke] runtime role environment:"
-docker compose -p "$project" exec -T lightrag sh -lc \
-  'env | sort | grep -E "^(LLM_MODEL|EXTRACT_LLM_MODEL|KEYWORD_LLM_MODEL|QUERY_LLM_MODEL|EXTRACT_MAX_ASYNC_LLM|QUERY_LLM_TIMEOUT)="'
+runtime_env="$(docker compose -p "$project" exec -T lightrag sh -lc \
+  'env | sort | grep -E "^(LLM_MODEL|EXTRACT_LLM_MODEL|KEYWORD_LLM_MODEL|QUERY_LLM_MODEL|EXTRACT_MAX_ASYNC_LLM|QUERY_LLM_TIMEOUT)="')"
+printf '%s\n' "$runtime_env"
+
+# The printed roles must be the configured ones: a container that inherited one
+# model for both roles would otherwise pass the log check below on its own.
+runtime_value() {
+  local line value=""
+  while IFS= read -r line; do
+    case "$line" in "$1="*) value="${line#"$1="}" ;; esac
+  done <<<"$runtime_env"
+  printf '%s' "$value"
+}
+if [ "$(runtime_value EXTRACT_LLM_MODEL)" != "$extract_model" ]; then
+  echo "[smoke] runtime EXTRACT_LLM_MODEL does not match LIGHTRAG_EXTRACT_LLM_MODEL in .env" >&2
+  exit 1
+fi
+if [ "$(runtime_value QUERY_LLM_MODEL)" != "$query_model" ]; then
+  echo "[smoke] runtime QUERY_LLM_MODEL does not match LIGHTRAG_QUERY_LLM_MODEL in .env" >&2
+  exit 1
+fi
 
 tmp_doc="$(mktemp)"
 upload_response="$(mktemp "${TMPDIR:-/tmp}/lightrag-upload-response.XXXXXX")"

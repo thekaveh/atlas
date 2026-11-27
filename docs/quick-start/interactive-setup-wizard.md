@@ -577,4 +577,4 @@ The hosts file configuration step enables friendly URLs routed through Kong API 
 
 None of the three options stops the launch: missing entries affect only the friendly `*.localhost` URLs.
 
-When hosts are configured, the pre-launch summary table shows both the direct `localhost:PORT` URL and the friendly `service.localhost:KONG_PORT` URL for applicable services.
+When hosts are configured, the pre-launch summary table shows both the direct `localhost:PORT` URL and the friendly `service.localhost:KONG_HTTP_PORT` URL for applicable services.

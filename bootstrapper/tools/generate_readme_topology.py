@@ -48,8 +48,8 @@ def generate_block(services_root: Path) -> str:
 
 def _rendered(text: str, block: str) -> str:
     """``text`` with its TOPOLOGY block replaced. Swapped or repeated markers
-    are refused: text[:start] + block + text[end:] duplicated everything
-    between them (2026-10-08 run, cycle 66)."""
+    are refused: slicing around a duplicated marker pair would copy everything
+    between the markers twice."""
     begin, finish = "<!-- TOPOLOGY:BEGIN -->", "<!-- TOPOLOGY:END -->"
     if text.count(begin) != 1 or text.count(finish) != 1:
         raise RuntimeError("README.md must contain exactly one pair of TOPOLOGY markers")

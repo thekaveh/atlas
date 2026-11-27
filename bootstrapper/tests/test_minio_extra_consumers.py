@@ -73,6 +73,9 @@ BUILT_IN_CONSUMER_ENV = {
 }
 
 
+pytestmark = pytest.mark.usefixtures("throwaway_admin_secrets")
+
+
 def test_asset_processors_use_scoped_minio_accounts() -> None:
     manifest = yaml.safe_load(MINIO_MANIFEST.read_text(encoding="utf-8"))
     env_vars = {entry["name"]: entry for entry in manifest["env"]}

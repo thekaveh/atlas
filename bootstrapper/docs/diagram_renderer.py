@@ -125,9 +125,11 @@ def render_html(graph: DepGraph) -> str:
     n_calls = len(live_up)
     n_consumers = len(live_down)
     n_categories = len({e.other_category for e in live_down})
+    # focus and subtitle land in the page's text and <title>; escape them the
+    # way render_svg escapes its own labels. svg and cat_color are generated.
     return tmpl.substitute(
-        focus=graph.focus,
-        subtitle=f"category: {graph.category} · source: {graph.source}",
+        focus=html_mod.escape(graph.focus),
+        subtitle=html_mod.escape(f"category: {graph.category} · source: {graph.source}"),
         cat_color=cat_color,
         svg=svg,
         n_required=n_calls,         # "Calls" — template still uses these var names

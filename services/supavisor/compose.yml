@@ -39,7 +39,7 @@ services:
     command:
       - /bin/sh
       - -c
-      - /app/bin/migrate && /app/bin/supavisor eval "$(cat /etc/pooler/pooler.exs)" && /app/bin/server
+      - /app/bin/migrate && /app/bin/supavisor eval "$(cat /etc/pooler/pooler.exs)" && exec /app/bin/server
     volumes:
       - ./pooler/pooler.exs:/etc/pooler/pooler.exs:ro
     healthcheck:

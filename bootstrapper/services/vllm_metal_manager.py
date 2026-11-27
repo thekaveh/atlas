@@ -37,13 +37,13 @@ import tempfile
 import time
 import urllib.error
 import urllib.request
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Optional
 
 from core.process_runner import CommandOutputTooLarge, run_with_deadline
-from services import tracked_process_may_survive
+from services import terminate_process_group, tracked_process_may_survive
 
 try:  # Native Windows can import this module for a no-op disabled-source stop.
     import fcntl
@@ -607,24 +607,9 @@ class VllmMetalManager:
         return True
 
     def _terminate_pid(self, pid: int) -> bool:
-        try:
-            os.killpg(pid, signal.SIGINT)
-            deadline = time.monotonic() + 10
-            while time.monotonic() < deadline:
-                self._reap_child(pid)
-                if not self._managed_process_alive(pid):
-                    break
-                time.sleep(0.2)
-            else:
-                os.killpg(pid, signal.SIGKILL)
-                deadline = time.monotonic() + 5
-                while self._managed_process_alive(pid) and time.monotonic() < deadline:
-                    self._reap_child(pid)
-                    time.sleep(0.1)
-        except OSError:
-            pass
-        self._reap_child(pid)
-        return not self._managed_process_alive(pid)
+        return terminate_process_group(
+            pid, alive=self._managed_process_alive, reap=self._reap_child
+        )
 
     @staticmethod
     def _reap_child(pid: int) -> None:

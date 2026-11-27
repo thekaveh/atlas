@@ -233,7 +233,7 @@ env:
     # default removed — computed by services/topology.py slot allocator
 ```
 
-The `services/env_assembler.py` regen step emits the resolved port into `.env.example`. Never hand-edit `.env.example` — it's a generated artifact (byte-equivalence-tested in CI).
+The `bootstrapper/services/env_assembler.py` regen step emits the resolved port into `.env.example`. Never hand-edit `.env.example` — it's a generated artifact (byte-equivalence-tested in CI).
 
 > **Worked example — Qdrant:** Qdrant declares `QDRANT_PORT` with no default. Topology slots it into the `data` block at the next free offset. Its place in the topo sort relative to its siblings sets that offset (Supabase microservices, Redis, MinIO, Neo4j, Weaviate). The exact number is auto-resolved at every regen — don't pin it.
 
@@ -756,14 +756,14 @@ user-model-selection path) needs FOUR coordinated edits, not two:
 1. the `@click.option` declaration in `start.py`,
 2. the `source_mapping` / collector-dict entry,
 3. the `user_model_selections[KEY] = kwarg` assignment in `main()`,
-4. the wizard bucket. `_selections_to_args` in `ui/textual/integration.py`
+4. the wizard bucket. `_selections_to_args` in `bootstrapper/ui/textual/integration.py`
    returns it. `_run_pipeline_and_stream` in
-   `ui/textual/screens/wizard_screen.py` merges it into the launch plan's
+   `bootstrapper/ui/textual/screens/wizard_screen.py` merges it into the launch plan's
    `user_model_selections` with `.get(...)`. A new bucket key needs both
    edits.
 Missing seam 4 silently drops the flag's value. AST-based seam-parity tests
-(`tests/test_user_model_selections_seam_parity.py`,
-`tests/test_wizard_app_discovery.py`) guard all four — extend them when
+(`bootstrapper/tests/test_user_model_selections_seam_parity.py`,
+`bootstrapper/tests/test_wizard_app_discovery.py`) guard all four — extend them when
 adding a picker.
 
 <a id="14-common-gotchas--anti-patterns"></a>

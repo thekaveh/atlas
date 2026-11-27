@@ -4,12 +4,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 from docs.deps_resolver import _AGGREGATE_DOC_FOLDERS, doc_folder_to_manifests
 from services.manifests import Manifest, call_edges, load_manifests
 from services.topology import get_topology
-from tracks import ALWAYS_ON_SERVICE_KEYS
+from tracks import ALWAYS_ON_SERVICE_KEYS, LLM_ENGINE_FOLDER, load_tracks
 
 
 
@@ -79,21 +77,19 @@ class DocsModel:
 
 
 def _load_tracks(root: Path) -> list[TrackPage]:
-    data = yaml.safe_load((root / "bootstrapper" / "tracks.yml").read_text(encoding="utf-8"))
-    tracks: list[TrackPage] = []
-    for row in data["tracks"]:
-        services = row.get("services", [])
-        all_services = services == "*"
-        tracks.append(
-            TrackPage(
-                key=row["key"],
-                label=row.get("display_name", row["key"]),
-                description=row.get("description", ""),
-                services=[] if all_services else list(services),
-                all_services=all_services,
-            )
+    # The canonical loader: schema, duplicate-key and unknown-service checks
+    # live in tracks.load_tracks, not in a docs-side copy.
+    registry = load_tracks(root / "bootstrapper" / "tracks.yml")
+    return [
+        TrackPage(
+            key=track.key,
+            label=track.display_name,
+            description=track.description,
+            services=list(track.ordered_services),
+            all_services=track.services is None,
         )
-    return tracks
+        for track in registry.tracks
+    ]
 
 
 def _service_dirs(services_dir: Path) -> dict[str, Path]:
@@ -115,9 +111,13 @@ def _track_membership(
     all_track_keys = {track.key for track in tracks}
     curated_track_keys = {track.key for track in tracks if not track.all_services and track.services}
 
-    # tracks.py's always-on tier is in every track; llm-provider is the role
-    # Ollama fills.
-    always_on = {"ollama", *ALWAYS_ON_SERVICE_KEYS}
+    # Intended difference from tracks.is_in_track (the wizard predicate): the
+    # always-prompted tier and the LLM Engine folder are listed in every track
+    # here. Locked always-running services (no SOURCE choice) are also listed
+    # in every curated track below, because they run in every track. The
+    # wizard never prompts for them, so the predicate never selects them.
+    # tests/test_docs_sitegen_model.py pins both sides of this difference.
+    always_on = {LLM_ENGINE_FOLDER, *ALWAYS_ON_SERVICE_KEYS}
     aggregate_members = {m for members in _AGGREGATE_DOC_FOLDERS.values() for m in members}
 
     for track in tracks:

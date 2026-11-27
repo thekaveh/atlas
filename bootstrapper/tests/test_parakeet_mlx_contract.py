@@ -10,6 +10,8 @@ ROOT = Path(__file__).resolve().parents[2]
 MODULE_PATH = ROOT / "services/parakeet/provider/mlx/alignment.py"
 MLX_API = ROOT / "services/parakeet/provider/mlx/api_server.py"
 SHARED_API = ROOT / "services/parakeet/provider/shared/api_server.py"
+# Routes, response formats, and lifespan now live in the factory both providers call.
+FACTORY_API = ROOT / "services/parakeet/provider/transcription_api.py"
 PARAKEET_MANIFEST = ROOT / "services/parakeet/service.yml"
 PARAKEET_COMPOSE = ROOT / "services/parakeet/compose.yml"
 
@@ -61,22 +63,22 @@ def test_timestamp_flag_requires_timestamp_data():
 
 
 def test_advanced_timestamp_defaults_are_provider_consistent():
+    # Both providers register their routes through the same factory.
+    source = FACTORY_API.read_text(encoding="utf-8")
+    assert "return_timestamps: bool = Form(default=False)" in source
     for path in (MLX_API, SHARED_API):
-        source = path.read_text(encoding="utf-8")
-        assert "return_timestamps: bool = Form(default=False)" in source
+        assert "create_api(" in path.read_text(encoding="utf-8")
 
 
 def test_response_format_contract_is_provider_consistent():
     expected = 'Literal["json", "verbose_json", "text"]'
-    for path in (MLX_API, SHARED_API):
-        source = path.read_text(encoding="utf-8")
-        assert expected in source
+    assert expected in FACTORY_API.read_text(encoding="utf-8")
     stt_guide = (ROOT / "services/stt-provider/README.md").read_text()
     assert "optional: json, text, verbose_json" in stt_guide
 
 
 def test_shared_api_declares_runtime_annotation_imports():
-    tree = ast.parse(SHARED_API.read_text(encoding="utf-8"))
+    tree = ast.parse(FACTORY_API.read_text(encoding="utf-8"))
     typing_names = {
         alias.name
         for node in tree.body
@@ -97,11 +99,11 @@ def test_parakeet_does_not_advertise_unsupported_gpu_quantization():
 
 
 def test_lifespan_starts_loading_without_waiting_for_it():
-    source = MLX_API.read_text(encoding="utf-8")
+    source = FACTORY_API.read_text(encoding="utf-8")
 
     assert "async def lifespan(" in source
-    assert "model_lifespan(app, _model_startup)" in source
-    assert '"status": "healthy" if ready else _model_startup.state' in source
+    assert "model_lifespan(app, model_startup)" in source
+    assert '"status": "healthy" if ready else model_startup.state' in source
     assert "status_code=503" in source
 
 
