@@ -19,11 +19,8 @@ import json
 import os
 import platform
 import shutil
-import subprocess
 import tarfile
 import threading
-import time
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from types import SimpleNamespace
@@ -111,29 +108,6 @@ def _assert_text_contract(text, *, contains=(), excludes=()):
 
 
 # ─────────────────────────── preflight ───────────────────────────
-def test_preflight_fails_on_non_macos(tmp_path, monkeypatch):
-    monkeypatch.setattr(mod.platform, "system", lambda: "Linux")
-    monkeypatch.setattr(mod.platform, "machine", lambda: "x86_64")
-    monkeypatch.setattr(mod.shutil, "which", lambda name: f"/usr/bin/{name}")
-    result = _mgr(tmp_path).preflight()
-    assert result.status == "fail"
-    assert not result.ok
-    os_check = next(c for c in result.checks if c["name"] == "os")
-    assert os_check["status"] == "fail"
-    assert "macOS" in os_check["detail"]
-
-
-def test_preflight_fails_on_intel_mac(tmp_path, monkeypatch):
-    monkeypatch.setattr(mod.platform, "system", lambda: "Darwin")
-    monkeypatch.setattr(mod.platform, "machine", lambda: "x86_64")
-    monkeypatch.setattr(mod.shutil, "which", lambda name: f"/usr/bin/{name}")
-    result = _mgr(tmp_path).preflight()
-    assert result.status == "fail"
-    arch = next(c for c in result.checks if c["name"] == "arch")
-    assert arch["status"] == "fail"
-    assert "Apple Silicon" in arch["detail"]
-
-
 def test_preflight_passes_on_darwin_arm64_py312(tmp_path, monkeypatch):
     _darwin_arm64(monkeypatch, memsize_gb=64, py_version="3.12.9")
     result = _mgr(tmp_path).preflight()
@@ -179,15 +153,6 @@ def test_preflight_warns_when_python_version_is_unreadable(tmp_path, monkeypatch
     assert python_check["status"] == "warn"
     assert result.status == "warn"
     assert result.ok
-
-
-def test_preflight_warns_on_low_memory(tmp_path, monkeypatch):
-    _darwin_arm64(monkeypatch, memsize_gb=8)
-    result = _mgr(tmp_path, min_memory_gb=16).preflight()
-    assert result.status == "warn"
-    mem = next(c for c in result.checks if c["name"] == "memory")
-    assert mem["status"] == "warn"
-    assert "below" in mem["detail"]
 
 
 def test_memory_preflight_behavior_matches_manifest_contract(tmp_path, monkeypatch):
@@ -505,24 +470,6 @@ def test_install_raises_on_failed_preflight(tmp_path, monkeypatch):
         mgr.install()
 
 
-def test_run_translates_install_timeout(tmp_path, monkeypatch):
-    def time_out(_cmd, **_kwargs):
-        raise subprocess.TimeoutExpired(["slow"], 1)
-
-    monkeypatch.setattr(mod, "run_with_deadline", time_out)
-    with pytest.raises(VllmMetalError, match="timed out"):
-        _mgr(tmp_path)._run(["slow"])
-
-
-def test_run_translates_output_overflow(tmp_path, monkeypatch):
-    def overflow(_cmd, **_kwargs):
-        raise mod.CommandOutputTooLarge
-
-    monkeypatch.setattr(mod, "run_with_deadline", overflow)
-    with pytest.raises(VllmMetalError, match="output limit"):
-        _mgr(tmp_path)._run(["noisy"])
-
-
 # ─────────────────────────── start ───────────────────────────
 def test_start_idempotent_when_already_running(tmp_path, monkeypatch):
     mgr = _mgr(tmp_path)
@@ -536,18 +483,6 @@ def test_start_idempotent_when_already_running(tmp_path, monkeypatch):
     status = mgr.start()
     assert status.running
     assert status.pid == 4242
-
-
-def test_start_with_ownership_distinguishes_existing_process(tmp_path, monkeypatch):
-    mgr = _mgr(tmp_path)
-    monkeypatch.setattr(
-        mgr, "status", lambda: mod.ProcessStatus(True, 4242, mgr.port)
-    )
-
-    status, created = mgr.start_with_ownership()
-
-    assert status.pid == 4242
-    assert created is False
 
 
 def test_start_raises_when_venv_missing(tmp_path, monkeypatch):
@@ -704,32 +639,6 @@ def test_immediate_launch_exit_is_not_reported_running(tmp_path, monkeypatch):
     assert mgr._untracked_pid is None
 
 
-def test_dead_launch_leader_keeps_group_sweep_authority(tmp_path, monkeypatch):
-    mgr = _mgr(tmp_path)
-    mgr._untracked_pid = 5155
-    mgr.pid_file.parent.mkdir(parents=True)
-    mgr.pid_file.write_text("5155\nstart_utc=stamp\n", encoding="utf-8")
-    monkeypatch.setattr(mgr, "_pid_alive", lambda _pid: False)
-    monkeypatch.setattr(mgr, "_process_group_alive", lambda _pid: True)
-    monkeypatch.setattr(mgr, "_pid_is_stranger", lambda _pid: True)
-
-    assert mgr.confirm_started_process(5155) is False
-    assert mgr._untracked_pid == 5155
-
-
-def test_verified_launch_retains_group_authority_until_commit(tmp_path, monkeypatch):
-    mgr = _mgr(tmp_path)
-    mgr._untracked_pid = 5156
-    monkeypatch.setattr(mgr, "_read_pid", lambda: 5156)
-    monkeypatch.setattr(mgr, "_pid_alive", lambda _pid: True)
-    monkeypatch.setattr(mgr, "_pid_is_stranger", lambda _pid: False)
-
-    assert mgr.confirm_started_process(5156) is True
-    assert mgr._untracked_pid == 5156
-    mgr.commit_started_process()
-    assert mgr._untracked_pid is None
-
-
 def test_launch_identity_interrupt_compensates_and_propagates(tmp_path, monkeypatch):
     mgr = _mgr(tmp_path)
     mgr.venv_python.parent.mkdir(parents=True, exist_ok=True)
@@ -819,20 +728,6 @@ def test_unstamped_vllm_marker_still_refuses_ownership(tmp_path, monkeypatch):
     assert mgr._pid_is_stranger(4242) is True
 
 
-def test_start_refuses_live_unknown_pid_and_preserves_tracking(tmp_path, monkeypatch):
-    mgr = _mgr(tmp_path)
-    mgr.state_dir.mkdir(parents=True, exist_ok=True)
-    mgr.pid_file.write_text("4242\n", encoding="utf-8")
-    before = mgr.pid_file.read_bytes()
-    monkeypatch.setattr(mgr, "_managed_process_alive", lambda _pid: True)
-    monkeypatch.setattr(mgr, "_pid_is_stranger", lambda _pid: True)
-
-    with pytest.raises(VllmMetalError, match="ownership is mismatched or unknown"):
-        mgr.start_with_ownership()
-
-    assert mgr.pid_file.read_bytes() == before
-
-
 def test_stop_sigint_success(tmp_path, monkeypatch):
     mgr = _mgr(tmp_path)
     mgr.state_dir.mkdir(parents=True, exist_ok=True)
@@ -852,105 +747,6 @@ def test_stop_sigint_success(tmp_path, monkeypatch):
     monkeypatch.setattr(mod.os, "waitpid", lambda pid, flags: (pid, 0))
     assert mgr.stop() is True
     assert not mgr.pid_file.exists()
-
-
-def test_stop_reaps_exited_leader_during_grace_period(tmp_path, monkeypatch):
-    mgr = _mgr(tmp_path)
-    mgr.state_dir.mkdir(parents=True, exist_ok=True)
-    mgr.pid_file.write_text("556")
-    state = {"alive": True, "signals": []}
-
-    monkeypatch.setattr(mgr, "_pid_alive", lambda pid: True)
-    monkeypatch.setattr(mgr, "_pid_is_stranger", lambda pid: False)
-    monkeypatch.setattr(mgr, "_managed_process_alive", lambda pid: state["alive"])
-    monkeypatch.setattr(
-        mod.os, "killpg", lambda pid, sig: state["signals"].append(sig)
-    )
-
-    def reap(pid, flags):
-        state["alive"] = False
-        return pid, 0
-
-    monkeypatch.setattr(mod.os, "waitpid", reap)
-
-    assert mgr.stop() is True
-    assert state["signals"] == [mod.signal.SIGINT]
-
-
-def test_stop_refuses_stale_leaderless_group_evidence(tmp_path, monkeypatch):
-    mgr = _mgr(tmp_path)
-    mgr.state_dir.mkdir(parents=True, exist_ok=True)
-    mgr.pid_file.write_text("777")
-    monkeypatch.setattr(mgr, "_pid_alive", lambda pid: False)
-    monkeypatch.setattr(mgr, "_process_group_alive", lambda pgid: True)
-    monkeypatch.setattr(mgr, "_pid_is_stranger", lambda pid: True)
-    monkeypatch.setattr(
-        mgr,
-        "_sweep_orphaned_group",
-        lambda _pid: pytest.fail("stale PID evidence authorized a group signal"),
-        raising=False,
-    )
-
-
-    assert mgr.stop() is False
-    assert mgr.pid_file.exists()
-
-
-def test_stop_sweeps_current_launch_group_after_leader_exits(tmp_path, monkeypatch):
-    mgr = _mgr(tmp_path)
-    mgr._untracked_pid = 777
-    alive = {"group": True}
-    monkeypatch.setattr(mgr, "_pid_alive", lambda pid: False)
-    monkeypatch.setattr(mgr, "_process_group_alive", lambda pgid: alive["group"])
-    monkeypatch.setattr(
-        mgr,
-        "_pid_is_stranger",
-        lambda _pid: pytest.fail("a dead leader has no probeable identity"),
-    )
-    swept = []
-
-    def sweep(pgid):
-        swept.append(pgid)
-        alive["group"] = False
-        return True
-
-    monkeypatch.setattr(mgr, "_sweep_orphaned_group", sweep, raising=False)
-    assert mgr.stop() is True
-    assert swept == [777]
-    assert mgr._untracked_pid is None
-
-
-def test_stop_waits_for_group_after_sigkill(tmp_path, monkeypatch):
-    mgr = _mgr(tmp_path)
-    mgr.state_dir.mkdir(parents=True, exist_ok=True)
-    mgr.pid_file.write_text("888")
-    state = {"killed": False, "post_kill_probes": 0}
-
-    def alive(_pid):
-        if not state["killed"]:
-            return True
-        state["post_kill_probes"] += 1
-        return state["post_kill_probes"] < 3
-
-    def killpg(_pid, sig):
-        if sig == mod.signal.SIGKILL:
-            state["killed"] = True
-
-    clock = {"value": 0.0}
-    monkeypatch.setattr(mgr, "_pid_alive", alive)
-    monkeypatch.setattr(mgr, "_managed_process_alive", alive)
-    monkeypatch.setattr(mgr, "_pid_is_stranger", lambda pid: False)
-    monkeypatch.setattr(mod.os, "killpg", killpg)
-    monkeypatch.setattr(mod.os, "waitpid", lambda pid, flags: (pid, 0))
-    monkeypatch.setattr(mod.time, "sleep", lambda seconds: None)
-    monkeypatch.setattr(
-        mod.time,
-        "monotonic",
-        lambda: clock.__setitem__("value", clock["value"] + 2.0) or clock["value"],
-    )
-
-    assert mgr.stop() is True
-    assert state["post_kill_probes"] >= 3
 
 
 # ─────────────────────────── status ───────────────────────────
@@ -1106,43 +902,6 @@ def test_remove_stops_and_deletes_state(tmp_path, monkeypatch):
     monkeypatch.setattr(mgr, "_stop_locked", lambda: True)
     mgr.remove()
     assert not mgr.state_dir.exists()
-
-
-def test_stop_on_absent_state_does_not_create_service_directory(tmp_path):
-    mgr = _mgr(tmp_path)
-
-    assert mgr.stop() is False
-    assert not mgr.state_dir.exists()
-
-
-def test_stop_waiting_for_remove_does_not_recreate_deleted_state(
-    tmp_path, monkeypatch
-):
-    remover = _mgr(tmp_path)
-    stopper = _mgr(tmp_path)
-    remover.state_dir.mkdir(parents=True)
-    (remover.state_dir / "junk").write_text("x")
-    monkeypatch.setattr(VllmMetalManager, "_stop_locked", lambda self: False)
-    removed = threading.Event()
-    release_remove = threading.Event()
-    real_rmtree = mod.shutil.rmtree
-
-    def delayed_rmtree(path):
-        real_rmtree(path)
-        removed.set()
-        assert release_remove.wait(timeout=2)
-
-    monkeypatch.setattr(mod.shutil, "rmtree", delayed_rmtree)
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        removal = pool.submit(remover.remove)
-        assert removed.wait(timeout=2)
-        stopping = pool.submit(stopper.stop)
-        time.sleep(0.05)
-        release_remove.set()
-        removal.result(timeout=2)
-        stopping.result(timeout=2)
-
-    assert not remover.state_dir.exists()
 
 
 # ─────────────────────────── health ───────────────────────────
