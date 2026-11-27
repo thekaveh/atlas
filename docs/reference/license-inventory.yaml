@@ -294,7 +294,7 @@ images:
   url: https://github.com/cloudflare/cloudflared/blob/81a53555aa827fca88605d7e67ad5c03cda468d2/LICENSE
 - service: comfyui
   var: COMFYUI_IMAGE
-  image: ghcr.io/ai-dock/comfyui:v2-cpu-22.04-v0.2.7
+  image: ghcr.io/ai-dock/comfyui:v2-cpu-22.04-v0.2.7@sha256:b47cd16007c309ebbb78b85f87bbc69ac9f7f3fc7596607e81940eeb7dca2421
   upstream: 'ComfyUI v0.2.7 in the ai-dock image (ai-dock wrapper: MIT)'
   license: GPL-3.0
   url: https://github.com/comfyanonymous/ComfyUI/blob/696672905fd17af2654ced11e3ab590d6a555996/LICENSE
@@ -400,7 +400,7 @@ images:
   notice: https://github.com/HumanSignal/label-studio/blob/2a9bfbcbf0a844b999de97e601d16050a893f5fb/NOTICE
 - service: label-studio
   var: LABEL_STUDIO_INIT_IMAGE
-  image: alpine:3.24.4
+  image: alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
   upstream: Alpine Linux 3.24.2 (packages under their own licenses)
   license: Alpine-packages
   url: https://github.com/alpinelinux/docker-alpine/blob/2c36a79aaaec3582d3b1961c9245b1a8a5a144dc/LICENSE
@@ -426,7 +426,7 @@ images:
   url: https://github.com/ClickHouse/ClickHouse/blob/65eaf18b4a939f3e02aad50b7fbb2711b09495a0/LICENSE
 - service: langfuse
   var: LANGFUSE_INIT_IMAGE
-  image: alpine:3.24.4
+  image: alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
   upstream: Alpine Linux 3.24.2 (packages under their own licenses)
   license: Alpine-packages
   url: https://github.com/alpinelinux/docker-alpine/blob/2c36a79aaaec3582d3b1961c9245b1a8a5a144dc/LICENSE
@@ -492,7 +492,7 @@ images:
   url: https://github.com/mlflow/mlflow/blob/d0b397f85b602e8f146be0d0373b28bba2ca2b74/LICENSE.txt
 - service: mlflow
   var: MLFLOW_INIT_IMAGE
-  image: alpine:3.24.4
+  image: alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
   upstream: Alpine Linux 3.24.2 (packages under their own licenses)
   license: Alpine-packages
   url: https://github.com/alpinelinux/docker-alpine/blob/2c36a79aaaec3582d3b1961c9245b1a8a5a144dc/LICENSE
