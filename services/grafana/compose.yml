@@ -8,7 +8,7 @@ services:
       replicas: ${GRAFANA_SCALE:-0}
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USERNAME:-admin}
-      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD is required}
       GF_SERVER_ROOT_URL: http://grafana.localhost:${KONG_HTTP_PORT:-63000}
       GF_USERS_ALLOW_SIGN_UP: "false"
       GF_AUTH_ANONYMOUS_ENABLED: "false"

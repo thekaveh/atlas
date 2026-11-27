@@ -77,13 +77,17 @@ env:
 
   # GPU + production-tuning vars — system-wide knobs not owned by any one
   # service. NVIDIA_VISIBLE_DEVICES is read by every GPU-aware container
-  # (parakeet, speaches, chatterbox, docling). Every PROD_ENV_* is a reserved
-  # deploy.resources cap default NOT yet consumed by any compose fragment
-  # (backend / n8n run unbounded; wiring them is a deferred prod-profile
-  # follow-up). PROD_ENV_COMFYUI_* appear only in comfyui's container-gpu
-  # runtime_sc slice, which reaches no compose file. Every comfyui container
-  # source is capped by COMFYUI_CPU_LIMIT / COMFYUI_MEMORY_LIMIT in
-  # services/comfyui/compose.yml.
+  # (parakeet, speaches, chatterbox, docling).
+  #
+  # RESERVED, NOT ENFORCED: the eight PROD_ENV_* names declared below are a
+  # documented reservation for deploy.resources caps. No compose fragment reads
+  # any of them, so changing one has no effect on a running stack. Wiring them
+  # is a deferred prod-profile follow-up (backend and n8n run unbounded today).
+  # Two of them (PROD_ENV_COMFYUI_CPUS and PROD_ENV_COMFYUI_MEM_LIMIT) appear
+  # in comfyui's container-gpu runtime_sc deploy slice. That slice is written
+  # to COMFYUI_DEPLOY_RESOURCES, which no compose fragment reads. Every comfyui
+  # container source is capped by COMFYUI_CPU_LIMIT / COMFYUI_MEMORY_LIMIT in
+  # services/comfyui/compose.yml. Removing these names needs owner approval.
   - name: NVIDIA_VISIBLE_DEVICES
     default: all
     description: "Host-side GPU visibility. Forwarded into every NVIDIA-runtime container."

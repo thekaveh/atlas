@@ -90,7 +90,7 @@ runtime_sc:
       environment:
         CASC_JENKINS_CONFIG: /var/jenkins_home/casc/jenkins.yaml
         JENKINS_ADMIN_USER: ${JENKINS_ADMIN_USER:-admin}
-        JENKINS_ADMIN_PASSWORD: ${JENKINS_ADMIN_PASSWORD}
+        JENKINS_ADMIN_PASSWORD: ${JENKINS_ADMIN_PASSWORD:?JENKINS_ADMIN_PASSWORD is required}
         JENKINS_OPTS: "--httpPort=8080"
         MINIO_ENDPOINT: http://minio:9000
         MINIO_REGION: ${MINIO_REGION:-us-east-1}
