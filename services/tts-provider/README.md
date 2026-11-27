@@ -38,17 +38,17 @@ the deployment host.
 
 ## 3. Quick start
 
-`./start.sh` launches Speaches without a model. Speaches does not download
-models itself (verified against `speaches @ v0.9.0-rc.3`), and the compose file
-sets `PRELOAD_MODELS: '[]'`. A TTS request returns `404` ("Model is not
-installed locally") until you download the Kokoro model (issue #799):
+`./start.sh` launches Speaches with Kokoro-82M preloaded for TTS, and with
+faster-whisper-large-v3 preloaded for STT (see `services/speaches/compose.yml`).
+Speaches does not download a model when a request names it (verified against
+`speaches @ v0.9.0-rc.3`). A TTS request for any uncached model returns `404`
+("Model is not installed locally") (issue #799). The first start downloads both
+preloaded models, about 3 GB:
 
 ```bash
 ./start.sh
-# Speaches is healthy as soon as Uvicorn is up, but has no model yet.
-# Download the Kokoro ONNX build (one-time; persists in the speaches-cache volume):
-curl -X POST http://localhost:63060/v1/models/speaches-ai/Kokoro-82M-v1.0-ONNX
-# Now synthesize:
+# Speaches is healthy once Uvicorn is up, which follows the Kokoro preload.
+# Synthesize with the preloaded model:
 curl http://localhost:63060/v1/audio/speech \
   -X POST -H "Content-Type: application/json" \
   -d '{"model":"speaches-ai/Kokoro-82M-v1.0-ONNX","input":"hello world","voice":"af_heart","response_format":"wav"}' \
@@ -56,11 +56,13 @@ curl http://localhost:63060/v1/audio/speech \
 file /tmp/hello.wav   # expect RIFF / WAVE audio
 ```
 
-To have models ready at boot instead, set `PRELOAD_MODELS` in
-`services/speaches/compose.yml` to a **JSON array** of valid repo ids, for
-example `'["speaches-ai/Kokoro-82M-v1.0-ONNX","Systran/faster-whisper-large-v3"]'`.
-Atlas has no env var for it. Preload downloads block startup, and a bad id
-stops Speaches.
+To preload another model, add its repo id to the **JSON array** in
+`PRELOAD_MODELS` in `services/speaches/compose.yml`, for example
+`'["speaches-ai/Kokoro-82M-v1.0-ONNX","Systran/faster-whisper-large-v3"]'`.
+Atlas has no env var for it. The list applies only on a cold cache, because a
+warm cache runs offline with an empty list. To download an uncached model
+instead, POST it to `http://localhost:63060/v1/models/<repo-id>`. A bad preload
+id stops Speaches.
 
 Voice cloning via Chatterbox (NVIDIA):
 

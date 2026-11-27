@@ -24,6 +24,7 @@ COPY shared/api_server.py /app/
 COPY bounded_upload.py /app/
 COPY provider_boundary.py /app/
 COPY startup.py /app/
+COPY transcription_api.py /app/
 
 # Copy GPU-specific transcription logic
 COPY gpu/transcribe.py /app/
@@ -34,9 +35,9 @@ RUN mkdir -p /root/.cache/huggingface
 # Expose port
 EXPOSE 8000
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=3 \
-  CMD curl -f http://localhost:8000/health || exit 1
+# The healthcheck is defined only in compose.yml (start_period 810s covers the
+# model load). Compose overrides any image HEALTHCHECK, so a copy here drifted
+# from it (120s here, 810s there).
 
 # Run server
 CMD ["python", "-m", "uvicorn", "api_server:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -1,2 +1,6 @@
 **/__pycache__
 **/*.pyc
+testdata/
+architecture.html
+architecture.svg
+README.md

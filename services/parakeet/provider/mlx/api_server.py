@@ -4,32 +4,17 @@ import logging
 import os
 import sys
 import threading
-from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from fastapi import FastAPI, File, Form, HTTPException, Response, UploadFile, status
+from fastapi.responses import PlainTextResponse
 
-from bounded_upload import (
-    MAX_BODY_TIMEOUT_SECONDS,
-    EmptyUploadError,
-    RequestBodyLimitMiddleware,
-    UploadTooLargeError,
-    multipart_body_limit,
-    spool_upload,
-)
-from provider_boundary import (
-    ProviderDeadlineExceeded,
-    fatal_timeout_response,
-    install_provider_boundary,
-    load_boundary_settings,
-    parse_positive_int,
-    parse_timeout_seconds,
-    run_with_deadline,
-)
-from startup import ModelStartup, model_lifespan
+from provider_boundary import parse_positive_int, parse_timeout_seconds
+from bounded_upload import MAX_BODY_TIMEOUT_SECONDS
+from startup import ModelStartup
+from transcription_api import ProviderHooks, create_api
 
 if __package__:
     from .alignment import advanced_payload, alignment_payload, result_text
@@ -56,10 +41,11 @@ _UPLOAD_TIMEOUT_SECONDS = parse_positive_int(
     default=120,
     maximum=MAX_BODY_TIMEOUT_SECONDS,
 )
+_DEFAULT_MODEL = "mlx-community/parakeet-tdt-0.6b-v3"
 
 
 def _load_model():
-    model_name = os.getenv("PARAKEET_MODEL", "mlx-community/parakeet-tdt-0.6b-v3")
+    model_name = os.getenv("PARAKEET_MODEL", _DEFAULT_MODEL)
     logger.info("Loading Parakeet model")
     model = from_pretrained(model_name)
     logger.info("Model loaded successfully")
@@ -76,39 +62,17 @@ _transcription_semaphore = threading.BoundedSemaphore(
 )
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    async with model_lifespan(app, _model_startup):
-        yield
+def _is_loaded() -> bool:
+    return _model_startup.model is not None
 
 
-app = FastAPI(
-    title="Parakeet MLX STT API",
-    version="1.0.0",
-    description="OpenAI-compatible Speech-to-Text API using Parakeet MLX",
-    lifespan=lifespan,
-)
-app.add_middleware(
-    RequestBodyLimitMiddleware,
-    max_body_bytes=multipart_body_limit(_MAX_UPLOAD_BYTES),
-    body_timeout_seconds=_UPLOAD_TIMEOUT_SECONDS,
-    paths={"/v1/audio/transcriptions", "/v1/audio/transcriptions/advanced"},
-)
-_BOUNDARY_SETTINGS = load_boundary_settings(
-    "PARAKEET",
-    {"/v1/audio/transcriptions", "/v1/audio/transcriptions/advanced"},
-)
-install_provider_boundary(app, _BOUNDARY_SETTINGS)
-
-
-def _require_ready() -> None:
-    if _model_startup.state != "healthy" or _model_startup.model is None:
-        detail = (
-            "Service is loading"
-            if _model_startup.state == "loading"
-            else "Service is unhealthy"
-        )
-        raise HTTPException(status_code=503, detail=detail)
+def _describe() -> dict[str, str]:
+    # Fixed for this provider: PARAKEET_BACKEND and PARAKEET_DEVICE are not read here.
+    return {
+        "backend": "mlx",
+        "device": "mps",
+        "model": os.getenv("PARAKEET_MODEL", _DEFAULT_MODEL),
+    }
 
 
 def _transcribe(file_path: str):
@@ -120,13 +84,19 @@ def _transcribe(file_path: str):
         return model.transcribe(file_path)
 
 
-def _transcribe_standard(file_path: str, response_format: str, language: Optional[str]):
+def _transcribe_standard(
+    file_path: str,
+    *,
+    response_format: str,
+    language: Optional[str],
+    temperature: float,
+):
+    # MLX has no sampling temperature; the form field is accepted and ignored.
+    del temperature
     result = _transcribe(file_path)
     transcribed_text = result_text(result)
     logger.info("Transcription complete (characters=%s)", len(transcribed_text))
     if response_format == "text":
-        from fastapi.responses import PlainTextResponse  # local: keeps the audited line refs
-
         return PlainTextResponse(transcribed_text)  # OpenAI's text format is raw text
     if response_format == "verbose_json":
         payload = alignment_payload(result)
@@ -138,6 +108,7 @@ def _transcribe_standard(file_path: str, response_format: str, language: Optiona
 
 def _transcribe_advanced(
     file_path: str,
+    *,
     return_timestamps: bool,
     word_timestamps: bool,
 ):
@@ -145,107 +116,21 @@ def _transcribe_advanced(
     return advanced_payload(result, return_timestamps, word_timestamps)
 
 
-@app.get("/")
-async def root():
-    return {
-        "name": "Parakeet MLX STT API",
-        "version": "1.0.0",
-        "description": "OpenAI-compatible Speech-to-Text API",
-        "backend": "mlx",
-        "device": "mps",
-        "model": os.getenv("PARAKEET_MODEL", "mlx-community/parakeet-tdt-0.6b-v3"),
-    }
-
-
-@app.get("/health")
-async def health(response: Response):
-    ready = _model_startup.state == "healthy" and _model_startup.model is not None
-    if not ready:
-        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
-    return {
-        "status": "healthy" if ready else _model_startup.state,
-        "backend": "mlx",
-        "device": "mps",
-        "model": os.getenv("PARAKEET_MODEL", "mlx-community/parakeet-tdt-0.6b-v3"),
-        "model_loaded": ready,
-    }
-
-
-@app.post("/v1/audio/transcriptions")
-async def transcribe_audio(
-    file: UploadFile = File(...),
-    model: Optional[str] = Form(None),
-    language: Optional[str] = Form(None),
-    prompt: Optional[str] = Form(None),
-    response_format: Literal["json", "verbose_json", "text"] = Form("json"),
-    temperature: Optional[float] = Form(0.0),
-):
-    del model, prompt, temperature
-    _require_ready()
-    tmp_path = None
-    try:
-        suffix = os.path.splitext(file.filename or "audio.wav")[1] or ".wav"
-        tmp_path = await spool_upload(file, max_bytes=_MAX_UPLOAD_BYTES, suffix=suffix)
-        return await run_with_deadline(
-            "PARAKEET",
-            lambda: _transcribe_standard(
-                str(tmp_path),
-                response_format,
-                language,
-            ),
-        )
-    except ProviderDeadlineExceeded:
-        return fatal_timeout_response("PARAKEET")
-    except UploadTooLargeError as exc:
-        raise HTTPException(status_code=413, detail=str(exc)) from exc
-    except EmptyUploadError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.error("Transcription failed (error_type=%s)", type(exc).__name__)
-        raise HTTPException(status_code=500, detail="Transcription failed") from exc
-    finally:
-        if tmp_path is not None:
-            tmp_path.unlink(missing_ok=True)
-
-
-@app.post("/v1/audio/transcriptions/advanced")
-async def transcribe_advanced(
-    file: UploadFile = File(...),
-    return_timestamps: bool = Form(default=False),
-    word_timestamps: bool = Form(False),
-):
-    _require_ready()
-    tmp_path = None
-    try:
-        suffix = os.path.splitext(file.filename or "audio.wav")[1] or ".wav"
-        tmp_path = await spool_upload(file, max_bytes=_MAX_UPLOAD_BYTES, suffix=suffix)
-        return await run_with_deadline(
-            "PARAKEET",
-            lambda: _transcribe_advanced(
-                str(tmp_path),
-                return_timestamps,
-                word_timestamps,
-            ),
-        )
-    except ProviderDeadlineExceeded:
-        return fatal_timeout_response("PARAKEET")
-    except UploadTooLargeError as exc:
-        raise HTTPException(status_code=413, detail=str(exc)) from exc
-    except EmptyUploadError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.error(
-            "Advanced transcription failed (error_type=%s)",
-            type(exc).__name__,
-        )
-        raise HTTPException(status_code=500, detail="Transcription failed") from exc
-    finally:
-        if tmp_path is not None:
-            tmp_path.unlink(missing_ok=True)
+app = create_api(
+    ProviderHooks(
+        provider="PARAKEET",
+        title="Parakeet MLX STT API",
+        description="OpenAI-compatible Speech-to-Text API using Parakeet MLX",
+        logger_name=__name__,
+        model_startup=_model_startup,
+        is_loaded=_is_loaded,
+        describe=_describe,
+        transcribe_standard=_transcribe_standard,
+        transcribe_advanced=_transcribe_advanced,
+        max_upload_bytes=_MAX_UPLOAD_BYTES,
+        upload_timeout_seconds=_UPLOAD_TIMEOUT_SECONDS,
+    )
+)
 
 
 if __name__ == "__main__":

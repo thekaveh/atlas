@@ -19,9 +19,9 @@ The family runs three containers off one image:
 | Surface | URL | Notes |
 | --- | --- | --- |
 | Kong | `http://trueforge.localhost:${KONG_HTTP_PORT}` | Routed only when `TRUEFORGE_SOURCE=container`; guarded by the dashboard-user basic-auth/ACL pair like Langfuse and MLflow. |
-| Direct | `http://localhost:${TRUEFORGE_PORT}` | Bound through `HOST_BIND_IP`; the default is loopback-only, while an explicit non-empty value enables deliberate remote access. |
+| Direct | `http://localhost:${TRUEFORGE_PORT}` | Bound through `HOST_BIND_IP`, which is an interface prefix. The default `127.0.0.1:` is loopback-only. An empty `HOST_BIND_IP=` binds all interfaces, the same as `0.0.0.0:`, so any host on the network can reach it. Set an interface address (for example `192.168.1.5:`) to limit it to one interface. |
 
-TrueForge has no login of its own. The OIDC triple is unset, so the server runs with its fixed local admin identity: **anyone who can reach it is admin** (see §4.3).
+TrueForge has no login of its own. The OIDC triple is unset, so the server runs with its fixed local admin identity: **anyone who can reach it is admin** (see §4.3). An empty or `0.0.0.0:` `HOST_BIND_IP` therefore hands that admin identity to every network the host is on. Keep the default unless you have a firewall in front of the port.
 
 ## 3. Configuration
 
