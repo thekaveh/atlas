@@ -46,6 +46,11 @@ from services.migrations.migration_v5 import (
     needs_migration as _needs_v5,
     stamp_version as _stamp_v5,
 )
+from services.migrations.migration_v6 import (
+    apply as _apply_v6,
+    needs_migration as _needs_v6,
+    stamp_version as _stamp_v6,
+)
 from services.migrations.build_pin_refresh import refresh as _refresh_build_pins
 
 
@@ -104,7 +109,7 @@ def _fill_env_backfill_blanks(text: str, replacements: dict[str, str], origin: s
     return "".join(out)
 
 
-_ENV_MIGRATION_VERSION = 5
+_ENV_MIGRATION_VERSION = 6
 _MIGRATION_MARKER = "BOOTSTRAPPER_PORT_LAYOUT_VERSION"
 
 
@@ -2083,12 +2088,12 @@ class AtlasStarter:
         the user's ``.env`` (preserving every existing nonblank value).
 
         Catches the merge-from-upstream case: a worktree adds new
-        services to ``.env.example`` (e.g. MinIO's ``MINIO_IMAGE``,
-        ``MINIO_PORT``, bucket names) but the user's pre-existing
+        services to ``.env.example`` (e.g. Silo's ``SILO_IMAGE``,
+        ``SILO_PORT``, bucket names) but the user's pre-existing
         ``.env`` doesn't carry those keys. ``docker compose config``
         then warns ``variable X not set, defaulting to blank`` and
         fails with ``service has neither an image nor a build context``
-        when a critical key like ``${MINIO_IMAGE}`` is empty.
+        when a critical key like ``${SILO_IMAGE}`` is empty.
 
         Preserves the source file's organisation: missing vars are
         emitted under their original section heading (the
@@ -2519,8 +2524,8 @@ class AtlasStarter:
             'TRINO_PORT',
             'REDPANDA_KAFKA_PORT',
             'REDPANDA_CONSOLE_PORT',
-            'MINIO_PORT',
-            'MINIO_CONSOLE_PORT',
+            'SILO_PORT',
+            'SILO_CONSOLE_PORT',
             'JUPYTERHUB_PORT',
             'JENKINS_PORT',
             'MLFLOW_PORT',
@@ -2962,12 +2967,32 @@ class AtlasStarter:
                         "success",
                     )
 
+        # v5 → v6: MINIO_* storage variables become SILO_* (the Silo rename).
+        # Same gating as v5: never stamp 6 over an unfinished v4 or v5.
+        if not _needs_v4(env_path) and not _needs_v5(env_path) and _needs_v6(env_path):
+            if no_port_migrate:
+                self.banner.console.print(
+                    "[dim]Skipping storage-variable rename (v6) "
+                    "(--no-port-migrate); will re-prompt next run.[/dim]"
+                )
+            else:
+                self.banner.show_status_message(
+                    "Renaming MINIO_* storage variables to SILO_* (v6) ...",
+                    "info",
+                )
+                _apply_v6(env_path)
+                _stamp_v6(env_path)
+                self.banner.show_status_message(
+                    "Storage-variable rename complete (v6).",
+                    "success",
+                )
+
     def generate_service_configuration(self) -> bool:
         """Generate and update service configuration."""
         try:
             generated = self.service_config.generate_and_update_env()
         except ValueError as exc:
-            # The per-service gates (e.g. Spark needs MinIO) raise ValueError
+            # The per-service gates (e.g. Spark needs Silo) raise ValueError
             # with an actionable message; the --no-tui flow has no handler
             # above this step, so report it instead of a raw traceback.
             # print, not the banner: the TUI swaps in a no-op banner and
@@ -3007,12 +3032,12 @@ class AtlasStarter:
     def _finalize_consumer_storage(self) -> bool:
         """Provision manifest-declared object stores (#404): generate scoped
         credentials (blank-only), export stable endpoint/credential-reference
-        fields, and write the Atlas-owned minio-init overlay so no consumer
+        fields, and write the Atlas-owned silo-init overlay so no consumer
         compose override is needed. Idempotent; a no-storage config removes any
         stale generated overlay.
         """
         from core.consumer_manifest import (
-            MINIO_STORAGE_OVERLAY_PATH,
+            SILO_STORAGE_OVERLAY_PATH,
             _validate_storage_collisions,
             compile_storage_exports,
             storage_credential_tokens,
@@ -3022,9 +3047,9 @@ class AtlasStarter:
             config = self.config_parser.load_consumer_config()
             if config.storage:
                 env = self.config_parser.parse_env_file()
-                if str(env.get("MINIO_SOURCE", "container")).strip() != "disabled":
+                if str(env.get("SILO_SOURCE", "container")).strip() != "disabled":
                     _validate_storage_collisions(
-                        config.storage, self.docker_manager.resolved_minio_environment(),
+                        config.storage, self.docker_manager.resolved_silo_environment(),
                     )
         except Exception as exc:  # ConsumerManifestError etc. — surface + fail
             self.banner.show_status_message(
@@ -3032,10 +3057,10 @@ class AtlasStarter:
             )
             return False
 
-        overlay_path = self.root_dir / MINIO_STORAGE_OVERLAY_PATH
+        overlay_path = self.root_dir / SILO_STORAGE_OVERLAY_PATH
         # Always clear stale export vars first — a removed or renamed store must
         # not leave dangling ATLAS_STORE_* fields; the current set is re-emitted
-        # below. Provisioning (buckets / MINIO_EXTRA_CONSUMERS) lives only in the
+        # below. Provisioning (buckets / SILO_EXTRA_CONSUMERS) lives only in the
         # regenerated overlay, so there is nothing stale to strip from .env there.
         self._remove_env_keys_by_prefix("ATLAS_STORE_")
 
@@ -3044,13 +3069,13 @@ class AtlasStarter:
                 overlay_path.unlink()
             return True
 
-        if str(env.get("MINIO_SOURCE", "container")).strip() == "disabled":
-            # A storage declaration against disabled MinIO can't be provisioned;
+        if str(env.get("SILO_SOURCE", "container")).strip() == "disabled":
+            # A storage declaration against disabled Silo can't be provisioned;
             # skip loudly rather than emit an unusable (empty-endpoint) contract.
             if overlay_path.exists():
                 overlay_path.unlink()
             self.banner.show_status_message(
-                "  • MINIO_SOURCE=disabled — skipping consumer storage "
+                "  • SILO_SOURCE=disabled — skipping consumer storage "
                 f"provisioning for {len(config.storage)} declared store(s)",
                 "warning",
             )
@@ -3058,19 +3083,19 @@ class AtlasStarter:
 
         # 1. Scoped credentials — generated once, persist across restarts.
         tokens = storage_credential_tokens(config.storage)
-        self.key_generator.generate_and_update_extra_minio_consumer_keys(tokens)
+        self.key_generator.generate_and_update_extra_silo_consumer_keys(tokens)
 
         # 2. Stable export fields (resolved endpoints track BASE_PORT/host).
         exports = compile_storage_exports(
             config.storage,
-            minio_endpoint=env.get("MINIO_ENDPOINT", ""),
-            minio_public_endpoint=env.get("MINIO_PUBLIC_ENDPOINT", ""),
-            minio_region=env.get("MINIO_REGION", "us-east-1"),
+            silo_endpoint=env.get("SILO_ENDPOINT", ""),
+            silo_public_endpoint=env.get("SILO_PUBLIC_ENDPOINT", ""),
+            silo_region=env.get("SILO_REGION", "us-east-1"),
         )
         if exports:
             self._merge_env_file_overrides(exports)
 
-        # 3. Atlas-owned minio-init overlay (routed via consumer overlays).
+        # 3. Atlas-owned silo-init overlay (routed via consumer overlays).
         overlay = config.storage_overlay
         if overlay is not None:
             overlay.path.parent.mkdir(parents=True, exist_ok=True)
@@ -3200,7 +3225,7 @@ class AtlasStarter:
 
     def _skip_n8n_seed_when_disabled(self, config, seed_dir: Path, overlay_path: Path) -> bool:
         """With N8N_SOURCE=disabled there is no n8n for the seed to wait on:
-        drop the overlay and warn, as consumer storage does for disabled MinIO.
+        drop the overlay and warn, as consumer storage does for disabled Silo.
         The seed dir and plan.json stay, so a pending empty-plan reconcile
         resumes once n8n is enabled again."""
         if not _n8n_disabled(self.config_parser.parse_env_file()):
@@ -5459,7 +5484,7 @@ def _n8n_workflow_effective_active(wf) -> bool:
 
 def _n8n_disabled(env: "dict[str, str]") -> bool:
     """True only for an explicit ``N8N_SOURCE=disabled``. A missing value means
-    the manifest default (container), as for ``MINIO_SOURCE`` in consumer storage."""
+    the manifest default (container), as for ``SILO_SOURCE`` in consumer storage."""
     return str(env.get("N8N_SOURCE") or "container").strip().lower() == "disabled"
 
 
@@ -5488,7 +5513,7 @@ def _n8n_needs_reactivation_restart(env: "dict[str, str]", consumer) -> bool:
 # generated consumer seed. Effective Compose metadata still controls admission.
 _COMPOSE_FINITE_SERVICES = frozenset({
     "airflow-init", "backup", "comfyui-init", "hermes-init", "iceberg-rest-init",
-    "label-studio-init", "langfuse-init", "lightrag-init", "litellm-init", "minio-init",
+    "label-studio-init", "langfuse-init", "lightrag-init", "litellm-init", "silo-init",
     "mlflow-init", "n8n-init", "n8n-seed", "ollama-pull", "open-webui-init",
     "openclaw-init", "redpanda-init", "spark-init", "supabase-db-init", "trueforge-init",
     "weaviate-init", "zeppelin-init",
@@ -6833,8 +6858,8 @@ def _doctor_check_endpoints(starter: "AtlasStarter") -> dict:
     endpoints = {
         "COMFYUI_ENDPOINT": env_values.get("COMFYUI_ENDPOINT", ""),
         "LITELLM_BASE_URL": env_values.get("LITELLM_BASE_URL", ""),
-        "MINIO_ENDPOINT": env_values.get("MINIO_ENDPOINT", ""),
-        "MINIO_PUBLIC_CONSOLE_ENDPOINT": env_values.get("MINIO_PUBLIC_CONSOLE_ENDPOINT", ""),
+        "SILO_ENDPOINT": env_values.get("SILO_ENDPOINT", ""),
+        "SILO_PUBLIC_CONSOLE_ENDPOINT": env_values.get("SILO_PUBLIC_CONSOLE_ENDPOINT", ""),
     }
     visible = {key: value for key, value in endpoints.items() if value}
     if not visible:
@@ -7800,9 +7825,9 @@ def _key_from_option(value, key_file, flag):
 @click.option('--weaviate-source',
               type=click.Choice(['container', 'localhost', 'disabled'], case_sensitive=False),
               help='Override WEAVIATE_SOURCE')
-@click.option('--minio-source',
+@click.option('--silo-source', '--minio-source', 'silo_source',
               type=click.Choice(['container', 'disabled'], case_sensitive=False),
-              help='Override MinIO source')
+              help='Override Silo source. --minio-source is a deprecated alias (removed after 1.2).')
 @click.option('--n8n-source',
               type=click.Choice(['container', 'disabled'], case_sensitive=False),
               help='Override N8N_SOURCE')
@@ -7930,13 +7955,13 @@ def _key_from_option(value, key_file, flag):
               help='Override ZEPPELIN_SOURCE — Spark-first notebook UI (requires Spark).')
 @click.option('--jenkins-source',
               type=click.Choice(['container', 'disabled'], case_sensitive=False),
-              help='Override JENKINS_SOURCE — Maven Spark app builder with MinIO artifact publishing.')
+              help='Override JENKINS_SOURCE — Maven Spark app builder with Silo artifact publishing.')
 @click.option('--mlflow-source',
               type=click.Choice(['container', 'disabled'], case_sensitive=False),
-              help='Override MLFLOW_SOURCE — experiment tracking with MinIO artifacts.')
+              help='Override MLFLOW_SOURCE — experiment tracking with Silo artifacts.')
 @click.option('--label-studio-source',
               type=click.Choice(['container', 'disabled'], case_sensitive=False),
-              help='Override LABEL_STUDIO_SOURCE — annotation review UI with MinIO media storage.')
+              help='Override LABEL_STUDIO_SOURCE — annotation review UI with Silo media storage.')
 @click.option('--verba-source',
               type=click.Choice(['container', 'disabled'], case_sensitive=False),
               help='Override VERBA_SOURCE — archived Weaviate RAG demo UI.')
@@ -7945,7 +7970,7 @@ def _key_from_option(value, key_file, flag):
               help='Override AIRFLOW_SOURCE — code-defined DAG orchestrator (LocalExecutor + LLM operators).')
 @click.option('--iceberg-rest-source',
               type=click.Choice(['container', 'disabled'], case_sensitive=False),
-              help='Override ICEBERG_REST_SOURCE — durable Iceberg REST catalog over MinIO.')
+              help='Override ICEBERG_REST_SOURCE — durable Iceberg REST catalog over Silo.')
 @click.option('--trino-source',
               type=click.Choice(['container', 'disabled'], case_sensitive=False),
               help='Override TRINO_SOURCE — SQL query engine over the Iceberg lakehouse.')
@@ -8003,7 +8028,7 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
          openai_models, anthropic_models, openrouter_models,
          ollama_models, ollama_custom_models,
          comfyui_models, comfyui_custom_models_file,
-         comfyui_source, asset_worker_source, asset_baker_source, fal_source, weaviate_source, minio_source, n8n_source, searxng_source,
+         comfyui_source, asset_worker_source, asset_baker_source, fal_source, weaviate_source, silo_source, n8n_source, searxng_source,
          crawl4ai_source, tika_source, llm_graph_builder_source,
          celery_source, supavisor_source, mcp_servers_source, blender_mcp_source,
          jupyterhub_source, open_web_ui_source, local_deep_researcher_source,
@@ -8107,7 +8132,7 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
                     'asset_baker_source': asset_baker_source,
                     'fal_source': fal_source,
                     'weaviate_source': weaviate_source,
-                    'minio_source': minio_source,
+                    'silo_source': silo_source,
                     'n8n_source': n8n_source,
                     'searxng_source': searxng_source,
                     'crawl4ai_source': crawl4ai_source,
@@ -8379,7 +8404,7 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
             'asset_baker_source': asset_baker_source,
             'fal_source': fal_source,
             'weaviate_source': weaviate_source,
-            'minio_source': minio_source,
+            'silo_source': silo_source,
             'n8n_source': n8n_source,
             'searxng_source': searxng_source,
             'crawl4ai_source': crawl4ai_source,
@@ -8496,8 +8521,8 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
         #      be skipped (source_args would look non-empty).
         # #783: SOURCE vars the consumer manifest declares in env.values —
         # declared intent must survive the track force-disable (a manifest's
-        # MINIO_SOURCE: container was silently reverted to disabled when the
-        # track excluded minio, forcing consumers into workaround flags).
+        # SILO_SOURCE: container was silently reverted to disabled when the
+        # track excluded silo, forcing consumers into workaround flags).
         consumer_declared_source_keys: frozenset = _consumer_declared_source_keys(
             starter, source_args
         )
@@ -8590,7 +8615,7 @@ def main(ctx, project_name, consumer_manifests, base_port, track, list_tracks, c
                 sys.exit(1)
             # Backfill any keys added to .env.example since the user's
             # .env was last written — run BEFORE the wizard reads it,
-            # otherwise new vars (MinIO image / ports / bucket names,
+            # otherwise new vars (Silo image / ports / bucket names,
             # etc.) won't appear as defaults in the wizard's prompts
             # and ``docker compose config`` will fail later with
             # ``variable X not set``.
@@ -10300,5 +10325,16 @@ def managed_host_remove_command(name: str) -> None:
 
 
 
+def _warn_deprecated_source_flags(argv: list[str]) -> None:
+    """Warn when the retired --minio-source alias is used (removed after 1.2)."""
+    if any(arg == "--minio-source" or arg.startswith("--minio-source=") for arg in argv):
+        print(
+            "WARNING: --minio-source is deprecated; use --silo-source. "
+            "The alias is removed in the release after 1.2.",
+            file=sys.stderr,
+        )
+
+
 if __name__ == "__main__":
+    _warn_deprecated_source_flags(sys.argv[1:])
     main()

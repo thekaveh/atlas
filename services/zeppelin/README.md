@@ -1,6 +1,6 @@
 # 5.2.61. Apache Zeppelin (Spark-first notebook)
 
-Zeppelin runs as a single container in the stack's `apps` band. The Spark interpreter is intended for the in-stack standalone Spark cluster (`spark://spark-master:7077`) plus MinIO S3A. `zeppelin-init` also seeds a Trino JDBC interpreter when `TRINO_SOURCE=container`; Supabase Postgres remains a manual JDBC profile. Notebooks live in `services/zeppelin/notebooks/`, bind-mounted into the container.
+Zeppelin runs as a single container in the stack's `apps` band. The Spark interpreter is intended for the in-stack standalone Spark cluster (`spark://spark-master:7077`) plus Silo S3A. `zeppelin-init` also seeds a Trino JDBC interpreter when `TRINO_SOURCE=container`; Supabase Postgres remains a manual JDBC profile. Notebooks live in `services/zeppelin/notebooks/`, bind-mounted into the container.
 
 ## 1. Overview
 
@@ -21,7 +21,7 @@ It also replaces the server's Jackson and BouncyCastle jars with checksum-pinned
 The Zeppelin Backend Decision (`docs/strategy/zeppelin-spark-backend-decision.md`) selects the standalone Spark interpreter path. Zeppelin submits to `spark://spark-master:7077` through `spark-submit` in client mode. The stack should not require `%spark` Scala to use Spark Connect: Spark 4 rejects `spark.remote` together with master or deploy-mode settings. JupyterHub remains the Spark Connect notebook path (`SPARK_REMOTE` or `SparkSession.builder.remote(...)`).
 
 - `spark.cores.max` is `ZEPPELIN_SPARK_CORES_MAX` (default 1). The interpreter is long-lived. Without the cap it holds every free worker core, and Airflow cluster-mode submits wait. `zeppelin-init` re-seeds the value on each start, so change it in `.env`, not in the interpreter UI.
-- `format("kafka")` does not work from `%spark`. The driver runs in Zeppelin, and Zeppelin's Spark runtime has no Kafka connector jars (open issue #1376).
+- `format("kafka")` is available from `%spark`. The Spark runtime bakes in the four Kafka connector jars the Spark workers use (`spark-sql-kafka-0-10_2.13`, `spark-token-provider-kafka-0-10_2.13`, `kafka-clients` and `commons-pool2`). They sit in `/opt/spark/jars` at the same versions and SHA-512 pins as `services/spark/build/Dockerfile` (#1376). Compose passes the broker address in as `SPARK_KAFKA_BOOTSTRAP_SERVERS`.
 
 ### 1.2. Zero-touch Spark interpreter seeding
 
@@ -37,7 +37,7 @@ Seeded values include:
 - `spark.submit.deployMode=client`
 - `spark.driver.host=zeppelin` and `spark.driver.bindAddress=0.0.0.0`
 - `PYSPARK_DRIVER_PYTHON=/opt/conda/envs/pyspark/bin/python` (CPython 3.10), `PYSPARK_PYTHON=python3` for the executors, and `zeppelin.pyspark.useIPython=false`
-- MinIO S3A settings for `s3a://` reads/writes and Spark event logs
+- Silo S3A settings for `s3a://` reads/writes and Spark event logs
 - `spark.sql.catalog.lakehouse.uri=http://iceberg-rest:8181` and the rest of the Iceberg REST catalog settings for `lakehouse`
 
 Manual recovery path: open Zeppelin at `http://localhost:${ZEPPELIN_PORT}`, go to top-right user menu → **Interpreter** → `spark`, and verify the values above. Click **Save**, then confirm the restart prompt if you make changes.
@@ -80,13 +80,13 @@ SHOW SCHEMAS FROM lakehouse;
 
 Use `%trino`, not `%jdbc(trino)`: Zeppelin 0.12.1 uses the interpreter name as the paragraph prefix for created JDBC profiles.
 
-### 1.4. MinIO (s3a) and Spark History
+### 1.4. Silo (s3a) and Spark History
 
 The seeded interpreter carries the stack's storage settings, so notebooks need no credentials:
 
-- `s3a://` uses `spark.hadoop.fs.s3a.*` with MinIO at `http://minio:9000`, the scoped `MINIO_SPARK_*` account and path-style access.
-- Event logs go to `s3a://<MINIO_BUCKET_SPARK_HISTORY>/` (default `spark-history`). View them in the Spark History UI (`SPARK_HISTORY_PORT`).
-- The `lakehouse` catalog uses `http://iceberg-rest:8181` and warehouse `s3a://<MINIO_BUCKET_ICEBERG_LAKEHOUSE>/` (default `lakehouse`).
+- `s3a://` uses `spark.hadoop.fs.s3a.*` with Silo at `http://silo:9000`, the scoped `SILO_SPARK_*` account and path-style access.
+- Event logs go to `s3a://<SILO_BUCKET_SPARK_HISTORY>/` (default `spark-history`). View them in the Spark History UI (`SPARK_HISTORY_PORT`).
+- The `lakehouse` catalog uses `http://iceberg-rest:8181` and warehouse `s3a://<SILO_BUCKET_ICEBERG_LAKEHOUSE>/` (default `lakehouse`).
 
 ### 1.5. Driving Zeppelin from VS Code
 
@@ -130,9 +130,9 @@ ZEPPELIN_DB_PASSWORD=              # auto-generated
 ## 4. Integration with the stack
 
 - **Spark** (required) — `%spark` cells use the standalone Spark interpreter path selected in the Zeppelin backend decision: `SPARK_HOME` plus `spark.master=spark://spark-master:7077`.
-- **MinIO** — `s3a://` credentials come from the generated `MINIO_SPARK_*` service account. It is limited to the Spark event-log and lakehouse workflow buckets; Zeppelin never receives MinIO root credentials.
-- **Iceberg REST** (optional) — when `ICEBERG_REST_SOURCE=container`, the seeded `lakehouse` catalog points to `http://iceberg-rest:8181`. S3FileIO takes its credentials from the container's environment, which holds the scoped `MINIO_SPARK_*` pair. The seed no longer writes MinIO secrets into the interpreter settings, and removes any it wrote earlier (#1884).
-- **Trino** (optional) — when `TRINO_SOURCE=container`, `zeppelin-init` waits for `http://trino:8080/v1/info`. It then creates or updates a named JDBC interpreter profile `trino` (group `jdbc`) with `default.driver=io.trino.jdbc.TrinoDriver`, `default.url=jdbc:trino://trino:8080/lakehouse`, `default.user=atlas`, and dependency `io.trino:trino-jdbc:482`. Then `%trino SHOW CATALOGS` works without manual UI setup. Trino still requires `MINIO_SOURCE=container` and `ICEBERG_REST_SOURCE=container`; if `TRINO_SOURCE=disabled`, the init script logs a skip and leaves existing JDBC settings alone.
+- **Silo** — `s3a://` credentials come from the generated `SILO_SPARK_*` service account. It is limited to the Spark event-log and lakehouse workflow buckets; Zeppelin never receives Silo root credentials.
+- **Iceberg REST** (optional) — when `ICEBERG_REST_SOURCE=container`, the seeded `lakehouse` catalog points to `http://iceberg-rest:8181`. S3FileIO takes its credentials from the container's environment, which holds the scoped `SILO_SPARK_*` pair. The seed no longer writes Silo secrets into the interpreter settings, and removes any it wrote earlier (#1884).
+- **Trino** (optional) — when `TRINO_SOURCE=container`, `zeppelin-init` waits for `http://trino:8080/v1/info`. It then creates or updates a named JDBC interpreter profile `trino` (group `jdbc`) with `default.driver=io.trino.jdbc.TrinoDriver`, `default.url=jdbc:trino://trino:8080/lakehouse`, `default.user=atlas`, and dependency `io.trino:trino-jdbc:482`. Then `%trino SHOW CATALOGS` works without manual UI setup. Trino still requires `SILO_SOURCE=container` and `ICEBERG_REST_SOURCE=container`; if `TRINO_SOURCE=disabled`, the init script logs a skip and leaves existing JDBC settings alone.
 - **Supabase Postgres** — the container receives JDBC details for the read-only `ZEPPELIN_DB_USER` role (`ZEPPELIN_JDBC_POSTGRES_URL` / `_USER` / `_PASSWORD`), but Zeppelin does not auto-bind them to a JDBC interpreter. One-time manual setup is required: create a `postgres` JDBC interpreter in the Zeppelin UI with those values.
 - **LiteLLM** (optional) — Python interpreter can call the LiteLLM gateway via `openai.OpenAI(base_url="http://litellm:4000/v1", api_key=...)`. No pre-configuration ships; users wire it themselves.
 
@@ -142,7 +142,7 @@ ZEPPELIN_DB_PASSWORD=              # auto-generated
 
 1. Spark version check (`spark.version`)
 2. Markdown intro
-3. MinIO round-trip via S3A (`s3a://<MINIO_BUCKET_SPARK_HISTORY>/...`, default `spark-history`)
+3. Silo round-trip via S3A (`s3a://<SILO_BUCKET_SPARK_HISTORY>/...`, default `spark-history`)
 4. Trino JDBC metadata smoke via `%trino` (`SHOW CATALOGS`; `SHOW SCHEMAS FROM lakehouse`) when `TRINO_SOURCE=container`
 5. Postgres JDBC `SELECT version()` against supabase-db. It needs the one-time `postgres` interpreter setup in §4; until then it errors with "Interpreter not properly configured".
 
@@ -153,8 +153,8 @@ Zeppelin derives a note's id and list name from its file name, `<name>_<id>.zpln
 `services/zeppelin/notebooks/iceberg_advanced_sql.zpln` is the opt-in
 standalone Spark counterpart to JupyterHub's Spark Connect advanced smoke,
 covering Iceberg's MERGE/branching/streaming/maintenance surface. Its
-streaming paragraph writes to the buckets named by `MINIO_BUCKET_ICEBERG_LANDING`
-and `MINIO_BUCKET_ICEBERG_CHECKPOINTS`. Run it
+streaming paragraph writes to the buckets named by `SILO_BUCKET_ICEBERG_LANDING`
+and `SILO_BUCKET_ICEBERG_CHECKPOINTS`. Run it
 from the Zeppelin UI or from the repository root:
 
 ```bash
@@ -162,7 +162,7 @@ scripts/smoke-iceberg-advanced-sql.sh zeppelin
 ```
 
 This `data-eng` / `all` track smoke adds no new service, SOURCE, or port. It
-requires `SPARK_SOURCE`, `ICEBERG_REST_SOURCE`, `MINIO_SOURCE`, and
+requires `SPARK_SOURCE`, `ICEBERG_REST_SOURCE`, `SILO_SOURCE`, and
 `ZEPPELIN_SOURCE` all set to `container`. See
 [`docs/operations/iceberg-advanced-smoke.md`](../../docs/operations/iceberg-advanced-smoke.md)
 for the full feature list this smoke exercises.
@@ -177,7 +177,7 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
 | Spark-first interactive notebooks | supported | tested | Atlas bundles a matching Spark runtime and seeds the standalone Spark interpreter for Scala, PySpark and SQL paragraphs against the in-stack cluster. PySpark's driver runs a bundled CPython 3.10, the minor release the cluster's executors run. |
-| MinIO and Iceberg lakehouse notebooks | partial | tested | The interpreter receives scoped S3A and Iceberg REST settings and starter notebooks, while advanced operations remain an operator-run live smoke. |
+| Silo and Iceberg lakehouse notebooks | partial | tested | The interpreter receives scoped S3A and Iceberg REST settings and starter notebooks, while advanced operations remain an operator-run live smoke. |
 | Adaptive Trino and Postgres JDBC | partial | tested | Init seeds a Trino interpreter only when enabled, but Supabase Postgres variables still require one-time manual JDBC interpreter configuration. |
 | Notebook and log persistence | partial | documented | Notebooks bind to the repository and logs use a named volume, but concurrent edits, backup, restoration, and multi-replica writer coordination are operator-owned. |
 | Authenticated Zeppelin access | not-supported | tested | Zeppelin ships without authentication. It is deliberately exposed only on a fixed loopback port with no Kong route. Remote users must tunnel or configure auth before proxying it. |
@@ -189,12 +189,12 @@ Set `PROJECT_NAME` in your shell to the value in `.env` (default `atlas`) before
 
 - **Spark interpreter says "no master URL"** — the container and the `spark` interpreter must both use `spark://spark-master:7077`. Check the container with `docker exec ${PROJECT_NAME}-zeppelin env | grep SPARK_MASTER`, and check `spark.master` in the interpreter settings. Rerun `./start.sh` to restore both, because `zeppelin-init` re-seeds the interpreter.
 - **First `%spark` cell after stack-up errors with "connection refused"** — Zeppelin waits for `spark-master` to be healthy and `spark-init` to complete. A cold Spark worker or a freshly restarted interpreter can still need a few seconds before it accepts driver and executor traffic. Confirm `spark.master=spark://spark-master:7077` in the `spark` interpreter settings, then re-run the cell once the Spark master UI shows a live worker.
-- **S3A: "Access Denied" on s3a://...** — the scoped `MINIO_SPARK_*` credentials or policy can be missing.
+- **S3A: "Access Denied" on s3a://...** — the scoped `SILO_SPARK_*` credentials or policy can be missing.
     Check credential and submit-option presence without printing their values:
 
     ```bash
     docker exec ${PROJECT_NAME}-zeppelin sh -c '
-      for name in MINIO_SPARK_ACCESS_KEY MINIO_SPARK_SECRET_KEY SPARK_SUBMIT_OPTIONS; do
+      for name in SILO_SPARK_ACCESS_KEY SILO_SPARK_SECRET_KEY SPARK_SUBMIT_OPTIONS; do
         if printenv "$name" | grep -q .; then
           printf "%s: configured\n" "$name"
         else
@@ -229,8 +229,8 @@ Set `PROJECT_NAME` in your shell to the value in `.env` (default `atlas`) before
 | Service | Category | Status |
 |---|---|---|
 | iceberg-rest | data | current |
-| minio | data | current |
-| redpanda | data | optional: Kafka jars not bundled (#1376); Atlas passes only SPARK_KAFKA_BOOTSTRAP_SERVERS |
+| redpanda | data | optional: Kafka connector baked into the Spark runtime (#1376); Atlas passes only SPARK_KAFKA_BOOTSTRAP_SERVERS |
+| silo | data | current |
 | spark | data | current |
 | supabase | data | current |
 | trino | data | current |

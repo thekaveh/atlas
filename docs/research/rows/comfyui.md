@@ -13,7 +13,7 @@ sources_consulted:
   - services/comfyui/init/scripts/download_models.sh
   - services/open-webui/service.yml
   - services/n8n/service.yml
-  - services/minio/service.yml
+  - services/silo/service.yml
   - services/weaviate/service.yml
   - services/comfyui/README.md
 ---
@@ -22,12 +22,12 @@ sources_consulted:
 
 ## 1. Missing-pair integrations
 
-- **comfyui ↔ minio**
-  - Why valuable: ComfyUI currently uploads outputs to Supabase Storage via the `COMFYUI_UPLOAD_TO_SUPABASE`/`COMFYUI_STORAGE_BUCKET` env path, but `services/minio/service.yml` already provisions a dedicated `comfyui` bucket plus a scoped `MINIO_COMFYUI_ACCESS_KEY` that is never consumed. Routing outputs to MinIO keeps generated media in the artifact tier (where backend/n8n/jupyter also write) instead of the auth-coupled Supabase store, and gives Langfuse/Weaviate a stable S3 URL to reference.
-  - Mechanism sketch: a small ComfyUI custom node (or a sidecar reading the `executed` event on `ws://comfyui:18188/ws`) that pushes `/view`-rendered artifacts to `s3://comfyui` on `http://minio:9000` using `MINIO_COMFYUI_ACCESS_KEY`. Add `minio` to `depends_on.optional` and a `MINIO_URL`/`MINIO_BUCKET_COMFYUI` env to the manifest.
+- **comfyui ↔ silo**
+  - Why valuable: ComfyUI currently uploads outputs to Supabase Storage via the `COMFYUI_UPLOAD_TO_SUPABASE`/`COMFYUI_STORAGE_BUCKET` env path, but `services/silo/service.yml` already provisions a dedicated `comfyui` bucket plus a scoped `SILO_COMFYUI_ACCESS_KEY` that is never consumed. Routing outputs to Silo keeps generated media in the artifact tier (where backend/n8n/jupyter also write) instead of the auth-coupled Supabase store, and gives Langfuse/Weaviate a stable S3 URL to reference.
+  - Mechanism sketch: a small ComfyUI custom node (or a sidecar reading the `executed` event on `ws://comfyui:18188/ws`) that pushes `/view`-rendered artifacts to `s3://comfyui` on `http://silo:9000` using `SILO_COMFYUI_ACCESS_KEY`. Add `silo` to `depends_on.optional` and a `SILO_URL`/`SILO_BUCKET_COMFYUI` env to the manifest.
   - Effort: small
-  - Risks / open questions: dual-write (Supabase + MinIO) would duplicate storage until the Supabase path is feature-flagged off; custom-node code lives outside the upstream image and needs the `comfyui-custom-nodes` volume to be seeded.
-  - Confidence: high (minio manifest already declares the bucket + credential pair).
+  - Risks / open questions: dual-write (Supabase + Silo) would duplicate storage until the Supabase path is feature-flagged off; custom-node code lives outside the upstream image and needs the `comfyui-custom-nodes` volume to be seeded.
+  - Confidence: high (silo manifest already declares the bucket + credential pair).
 
 - **comfyui ↔ weaviate (via multi2vec-clip)**
   - Why valuable: every ComfyUI generation produces an image plus the prompt that made it. The stack already runs `semitechnologies/multi2vec-clip` as part of the weaviate family, so generated outputs can be auto-embedded and made searchable ("find images like this", "retrieve prior renders matching this prompt") with zero new infra.

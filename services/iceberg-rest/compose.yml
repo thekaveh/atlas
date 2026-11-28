@@ -16,25 +16,25 @@ services:
       - "${HOST_BIND_IP-127.0.0.1:}${ICEBERG_REST_PORT}:8181"
     environment:
       REST_PORT: 8181
-      AWS_REGION: ${MINIO_REGION:-us-east-1}
-      AWS_ACCESS_KEY_ID: ${MINIO_ICEBERG_ACCESS_KEY}
-      AWS_SECRET_ACCESS_KEY: ${MINIO_ICEBERG_SECRET_KEY}
+      AWS_REGION: ${SILO_REGION:-us-east-1}
+      AWS_ACCESS_KEY_ID: ${SILO_ICEBERG_ACCESS_KEY}
+      AWS_SECRET_ACCESS_KEY: ${SILO_ICEBERG_SECRET_KEY}
       CATALOG_CATALOG__IMPL: org.apache.iceberg.jdbc.JdbcCatalog
       CATALOG_URI: jdbc:postgresql://supabase-db:5432/iceberg
       CATALOG_JDBC_USER: ${ICEBERG_DB_USER:?ICEBERG_DB_USER is required}
       CATALOG_JDBC_PASSWORD: ${ICEBERG_DB_PASSWORD:?ICEBERG_DB_PASSWORD is required}
-      # Must track MINIO_BUCKET_ICEBERG_LAKEHOUSE: minio-init provisions the
+      # Must track SILO_BUCKET_ICEBERG_LAKEHOUSE: silo-init provisions the
       # bucket from it and every other client (jupyterhub, spark, airflow)
       # derives its warehouse from it. Hardcoding the name pointed the catalog
       # at a bucket that does not exist as soon as the var was customized.
-      CATALOG_WAREHOUSE: s3://${MINIO_BUCKET_ICEBERG_LAKEHOUSE:-lakehouse}/
+      CATALOG_WAREHOUSE: s3://${SILO_BUCKET_ICEBERG_LAKEHOUSE:-lakehouse}/
       CATALOG_IO__IMPL: org.apache.iceberg.aws.s3.S3FileIO
-      CATALOG_S3_ENDPOINT: http://minio:9000
+      CATALOG_S3_ENDPOINT: http://silo:9000
       CATALOG_S3_PATH__STYLE__ACCESS: "true"
     depends_on:
       iceberg-rest-init:
         condition: service_completed_successfully
-      minio-init:
+      silo-init:
         condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "curl", "--fail", "http://localhost:8181/v1/config"]

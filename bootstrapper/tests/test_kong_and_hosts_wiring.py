@@ -351,7 +351,7 @@ def test_kong_config_is_kong_readable_in_an_owner_only_directory(tmp_path):
 
 def test_source_conflict_is_reported_not_raised(monkeypatch, capsys):
     """--no-tui has no handler above this step; a ValueError from a service
-    gate (Spark needs MinIO, …) used to escape as a raw traceback."""
+    gate (Spark needs Silo, …) used to escape as a raw traceback."""
     from types import SimpleNamespace
 
     import start
@@ -359,7 +359,7 @@ def test_source_conflict_is_reported_not_raised(monkeypatch, capsys):
     messages = []
 
     def conflict():
-        raise ValueError("Spark requires MinIO: --minio-source container")
+        raise ValueError("Spark requires Silo: --silo-source container")
 
     starter = SimpleNamespace(
         service_config=SimpleNamespace(generate_and_update_env=conflict),
@@ -368,7 +368,7 @@ def test_source_conflict_is_reported_not_raised(monkeypatch, capsys):
         ),
     )
     assert start.AtlasStarter.generate_service_configuration(starter) is False
-    assert capsys.readouterr().out == "ERROR: Spark requires MinIO: --minio-source container\n"
+    assert capsys.readouterr().out == "ERROR: Spark requires Silo: --silo-source container\n"
 
 
 def test_hosts_cleanup_reports_only_what_it_removed_and_prunes_backups(tmp_path, monkeypatch):

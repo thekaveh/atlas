@@ -1,6 +1,6 @@
 # 7.9. Embedded DuckDB analytics over Parquet
 
-This optional example runs one analytical SQL query inside the Python process with DuckDB. It reads a local Parquet file or the same file in MinIO.
+This optional example runs one analytical SQL query inside the Python process with DuckDB. It reads a local Parquet file or the same file in Silo.
 It needs no query server. Spark, Trino and Airflow can stay disabled.
 
 The source lives in `examples/duckdb-analytics/`. It has its own Python environment and dependency lock.
@@ -75,7 +75,7 @@ The exported table starts with these rows:
 | af | 500000 | 3750000 | 94143750000 | 400680 |
 | ap | 500000 | 3750000 | 94162500000 | 400720 |
 
-## 5. Query the same file in MinIO
+## 5. Query the same file in Silo
 
 DuckDB reads `s3://` paths through its `httpfs` extension. Install it once for the DuckDB version in use:
 
@@ -85,12 +85,12 @@ DuckDB reads `s3://` paths through its `httpfs` extension. Install it once for t
 
 The install downloads the extension from `extensions.duckdb.org` into `~/.duckdb/extensions`. Later runs load the local copy.
 
-The recipe reads the endpoint and credentials from the standard AWS variables. JupyterHub already sets them for its scoped MinIO account:
+The recipe reads the endpoint and credentials from the standard AWS variables. JupyterHub already sets them for its scoped Silo account:
 
 | Variable | Use |
 |---|---|
-| `AWS_ENDPOINT_URL_S3` | MinIO URL, for example `http://minio:9000`. An `https` URL turns on TLS. |
-| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | MinIO access key and secret. |
+| `AWS_ENDPOINT_URL_S3` | Silo URL, for example `http://silo:9000`. An `https` URL turns on TLS. |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | Silo access key and secret. |
 | `AWS_REGION` or `AWS_DEFAULT_REGION` | Optional. The default is `us-east-1`. |
 
 The recipe creates a temporary DuckDB secret with path-style URLs. It never prints the secret. Pass the same query an object path:
@@ -129,7 +129,7 @@ Eight threads were no faster than four on this query.
 
 Spilling runs depend on host load and disk speed. A repeat 512MB run under a load average near 15 took 22 seconds. Its digest and memory were unchanged.
 
-The MinIO runs used a disposable local MinIO container with the pinned Atlas `MINIO_IMAGE`. They returned the same digest:
+The Silo runs used a disposable local Silo container with the pinned Atlas `SILO_IMAGE`. They returned the same digest:
 
 | `--memory-limit` | Query time | Peak resident memory | Peak spill |
 |---|---|---|---|

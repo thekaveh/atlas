@@ -75,6 +75,11 @@ _FAKE_DOCKER_SOURCE = (
     "    [[ \"${args[$i]}\" != --detach ]] || detached=true\n"
     "    [[ \"${args[$i]}\" != --rm ]] || auto_remove=true\n"
     "  done\n"
+    "  for ((i=0; i<${#args[@]}; i++)); do\n"
+    "    [[ \"${args[$i]}\" = --env-file ]] || continue\n"
+    "    cp \"${args[$((i+1))]}\" \"$(resource_file envfile \"$name\")\"\n"
+    "    if [[ -n \"$(find \"${args[$((i+1))]}\" -perm 600)\" ]]; then printf '600' > \"$(resource_file envmode \"$name\")\"; fi\n"
+    "  done\n"
     "  if [[ -n \"$name\" ]]; then\n"
     "    token=\"$ATLAS_S3A_OWNER_TOKEN\"\n"
     "    if [[ \"${FAKE_DOCKER_COLLISION:-}\" = \"$name\" ]]; then token=foreign; fi\n"
@@ -221,12 +226,12 @@ def test_airflow_compose_exposes_lakehouse_spark_submit_environment() -> None:
         "SPARK_MASTER_URL": "spark://spark-master:7077",
         "ATLAS_LAKEHOUSE_SPARK_DEPLOY_MODE": "cluster",
         "ATLAS_LAKEHOUSE_SMOKE_JAR_PATH": "/opt/airflow/atlas-jars/atlas-lakehouse-smoke.jar",
-        "MINIO_ENDPOINT": "http://minio:9000",
-        "MINIO_BUCKET_ICEBERG_JARS": "${MINIO_BUCKET_ICEBERG_JARS:-jars}",
-        "MINIO_BUCKET_ICEBERG_LANDING": "${MINIO_BUCKET_ICEBERG_LANDING:-landing}",
-        "MINIO_BUCKET_ICEBERG_LAKEHOUSE": "${MINIO_BUCKET_ICEBERG_LAKEHOUSE:-lakehouse}",
-        "MINIO_ICEBERG_ACCESS_KEY": "${MINIO_ICEBERG_ACCESS_KEY}",
-        "MINIO_ICEBERG_SECRET_KEY": "${MINIO_ICEBERG_SECRET_KEY}",
+        "SILO_ENDPOINT": "http://silo:9000",
+        "SILO_BUCKET_ICEBERG_JARS": "${SILO_BUCKET_ICEBERG_JARS:-jars}",
+        "SILO_BUCKET_ICEBERG_LANDING": "${SILO_BUCKET_ICEBERG_LANDING:-landing}",
+        "SILO_BUCKET_ICEBERG_LAKEHOUSE": "${SILO_BUCKET_ICEBERG_LAKEHOUSE:-lakehouse}",
+        "SILO_ICEBERG_ACCESS_KEY": "${SILO_ICEBERG_ACCESS_KEY}",
+        "SILO_ICEBERG_SECRET_KEY": "${SILO_ICEBERG_SECRET_KEY}",
         "ICEBERG_REST_URI": "http://iceberg-rest:8181",
     }
 
@@ -245,7 +250,7 @@ def test_airflow_init_seeds_spark_default_for_cluster_spark_submit() -> None:
 
     # Every source-gated Connection is in the cleanup pass, which skips a
     # localhost source (that Connection is the operator's).
-    for conn in ("spark_default", "minio_default", "weaviate_default", "neo4j_default"):
+    for conn in ("spark_default", "silo_default", "weaviate_default", "neo4j_default"):
         assert f'"{conn}:${{' in body, conn
     assert "*localhost*)" in body and 'seeded_host "$conn"' in body  # keeps operator-made ones
     assert "--conn-type spark" in body
@@ -275,8 +280,8 @@ def test_airflow_manifest_declares_lakehouse_spark_submit_topology() -> None:
         "disabled",
     }
     assert "airflow" in data_eng["services"]
-    assert {"spark", "minio", "iceberg-rest"} <= set(manifest["depends_on"]["optional"])
-    assert {"spark", "minio", "iceberg-rest"} <= _call_targets(manifest)
+    assert {"spark", "silo", "iceberg-rest"} <= set(manifest["depends_on"]["optional"])
+    assert {"spark", "silo", "iceberg-rest"} <= _call_targets(manifest)
     assert "SparkSubmit" in manifest["rows"][0]["description"]
 
 
@@ -299,11 +304,11 @@ def test_spark_master_keeps_backend_only_rest_submission_api_enabled() -> None:
         "the SparkSubmitOperator's post-submit poll via the :7077 RPC connection is a benign "
         "false-negative once the submit has reported success."
     )
-    # The scoped Spark account (minio-init consumer `spark`) covers every
+    # The scoped Spark account (silo-init consumer `spark`) covers every
     # bucket Spark touches; root never reaches code-executing workers.
-    assert worker_env["AWS_ACCESS_KEY_ID"] == "${MINIO_SPARK_ACCESS_KEY}"
-    assert worker_env["AWS_SECRET_ACCESS_KEY"] == "${MINIO_SPARK_SECRET_KEY}"
-    assert worker_env["AWS_ENDPOINT_URL_S3"] == "http://minio:9000"
+    assert worker_env["AWS_ACCESS_KEY_ID"] == "${SILO_SPARK_ACCESS_KEY}"
+    assert worker_env["AWS_SECRET_ACCESS_KEY"] == "${SILO_SPARK_SECRET_KEY}"
+    assert worker_env["AWS_ENDPOINT_URL_S3"] == "http://silo:9000"
     assert "HADOOP_CONF_DIR=/tmp/atlas-spark-hadoop-conf" in worker_command
     assert "fs.s3a.path.style.access" in worker_command
     assert "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider" in worker_command
@@ -365,9 +370,9 @@ def _run_spark_worker_fixture(tmp_path, supplied):
 ])
 def test_spark_worker_hadoop_xml_preserves_literal_configuration(tmp_path, value) -> None:
     supplied = {
-        "MINIO_SPARK_ACCESS_KEY": "access-" + value,
-        "MINIO_SPARK_SECRET_KEY": "secret-" + value,
-        "MINIO_REGION": "region-" + value,
+        "SILO_SPARK_ACCESS_KEY": "access-" + value,
+        "SILO_SPARK_SECRET_KEY": "secret-" + value,
+        "SILO_REGION": "region-" + value,
         "SPARK_KAFKA_BOOTSTRAP_SERVERS": "",
     }
     result, config_dir, receipt_path = _run_spark_worker_fixture(tmp_path, supplied)
@@ -377,21 +382,21 @@ def test_spark_worker_hadoop_xml_preserves_literal_configuration(tmp_path, value
         for entry in ET.parse(config_dir / "core-site.xml").getroot()
     ]
     assert properties == [
-        ("fs.s3a.endpoint", "http://minio:9000"),
-        ("fs.s3a.endpoint.region", supplied["MINIO_REGION"]),
+        ("fs.s3a.endpoint", "http://silo:9000"),
+        ("fs.s3a.endpoint.region", supplied["SILO_REGION"]),
         ("fs.s3a.path.style.access", "true"),
         ("fs.s3a.connection.ssl.enabled", "false"),
         ("fs.s3a.aws.credentials.provider", "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider"),
-        ("fs.s3a.access.key", supplied["MINIO_SPARK_ACCESS_KEY"]),
-        ("fs.s3a.secret.key", supplied["MINIO_SPARK_SECRET_KEY"]),
+        ("fs.s3a.access.key", supplied["SILO_SPARK_ACCESS_KEY"]),
+        ("fs.s3a.secret.key", supplied["SILO_SPARK_SECRET_KEY"]),
     ]
     receipt = json.loads(receipt_path.read_text())
     assert receipt == {
         "argv": ["org.apache.spark.deploy.worker.Worker", "spark://spark-master:7077", "--webui-port", "8081"],
         "env": {
-            "AWS_ACCESS_KEY_ID": supplied["MINIO_SPARK_ACCESS_KEY"],
-            "AWS_SECRET_ACCESS_KEY": supplied["MINIO_SPARK_SECRET_KEY"],
-            "AWS_REGION": supplied["MINIO_REGION"],
+            "AWS_ACCESS_KEY_ID": supplied["SILO_SPARK_ACCESS_KEY"],
+            "AWS_SECRET_ACCESS_KEY": supplied["SILO_SPARK_SECRET_KEY"],
+            "AWS_REGION": supplied["SILO_REGION"],
         },
         "mode": 0o640,
         "umask": 0o027,
@@ -414,7 +419,7 @@ def _run_spark_init_fixture(tmp_path, supplied, alias_status=0):
         "with open(os.environ['MC_RECEIPT'], 'a') as output:\n"
         "    output.write(json.dumps([sys.argv[1:], stdin]) + '\\n')\n"
         "if alias:\n"
-        "    print('Enter Access Key: Enter Secret Key: Added `minio` successfully.')\n"
+        "    print('Enter Access Key: Enter Secret Key: Added `silo` successfully.')\n"
         "    sys.exit(int(os.environ['MC_ALIAS_STATUS']))\n",
         encoding="utf-8",
     )
@@ -436,26 +441,26 @@ def _run_spark_init_fixture(tmp_path, supplied, alias_status=0):
 def test_spark_init_passes_root_credentials_through_environment() -> None:
     init = _yaml(SPARK_DIR / "compose.yml")["services"]["spark-init"]
     assert init.get("environment") == {
-        "MINIO_ROOT_USER": "${MINIO_ROOT_USER}",
-        "MINIO_ROOT_PASSWORD": "${MINIO_ROOT_PASSWORD}",
+        "SILO_ROOT_USER": "${SILO_ROOT_USER}",
+        "SILO_ROOT_PASSWORD": "${SILO_ROOT_PASSWORD}",
     }
 
 
-@pytest.mark.parametrize("credential", ["MINIO_ROOT_USER", "MINIO_ROOT_PASSWORD"])
+@pytest.mark.parametrize("credential", ["SILO_ROOT_USER", "SILO_ROOT_PASSWORD"])
 @pytest.mark.parametrize("value", [
     "synthetic-value-123", "synthetic space#hash", "synthetic'quote",
     'synthetic"quote', r"synthetic\\backslash", "synthetic$HOME", "",
 ])
 def test_spark_init_preserves_literal_credentials(tmp_path, credential, value) -> None:
-    supplied = {"MINIO_ROOT_USER": "synthetic-user", "MINIO_ROOT_PASSWORD": "synthetic-password"}
+    supplied = {"SILO_ROOT_USER": "synthetic-user", "SILO_ROOT_PASSWORD": "synthetic-password"}
     supplied[credential] = value
     result, calls = _run_spark_init_fixture(tmp_path, supplied)
     assert result.returncode == 0, result.stderr
     # Keys reach mc on stdin only; argv is world-readable in /proc.
     assert calls == [
-        [["alias", "set", "minio", "http://minio:9000"],
-         f"{supplied['MINIO_ROOT_USER']}\n{supplied['MINIO_ROOT_PASSWORD']}\n"],
-        [["mb", "--ignore-existing", "minio/spark-history"], None],
+        [["alias", "set", "silo", "http://silo:9000"],
+         f"{supplied['SILO_ROOT_USER']}\n{supplied['SILO_ROOT_PASSWORD']}\n"],
+        [["mb", "--ignore-existing", "silo/spark-history"], None],
     ]
     assert result.stdout == "spark-init: spark-history bucket ready\n"
     assert result.stderr == ""
@@ -463,24 +468,24 @@ def test_spark_init_preserves_literal_credentials(tmp_path, credential, value) -
 
 @pytest.mark.parametrize("bucket", [None, "", "spark-history", "synthetic-history"])
 def test_spark_init_preserves_bucket_default_and_selection(tmp_path, bucket) -> None:
-    supplied = {"MINIO_ROOT_USER": "synthetic-user", "MINIO_ROOT_PASSWORD": "synthetic-password"}
+    supplied = {"SILO_ROOT_USER": "synthetic-user", "SILO_ROOT_PASSWORD": "synthetic-password"}
     if bucket is not None:
-        supplied["MINIO_BUCKET_SPARK_HISTORY"] = bucket
+        supplied["SILO_BUCKET_SPARK_HISTORY"] = bucket
     result, calls = _run_spark_init_fixture(tmp_path, supplied)
     assert result.returncode == 0, result.stderr
     assert calls == [
-        [["alias", "set", "minio", "http://minio:9000"], "synthetic-user\nsynthetic-password\n"],
-        [["mb", "--ignore-existing", "minio/" + (bucket or "spark-history")], None],
+        [["alias", "set", "silo", "http://silo:9000"], "synthetic-user\nsynthetic-password\n"],
+        [["mb", "--ignore-existing", "silo/" + (bucket or "spark-history")], None],
     ]
     assert result.stdout == "spark-init: spark-history bucket ready\n"
     assert result.stderr == ""
 
 
 def test_spark_init_alias_failure_stops_before_bucket_and_success(tmp_path) -> None:
-    supplied = {"MINIO_ROOT_USER": "synthetic-user", "MINIO_ROOT_PASSWORD": "synthetic-password"}
+    supplied = {"SILO_ROOT_USER": "synthetic-user", "SILO_ROOT_PASSWORD": "synthetic-password"}
     result, calls = _run_spark_init_fixture(tmp_path, supplied, alias_status=42)
     assert result.returncode == 42
-    assert calls == [[["alias", "set", "minio", "http://minio:9000"], "synthetic-user\nsynthetic-password\n"]]
+    assert calls == [[["alias", "set", "silo", "http://silo:9000"], "synthetic-user\nsynthetic-password\n"]]
     assert result.stdout == ""
     assert result.stderr == ""
 
@@ -511,10 +516,10 @@ def test_lakehouse_spark_submit_smoke_dag_prepares_assets_and_submits_s3a_jar() 
     assert "ATLAS_LAKEHOUSE_SMOKE_JAR_PATH" in body
     assert "java_class=LAKEHOUSE_SMOKE_CLASS" in body
     assert "deploy_mode=DEPLOY_MODE" in body
-    assert 'os.environ.get("MINIO_SPARK_ACCESS_KEY", "")' in body
-    assert '"MINIO_ICEBERG_ACCESS_KEY", ""' in body
+    assert 'os.environ.get("SILO_SPARK_ACCESS_KEY", "")' in body
+    assert '"SILO_ICEBERG_ACCESS_KEY", ""' in body
     # Event logs go to the configurable history bucket, not a literal.
-    assert 'os.environ.get("MINIO_BUCKET_SPARK_HISTORY", "spark-history")' in body
+    assert 'os.environ.get("SILO_BUCKET_SPARK_HISTORY", "spark-history")' in body
     assert '"s3a://spark-history/"' not in body
     for expected in [
         "spark.eventLog.enabled",
@@ -556,17 +561,17 @@ def test_airflow_docs_describe_task_sdk_connection_context_boundary() -> None:
         "outside a task execution context",
         "AirflowNotFoundException",
         "BaseHook.get_connection",
-        'S3Hook(aws_conn_id="minio_default")',
+        'S3Hook(aws_conn_id="silo_default")',
         "airflow.settings.Session",
         "airflow.models.Connection",
-        "minio_default",
+        "silo_default",
         "spark_default",
         "DAG tasks should keep using hooks/operators",
     ):
         assert expected in readme
 
 
-def test_required_ci_runs_a_real_spark_minio_s3a_round_trip() -> None:
+def test_required_ci_runs_a_real_spark_silo_s3a_round_trip() -> None:
     workflow = (ROOT / ".github/workflows/services-lint.yml").read_text(
         encoding="utf-8"
     )
@@ -590,7 +595,7 @@ def test_required_ci_runs_a_real_spark_minio_s3a_round_trip() -> None:
         for fragment in (
             "pgsty/silo:",
             "pgsty/mc:",
-            "spark.hadoop.fs.s3a.endpoint=http://minio:9000",
+            "spark.hadoop.fs.s3a.endpoint=http://silo:9000",
             "/opt/spark/bin/spark-submit",
             "ATLAS_S3A_SMOKE_TIMEOUT_SECONDS",
             "scripts/bounded_subprocess.py",
@@ -600,9 +605,12 @@ def test_required_ci_runs_a_real_spark_minio_s3a_round_trip() -> None:
             'owner_label="com.atlas.s3a-smoke-token"',
             '--label "${owner_label}=${owner_token}"',
             '--name "$probe"',
+            '--env-file "$server_env_file"',
+            '--env-file "$client_env_file"',
         )
     )
     assert "handshake_deadline=$((SECONDS" not in smoke
+    assert "--env " not in smoke
     assert all(
         fragment in probe
         for fragment in (
@@ -655,7 +663,7 @@ def test_s3a_smoke_bounds_docker_hangs_and_cleans_owned_resources(
             resource in calls
             for resource in (
                 "atlas-s3a-mc-",
-                "atlas-s3a-minio-",
+                "atlas-s3a-silo-",
                 "network inspect --format",
             )
         )
@@ -684,6 +692,117 @@ def test_s3a_smoke_never_removes_foreign_network_collision(tmp_path: Path) -> No
     assert "network rm atlas-s3a-smoke-" not in calls
     foreign = next((tmp_path / "docker-state").glob("network-atlas-s3a-smoke-*"))
     assert foreign.read_text(encoding="utf-8") == "foreign"
+
+
+def _smoke_credentials() -> tuple[str, str]:
+    """The S3A smoke's own access and secret keys, read from the script."""
+    smoke = S3A_SMOKE.read_text(encoding="utf-8")
+    access = re.search(r'^access_key="([^"]+)"', smoke, re.MULTILINE)
+    secret = re.search(r'^secret_key="([^"]+)"', smoke, re.MULTILINE)
+    assert access and secret, "S3A smoke no longer declares its test credentials"
+    return access.group(1), secret.group(1)
+
+
+def _docker_run_line(lines: list[str], container_prefix: str) -> str:
+    runs = [
+        line
+        for line in lines
+        if line.startswith("run ") and f"--name {container_prefix}" in line
+    ]
+    assert len(runs) == 1, runs
+    return runs[0]
+
+
+def _env_file_path(run_line: str) -> Path:
+    match = re.search(r"--env-file (\S+)", run_line)
+    assert match, run_line
+    return Path(match.group(1))
+
+
+def _run_s3a_smoke(env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [str(S3A_SMOKE), "atlas-test-spark:latest"],
+        cwd=ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=_S3A_HANG_BOUND_SECONDS,
+        check=False,
+    )
+
+
+def _assert_env_file_container(
+    lines: list[str], state: Path, prefix: str, variables: list[str]
+) -> None:
+    run_line = _docker_run_line(lines, prefix)
+    name = re.search(r"--name (\S+)", run_line).group(1)
+    assert "--env-file " in run_line
+    assert "--env " not in run_line
+    assert (state / f"envmode-{name}").read_text(encoding="utf-8") == "600"
+    received = (state / f"envfile-{name}").read_text(encoding="utf-8")
+    assert received.splitlines() == variables
+    assert not _env_file_path(run_line).exists()
+
+
+def _assert_no_secret_outside_spark_argv(lines: list[str], access: str, secret: str) -> None:
+    # The Spark round trip still passes its S3A keys as --conf argv; the strict
+    # xfail below pins that gap. Every other recorded docker argv must be clean.
+    for line in lines:
+        if "spark-submit" not in line:
+            assert access not in line, line
+            assert secret not in line, line
+
+
+def test_s3a_smoke_passes_secrets_by_env_file_not_argv(tmp_path: Path) -> None:
+    access, secret = _smoke_credentials()
+    env, log = _fake_docker_environment(tmp_path, "none")
+
+    result = _run_s3a_smoke(env)
+
+    assert result.returncode == 0, result.stderr
+    lines = log.read_text(encoding="utf-8").splitlines()
+    state = tmp_path / "docker-state"
+    # Each container still receives exactly the variables it received before.
+    expected_env = {
+        # The Silo server container reads its own MINIO_ROOT_* names.
+        "atlas-s3a-silo-": [f"MINIO_ROOT_USER={access}", f"MINIO_ROOT_PASSWORD={secret}"],
+        "atlas-s3a-mc-": [f"MC_HOST_atlas=http://{access}:{secret}@silo:9000"],
+    }
+    for prefix, variables in expected_env.items():
+        _assert_env_file_container(lines, state, prefix, variables)
+
+    _assert_no_secret_outside_spark_argv(lines, access, secret)
+
+
+def test_s3a_smoke_removes_secret_env_files_when_cleanup_fails(tmp_path: Path) -> None:
+    env, log = _fake_docker_environment(tmp_path, "none")
+    env["FAKE_DOCKER_CLEANUP_FAIL"] = "1"
+
+    result = _run_s3a_smoke(env)
+
+    assert result.returncode != 0
+    assert "S3A smoke cleanup could not be proven" in result.stderr
+    lines = log.read_text(encoding="utf-8").splitlines()
+    for prefix in ("atlas-s3a-silo-", "atlas-s3a-mc-"):
+        assert not _env_file_path(_docker_run_line(lines, prefix)).exists()
+
+
+@pytest.mark.xfail(
+    strict=True,
+    raises=AssertionError,
+    reason="spark-submit --conf still passes the S3A keys in docker argv",
+)
+def test_s3a_spark_round_trip_keeps_secrets_out_of_argv(tmp_path: Path) -> None:
+    access, secret = _smoke_credentials()
+    env, log = _fake_docker_environment(tmp_path, "none")
+
+    result = _run_s3a_smoke(env)
+
+    assert result.returncode == 0, result.stderr
+    lines = log.read_text(encoding="utf-8").splitlines()
+    (spark_run,) = [line for line in lines if "spark-submit" in line]
+    assert access not in spark_run
+    assert secret not in spark_run
 
 
 def test_s3a_probe_reconciles_beyond_short_command_timeout(tmp_path: Path) -> None:
@@ -838,7 +957,7 @@ def test_s3a_smoke_forwards_signals_then_cleans_owned_resources(
             for resource in (
                 "atlas-s3a-spark-",
                 "atlas-s3a-mc-",
-                "atlas-s3a-minio-",
+                "atlas-s3a-silo-",
                 "network inspect --format",
             )
         )
@@ -929,7 +1048,7 @@ def test_s3a_smoke_preserves_signal_status_and_retries_interrupted_cleanup(
     calls = log.read_text(encoding="utf-8")
     assert _signals_sent(env) == ["TERM"]
     assert process.returncode == 143
-    assert calls.count("rm -f atlas-s3a-minio-") >= 2
+    assert calls.count("rm -f atlas-s3a-silo-") >= 2
     assert "network rm atlas-s3a-smoke-" in calls
 
 

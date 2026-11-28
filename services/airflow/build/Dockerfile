@@ -25,7 +25,7 @@ USER airflow
 
 # Providers needed for the cross-stack integrations declared in the spec
 # §5.3. apache-spark for SparkSubmitOperator; amazon for S3Hook (works
-# with MinIO via endpoint override); openai for LiteLLM integration;
+# with Silo via endpoint override); openai for LiteLLM integration;
 # weaviate + neo4j + postgres + redis for the per-DB Connections seeded
 # by airflow-init; fab for the auth backend; common-sql for the sample
 # DAG's SQLExecuteQueryOperator. (LangChain runs via PythonOperator +

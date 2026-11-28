@@ -45,18 +45,18 @@ def resolve_params(params: BakeParams) -> ResolvedParams:
     )
 
 
-class MinioInput(BaseModel):
+class SiloInput(BaseModel):
     bucket: str = Field(min_length=1)
     key: str = Field(min_length=1)
 
 
 class RefBakeRequest(BaseModel):
-    input: MinioInput
+    input: SiloInput
     params: BakeParams = Field(default_factory=BakeParams)
 
 
 class ArtifactRef(BaseModel):
-    storage: Literal["local", "minio"]
+    storage: Literal["local", "silo"]
     key: str
     content_type: str = GLB_CONTENT_TYPE
     bucket: str | None = None

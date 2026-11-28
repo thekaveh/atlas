@@ -50,12 +50,12 @@ def test_zeppelin_manifest_declares_lakehouse_init_family() -> None:
     assert manifest["data_flow"]["calls"] == [
         "spark",
         "supabase",
-        "minio",
+        "silo",
         "iceberg-rest",
         {
             "target": "redpanda",
             "status": "optional",
-            "condition": "Kafka jars not bundled (#1376); Atlas passes only SPARK_KAFKA_BOOTSTRAP_SERVERS",
+            "condition": "Kafka connector baked into the Spark runtime (#1376); Atlas passes only SPARK_KAFKA_BOOTSTRAP_SERVERS",
             "evidence": "services/zeppelin/compose.yml",
         },
         "trino",
@@ -98,7 +98,7 @@ def test_zeppelin_compose_builds_spark_enabled_image_and_init_companion() -> Non
     assert "spark.sql.catalog.lakehouse.uri=http://iceberg-rest:8181" in zeppelin[
         "environment"
     ]["SPARK_SUBMIT_OPTIONS"]
-    assert "MINIO_ICEBERG_ACCESS_KEY" in zeppelin["environment"]
+    assert "SILO_ICEBERG_ACCESS_KEY" in zeppelin["environment"]
     assert zeppelin["environment"]["TRINO_SOURCE"] == "${TRINO_SOURCE:-disabled}"
     assert zeppelin["environment"]["TRINO_JDBC_URL"] == "jdbc:trino://trino:8080/lakehouse"
     assert zeppelin["environment"]["TRINO_JDBC_DRIVER"] == "io.trino.jdbc.TrinoDriver"
@@ -108,7 +108,7 @@ def test_zeppelin_compose_builds_spark_enabled_image_and_init_companion() -> Non
     assert init["deploy"]["replicas"] == "${ZEPPELIN_INIT_SCALE:-0}"
     assert init["depends_on"]["zeppelin"]["condition"] == "service_healthy"
     assert init["depends_on"]["spark-init"]["condition"] == "service_completed_successfully"
-    assert init["depends_on"]["minio-init"]["condition"] == "service_completed_successfully"
+    assert init["depends_on"]["silo-init"]["condition"] == "service_completed_successfully"
     assert init["environment"]["TRINO_SOURCE"] == "${TRINO_SOURCE:-disabled}"
     assert init["environment"]["TRINO_ENDPOINT"] == "http://trino:8080"
     assert init["environment"]["TRINO_JDBC_URL"] == "jdbc:trino://trino:8080/lakehouse"
@@ -141,15 +141,15 @@ def test_zeppelin_seed_properties_are_standalone_spark_not_connect() -> None:
             "SPARK_HOME": "/opt/spark",
             "JAVA_HOME": "/opt/java/openjdk",
             "SPARK_MASTER": "spark://spark-master:7077",
-            "MINIO_ENDPOINT": "http://minio:9000",
-            "MINIO_REGION": "us-east-1",
-            "MINIO_BUCKET_SPARK_HISTORY": "spark-history",
-            "MINIO_SPARK_ACCESS_KEY": "spark-user",
-            "MINIO_SPARK_SECRET_KEY": "spark-password",
-            "MINIO_ICEBERG_ACCESS_KEY": "iceberg-user",
-            "MINIO_ICEBERG_SECRET_KEY": "iceberg-password",
+            "SILO_ENDPOINT": "http://silo:9000",
+            "SILO_REGION": "us-east-1",
+            "SILO_BUCKET_SPARK_HISTORY": "spark-history",
+            "SILO_SPARK_ACCESS_KEY": "spark-user",
+            "SILO_SPARK_SECRET_KEY": "spark-password",
+            "SILO_ICEBERG_ACCESS_KEY": "iceberg-user",
+            "SILO_ICEBERG_SECRET_KEY": "iceberg-password",
             "ICEBERG_REST_URI": "http://iceberg-rest:8181",
-            "MINIO_BUCKET_ICEBERG_LAKEHOUSE": "lakehouse",
+            "SILO_BUCKET_ICEBERG_LAKEHOUSE": "lakehouse",
         }
     )
 
@@ -160,7 +160,7 @@ def test_zeppelin_seed_properties_are_standalone_spark_not_connect() -> None:
     assert props["spark.submit.deployMode"] == "client"
     assert props["spark.driver.bindAddress"] == "0.0.0.0"
     assert props["spark.driver.host"] == "zeppelin"
-    assert props["spark.hadoop.fs.s3a.endpoint"] == "http://minio:9000"
+    assert props["spark.hadoop.fs.s3a.endpoint"] == "http://silo:9000"
     # The secrets are not properties any more: spark-submit prints them (#1884).
     assert props["spark.hadoop.fs.s3a.aws.credentials.provider"] == (
         "software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider")

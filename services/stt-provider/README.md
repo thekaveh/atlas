@@ -337,19 +337,19 @@ _No upstream calls._
 <a id="94-future-missing-pair-integrations"></a>
 <a id="94-future--missing-pair-integrations"></a>
 
-- **stt-provider ↔ minio** — *Why:* transcripts vanish with the HTTP response — nothing persists source audio or transcript JSON. Pushing both to MinIO gives every service a stable URL and enables re-transcription on engine swap. *Mechanism:* new `stt-transcripts` bucket provisioned by `minio-init`; post-transcribe hook puts `s3://stt-transcripts/<sha256>.wav` plus sidecar `.json` via S3 SigV4 over `http://minio:9000`. *Effort:* small. *Confidence:* high.
+- **stt-provider ↔ silo** — *Why:* transcripts vanish with the HTTP response — nothing persists source audio or transcript JSON. Pushing both to Silo gives every service a stable URL and enables re-transcription on engine swap. *Mechanism:* new `stt-transcripts` bucket provisioned by `silo-init`; post-transcribe hook puts `s3://stt-transcripts/<sha256>.wav` plus sidecar `.json` via S3 SigV4 over `http://silo:9000`. *Effort:* small. *Confidence:* high.
 - **stt-provider ↔ weaviate** — *Why:* indexing durable transcripts turns long-form audio (meetings, podcasts, voice notes) into a semantically searchable corpus alongside the docling pipeline. *Mechanism:* `Transcript` class with `text`, `start_ms`, `end_ms`, `source_audio_uri`, vectorized by the active `text2vec-openai` module via `http://weaviate:8080/v1/objects`. *Effort:* medium. *Confidence:* medium.
 - **stt-provider ↔ redis** — *Why:* transcription is expensive and deterministic in `(audio-sha256, model, language)`. A cache cuts repeat cost to ~zero for n8n loops, re-runs, demos. *Mechanism:* a Redis database index that no other consumer uses ([Redis README](../redis/README.md)), with key `stt:{sha256}:{model}:{lang}` → transcript JSON, TTL 30d. A backend wrapper or a Kong plugin in front of `STT_ENDPOINT` does the lookup. *Effort:* small. *Confidence:* medium.
 - **stt-provider ↔ doc-processor** — *Why:* docling parses PDFs/Office docs but does not handle audio. Composing `stt → docling` gives a unified "any media → markdown" ingest. *Mechanism:* caller hits `STT_ENDPOINT`, then POSTs transcript text to `${DOCLING_ENDPOINT}/v1/document/convert` as `text/plain`. No new service. *Effort:* small. *Confidence:* medium.
 - **stt-provider ↔ openclaw** — *Why:* Telegram/WhatsApp/Discord deliver voice notes as audio. OpenClaw's default text path uses LiteLLM. Atlas does not wire a direct Hermes bridge. *Mechanism:* Proposed OpenClaw middleware would POST incoming audio to `${STT_ENDPOINT}/v1/audio/transcriptions` (multipart), then forward the transcript to its configured LLM path. *Effort:* small. *Confidence:* medium.
-- **stt-provider ↔ supabase** — *Why:* transcript metadata (user, session, source URI, model, language, duration) belongs in a relational store. It gives open-webui and backend a "my transcripts" view keyed by Supabase JWT `sub`. *Mechanism:* `transcripts` table via PostgREST at `http://supabase-api:3000`, RLS on `auth.uid()`; post-transcribe hook writes rows pointing at MinIO URIs. *Effort:* medium. *Confidence:* medium.
+- **stt-provider ↔ supabase** — *Why:* transcript metadata (user, session, source URI, model, language, duration) belongs in a relational store. It gives open-webui and backend a "my transcripts" view keyed by Supabase JWT `sub`. *Mechanism:* `transcripts` table via PostgREST at `http://supabase-api:3000`, RLS on `auth.uid()`; post-transcribe hook writes rows pointing at Silo URIs. *Effort:* medium. *Confidence:* medium.
 
 ### 11.5. Future — Candidate new services
 
 <a id="95-future-candidate-new-services"></a>
 <a id="95-future--candidate-new-services"></a>
 
-- **WhisperX** ([details](../../docs/reference/candidate-decisions.md#candidate-whisperx)) — *Headline:* fourth STT engine adding speaker diarization and word-aligned timestamps behind the existing OpenAI shape. *Wires into:* backend, n8n, open-webui, hermes, openclaw, minio, weaviate.
+- **WhisperX** ([details](../../docs/reference/candidate-decisions.md#candidate-whisperx)) — *Headline:* fourth STT engine adding speaker diarization and word-aligned timestamps behind the existing OpenAI shape. *Wires into:* backend, n8n, open-webui, hermes, openclaw, silo, weaviate.
 
 ### 11.6. Future — Unused features in this service
 

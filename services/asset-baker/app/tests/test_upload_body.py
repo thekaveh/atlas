@@ -86,7 +86,7 @@ def status(messages):
 @pytest.fixture
 def setup(monkeypatch, tmp_path):
     monkeypatch.setenv(f"{PREFIX}_ARTIFACT_DIR", str(tmp_path))
-    monkeypatch.setenv(f"{PREFIX}_MINIO_ENABLED", "false")
+    monkeypatch.setenv(f"{PREFIX}_SILO_ENABLED", "false")
     monkeypatch.setenv(f"{PREFIX}_MAX_UPLOAD_MB", str(256 / 1048576))
     monkeypatch.setattr(api, "_MULTIPART_OVERHEAD_BYTES", 512, raising=False)
     calls = []

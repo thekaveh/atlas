@@ -20,7 +20,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = ROOT / "examples/duckdb-analytics"
-MINIO = {"AWS_ENDPOINT_URL_S3": "http://minio:9000", "AWS_ACCESS_KEY_ID": "reader",
+SILO = {"AWS_ENDPOINT_URL_S3": "http://silo:9000", "AWS_ACCESS_KEY_ID": "reader",
          "AWS_SECRET_ACCESS_KEY": "pa'ss"}
 
 
@@ -119,27 +119,27 @@ def test_lockdown_allows_only_named_paths_then_freezes(recipe):
     ]
 
 
-def test_s3_secret_uses_minio_environment(recipe):
-    sql = recipe.s3_secret_sql(MINIO)
-    assert "ENDPOINT 'minio:9000'" in sql and "USE_SSL false" in sql
+def test_s3_secret_uses_silo_environment(recipe):
+    sql = recipe.s3_secret_sql(SILO)
+    assert "ENDPOINT 'silo:9000'" in sql and "USE_SSL false" in sql
     assert "URL_STYLE 'path'" in sql and "REGION 'us-east-1'" in sql
     assert "SECRET 'pa''ss'" in sql and "KEY_ID 'reader'" in sql
-    secure = dict(MINIO, AWS_ENDPOINT_URL_S3="https://s3.example:443", AWS_REGION="eu-west-1")
+    secure = dict(SILO, AWS_ENDPOINT_URL_S3="https://s3.example:443", AWS_REGION="eu-west-1")
     assert "USE_SSL true" in recipe.s3_secret_sql(secure)
     assert "REGION 'eu-west-1'" in recipe.s3_secret_sql(secure)
-    hub = dict(MINIO, AWS_DEFAULT_REGION="ap-south-1")
+    hub = dict(SILO, AWS_DEFAULT_REGION="ap-south-1")
     assert "REGION 'ap-south-1'" in recipe.s3_secret_sql(hub)
 
 
 @pytest.mark.parametrize("changes, text", [
     ({"AWS_ENDPOINT_URL_S3": ""}, "set AWS_ENDPOINT_URL_S3"),
-    ({"AWS_ENDPOINT_URL_S3": "minio:9000"}, "http(s) URL"),
-    ({"AWS_ENDPOINT_URL_S3": "http://minio:9000/bucket"}, "must not carry"),
-    ({"AWS_ENDPOINT_URL_S3": "http://u:p@minio:9000"}, "must not carry"),
+    ({"AWS_ENDPOINT_URL_S3": "silo:9000"}, "http(s) URL"),
+    ({"AWS_ENDPOINT_URL_S3": "http://silo:9000/bucket"}, "must not carry"),
+    ({"AWS_ENDPOINT_URL_S3": "http://u:p@silo:9000"}, "must not carry"),
     ({"AWS_SECRET_ACCESS_KEY": ""}, "AWS_SECRET_ACCESS_KEY"),
 ])
 def test_s3_secret_rejects_incomplete_settings(recipe, changes, text):
-    _category(recipe, text, lambda: recipe.s3_secret_sql(dict(MINIO, **changes)))
+    _category(recipe, text, lambda: recipe.s3_secret_sql(dict(SILO, **changes)))
 
 
 @pytest.mark.parametrize("text, expected", [
@@ -243,7 +243,7 @@ def test_query_locks_engine_before_reading_and_checks_digest(recipe, tmp_path, m
 def test_object_query_loads_httpfs_and_redacts_secret_errors(recipe, tmp_path, monkeypatch):
     for name in ("AWS_ENDPOINT_URL", "AWS_REGION", "AWS_DEFAULT_REGION"):
         monkeypatch.delenv(name, raising=False)
-    for name, value in MINIO.items():
+    for name, value in SILO.items():
         monkeypatch.setenv(name, value)
     engine = FakeEngine(ROWS)
     monkeypatch.setitem(sys.modules, "duckdb", engine)

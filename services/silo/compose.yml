@@ -1,0 +1,116 @@
+# services/silo/compose.yml — Silo object storage + bucket init
+services:
+  silo:
+    image: ${SILO_IMAGE}
+    container_name: ${PROJECT_NAME}-silo
+    restart: unless-stopped
+    deploy:
+      replicas: ${SILO_SCALE:-1}
+    command: server /data --console-address ":9001"
+    # Left-hand keys below are Silo server names (the pgsty/silo container reads
+    # them); they stay MINIO_* on purpose. Right-hand values are the SILO_* Atlas
+    # variables. See docs/maintenance/external-contract-ledger.md section 45.
+    environment:
+      MINIO_ROOT_USER: ${SILO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${SILO_ROOT_PASSWORD}
+      MINIO_REGION: ${SILO_REGION}
+      MINIO_BROWSER_REDIRECT_URL: ${SILO_PUBLIC_CONSOLE_ENDPOINT}
+      # Prometheus metrics — `public` disables the JWT-bearer auth on
+      # /minio/v2/metrics/cluster so the observability bundle's Prometheus
+      # can scrape without managing a token. Scraped on the S3 API port
+      # (9000) — see services/prometheus/config/prometheus.yml.
+      MINIO_PROMETHEUS_AUTH_TYPE: 'public'
+    ports:
+      - "${HOST_BIND_IP-127.0.0.1:}${SILO_PORT}:9000"
+      - "${HOST_BIND_IP-127.0.0.1:}${SILO_CONSOLE_PORT}:9001"
+    volumes:
+      - silo-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "${LOG_MAX_SIZE:-10m}"
+        max-file: "${LOG_MAX_FILE:-3}"
+    networks:
+      backend-network:
+        aliases:
+          # DEPRECATED: pre-rename DNS name, kept for one release so existing
+          # http://minio:9000 references keep resolving. Remove in the release
+          # after 1.2 (see the CHANGELOG 1.2 BREAKING entry).
+          - minio
+
+  silo-init:
+    image: ${SILO_INIT_IMAGE}
+    container_name: ${PROJECT_NAME}-silo-init
+    restart: "no"
+    deploy:
+      replicas: ${SILO_INIT_SCALE:-1}
+    depends_on:
+      silo:
+        condition: service_healthy
+    environment:
+      SILO_ROOT_USER: ${SILO_ROOT_USER}
+      SILO_ROOT_PASSWORD: ${SILO_ROOT_PASSWORD}
+      SILO_EXTRA_CONSUMERS: ${SILO_EXTRA_CONSUMERS:-}
+      SILO_BUCKET_ASSET_INPUTS: ${SILO_BUCKET_ASSET_INPUTS}
+      SILO_ASSET_INGEST_ACCESS_KEY: ${SILO_ASSET_INGEST_ACCESS_KEY}
+      SILO_ASSET_INGEST_SECRET_KEY: ${SILO_ASSET_INGEST_SECRET_KEY}
+      ASSET_WORKER_SILO_BUCKET: ${ASSET_WORKER_SILO_BUCKET}
+      SILO_ASSET_WORKER_ACCESS_KEY: ${SILO_ASSET_WORKER_ACCESS_KEY}
+      SILO_ASSET_WORKER_SECRET_KEY: ${SILO_ASSET_WORKER_SECRET_KEY}
+      ASSET_BAKER_SILO_BUCKET: ${ASSET_BAKER_SILO_BUCKET}
+      SILO_ASSET_BAKER_ACCESS_KEY: ${SILO_ASSET_BAKER_ACCESS_KEY}
+      SILO_ASSET_BAKER_SECRET_KEY: ${SILO_ASSET_BAKER_SECRET_KEY}
+      SILO_BUCKET_COMFYUI: ${SILO_BUCKET_COMFYUI}
+      SILO_COMFYUI_ACCESS_KEY: ${SILO_COMFYUI_ACCESS_KEY}
+      SILO_COMFYUI_SECRET_KEY: ${SILO_COMFYUI_SECRET_KEY}
+      SILO_BUCKET_BACKEND: ${SILO_BUCKET_BACKEND}
+      SILO_BACKEND_ACCESS_KEY: ${SILO_BACKEND_ACCESS_KEY}
+      SILO_BACKEND_SECRET_KEY: ${SILO_BACKEND_SECRET_KEY}
+      SILO_BUCKET_N8N: ${SILO_BUCKET_N8N}
+      SILO_N8N_ACCESS_KEY: ${SILO_N8N_ACCESS_KEY}
+      SILO_N8N_SECRET_KEY: ${SILO_N8N_SECRET_KEY}
+      SILO_BUCKET_JUPYTER: ${SILO_BUCKET_JUPYTER}
+      SILO_JUPYTER_ACCESS_KEY: ${SILO_JUPYTER_ACCESS_KEY}
+      SILO_JUPYTER_SECRET_KEY: ${SILO_JUPYTER_SECRET_KEY}
+      SILO_BUCKET_SPARK_HISTORY: ${SILO_BUCKET_SPARK_HISTORY}
+      SILO_SPARK_ACCESS_KEY: ${SILO_SPARK_ACCESS_KEY}
+      SILO_SPARK_SECRET_KEY: ${SILO_SPARK_SECRET_KEY}
+      SILO_BUCKET_DOCLING: ${SILO_BUCKET_DOCLING}
+      SILO_DOCLING_ACCESS_KEY: ${SILO_DOCLING_ACCESS_KEY}
+      SILO_DOCLING_SECRET_KEY: ${SILO_DOCLING_SECRET_KEY}
+      SILO_BUCKET_LANGFUSE: ${SILO_BUCKET_LANGFUSE}
+      SILO_LANGFUSE_ACCESS_KEY: ${SILO_LANGFUSE_ACCESS_KEY}
+      SILO_LANGFUSE_SECRET_KEY: ${SILO_LANGFUSE_SECRET_KEY}
+      SILO_BUCKET_MLFLOW: ${SILO_BUCKET_MLFLOW}
+      SILO_MLFLOW_ACCESS_KEY: ${SILO_MLFLOW_ACCESS_KEY}
+      SILO_MLFLOW_SECRET_KEY: ${SILO_MLFLOW_SECRET_KEY}
+      SILO_BUCKET_LABEL_STUDIO: ${SILO_BUCKET_LABEL_STUDIO}
+      SILO_LABEL_STUDIO_ACCESS_KEY: ${SILO_LABEL_STUDIO_ACCESS_KEY}
+      SILO_LABEL_STUDIO_SECRET_KEY: ${SILO_LABEL_STUDIO_SECRET_KEY}
+      SILO_BUCKET_ICEBERG_LAKEHOUSE: ${SILO_BUCKET_ICEBERG_LAKEHOUSE}
+      SILO_BUCKET_ICEBERG_JARS: ${SILO_BUCKET_ICEBERG_JARS}
+      SILO_BUCKET_ICEBERG_CHECKPOINTS: ${SILO_BUCKET_ICEBERG_CHECKPOINTS}
+      SILO_BUCKET_ICEBERG_LANDING: ${SILO_BUCKET_ICEBERG_LANDING}
+      SILO_ICEBERG_ACCESS_KEY: ${SILO_ICEBERG_ACCESS_KEY}
+      SILO_ICEBERG_SECRET_KEY: ${SILO_ICEBERG_SECRET_KEY}
+      SILO_JENKINS_ACCESS_KEY: ${SILO_JENKINS_ACCESS_KEY}
+      SILO_JENKINS_SECRET_KEY: ${SILO_JENKINS_SECRET_KEY}
+    volumes:
+      - ./init/scripts:/scripts:ro
+    entrypoint: ["/bin/sh", "/scripts/init-silo.sh"]
+    networks:
+      - backend-network
+
+volumes:
+  # The compose key is silo-data, but the physical Docker volume keeps its
+  # pre-rename name (${PROJECT_NAME}-minio-data) so existing object data is
+  # not orphaned by the rename. Do not change the name: line.
+  silo-data:
+    name: ${PROJECT_NAME}-minio-data
+    driver: local

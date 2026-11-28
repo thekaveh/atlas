@@ -25,7 +25,7 @@
   <img alt="Weaviate: vector" src="https://img.shields.io/badge/Weaviate-vector-262C30?logo=weaviate">
   <img alt="Neo4j: graph" src="https://img.shields.io/badge/Neo4j-graph-4581FF?logo=neo4j&logoColor=white">
   <img alt="Redis: cache" src="https://img.shields.io/badge/Redis-cache-DC382D?logo=redis&logoColor=white">
-  <img alt="MinIO: object" src="https://img.shields.io/badge/MinIO-object-C72E49?logo=minio">
+  <img alt="Silo: object" src="https://img.shields.io/badge/Silo-object-C72E49">
   <img alt="Ray: compute" src="https://img.shields.io/badge/Ray-compute-028CF0?logo=ray">
   <img alt="Spark: compute" src="https://img.shields.io/badge/Spark-compute-E25A1C?logo=apachespark&logoColor=white">
   <img alt="n8n: workflow" src="https://img.shields.io/badge/n8n-workflow-EA4B71?logo=n8n&logoColor=white">
@@ -66,7 +66,7 @@ Before you start, install:
 - `uv`, or Python 3.11 or newer.
 - Git.
 
-The wizard preselects the `gen-ai-rag` track: chat UI, workflow automation, vector and graph databases, private web search, and deep research on a CPU Ollama engine. The `all` track (the `.env.example` defaults) adds ComfyUI, JupyterHub, Hermes, MinIO, speech-to-text, text-to-speech, Speech Gate and CLIP. Measured setup time, memory and disk per track are not published yet; larger tracks need more of each.
+The wizard preselects the `gen-ai-rag` track: chat UI, workflow automation, vector and graph databases, private web search, and deep research on a CPU Ollama engine. The `all` track (the `.env.example` defaults) adds ComfyUI, JupyterHub, Hermes, Silo, speech-to-text, text-to-speech, Speech Gate and CLIP. Measured setup time, memory and disk per track are not published yet; larger tracks need more of each.
 
 Clone the repository and run `./start.sh` from the repository root (`atlas/`):
 
@@ -123,7 +123,7 @@ _Engine-only manifests (speaches, chatterbox) are not listed — they're selecte
 | Data | Supabase API | 63017 | — |
 | Data | Supabase Realtime | 63018 | — |
 | Data | Supabase Studio | — (Kong only) | supabase-studio.localhost |
-| Data | MinIO Console | 63021 | minio.localhost |
+| Data | Silo Console | 63021 | silo.localhost |
 | Data | Apache Iceberg REST Catalog | 63022 | — |
 | Data | Neo4j Graph DB | 63024 | graph.localhost |
 | Data | Redis | 63025 | — |

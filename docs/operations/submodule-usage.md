@@ -204,12 +204,12 @@ set_env PROJECT_NAME myproject
 set_env BRAND_NAME "My Project"
 set_env BRAND_TAGLINE "Project-owned Atlas infrastructure"
 set_env N8N_SOURCE container
-set_env MINIO_SOURCE container
+set_env SILO_SOURCE container
 
 "$ROOT/infra/start.sh" \
   --track gen-ai-rag \
   --n8n-source container \
-  --minio-source container
+  --silo-source container
 ```
 
 Do not use a `set_env_default` helper for project-critical source choices.
@@ -228,7 +228,7 @@ service that the track would prompt for.
 | Environment | Committed templates such as `atlas.env.user.example`, CI secret references, wrapper force-set values | Local `.env`, optional local `.env.user`, generated backfills |
 | Branding | `PROJECT_NAME`, `BRAND_*`, and project-specific start/stop scripts | Wizard/dashboard code that consumes those values |
 | Data and secrets | Secret names or references in the parent deployment system | Runtime volumes, generated credentials, local `.env` values |
-| Object storage extension | `MINIO_EXTRA_CONSUMERS` plus referenced parent-owned bucket/access/secret vars | Generic `minio-init` hook that provisions declared buckets and scoped service accounts |
+| Object storage extension | `SILO_EXTRA_CONSUMERS` plus referenced parent-owned bucket/access/secret vars | Generic `silo-init` hook that provisions declared buckets and scoped service accounts |
 | Database extension | Parent-reviewed SQL templates or migration source | Optional `services/supabase/db/_user/*.sql` execution slot |
 
 Validation checklist before committing a parent consumer update:
@@ -239,7 +239,7 @@ Validation checklist before committing a parent consumer update:
   does not track a moving branch.
 - `infra/services/_user/<name>/compose.yml` is a symlink or generated pointer to
   a parent-owned overlay.
-- Parent-owned buckets use `MINIO_EXTRA_CONSUMERS` in the overlay. The bucket,
+- Parent-owned buckets use `SILO_EXTRA_CONSUMERS` in the overlay. The bucket,
   access and secret variables live in `.env.user` or `ATLAS_ENV_USER_FILE`.
 - The wrapper force-sets project-critical `*_SOURCE`, `PROJECT_NAME` and
   `BRAND_*` values, or passes them as explicit CLI flags.
@@ -251,7 +251,7 @@ Validation checklist before committing a parent consumer update:
 The manifest covers this layout's project wiring: the force-set
 `PROJECT_NAME`/`BRAND_*` values, the `*_SOURCE` overrides, the
 `services/_user/<name>/compose.yml` overlay, backend plugin roots and
-`MINIO_EXTRA_CONSUMERS` buckets. The plugin mount itself stays in a
+`SILO_EXTRA_CONSUMERS` buckets. The plugin mount itself stays in a
 `compose_overlays` file. Move these declarations into the manifest
 before removing the symlink and `setup-overlay.sh`.
 

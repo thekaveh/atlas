@@ -1,7 +1,7 @@
 """Optional live smoke test for the consumer storage presign contract (#404).
 
 Skipped in generic CI. Opt in by exporting ``ATLAS_STORAGE_E2E=1`` against a
-running Atlas MinIO, providing a scoped service-account credential (NOT root):
+running Atlas Silo, providing a scoped service-account credential (NOT root):
 
     ATLAS_STORAGE_E2E=1 \\
     ATLAS_E2E_INTERNAL_ENDPOINT=http://localhost:63020 \\
@@ -26,7 +26,7 @@ from utils.s3_presign import presign_get_url
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("ATLAS_STORAGE_E2E") != "1",
-    reason="live MinIO smoke test — opt in with ATLAS_STORAGE_E2E=1",
+    reason="live Silo smoke test — opt in with ATLAS_STORAGE_E2E=1",
 )
 
 

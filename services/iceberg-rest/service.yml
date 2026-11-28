@@ -8,7 +8,7 @@ capabilities:
   - name: "Persistent Iceberg REST catalog"
     status: supported
     verification: tested
-    note: "Atlas layers the PostgreSQL JDBC driver into the catalog image and persists catalog metadata in Supabase with warehouse objects in MinIO."
+    note: "Atlas layers the PostgreSQL JDBC driver into the catalog image and persists catalog metadata in Supabase with warehouse objects in Silo."
   - name: "Advanced Iceberg table operations"
     status: partial
     verification: untested
@@ -16,7 +16,7 @@ capabilities:
   - name: "External catalog and warehouse sources"
     status: not-supported
     verification: documented
-    note: "The stock manifest supports only the in-stack container and requires Atlas Supabase plus MinIO rather than selectable external catalog or object-store modes."
+    note: "The stock manifest supports only the in-stack container and requires Atlas Supabase plus Silo rather than selectable external catalog or object-store modes."
   - name: "Authenticated Iceberg REST API access"
     status: not-supported
     verification: documented
@@ -40,13 +40,13 @@ sources:
   default: disabled
   options:
     - id: container
-      label: "Container (Iceberg REST + Supabase JDBC catalog + MinIO warehouse)"
+      label: "Container (Iceberg REST + Supabase JDBC catalog + Silo warehouse)"
     - id: disabled
       label: "Disabled"
 
 env:
   - name: ICEBERG_REST_SOURCE
-    description: "Deployment source for the Iceberg REST catalog: container or disabled. The container source requires MINIO_SOURCE to be enabled."
+    description: "Deployment source for the Iceberg REST catalog: container or disabled. The container source requires SILO_SOURCE to be enabled."
     default: disabled
   - name: ICEBERG_REST_PORT
     description: "Host port for the Iceberg REST Catalog API (in-container 8181)."
@@ -72,7 +72,7 @@ env:
 
 depends_on:
   required:
-    - minio
+    - silo
     - supabase
   optional: []
 
@@ -81,7 +81,7 @@ rows:
     source_var: ICEBERG_REST_SOURCE
     port_var: ICEBERG_REST_PORT
     scale_var: ICEBERG_REST_SCALE
-    description: "Internal REST catalog for durable Iceberg tables over MinIO."
+    description: "Internal REST catalog for durable Iceberg tables over Silo."
 
 exports: []
 
@@ -111,7 +111,7 @@ runtime_sc:
 
 data_flow:
   calls:
-    - minio
+    - silo
     - supabase
 
 # Support tier (#1050). Selectable is not validated: this family is `experimental`

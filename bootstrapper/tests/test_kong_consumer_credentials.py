@@ -357,8 +357,8 @@ def test_a_path_scoped_guard_to_the_same_upstream_is_not_a_conflict():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     config = {"services": [
-        {"url": "http://minio:9000/", "routes": [{"name": "s3-all", "hosts": ["s3.localhost"]}]},
-        {"url": "http://minio:9000/", "routes": [
+        {"url": "http://silo:9000/", "routes": [{"name": "s3-all", "hosts": ["s3.localhost"]}]},
+        {"url": "http://silo:9000/", "routes": [
             {"name": "s3-guard", "hosts": ["s3.localhost"], "paths": ["/minio/metrics"]}]},
     ]}
     assert module._conflicting_host_issues(config) == []

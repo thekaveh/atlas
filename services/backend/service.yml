@@ -80,13 +80,13 @@ env:
     description: "End-to-end deadline in seconds for synchronous ComfyUI generation and workflow requests. The Backend poller and bundled Open WebUI tool share this default."
   - name: RAG_INGESTION_MAX_FILE_BYTES
     default: 104857600
-    description: "Maximum bytes loaded from any single mounted or MinIO RAG corpus file. Oversize files fail ingestion before unbounded allocation."
+    description: "Maximum bytes loaded from any single mounted or Silo RAG corpus file. Oversize files fail ingestion before unbounded allocation."
   - name: RAG_INGESTION_MAX_CORPUS_BYTES
     default: 1073741824
-    description: "Maximum aggregate bytes loaded by one RAG corpus discovery pass across mounted or MinIO files."
+    description: "Maximum aggregate bytes loaded by one RAG corpus discovery pass across mounted or Silo files."
   - name: RAG_INGESTION_MAX_FILES
     default: 10000
-    description: "Maximum number of files accepted in one mounted or MinIO RAG corpus discovery pass."
+    description: "Maximum number of files accepted in one mounted or Silo RAG corpus discovery pass."
   - name: RAG_INGESTION_CORPUS_ROOT
     default: /app/corpus
     description: "Container path under which operator-provided read-only RAG corpus mounts are resolved. Mount the same path into Backend and Celery worker when asynchronous ingestion is enabled."
@@ -379,7 +379,7 @@ data_flow:
     - docling
     - lightrag
     - tei-reranker
-    - minio
+    - silo
     - redis
     - otel-collector
     - kong

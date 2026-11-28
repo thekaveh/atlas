@@ -10,7 +10,7 @@ sources_consulted:
   - services/hermes/README.md
   - services/neo4j/service.yml
   - services/weaviate/service.yml
-  - services/minio/service.yml
+  - services/silo/service.yml
   - services/n8n/service.yml
   - services/doc-processor/service.yml
   - services/supabase/service.yml
@@ -37,12 +37,12 @@ sources_consulted:
   - Risks / open questions: Schema migration if vectorizer flips; Hermes has no native vector client.
   - Confidence: medium (Weaviate REST stable; Hermes skills documented).
 
-- **hermes ↔ minio**
-  - Why valuable: Skill outputs (ComfyUI images, STT transcripts) currently land in the bind-mounted volume. MinIO gives shareable URLs other services can fetch.
-  - Mechanism sketch: New `hermes-artifacts` bucket via the existing `minio-init` IAM pattern; S3 SigV4 against `http://minio:9000`.
+- **hermes ↔ silo**
+  - Why valuable: Skill outputs (ComfyUI images, STT transcripts) currently land in the bind-mounted volume. Silo gives shareable URLs other services can fetch.
+  - Mechanism sketch: New `hermes-artifacts` bucket via the existing `silo-init` IAM pattern; S3 SigV4 against `http://silo:9000`.
   - Effort: small
-  - Risks / open questions: Lifecycle policy; new `HERMES_MINIO_*` env wiring.
-  - Confidence: high (MinIO already pre-provisions per-service buckets).
+  - Risks / open questions: Lifecycle policy; new `HERMES_SILO_*` env wiring.
+  - Confidence: high (Silo already pre-provisions per-service buckets).
 
 - **hermes ↔ n8n**
   - Why valuable: Today the edge is one-way (n8n → hermes-agent via LiteLLM). The reverse — Hermes invoking n8n workflows as tools — turns n8n's 400+ connectors into Hermes capabilities without per-platform skills.
@@ -72,12 +72,12 @@ sources_consulted:
   - Other consumers in stack: litellm, backend, local-deep-researcher, openclaw
 
 - **Open WebUI Tools / MCP Gateway** → `../candidates/mcp-gateway.md`
-  - Headline: A dedicated MCP-server gateway that exposes stack services (neo4j, weaviate, minio, n8n) as MCP tools Hermes can mount natively.
+  - Headline: A dedicated MCP-server gateway that exposes stack services (neo4j, weaviate, silo, n8n) as MCP tools Hermes can mount natively.
   - Other consumers in stack: open-webui, backend, jupyterhub
 
 ## 3. Per-service feature gaps
 
-- **MCP server mode** — Hermes is "MCP-native" as a client per the README, but we don't run any MCP servers in-stack today. Why pursue: unlocks tool-use over Neo4j/Weaviate/MinIO/n8n via a uniform protocol instead of bespoke skills. Effort: medium.
+- **MCP server mode** — Hermes is "MCP-native" as a client per the README, but we don't run any MCP servers in-stack today. Why pursue: unlocks tool-use over Neo4j/Weaviate/Silo/n8n via a uniform protocol instead of bespoke skills. Effort: medium.
 - **Messaging-platform allowlists** — `GATEWAY_ALLOW_ALL_USERS`, `TELEGRAM_ALLOWED_USERS`, `DISCORD_ALLOWED_USERS` are all unwired. Why pursue: required before OpenClaw can safely bridge Hermes to Telegram/Discord/WhatsApp without an open relay. Effort: small.
 - **Per-user / multi-tenant sessions** — Hermes runs single-tenant against `/opt/data`. Why pursue: needed for any shared deployment beyond a single developer's laptop. Effort: large.
 - **Voice mode (mic passthrough)** — README notes "live voice mode" requires `localhost` SOURCE because container mic passthrough is non-trivial. Why pursue: enables true voice agent UX in-stack. Effort: large.

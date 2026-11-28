@@ -153,7 +153,7 @@ runtime_sc:
 # No runtime_deps block: TrueForge's hard dependencies (supabase, redis,
 # litellm) are all in the always-on tier, so no track or source combination
 # can take them away — there is nothing for DependencyManager to enforce
-# (contrast langfuse -> minio, where the required dependency is
+# (contrast langfuse -> silo, where the required dependency is
 # source-configurable). mcp-servers is genuinely optional: trueforge-init
 # skips the connector seed cleanly when that family is disabled.
 

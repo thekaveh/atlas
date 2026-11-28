@@ -20,7 +20,7 @@ If you see a warning *not* on this list, that's a real signal — start there.
 | `atlas-supabase-realtime` | `[warning] Replica region not found, defaulting to Realtime.Repo` × 2 | Single-node mode. Realtime is multi-region aware; on a single-node setup it defaults to the primary Repo, which is what we want. |
 | `atlas-open-web-ui` | `WARNING: Running pip as the 'root' user can result in broken permissions ...` × 5 | Emitted by the Open WebUI runtime tool installation. The image runs as root by design. |
 | `atlas-jupyterhub` | `WARNING: Use start-notebook.py instead` / `WARNING: container must be started as root to grant sudo permissions!` | Both come from the jupyter/docker-stacks base. Atlas runs `start-notebook.sh`, and the image ends with `USER ${NB_UID}`, so the container does not start as root. `GRANT_SUDO=yes` is therefore inert, and notebook users get no sudo. |
-| `atlas-minio` | `WARNING: Host local has more than 0 drives of set. A host failure will result in data becoming unavailable.` | Single-host dev mode. Production multi-node MinIO would silence this. |
+| `atlas-silo` | `WARNING: Host local has more than 0 drives of set. A host failure will result in data becoming unavailable.` | Single-host dev mode. Production multi-node Silo would silence this. |
 
 <a id="12-intentional-secure-defaults"></a>
 

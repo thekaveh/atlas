@@ -30,7 +30,7 @@ def test_tooltip_pairs_basic():
 
 def test_tooltip_pairs_strips_leading_colon_port():
     # resolve_port returns ':<port>'; the card must not render 'localhost::'.
-    row = _row("MinIO Console", source="container", port=":64094")
+    row = _row("Silo Console", source="container", port=":64094")
     pairs = ServiceTable._tooltip_pairs(row)
     assert ("Local", "localhost:64094") in pairs
     assert all("::" not in v for _, v in pairs)
@@ -115,26 +115,26 @@ def test_cli_launch_cloud_overview_uses_effective_flags(
 
 
 def test_tooltip_pairs_appends_extra():
-    row = _row("MinIO Console", source="container", alias="minio.localhost",
+    row = _row("Silo Console", source="container", alias="silo.localhost",
                alias_port="63000", port=":63019",
                tooltip_extra=[("S3 API", "http://localhost:63020"),
-                              ("S3 (Kong)", "http://s3.minio.localhost:63000")])
+                              ("S3 (Kong)", "http://s3.silo.localhost:63000")])
     pairs = ServiceTable._tooltip_pairs(row)
     assert pairs[0] == ("Source", "container")
     assert ("S3 API", "http://localhost:63020") in pairs
-    assert ("S3 (Kong)", "http://s3.minio.localhost:63000") in pairs
+    assert ("S3 (Kong)", "http://s3.silo.localhost:63000") in pairs
 
 
 def test_build_tooltip_renders_aligned_card():
-    row = _row("MinIO Console", source="container", alias="minio.localhost",
+    row = _row("Silo Console", source="container", alias="silo.localhost",
                alias_port="63000", port=":63019",
                tooltip_extra=[("S3 API", "http://localhost:63020")])
     card = ServiceTable._build_tooltip(row)
     lines = card.plain.splitlines()
-    assert lines[0] == "MinIO Console"               # title
+    assert lines[0] == "Silo Console"               # title
     # labels left-aligned to a common width (Source/URL/Local/S3 API -> 6)
     assert lines[1] == "Source  container"
-    assert lines[2] == "URL     http://minio.localhost:63000"
+    assert lines[2] == "URL     http://silo.localhost:63000"
     assert lines[3] == "Local   localhost:63019"
     assert lines[4] == "S3 API  http://localhost:63020"
     # URL value is styled with the accent color
@@ -171,7 +171,7 @@ def test_row_at_no_layout_returns_none():
 
 
 def test_tooltip_pairs_includes_source_options_and_depends():
-    row = _row("MinIO Console", source="container",
+    row = _row("Silo Console", source="container",
                source_options=["container", "disabled"],
                depends_on=["supabase", "redis"])
     pairs = ServiceTable._tooltip_pairs(row)
@@ -192,7 +192,7 @@ class _EnvParser:
 
 def test_recompute_ports_preserves_card_metadata():
     """A base-port change must not strip a row's hover-card metadata
-    (the bug where MinIO lost its S3 endpoints after the base-port step)."""
+    (the bug where Silo lost its S3 endpoints after the base-port step)."""
     from ui.textual.integration import recompute_ports_for_base
 
     row = ServiceRow(
@@ -207,46 +207,46 @@ def test_recompute_ports_preserves_card_metadata():
     assert out[0].depends_on == ["supabase"]
 
 
-def test_recompute_ports_rederives_minio_s3_endpoints():
-    """MinIO's S3 endpoints must follow the new base port, like URL/Local,
+def test_recompute_ports_rederives_silo_s3_endpoints():
+    """Silo's S3 endpoints must follow the new base port, like URL/Local,
     instead of keeping the .env block (one card showed two port blocks)."""
     from ui.textual.integration import recompute_ports_for_base
 
     row = ServiceRow(
-        name="MinIO Console", source="container", alias="minio.localhost",
+        name="Silo Console", source="container", alias="silo.localhost",
         tooltip_extra=[("S3 API", "http://localhost:63020"),
-                       ("S3 (Kong)", "http://s3.minio.localhost:63000")],
+                       ("S3 (Kong)", "http://s3.silo.localhost:63000")],
         source_options=["container", "disabled"],
         depends_on=["supabase"],
     )
-    env = _EnvParser({"MINIO_PORT": "63020", "KONG_HTTP_PORT": "63000"})
-    offsets = {"MINIO_PORT": 20, "KONG_HTTP_PORT": 0}
+    env = _EnvParser({"SILO_PORT": "63020", "KONG_HTTP_PORT": "63000"})
+    offsets = {"SILO_PORT": 20, "KONG_HTTP_PORT": 0}
     out = recompute_ports_for_base(64000, [row], env, offsets)
     assert out[0].tooltip_extra == [
         ("S3 API", "http://localhost:64020"),
-        ("S3 (Kong)", "http://s3.minio.localhost:64000"),
+        ("S3 (Kong)", "http://s3.silo.localhost:64000"),
     ]
     assert out[0].source_options == ["container", "disabled"]
     assert out[0].depends_on == ["supabase"]
 
 
-def test_minio_s3_endpoints_omit_blank_ports():
-    from ui.textual.widgets.service_table import minio_s3_endpoints
+def test_silo_s3_endpoints_omit_blank_ports():
+    from ui.textual.widgets.service_table import silo_s3_endpoints
 
-    assert minio_s3_endpoints({"MINIO_PORT": " 63020 "}, "63000") == [
+    assert silo_s3_endpoints({"SILO_PORT": " 63020 "}, "63000") == [
         ("S3 API", "http://localhost:63020"),
-        ("S3 (Kong)", "http://s3.minio.localhost:63000"),
+        ("S3 (Kong)", "http://s3.silo.localhost:63000"),
     ]
-    assert minio_s3_endpoints({"MINIO_PORT": ""}, "") == []
+    assert silo_s3_endpoints({"SILO_PORT": ""}, "") == []
 
 
 def test_tooltip_pairs_hide_extra_endpoints_for_disabled_source():
-    """A disabled MinIO runs nothing, so its card must not advertise S3 URLs
+    """A disabled Silo runs nothing, so its card must not advertise S3 URLs
     (the alias URL is already hidden for the same source)."""
-    row = _row("MinIO Console", source="disabled", alias="minio.localhost",
+    row = _row("Silo Console", source="disabled", alias="silo.localhost",
                alias_port="63000",
                tooltip_extra=[("S3 API", "http://localhost:63020"),
-                              ("S3 (Kong)", "http://s3.minio.localhost:63000")])
+                              ("S3 (Kong)", "http://s3.silo.localhost:63000")])
     pairs = ServiceTable._tooltip_pairs(row)
     labels = [k for k, _ in pairs]
     assert "S3 API" not in labels and "S3 (Kong)" not in labels

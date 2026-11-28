@@ -56,7 +56,7 @@ later, the expected topology would be:
   backend-owned validation, timeout, provenance, and size limits.
 - Hermes/MCP -> Firecrawl only through the curated MCP package or an explicit
   tool registration, not through an ad hoc exposed browser endpoint.
-- Firecrawl output -> Weaviate and MinIO through existing ingestion/provenance
+- Firecrawl output -> Weaviate and Silo through existing ingestion/provenance
   paths rather than direct writes from the crawler service.
 
 ## 5. Effort
@@ -115,7 +115,7 @@ Reconsider Firecrawl only when all of these are true:
   credentials. Prefer LiteLLM for LLM calls when upstream allows an
   OpenAI-compatible base URL.
 - **Downstream consumers:** Local Deep Researcher, n8n, backend, Hermes/MCP,
-  Weaviate ingestion, and MinIO provenance/archive flows. Add explicit
+  Weaviate ingestion, and Silo provenance/archive flows. Add explicit
   `data_flow.calls` edges for every consumer.
 - **Init/secrets:** generate API/admin tokens, queue/admin secrets such as
   `BULL_AUTH_KEY`, optional proxy credentials, optional webhook settings, and

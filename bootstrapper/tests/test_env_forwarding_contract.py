@@ -60,7 +60,7 @@ FORWARDING_EXCEPTIONS: dict[str, str] = {
     "LLM_GRAPH_BUILDER_BACKEND_ENDPOINT": "endpoint export; no in-stack consumer",
     "OTEL_COLLECTOR_ENDPOINT": "endpoint export; exporters get literal URLs",
     "OTEL_COLLECTOR_OTLP_GRPC_ENDPOINT": "endpoint export; exporters get literal URLs",
-    "MINIO_PUBLIC_ENDPOINT": "consumer-contract export (#345 endpoint wiring)",
+    "SILO_PUBLIC_ENDPOINT": "consumer-contract export (#345 endpoint wiring)",
     "REDPANDA_BROKERS": "consumer-contract export; in-stack clients use literal broker addresses",
     "LITELLM_BASE_URL": "fragments pin the literal http://litellm:4000; the var serves localhost consumers and docs",
     "LITELLM_ENABLED_PROVIDERS": "wizard/informational summary of enabled providers",

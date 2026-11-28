@@ -154,7 +154,7 @@ services:
       # LightRAG — graph-augmented RAG endpoint (empty when LIGHTRAG_SOURCE=disabled)
       LIGHTRAG_ENDPOINT: ${LIGHTRAG_ENDPOINT:-}
       LIGHTRAG_API_KEY: ${LIGHTRAG_API_KEY:-}
-      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-}
+      SILO_ENDPOINT: ${SILO_ENDPOINT:-}
       # OpenTelemetry tracing — no-op unless ATLAS_OTEL_ENABLED=true and the
       # collector endpoint is populated by the bootstrapper.
       ATLAS_OTEL_ENABLED: ${ATLAS_OTEL_ENABLED:-false}

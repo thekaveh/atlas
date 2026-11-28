@@ -62,7 +62,7 @@ def test_svg_is_well_formed_xml_across_services():
     from docs.diagram_renderer import render_svg
 
     for svc in ("hermes", "kong", "litellm", "redis", "stt-provider",
-                "tts-provider", "ollama", "weaviate", "minio", "supabase"):
+                "tts-provider", "ollama", "weaviate", "silo", "supabase"):
         svg = render_svg(build_doc_graph(svc, SERVICES_DIR))
         try:
             ET.fromstring(svg)

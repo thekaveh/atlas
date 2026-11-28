@@ -41,14 +41,14 @@ def test_asset_baker_manifest_contract() -> None:
             {"id": "disabled", "label": "Disabled"},
         ],
     }
-    assert manifest["depends_on"]["required"] == ["minio"]
+    assert manifest["depends_on"]["required"] == ["silo"]
     assert set(manifest["depends_on"]["optional"]) >= {"backend", "comfyui", "fal", "blender-mcp", "asset-worker"}
-    assert manifest["data_flow"]["calls"] == ["minio"]
+    assert manifest["data_flow"]["calls"] == ["silo"]
     assert manifest["rows"][0]["alias"] == "asset-baker.localhost"
     assert env["ASSET_BAKER_SOURCE"]["default"] == "disabled"
     assert "ASSET_BAKER_PORT" in env
     assert env["ASSET_BAKER_ENDPOINT"]["auto_managed"] is True
-    assert env["ASSET_BAKER_MINIO_BUCKET"]["default"] == "asset-baker"
+    assert env["ASSET_BAKER_SILO_BUCKET"]["default"] == "asset-baker"
     assert env["ASSET_BAKER_BLENDER_VERSION"]["default"] == "4.5.16"
     assert env["ASSET_BAKER_BLENDER_SHA256"]["default"] == BLENDER_SHA256
     # Bounded-worker + QA-gate knobs the triage requires as explicit config.
@@ -148,7 +148,7 @@ def test_asset_baker_env_docs_and_site_surfaces() -> None:
     wiki_service = surface_text("services/asset-baker/README.md", "wiki")
 
     assert "ASSET_BAKER_SOURCE=disabled" in env_example
-    assert "ASSET_BAKER_MINIO_BUCKET=asset-baker" in env_example
+    assert "ASSET_BAKER_SILO_BUCKET=asset-baker" in env_example
     assert "POST /assets/bake" in service_page
     assert "ASSET_BAKER_SOURCE" in source_values
     assert "asset-baker.localhost" in ports_routes

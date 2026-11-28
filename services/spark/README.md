@@ -6,7 +6,7 @@ Spark runs as a 5-container family in the stack's `data` band:
 - `spark-worker` (replicas via `SPARK_WORKER_COUNT`);
 - `spark-history`;
 - `spark-connect`, the dedicated Spark Connect gRPC sidecar;
-- `spark-init`, an idempotent MinIO-client init on the maintained `pgsty/mc` image that creates the spark-history bucket.
+- `spark-init`, an idempotent Silo-client init on the maintained `pgsty/mc` image that creates the spark-history bucket.
 
 ## 1. Overview
 
@@ -47,13 +47,13 @@ SPARK_WORKER_CPU_LIMIT=2.0
 
 Spark workers run `python3 -` to write `core-site.xml`. A custom `SPARK_IMAGE` must therefore provide `python3`.
 
-`SPARK_SOURCE=container` requires `MINIO_SOURCE` other than `disabled`: `spark-init` waits on `minio-init`, so the bootstrapper refuses that combination.
+`SPARK_SOURCE=container` requires `SILO_SOURCE` other than `disabled`: `spark-init` waits on `silo-init`, so the bootstrapper refuses that combination.
 
 ## 4. Integration with the stack
 
-- **MinIO** — `spark-history` reads `s3a://spark-history/` for event logs. The `spark-init` container creates the bucket on first start (idempotent).
-- **Iceberg REST** — Spark Connect ships a default `lakehouse` catalog at `http://iceberg-rest:8181`. It uses warehouse `s3a://lakehouse/`, MinIO path-style S3 settings, the scoped Iceberg MinIO service account and `client.region=us-east-1`. The config is present even when `ICEBERG_REST_SOURCE=disabled`; Spark still starts for ML-only users, and only lakehouse SQL fails until the catalog is enabled.
-- **MinIO credentials** — the worker, Spark Connect and history server use the scoped `MINIO_SPARK_*` account, not MinIO root. The keys come from `AWS_*` environment variables, not command lines (#1884). Its policy covers the Spark history, lakehouse, jars, checkpoints and landing buckets. Any other bucket returns Access Denied unless the job supplies its own credentials, as the Airflow lakehouse DAG does. The one-shot `spark-init` uses the MinIO root pair to create the spark-history bucket.
+- **Silo** — `spark-history` reads `s3a://spark-history/` for event logs. The `spark-init` container creates the bucket on first start (idempotent).
+- **Iceberg REST** — Spark Connect ships a default `lakehouse` catalog at `http://iceberg-rest:8181`. It uses warehouse `s3a://lakehouse/`, Silo path-style S3 settings, the scoped Iceberg Silo service account and `client.region=us-east-1`. The config is present even when `ICEBERG_REST_SOURCE=disabled`; Spark still starts for ML-only users, and only lakehouse SQL fails until the catalog is enabled.
+- **Silo credentials** — the worker, Spark Connect and history server use the scoped `SILO_SPARK_*` account, not Silo root. The keys come from `AWS_*` environment variables, not command lines (#1884). Its policy covers the Spark history, lakehouse, jars, checkpoints and landing buckets. Any other bucket returns Access Denied unless the job supplies its own credentials, as the Airflow lakehouse DAG does. The one-shot `spark-init` uses the Silo root pair to create the spark-history bucket.
 - **Supabase Postgres** — Spark JDBC connector available; users add `--jars postgresql.jar` and point at `jdbc:postgresql://supabase-db:5432/${SUPABASE_DB_NAME}`. No pre-wired connection.
 - **Zeppelin** — Zeppelin's Spark interpreter points at `spark://spark-master:7077` (standalone Spark RPC). Spark Connect remains the JupyterHub/client path. See `services/zeppelin/README.md`.
 - **Airflow** — `airflow-init` seeds `spark_default` when `SPARK_SOURCE=container`. The sample `example_etl_with_llm.py` DAG uses `PythonOperator` through Spark Connect (`sc://spark-connect:15002`).
@@ -99,7 +99,7 @@ scripts/smoke-iceberg-advanced-sql.sh spark-connect
 scripts/smoke-iceberg-advanced-sql.sh zeppelin
 ```
 
-The advanced smoke is an opt-in check for the `data-eng` and `all` tracks. It adds no new service, no new SOURCE, and no new port; it uses the existing Spark, Iceberg REST, MinIO, JupyterHub, and Zeppelin topology. It covers:
+The advanced smoke is an opt-in check for the `data-eng` and `all` tracks. It adds no new service, no new SOURCE, and no new port; it uses the existing Spark, Iceberg REST, Silo, JupyterHub, and Zeppelin topology. It covers:
 
 - `MERGE INTO`, `VERSION AS OF`, `rollback_to_snapshot`, and `CREATE BRANCH` with `spark.wap.branch`;
 - schema evolution and nested JSON;
@@ -128,7 +128,7 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
 | Standalone batch compute cluster | supported | tested | Atlas configures one Spark master, an operator-selected worker count, and backend-network submission surfaces for standalone jobs. |
-| Spark Connect and history services | supported | tested | A health-checked backend-only Spark Connect sidecar serves remote sessions while the history server reads event logs from a provisioned MinIO bucket. |
+| Spark Connect and history services | supported | tested | A health-checked backend-only Spark Connect sidecar serves remote sessions while the history server reads event logs from a provisioned Silo bucket. |
 | Iceberg and Kafka data paths | partial | tested | Atlas bakes and configures the Iceberg, S3A and Kafka connectors. Lakehouse and streaming operations require the optional Iceberg REST and Redpanda services. Live smoke remains opt-in. |
 | Highly available Spark control plane | not-supported | documented | The stock standalone topology has one master, no recovery directory, and no YARN or Kubernetes scheduler integration. |
 | Authenticated Spark web access | not-supported | tested | The direct SPARK_MASTER_UI_PORT and SPARK_HISTORY_PORT publishes are unauthenticated. The CORS-only Kong Spark routes are unauthenticated. The default HOST_BIND_IP=127.0.0.1: keeps direct ports loopback-bound. Set another value only for deliberate remote access. Before exposure beyond a trusted host, firewall or remove the direct ports, and use an authentication proxy or remove both Spark Kong routes. |
@@ -157,8 +157,8 @@ Set `PROJECT_NAME` in your shell to the value in `.env` (default `atlas`) before
 | Service | Category |
 |---|---|
 | iceberg-rest | data |
-| minio | data |
 | redpanda | data |
+| silo | data |
 
 ### 7.2. Current — Downstream (services that call this)
 

@@ -61,7 +61,7 @@ POSTGRES_EXPORTER_SCALE / REDIS_EXPORTER_SCALE  # cross-manifest writes
 | `weaviate` | `weaviate:2112` | Requires `PROMETHEUS_MONITORING_ENABLED=true` on Weaviate |
 | `n8n` | `n8n:5678` | Requires `N8N_METRICS=true` |
 | `n8n-worker` | `n8n-worker:5678` | Queue mode runs executions worker-side — execution-data counters live here |
-| `minio` | `minio:9000/minio/v2/metrics/cluster` | Requires `MINIO_PROMETHEUS_AUTH_TYPE=public` |
+| `silo` | `silo:9000/minio/v2/metrics/cluster` | Requires `MINIO_PROMETHEUS_AUTH_TYPE=public` |
 | `backend` | `backend:8000/metrics` | `prometheus-fastapi-instrumentator` middleware |
 | `asset-worker` | `asset-worker:8095` | Auth-free operational metrics; asset mutation routes remain bearer-token protected |
 | `asset-baker` | `asset-baker:8096` | Auth-free operational metrics; asset mutation routes remain bearer-token protected |
@@ -107,8 +107,8 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 |---|---|
 | grafana ↔ | infra |
 | kong ↔ | infra |
-| minio | data |
 | redis | data |
+| silo | data |
 | supabase | data |
 | weaviate | data |
 | litellm | llm |

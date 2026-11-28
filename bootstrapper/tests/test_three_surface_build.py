@@ -376,9 +376,9 @@ def _rendered_env_description(text, variable, config):
 
 @pytest.mark.parametrize("surface", ["generator", "repo", "site", "wiki"])
 @pytest.mark.parametrize("case", [
-    ("BACKUP_S3_MODE", ("MINIO_ROOT_*", "BACKUP_S3_*")),
+    ("BACKUP_S3_MODE", ("SILO_ROOT_*", "BACKUP_S3_*")),
     ("COMFYUI_MPS_LOCALHOST_PORT", ("_LOCALHOST_",)),
-    ("MINIO_IMAGE", ("MINIO_*", "/minio/*")),
+    ("SILO_IMAGE", ("SILO_*", "/minio/*")),
     ("STT_PROVIDER_PORT", ("PARAKEET_*", "SPEACHES_*")),
 ])
 def test_environment_description_literals_remain_visible(surface, case, env_reference_config):

@@ -23,7 +23,7 @@ Kong creates both Graph Builder routes only when `LLM_GRAPH_BUILDER_SOURCE=conta
 - `LLM_GRAPH_BUILDER_MODEL_ID=atlas_litellm` is the model name shown in the Graph Builder UI. Keep it. The compose fragment exports only `LLM_MODEL_CONFIG_ATLAS_LITELLM`, and Graph Builder looks up `LLM_MODEL_CONFIG_<ID>`. Any other id fails every extraction and chat.
 - `LLM_GRAPH_BUILDER_LLM_MODEL` selects the LiteLLM model alias. Empty means `LITELLM_DEFAULT_MODEL`. If that is also empty, Atlas uses `gpt-4o-mini`, LiteLLM's OpenAI route, which needs an OpenAI key. A local-only stack must set one of the two.
 - `LLM_GRAPH_BUILDER_NEO4J_DATABASE=neo4j` controls the database name passed to the upstream backend. Use a dedicated database on Neo4j editions that support multiple databases.
-- `LLM_GRAPH_BUILDER_REACT_APP_SOURCES=local,wiki,web` sets the source types in the UI. S3 is not offered, because its endpoint configuration is not proven against MinIO.
+- `LLM_GRAPH_BUILDER_REACT_APP_SOURCES=local,wiki,web` sets the source types in the UI. S3 is not offered, because its endpoint configuration is not proven against Silo.
 - `LLM_GRAPH_BUILDER_DIFFBOT_API_KEY` optionally enables upstream Diffbot-backed features; the default Atlas LiteLLM model path leaves it blank.
 - `LLM_GRAPH_BUILDER_GCP_LOG_METRICS_ENABLED=false` and `LLM_GRAPH_BUILDER_GCS_FILE_CACHE=false` keep Google Cloud integrations off by default. Either one needs `LLM_GRAPH_BUILDER_GCP_PROJECT_ID` and an absolute host path in `LLM_GRAPH_BUILDER_GCP_CREDENTIALS_FILE`. GCS caching also needs `LLM_GRAPH_BUILDER_GCS_UPLOAD_BUCKET` and `LLM_GRAPH_BUILDER_GCS_FAILED_BUCKET`.
 - Existing `DIFFBOT_API_KEY` and `GOOGLE_CLOUD_PROJECT` values remain fallback inputs for compatibility. Prefer the namespaced variables in new configurations.
@@ -47,7 +47,7 @@ LiteLLM is exposed to Graph Builder as an OpenAI-compatible model named `atlas_l
 
 Use a model that does structured extraction reliably. Tiny local models can start but produce poor or invalid graphs. Set `LLM_GRAPH_BUILDER_LLM_MODEL` to a capable LiteLLM alias.
 
-MinIO and Docling are integration points, not dependencies. MinIO needs endpoint-compatible S3 wiring before S3 source ingestion works. Docling is a companion extractor, not a Graph Builder backend dependency.
+Silo and Docling are integration points, not dependencies. Silo needs endpoint-compatible S3 wiring before S3 source ingestion works. Docling is a companion extractor, not a Graph Builder backend dependency.
 
 Optional Google Cloud features use the pinned upstream contract. Atlas maps the namespaced settings to `GCP_LOG_METRICS_ENABLED`, `GCS_FILE_CACHE`, `PROJECT_ID`, `BUCKET_UPLOAD_FILE` and `BUCKET_FAILED_FILE`. The ADC JSON is mounted read-only at `/run/secrets/atlas-llm-graph-builder-gcp.json`. When both features are off, the credential setting must be blank, and a tracked empty placeholder occupies that path. Before Compose runs, validation rejects ambiguous booleans, credentials set while both features are off, and unreadable or incomplete ADC documents.
 
@@ -102,7 +102,7 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 | Graph Builder access control | partial | tested | Kong protects both browser and backend aliases with Basic Auth and ACL. The host-published frontend skips app auth, and the internal backend sets authentication off. |
 | Optional Google Cloud features | partial | tested | Atlas validates complete logging or GCS-cache configuration and mounts ADC read-only, but the disabled default uses a placeholder and no live cloud operation is certified. |
 | Graph namespace and rollback isolation | partial | documented | Disabling containers preserves generated Neo4j data, while upstream labels share the selected database and Atlas cannot prevent collisions or destructive cleanup in a shared database. |
-| Turn-key MinIO and Docling ingestion | not-supported | documented | MinIO endpoint-compatible S3 ingestion and a direct Docling handoff are integration points only. In the stock Atlas path, operators must use local, wiki, or web sources. |
+| Turn-key Silo and Docling ingestion | not-supported | documented | Silo endpoint-compatible S3 ingestion and a direct Docling handoff are integration points only. In the stock Atlas path, operators must use local, wiki, or web sources. |
 
 ## 11. Dependencies & Integrations
 
@@ -141,7 +141,7 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 <a id="104-future-missing-pair-integrations"></a>
 <a id="104-future--missing-pair-integrations"></a>
 
-- Add endpoint-compatible MinIO S3 source configuration once upstream supports or Atlas patches boto endpoint overrides cleanly.
+- Add endpoint-compatible Silo S3 source configuration once upstream supports or Atlas patches boto endpoint overrides cleanly.
 - Add a Docling handoff workflow for already-extracted text and metadata.
 
 ### 11.5. Future — Candidate new services

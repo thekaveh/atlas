@@ -108,7 +108,7 @@ nginx's error log still records the full request line, query string included, wh
 
 **Blocked paths.** Two routes answer `403` at the gateway and never reach the upstream. Use the internal network for these paths:
 
-- `s3.minio.localhost`: the MinIO metrics paths (`/minio/v2/metrics`, `/minio/metrics/v3`, `/minio/prometheus/metrics`).
+- `s3.silo.localhost`: the Silo metrics paths (`/minio/v2/metrics`, `/minio/metrics/v3`, `/minio/prometheus/metrics`).
 - `prometheus.localhost`: `/-/quit` and `/-/reload`.
 
 ### 5.1. Forwarded headers
@@ -207,7 +207,7 @@ curl -H "Host: api.localhost" http://localhost:${KONG_HTTP_PORT}/health
 # If BACKEND_KONG_AUTH=key-auth:
 curl -H "Host: api.localhost" -H "apikey: ${BACKEND_KONG_API_KEY}" http://localhost:${KONG_HTTP_PORT}/health
 curl -H "Host: litellm.localhost" http://localhost:${KONG_HTTP_PORT}/ui/
-curl -H "Host: minio.localhost" http://localhost:${KONG_HTTP_PORT}/
+curl -H "Host: silo.localhost" http://localhost:${KONG_HTTP_PORT}/
 curl -H "Host: spark.localhost" http://localhost:${KONG_HTTP_PORT}/
 curl -H "Host: spark-history.localhost" http://localhost:${KONG_HTTP_PORT}/
 curl -u "${DASHBOARD_USERNAME}:${DASHBOARD_PASSWORD}" -H "Host: trino.localhost" http://localhost:${KONG_HTTP_PORT}/
@@ -294,9 +294,9 @@ docker exec ${PROJECT_NAME}-kong-api-gateway kong health
 | langfuse | infra | current |
 | prometheus ↔ | infra | current |
 | ray | infra | optional: RAY_SOURCE=ray-container-cpu or ray-container-gpu |
-| minio | data | current |
 | neo4j | data | current |
 | redpanda | data | current |
+| silo | data | current |
 | spark | data | current |
 | supabase | data | current |
 | trino | data | current |
@@ -362,7 +362,7 @@ docker exec ${PROJECT_NAME}-kong-api-gateway kong health
 <a id="135-future-candidate-new-services"></a>
 <a id="135-future--candidate-new-services"></a>
 
-- **[Keycloak](../../docs/reference/candidate-decisions.md#candidate-keycloak)** — *Headline:* self-hosted OIDC/OAuth2 provider. It would replace per-service basic-auth with one SSO layer behind Kong. *Wires into:* kong, jupyterhub, open-webui, n8n, minio, neo4j, openclaw, backend.
+- **[Keycloak](../../docs/reference/candidate-decisions.md#candidate-keycloak)** — *Headline:* self-hosted OIDC/OAuth2 provider. It would replace per-service basic-auth with one SSO layer behind Kong. *Wires into:* kong, jupyterhub, open-webui, n8n, silo, neo4j, openclaw, backend.
 
 ### 15.6. Future — Unused features in this service
 

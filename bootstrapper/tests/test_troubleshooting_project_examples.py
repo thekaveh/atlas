@@ -116,7 +116,7 @@ def _settings(variant, selected):
 
 def _overlays(checkout, shell):
     paths = ["services/_user/owned/compose.yml", "consumer/overlay.yml",
-             "volumes/minio/consumer-storage.compose.yml"]
+             "volumes/silo/consumer-storage.compose.yml"]
     for name in paths:
         path = checkout / name
         path.parent.mkdir(parents=True, exist_ok=True)

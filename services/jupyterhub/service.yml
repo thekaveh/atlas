@@ -12,7 +12,7 @@ capabilities:
   - name: "Spark Connect and lakehouse clients"
     status: partial
     verification: tested
-    note: "Bundled notebooks configure Spark Connect, MinIO, and Iceberg clients, but service-dependent cells are static contracts until an operator runs the corresponding live smoke."
+    note: "Bundled notebooks configure Spark Connect, Silo, and Iceberg clients, but service-dependent cells are static contracts until an operator runs the corresponding live smoke."
   - name: "Token-authenticated notebook access"
     status: partial
     verification: tested
@@ -95,7 +95,7 @@ depends_on:
     - redis
     - litellm
   optional:
-    - minio
+    - silo
     - iceberg-rest
     - spark
     - mcp-servers
@@ -178,7 +178,7 @@ runtime_deps:
     - speaches
     - chatterbox
     - docling
-    - minio
+    - silo
     - iceberg-rest
     - spark
     - redpanda
@@ -188,7 +188,7 @@ runtime_deps:
 data_flow:
   # Mirrors the compose-injected env surface the bundled notebooks use:
   # litellm (01/08), comfyui (05), n8n (06), neo4j (03), supabase (04),
-  # weaviate (02), ray (07), spark (09 via SPARK_REMOTE), minio + iceberg-rest
+  # weaviate (02), ray (07), spark (09 via SPARK_REMOTE), silo + iceberg-rest
   # (lakehouse Python clients), backend + searxng (00 env check), hermes
   # (direct-path env for user code), redis (REDIS_URL cache/queue on db 3),
   # docling + stt-provider + tts-provider (DOCLING_ENDPOINT/STT_ENDPOINT/
@@ -208,7 +208,7 @@ data_flow:
     - n8n
     - backend
     - searxng
-    - minio
+    - silo
     - iceberg-rest
     - mlflow
     - label-studio

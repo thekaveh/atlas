@@ -57,7 +57,7 @@ def test_heavy_3d_future_contract_covers_service_admission() -> None:
         "output-format contracts",
         "glTF-Transform",
         "imgproxy",
-        "MinIO",
+        "Silo",
         "ComfyUI",
         "Blender MCP",
         "Open WebUI",

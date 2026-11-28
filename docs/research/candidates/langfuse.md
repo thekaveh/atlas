@@ -11,10 +11,10 @@ referenced-by:
   - hermes
   - litellm
   - local-deep-researcher
-  - minio
   - n8n
   - ollama
   - open-webui
+  - silo
 slug: langfuse
 superseded-by: services/langfuse/README.md
 type: external-service
@@ -42,7 +42,7 @@ medium — Langfuse ships an official Docker Compose; the work is one new manife
 ## 5. Risks & open questions
 - Langfuse v3 requires ClickHouse for analytics; v2 stays on Postgres. Pick v2 to avoid pulling in a new datastore.
 - Reusing the stack Postgres needs a dedicated schema/role to avoid colliding with Supabase auth.
-- Image payloads in traces can grow; needs S3/MinIO blob offload via Langfuse's media-upload API.
+- Image payloads in traces can grow; needs S3/Silo blob offload via Langfuse's media-upload API.
 
 ## 6. Why now (and why not sooner)
 With Hermes, n8n, and ComfyUI now all callable from LiteLLM and from each other, a generation can touch 3+ services per request. Without a trace store the only debugging surface is `docker compose logs`, which doesn't correlate ComfyUI websocket events with the n8n flow that triggered them.
@@ -56,7 +56,7 @@ With Hermes, n8n, and ComfyUI now all callable from LiteLLM and from each other,
 - Referenced from `docs/research/rows/n8n.md` — n8n is a strong producer of traces (multi-step image/automation flows benefit from a shared trace store).
 - Referenced from `docs/research/rows/litellm.md` — LiteLLM is the universal LLM funnel; one callback config captures every chat/embedding call in the stack.
 - Referenced from `docs/research/rows/hermes.md` — Hermes adds nested agent-loop / tool-call traces that are unreadable in plain logs; Langfuse spans tie them to LiteLLM completions.
-- Referenced from `docs/research/rows/minio.md` — Langfuse needs S3-compatible blob storage for long-term trace media payloads; the new MinIO tier provides that in-network.
+- Referenced from `docs/research/rows/silo.md` — Langfuse needs S3-compatible blob storage for long-term trace media payloads; the new Silo tier provides that in-network.
 - Referenced from `docs/research/rows/ollama.md` — Ollama is the inference upstream; Langfuse's built-in LiteLLM callback captures every Ollama request end-to-end without per-consumer instrumentation.
 - Referenced from `docs/research/rows/open-webui.md` — Open WebUI is the primary chat surface; pairs with the proposed Pipelines candidate to capture interactive-chat traces alongside the LiteLLM-side ones.
 - Referenced from `docs/research/rows/local-deep-researcher.md` — LDR is a LangGraph app with first-class Langfuse callback support; tracing the iterative research loop surfaces per-loop token spend and per-source latency.

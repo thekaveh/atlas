@@ -55,7 +55,7 @@ The provisioned datasource reads `${PROMETHEUS_ENDPOINT}`. When Prometheus is `d
 | `postgres-redis.json` | Postgres + Redis | Connections, query rate, table sizes, memory, ops/sec, hit ratio |
 | `containers-and-host.json` | Containers + Host | Per-container CPU, memory and IO (cAdvisor); host load and disk (node-exporter). cAdvisor has no Docker discovery, so series have no container name. Panels group by the first 12 characters of the container ID; match them with `docker ps`. |
 | `n8n.json` | n8n | Executions per minute, p50/p95 duration, active workflows, execution-data writes, uptime |
-| `app-tier.json` | App tier (Weaviate + MinIO) | Weaviate request rate and query p95, MinIO S3 request rate and cluster usage |
+| `app-tier.json` | App tier (Weaviate + Silo) | Weaviate request rate and query p95, Silo S3 request rate and cluster usage |
 
 Panels state their units. Stat and bar-gauge panels do not use the Grafana default of red at 80. They show one fixed colour, and the Stack Overview `Targets DOWN` stat turns red when any target is down. The Stack Overview `HTTP request rate (FastAPI services, by job)` panel shows one series per scrape job. The jobs are the Backend, and the Asset Worker and Asset Baker when they run.
 
@@ -81,7 +81,7 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 - **Compose stops with `GRAFANA_ADMIN_PASSWORD is required`** — the value is empty. Compose has no default password, so Grafana never starts with `admin`. Run `./start.sh` to generate the value, or set `GRAFANA_ADMIN_PASSWORD` in `.env`.
 
     Set `PROJECT_NAME` and `GRAFANA_ADMIN_PASSWORD` in your shell to their values in the active env file. Then apply the new password with `docker exec ${PROJECT_NAME}-grafana grafana cli admin reset-admin-password "$GRAFANA_ADMIN_PASSWORD"`, or remove the `grafana-data` volume to start over.
-- **Stack Overview "Targets DOWN" is never 0** — the scrape list is static, so disabled services count as down. By default these are `asset-worker` and `asset-baker`; narrower tracks add n8n, Weaviate, MinIO and others. Check Prometheus' Targets page before you treat the number as an outage.
+- **Stack Overview "Targets DOWN" is never 0** — the scrape list is static, so disabled services count as down. By default these are `asset-worker` and `asset-baker`; narrower tracks add n8n, Weaviate, Silo and others. Check Prometheus' Targets page before you treat the number as an outage.
 - **Dashboards missing** — Grafana's provisioner watches the directory every 30s (`updateIntervalSeconds: 30`). If a dashboard JSON has a syntax error, Grafana logs it under "Provisioning errors" and skips the file.
 - **Redirect URL contains internal `grafana` hostname instead of `grafana.localhost`** — Kong's `preserve_host: True` flag must be set on the Grafana route. The route generator handles this; verify with `curl -I http://grafana.localhost:${KONG_HTTP_PORT}` (default 63000).
 

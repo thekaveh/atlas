@@ -295,8 +295,8 @@ def test_spark_renders_at_every_supported_worker_count(worker_count: str, tmp_pa
 # fix is only safe where that consumer branches on the empty value. This list
 # may shrink, never grow.
 _KNOWN_ENDPOINT_DEFAULTS = {
-    "services/asset-baker/compose.yml: ASSET_BAKER_MINIO_ENDPOINT",
-    "services/asset-worker/compose.yml: ASSET_WORKER_MINIO_ENDPOINT",
+    "services/asset-baker/compose.yml: ASSET_BAKER_SILO_ENDPOINT",
+    "services/asset-worker/compose.yml: ASSET_WORKER_SILO_ENDPOINT",
     "services/grafana/compose.yml: PROMETHEUS_ENDPOINT",
     "services/grafana/compose.yml: TEMPO_ENDPOINT",
     "services/grafana/compose.yml: LOKI_ENDPOINT",

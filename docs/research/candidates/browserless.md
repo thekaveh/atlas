@@ -56,7 +56,7 @@ adopted later, the expected topology would be:
   through an unauthenticated browser endpoint.
 - Crawl4AI -> Browserless only as a future fallback for persistent-session cases
   that Crawl4AI cannot handle directly.
-- doc-processor, Weaviate, and MinIO consume rendered artifacts through existing
+- doc-processor, Weaviate, and Silo consume rendered artifacts through existing
   ingestion and provenance paths rather than direct Browserless writes.
 
 ## 5. Effort
@@ -109,7 +109,7 @@ Reconsider Browserless only when all of these are true:
   persistent profile/user-data volume; optional enterprise `KEY`; optional
   metrics/pressure/health endpoints. Downstream consumers may include n8n,
   SearXNG-render pipelines, backend, Hermes, Crawl4AI fallback, doc-processor,
-  Weaviate, and MinIO provenance flows.
+  Weaviate, and Silo provenance flows.
 - **Init/secrets:** generate `BROWSERLESS_TOKEN`; keep enterprise `KEY` separate
   from API `TOKEN`; document `CONCURRENT`, `QUEUED`, `TIMEOUT`, CORS,
   `ALLOW_GET`, `ALLOW_FILE_PROTOCOL`, health thresholds, and optional user-data

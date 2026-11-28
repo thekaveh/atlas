@@ -1,5 +1,5 @@
 jenkins:
-  systemMessage: "Atlas Jenkins controller. Atlas provides the server, JCasC, Maven, and MinIO publishing seam; downstream projects provide jobs."
+  systemMessage: "Atlas Jenkins controller. Atlas provides the server, JCasC, Maven, and Silo publishing seam; downstream projects provide jobs."
   numExecutors: 2
   mode: NORMAL
   securityRealm:

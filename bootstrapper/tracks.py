@@ -316,11 +316,11 @@ def synthesize_track_source_args(
     filled with ``"disabled"``. Wizard mode passes ``force_disable=False`` so
     it can record overrides without making source_args look CLI-configured.
 
-    ``consumer_declared`` (#783): cli-style keys (e.g. ``minio_source``) whose
+    ``consumer_declared`` (#783): cli-style keys (e.g. ``silo_source``) whose
     SOURCE var the consumer manifest explicitly declares in ``env.values``.
     Declared intent beats the track default: those services are exempt from
     the force-disable fill (and recorded as overrides), so a manifest's
-    ``MINIO_SOURCE: container`` survives an out-of-track selection instead of
+    ``SILO_SOURCE: container`` survives an out-of-track selection instead of
     being silently reverted to ``disabled`` — an explicit CLI flag still wins
     over both.
     """
@@ -346,7 +346,7 @@ def synthesize_track_source_args(
         # yields `neo4j-graph-db` (folder `neo4j`). For those two, a consumer
         # manifest declaration or an explicit `--<svc>-source` flag was
         # silently force-disabled anyway — the #783 contract, and the one
-        # `_make_track_skip`'s own docstring states. `ray`, `spark`, `minio`
+        # `_make_track_skip`'s own docstring states. `ray`, `spark`, `silo`
         # and the rest were unaffected because their stem already equals the
         # folder name, which is also why the existing tests missed it.
         recorded_key = normalize_service_key(svc_key)

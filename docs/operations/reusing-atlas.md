@@ -72,7 +72,7 @@ services:
       WEAVIATE_URL: "http://weaviate:8080"
       NEO4J_URI: "bolt://neo4j-graph-db:7687"
       OPENAI_BASE_URL: "http://litellm:4000/v1"   # LiteLLM gateway (OpenAI-compatible)
-      S3_ENDPOINT: "http://minio:9000"
+      S3_ENDPOINT: "http://silo:9000"
     networks:
       - atlas
 
@@ -100,7 +100,7 @@ Inside `${PROJECT_NAME}-network`, use the **Compose service name** and the **con
 | **Weaviate** (vector DB) | `weaviate:8080` (gRPC `weaviate:50051`) | |
 | **Neo4j** (graph DB) | `neo4j-graph-db:7687` (Bolt), `:7474` (HTTP) | auth from `GRAPH_DB_AUTH` |
 | **Supabase Postgres** | `supabase-db:5432` | REST, Auth and Storage go through Kong: see [submodule guide §6.2](submodule-usage.md#62-pattern-2-kong-gateway-for-routed-services) |
-| **MinIO** (S3-compatible) | `minio:9000` (console `:9001`) | creds `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` |
+| **Silo** (S3-compatible) | `silo:9000` (console `:9001`) | creds `SILO_ROOT_USER` / `SILO_ROOT_PASSWORD` |
 | **Redis** | `redis:6379` | auth `REDIS_PASSWORD` |
 | **n8n** (workflows) | `n8n:5678` | |
 | **Open WebUI** (chat UI) | `open-web-ui:8080` | |
@@ -201,11 +201,11 @@ The shown `--detach` command exits after the health checks. Add `--track <key>` 
 ./infra/start.sh endpoints export --format env > atlas-endpoints.env   # ATLAS_* KEY=value
 ```
 
-Host tools read `ATLAS_<SVC>_HOST_ENDPOINT` (for example `ATLAS_MINIO_HOST_ENDPOINT`). In-network containers use the service name (`http://minio:9000`). Do not hard-code `localhost:<port>`, because it moves with `BASE_PORT`. With `BASE_PORT: auto`, export after the first start. Full field list: [§6.5](#65-exporting-the-endpoint-contract-endpoints-export).
+Host tools read `ATLAS_<SVC>_HOST_ENDPOINT` (for example `ATLAS_SILO_HOST_ENDPOINT`). In-network containers use the service name (`http://silo:9000`). Do not hard-code `localhost:<port>`, because it moves with `BASE_PORT`. With `BASE_PORT: auto`, export after the first start. Full field list: [§6.5](#65-exporting-the-endpoint-contract-endpoints-export).
 
 **6. Backend plugin seam.** Atlas resolves each `backend_plugins` directory to an absolute host path in `BACKEND_PLUGINS_DIR`. It does not mount them, so list an overlay under `compose_overlays` that binds each root into the backend. Details: [§6.3](#63-adding-backend-api-routes-via-the-plugin-seam) and [Consumer Manifest Reference §8](../reference/consumer-manifest.md#8-backend_plugins-and-pluginyml).
 
-A plugin that serves an OpenAI-compatible route can appear as a LiteLLM model ([`litellm_models`](../reference/consumer-manifest.md#9-litellm_models)). A plugin gets object storage from the exported scoped variables (`ATLAS_STORE_<CONSUMER>_<STORE>_*`). Do not hand-wire `MINIO_PUBLIC_ENDPOINT` or a published MinIO port. Storage details: [Consumer Manifest Reference §7](../reference/consumer-manifest.md#7-storage).
+A plugin that serves an OpenAI-compatible route can appear as a LiteLLM model ([`litellm_models`](../reference/consumer-manifest.md#9-litellm_models)). A plugin gets object storage from the exported scoped variables (`ATLAS_STORE_<CONSUMER>_<STORE>_*`). Do not hand-wire `SILO_PUBLIC_ENDPOINT` or a published Silo port. Storage details: [Consumer Manifest Reference §7](../reference/consumer-manifest.md#7-storage).
 
 **7. Teardown.**
 
@@ -214,7 +214,7 @@ A plugin that serves an OpenAI-compatible route can appear as a LiteLLM model ([
 ./infra/stop.sh --project myproject --consumer ./atlas.consumer.yml --cold   # also remove this project's volumes (data loss)
 ```
 
-`--cold` removes the project's named volumes (databases, MinIO, model caches). Omit it to keep data across restarts. Pass the same manifest that you started with, by `--consumer` or `ATLAS_CONSUMER_MANIFEST`. Without it, volumes declared only in the manifest's `compose_overlays` are not removed.
+`--cold` removes the project's named volumes (databases, Silo, model caches). Omit it to keep data across restarts. Pass the same manifest that you started with, by `--consumer` or `ATLAS_CONSUMER_MANIFEST`. Without it, volumes declared only in the manifest's `compose_overlays` are not removed.
 
 If a manifest's overlays cannot load or fail validation, `./start.sh --cold` fails its cleanup step and does not rotate secrets. The surviving overlay volumes would otherwise keep the old credentials. The same applies when Docker cannot list the project's volumes after `down`, because the removal is not confirmed.
 
@@ -268,7 +268,7 @@ myproject/
 | **`*_SOURCE`** | Turns each service on or off, or picks its backend (`container` / `container-gpu` / `localhost` / `disabled`). LLMs use `ollama-container-*` / `ollama-localhost` / `none`. Cloud providers use the separate `CLOUD_*_SOURCE` variables. | `.env` / `--<svc>-source` |
 | **`--track`** | Starts a curated subset (`gen-ai-rag`, `gen-ai-eng`, `gen-ai-creative`, `ml-eng`, `data-eng`, `trading`, `all`). `--track gen-ai-rag` suits a RAG showcase. Explicit `--<service>-source` flags override track membership. A `*_SOURCE` in the manifest's `env.values` also keeps that service on outside the track. A CLI flag beats both. | flag |
 | **`services/_user/` overlay** | Older local discovery slot for co-located services. New parent repos use `atlas.consumer.yml`, which needs no symlinks. | [§6.1.1](#611-back-compatible-services_user-overlay-slot) |
-| **`MINIO_EXTRA_CONSUMERS`** | Adds parent-owned MinIO buckets and scoped service-account credentials without a fork of `init-minio.sh`. | [§6.1.2](#612-adding-parent-owned-minio-buckets) |
+| **`SILO_EXTRA_CONSUMERS`** | Adds parent-owned Silo buckets and scoped service-account credentials without a fork of `init-silo.sh`. | [§6.1.2](#612-adding-parent-owned-silo-buckets) |
 | **`services/supabase/db/_user/` SQL slot** | Adds downstream-owned Supabase SQL that runs after Atlas's own database setup. | [§6.2](#62-adding-supabase-sql-via-the-user-migration-slot) |
 | **`BACKEND_PLUGINS_DIR` plugin seam** | Mounts FastAPI route packages into the backend, without a fork of `services/backend/`. | [§6.3](#63-adding-backend-api-routes-via-the-plugin-seam) |
 
@@ -350,11 +350,11 @@ This fragment merges into Atlas's Compose project. Atlas's root configuration cr
 
 **Scope.** Overlay services launch, but Atlas's wizard, port allocator and generated `.env.example` do not know them. You manage their image, ports and env in the fragment. Use `${HOST_BIND_IP-127.0.0.1:}` on published ports to keep Atlas's loopback default. To keep the service in its own repo, use Method A.
 
-#### 6.1.2. Adding parent-owned MinIO buckets
+#### 6.1.2. Adding parent-owned Silo buckets
 
-**Preferred: the `storage:` block.** Declare object stores in `atlas.consumer.yml`. Atlas provisions the bucket and a scoped credential, writes the `minio-init` overlay and exports `ATLAS_STORE_<CONSUMER>_<STORE>_*` fields, with no Compose override. Fields, naming rules, the exported contract and presigned-URL rules: [Consumer Manifest Reference §7](../reference/consumer-manifest.md#7-storage).
+**Preferred: the `storage:` block.** Declare object stores in `atlas.consumer.yml`. Atlas provisions the bucket and a scoped credential, writes the `silo-init` overlay and exports `ATLAS_STORE_<CONSUMER>_<STORE>_*` fields, with no Compose override. Fields, naming rules, the exported contract and presigned-URL rules: [Consumer Manifest Reference §7](../reference/consumer-manifest.md#7-storage).
 
-**Underlying grammar (for `_user` overlays).** A `_user` service that needs object storage extends the existing `minio-init` service from a parent-owned overlay and passes `MINIO_EXTRA_CONSUMERS`. Do not fork `services/minio/init/scripts/init-minio.sh`. Each entry uses the built-in consumers' grammar:
+**Underlying grammar (for `_user` overlays).** A `_user` service that needs object storage extends the existing `silo-init` service from a parent-owned overlay and passes `SILO_EXTRA_CONSUMERS`. Do not fork `services/silo/init/scripts/init-silo.sh`. Each entry uses the built-in consumers' grammar:
 
 ```text
 CONSUMER:BUCKET_VAR:ACCESS_VAR:SECRET_VAR[:EXTRA_BUCKET_VAR,...]
@@ -365,15 +365,15 @@ A DayDreams-style overlay keeps the bucket name and credentials in the parent re
 ```yaml
 # services/_user/daydreams/compose.yml
 services:
-  minio-init:
+  silo-init:
     environment:
-      MINIO_EXTRA_CONSUMERS: "daydreams:MINIO_BUCKET_DAYDREAMS:MINIO_DAYDREAMS_ACCESS_KEY:MINIO_DAYDREAMS_SECRET_KEY"
-      MINIO_BUCKET_DAYDREAMS: ${MINIO_BUCKET_DAYDREAMS:-daydreams-artifacts}
-      MINIO_DAYDREAMS_ACCESS_KEY: ${MINIO_DAYDREAMS_ACCESS_KEY}
-      MINIO_DAYDREAMS_SECRET_KEY: ${MINIO_DAYDREAMS_SECRET_KEY}
+      SILO_EXTRA_CONSUMERS: "daydreams:SILO_BUCKET_DAYDREAMS:SILO_DAYDREAMS_ACCESS_KEY:SILO_DAYDREAMS_SECRET_KEY"
+      SILO_BUCKET_DAYDREAMS: ${SILO_BUCKET_DAYDREAMS:-daydreams-artifacts}
+      SILO_DAYDREAMS_ACCESS_KEY: ${SILO_DAYDREAMS_ACCESS_KEY}
+      SILO_DAYDREAMS_SECRET_KEY: ${SILO_DAYDREAMS_SECRET_KEY}
 ```
 
-Put `MINIO_BUCKET_DAYDREAMS`, `MINIO_DAYDREAMS_ACCESS_KEY` and `MINIO_DAYDREAMS_SECRET_KEY` in `.env.user` or `ATLAS_ENV_USER_FILE`. On every `minio-init` run, Atlas creates the bucket, writes a named policy, and creates or refreshes a service account with the built-in consumers' scoped policy. Separate several entries with spaces. Comma-separated extra bucket variables after the fourth field give one consumer a small named bucket set.
+Put `SILO_BUCKET_DAYDREAMS`, `SILO_DAYDREAMS_ACCESS_KEY` and `SILO_DAYDREAMS_SECRET_KEY` in `.env.user` or `ATLAS_ENV_USER_FILE`. On every `silo-init` run, Atlas creates the bucket, writes a named policy, and creates or refreshes a service account with the built-in consumers' scoped policy. Separate several entries with spaces. Comma-separated extra bucket variables after the fourth field give one consumer a small named bucket set.
 
 #### 6.1.3. Scripted bring-up for automation
 
@@ -423,7 +423,7 @@ cd infra
 ./start.sh compose validate
 ./start.sh doctor --format json
 ./start.sh --no-tui --detach
-./start.sh endpoints assert --require ATLAS_LITELLM_HOST_ENDPOINT,ATLAS_MINIO_HOST_ENDPOINT
+./start.sh endpoints assert --require ATLAS_LITELLM_HOST_ENDPOINT,ATLAS_SILO_HOST_ENDPOINT
 ```
 
 `doctor` and `compose validate` check the manifest only when `ATLAS_CONSUMER_MANIFEST` is set or `--consumer` is passed. Without one, the `consumer-manifests` check validates nothing.
@@ -529,7 +529,7 @@ The bootstrapper computes **auto-managed endpoint variables** in `.env`. Each re
 | `COMFYUI_ENDPOINT` | `COMFYUI_SOURCE` | `http://comfyui:18188` | `http://host.docker.internal:8000` |
 | `OLLAMA_ENDPOINT` | `LLM_PROVIDER_SOURCE` | `http://ollama:11434` | `http://host.docker.internal:11434` |
 | `LITELLM_BASE_URL` | locked (always-on; does not vary by source) | `http://litellm:4000` | n/a (locked — no localhost mode) |
-| `MINIO_ENDPOINT` | `MINIO_SOURCE` | `http://minio:9000` | n/a (`container`/`disabled` only — no localhost mode) |
+| `SILO_ENDPOINT` | `SILO_SOURCE` | `http://silo:9000` | n/a (`container`/`disabled` only — no localhost mode) |
 
 A localhost-source value always names `host.docker.internal`, on Linux too. Docker Desktop resolves that name. On Linux Docker and Podman, a container resolves it only with `extra_hosts: ["host.docker.internal:${HOST_GATEWAY_IP}"]`. Every Atlas container that reads such a value has that mapping; add it to your own services.
 
@@ -547,7 +547,7 @@ services:
       MY_LITELLM_URL: ${MY_LITELLM_URL:-${LITELLM_BASE_URL:-http://litellm:4000}}  # append /v1 for OpenAI routes
 ```
 
-Your service then works with every `*_SOURCE` value, with no per-source branches. The same pattern applies to `OLLAMA_ENDPOINT`, `MINIO_ENDPOINT` and later auto-managed endpoints.
+Your service then works with every `*_SOURCE` value, with no per-source branches. The same pattern applies to `OLLAMA_ENDPOINT`, `SILO_ENDPOINT` and later auto-managed endpoints.
 
 ### 6.5. Exporting the endpoint contract (`endpoints export`)
 
@@ -558,17 +558,17 @@ Atlas emits a **stable, machine-readable endpoint contract** for non-Python cons
 ./start.sh endpoints export --format json   # JSON object on stdout
 ```
 
-The field **names are a compatibility contract**: a rename is a breaking change. The services are Backend/Kong, LiteLLM, ComfyUI, Asset Worker, Ollama, MinIO, Weaviate, Neo4j, n8n, Redis and Supabase. For each, it emits the active SOURCE and each URL as a separate field:
+The field **names are a compatibility contract**: a rename is a breaking change. The services are Backend/Kong, LiteLLM, ComfyUI, Asset Worker, Ollama, Silo, Weaviate, Neo4j, n8n, Redis and Supabase. For each, it emits the active SOURCE and each URL as a separate field:
 
 | Field | Meaning |
 |---|---|
 | `ATLAS_<SVC>_SOURCE` | active SOURCE mode (a `disabled` service emits only this) |
-| `ATLAS_<SVC>_CONTAINER_ENDPOINT` | in-network URL (e.g. `http://minio:9000`) |
+| `ATLAS_<SVC>_CONTAINER_ENDPOINT` | in-network URL (e.g. `http://silo:9000`) |
 | `ATLAS_<SVC>_HOST_ENDPOINT` | host URL (e.g. `http://localhost:63020`) |
 | `ATLAS_<SVC>_KONG_ENDPOINT` | Kong `*.localhost` route (when exposed) |
-| `ATLAS_<SVC>_PUBLIC_ENDPOINT` | browser-facing public read base (MinIO presigned reads) |
+| `ATLAS_<SVC>_PUBLIC_ENDPOINT` | browser-facing public read base (Silo presigned reads) |
 
-It also emits `ATLAS_KONG_GATEWAY` and every `ATLAS_STORE_*` field from the [storage contract](#612-adding-parent-owned-minio-buckets). Host and Kong URLs follow `BASE_PORT`. The internal and public MinIO endpoints differ; sign presigned URLs against `ATLAS_MINIO_PUBLIC_ENDPOINT`.
+It also emits `ATLAS_KONG_GATEWAY` and every `ATLAS_STORE_*` field from the [storage contract](#612-adding-parent-owned-silo-buckets). Host and Kong URLs follow `BASE_PORT`. The internal and public Silo endpoints differ; sign presigned URLs against `ATLAS_SILO_PUBLIC_ENDPOINT`.
 
 **Supabase components.** `ATLAS_SUPABASE_HOST_ENDPOINT` is PostgREST and `ATLAS_SUPABASE_KONG_ENDPOINT` is Studio. `SUPABASE_API_SOURCE=disabled` drops the host field, and `SUPABASE_STUDIO_SOURCE=disabled` drops the Kong field.
 
@@ -597,7 +597,7 @@ Output is deterministic for the same inputs, so a consumer can diff it across ru
 
 ```bash
 # Fails (exit 1) if any listed field is absent from the current contract:
-./start.sh endpoints assert --require ATLAS_LITELLM_HOST_ENDPOINT,ATLAS_MINIO_HOST_ENDPOINT,ATLAS_COMFYUI_HOST_ENDPOINT
+./start.sh endpoints assert --require ATLAS_LITELLM_HOST_ENDPOINT,ATLAS_SILO_HOST_ENDPOINT,ATLAS_COMFYUI_HOST_ENDPOINT
 
 # No --require: list the available field names (machine-readable):
 ./start.sh endpoints assert --format json
@@ -843,7 +843,7 @@ docker ps --filter "name=<project>-"          # every container prefixed with yo
 ./start.sh endpoints export --format env      # ATLAS_*_HOST_ENDPOINT ports match <BASE>
 ./start.sh doctor --format json               # manifest + base-port + unpullable-model lints (0 warn)
 ./start.sh endpoints assert --require \
-  ATLAS_LITELLM_HOST_ENDPOINT,ATLAS_MINIO_HOST_ENDPOINT   # the export fields your code reads
+  ATLAS_LITELLM_HOST_ENDPOINT,ATLAS_SILO_HOST_ENDPOINT   # the export fields your code reads
 ```
 
 Run the last two in consumer CI on every pin bump, so an upstream change fails your build instead of degrading the running consumer ([§6.1.4](#614-preflight-and-ci-gates)).

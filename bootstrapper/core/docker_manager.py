@@ -11,7 +11,7 @@ import re
 import signal
 import subprocess
 
-from utils.system import service_replica_targets, compose_env, project_volume_names, report_surviving_volumes, resolved_minio_environment, run_compose_child
+from utils.system import service_replica_targets, compose_env, project_volume_names, report_surviving_volumes, resolved_silo_environment, run_compose_child
 import time
 from typing import Callable, List, Optional
 
@@ -210,17 +210,17 @@ class DockerManager:
         )
         # Atlas-owned generated overlays, produced during
         # generate_service_configuration when a consumer declares the relevant
-        # section: the minio-init storage overlay (#404) and the litellm api-key
+        # section: the silo-init storage overlay (#404) and the litellm api-key
         # overlay (#411, injects consumer api-key references into the litellm
         # container so it resolves os.environ/<VAR> at request time).
         from core.consumer_manifest import (
             LIGHTRAG_QUERY_PROFILES_OVERLAY_PATH,
             LITELLM_CONSUMER_OVERLAY_PATH,
-            MINIO_STORAGE_OVERLAY_PATH,
+            SILO_STORAGE_OVERLAY_PATH,
             N8N_CONSUMER_OVERLAY_PATH,
             RAG_INGESTION_OVERLAY_PATH,
         )
-        storage_overlay = self.root_dir / MINIO_STORAGE_OVERLAY_PATH
+        storage_overlay = self.root_dir / SILO_STORAGE_OVERLAY_PATH
         litellm_overlay = self.root_dir / LITELLM_CONSUMER_OVERLAY_PATH
         n8n_overlay = self.root_dir / N8N_CONSUMER_OVERLAY_PATH
         rag_overlay = self.root_dir / RAG_INGESTION_OVERLAY_PATH
@@ -414,8 +414,8 @@ class DockerManager:
         args = ['down'] + ['--volumes'] * remove_volumes + ['--remove-orphans'] * remove_orphans
         return self.execute_compose_command(args)
     
-    def resolved_minio_environment(self) -> dict:
-        return resolved_minio_environment(
+    def resolved_silo_environment(self) -> dict:
+        return resolved_silo_environment(
             self._build_compose_command(['config', '--format', 'json']),
             self.root_dir, _COMPOSE_PROBE_TIMEOUT_SECONDS,
         )

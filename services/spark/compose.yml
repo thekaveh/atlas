@@ -93,10 +93,10 @@ services:
       # Standalone cluster mode downloads the application JAR on the worker
       # before the driver process exists. Keep S3A credentials available at
       # the daemon level so s3a://jars/... applications can cold-start.
-      AWS_ACCESS_KEY_ID: ${MINIO_SPARK_ACCESS_KEY}
-      AWS_SECRET_ACCESS_KEY: ${MINIO_SPARK_SECRET_KEY}
-      AWS_REGION: ${MINIO_REGION:-us-east-1}
-      AWS_ENDPOINT_URL_S3: http://minio:9000
+      AWS_ACCESS_KEY_ID: ${SILO_SPARK_ACCESS_KEY}
+      AWS_SECRET_ACCESS_KEY: ${SILO_SPARK_SECRET_KEY}
+      AWS_REGION: ${SILO_REGION:-us-east-1}
+      AWS_ENDPOINT_URL_S3: http://silo:9000
       SPARK_KAFKA_BOOTSTRAP_SERVERS: ${SPARK_KAFKA_BOOTSTRAP_SERVERS:-}
     entrypoint: ["/bin/bash", "-lc"]
     command:
@@ -111,7 +111,7 @@ services:
 
         configuration = ET.Element("configuration")
         for name, value in (
-            ("fs.s3a.endpoint", "http://minio:9000"),
+            ("fs.s3a.endpoint", "http://silo:9000"),
             ("fs.s3a.endpoint.region", os.environ["AWS_REGION"]),
             ("fs.s3a.path.style.access", "true"),
             ("fs.s3a.connection.ssl.enabled", "false"),
@@ -169,8 +169,8 @@ services:
     # publishing the port; not in scope for the in-stack-only baseline.
     environment:
       SPARK_KAFKA_BOOTSTRAP_SERVERS: ${SPARK_KAFKA_BOOTSTRAP_SERVERS:-}
-      AWS_ACCESS_KEY_ID: ${MINIO_SPARK_ACCESS_KEY}
-      AWS_SECRET_ACCESS_KEY: ${MINIO_SPARK_SECRET_KEY}
+      AWS_ACCESS_KEY_ID: ${SILO_SPARK_ACCESS_KEY}
+      AWS_SECRET_ACCESS_KEY: ${SILO_SPARK_SECRET_KEY}
     command:
       - /opt/spark/sbin/start-connect-server.sh
       # `--wait` is the first arg → start-connect-server.sh shifts it and
@@ -190,15 +190,15 @@ services:
       - --conf
       - spark.cores.max=${SPARK_CONNECT_CORES_MAX:-1}
       - --conf
-      - spark.hadoop.fs.s3a.endpoint=http://minio:9000
+      - spark.hadoop.fs.s3a.endpoint=http://silo:9000
       - --conf
       - spark.hadoop.fs.s3a.aws.credentials.provider=software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider
       - --conf
       - spark.hadoop.fs.s3a.path.style.access=true
       # Without an explicit region, hadoop-aws 3.4 signs custom-endpoint
-      # requests for us-east-2; MinIO validates its own region.
+      # requests for us-east-2; Silo validates its own region.
       - --conf
-      - spark.hadoop.fs.s3a.endpoint.region=${MINIO_REGION:-us-east-1}
+      - spark.hadoop.fs.s3a.endpoint.region=${SILO_REGION:-us-east-1}
       # Lakehouse catalog defaults. These are inert at Spark startup when
       # ICEBERG_REST_SOURCE=disabled; only lakehouse SQL calls need the
       # iceberg-rest service to be running.
@@ -211,18 +211,18 @@ services:
       - --conf
       - spark.sql.catalog.lakehouse.uri=http://iceberg-rest:8181
       - --conf
-      # Tracks the bucket minio-init provisions, as zeppelin already does.
-      - spark.sql.catalog.lakehouse.warehouse=s3a://${MINIO_BUCKET_ICEBERG_LAKEHOUSE:-lakehouse}/
+      # Tracks the bucket silo-init provisions, as zeppelin already does.
+      - spark.sql.catalog.lakehouse.warehouse=s3a://${SILO_BUCKET_ICEBERG_LAKEHOUSE:-lakehouse}/
       - --conf
       - spark.sql.catalog.lakehouse.io-impl=org.apache.iceberg.aws.s3.S3FileIO
       - --conf
-      - spark.sql.catalog.lakehouse.s3.endpoint=http://minio:9000
+      - spark.sql.catalog.lakehouse.s3.endpoint=http://silo:9000
       - --conf
       - spark.sql.catalog.lakehouse.s3.path-style-access=true
       - --conf
       - spark.sql.catalog.lakehouse.client.credentials-provider=software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider
       - --conf
-      - spark.sql.catalog.lakehouse.client.region=${MINIO_REGION:-us-east-1}
+      - spark.sql.catalog.lakehouse.client.region=${SILO_REGION:-us-east-1}
       # Spark History needs DRIVERS to write event logs — spark-history's
       # read-side config alone produces nothing to read. Connect-driven
       # sessions inherit the server's defaults, so writing eventLog.enabled
@@ -231,7 +231,7 @@ services:
       - --conf
       - spark.eventLog.enabled=true
       - --conf
-      - spark.eventLog.dir=s3a://${MINIO_BUCKET_SPARK_HISTORY:-spark-history}/
+      - spark.eventLog.dir=s3a://${SILO_BUCKET_SPARK_HISTORY:-spark-history}/
     healthcheck:
       test: ["CMD-SHELL", "bash -ec '</dev/tcp/localhost/15002'"]
       interval: 10s
@@ -241,7 +241,7 @@ services:
     depends_on:
       spark-master:
         condition: service_healthy
-      # MUST wait for spark-init too — it creates the spark-history MinIO
+      # MUST wait for spark-init too — it creates the spark-history Silo
       # bucket. Spark 4.x's EventLogFileWriters does NOT auto-create the
       # base eventLog directory; the first job at cold start would throw
       # `IllegalArgumentException: Log directory s3a://spark-history/ is
@@ -272,14 +272,14 @@ services:
       # NOTE: dual-write — this block is the injection point.
       # Same SPARK_HISTORY_OPTS must appear in service.yml::runtime_sc.
       SPARK_KAFKA_BOOTSTRAP_SERVERS: ${SPARK_KAFKA_BOOTSTRAP_SERVERS:-}
-      AWS_ACCESS_KEY_ID: ${MINIO_SPARK_ACCESS_KEY}
-      AWS_SECRET_ACCESS_KEY: ${MINIO_SPARK_SECRET_KEY}
+      AWS_ACCESS_KEY_ID: ${SILO_SPARK_ACCESS_KEY}
+      AWS_SECRET_ACCESS_KEY: ${SILO_SPARK_SECRET_KEY}
       SPARK_HISTORY_OPTS: >-
-        -Dspark.history.fs.logDirectory=s3a://${MINIO_BUCKET_SPARK_HISTORY:-spark-history}/
-        -Dspark.hadoop.fs.s3a.endpoint=http://minio:9000
+        -Dspark.history.fs.logDirectory=s3a://${SILO_BUCKET_SPARK_HISTORY:-spark-history}/
+        -Dspark.hadoop.fs.s3a.endpoint=http://silo:9000
         -Dspark.hadoop.fs.s3a.aws.credentials.provider=software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider
         -Dspark.hadoop.fs.s3a.path.style.access=true
-        -Dspark.hadoop.fs.s3a.endpoint.region=${MINIO_REGION:-us-east-1}
+        -Dspark.hadoop.fs.s3a.endpoint.region=${SILO_REGION:-us-east-1}
     command:
       - /opt/spark/bin/spark-class
       - org.apache.spark.deploy.history.HistoryServer
@@ -294,30 +294,30 @@ services:
     networks:
       - backend-network
 
-  # Use the same MinIO Client (mc) image as minio-init. The vanilla-alpine +
+  # Use the same Silo Client (mc) image as silo-init. The vanilla-alpine +
   # inline apk pattern (CONTRIBUTING-services §14.3) FAILS here because
   # Alpine's `mc` package is GNU Midnight Commander (a TUI file manager),
-  # NOT MinIO Client — `mc alias set` would error and spark-history would
-  # never start. minio-init solves this by pinning the mc image; spark-init
+  # NOT Silo Client — `mc alias set` would error and spark-history would
+  # never start. silo-init solves this by pinning the mc image; spark-init
   # does the same so the two stay in lockstep on the same mc release.
   spark-init:
-    image: ${MINIO_INIT_IMAGE:-pgsty/mc:RELEASE.2026-09-16T00-00-00Z@sha256:cfc83108c3abb371f8fb84d99c1fdc88f8c237e022409b0081fb7c0a3be634dd}
+    image: ${SILO_INIT_IMAGE:-pgsty/mc:RELEASE.2026-09-16T00-00-00Z@sha256:cfc83108c3abb371f8fb84d99c1fdc88f8c237e022409b0081fb7c0a3be634dd}
     container_name: ${PROJECT_NAME}-spark-init
     deploy:
       replicas: ${SPARK_INIT_SCALE:-0}
     depends_on:
-      minio-init:
+      silo-init:
         condition: service_completed_successfully
     entrypoint: ["sh", "-c"]
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      SILO_ROOT_USER: ${SILO_ROOT_USER}
+      SILO_ROOT_PASSWORD: ${SILO_ROOT_PASSWORD}
     # Keys on stdin, not argv: argv is world-readable in /proc while mc runs.
     command:
       - |
         set -e
-        printf '%s\n%s\n' "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}" | mc alias set minio http://minio:9000 >/dev/null
-        mc mb --ignore-existing minio/${MINIO_BUCKET_SPARK_HISTORY:-spark-history}
+        printf '%s\n%s\n' "$${SILO_ROOT_USER}" "$${SILO_ROOT_PASSWORD}" | mc alias set silo http://silo:9000 >/dev/null
+        mc mb --ignore-existing silo/${SILO_BUCKET_SPARK_HISTORY:-spark-history}
         echo "spark-init: spark-history bucket ready"
     networks:
       - backend-network

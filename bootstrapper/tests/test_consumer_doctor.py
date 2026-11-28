@@ -171,7 +171,7 @@ def _write_base_env(tmp_path: Path, extra: str = "") -> None:
         "PROJECT_NAME=atlas\n"
         "COMFYUI_ENDPOINT=http://comfyui:18188\n"
         "LITELLM_BASE_URL=http://litellm:4000\n"
-        "MINIO_ENDPOINT=http://minio:9000\n"
+        "SILO_ENDPOINT=http://silo:9000\n"
         f"{extra}",
         encoding="utf-8",
     )
@@ -179,7 +179,7 @@ def _write_base_env(tmp_path: Path, extra: str = "") -> None:
         "PROJECT_NAME=atlas\n"
         "COMFYUI_ENDPOINT=http://host.docker.internal:8188\n"
         "LITELLM_BASE_URL=http://litellm:4000\n"
-        "MINIO_ENDPOINT=http://minio:9000\n"
+        "SILO_ENDPOINT=http://silo:9000\n"
         f"{extra}",
         encoding="utf-8",
     )
@@ -2621,7 +2621,7 @@ def test_doctor_base_port_matches_what_start_does(raw, status):
 
 
 def test_consumer_artifacts_cannot_alias_stack_names(tmp_path: Path) -> None:
-    """Consumer "asset" + store "baker" took over asset-baker's MinIO
+    """Consumer "asset" + store "baker" took over asset-baker's Silo
     credentials; spark-history passed the bucket check; workflow id "plan"
     was overwritten by plan.json; a host service "litellm" overrode
     ATLAS_LITELLM_HOST_ENDPOINT."""
@@ -2637,7 +2637,7 @@ def test_consumer_artifacts_cannot_alias_stack_names(tmp_path: Path) -> None:
         key = f"{consumer}_{name}".upper().replace("-", "_")
         return StorageStore(consumer, name, key, f"{consumer}-{name}", bucket)
 
-    with pytest.raises(ConsumerManifestError, match="MINIO_ASSET_BAKER_ACCESS_KEY"):
+    with pytest.raises(ConsumerManifestError, match="SILO_ASSET_BAKER_ACCESS_KEY"):
         _validate_storage_collisions([store("asset", "baker", "my-bucket")])
     with pytest.raises(ConsumerManifestError, match="built-in"):
         _validate_storage_collisions([store("demo", "logs", "spark-history")])
@@ -3578,12 +3578,12 @@ def _consumer_conflict_manifests(tmp_path, mode, *, equal=False):
         manifest = directory / "atlas.consumer.yml"
         text = f"name: owned{index}\n"
         if mode == "file":
-            (directory / "overlay.env").write_text(f"MINIO_ROOT_PASSWORD={value}\n", encoding="utf-8")
+            (directory / "overlay.env").write_text(f"SILO_ROOT_PASSWORD={value}\n", encoding="utf-8")
             text += "env:\n  file: overlay.env\n"
         elif mode == "reason":
-            text += f"env:\n  values:\n    MINIO_ROOT_PASSWORD: {{value: {value}, reason: Owned fixture}}\n"
+            text += f"env:\n  values:\n    SILO_ROOT_PASSWORD: {{value: {value}, reason: Owned fixture}}\n"
         else:
-            text += f"env:\n  values:\n    MINIO_ROOT_PASSWORD: {value}\n"
+            text += f"env:\n  values:\n    SILO_ROOT_PASSWORD: {value}\n"
         manifest.write_text(text, encoding="utf-8")
         manifests.append(manifest)
     return manifests
@@ -3605,7 +3605,7 @@ def _invoke_consumer_conflict(tmp_path, monkeypatch, manifests, route):
 
 
 def _assert_consumer_conflict_message(message, manifests):
-    assert "MINIO_ROOT_PASSWORD" in message
+    assert "SILO_ROOT_PASSWORD" in message
     assert "conflicting consumer manifest values" in message
     assert all(str(path.parent) in message for path in manifests)
     assert not any(value in message for value in _CONFLICT_VALUES)
@@ -3636,7 +3636,7 @@ def test_consumer_conflict_equal_credentials_still_merge(tmp_path, mode):
 
     manifests = _consumer_conflict_manifests(tmp_path, mode, equal=True)
     loaded = load_consumer_config(tmp_path, explicit_paths=map(str, manifests))
-    assert loaded.env_overrides["MINIO_ROOT_PASSWORD"] == _CONFLICT_VALUES[0]
+    assert loaded.env_overrides["SILO_ROOT_PASSWORD"] == _CONFLICT_VALUES[0]
     assert len(loaded.consumers) == 2
 
 
@@ -3647,7 +3647,7 @@ def _profile_conflict_manifests(tmp_path, field, *, equal=False):
         if equal:
             value = values[0]
         manifest = tmp_path / f"profile{index}.yml"
-        body = f"    env:\n      MINIO_ROOT_PASSWORD: {value}\n" if field == "env" else f"    host_bind_ip: {value}\n"
+        body = f"    env:\n      SILO_ROOT_PASSWORD: {value}\n" if field == "env" else f"    host_bind_ip: {value}\n"
         manifest.write_text(f"name: owned{index}\nprofile_overrides:\n  default:\n" + body, encoding="utf-8")
         manifests.append(manifest)
     return manifests, values
@@ -3673,6 +3673,6 @@ def test_consumer_conflict_equal_profile_values_still_merge(tmp_path, field):
 
     manifests, values = _profile_conflict_manifests(tmp_path, field, equal=True)
     loaded = load_consumer_config(tmp_path, explicit_paths=map(str, manifests))
-    expected = {"MINIO_ROOT_PASSWORD": values[0]} if field == "env" else values[0]
+    expected = {"SILO_ROOT_PASSWORD": values[0]} if field == "env" else values[0]
     assert loaded.profile_overrides["default"][field] == expected
     assert len(loaded.consumers) == 2

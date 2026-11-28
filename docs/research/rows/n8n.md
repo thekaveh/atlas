@@ -8,7 +8,7 @@ sources_consulted:
   - services/n8n/compose.yml
   - services/n8n/init/config/nodes.json
   - services/n8n/init/scripts/init-n8n.sh
-  - services/minio/service.yml
+  - services/silo/service.yml
   - services/comfyui/service.yml
   - services/weaviate/service.yml
   - services/redis/service.yml
@@ -29,12 +29,12 @@ sources_consulted:
   - Risks / open questions: ComfyUI source can be `disabled`, `localhost`, or a container variant — the env var already resolves per-source, so n8n just needs to read it.
   - Confidence: high (community node verified in `init/config/nodes.json`; endpoint pattern proven for STT/TTS).
 
-- **n8n ↔ minio**
-  - Why valuable: MinIO already provisions an `n8n` bucket plus a scoped `MINIO_N8N_ACCESS_KEY` / `MINIO_N8N_SECRET_KEY` pair, but neither credentials nor the S3 endpoint are passed to n8n, so the dedicated bucket sits unused. n8n's built-in **S3** node supports custom endpoints.
-  - Mechanism sketch: env-inject `S3_ENDPOINT=http://minio:9000`, `S3_BUCKET=${MINIO_BUCKET_N8N}`, `S3_ACCESS_KEY=${MINIO_N8N_ACCESS_KEY}`, `S3_SECRET_KEY=${MINIO_N8N_SECRET_KEY}` and add `minio` to `runtime_deps.optional`.
+- **n8n ↔ silo**
+  - Why valuable: Silo already provisions an `n8n` bucket plus a scoped `SILO_N8N_ACCESS_KEY` / `SILO_N8N_SECRET_KEY` pair, but neither credentials nor the S3 endpoint are passed to n8n, so the dedicated bucket sits unused. n8n's built-in **S3** node supports custom endpoints.
+  - Mechanism sketch: env-inject `S3_ENDPOINT=http://silo:9000`, `S3_BUCKET=${SILO_BUCKET_N8N}`, `S3_ACCESS_KEY=${SILO_N8N_ACCESS_KEY}`, `S3_SECRET_KEY=${SILO_N8N_SECRET_KEY}` and add `silo` to `runtime_deps.optional`.
   - Effort: small
-  - Risks / open questions: path-style vs virtual-hosted-style addressing — MinIO needs `forcePathStyle=true` on the n8n S3 credential template.
-  - Confidence: high (MinIO manifest already provisions the bucket + IAM policy).
+  - Risks / open questions: path-style vs virtual-hosted-style addressing — Silo needs `forcePathStyle=true` on the n8n S3 credential template.
+  - Confidence: high (Silo manifest already provisions the bucket + IAM policy).
 
 - **n8n ↔ neo4j**
   - Why valuable: Neo4j is the stack's graph store but has no first-party n8n node. Workflows that build knowledge graphs from `doc_processor` output currently can't write to Neo4j without a custom HTTP-node call. Wiring this enables KG-from-document flows.

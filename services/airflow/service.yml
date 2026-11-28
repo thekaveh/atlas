@@ -11,7 +11,7 @@ capabilities:
   - name: "Untrusted DAG code isolation"
     status: not-supported
     verification: tested
-    note: "LocalExecutor operator-authored DAGs execute unsandboxed. Their Airflow Connections hold the scoped MinIO spark pair, LiteLLM master, Neo4j administrator, scoped Supabase reader, and Redis password credentials. Admit only trusted DAG authors."
+    note: "LocalExecutor operator-authored DAGs execute unsandboxed. Their Airflow Connections hold the scoped Silo spark pair, LiteLLM master, Neo4j administrator, scoped Supabase reader, and Redis password credentials. Admit only trusted DAG authors."
   - name: "Seeded stack service connections"
     status: partial
     verification: tested
@@ -19,7 +19,7 @@ capabilities:
   - name: "Spark lakehouse job execution"
     status: partial
     verification: tested
-    note: "Bundled DAGs and jars exercise SparkSubmit and lakehouse configuration, but live Spark, MinIO, Iceberg, and Redpanda execution remains an operator-run smoke path."
+    note: "Bundled DAGs and jars exercise SparkSubmit and lakehouse configuration, but live Spark, Silo, Iceberg, and Redpanda execution remains an operator-run smoke path."
   - name: "Airflow UI and API authentication"
     status: supported
     verification: tested
@@ -137,7 +137,7 @@ depends_on:
     - redis
   optional:
     - spark
-    - minio
+    - silo
     - iceberg-rest
     - redpanda
     - weaviate
@@ -180,16 +180,16 @@ runtime_sc:
         SPARK_KAFKA_BOOTSTRAP_SERVERS: ${SPARK_KAFKA_BOOTSTRAP_SERVERS:-}
         ATLAS_LAKEHOUSE_SPARK_DEPLOY_MODE: cluster
         ATLAS_LAKEHOUSE_SMOKE_JAR_PATH: /opt/airflow/atlas-jars/atlas-lakehouse-smoke.jar
-        MINIO_ENDPOINT: http://minio:9000
-        MINIO_REGION: ${MINIO_REGION:-us-east-1}
-        MINIO_BUCKET_SPARK_HISTORY: ${MINIO_BUCKET_SPARK_HISTORY:-spark-history}
-        MINIO_SPARK_ACCESS_KEY: ${MINIO_SPARK_ACCESS_KEY}
-        MINIO_SPARK_SECRET_KEY: ${MINIO_SPARK_SECRET_KEY}
-        MINIO_BUCKET_ICEBERG_JARS: ${MINIO_BUCKET_ICEBERG_JARS:-jars}
-        MINIO_BUCKET_ICEBERG_LANDING: ${MINIO_BUCKET_ICEBERG_LANDING:-landing}
-        MINIO_BUCKET_ICEBERG_LAKEHOUSE: ${MINIO_BUCKET_ICEBERG_LAKEHOUSE:-lakehouse}
-        MINIO_ICEBERG_ACCESS_KEY: ${MINIO_ICEBERG_ACCESS_KEY}
-        MINIO_ICEBERG_SECRET_KEY: ${MINIO_ICEBERG_SECRET_KEY}
+        SILO_ENDPOINT: http://silo:9000
+        SILO_REGION: ${SILO_REGION:-us-east-1}
+        SILO_BUCKET_SPARK_HISTORY: ${SILO_BUCKET_SPARK_HISTORY:-spark-history}
+        SILO_SPARK_ACCESS_KEY: ${SILO_SPARK_ACCESS_KEY}
+        SILO_SPARK_SECRET_KEY: ${SILO_SPARK_SECRET_KEY}
+        SILO_BUCKET_ICEBERG_JARS: ${SILO_BUCKET_ICEBERG_JARS:-jars}
+        SILO_BUCKET_ICEBERG_LANDING: ${SILO_BUCKET_ICEBERG_LANDING:-landing}
+        SILO_BUCKET_ICEBERG_LAKEHOUSE: ${SILO_BUCKET_ICEBERG_LAKEHOUSE:-lakehouse}
+        SILO_ICEBERG_ACCESS_KEY: ${SILO_ICEBERG_ACCESS_KEY}
+        SILO_ICEBERG_SECRET_KEY: ${SILO_ICEBERG_SECRET_KEY}
         ICEBERG_REST_URI: http://iceberg-rest:8181
       deploy: {}
       extra_hosts: []
@@ -221,16 +221,16 @@ runtime_sc:
         SPARK_KAFKA_BOOTSTRAP_SERVERS: ${SPARK_KAFKA_BOOTSTRAP_SERVERS:-}
         ATLAS_LAKEHOUSE_SPARK_DEPLOY_MODE: cluster
         ATLAS_LAKEHOUSE_SMOKE_JAR_PATH: /opt/airflow/atlas-jars/atlas-lakehouse-smoke.jar
-        MINIO_ENDPOINT: http://minio:9000
-        MINIO_REGION: ${MINIO_REGION:-us-east-1}
-        MINIO_BUCKET_SPARK_HISTORY: ${MINIO_BUCKET_SPARK_HISTORY:-spark-history}
-        MINIO_SPARK_ACCESS_KEY: ${MINIO_SPARK_ACCESS_KEY}
-        MINIO_SPARK_SECRET_KEY: ${MINIO_SPARK_SECRET_KEY}
-        MINIO_BUCKET_ICEBERG_JARS: ${MINIO_BUCKET_ICEBERG_JARS:-jars}
-        MINIO_BUCKET_ICEBERG_LANDING: ${MINIO_BUCKET_ICEBERG_LANDING:-landing}
-        MINIO_BUCKET_ICEBERG_LAKEHOUSE: ${MINIO_BUCKET_ICEBERG_LAKEHOUSE:-lakehouse}
-        MINIO_ICEBERG_ACCESS_KEY: ${MINIO_ICEBERG_ACCESS_KEY}
-        MINIO_ICEBERG_SECRET_KEY: ${MINIO_ICEBERG_SECRET_KEY}
+        SILO_ENDPOINT: http://silo:9000
+        SILO_REGION: ${SILO_REGION:-us-east-1}
+        SILO_BUCKET_SPARK_HISTORY: ${SILO_BUCKET_SPARK_HISTORY:-spark-history}
+        SILO_SPARK_ACCESS_KEY: ${SILO_SPARK_ACCESS_KEY}
+        SILO_SPARK_SECRET_KEY: ${SILO_SPARK_SECRET_KEY}
+        SILO_BUCKET_ICEBERG_JARS: ${SILO_BUCKET_ICEBERG_JARS:-jars}
+        SILO_BUCKET_ICEBERG_LANDING: ${SILO_BUCKET_ICEBERG_LANDING:-landing}
+        SILO_BUCKET_ICEBERG_LAKEHOUSE: ${SILO_BUCKET_ICEBERG_LAKEHOUSE:-lakehouse}
+        SILO_ICEBERG_ACCESS_KEY: ${SILO_ICEBERG_ACCESS_KEY}
+        SILO_ICEBERG_SECRET_KEY: ${SILO_ICEBERG_SECRET_KEY}
         ICEBERG_REST_URI: http://iceberg-rest:8181
       deploy: {}
       extra_hosts: []
@@ -259,16 +259,16 @@ runtime_sc:
         SPARK_KAFKA_BOOTSTRAP_SERVERS: ${SPARK_KAFKA_BOOTSTRAP_SERVERS:-}
         ATLAS_LAKEHOUSE_SPARK_DEPLOY_MODE: cluster
         ATLAS_LAKEHOUSE_SMOKE_JAR_PATH: /opt/airflow/atlas-jars/atlas-lakehouse-smoke.jar
-        MINIO_ENDPOINT: http://minio:9000
-        MINIO_REGION: ${MINIO_REGION:-us-east-1}
-        MINIO_BUCKET_SPARK_HISTORY: ${MINIO_BUCKET_SPARK_HISTORY:-spark-history}
-        MINIO_SPARK_ACCESS_KEY: ${MINIO_SPARK_ACCESS_KEY}
-        MINIO_SPARK_SECRET_KEY: ${MINIO_SPARK_SECRET_KEY}
-        MINIO_BUCKET_ICEBERG_JARS: ${MINIO_BUCKET_ICEBERG_JARS:-jars}
-        MINIO_BUCKET_ICEBERG_LANDING: ${MINIO_BUCKET_ICEBERG_LANDING:-landing}
-        MINIO_BUCKET_ICEBERG_LAKEHOUSE: ${MINIO_BUCKET_ICEBERG_LAKEHOUSE:-lakehouse}
-        MINIO_ICEBERG_ACCESS_KEY: ${MINIO_ICEBERG_ACCESS_KEY}
-        MINIO_ICEBERG_SECRET_KEY: ${MINIO_ICEBERG_SECRET_KEY}
+        SILO_ENDPOINT: http://silo:9000
+        SILO_REGION: ${SILO_REGION:-us-east-1}
+        SILO_BUCKET_SPARK_HISTORY: ${SILO_BUCKET_SPARK_HISTORY:-spark-history}
+        SILO_SPARK_ACCESS_KEY: ${SILO_SPARK_ACCESS_KEY}
+        SILO_SPARK_SECRET_KEY: ${SILO_SPARK_SECRET_KEY}
+        SILO_BUCKET_ICEBERG_JARS: ${SILO_BUCKET_ICEBERG_JARS:-jars}
+        SILO_BUCKET_ICEBERG_LANDING: ${SILO_BUCKET_ICEBERG_LANDING:-landing}
+        SILO_BUCKET_ICEBERG_LAKEHOUSE: ${SILO_BUCKET_ICEBERG_LAKEHOUSE:-lakehouse}
+        SILO_ICEBERG_ACCESS_KEY: ${SILO_ICEBERG_ACCESS_KEY}
+        SILO_ICEBERG_SECRET_KEY: ${SILO_ICEBERG_SECRET_KEY}
         ICEBERG_REST_URI: http://iceberg-rest:8181
       deploy: {}
       extra_hosts: []
@@ -301,18 +301,18 @@ runtime_sc:
         # seeds those Connections unconditionally and does not read the vars.
         # NEO4J_GRAPH_DB_SOURCE is the canonical name (not NEO4J_SOURCE).
         SPARK_SOURCE: ${SPARK_SOURCE:-disabled}
-        MINIO_SOURCE: ${MINIO_SOURCE:-disabled}
+        SILO_SOURCE: ${SILO_SOURCE:-disabled}
         ICEBERG_REST_SOURCE: ${ICEBERG_REST_SOURCE:-disabled}
         WEAVIATE_SOURCE: ${WEAVIATE_SOURCE:-disabled}
         NEO4J_GRAPH_DB_SOURCE: ${NEO4J_GRAPH_DB_SOURCE:-disabled}
         ATLAS_LAKEHOUSE_SPARK_DEPLOY_MODE: cluster
         # Credentials passed through to airflow-init for use by the
-        # connection-seeding helper (litellm + minio + supabase + the
+        # connection-seeding helper (litellm + silo + supabase + the
         # dedicated airflow Postgres role).
         LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
-        MINIO_REGION: ${MINIO_REGION:-us-east-1}  # minio_default connection region
-        MINIO_SPARK_ACCESS_KEY: ${MINIO_SPARK_ACCESS_KEY}
-        MINIO_SPARK_SECRET_KEY: ${MINIO_SPARK_SECRET_KEY}
+        SILO_REGION: ${SILO_REGION:-us-east-1}  # silo_default connection region
+        SILO_SPARK_ACCESS_KEY: ${SILO_SPARK_ACCESS_KEY}
+        SILO_SPARK_SECRET_KEY: ${SILO_SPARK_SECRET_KEY}
         SUPABASE_DB_NAME: ${SUPABASE_DB_NAME}
         AIRFLOW_ATLAS_DB_USER: ${AIRFLOW_ATLAS_DB_USER}
         AIRFLOW_ATLAS_DB_PASSWORD: ${AIRFLOW_ATLAS_DB_PASSWORD}
@@ -354,7 +354,7 @@ data_flow:
       status: optional
       condition: an operator-authored DAG; Atlas passes only SPARK_KAFKA_BOOTSTRAP_SERVERS
       evidence: services/airflow/compose.yml
-    - minio
+    - silo
     - iceberg-rest
     - litellm
     - target: weaviate

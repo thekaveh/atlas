@@ -24,7 +24,7 @@ capabilities:
   - name: "Agent configuration and workspace persistence"
     status: partial
     verification: tested
-    note: "Config and workspace data persist in local named volumes, with no MinIO sharing, backup workflow, replication, or tenant-isolated workspace topology."
+    note: "Config and workspace data persist in local named volumes, with no Silo sharing, backup workflow, replication, or tenant-isolated workspace topology."
   - name: "Hermes and n8n message bridges"
     status: stubbed
     verification: tested

@@ -48,7 +48,7 @@ def test_langfuse_manifest_admission_contract() -> None:
     assert manifest["depends_on"]["required"] == [
         "supabase",
         "redis",
-        "minio",
+        "silo",
         "litellm",
         "kong",
         "ray",
@@ -59,7 +59,7 @@ def test_langfuse_manifest_admission_contract() -> None:
     assert manifest["data_flow"]["calls"] == [
         "supabase",
         "redis",
-        "minio",
+        "silo",
     ]
 
     env_vars = {entry["name"]: entry for entry in manifest["env"]}
@@ -113,7 +113,7 @@ def test_langfuse_topology_alias_and_env_example_contract() -> None:
         "LANGFUSE_WEB_SCALE=",
         "LANGFUSE_WORKER_SCALE=",
         "LANGFUSE_CLICKHOUSE_SCALE=",
-        "MINIO_BUCKET_LANGFUSE=langfuse",
+        "SILO_BUCKET_LANGFUSE=langfuse",
     ):
         assert expected in env_example
 
@@ -154,7 +154,7 @@ def test_langfuse_source_cli_mapping_exists() -> None:
 def test_langfuse_scale_generation_and_dependency_gate() -> None:
     sc = ServiceConfig(config_parser=MagicMock())
 
-    sc.service_sources = {"LANGFUSE_SOURCE": "disabled", "MINIO_SOURCE": "disabled"}
+    sc.service_sources = {"LANGFUSE_SOURCE": "disabled", "SILO_SOURCE": "disabled"}
     assert sc._generate_langfuse_config() == {
         "LANGFUSE_INIT_SCALE": "0",
         "LANGFUSE_WEB_SCALE": "0",
@@ -163,7 +163,7 @@ def test_langfuse_scale_generation_and_dependency_gate() -> None:
         "LANGFUSE_ENDPOINT": "",
     }
 
-    sc.service_sources = {"LANGFUSE_SOURCE": "container", "MINIO_SOURCE": "container"}
+    sc.service_sources = {"LANGFUSE_SOURCE": "container", "SILO_SOURCE": "container"}
     assert sc._generate_langfuse_config() == {
         "LANGFUSE_INIT_SCALE": "1",
         "LANGFUSE_WEB_SCALE": "1",
@@ -172,8 +172,8 @@ def test_langfuse_scale_generation_and_dependency_gate() -> None:
         "LANGFUSE_ENDPOINT": "http://langfuse-web:3000",
     }
 
-    sc.service_sources = {"LANGFUSE_SOURCE": "container", "MINIO_SOURCE": "disabled"}
-    with pytest.raises(ValueError, match="Langfuse requires MinIO"):
+    sc.service_sources = {"LANGFUSE_SOURCE": "container", "SILO_SOURCE": "disabled"}
+    with pytest.raises(ValueError, match="Langfuse requires Silo"):
         sc._generate_langfuse_config()
 
 
@@ -204,22 +204,22 @@ def test_langfuse_compose_contract() -> None:
     assert clickhouse["image"] == "${LANGFUSE_CLICKHOUSE_IMAGE:-clickhouse/clickhouse-server:25.8.33.6}"
     assert web["ports"] == ["${HOST_BIND_IP-127.0.0.1:}${LANGFUSE_PORT}:3000"]
     assert "ports" not in clickhouse
-    assert web["environment"]["LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT"] == "http://minio:9000"
-    assert web["environment"]["LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT"] == "http://minio:9000"
+    assert web["environment"]["LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT"] == "http://silo:9000"
+    assert web["environment"]["LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT"] == "http://silo:9000"
     assert web["environment"]["DATABASE_URL"] == (
         "postgresql://${LANGFUSE_DB_USER_URI:?LANGFUSE_DB_USER_URI is required}:${LANGFUSE_DB_PASSWORD_URI:?LANGFUSE_DB_PASSWORD_URI is required}@supabase-db:5432/${LANGFUSE_DB_NAME_URI:?LANGFUSE_DB_NAME_URI is required}"
     )
     assert web["depends_on"]["langfuse-init"]["condition"] == "service_completed_successfully"
     assert worker["depends_on"]["langfuse-init"]["condition"] == "service_completed_successfully"
     assert init["depends_on"]["supabase-db-init"]["condition"] == "service_completed_successfully"
-    assert init["depends_on"]["minio-init"]["condition"] == "service_completed_successfully"
+    assert init["depends_on"]["silo-init"]["condition"] == "service_completed_successfully"
     assert not {
-        "MINIO_ROOT_USER",
-        "MINIO_ROOT_PASSWORD",
-        "MINIO_BUCKET_LANGFUSE",
-        "MINIO_LANGFUSE_ACCESS_KEY",
-        "MINIO_LANGFUSE_SECRET_KEY",
-    } & set(init["environment"]), "Langfuse init must not duplicate minio-init provisioning"
+        "SILO_ROOT_USER",
+        "SILO_ROOT_PASSWORD",
+        "SILO_BUCKET_LANGFUSE",
+        "SILO_LANGFUSE_ACCESS_KEY",
+        "SILO_LANGFUSE_SECRET_KEY",
+    } & set(init["environment"]), "Langfuse init must not duplicate silo-init provisioning"
 
 
 def test_litellm_init_receives_langfuse_source_for_config_render() -> None:
@@ -265,31 +265,31 @@ def test_langfuse_kong_route_only_when_container() -> None:
     assert "langfuse.localhost" not in disabled_hosts
 
 
-def test_minio_provisions_langfuse_bucket_and_scoped_credentials() -> None:
-    minio_manifest = yaml.safe_load(
-        (REPO_ROOT / "services" / "minio" / "service.yml").read_text()
+def test_silo_provisions_langfuse_bucket_and_scoped_credentials() -> None:
+    silo_manifest = yaml.safe_load(
+        (REPO_ROOT / "services" / "silo" / "service.yml").read_text()
     )
-    env_vars = {entry["name"]: entry for entry in minio_manifest["env"]}
+    env_vars = {entry["name"]: entry for entry in silo_manifest["env"]}
 
-    assert env_vars["MINIO_BUCKET_LANGFUSE"]["default"] == "langfuse"
-    assert env_vars["MINIO_LANGFUSE_ACCESS_KEY"]["secret"] is True
-    assert env_vars["MINIO_LANGFUSE_SECRET_KEY"]["secret"] is True
+    assert env_vars["SILO_BUCKET_LANGFUSE"]["default"] == "langfuse"
+    assert env_vars["SILO_LANGFUSE_ACCESS_KEY"]["secret"] is True
+    assert env_vars["SILO_LANGFUSE_SECRET_KEY"]["secret"] is True
 
-    minio_compose = yaml.safe_load(
-        (REPO_ROOT / "services" / "minio" / "compose.yml").read_text()
+    silo_compose = yaml.safe_load(
+        (REPO_ROOT / "services" / "silo" / "compose.yml").read_text()
     )
-    minio_init_env = minio_compose["services"]["minio-init"]["environment"]
-    assert minio_init_env["MINIO_BUCKET_LANGFUSE"] == "${MINIO_BUCKET_LANGFUSE}"
-    assert minio_init_env["MINIO_LANGFUSE_ACCESS_KEY"] == "${MINIO_LANGFUSE_ACCESS_KEY}"
-    assert minio_init_env["MINIO_LANGFUSE_SECRET_KEY"] == "${MINIO_LANGFUSE_SECRET_KEY}"
+    silo_init_env = silo_compose["services"]["silo-init"]["environment"]
+    assert silo_init_env["SILO_BUCKET_LANGFUSE"] == "${SILO_BUCKET_LANGFUSE}"
+    assert silo_init_env["SILO_LANGFUSE_ACCESS_KEY"] == "${SILO_LANGFUSE_ACCESS_KEY}"
+    assert silo_init_env["SILO_LANGFUSE_SECRET_KEY"] == "${SILO_LANGFUSE_SECRET_KEY}"
 
     script = (
-        REPO_ROOT / "services" / "minio" / "init" / "scripts" / "init-minio.sh"
+        REPO_ROOT / "services" / "silo" / "init" / "scripts" / "init-silo.sh"
     ).read_text()
-    assert "langfuse:MINIO_BUCKET_LANGFUSE:MINIO_LANGFUSE_ACCESS_KEY:MINIO_LANGFUSE_SECRET_KEY" in script
+    assert "langfuse:SILO_BUCKET_LANGFUSE:SILO_LANGFUSE_ACCESS_KEY:SILO_LANGFUSE_SECRET_KEY" in script
 
 
-def test_key_generator_creates_langfuse_and_minio_credentials(tmp_path) -> None:
+def test_key_generator_creates_langfuse_and_silo_credentials(tmp_path) -> None:
     from utils.key_generator import KeyGenerator
 
     env_file = tmp_path / ".env"
@@ -306,17 +306,17 @@ def test_key_generator_creates_langfuse_and_minio_credentials(tmp_path) -> None:
 
     generator = KeyGenerator(str(tmp_path))
     langfuse_results = generator.generate_and_update_langfuse_secrets()
-    minio_results = generator.generate_and_update_minio_consumer_keys()
+    silo_results = generator.generate_and_update_silo_consumer_keys()
     values = ConfigParser(str(tmp_path)).parse_env_file()
 
     assert all(langfuse_results.values())
     assert len(values["LANGFUSE_ENCRYPTION_KEY"]) == 64
     assert values["LANGFUSE_PUBLIC_KEY"].startswith("pk-lf-")
     assert values["LANGFUSE_SECRET_KEY"].startswith("sk-lf-")
-    assert minio_results["MINIO_LANGFUSE_ACCESS_KEY"] is True
-    assert minio_results["MINIO_LANGFUSE_SECRET_KEY"] is True
-    assert values["MINIO_LANGFUSE_ACCESS_KEY"]
-    assert values["MINIO_LANGFUSE_SECRET_KEY"]
+    assert silo_results["SILO_LANGFUSE_ACCESS_KEY"] is True
+    assert silo_results["SILO_LANGFUSE_SECRET_KEY"] is True
+    assert values["SILO_LANGFUSE_ACCESS_KEY"]
+    assert values["SILO_LANGFUSE_SECRET_KEY"]
 
 
 def test_langfuse_docs_describe_observability_scope_and_rollbacks() -> None:
@@ -330,7 +330,7 @@ def test_langfuse_docs_describe_observability_scope_and_rollbacks() -> None:
         "Prometheus",
         "Grafana",
         "ClickHouse",
-        "MinIO",
+        "Silo",
         "low-scale",
         "rollback",
         "ComfyUI",

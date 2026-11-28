@@ -31,7 +31,7 @@ GPU_DOCKERFILE_EXCLUSIONS = {
 REVIEWED_REMOTE_BASE_DIGESTS = {
     "nginx:alpine": "sha256:7fc0fb4af7bf006aeb31aea88069976060f8f0a0a86b667126742cc17f4e31ae",
     "node:20": "sha256:8f693eaa7e0a8e71560c9a82b55fd54c2ae920a2ba5d2cde28bac7d1c01c9ba5",
-    "python:3.12-slim": "sha256:191083cdf6c7bda8c76158983163ead5d5cf7b77cf3033e805bb0f5296f51b4b",
+    "python:3.12-slim": "sha256:5b5fe805d367f8f5a359ded6ab2652b7f9a206453ee6ee789c0045ba6ec15016",
 }
 
 
@@ -157,20 +157,20 @@ def test_container_security_preserves_explicit_single_arch_platforms() -> None:
 
 
 def test_swapping_one_image_variable_for_another_schedules_the_new_image() -> None:
-    # `image: ${MINIO_IMAGE}` -> `${MINIO_INIT_IMAGE}` names no resolved
+    # `image: ${SILO_IMAGE}` -> `${SILO_INIT_IMAGE}` names no resolved
     # reference, so the literal match scheduled nothing (#1389).
     scans = container_security.load_changed_image_scans(
         ROOT / "services",
         [
-            "diff --git a/services/minio/compose.yml b/services/minio/compose.yml",
-            "-    image: ${MINIO_IMAGE}",
-            "+    image: ${MINIO_INIT_IMAGE}",
+            "diff --git a/services/silo/compose.yml b/services/silo/compose.yml",
+            "-    image: ${SILO_IMAGE}",
+            "+    image: ${SILO_INIT_IMAGE}",
         ],
     )
     assert next(
         row["default"]
-        for row in yaml.safe_load((ROOT / "services/minio/service.yml").read_text(encoding="utf-8"))["images"]
-        if row["var"] == "MINIO_INIT_IMAGE"
+        for row in yaml.safe_load((ROOT / "services/silo/service.yml").read_text(encoding="utf-8"))["images"]
+        if row["var"] == "SILO_INIT_IMAGE"
     ) in {scan.image for scan in scans}
 
 
@@ -272,17 +272,17 @@ def test_changed_dockerfile_defers_base_to_final_image_scan() -> None:
 
 
 def test_changed_manifest_scans_a_build_base_that_compose_also_deploys() -> None:
-    # minio-init runs the mc image directly, though backup/jenkins builds use
+    # silo-init runs the mc image directly, though backup/jenkins builds use
     # it as a base, so its declaration change needs the required scan.
     image = next(
         row["default"]
-        for row in yaml.safe_load((ROOT / "services/minio/service.yml").read_text(encoding="utf-8"))["images"]
-        if row["var"] == "MINIO_INIT_IMAGE"
+        for row in yaml.safe_load((ROOT / "services/silo/service.yml").read_text(encoding="utf-8"))["images"]
+        if row["var"] == "SILO_INIT_IMAGE"
     )
     scans = container_security.load_changed_image_scans(
         ROOT / "services",
         [
-            "diff --git a/services/minio/service.yml b/services/minio/service.yml",
+            "diff --git a/services/silo/service.yml b/services/silo/service.yml",
             f'+    default: "{image}"',
         ],
     )
@@ -1413,6 +1413,7 @@ def test_contract_ledger_records_remote_base_digest_review_provenance() -> None:
     assert "docker-library/python@3d7e95597e56a415d9e4abc0f15877e005d2cb2e" in ledger
     assert "sha256:4a68d3169325c47e1bafbb86425220f03fbdff6f079a419e8d39407183288217" in ledger
     assert "sha256:d85015f061f0c189e6cc615135bf107d344b9eedcfaaf9d13c45aca0377c6a35" in ledger
+    assert "7.2.14. 2026-11-28 — python:3.12-slim republish" in ledger
 
 
 _POLICY_REJECTION_CASES = (

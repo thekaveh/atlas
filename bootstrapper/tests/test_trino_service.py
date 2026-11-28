@@ -61,14 +61,14 @@ def test_trino_manifest_admission_contract() -> None:
         "container",
         "disabled",
     }
-    assert manifest["depends_on"]["required"] == ["minio", "iceberg-rest"]
+    assert manifest["depends_on"]["required"] == ["silo", "iceberg-rest"]
     assert manifest["depends_on"]["optional"] == [
         "spark",
         "zeppelin",
         "jupyterhub",
         "airflow",
     ]
-    assert manifest["data_flow"]["calls"] == ["iceberg-rest", "minio"]
+    assert manifest["data_flow"]["calls"] == ["iceberg-rest", "silo"]
 
     env_vars = {entry["name"]: entry for entry in manifest["env"]}
     assert env_vars["TRINO_SOURCE"]["default"] == "disabled"
@@ -95,30 +95,30 @@ def test_trino_compose_catalog_contract() -> None:
     assert service["ports"] == ["${HOST_BIND_IP-127.0.0.1:}${TRINO_PORT}:8080"]
     assert service["deploy"]["replicas"] == "${TRINO_SCALE:-0}"
     assert service["depends_on"]["iceberg-rest"]["condition"] == "service_healthy"
-    assert service["depends_on"]["minio-init"]["condition"] == "service_completed_successfully"
+    assert service["depends_on"]["silo-init"]["condition"] == "service_completed_successfully"
     assert "./catalog:/etc/trino/catalog:ro" in service["volumes"]
     # Kong's X-Forwarded-* headers get a 406 without forwarded processing.
     assert "-Dhttp-server.process-forwarded=true" in service["environment"]["JAVA_TOOL_OPTIONS"]
-    assert service["environment"]["MINIO_BUCKET_ICEBERG_LAKEHOUSE"] == (
-        "${MINIO_BUCKET_ICEBERG_LAKEHOUSE:-lakehouse}"
+    assert service["environment"]["SILO_BUCKET_ICEBERG_LAKEHOUSE"] == (
+        "${SILO_BUCKET_ICEBERG_LAKEHOUSE:-lakehouse}"
     )
 
     catalog = (SERVICE_DIR / "catalog" / "lakehouse.properties").read_text()
     assert "connector.name=iceberg" in catalog
     assert "iceberg.catalog.type=rest" in catalog
     assert "iceberg.rest-catalog.uri=http://iceberg-rest:8181" in catalog
-    # Follows the bucket iceberg-rest/Spark/minio-init use, not a literal.
+    # Follows the bucket iceberg-rest/Spark/silo-init use, not a literal.
     assert (
-        "iceberg.rest-catalog.warehouse=s3://${ENV:MINIO_BUCKET_ICEBERG_LAKEHOUSE}/"
+        "iceberg.rest-catalog.warehouse=s3://${ENV:SILO_BUCKET_ICEBERG_LAKEHOUSE}/"
         in catalog
     )
     assert "fs.native-s3.enabled=true" in catalog
-    assert "s3.endpoint=http://minio:9000" in catalog
-    assert "s3.region=${ENV:MINIO_REGION}" in catalog
+    assert "s3.endpoint=http://silo:9000" in catalog
+    assert "s3.region=${ENV:SILO_REGION}" in catalog
     assert "s3.path-style-access=true" in catalog
-    assert "s3.aws-access-key=${ENV:MINIO_ICEBERG_ACCESS_KEY}" in catalog
-    assert "s3.aws-secret-key=${ENV:MINIO_ICEBERG_SECRET_KEY}" in catalog
-    assert "MINIO_ROOT" not in catalog
+    assert "s3.aws-access-key=${ENV:SILO_ICEBERG_ACCESS_KEY}" in catalog
+    assert "s3.aws-secret-key=${ENV:SILO_ICEBERG_SECRET_KEY}" in catalog
+    assert "SILO_ROOT" not in catalog
 
 
 def test_trino_topology_alias_env_and_track_contract() -> None:
@@ -156,29 +156,29 @@ def test_trino_source_cli_mapping_and_service_config_gate() -> None:
     sc = ServiceConfig(config_parser=MagicMock())
     sc.service_sources = {
         "TRINO_SOURCE": "disabled",
-        "MINIO_SOURCE": "disabled",
+        "SILO_SOURCE": "disabled",
         "ICEBERG_REST_SOURCE": "disabled",
     }
     assert sc._generate_trino_config() == {"TRINO_SCALE": "0"}
 
     sc.service_sources = {
         "TRINO_SOURCE": "container",
-        "MINIO_SOURCE": "container",
+        "SILO_SOURCE": "container",
         "ICEBERG_REST_SOURCE": "container",
     }
     assert sc._generate_trino_config() == {"TRINO_SCALE": "1"}
 
     sc.service_sources = {
         "TRINO_SOURCE": "container",
-        "MINIO_SOURCE": "disabled",
+        "SILO_SOURCE": "disabled",
         "ICEBERG_REST_SOURCE": "container",
     }
-    with pytest.raises(ValueError, match="Trino requires MinIO"):
+    with pytest.raises(ValueError, match="Trino requires Silo"):
         sc._generate_trino_config()
 
     sc.service_sources = {
         "TRINO_SOURCE": "container",
-        "MINIO_SOURCE": "container",
+        "SILO_SOURCE": "container",
         "ICEBERG_REST_SOURCE": "disabled",
     }
     with pytest.raises(ValueError, match="Trino requires Iceberg REST"):
@@ -223,7 +223,7 @@ def test_trino_kong_route_and_docs_contract() -> None:
         "Trino 482",
         "TRINO_PORT",
         "Iceberg REST",
-        "MinIO",
+        "Silo",
         "trinodb/trino:482",
     ):
         assert expected in readme

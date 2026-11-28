@@ -60,7 +60,7 @@ def test_celery_manifest_admission_contract() -> None:
         "docling",
         "tika",
         "lightrag",
-        "minio",
+        "silo",
         "otel-collector",
     ]
     assert manifest["data_flow"]["calls"] == [
@@ -72,7 +72,7 @@ def test_celery_manifest_admission_contract() -> None:
         "docling",
         "tika",
         "lightrag",
-        "minio",
+        "silo",
         "otel-collector",
     ]
 
@@ -199,7 +199,7 @@ def test_celery_compose_contract() -> None:
         "TIKA_ENDPOINT",
         "LIGHTRAG_ENDPOINT",
         "LIGHTRAG_API_KEY",
-        "MINIO_ENDPOINT",
+        "SILO_ENDPOINT",
     ):
         assert name in worker["environment"]
     assert worker["environment"]["DATABASE_URL"] == (

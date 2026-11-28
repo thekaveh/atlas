@@ -2,7 +2,7 @@
 
 ## 1. Overview
 
-Asset Worker is Atlas' containerized glTF post-processing service for generated 3D assets. It takes a raw GLB as an upload or a MinIO object reference. It applies the shared Atlas normalization contract, runs glTF-Transform optimization, and writes the GLB to a content-addressed location.
+Asset Worker is Atlas' containerized glTF post-processing service for generated 3D assets. It takes a raw GLB as an upload or a Silo object reference. It applies the shared Atlas normalization contract, runs glTF-Transform optimization, and writes the GLB to a content-addressed location.
 
 This service exists so image-to-3D providers, Blender and external pipelines, and future creative routes do not duplicate mesh cleanup logic. It is disabled by default until a workflow explicitly needs a common post-processing API.
 
@@ -25,19 +25,19 @@ Every route except `GET /health` and `GET /metrics` requires `Authorization: Bea
 | `ASSET_WORKER_SOURCE` | `disabled` | Enables the containerized worker when set to `container`. |
 | `ASSET_WORKER_IMAGE` | `python:3.12.14-slim-bookworm@sha256:0f5b26b9518d002b6173fd61daad821fa340635ebfec5bba471013f9ca114579` | Base image for the local build. |
 | `ASSET_WORKER_GLTF_TRANSFORM_VERSION` | `4.5.1` | Expected pinned `@gltf-transform/cli` lock version. The build stops unless it matches both `package.json` and `package-lock.json`; update those files together when refreshing the dependency. Every `.env` holds a copy. Startup replaces a copy that still holds an earlier shipped default and keeps any other value (§7). A shipped bump adds the old default to `RETIRED_DEFAULTS` in `bootstrapper/services/migrations/build_pin_refresh.py`. |
-| `ASSET_WORKER_MAX_UPLOAD_MB` | `200` | Maximum uploaded or MinIO-referenced GLB size in MiB. Raw multipart reception permits 1 MiB additional framing; oversized bodies return `413` before parsing. |
+| `ASSET_WORKER_MAX_UPLOAD_MB` | `200` | Maximum uploaded or Silo-referenced GLB size in MiB. Raw multipart reception permits 1 MiB additional framing; oversized bodies return `413` before parsing. |
 | `ASSET_WORKER_UPLOAD_TIMEOUT_SECONDS` | `300` | Complete multipart reception deadline in seconds. Must be finite and positive; expiry returns `408`. Excludes conversion and reference requests. |
 | `ASSET_WORKER_MAX_NORMALIZATION_VERTICES` | `250000` | Maximum decoded POSITION entries across distinct supported referenced accessor indices. Exceeding the limit returns `422` before decoding. |
 | `ASSET_WORKER_TIMEOUT_SECONDS` | `300` | Per-command timeout for `inspect`, `validate`, and `optimize`. A timeout returns `504`. |
 | `ASSET_WORKER_CONCURRENCY` | `1` | Maximum concurrent mutation requests. A saturated worker rejects new work with `429` before acquiring its input. |
 | `ASSET_WORKER_PORT` | computed | Host port assigned by Atlas' topology allocator. |
 | `ASSET_WORKER_API_TOKEN` | generated | Bearer token required by upload, reference-processing, and artifact-download routes. |
-| `ASSET_WORKER_ALLOWED_INPUT_BUCKETS` | _(blank)_ | Optional comma- or space-separated MinIO bucket allowlist. Blank follows `MINIO_BUCKET_ASSET_INPUTS`. |
+| `ASSET_WORKER_ALLOWED_INPUT_BUCKETS` | _(blank)_ | Optional comma- or space-separated Silo bucket allowlist. Blank follows `SILO_BUCKET_ASSET_INPUTS`. |
 | `ASSET_WORKER_ARTIFACT_DIR` | `/data/artifacts` | Local cache path for optimized GLBs and direct downloads. |
-| `ASSET_WORKER_MINIO_ENABLED` | `true` | Writes optimized GLBs to MinIO when enabled. |
-| `ASSET_WORKER_MINIO_BUCKET` | `asset-worker` | Output bucket for content-addressed artifacts. |
-| `ASSET_WORKER_MINIO_ENDPOINT` | auto-managed | Internal MinIO S3 API endpoint. |
-| `ASSET_WORKER_MINIO_ACCESS_KEY` / `ASSET_WORKER_MINIO_SECRET_KEY` | empty | Optional credential override; compose otherwise uses the generated `MINIO_ASSET_WORKER_*` scoped account. |
+| `ASSET_WORKER_SILO_ENABLED` | `true` | Writes optimized GLBs to Silo when enabled. |
+| `ASSET_WORKER_SILO_BUCKET` | `asset-worker` | Output bucket for content-addressed artifacts. |
+| `ASSET_WORKER_SILO_ENDPOINT` | auto-managed | Internal Silo S3 API endpoint. |
+| `ASSET_WORKER_SILO_ACCESS_KEY` / `ASSET_WORKER_SILO_SECRET_KEY` | empty | Optional credential override; compose otherwise uses the generated `SILO_ASSET_WORKER_*` scoped account. |
 
 Enable from the CLI with:
 
@@ -85,7 +85,7 @@ These bounds cover application spooling, not upstream network buffers or arbitra
 
 ### 4.1. Uploaded GLB
 
-Inputs (uploaded or MinIO-referenced) must be self-contained binary glTF 2.0 files. These inputs are rejected with `400`:
+Inputs (uploaded or Silo-referenced) must be self-contained binary glTF 2.0 files. These inputs are rejected with `400`:
 
 - a `.gltf` JSON file, whatever its name;
 - a GLB whose JSON chunk does not parse;
@@ -123,7 +123,7 @@ Invalid numeric parameters, including NaN and infinity, return `422` before conv
 
 Normalized coordinates must fit finite glTF float32 values. Geometry that exceeds this range returns `422` before conversion.
 
-### 4.2. MinIO Referenced GLB
+### 4.2. Silo Referenced GLB
 
 `POST /gltf/postprocess/ref` accepts JSON:
 
@@ -134,10 +134,10 @@ Normalized coordinates must fit finite glTF float32 values. Geometry that exceed
 }
 ```
 
-The request bucket must be listed in `ASSET_WORKER_ALLOWED_INPUT_BUCKETS`; other buckets return `403` before MinIO is contacted.
+The request bucket must be listed in `ASSET_WORKER_ALLOWED_INPUT_BUCKETS`; other buckets return `403` before Silo is contacted.
 Populate the default `raw-assets` bucket with the generated
-`MINIO_ASSET_INGEST_ACCESS_KEY` and `MINIO_ASSET_INGEST_SECRET_KEY`; that
-identity can write inputs without receiving MinIO root or processor-output access.
+`SILO_ASSET_INGEST_ACCESS_KEY` and `SILO_ASSET_INGEST_SECRET_KEY`; that
+identity can write inputs without receiving Silo root or processor-output access.
 
 ### 4.3. Response
 
@@ -148,7 +148,7 @@ Both endpoints return a normalized artifact envelope:
   "status": "succeeded",
   "sha256": "<optimized-glb-sha256>",
   "artifact": {
-    "storage": "minio",
+    "storage": "silo",
     "bucket": "asset-worker",
     "key": "gltf/<sha256>.glb",
     "uri": "s3://asset-worker/gltf/<sha256>.glb",
@@ -172,7 +172,7 @@ Both endpoints return a normalized artifact envelope:
 }
 ```
 
-When `ASSET_WORKER_MINIO_ENABLED=false`, the worker stores the optimized GLB under `ASSET_WORKER_ARTIFACT_DIR/gltf/<sha256>.glb` and returns `download_url=/gltf/artifacts/<sha256>.glb`.
+When `ASSET_WORKER_SILO_ENABLED=false`, the worker stores the optimized GLB under `ASSET_WORKER_ARTIFACT_DIR/gltf/<sha256>.glb` and returns `download_url=/gltf/artifacts/<sha256>.glb`.
 
 Each local artifact is published atomically after its temporary file is fully written and closed. A handled write or replacement failure preserves any previously published artifact and attempts to remove that attempt’s temporary file.
 
@@ -182,11 +182,11 @@ This service performs **mechanical glTF conditioning**: scale-to-target, center-
 
 ## 5. Architecture & Wiring
 
-The worker performs three operations in order. Uploads are copied in chunks to bounded temporary files. The blocking pipeline runs in a worker thread, so health and other API requests stay responsive. A process-wide semaphore admits mutation requests before request-body parsing or object-store fetch; requests beyond `ASSET_WORKER_CONCURRENCY` receive `429` without consuming transformation, upload-spooling, or MinIO-fetch capacity.
+The worker performs three operations in order. Uploads are copied in chunks to bounded temporary files. The blocking pipeline runs in a worker thread, so health and other API requests stay responsive. A process-wide semaphore admits mutation requests before request-body parsing or object-store fetch; requests beyond `ASSET_WORKER_CONCURRENCY` receive `429` without consuming transformation, upload-spooling, or Silo-fetch capacity.
 
 1. Normalize geometry from the float32 GLB `POSITION` accessors. Apply base-at-y=0, center X/Z on the origin, and scale to the target height or width. Reorientation is opt-in through `up_axis` (§4.1).
 2. Run `gltf-transform inspect`, `gltf-transform validate`, and `gltf-transform optimize` with the requested simplification and compression settings.
-3. Hash the optimized GLB with SHA-256 and write it to MinIO or the local artifact cache under `gltf/<sha256>.glb`.
+3. Hash the optimized GLB with SHA-256 and write it to Silo or the local artifact cache under `gltf/<sha256>.glb`.
 
 The service is intentionally separate from the media gateway. Image-to-3D provider adapters should send raw provider outputs to this worker rather than embed mesh normalization.
 
@@ -201,7 +201,7 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 |---|---|---|---|
 | Mechanical glTF conditioning | supported | tested | Atlas normalizes scale and grounding and validates GLB input. It applies opt-in glTF-Transform simplification, Meshopt compression by default (opt-in Draco takes precedence), and WebP texture compression. KTX2 needs KTX-Software, which the image does not ship. |
 | Bounded authenticated post-processing API | supported | tested | Data routes require the generated bearer token. Uploads enforce received-body size and reception deadlines; mutations enforce admission, final input-size, and subprocess-timeout bounds. Normalization admission also caps decoded POSITION entries. Health and metrics remain public. |
-| Content-addressed optimized artifacts | supported | tested | Optimized GLBs use SHA-256 keys in the scoped MinIO bucket by default, with an explicitly selected local-artifact fallback. |
+| Content-addressed optimized artifacts | supported | tested | Optimized GLBs use SHA-256 keys in the scoped Silo bucket by default, with an explicitly selected local-artifact fallback. |
 | Semantic orientation correction | partial | tested | The default trusts glTF Y-up orientation; callers may request explicit-axis or bounded auto reorientation, but product-specific notions of upright remain consumer policy. |
 
 ## 7. Troubleshooting
@@ -213,8 +213,8 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 - Build stops with `asset-worker glTF version mismatch`: `ASSET_WORKER_GLTF_TRANSFORM_VERSION` in `.env` differs from the lock files. The message names `package.json`, but the stale value is usually in `.env`. Blank it (startup refills it from `.env.example`) or copy the `.env.example` value, then rerun `./start.sh`.
 - `401 Invalid Asset Worker bearer token`: pass `Authorization: Bearer ${ASSET_WORKER_API_TOKEN}`.
 - `403 Input bucket is not allowed`: add the intended bucket to `ASSET_WORKER_ALLOWED_INPUT_BUCKETS`; do not broaden the list to unrelated or private buckets.
-- Dependency check fails with "Asset Worker requires MinIO": the container waits on `minio` and `minio-init`, and the `gen-ai-creative` track leaves MinIO off. Add `--minio-source container` (for example `./start.sh --track gen-ai-creative --asset-worker-source container --minio-source container`), declare `MINIO_SOURCE: container` in a consumer manifest, or disable Asset Worker.
-- MinIO upload failure: confirm `MINIO_SOURCE=container`, `ASSET_WORKER_MINIO_BUCKET`, and the generated `MINIO_ASSET_WORKER_*` credentials.
+- Dependency check fails with "Asset Worker requires Silo": the container waits on `silo` and `silo-init`, and the `gen-ai-creative` track leaves Silo off. Add `--silo-source container` (for example `./start.sh --track gen-ai-creative --asset-worker-source container --silo-source container`), declare `SILO_SOURCE: container` in a consumer manifest, or disable Asset Worker.
+- Silo upload failure: confirm `SILO_SOURCE=container`, `ASSET_WORKER_SILO_BUCKET`, and the generated `SILO_ASSET_WORKER_*` credentials.
 - Kong alias missing: confirm `ASSET_WORKER_SOURCE=container`, run `./start.sh --setup-hosts`, and regenerate routes through the normal startup flow.
 
 ## 8. Dependencies & Integrations
@@ -229,7 +229,7 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 
 | Service | Category |
 |---|---|
-| minio | data |
+| silo | data |
 
 ### 8.2. Current — Downstream (services that call this)
 

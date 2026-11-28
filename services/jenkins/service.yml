@@ -7,8 +7,8 @@ capabilities:
   - name: "Maven Spark application builds"
     status: partial
     verification: tested
-    note: "Atlas builds a Jenkins controller with Maven and a pinned MinIO client, but downstream repositories, Jenkinsfiles, credentials, and all project jobs remain operator-supplied."
-  - name: "Scoped MinIO artifact publishing"
+    note: "Atlas builds a Jenkins controller with Maven and a pinned Silo client, but downstream repositories, Jenkinsfiles, credentials, and all project jobs remain operator-supplied."
+  - name: "Scoped Silo artifact publishing"
     status: supported
     verification: tested
     note: "The controller receives the dedicated Iceberg jar-bucket credentials and supports publishing versioned artifacts for later Spark or Airflow consumption."
@@ -32,20 +32,20 @@ images:
   - var: JENKINS_IMAGE
     default: "jenkins/jenkins:lts-jdk21@sha256:c1e4c349365f6d16d88595b2c5f7e8ff39b8ae1d061f62420bac193b4b9616d0"
     container: jenkins
-    notes: "Jenkins LTS with JDK 21; Atlas builds a local derived image with Maven, MinIO mc, and plugins. The default pins `lts-jdk21` to a reviewed digest, because the bare tag moves on each new LTS line. To refresh, run `docker pull jenkins/jenkins:lts-jdk21` and set the new digest."
+    notes: "Jenkins LTS with JDK 21; Atlas builds a local derived image with Maven, Silo mc, and plugins. The default pins `lts-jdk21` to a reviewed digest, because the bare tag moves on each new LTS line. To refresh, run `docker pull jenkins/jenkins:lts-jdk21` and set the new digest."
 
 sources:
   var: JENKINS_SOURCE
   default: disabled
   options:
     - id: container
-      label: "Container (Jenkins controller + Maven + MinIO artifact publishing)"
+      label: "Container (Jenkins controller + Maven + Silo artifact publishing)"
     - id: disabled
       label: "Disabled"
 
 env:
   - name: JENKINS_SOURCE
-    description: "Deployment source for Jenkins: container or disabled. The container source requires MINIO_SOURCE to be enabled."
+    description: "Deployment source for Jenkins: container or disabled. The container source requires SILO_SOURCE to be enabled."
     default: disabled
   - name: JENKINS_PORT
     description: "Host port for the Jenkins Web UI (in-container 8080)."
@@ -68,7 +68,7 @@ env:
 
 depends_on:
   required:
-    - minio
+    - silo
   optional:
     - airflow
     - spark
@@ -79,7 +79,7 @@ rows:
     port_var: JENKINS_PORT
     scale_var: JENKINS_SCALE
     alias: jenkins.localhost
-    description: "Maven Spark app builder with MinIO artifact publishing."
+    description: "Maven Spark app builder with Silo artifact publishing."
 
 exports: []
 
@@ -92,11 +92,11 @@ runtime_sc:
         JENKINS_ADMIN_USER: ${JENKINS_ADMIN_USER:-admin}
         JENKINS_ADMIN_PASSWORD: ${JENKINS_ADMIN_PASSWORD:?JENKINS_ADMIN_PASSWORD is required}
         JENKINS_OPTS: "--httpPort=8080"
-        MINIO_ENDPOINT: http://minio:9000
-        MINIO_REGION: ${MINIO_REGION:-us-east-1}
-        MINIO_BUCKET_ICEBERG_JARS: ${MINIO_BUCKET_ICEBERG_JARS:-jars}
-        MINIO_JENKINS_ACCESS_KEY: ${MINIO_JENKINS_ACCESS_KEY}
-        MINIO_JENKINS_SECRET_KEY: ${MINIO_JENKINS_SECRET_KEY}
+        SILO_ENDPOINT: http://silo:9000
+        SILO_REGION: ${SILO_REGION:-us-east-1}
+        SILO_BUCKET_ICEBERG_JARS: ${SILO_BUCKET_ICEBERG_JARS:-jars}
+        SILO_JENKINS_ACCESS_KEY: ${SILO_JENKINS_ACCESS_KEY}
+        SILO_JENKINS_SECRET_KEY: ${SILO_JENKINS_SECRET_KEY}
       deploy: {}
       extra_hosts: []
     disabled:
@@ -107,7 +107,7 @@ runtime_sc:
 
 data_flow:
   calls:
-    - target: minio
+    - target: silo
       status: optional
       condition: an operator-authored Jenkins job; none ships with Atlas
       evidence: services/jenkins/README.md

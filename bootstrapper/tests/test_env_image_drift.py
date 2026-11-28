@@ -59,11 +59,11 @@ def test_non_image_keys_ignored(tmp_path: Path):
     """Scope discipline: only `*_IMAGE` keys. Other divergence (ports,
     secrets, source toggles) is often intentional and would produce
     noisy false-positives — those are out of scope."""
-    env_example = _write_env_example(tmp_path, "SPARK_SOURCE=disabled\nBASE_PORT=63000\nMINIO_ROOT_PASSWORD=changeme\n")
+    env_example = _write_env_example(tmp_path, "SPARK_SOURCE=disabled\nBASE_PORT=63000\nSILO_ROOT_PASSWORD=changeme\n")
     user_env = {
         "SPARK_SOURCE": "container",      # intentional CLI override
         "BASE_PORT": "65000",             # intentional user customization
-        "MINIO_ROOT_PASSWORD": "secret",  # intentional secret rotation
+        "SILO_ROOT_PASSWORD": "secret",  # intentional secret rotation
     }
     assert _detect_env_image_drift(user_env, env_example) == []
 

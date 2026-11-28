@@ -43,10 +43,10 @@ def _base_env(base_port: int = 63000) -> dict[str, str]:
         "LLM_PROVIDER_SOURCE": "ollama-container-cpu",
         "OLLAMA_ENDPOINT": "http://ollama:11434",
         "OLLAMA_PORT": str(base_port + 78),
-        "MINIO_SOURCE": "container",
-        "MINIO_ENDPOINT": "http://minio:9000",
-        "MINIO_PUBLIC_ENDPOINT": f"http://localhost:{base_port + 20}",
-        "MINIO_PORT": str(base_port + 20),
+        "SILO_SOURCE": "container",
+        "SILO_ENDPOINT": "http://silo:9000",
+        "SILO_PUBLIC_ENDPOINT": f"http://localhost:{base_port + 20}",
+        "SILO_PORT": str(base_port + 20),
         "WEAVIATE_SOURCE": "container",
         "WEAVIATE_URL": "http://weaviate:8080",
         "WEAVIATE_PORT": str(base_port + 30),
@@ -72,14 +72,14 @@ def _as_dict(fields) -> dict[str, str]:
 def test_distinct_container_host_kong_public_and_source_fields() -> None:
     d = _as_dict(build_export(_base_env()))
     assert d["ATLAS_KONG_GATEWAY"] == "http://localhost:63000"
-    # MinIO: distinct internal vs public vs host vs kong
-    assert d["ATLAS_MINIO_CONTAINER_ENDPOINT"] == "http://minio:9000"
-    assert d["ATLAS_MINIO_PUBLIC_ENDPOINT"] == "http://localhost:63020"
-    assert d["ATLAS_MINIO_HOST_ENDPOINT"] == "http://localhost:63020"
-    assert d["ATLAS_MINIO_KONG_ENDPOINT"] == "http://s3.minio.localhost:63000"
-    assert d["ATLAS_MINIO_SOURCE"] == "container"
+    # Silo: distinct internal vs public vs host vs kong
+    assert d["ATLAS_SILO_CONTAINER_ENDPOINT"] == "http://silo:9000"
+    assert d["ATLAS_SILO_PUBLIC_ENDPOINT"] == "http://localhost:63020"
+    assert d["ATLAS_SILO_HOST_ENDPOINT"] == "http://localhost:63020"
+    assert d["ATLAS_SILO_KONG_ENDPOINT"] == "http://s3.silo.localhost:63000"
+    assert d["ATLAS_SILO_SOURCE"] == "container"
     # distinct internal vs public (the #404 pitfall the export makes explicit)
-    assert d["ATLAS_MINIO_CONTAINER_ENDPOINT"] != d["ATLAS_MINIO_PUBLIC_ENDPOINT"]
+    assert d["ATLAS_SILO_CONTAINER_ENDPOINT"] != d["ATLAS_SILO_PUBLIC_ENDPOINT"]
     # LiteLLM canonical base + host + kong
     assert d["ATLAS_LITELLM_CONTAINER_ENDPOINT"] == "http://litellm:4000"
     assert d["ATLAS_LITELLM_HOST_ENDPOINT"] == "http://localhost:63040"
@@ -89,7 +89,7 @@ def test_distinct_container_host_kong_public_and_source_fields() -> None:
     assert d["ATLAS_BACKEND_KONG_ENDPOINT"] == "http://api.localhost:63000"
 
 
-# ── source flips (ComfyUI + MinIO) ──────────────────────────────────
+# ── source flips (ComfyUI + Silo) ──────────────────────────────────
 
 def test_source_flip_reflected_in_export() -> None:
     env = _base_env()
@@ -217,14 +217,14 @@ def test_asset_worker_container_endpoint_comes_from_the_generator(source, expect
 
 def test_disabled_service_emits_only_source() -> None:
     env = _base_env()
-    env["MINIO_SOURCE"] = "disabled"
-    env["MINIO_ENDPOINT"] = ""
-    env["MINIO_PUBLIC_ENDPOINT"] = ""
+    env["SILO_SOURCE"] = "disabled"
+    env["SILO_ENDPOINT"] = ""
+    env["SILO_PUBLIC_ENDPOINT"] = ""
     d = _as_dict(build_export(env))
-    assert d["ATLAS_MINIO_SOURCE"] == "disabled"
-    assert "ATLAS_MINIO_CONTAINER_ENDPOINT" not in d
-    assert "ATLAS_MINIO_PUBLIC_ENDPOINT" not in d
-    assert "ATLAS_MINIO_HOST_ENDPOINT" not in d
+    assert d["ATLAS_SILO_SOURCE"] == "disabled"
+    assert "ATLAS_SILO_CONTAINER_ENDPOINT" not in d
+    assert "ATLAS_SILO_PUBLIC_ENDPOINT" not in d
+    assert "ATLAS_SILO_HOST_ENDPOINT" not in d
 
 
 def test_ollama_cloud_only_none_omits_endpoints_and_signals_source() -> None:
@@ -265,7 +265,7 @@ def test_every_service_emits_a_source_field() -> None:
     """Each consumer-relevant service advertises its active SOURCE mode so a
     consumer can distinguish active vs disabled services (AC #2)."""
     d = _as_dict(build_export(_base_env()))
-    for svc in ("BACKEND", "LITELLM", "COMFYUI", "ASSET_WORKER", "OLLAMA", "MINIO",
+    for svc in ("BACKEND", "LITELLM", "COMFYUI", "ASSET_WORKER", "OLLAMA", "SILO",
                 "WEAVIATE", "NEO4J", "N8N", "REDIS", "SUPABASE"):
         assert f"ATLAS_{svc}_SOURCE" in d, f"missing SOURCE for {svc}"
 
@@ -275,8 +275,8 @@ def test_every_service_emits_a_source_field() -> None:
 def test_host_and_kong_urls_track_base_port() -> None:
     a = _as_dict(build_export(_base_env(63000)))
     b = _as_dict(build_export(_base_env(64000)))
-    assert a["ATLAS_MINIO_HOST_ENDPOINT"] != b["ATLAS_MINIO_HOST_ENDPOINT"]
-    assert b["ATLAS_MINIO_HOST_ENDPOINT"] == "http://localhost:64020"
+    assert a["ATLAS_SILO_HOST_ENDPOINT"] != b["ATLAS_SILO_HOST_ENDPOINT"]
+    assert b["ATLAS_SILO_HOST_ENDPOINT"] == "http://localhost:64020"
     assert b["ATLAS_KONG_GATEWAY"] == "http://localhost:64000"
     assert b["ATLAS_BACKEND_KONG_ENDPOINT"] == "http://api.localhost:64000"
 
@@ -288,14 +288,14 @@ def test_multiple_consumer_storage_fields_included() -> None:
     env.update({
         "ATLAS_STORE_ALPHA_ART_BUCKET": "alpha-art",
         "ATLAS_STORE_ALPHA_ART_PUBLIC_ENDPOINT": "http://localhost:63020",
-        "ATLAS_STORE_ALPHA_ART_ACCESS_KEY_VAR": "MINIO_ALPHA_ART_ACCESS_KEY",
+        "ATLAS_STORE_ALPHA_ART_ACCESS_KEY_VAR": "SILO_ALPHA_ART_ACCESS_KEY",
         "ATLAS_STORE_BETA_DOCS_BUCKET": "beta-docs",
     })
     d = _as_dict(build_export(env))
     assert d["ATLAS_STORE_ALPHA_ART_BUCKET"] == "alpha-art"
     assert d["ATLAS_STORE_BETA_DOCS_BUCKET"] == "beta-docs"
     # credential reference (var name), not a resolved secret, by default
-    assert d["ATLAS_STORE_ALPHA_ART_ACCESS_KEY_VAR"] == "MINIO_ALPHA_ART_ACCESS_KEY"
+    assert d["ATLAS_STORE_ALPHA_ART_ACCESS_KEY_VAR"] == "SILO_ALPHA_ART_ACCESS_KEY"
 
 
 # ── secret masking ──────────────────────────────────────────────────
@@ -314,14 +314,14 @@ def test_secrets_are_references_by_default() -> None:
 def test_with_secrets_resolves_only_consumer_scoped_credentials() -> None:
     env = _base_env()
     env.update({
-        "ATLAS_STORE_ALPHA_ART_ACCESS_KEY_VAR": "MINIO_ALPHA_ART_ACCESS_KEY",
-        "MINIO_ALPHA_ART_ACCESS_KEY": "scoped-consumer-key",
+        "ATLAS_STORE_ALPHA_ART_ACCESS_KEY_VAR": "SILO_ALPHA_ART_ACCESS_KEY",
+        "SILO_ALPHA_ART_ACCESS_KEY": "scoped-consumer-key",
     })
     d = _as_dict(build_export(env, with_secrets=True))
     # consumer-scoped credential resolved to a value field
     assert d["ATLAS_STORE_ALPHA_ART_ACCESS_KEY"] == "scoped-consumer-key"
     # reference retained
-    assert d["ATLAS_STORE_ALPHA_ART_ACCESS_KEY_VAR"] == "MINIO_ALPHA_ART_ACCESS_KEY"
+    assert d["ATLAS_STORE_ALPHA_ART_ACCESS_KEY_VAR"] == "SILO_ALPHA_ART_ACCESS_KEY"
     # infra secret (Redis) is STILL a reference even with --with-secrets
     assert d["ATLAS_REDIS_CONTAINER_ENDPOINT"] == "${REDIS_URL}"
     assert "s3cr3t-should-never-appear" not in render_env(build_export(env, with_secrets=True))
@@ -341,7 +341,7 @@ def test_bare_hand_authored_credential_value_is_masked_by_default() -> None:
 
 
 def test_with_secrets_refuses_to_resolve_a_reference_to_an_infra_secret() -> None:
-    """A hand-mangled _VAR pointing outside the consumer-scoped MINIO_* namespace
+    """A hand-mangled _VAR pointing outside the consumer-scoped SILO_* namespace
     (e.g. at REDIS_PASSWORD) must stay an unresolved reference even under
     --with-secrets (Finding 3 — enforced invariant, not trusted input)."""
     env = _base_env()
@@ -355,12 +355,12 @@ def test_with_secrets_refuses_to_resolve_a_reference_to_an_infra_secret() -> Non
     assert "ATLAS_STORE_EVIL_ACCESS_KEY" not in d
 
 
-def test_with_secrets_refuses_the_stacks_own_minio_service_credentials() -> None:
-    """MINIO_BACKEND_SECRET_KEY matches the consumer-credential naming pattern
+def test_with_secrets_refuses_the_stacks_own_silo_service_credentials() -> None:
+    """SILO_BACKEND_SECRET_KEY matches the consumer-credential naming pattern
     but is an infra secret: it stays a reference."""
     env = _base_env()
-    env["ATLAS_STORE_X_SECRET_KEY_VAR"] = "MINIO_BACKEND_SECRET_KEY"
-    env["MINIO_BACKEND_SECRET_KEY"] = "infra-secret-should-never-appear"
+    env["ATLAS_STORE_X_SECRET_KEY_VAR"] = "SILO_BACKEND_SECRET_KEY"
+    env["SILO_BACKEND_SECRET_KEY"] = "infra-secret-should-never-appear"
     fields = build_export(env, with_secrets=True)
     assert "infra-secret-should-never-appear" not in render_env(fields) + render_json(fields)
     assert "ATLAS_STORE_X_SECRET_KEY" not in _as_dict(fields)
@@ -374,7 +374,7 @@ def _finalized_storage_fixture(tmp_path, monkeypatch, secret):
     manifest = tmp_path / "atlas.consumer.yml"
     manifest.write_text("name: demo\nstorage:\n  buckets:\n    - {name: docs, bucket: demo-docs}\n")
     monkeypatch.setenv("ATLAS_CONSUMER_MANIFEST", str(manifest))
-    env = dict(_base_env(), MINIO_DEMO_DOCS_ACCESS_KEY="syntheticaccess79", MINIO_DEMO_DOCS_SECRET_KEY=secret)
+    env = dict(_base_env(), SILO_DEMO_DOCS_ACCESS_KEY="syntheticaccess79", SILO_DEMO_DOCS_SECRET_KEY=secret)
     path = tmp_path / ".env"
     path.write_text("".join(key + "=" + render_env_assignment(key, value) + "\n" for key, value in env.items()))
     parser = ConfigParser(str(tmp_path))
@@ -384,9 +384,9 @@ def _finalized_storage_fixture(tmp_path, monkeypatch, secret):
     starter.key_generator = KeyGenerator(str(tmp_path))
     starter.key_generator.env_file_path = path
     starter.banner = SimpleNamespace(show_status_message=lambda *_: None)
-    starter.docker_manager = SimpleNamespace(resolved_minio_environment=lambda: {})
+    starter.docker_manager = SimpleNamespace(resolved_silo_environment=lambda: {})
     assert starter._finalize_consumer_storage()
-    assert parser.parse_env_file()["MINIO_DEMO_DOCS_SECRET_KEY"] == secret
+    assert parser.parse_env_file()["SILO_DEMO_DOCS_SECRET_KEY"] == secret
     return starter
 
 
@@ -402,7 +402,7 @@ def test_cli_storage_credentials_keep_exact_bytes(tmp_path, monkeypatch, secret,
     starter = _finalized_storage_fixture(tmp_path, monkeypatch, secret)
     path = starter.config_parser.env_file_path
     if bare:
-        content = path.read_text().replace("ATLAS_STORE_DEMO_DOCS_SECRET_KEY_VAR=MINIO_DEMO_DOCS_SECRET_KEY\n", "")
+        content = path.read_text().replace("ATLAS_STORE_DEMO_DOCS_SECRET_KEY_VAR=SILO_DEMO_DOCS_SECRET_KEY\n", "")
         path.write_text(set_env_assignment(content, "ATLAS_STORE_DEMO_DOCS_SECRET_KEY", render_env_assignment("ATLAS_STORE_DEMO_DOCS_SECRET_KEY", secret)))
     monkeypatch.setattr(start, "AtlasStarter", lambda: starter)
     output = tmp_path / ("endpoints." + output_format)
@@ -421,12 +421,12 @@ def test_cli_storage_credentials_keep_exact_bytes(tmp_path, monkeypatch, secret,
 
 @pytest.mark.parametrize("secret", [None, ""])
 def test_empty_scoped_credential_keeps_reference_without_value(secret):
-    env = {"ATLAS_STORE_DEMO_DOCS_SECRET_KEY_VAR": " MINIO_DEMO_DOCS_SECRET_KEY ",
+    env = {"ATLAS_STORE_DEMO_DOCS_SECRET_KEY_VAR": " SILO_DEMO_DOCS_SECRET_KEY ",
            "ATLAS_STORE_DEMO_DOCS_BUCKET": " demo-docs "}
     if secret is not None:
-        env["MINIO_DEMO_DOCS_SECRET_KEY"] = secret
+        env["SILO_DEMO_DOCS_SECRET_KEY"] = secret
     exported = _as_dict(build_export(env, with_secrets=True))
-    assert exported["ATLAS_STORE_DEMO_DOCS_SECRET_KEY_VAR"] == "MINIO_DEMO_DOCS_SECRET_KEY"
+    assert exported["ATLAS_STORE_DEMO_DOCS_SECRET_KEY_VAR"] == "SILO_DEMO_DOCS_SECRET_KEY"
     assert exported["ATLAS_STORE_DEMO_DOCS_BUCKET"] == "demo-docs"
     assert "ATLAS_STORE_DEMO_DOCS_SECRET_KEY" not in exported
 
@@ -448,7 +448,7 @@ def test_render_env_and_json_shapes() -> None:
     assert env_text.endswith("\n")
     assert "ATLAS_KONG_GATEWAY=http://localhost:63000\n" in env_text
     obj = json.loads(render_json(fields))
-    assert obj["ATLAS_MINIO_PUBLIC_ENDPOINT"] == "http://localhost:63020"
+    assert obj["ATLAS_SILO_PUBLIC_ENDPOINT"] == "http://localhost:63020"
 
 
 # ── CLI behavior ────────────────────────────────────────────────────
@@ -465,7 +465,7 @@ def test_cli_export_env_to_stdout(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
 
     result = CliRunner().invoke(start_module.main, ["endpoints", "export", "--format", "env"])
     assert result.exit_code == 0, result.output
-    assert "ATLAS_MINIO_PUBLIC_ENDPOINT=http://localhost:63020" in result.output
+    assert "ATLAS_SILO_PUBLIC_ENDPOINT=http://localhost:63020" in result.output
     assert "s3cr3t-should-never-appear" not in result.output
 
 

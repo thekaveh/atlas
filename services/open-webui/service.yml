@@ -28,7 +28,7 @@ capabilities:
   - name: "Chat data and upload persistence"
     status: partial
     verification: documented
-    note: "Application state uses Postgres and a named Open WebUI data volume, but MinIO/S3 storage, replicated file state, and a tested restore workflow are not configured."
+    note: "Application state uses Postgres and a named Open WebUI data volume, but Silo/S3 storage, replicated file state, and a tested restore workflow are not configured."
   - name: "Shared multi-replica WebUI availability"
     status: not-supported
     verification: documented

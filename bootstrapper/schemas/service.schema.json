@@ -185,7 +185,7 @@
         "type": "string",
         "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*\\.localhost$"
       },
-      "description": "Additional *.localhost Kong hostnames this service exposes BEYOND its rows[].alias (e.g. a second route to a different upstream port). Unlike rows[].alias these are not wizard rows and may be multi-label (s3.minio.localhost). They land in Topology.aliases so --setup-hosts wires them; the matching Kong route is emitted by kong_config_generator. Must be unique across all manifests + rows[].alias."
+      "description": "Additional *.localhost Kong hostnames this service exposes BEYOND its rows[].alias (e.g. a second route to a different upstream port). Unlike rows[].alias these are not wizard rows and may be multi-label (s3.silo.localhost). They land in Topology.aliases so --setup-hosts wires them; the matching Kong route is emitted by kong_config_generator. Must be unique across all manifests + rows[].alias."
     },
     "containers": {
       "type": "array",

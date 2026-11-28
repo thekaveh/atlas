@@ -88,10 +88,10 @@ weaviate-client>=4.22.0
 neo4j>=5.18.0
 langchain-neo4j>=0.1.0
 
-# Object storage (RAG ingestion corpus from MinIO prefixes, #413). Imported
-# lazily by rag_ingestion.clients only when a source=minio profile runs, so it is
+# Object storage (RAG ingestion corpus from Silo prefixes, #413). Imported
+# lazily by rag_ingestion.clients only when a source=silo profile runs, so it is
 # NOT needed by main.py's import closure (and stays out of the CI inline list).
-minio>=7.2.0
+silo>=7.2.0
 
 # Redis
 redis>=5.0.1

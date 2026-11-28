@@ -205,7 +205,7 @@ def test_streamed_compose_down_propagates_operational_failure(
     "overlay_path",
     (
         Path("services/_user/probe/compose.yml"),
-        Path("volumes/minio/consumer-storage.compose.yml"),
+        Path("volumes/silo/consumer-storage.compose.yml"),
     ),
 )
 def test_compose_down_falls_back_to_base_for_any_rejected_optional_overlay(
@@ -502,7 +502,7 @@ def test_no_cleanup_can_include_a_stateful_volume(tmp_path, monkeypatch):
     start.remove_items(planned, start._remove_live_item("atlas"))
     for argv in stack.calls:  # only model removals inside the two model containers
         assert "volume" not in argv and argv[3] in ("ollama", "find", "rm"), argv
-    assert not set(start.MODEL_VOLUMES) & {"supabase-db-data", "n8n-data", "graph-db-data", "weaviate-data", "minio-data"}
+    assert not set(start.MODEL_VOLUMES) & {"supabase-db-data", "n8n-data", "graph-db-data", "weaviate-data", "silo-data"}
 
 
 def test_host_daemons_and_a_missing_active_list_are_never_cleaned(tmp_path, monkeypatch, capsys):

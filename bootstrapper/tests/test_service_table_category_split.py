@@ -24,7 +24,7 @@ def test_split_aligns_to_category_boundary():
         [_row("kong", "infra")]
         + [_row(f"sup-{i}", "data") for i in range(7)]
         + [_row("redis", "data"), _row("neo4j", "data"),
-           _row("minio", "data"), _row("weaviate", "data"),
+           _row("silo", "data"), _row("weaviate", "data"),
            _row("clip", "data")]
         + [_row("litellm", "llm"), _row("ollama", "llm")]
         + [_row("comfy", "media"), _row("stt", "media"), _row("tts", "media"),

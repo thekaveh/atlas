@@ -16,7 +16,7 @@ capabilities:
   - name: "Content-addressed bake artifacts"
     status: supported
     verification: tested
-    note: "Successful GLBs and textures use SHA-256 keys in the scoped MinIO bucket by default, with an explicitly selected local-artifact fallback."
+    note: "Successful GLBs and textures use SHA-256 keys in the scoped Silo bucket by default, with an explicitly selected local-artifact fallback."
   - name: "GPU and native ARM64 baking"
     status: not-supported
     verification: tested
@@ -61,7 +61,7 @@ env:
     description: "Auto-generated bearer token required by all Asset Baker data and processing routes; /health remains unauthenticated."
   - name: ASSET_BAKER_ALLOWED_INPUT_BUCKETS
     default: ""
-    description: "Optional comma- or space-separated reference-route bucket allowlist; blank follows MINIO_BUCKET_ASSET_INPUTS."
+    description: "Optional comma- or space-separated reference-route bucket allowlist; blank follows SILO_BUCKET_ASSET_INPUTS."
   - name: ASSET_BAKER_BLENDER_VERSION
     default: "4.5.16"
     description: "Pinned headless Blender version (4.5 LTS line) downloaded into the asset-baker image. Blender bundles its own Python + numpy for the bake script. Its bundled certifi omits the distrusted emSign ECC Root CA - G3."
@@ -70,24 +70,24 @@ env:
     description: "SHA-256 checksum verified before extracting the pinned Blender archive. Update it with ASSET_BAKER_BLENDER_VERSION from Blender's published checksum file."
   - name: ASSET_BAKER_ARTIFACT_DIR
     default: "/data/artifacts"
-    description: "Local artifact cache used when MinIO upload is disabled or for direct downloads."
-  - name: ASSET_BAKER_MINIO_ENABLED
+    description: "Local artifact cache used when Silo upload is disabled or for direct downloads."
+  - name: ASSET_BAKER_SILO_ENABLED
     default: true
-    description: "When true, baked LP GLBs + textures are written to MinIO using content-addressed keys."
-  - name: ASSET_BAKER_MINIO_BUCKET
+    description: "When true, baked LP GLBs + textures are written to Silo using content-addressed keys."
+  - name: ASSET_BAKER_SILO_BUCKET
     default: asset-baker
-    description: "MinIO bucket for baked LP GLB + texture outputs."
-  - name: ASSET_BAKER_MINIO_ENDPOINT
+    description: "Silo bucket for baked LP GLB + texture outputs."
+  - name: ASSET_BAKER_SILO_ENDPOINT
     auto_managed: true
-    description: "In-network MinIO S3 API endpoint used by the worker."
-  - name: ASSET_BAKER_MINIO_ACCESS_KEY
+    description: "In-network Silo S3 API endpoint used by the worker."
+  - name: ASSET_BAKER_SILO_ACCESS_KEY
     default: ""
     secret: true
-    description: "Optional MinIO access key override. Empty uses the generated asset-baker scoped MinIO account."
-  - name: ASSET_BAKER_MINIO_SECRET_KEY
+    description: "Optional Silo access key override. Empty uses the generated asset-baker scoped Silo account."
+  - name: ASSET_BAKER_SILO_SECRET_KEY
     default: ""
     secret: true
-    description: "Optional MinIO secret key override. Empty uses the generated asset-baker scoped MinIO account."
+    description: "Optional Silo secret key override. Empty uses the generated asset-baker scoped Silo account."
   - name: ASSET_BAKER_TARGET_TRIS
     default: "39000"
     description: "Default low-poly triangle budget the decimate stage targets (overridable per request)."
@@ -115,7 +115,7 @@ env:
 
 depends_on:
   required:
-    - minio
+    - silo
   optional:
     - backend
     - comfyui
@@ -141,18 +141,18 @@ runtime_sc:
       scale: 1
       environment:
         ASSET_BAKER_ENDPOINT: http://asset-baker:8096
-        ASSET_BAKER_MINIO_ENDPOINT: http://minio:9000
+        ASSET_BAKER_SILO_ENDPOINT: http://silo:9000
       deploy: {}
       extra_hosts: []
     disabled:
       scale: 0
       environment:
         ASSET_BAKER_ENDPOINT: ''
-        ASSET_BAKER_MINIO_ENDPOINT: ''
+        ASSET_BAKER_SILO_ENDPOINT: ''
       deploy: {}
       extra_hosts: []
 
-# Compose gates the container on minio/minio-init, so a launch with MinIO
+# Compose gates the container on silo/silo-init, so a launch with Silo
 # off (e.g. the gen-ai-creative track) would hang instead of failing.
 runtime_deps:
   asset-baker:
@@ -160,13 +160,13 @@ runtime_deps:
       - when:
           ASSET_BAKER_SOURCE: container-cpu
         requires:
-          - minio
+          - silo
         auto_resolve: false
-        error_message: "Asset Baker requires MinIO (its container waits on minio and minio-init); enable MINIO_SOURCE (gen-ai-creative leaves it off: pass --minio-source container) or disable Asset Baker."
+        error_message: "Asset Baker requires Silo (its container waits on silo and silo-init); enable SILO_SOURCE (gen-ai-creative leaves it off: pass --silo-source container) or disable Asset Baker."
 
 data_flow:
   calls:
-    - minio
+    - silo
 
 # Support tier (#1050). Selectable is not validated: this family is `experimental`
 # until a cited cold-start, workflow, and upgrade qualification run promotes it.

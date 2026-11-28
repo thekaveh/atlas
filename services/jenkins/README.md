@@ -1,12 +1,12 @@
 # 5.2.21. Jenkins (Maven Spark app builder)
 
-Jenkins is an optional `apps` service for building Maven-based Spark applications and publishing their JAR artifacts to the Atlas MinIO `jars` bucket.
+Jenkins is an optional `apps` service for building Maven-based Spark applications and publishing their JAR artifacts to the Atlas Silo `jars` bucket.
 
 ## 1. Overview
 
-Image: `jenkins/jenkins:lts-jdk21` (MIT), digest-pinned and extended by `services/jenkins/build/Dockerfile` with Maven, the MinIO `mc` client and a small plugin baseline. `mc` is `RELEASE.2026-09-16T00-00-00Z` from the maintained [pgsty/mc](https://github.com/pgsty/mc) fork (AGPL-3.0). It is copied from the same digest-pinned image that `minio-init` runs.
+Image: `jenkins/jenkins:lts-jdk21` (MIT), digest-pinned and extended by `services/jenkins/build/Dockerfile` with Maven, the Silo `mc` client and a small plugin baseline. `mc` is `RELEASE.2026-09-16T00-00-00Z` from the maintained [pgsty/mc](https://github.com/pgsty/mc) fork (AGPL-3.0). It is copied from the same digest-pinned image that `silo-init` runs.
 
-Atlas provides the Jenkins server, JCasC, Maven, and MinIO publishing seam. Downstream projects provide repositories, Jenkinsfiles, seed jobs, credentials, and project-specific job definitions.
+Atlas provides the Jenkins server, JCasC, Maven, and Silo publishing seam. Downstream projects provide repositories, Jenkinsfiles, seed jobs, credentials, and project-specific job definitions.
 
 ## 2. Access
 
@@ -50,7 +50,7 @@ Replace the closure section of `plugins.txt` with the `name:version` lines print
 
 ## 4. Artifact Publishing
 
-Jenkins receives MinIO endpoint and scoped Iceberg/lakehouse credentials from the Atlas environment. The canonical artifact path is:
+Jenkins receives Silo endpoint and scoped Iceberg/lakehouse credentials from the Atlas environment. The canonical artifact path is:
 
 ```text
 s3a://jars/<app>/<version>/app.jar
@@ -62,16 +62,16 @@ A downstream pipeline can publish with `mc`. The `set +x` line stops Jenkins fro
 sh 'mvn -q package'
 sh '''
 set +x
-printf '%s\n%s\n' "$MINIO_JENKINS_ACCESS_KEY" "$MINIO_JENKINS_SECRET_KEY" | mc alias set atlas "$MINIO_ENDPOINT" >/dev/null
+printf '%s\n%s\n' "$SILO_JENKINS_ACCESS_KEY" "$SILO_JENKINS_SECRET_KEY" | mc alias set atlas "$SILO_ENDPOINT" >/dev/null
 '''
-sh 'mc cp target/*.jar "atlas/${MINIO_BUCKET_ICEBERG_JARS}/<app>/<version>/app.jar"'
+sh 'mc cp target/*.jar "atlas/${SILO_BUCKET_ICEBERG_JARS}/<app>/<version>/app.jar"'
 ```
 
 Atlas does not ship downstream project job definitions. Mount or seed project jobs from the downstream repository.
 
 ## 5. Architecture & wiring
 
-Jenkins calls MinIO to publish built artifacts. Airflow, Spark, notebooks, and downstream labs consume those artifacts later via `s3a://jars/...`; Jenkins does not need direct startup dependencies on those consumers.
+Jenkins calls Silo to publish built artifacts. Airflow, Spark, notebooks, and downstream labs consume those artifacts later via `s3a://jars/...`; Jenkins does not need direct startup dependencies on those consumers.
 
 ## 6. Capabilities & limitations
 
@@ -82,8 +82,8 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
-| Maven Spark application builds | partial | tested | Atlas builds a Jenkins controller with Maven and a pinned MinIO client, but downstream repositories, Jenkinsfiles, credentials, and all project jobs remain operator-supplied. |
-| Scoped MinIO artifact publishing | supported | tested | The controller receives the dedicated Iceberg jar-bucket credentials and supports publishing versioned artifacts for later Spark or Airflow consumption. |
+| Maven Spark application builds | partial | tested | Atlas builds a Jenkins controller with Maven and a pinned Silo client, but downstream repositories, Jenkinsfiles, credentials, and all project jobs remain operator-supplied. |
+| Scoped Silo artifact publishing | supported | tested | The controller receives the dedicated Iceberg jar-bucket credentials and supports publishing versioned artifacts for later Spark or Airflow consumption. |
 | Jenkins UI authentication | supported | tested | JCasC disables signup and creates the generated admin login. Direct and Kong paths rely on that Jenkins login, because the Kong route adds no separate auth layer. |
 | Controller state persistence | partial | tested | JENKINS_HOME persists in one named volume, but Atlas configures one controller without backup, restore, external database, or replicated control-plane state. |
 | Distributed and containerized build agents | not-supported | tested | Atlas ships no agents, seed jobs, Docker socket, or privileged build executor; builds run on the bounded controller unless operators add their own Jenkins infrastructure. |
@@ -91,7 +91,7 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 ## 7. Troubleshooting
 
 - **Login rejected** — check `JENKINS_ADMIN_USER` and `JENKINS_ADMIN_PASSWORD` in `.env`. After a change, rerun `./start.sh`: the container must be recreated to receive the new values, and JCasC applies them at startup. A plain `docker restart` keeps the old values.
-- **Artifact upload fails** — verify MinIO is enabled, `minio-init` completed, and `MINIO_JENKINS_ACCESS_KEY` / `MINIO_JENKINS_SECRET_KEY` are populated.
+- **Artifact upload fails** — verify Silo is enabled, `silo-init` completed, and `SILO_JENKINS_ACCESS_KEY` / `SILO_JENKINS_SECRET_KEY` are populated.
 
 ## 8. Dependencies & Integrations
 
@@ -105,7 +105,7 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 
 | Service | Category | Status |
 |---|---|---|
-| minio | data | optional: an operator-authored Jenkins job; none ships with Atlas |
+| silo | data | optional: an operator-authored Jenkins job; none ships with Atlas |
 
 ### 8.2. Current — Downstream (services that call this)
 

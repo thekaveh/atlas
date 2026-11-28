@@ -32,11 +32,11 @@ Note: backend, open-webui, n8n, jupyterhub, local-deep-researcher, hermes, and w
   - Risks / open questions: host must be omitted when `LLM_PROVIDER_SOURCE=none`; document that pulled models persist in the shared `ollama-data` volume.
   - Confidence: high.
 
-- **ollama ↔ minio**
-  - Why valuable: `ollama-pull` only fetches from the public registry. Private GGUFs (licensed, fine-tuned, air-gapped) cannot enter the stack today. MinIO is already provisioned for artifacts.
-  - Mechanism sketch: new `ollama-import` init step that reads `OLLAMA_MINIO_BUCKET` keys, streams each GGUF to `/root/.ollama/blobs`, then `POST /api/create` with a generated `FROM ./blob` Modelfile.
+- **ollama ↔ silo**
+  - Why valuable: `ollama-pull` only fetches from the public registry. Private GGUFs (licensed, fine-tuned, air-gapped) cannot enter the stack today. Silo is already provisioned for artifacts.
+  - Mechanism sketch: new `ollama-import` init step that reads `OLLAMA_SILO_BUCKET` keys, streams each GGUF to `/root/.ollama/blobs`, then `POST /api/create` with a generated `FROM ./blob` Modelfile.
   - Effort: medium
-  - Risks / open questions: blob sha addressing vs. MinIO ETag mismatch; resumable uploads for multi-GB GGUFs; cleanup on key deletion.
+  - Risks / open questions: blob sha addressing vs. Silo ETag mismatch; resumable uploads for multi-GB GGUFs; cleanup on key deletion.
   - Confidence: medium.
 
 - **ollama ↔ n8n**

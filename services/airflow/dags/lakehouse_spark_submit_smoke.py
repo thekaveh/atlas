@@ -1,7 +1,7 @@
 """Manual smoke DAG for Airflow -> SparkSubmitOperator -> S3A -> Iceberg.
 
 This DAG is intentionally unscheduled. Trigger it after starting Atlas with
-Airflow, Spark, MinIO, and Iceberg REST enabled to validate the lakehouse
+Airflow, Spark, Silo, and Iceberg REST enabled to validate the lakehouse
 submit path end-to-end.
 """
 from __future__ import annotations
@@ -31,11 +31,11 @@ class AtlasSparkSubmitOperator(SparkSubmitOperator):
         )
 
 
-JARS_BUCKET = os.environ.get("MINIO_BUCKET_ICEBERG_JARS", "jars")
-LANDING_BUCKET = os.environ.get("MINIO_BUCKET_ICEBERG_LANDING", "landing")
-LAKEHOUSE_BUCKET = os.environ.get("MINIO_BUCKET_ICEBERG_LAKEHOUSE", "lakehouse")
-REGION = os.environ.get("MINIO_REGION", "us-east-1")
-MINIO_ENDPOINT = os.environ.get("MINIO_ENDPOINT", "http://minio:9000")
+JARS_BUCKET = os.environ.get("SILO_BUCKET_ICEBERG_JARS", "jars")
+LANDING_BUCKET = os.environ.get("SILO_BUCKET_ICEBERG_LANDING", "landing")
+LAKEHOUSE_BUCKET = os.environ.get("SILO_BUCKET_ICEBERG_LAKEHOUSE", "lakehouse")
+REGION = os.environ.get("SILO_REGION", "us-east-1")
+SILO_ENDPOINT = os.environ.get("SILO_ENDPOINT", "http://silo:9000")
 ICEBERG_REST_URI = os.environ.get("ICEBERG_REST_URI", "http://iceberg-rest:8181")
 DEPLOY_MODE = os.environ.get("ATLAS_LAKEHOUSE_SPARK_DEPLOY_MODE", "cluster")
 SMOKE_JAR_PATH = Path(
@@ -65,7 +65,7 @@ def prepare_s3a_assets(**_ctx) -> None:
     if not SMOKE_JAR_PATH.is_file():
         raise FileNotFoundError(f"Smoke JAR missing: {SMOKE_JAR_PATH}")
 
-    s3 = S3Hook(aws_conn_id="minio_default").get_conn()
+    s3 = S3Hook(aws_conn_id="silo_default").get_conn()
     s3.upload_file(str(SMOKE_JAR_PATH), JARS_BUCKET, JAR_KEY)
     s3.put_object(
         Bucket=LANDING_BUCKET,
@@ -82,49 +82,49 @@ spark_conf = {
     "spark.executor.memory": "1g",
     "spark.driver.memory": "1g",
     "spark.standalone.submit.waitAppCompletion": "true",
-    "spark.hadoop.fs.s3a.endpoint": MINIO_ENDPOINT,
+    "spark.hadoop.fs.s3a.endpoint": SILO_ENDPOINT,
     "spark.hadoop.fs.s3a.endpoint.region": REGION,
-    "spark.hadoop.fs.s3a.access.key": os.environ.get("MINIO_SPARK_ACCESS_KEY", ""),
-    "spark.hadoop.fs.s3a.secret.key": os.environ.get("MINIO_SPARK_SECRET_KEY", ""),
+    "spark.hadoop.fs.s3a.access.key": os.environ.get("SILO_SPARK_ACCESS_KEY", ""),
+    "spark.hadoop.fs.s3a.secret.key": os.environ.get("SILO_SPARK_SECRET_KEY", ""),
     "spark.hadoop.fs.s3a.path.style.access": "true",
     "spark.hadoop.fs.s3a.connection.ssl.enabled": "false",
     "spark.hadoop.fs.s3a.aws.credentials.provider": (
         "org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider"
     ),
-    "spark.driverEnv.AWS_ACCESS_KEY_ID": os.environ.get("MINIO_SPARK_ACCESS_KEY", ""),
-    "spark.driverEnv.AWS_SECRET_ACCESS_KEY": os.environ.get("MINIO_SPARK_SECRET_KEY", ""),
+    "spark.driverEnv.AWS_ACCESS_KEY_ID": os.environ.get("SILO_SPARK_ACCESS_KEY", ""),
+    "spark.driverEnv.AWS_SECRET_ACCESS_KEY": os.environ.get("SILO_SPARK_SECRET_KEY", ""),
     "spark.driverEnv.AWS_REGION": REGION,
-    "spark.driverEnv.AWS_ENDPOINT_URL_S3": MINIO_ENDPOINT,
-    "spark.executorEnv.AWS_ACCESS_KEY_ID": os.environ.get("MINIO_SPARK_ACCESS_KEY", ""),
-    "spark.executorEnv.AWS_SECRET_ACCESS_KEY": os.environ.get("MINIO_SPARK_SECRET_KEY", ""),
+    "spark.driverEnv.AWS_ENDPOINT_URL_S3": SILO_ENDPOINT,
+    "spark.executorEnv.AWS_ACCESS_KEY_ID": os.environ.get("SILO_SPARK_ACCESS_KEY", ""),
+    "spark.executorEnv.AWS_SECRET_ACCESS_KEY": os.environ.get("SILO_SPARK_SECRET_KEY", ""),
     "spark.executorEnv.AWS_REGION": REGION,
-    "spark.executorEnv.AWS_ENDPOINT_URL_S3": MINIO_ENDPOINT,
+    "spark.executorEnv.AWS_ENDPOINT_URL_S3": SILO_ENDPOINT,
     "spark.sql.extensions": "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions",
     "spark.sql.catalog.lakehouse": "org.apache.iceberg.spark.SparkCatalog",
     "spark.sql.catalog.lakehouse.type": "rest",
     "spark.sql.catalog.lakehouse.uri": ICEBERG_REST_URI,
     "spark.sql.catalog.lakehouse.warehouse": f"s3a://{LAKEHOUSE_BUCKET}/",
     "spark.sql.catalog.lakehouse.io-impl": "org.apache.iceberg.aws.s3.S3FileIO",
-    "spark.sql.catalog.lakehouse.s3.endpoint": MINIO_ENDPOINT,
+    "spark.sql.catalog.lakehouse.s3.endpoint": SILO_ENDPOINT,
     "spark.sql.catalog.lakehouse.s3.path-style-access": "true",
     "spark.sql.catalog.lakehouse.s3.access-key-id": os.environ.get(
-        "MINIO_ICEBERG_ACCESS_KEY", ""
+        "SILO_ICEBERG_ACCESS_KEY", ""
     ),
     "spark.sql.catalog.lakehouse.s3.secret-access-key": os.environ.get(
-        "MINIO_ICEBERG_SECRET_KEY", ""
+        "SILO_ICEBERG_SECRET_KEY", ""
     ),
     "spark.sql.catalog.lakehouse.client.region": REGION,
     "spark.eventLog.enabled": "true",
-    # Same bucket the Spark cluster and history server use (minio service.yml).
+    # Same bucket the Spark cluster and history server use (silo service.yml).
     "spark.eventLog.dir": "s3a://"
-    + os.environ.get("MINIO_BUCKET_SPARK_HISTORY", "spark-history")
+    + os.environ.get("SILO_BUCKET_SPARK_HISTORY", "spark-history")
     + "/",
 }
 
 
 with DAG(
     "lakehouse_spark_submit_smoke",
-    description="Manual smoke: upload a JAR to MinIO, submit it with SparkSubmitOperator, write Iceberg.",
+    description="Manual smoke: upload a JAR to Silo, submit it with SparkSubmitOperator, write Iceberg.",
     default_args=default_args,
     schedule=None,
     start_date=datetime(2024, 1, 1),

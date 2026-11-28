@@ -75,8 +75,8 @@ V0_OFFSETS: dict[str, int] = {
     "CHATTERBOX_PORT": 27,
     "HERMES_API_PORT": 28,
     "HERMES_DASHBOARD_PORT": 29,
-    "MINIO_PORT": 30,
-    "MINIO_CONSOLE_PORT": 31,
+    "SILO_PORT": 30,
+    "SILO_CONSOLE_PORT": 31,
     "JUPYTERHUB_PORT": 48,
 }
 

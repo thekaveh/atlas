@@ -53,7 +53,7 @@ def test_vane_future_contract_is_conservative() -> None:
         "backend",
         "n8n",
         "Crawl4AI",
-        "MinIO",
+        "Silo",
         "data_flow.calls",
         "init companion",
         "provenance",

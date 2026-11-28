@@ -35,16 +35,16 @@ sources_consulted:
   - Risks / open questions: per-route secret distribution; rate-limit tuning.
   - Confidence: high (plugins/webhooks.md documents the exact action verbs)
 
-- **openclaw ↔ minio**
-  - Why valuable: Workspace files, voice notes, and media attachments currently live only in the `openclaw-workspace` Docker volume — not addressable by other stack services. MinIO is the stack's S3 backend; OpenClaw's docs list S3/object-storage as a supported backend.
-  - Mechanism sketch: configure S3 backend with `endpoint=http://minio:9000`, `MINIO_ROOT_USER`/`MINIO_ROOT_PASSWORD`, dedicated `openclaw` bucket alongside the existing `MINIO_BUCKET_*` set.
+- **openclaw ↔ silo**
+  - Why valuable: Workspace files, voice notes, and media attachments currently live only in the `openclaw-workspace` Docker volume — not addressable by other stack services. Silo is the stack's S3 backend; OpenClaw's docs list S3/object-storage as a supported backend.
+  - Mechanism sketch: configure S3 backend with `endpoint=http://silo:9000`, `SILO_ROOT_USER`/`SILO_ROOT_PASSWORD`, dedicated `openclaw` bucket alongside the existing `SILO_BUCKET_*` set.
   - Effort: small
   - Risks / open questions: confirm exact config keys (S3 storage page returned 404 — likely under a different path); bucket-creation init step needed.
   - Confidence: medium (S3 backend listed in llms.txt; exact config schema unverified)
 
 - **openclaw ↔ doc-processor**
   - Why valuable: When users drop PDFs/Office docs into a chat, OpenClaw's built-in PDF handling is shallow; doc-processor (Docling) already produces structured markdown + chunks the rest of the stack uses for RAG.
-  - Mechanism sketch: custom OpenClaw skill posting attachments to `http://docling-gpu:8000/v1/document/convert`; persist markdown to workspace + MinIO.
+  - Mechanism sketch: custom OpenClaw skill posting attachments to `http://docling-gpu:8000/v1/document/convert`; persist markdown to workspace + Silo.
   - Effort: medium
   - Risks / open questions: attachment-size limits (Docling 50 MB default); async polling for long jobs.
   - Confidence: high (Docling REST is documented; OpenClaw skills can shell out to HTTP)
@@ -76,4 +76,4 @@ sources_consulted:
 - **Sandbox runners (Docker/SSH backends)** — Why pursue: non-main sessions can run tools in Docker sandboxes — meaningfully safer than current host-bound execution. Effort: medium.
 - **TTS / STT (Deepgram, Azure Speech, voice wake)** — Why pursue: stack already runs `tts-provider` and `stt-provider`; swap OpenClaw's cloud STT/TTS for local providers to keep voice fully on-device. Effort: small.
 - **Memory engines (Honcho / QMD search)** — Why pursue: persistent cross-session memory currently absent. Effort: medium.
-- **S3 / object-storage backend** — Why pursue: wire workspace + media to MinIO for cross-service file sharing. Effort: small.
+- **S3 / object-storage backend** — Why pursue: wire workspace + media to Silo for cross-service file sharing. Effort: small.

@@ -36,13 +36,13 @@ def test_lakekeeper_future_service_spec_covers_atlas_service_contract() -> None:
         "Wizard placement",
         "topology",
         "no public unauthenticated management route",
-        "`lakekeeper -> minio`",
+        "`lakekeeper -> silo`",
         "`lakekeeper -> supabase`",
         "`spark -> lakekeeper`",
         "`trino -> lakekeeper`",
         "Init companion",
         "Supabase/Postgres",
-        "MinIO",
+        "Silo",
         "migration",
     ]
 
@@ -54,7 +54,7 @@ def test_lakekeeper_service_manifest_is_not_added_by_watchlist_decision() -> Non
     assert not SERVICE_MANIFEST.exists()
 
 
-def test_lakekeeper_candidate_is_indexed_from_minio_research_row() -> None:
+def test_lakekeeper_candidate_is_indexed_from_silo_research_row() -> None:
     matrix = MATRIX.read_text(encoding="utf-8")
 
-    assert "| Lakekeeper | data | minio | [candidates/lakekeeper.md]" in matrix
+    assert "| Lakekeeper | data | silo | [candidates/lakekeeper.md]" in matrix

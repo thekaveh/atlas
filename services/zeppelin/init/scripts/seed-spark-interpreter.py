@@ -12,7 +12,7 @@ import urllib.request
 
 sys.stdout.reconfigure(line_buffering=True)
 
-# The MinIO secret properties an earlier seed wrote into interpreter settings.
+# The Silo secret properties an earlier seed wrote into interpreter settings.
 # Removed on the next seed, so no secret stays in the settings file or on the
 # interpreter's spark-submit command line (#1884).
 ATLAS_REMOVED_PROPERTIES = (
@@ -46,10 +46,10 @@ def _positive_int(value: str, default: str) -> str:
 
 
 def build_atlas_properties(env: dict[str, str]) -> dict[str, str]:
-    minio_endpoint = _env(env, "MINIO_ENDPOINT", "http://minio:9000")
-    minio_region = _env(env, "MINIO_REGION", "us-east-1")
-    spark_history_bucket = _env(env, "MINIO_BUCKET_SPARK_HISTORY", "spark-history")
-    lakehouse_bucket = _env(env, "MINIO_BUCKET_ICEBERG_LAKEHOUSE", "lakehouse")
+    silo_endpoint = _env(env, "SILO_ENDPOINT", "http://silo:9000")
+    silo_region = _env(env, "SILO_REGION", "us-east-1")
+    spark_history_bucket = _env(env, "SILO_BUCKET_SPARK_HISTORY", "spark-history")
+    lakehouse_bucket = _env(env, "SILO_BUCKET_ICEBERG_LAKEHOUSE", "lakehouse")
     iceberg_rest_uri = _env(env, "ICEBERG_REST_URI", "http://iceberg-rest:8181")
 
     return {
@@ -69,14 +69,14 @@ def build_atlas_properties(env: dict[str, str]) -> dict[str, str]:
         # The interpreter is long-lived; uncapped it holds every free core and
         # Airflow's cluster-mode submits wait forever for one.
         "spark.cores.max": _positive_int(_env(env, "ZEPPELIN_SPARK_CORES_MAX", "1"), "1"),
-        "spark.hadoop.fs.s3a.endpoint": minio_endpoint,
+        "spark.hadoop.fs.s3a.endpoint": silo_endpoint,
         # Credentials come from the container's AWS_* environment (the spark
         # account), not from a property that spark-submit would print (#1884).
         "spark.hadoop.fs.s3a.aws.credentials.provider": (
             "software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider"
         ),
         "spark.hadoop.fs.s3a.path.style.access": "true",
-        "spark.hadoop.fs.s3a.endpoint.region": minio_region,
+        "spark.hadoop.fs.s3a.endpoint.region": silo_region,
         "spark.hadoop.fs.s3a.connection.ssl.enabled": "false",
         "spark.eventLog.enabled": "true",
         "spark.eventLog.dir": f"s3a://{spark_history_bucket}/",
@@ -86,12 +86,12 @@ def build_atlas_properties(env: dict[str, str]) -> dict[str, str]:
         "spark.sql.catalog.lakehouse.uri": iceberg_rest_uri,
         "spark.sql.catalog.lakehouse.warehouse": f"s3a://{lakehouse_bucket}/",
         "spark.sql.catalog.lakehouse.io-impl": "org.apache.iceberg.aws.s3.S3FileIO",
-        "spark.sql.catalog.lakehouse.s3.endpoint": minio_endpoint,
+        "spark.sql.catalog.lakehouse.s3.endpoint": silo_endpoint,
         "spark.sql.catalog.lakehouse.s3.path-style-access": "true",
         "spark.sql.catalog.lakehouse.client.credentials-provider": (
             "software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider"
         ),
-        "spark.sql.catalog.lakehouse.client.region": minio_region,
+        "spark.sql.catalog.lakehouse.client.region": silo_region,
     }
 
 

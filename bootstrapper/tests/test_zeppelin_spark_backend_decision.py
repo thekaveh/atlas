@@ -45,7 +45,7 @@ def test_zeppelin_backend_decision_covers_service_admission_contract() -> None:
         "Kong alias: none",
         "`iceberg-rest` in `depends_on.optional` and `data_flow.calls`",
         "`zeppelin-init` one-shot container",
-        "use scoped Spark/S3A and Iceberg MinIO credentials",
+        "use scoped Spark/S3A and Iceberg Silo credentials",
         "Do not present `spark.remote=sc://spark-connect:15002` as the happy path for Zeppelin",
     ]
 
@@ -62,7 +62,7 @@ def test_zeppelin_manifest_currently_stays_existing_service_shape() -> None:
         "container",
         "disabled",
     ]
-    assert manifest["depends_on"]["required"] == ["spark", "minio"]
+    assert manifest["depends_on"]["required"] == ["spark", "silo"]
     assert "iceberg-rest" in manifest["depends_on"]["optional"]
     assert "alias" not in manifest["rows"][0]
     assert manifest["runtime_sc"]["zeppelin"]["container"]["environment"][
@@ -71,18 +71,18 @@ def test_zeppelin_manifest_currently_stays_existing_service_shape() -> None:
     assert manifest["runtime_sc"]["zeppelin-init"]["container"]["scale"] == 1
 
 
-def test_zeppelin_is_loopback_only_and_has_no_root_minio_credentials() -> None:
+def test_zeppelin_is_loopback_only_and_has_no_root_silo_credentials() -> None:
     compose = COMPOSE.read_text(encoding="utf-8")
     manifest = MANIFEST.read_text(encoding="utf-8")
 
     assert '"127.0.0.1:${ZEPPELIN_PORT}:8080"' in compose
     assert "zeppelin.localhost" not in compose
-    assert "MINIO_ROOT_USER" not in compose
-    assert "MINIO_ROOT_PASSWORD" not in compose
-    assert "MINIO_SPARK_ACCESS_KEY" in compose
-    assert "MINIO_SPARK_SECRET_KEY" in compose
-    assert "MINIO_ROOT_USER" not in manifest
-    assert "MINIO_ROOT_PASSWORD" not in manifest
+    assert "SILO_ROOT_USER" not in compose
+    assert "SILO_ROOT_PASSWORD" not in compose
+    assert "SILO_SPARK_ACCESS_KEY" in compose
+    assert "SILO_SPARK_SECRET_KEY" in compose
+    assert "SILO_ROOT_USER" not in manifest
+    assert "SILO_ROOT_PASSWORD" not in manifest
     assert "Kong routes traffic TO Zeppelin" not in manifest
 
 

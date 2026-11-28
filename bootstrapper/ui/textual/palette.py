@@ -57,7 +57,7 @@ SVC_COMFYUI   = "#98c379"
 SVC_NEO4J     = "#6a9aaa"
 SVC_N8N       = "#89aad4"
 SVC_SEARXNG   = "#7dcfff"
-SVC_MINIO     = "#c97b9a"   # warm magenta — distinct from data-tier blues
+SVC_SILO     = "#c97b9a"   # warm magenta — distinct from data-tier blues
 SVC_DISABLED  = "#565f89"
 
 SOURCE_COLORS: Dict[str, str] = {
@@ -75,8 +75,8 @@ SOURCE_COLORS: Dict[str, str] = {
     "neo4j": SVC_NEO4J,
     "n8n": SVC_N8N,
     "searxng": SVC_SEARXNG,
-    "minio": SVC_MINIO,
-    "minio-init": SVC_MINIO,
+    "silo": SVC_SILO,
+    "silo-init": SVC_SILO,
     "disabled": SVC_DISABLED,
 }
 

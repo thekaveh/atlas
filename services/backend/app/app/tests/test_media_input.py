@@ -362,7 +362,7 @@ def test_storage_failure_raises_hosting_error(monkeypatch):
     monkeypatch.setattr(media_input, "has_transparency", lambda data: False)
 
     def boom(data, content_type, key):
-        raise RuntimeError("minio down")
+        raise RuntimeError("silo down")
 
     with pytest.raises(ImageHostingError):
         prepare_image_input(

@@ -277,7 +277,7 @@ before the archive is written. Redaction precedes final byte truncation.
 
 ## 5. Endpoint Contract Export
 
-Use `./start.sh endpoints export --format env|json` to emit the consumer endpoint contract. It is stable and machine-readable. For each consumer-relevant service it gives the canonical, distinct container, host, Kong and public endpoints and the active SOURCE mode. The services are Backend, LiteLLM, ComfyUI, Ollama, MinIO, Weaviate, Neo4j, n8n, Redis, Supabase and Asset Worker. It also gives every per-consumer `ATLAS_STORE_*` storage field.
+Use `./start.sh endpoints export --format env|json` to emit the consumer endpoint contract. It is stable and machine-readable. For each consumer-relevant service it gives the canonical, distinct container, host, Kong and public endpoints and the active SOURCE mode. The services are Backend, LiteLLM, ComfyUI, Ollama, Silo, Weaviate, Neo4j, n8n, Redis, Supabase and Asset Worker. It also gives every per-consumer `ATLAS_STORE_*` storage field.
 
 - The field names are a compatibility contract.
 - Output is secret-free by default: infra secrets are `${VAR}` references. `--with-secrets` resolves only consumer-scoped credentials, and it refuses stdout (it requires `--output PATH`).
