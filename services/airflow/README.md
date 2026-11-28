@@ -2,7 +2,7 @@
 
 ## 1. Overview
 
-Airflow schedules and runs Python-defined DAGs against the stack's data services: Spark, MinIO, Iceberg, Supabase Postgres and LiteLLM. It is disabled by default. The `data-eng` track prompts for it, or pass `--airflow-source container`.
+Airflow schedules and runs Python-defined DAGs against the stack's data services: Spark, Silo, Iceberg, Supabase Postgres and LiteLLM. It is disabled by default. The `data-eng` track prompts for it, or pass `--airflow-source container`.
 
 Airflow runs as four containers in the `agents` band:
 
@@ -62,7 +62,7 @@ Auto-managed (resolved by the bootstrapper from `AIRFLOW_SOURCE`; do not hand-ed
 | `litellm_default` | openai | `http://litellm:4000/v1` with `LITELLM_MASTER_KEY` (the `/v1` lives in conn.host because OpenAIHook ignores `api_base` extras) | always (LiteLLM is locked always-on) |
 | `redis_default` | redis | `redis:6379` with `REDIS_PASSWORD` | always (Redis ships container-only always-on, auth-on by default) |
 | `spark_default` | spark | `spark://spark-master:7077` with `deploy-mode=cluster`, `spark-binary=spark-submit` | `SPARK_SOURCE=container` |
-| `minio_default` | aws (S3-compat) | `http://minio:9000` with the scoped `spark` credentials, path-style addressing, region `us-east-1` | `MINIO_SOURCE=container` |
+| `silo_default` | aws (S3-compat) | `http://silo:9000` with the scoped `spark` credentials, path-style addressing, region `us-east-1` | `SILO_SOURCE=container` |
 | `weaviate_default` | weaviate | host `weaviate`, port `8080`, gRPC `weaviate:50051` (via extra) | `WEAVIATE_SOURCE=container` (NOT `localhost` — the in-Compose DNS does not resolve in host-mode) |
 | `neo4j_default` | neo4j | host `neo4j-graph-db`, port `7687`, login `${GRAPH_DB_USER}`, password `${GRAPH_DB_PASSWORD}` (Hook prepends `bolt://`) | `NEO4J_GRAPH_DB_SOURCE=container` (same caveat) |
 
@@ -71,16 +71,16 @@ Seeding is idempotent: `airflow-init` deletes and re-adds each Connection on eve
 - the source is `container` (the Connection is re-seeded) or `disabled`;
 - a `localhost` source still has the in-Compose Connection Atlas seeded earlier (host `weaviate` / `neo4j-graph-db`).
 
-**Trusted DAG boundary.** LocalExecutor does not sandbox DAG code. DAGs run in the scheduler's process pool and can read every seeded Connection. These hold the scoped MinIO `spark` pair, LiteLLM master, Neo4j administrator, the scoped Supabase reader role (`AIRFLOW_ATLAS_DB_USER`) and Redis credentials. Only trusted authors may supply DAGs. Atlas does not provide tenant isolation for untrusted DAG code.
+**Trusted DAG boundary.** LocalExecutor does not sandbox DAG code. DAGs run in the scheduler's process pool and can read every seeded Connection. These hold the scoped Silo `spark` pair, LiteLLM master, Neo4j administrator, the scoped Supabase reader role (`AIRFLOW_ATLAS_DB_USER`) and Redis credentials. Only trusted authors may supply DAGs. Atlas does not provide tenant isolation for untrusted DAG code.
 
-**Reading a seeded Connection outside a task.** DAG tasks use hooks and operators, for example `S3Hook(aws_conn_id="minio_default")` and `SparkSubmitOperator(conn_id="spark_default")`. Scripts run with `docker exec … python` are outside a task execution context. There, `BaseHook.get_connection()` or hook construction can raise `AirflowNotFoundException`, even though `airflow connections get minio_default` shows the row. In preflight scripts, read the metadata DB directly:
+**Reading a seeded Connection outside a task.** DAG tasks use hooks and operators, for example `S3Hook(aws_conn_id="silo_default")` and `SparkSubmitOperator(conn_id="spark_default")`. Scripts run with `docker exec … python` are outside a task execution context. There, `BaseHook.get_connection()` or hook construction can raise `AirflowNotFoundException`, even though `airflow connections get silo_default` shows the row. In preflight scripts, read the metadata DB directly:
 
 ```python
 from airflow.models import Connection
 from airflow.settings import Session
 
 with Session() as session:
-    conn = session.query(Connection).filter(Connection.conn_id == "minio_default").one()
+    conn = session.query(Connection).filter(Connection.conn_id == "silo_default").one()
 ```
 
 The same pattern works for `spark_default`. Use direct `airflow.settings.Session` + `airflow.models.Connection` access only in standalone health or preflight scripts. DAG tasks should keep using hooks/operators so masking, provider behaviour and task-context rules stay intact.
@@ -91,7 +91,7 @@ The same pattern works for `spark_default`. Use direct `airflow.settings.Session
 
 1. `spark_smoke` checks that the Spark cluster answers through Spark Connect at `sc://spark-connect:15002` (`pyspark[connect]`). It does not use the seeded `spark_default` Connection, which points at `spark://spark-master:7077` for `SparkSubmitOperator` DAGs.
 2. `summarize_via_litellm` calls LiteLLM's chat-completions endpoint through `OpenAIHook.get_conn()`. It defaults to `ollama/qwen3.8:latest`. With `--llm-provider-source none` and `CLOUD_OPENAI_SOURCE=enabled`, switch to a cloud model such as `gpt-4o-mini`.
-3. `list_minio_buckets` calls `S3Hook.list_buckets()` against `minio_default`.
+3. `list_silo_buckets` calls `S3Hook.list_buckets()` against `silo_default`.
 
 A commented LangChain block at the end of the file shows chain-based LLM steps in a `PythonOperator`. It reads the LiteLLM URL and key from the seeded `litellm_default` Connection. Apache publishes no LangChain provider, so wrap chains in a Python callable.
 
@@ -122,7 +122,7 @@ AtlasSparkSubmitOperator(
     deploy_mode="cluster",
     rest_host="spark-master",
     conf={
-        "spark.hadoop.fs.s3a.endpoint": "http://minio:9000",
+        "spark.hadoop.fs.s3a.endpoint": "http://silo:9000",
         "spark.sql.catalog.lakehouse.uri": "http://iceberg-rest:8181",
         "spark.eventLog.enabled": "true",
         "spark.eventLog.dir": "s3a://spark-history/",
@@ -137,12 +137,12 @@ Validation flow:
   --airflow-source container \
   --spark-source container \
   --iceberg-rest-source container \
-  --minio-source container
+  --silo-source container
 ```
 
 New DAGs start paused, so unpause `lakehouse_spark_submit_smoke` first. Trigger it in the UI at `http://airflow.localhost:${KONG_HTTP_PORT}`, or use the REST flow in §6. A successful run writes `lakehouse.bronze.airflow_spark_submit_smoke` and leaves an event log in Spark History (`http://spark-history.localhost:${KONG_HTTP_PORT}`). If it fails:
 
-- before submission: check that `airflow-init` seeded `minio_default` and `spark_default`;
+- before submission: check that `airflow-init` seeded `silo_default` and `spark_default`;
 - after Spark ran, with a status failure in Airflow: check that the scheduler can reach `http://spark-master:6066`;
 - during Spark execution: inspect the driver in the master UI and the app in Spark History.
 
@@ -169,9 +169,9 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
 | Code-defined DAG orchestration | supported | tested | Atlas runs Airflow 3 with a separate API server, scheduler, DAG processor, and init path, using LocalExecutor for operator-authored DAGs. |
-| Untrusted DAG code isolation | not-supported | tested | LocalExecutor operator-authored DAGs execute unsandboxed. Their Airflow Connections hold the scoped MinIO spark pair, LiteLLM master, Neo4j administrator, scoped Supabase reader, and Redis password credentials. Admit only trusted DAG authors. |
+| Untrusted DAG code isolation | not-supported | tested | LocalExecutor operator-authored DAGs execute unsandboxed. Their Airflow Connections hold the scoped Silo spark pair, LiteLLM master, Neo4j administrator, scoped Supabase reader, and Redis password credentials. Admit only trusted DAG authors. |
 | Seeded stack service connections | partial | tested | Init seeds LiteLLM, Redis, Supabase, and enabled container-only lakehouse or graph connections; localhost variants are deliberately not mapped to unusable Compose DNS names. |
-| Spark lakehouse job execution | partial | tested | Bundled DAGs and jars exercise SparkSubmit and lakehouse configuration, but live Spark, MinIO, Iceberg, and Redpanda execution remains an operator-run smoke path. |
+| Spark lakehouse job execution | partial | tested | Bundled DAGs and jars exercise SparkSubmit and lakehouse configuration, but live Spark, Silo, Iceberg, and Redpanda execution remains an operator-run smoke path. |
 | Airflow UI and API authentication | supported | tested | Direct and CORS-only Kong surfaces rely on Airflow FAB login for the UI and JWT exchange for /api/v2. Kong adds routing but no second authentication gate. |
 | Distributed executor and control-plane HA | not-supported | documented | Atlas fixes one scheduler, API server, and DAG processor around LocalExecutor; it configures neither Celery/KubernetesExecutor nor a multi-replica Airflow control plane. |
 
@@ -203,10 +203,10 @@ Set `PROJECT_NAME` in your shell to its value in the active env file (default `a
 | Service | Category | Status |
 |---|---|---|
 | iceberg-rest | data | current |
-| minio | data | current |
 | neo4j | data | optional: an operator-authored DAG; airflow-init only seeds the Connection |
 | redis | data | optional: an operator-authored DAG; airflow-init only seeds the Connection |
 | redpanda | data | optional: an operator-authored DAG; Atlas passes only SPARK_KAFKA_BOOTSTRAP_SERVERS |
+| silo | data | current |
 | spark | data | current |
 | supabase | data | current |
 | weaviate | data | optional: an operator-authored DAG; airflow-init only seeds the Connection |

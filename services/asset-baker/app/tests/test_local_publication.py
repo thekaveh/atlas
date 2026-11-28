@@ -84,7 +84,7 @@ class WriteGate:
 @pytest.fixture(params=["glb", "png"])
 def publication(tmp_path, monkeypatch, request):
     monkeypatch.setenv("ASSET_BAKER_ARTIFACT_DIR", str(tmp_path))
-    monkeypatch.setenv("ASSET_BAKER_MINIO_ENABLED", "false")
+    monkeypatch.setenv("ASSET_BAKER_SILO_ENABLED", "false")
     return Publication(tmp_path, request.param)
 
 

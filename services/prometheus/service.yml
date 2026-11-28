@@ -172,7 +172,7 @@ data_flow:
     - asset-baker
     - n8n
     - weaviate
-    - minio
+    - silo
     - supabase
     - redis
     - grafana

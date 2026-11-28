@@ -25,7 +25,7 @@ _TASK3_REVIEWED_INFRA_DATA_MANIFESTS = frozenset(
         "kong",
         "langfuse",
         "loki",
-        "minio",
+        "silo",
         "neo4j",
         "otel-collector",
         "prometheus",
@@ -400,9 +400,9 @@ def test_manifest_without_capabilities_is_rejected(
     "conditional_requires",
     [
         "not-a-list",
-        [{"when": "not-a-map", "requires": ["minio"]}],
+        [{"when": "not-a-map", "requires": ["silo"]}],
         [{"when": {"BACKUP_S3_MODE": "local"}, "requires": []}],
-        [{"when": {"bad-name": "local"}, "requires": ["minio"]}],
+        [{"when": {"bad-name": "local"}, "requires": ["silo"]}],
     ],
 )
 def test_conditional_runtime_dependency_shape_is_schema_validated(
@@ -976,7 +976,7 @@ def test_spark_manifest_loads():
     assert "spark-master" in {c for c in spark.containers}
     assert "spark-worker" in {c for c in spark.containers}
     assert "spark-history" in {c for c in spark.containers}
-    assert "minio" in spark.depends_on.required
+    assert "silo" in spark.depends_on.required
     assert spark.sources.default == "disabled"
 
 

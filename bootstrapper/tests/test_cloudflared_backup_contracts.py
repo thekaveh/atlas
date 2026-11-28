@@ -62,13 +62,13 @@ def _stage_backup_script_siblings(tmp_path: Path) -> None:
                 ),
                 encoding="utf-8",
             )
-MINIO_IMAGE = "pgsty/silo:RELEASE.2026-09-16T00-00-00Z"
-MINIO_CLIENT_IMAGE = "pgsty/mc:RELEASE.2026-09-16T00-00-00Z"
+SILO_IMAGE = "pgsty/silo:RELEASE.2026-09-16T00-00-00Z"
+SILO_CLIENT_IMAGE = "pgsty/mc:RELEASE.2026-09-16T00-00-00Z"
 BACKUP_PRODUCTION_IMAGE = "atlas-backup:local"
 # #1288: the backup image bakes /usr/bin/mc from this digest-pinned image, and
 # these are that binary's SHA-256 values on each platform of the index.
 MC_IMAGE = (
-    f"{MINIO_CLIENT_IMAGE}"
+    f"{SILO_CLIENT_IMAGE}"
     "@sha256:cfc83108c3abb371f8fb84d99c1fdc88f8c237e022409b0081fb7c0a3be634dd"
 )
 MC_RELEASE = "RELEASE.2026-09-16T00-00-00Z"
@@ -313,7 +313,7 @@ def _render_backup_service(tmp_path: Path, overrides: dict[str, str]) -> dict:
     return json.loads(result.stdout)["services"]
 
 
-def test_rendered_external_backup_uses_separate_credentials_and_disables_local_minio(
+def test_rendered_external_backup_uses_separate_credentials_and_disables_local_silo(
     tmp_path: Path,
 ) -> None:
     services = _render_backup_service(
@@ -327,11 +327,11 @@ def test_rendered_external_backup_uses_separate_credentials_and_disables_local_m
             "BACKUP_S3_REGION": "us-test-1",
             "BACKUP_S3_SESSION_TOKEN": "external-session",
             "BACKUP_S3_TLS_VERIFY": "true",
-            "MINIO_SOURCE": "disabled",
-            "MINIO_SCALE": "0",
-            "MINIO_INIT_SCALE": "0",
-            "MINIO_ROOT_USER": "local-root-access",
-            "MINIO_ROOT_PASSWORD": "local-root-secret",
+            "SILO_SOURCE": "disabled",
+            "SILO_SCALE": "0",
+            "SILO_INIT_SCALE": "0",
+            "SILO_ROOT_USER": "local-root-access",
+            "SILO_ROOT_PASSWORD": "local-root-secret",
         },
     )
     backup = services["backup"]
@@ -342,43 +342,43 @@ def test_rendered_external_backup_uses_separate_credentials_and_disables_local_m
     assert backup["environment"]["BACKUP_S3_ENDPOINT"] == "https://s3.example.test"
     assert backup["environment"]["BACKUP_S3_TLS_VERIFY"] == "true"
     assert "depends_on" not in backup
-    assert services["minio"]["deploy"]["replicas"] == 0
-    assert services["minio-init"]["deploy"]["replicas"] == 0
+    assert services["silo"]["deploy"]["replicas"] == 0
+    assert services["silo-init"]["deploy"]["replicas"] == 0
 
 
-def test_backup_manifest_owns_external_s3_contract_and_minio_is_optional() -> None:
+def test_backup_manifest_owns_external_s3_contract_and_silo_is_optional() -> None:
     manifest = yaml.safe_load(
         (REPO / "services/backup/service.yml").read_text(encoding="utf-8")
     )
     env = {entry["name"]: entry for entry in manifest["env"]}
     assert env["BACKUP_S3_MODE"]["default"] == "local"
-    assert env["BACKUP_S3_ENDPOINT"]["default"] == "http://minio:9000"
+    assert env["BACKUP_S3_ENDPOINT"]["default"] == "http://silo:9000"
     assert env["BACKUP_S3_ACCESS_KEY"] == {
         "name": "BACKUP_S3_ACCESS_KEY",
         "default": "",
         "secret": True,
-        "description": "Dedicated S3 access key. Required for external endpoints; local MinIO may fall back to MINIO_ROOT_USER for upgrade compatibility.",
+        "description": "Dedicated S3 access key. Required for external endpoints; local Silo may fall back to SILO_ROOT_USER for upgrade compatibility.",
     }
     assert env["BACKUP_S3_SECRET_KEY"]["secret"] is True
     assert env["BACKUP_S3_SESSION_TOKEN"]["secret"] is True
     assert env["BACKUP_S3_REGION"]["default"] == "us-east-1"
     assert env["BACKUP_S3_TLS_VERIFY"]["default"] is True
-    assert "minio" not in manifest["depends_on"]["required"]
-    assert "minio" in manifest["depends_on"]["optional"]
+    assert "silo" not in manifest["depends_on"]["required"]
+    assert "silo" in manifest["depends_on"]["optional"]
     rule = manifest["runtime_deps"]["backup"]["conditional_requires"][0]
     assert rule["when"] == {
         "BACKUP_SOURCE": "container", "BACKUP_S3_MODE": "local"
     }
-    assert rule["requires"] == ["minio"]
+    assert rule["requires"] == ["silo"]
     assert rule["auto_resolve"] is False
 
 
 @pytest.mark.parametrize(
-    ("mode", "requires_minio"),
+    ("mode", "requires_silo"),
     [(None, True), ("", True), ("local", True), ("external", False)],
 )
 def test_backup_dependency_validation_is_mode_aware_before_start(
-    tmp_path: Path, mode: str | None, requires_minio: bool,
+    tmp_path: Path, mode: str | None, requires_silo: bool,
 ) -> None:
     from services.dependency_manager import DependencyManager
 
@@ -386,7 +386,7 @@ def test_backup_dependency_validation_is_mode_aware_before_start(
     lines = ["BACKUP_SOURCE=container", "BACKUP_SCALE=0"]
     if mode is not None:
         lines.append(f"BACKUP_S3_MODE={mode}")
-    lines.extend(["MINIO_SOURCE=disabled", "MINIO_SCALE=0", "MINIO_INIT_SCALE=0"])
+    lines.extend(["SILO_SOURCE=disabled", "SILO_SCALE=0", "SILO_INIT_SCALE=0"])
     env_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
     parser = ConfigParser(str(REPO))
     parser.env_file_path = env_file
@@ -396,10 +396,10 @@ def test_backup_dependency_validation_is_mode_aware_before_start(
     violations = [
         violation for violation in manager.get_dependency_violations()
         if violation["service"] == "backup"
-        and violation["required_service"] == "minio"
+        and violation["required_service"] == "silo"
     ]
-    assert bool(violations) is requires_minio
-    if requires_minio:
+    assert bool(violations) is requires_silo
+    if requires_silo:
         assert result is False
     if violations:
         assert violations[0]["auto_resolve"] is False
@@ -408,17 +408,17 @@ def test_backup_dependency_validation_is_mode_aware_before_start(
 
 
 @pytest.mark.parametrize(
-    ("mode", "requires_minio"),
+    ("mode", "requires_silo"),
     [(None, True), ("", True), ("local", True), ("external", False)],
 )
 def test_real_atlas_start_validation_applies_backup_mode_default_like_compose(
-    env_with_overrides, mode: str | None, requires_minio: bool,
+    env_with_overrides, mode: str | None, requires_silo: bool,
 ) -> None:
     from start import AtlasStarter
 
     overrides = {
         "BACKUP_SOURCE": "container", "BACKUP_SCALE": "0",
-        "MINIO_SOURCE": "disabled", "MINIO_SCALE": "0", "MINIO_INIT_SCALE": "0",
+        "SILO_SOURCE": "disabled", "SILO_SCALE": "0", "SILO_INIT_SCALE": "0",
     }
     if mode is not None:
         overrides["BACKUP_S3_MODE"] = mode
@@ -439,8 +439,8 @@ def test_real_atlas_start_validation_applies_backup_mode_default_like_compose(
         violation["service"] == "backup"
         for violation in starter.dependency_manager.get_dependency_violations()
     ]
-    assert any(violations) is requires_minio
-    if requires_minio:
+    assert any(violations) is requires_silo
+    if requires_silo:
         assert result is False
 
 
@@ -454,7 +454,7 @@ def test_generic_conditional_defaults_do_not_override_nonblank_values(tmp_path: 
         "conditional_requires": [{
             "when": {"SYNTHETIC_MODE": "local"},
             "when_defaults": {"SYNTHETIC_MODE": "local"},
-            "requires": ["minio"],
+            "requires": ["silo"],
         }]
     }
     assert manager._conditional_dependency_violations("synthetic", config, {})
@@ -540,7 +540,7 @@ def _backup_script_with_private_work(tmp_path: Path) -> Path:
     return backup
 
 
-def test_external_s3_credentials_are_uri_safe_and_never_fall_back_to_minio_root(
+def test_external_s3_credentials_are_uri_safe_and_never_fall_back_to_silo_root(
     tmp_path: Path,
 ) -> None:
     trace, bin_dir = _fake_s3_boundary(tmp_path)
@@ -558,8 +558,8 @@ def test_external_s3_credentials_are_uri_safe_and_never_fall_back_to_minio_root(
             "BACKUP_S3_SESSION_TOKEN": external_token,
             "BACKUP_S3_REGION": "us-test-1",
             "BACKUP_S3_TLS_VERIFY": "true",
-            "MINIO_ROOT_USER": "must-not-be-used",
-            "MINIO_ROOT_PASSWORD": "must-not-be-used-secret",
+            "SILO_ROOT_USER": "must-not-be-used",
+            "SILO_ROOT_PASSWORD": "must-not-be-used-secret",
         },
         text=True,
         capture_output=True,
@@ -590,8 +590,8 @@ def test_external_s3_missing_dedicated_credentials_fails_before_s3_or_database(
             "BACKUP_S3_ENDPOINT": "https://s3.example.test",
             "BACKUP_S3_ACCESS_KEY": "",
             "BACKUP_S3_SECRET_KEY": "",
-            "MINIO_ROOT_USER": "local-root-access",
-            "MINIO_ROOT_PASSWORD": "local-root-secret",
+            "SILO_ROOT_USER": "local-root-access",
+            "SILO_ROOT_PASSWORD": "local-root-secret",
         },
         text=True,
         capture_output=True,
@@ -603,7 +603,7 @@ def test_external_s3_missing_dedicated_credentials_fails_before_s3_or_database(
     assert "local-root" not in result.stdout + result.stderr
 
 
-def test_local_s3_mode_refuses_to_send_minio_root_credentials_to_remote_endpoint(
+def test_local_s3_mode_refuses_to_send_silo_root_credentials_to_remote_endpoint(
     tmp_path: Path,
 ) -> None:
     trace, bin_dir = _fake_s3_boundary(tmp_path)
@@ -613,15 +613,15 @@ def test_local_s3_mode_refuses_to_send_minio_root_credentials_to_remote_endpoint
             **_backup_s3_env(bin_dir, trace),
             "BACKUP_S3_MODE": "local",
             "BACKUP_S3_ENDPOINT": "https://remote.example.test",
-            "MINIO_ROOT_USER": "local-root-access",
-            "MINIO_ROOT_PASSWORD": "local-root-secret",
+            "SILO_ROOT_USER": "local-root-access",
+            "SILO_ROOT_PASSWORD": "local-root-secret",
         },
         text=True,
         capture_output=True,
         check=False,
     )
     assert result.returncode == 64
-    assert "BACKUP_S3_MODE=local requires BACKUP_S3_ENDPOINT=http://minio:9000" in result.stderr
+    assert "BACKUP_S3_MODE=local requires BACKUP_S3_ENDPOINT=http://silo:9000" in result.stderr
     assert not trace.exists()
     assert "local-root" not in result.stdout + result.stderr
 
@@ -684,9 +684,9 @@ def test_backup_rejects_invalid_s3_endpoint_tls_and_region_before_io(
 _NO_S3_CREDENTIALS = {
     "BACKUP_S3_ENDPOINT": "", "BACKUP_S3_ACCESS_KEY": "", "BACKUP_S3_SECRET_KEY": "",
     "BACKUP_S3_SESSION_TOKEN": "", "BACKUP_S3_ALIAS_URL": "",
-    "MINIO_ROOT_USER": "", "MINIO_ROOT_PASSWORD": "",
+    "SILO_ROOT_USER": "", "SILO_ROOT_PASSWORD": "",
 }
-_MINIO_ROOT = {"MINIO_ROOT_USER": "local-root-access", "MINIO_ROOT_PASSWORD": "local-root-secret"}
+_SILO_ROOT = {"SILO_ROOT_USER": "local-root-access", "SILO_ROOT_PASSWORD": "local-root-secret"}
 
 
 @pytest.mark.parametrize("case", [
@@ -695,12 +695,12 @@ _MINIO_ROOT = {"MINIO_ROOT_USER": "local-root-access", "MINIO_ROOT_PASSWORD": "l
     ({"BACKUP_S3_MODE": "local", "BACKUP_S3_SECRET_KEY": "dedicated-secret"},
      "BACKUP_S3_ACCESS_KEY and BACKUP_S3_SECRET_KEY must be set together"),
     ({"BACKUP_S3_MODE": "local"},
-     "local mode requires dedicated S3 credentials or both MINIO_ROOT_USER and MINIO_ROOT_PASSWORD"),
-    ({"BACKUP_S3_MODE": "local", "MINIO_ROOT_USER": "local-root-access"},
-     "local mode requires dedicated S3 credentials or both MINIO_ROOT_USER and MINIO_ROOT_PASSWORD"),
-    ({"BACKUP_S3_MODE": "local", **_MINIO_ROOT, "BACKUP_S3_SESSION_TOKEN": "t"},
+     "local mode requires dedicated S3 credentials or both SILO_ROOT_USER and SILO_ROOT_PASSWORD"),
+    ({"BACKUP_S3_MODE": "local", "SILO_ROOT_USER": "local-root-access"},
+     "local mode requires dedicated S3 credentials or both SILO_ROOT_USER and SILO_ROOT_PASSWORD"),
+    ({"BACKUP_S3_MODE": "local", **_SILO_ROOT, "BACKUP_S3_SESSION_TOKEN": "t"},
      "BACKUP_S3_SESSION_TOKEN requires dedicated S3 credentials in local mode"),
-    ({"BACKUP_S3_MODE": "remote", **_MINIO_ROOT}, "BACKUP_S3_MODE must be local or external"),
+    ({"BACKUP_S3_MODE": "remote", **_SILO_ROOT}, "BACKUP_S3_MODE must be local or external"),
     ({"BACKUP_S3_MODE": "external", "BACKUP_S3_ENDPOINT": "https://a.example.test",
       "BACKUP_S3_ALIAS_URL": "https://b.example.test", "BACKUP_S3_ACCESS_KEY": "external-access",
       "BACKUP_S3_SECRET_KEY": "external-secret"},
@@ -903,7 +903,7 @@ rm -rf /tmp/atlas-unicode-mc
         "--mount", f"type=bind,src={REPO / 'services/backup/init/scripts'},dst=/scripts,readonly",
         "--mount", f"type=bind,src={probe},dst=/probe.sh,readonly",
         "--tmpfs", "/tmp:rw,size=16m", "--entrypoint", "sh",
-        MINIO_CLIENT_IMAGE, "/probe.sh", timeout=20,
+        SILO_CLIENT_IMAGE, "/probe.sh", timeout=20,
     )
     assert result.returncode == 0, result.stderr
     assert result_dir.joinpath("credentials.sha256").read_text().strip() == expected_sha
@@ -2648,22 +2648,22 @@ def test_entrypoint_verifies_exact_checksum_pinned_mc_release() -> None:
     )
     # #1288: the image bakes the client, so nothing is fetched at start.
     retired = (
-        "minio-client", RETIRED_MC_RELEASE, "github.com/minio/mc", "wget", "MC_ARTIFACT",
+        "silo-client", RETIRED_MC_RELEASE, "github.com/minio/mc", "wget", "MC_ARTIFACT",
     )
     assert [text for text in required if text not in entrypoint] == []
     assert [text for text in retired if text in entrypoint] == []
 
 
-def test_backup_image_bakes_mc_from_the_minio_init_client_image() -> None:
-    """#1288: the digest-pinned pgsty/mc image minio-init runs, never a download."""
+def test_backup_image_bakes_mc_from_the_silo_init_client_image() -> None:
+    """#1288: the digest-pinned pgsty/mc image silo-init runs, never a download."""
     dockerfile = (REPO / "services/backup/init/Dockerfile").read_text(encoding="utf-8")
-    minio = yaml.safe_load(
-        (REPO / "services/minio/service.yml").read_text(encoding="utf-8")
+    silo = yaml.safe_load(
+        (REPO / "services/silo/service.yml").read_text(encoding="utf-8")
     )
-    minio_init_image = next(
-        row["default"] for row in minio["images"] if row["var"] == "MINIO_INIT_IMAGE"
+    silo_init_image = next(
+        row["default"] for row in silo["images"] if row["var"] == "SILO_INIT_IMAGE"
     )
-    assert minio_init_image == MC_IMAGE
+    assert silo_init_image == MC_IMAGE
     assert f"ARG MC_IMAGE={MC_IMAGE}\nFROM ${{MC_IMAGE}} AS mc\n" in dockerfile
     assert "COPY --from=mc /usr/bin/mc /usr/local/bin/mc" in dockerfile
     for surface in ("services/backup/compose.yml", "services/backup/service.yml"):
@@ -2838,8 +2838,8 @@ def _assert_ci_provisions_exact_integration_images(pull_script: str) -> None:
     assert "services/backup/init" in pull_script
     required_images = (
         "postgres:17.11-alpine",
-        MINIO_IMAGE,
-        MINIO_CLIENT_IMAGE,
+        SILO_IMAGE,
+        SILO_CLIENT_IMAGE,
         "supabase/postgres:17.6.1.139",
         "postgres:15.19-alpine",
         "supabase/realtime:v2.112.0",
@@ -2849,7 +2849,7 @@ def _assert_ci_provisions_exact_integration_images(pull_script: str) -> None:
     for image in required_images:
         assert f"timeout 5m docker pull {image}" in pull_script
     # #1288: the backup image bakes mc from the digest-pinned pgsty/mc image,
-    # and the tests run that same client from the MinIO client image pulled
+    # and the tests run that same client from the Silo client image pulled
     # above, so no separate release asset is provisioned any more.
     retired = (
         "github.com/minio/mc", RETIRED_MC_RELEASE, "pinned_mc",
@@ -2899,7 +2899,7 @@ S3_IMAGE_PROBE_FAILURES = (
 
 @pytest.mark.parametrize(
     "unavailable",
-    ["cli", "daemon", MINIO_IMAGE, MINIO_CLIENT_IMAGE, BACKUP_PRODUCTION_IMAGE],
+    ["cli", "daemon", SILO_IMAGE, SILO_CLIENT_IMAGE, BACKUP_PRODUCTION_IMAGE],
 )
 def test_explicit_production_image_opt_in_fails_closed_on_missing_prerequisite(
     monkeypatch: pytest.MonkeyPatch, unavailable: str,
@@ -3090,7 +3090,7 @@ def _wait_for_s3_server(
             "--label", f"{_EXTERNAL_S3_FIXTURE_OWNER_LABEL}={owner_token}",
             "--network", network, "--mount", seed_mount,
             "--tmpfs", "/tmp:rw,size=16m", "--entrypoint", "sh",
-            MINIO_CLIENT_IMAGE, "-c",
+            SILO_CLIENT_IMAGE, "-c",
             "mc --config-dir /tmp/mc alias import s3 /credentials.json >/dev/null && mc --config-dir /tmp/mc ls s3",
             timeout=8,
         )
@@ -3389,8 +3389,8 @@ def _assert_raw_values_redacted(output: str, raw_values: tuple[str, ...]) -> Non
 def _assert_external_production_render(rendered: dict) -> None:
     assert rendered["backup"]["image"] == BACKUP_PRODUCTION_IMAGE
     assert rendered["backup"]["entrypoint"] == ["sh", "/scripts/entrypoint.sh"]
-    assert rendered["minio"]["deploy"]["replicas"] == 0
-    assert rendered["minio-init"]["deploy"]["replicas"] == 0
+    assert rendered["silo"]["deploy"]["replicas"] == 0
+    assert rendered["silo-init"]["deploy"]["replicas"] == 0
 
 
 def _require_disposable_s3_images(*, required: bool = False) -> None:
@@ -3412,7 +3412,7 @@ def _require_disposable_s3_images(*, required: bool = False) -> None:
         if fail_closed:
             pytest.fail("docker daemon unavailable for required external S3 contract")
         pytest.skip("docker daemon unavailable")
-    for image in (MINIO_IMAGE, MINIO_CLIENT_IMAGE):
+    for image in (SILO_IMAGE, SILO_CLIENT_IMAGE):
         try:
             probe = _docker_command("image", "inspect", image, timeout=10)
         except (subprocess.SubprocessError, OSError) as exc:
@@ -3475,7 +3475,7 @@ def test_disposable_s3_daemon_probe_policy(
 
 
 @pytest.mark.parametrize("probe_failure", S3_IMAGE_PROBE_FAILURES)
-@pytest.mark.parametrize("image", (MINIO_IMAGE, MINIO_CLIENT_IMAGE))
+@pytest.mark.parametrize("image", (SILO_IMAGE, SILO_CLIENT_IMAGE))
 def test_disposable_s3_normalizes_image_probe_launch_failures(
     monkeypatch: pytest.MonkeyPatch, image: str, probe_failure: BaseException
 ) -> None:
@@ -3492,7 +3492,7 @@ def test_disposable_s3_normalizes_image_probe_launch_failures(
         _require_disposable_s3_images()
 
 
-def test_external_s3_mode_uses_separate_credentials_with_pinned_minio_client(
+def test_external_s3_mode_uses_separate_credentials_with_pinned_silo_client(
     tmp_path: Path,
 ) -> None:
     _require_disposable_s3_images()
@@ -3505,6 +3505,7 @@ def test_external_s3_mode_uses_separate_credentials_with_pinned_minio_client(
     access = "externalAccess123"
     secret = "externalSecret456"
     token = "temporaryToken789"
+    # The Silo server container reads its own MINIO_ROOT_* names.
     server_env = tmp_path / "server.env"
     server_env.write_text(
         f"MINIO_ROOT_USER={access}\nMINIO_ROOT_PASSWORD={secret}\n",
@@ -3558,7 +3559,7 @@ def test_external_s3_mode_uses_separate_credentials_with_pinned_minio_client(
 case "$*" in
   "alias import s3 "*)
     [ -z "${BACKUP_S3_ACCESS_KEY+x}${BACKUP_S3_SECRET_KEY+x}${BACKUP_S3_SESSION_TOKEN+x}" ] || printf leak >/result/secret-env-leak
-    [ -z "${MINIO_ROOT_USER+x}${MINIO_ROOT_PASSWORD+x}${AWS_ACCESS_KEY_ID+x}${AWS_SECRET_ACCESS_KEY+x}${AWS_SESSION_TOKEN+x}" ] || printf leak >/result/secret-env-leak
+    [ -z "${SILO_ROOT_USER+x}${SILO_ROOT_PASSWORD+x}${AWS_ACCESS_KEY_ID+x}${AWS_SECRET_ACCESS_KEY+x}${AWS_SESSION_TOKEN+x}" ] || printf leak >/result/secret-env-leak
     ;;
 esac
 exec /usr/bin/mc "$@"
@@ -3602,7 +3603,7 @@ esac
             "--label", f"{_EXTERNAL_S3_FIXTURE_OWNER_LABEL}={owner_token}",
             "--network", network, "--network-alias", "external-s3",
             "--env-file", str(server_env),
-            "--tmpfs", "/data:rw,size=128m", MINIO_IMAGE,
+            "--tmpfs", "/data:rw,size=128m", SILO_IMAGE,
             "server", "/data", "--address", ":9000",
             timeout=45,
         )
@@ -3616,7 +3617,7 @@ esac
                 "run", "--pull=never", "--rm", "--name", client,
                 "--label", f"{_EXTERNAL_S3_FIXTURE_OWNER_LABEL}={owner_token}",
                 "--network", network, "--mount", seed_mount,
-                "--tmpfs", "/tmp:rw,size=16m", "--entrypoint", "sh", MINIO_CLIENT_IMAGE,
+                "--tmpfs", "/tmp:rw,size=16m", "--entrypoint", "sh", SILO_CLIENT_IMAGE,
                 "-c", "mc --config-dir /tmp/mc alias import s3 /credentials.json >/dev/null && mc --config-dir /tmp/mc ls s3",
                 timeout=8,
             )
@@ -3638,7 +3639,7 @@ esac
         backed_up = _docker_command(
             "run", "--pull=never", "--rm", "--name", client,
             "--label", f"{_EXTERNAL_S3_FIXTURE_OWNER_LABEL}={owner_token}",
-            *common_probe, MINIO_CLIENT_IMAGE,
+            *common_probe, SILO_CLIENT_IMAGE,
             "/scripts/entrypoint.sh", "/scripts/backup-all.sh", timeout=20,
         )
         assert backed_up.returncode == 75, backed_up.stderr
@@ -3651,7 +3652,7 @@ esac
             "run", "--pull=never", "--rm", "--name", client,
             "--label", f"{_EXTERNAL_S3_FIXTURE_OWNER_LABEL}={owner_token}",
             "--network", network, "--mount", seed_mount, "--tmpfs", "/tmp:rw,size=16m",
-            "--entrypoint", "sh", MINIO_CLIENT_IMAGE, "-c",
+            "--entrypoint", "sh", SILO_CLIENT_IMAGE, "-c",
             "mc --config-dir /tmp/mc alias import s3 /credentials.json >/dev/null && "
             "mc --config-dir /tmp/mc stat s3/atlas-backups >/dev/null && "
             "printf invalid-completion | mc --config-dir /tmp/mc pipe s3/atlas-backups/20260829_120000/postgres.complete",
@@ -3662,7 +3663,7 @@ esac
         restored = _docker_command(
             "run", "--pull=never", "--rm", "--name", client,
             "--label", f"{_EXTERNAL_S3_FIXTURE_OWNER_LABEL}={owner_token}",
-            *common_probe, MINIO_CLIENT_IMAGE,
+            *common_probe, SILO_CLIENT_IMAGE,
             "/scripts/entrypoint.sh", "/scripts/restore-postgres.sh",
             timeout=20,
         )
@@ -3683,7 +3684,7 @@ esac
         token_probe = _docker_command(
             "run", "--pull=never", "--rm", "--name", probe,
             "--label", f"{_EXTERNAL_S3_FIXTURE_OWNER_LABEL}={owner_token}",
-            *token_probe_args, MINIO_CLIENT_IMAGE,
+            *token_probe_args, SILO_CLIENT_IMAGE,
             "/scripts/entrypoint.sh", "/scripts/restore-postgres.sh",
             timeout=20,
         )
@@ -3769,7 +3770,7 @@ def test_opted_in_ci_runs_exact_backup_image_entrypoint_and_baked_mc(
             "BACKUP_SOURCE": "container", "BACKUP_S3_MODE": "external",
             "BACKUP_S3_ENDPOINT": "http://external-s3:9000",
             "BACKUP_S3_ACCESS_KEY": access, "BACKUP_S3_SECRET_KEY": secret,
-            "MINIO_SOURCE": "disabled", "MINIO_SCALE": "0", "MINIO_INIT_SCALE": "0",
+            "SILO_SOURCE": "disabled", "SILO_SCALE": "0", "SILO_INIT_SCALE": "0",
         },
     )
     _assert_external_production_render(rendered)
@@ -3786,7 +3787,7 @@ def test_opted_in_ci_runs_exact_backup_image_entrypoint_and_baked_mc(
             "--label", f"{_EXTERNAL_S3_FIXTURE_OWNER_LABEL}={owner_token}",
             "--network", network, "--network-alias", "external-s3",
             "--env-file", str(server_env), "--tmpfs", "/data:rw,size=128m",
-            MINIO_IMAGE, "server", "/data", "--address", ":9000", timeout=45,
+            SILO_IMAGE, "server", "/data", "--address", ":9000", timeout=45,
         )
         assert started.returncode == 0, started.stderr
         seed_mount = f"type=bind,src={seed_credentials},dst=/credentials.json,readonly"
@@ -3824,7 +3825,7 @@ def test_opted_in_ci_runs_exact_backup_image_entrypoint_and_baked_mc(
             "--label", f"{_EXTERNAL_S3_FIXTURE_OWNER_LABEL}={owner_token}",
             "--network", network, "--mount", seed_mount,
             "--tmpfs", "/tmp:rw,size=16m", "--entrypoint", "sh",
-            MINIO_CLIENT_IMAGE, "-c",
+            SILO_CLIENT_IMAGE, "-c",
             "mc --config-dir /tmp/mc alias import s3 /credentials.json >/dev/null && mc --config-dir /tmp/mc stat s3/atlas-backups >/dev/null",
             timeout=20,
         )
@@ -4014,8 +4015,8 @@ def test_restore_rejects_invalid_candidate_window(value: str) -> None:
             "SUPABASE_DB_USER": "postgres",
             "SUPABASE_DB_PASSWORD": "secret",
             "SUPABASE_DB_NAME": "postgres",
-            "MINIO_ROOT_USER": "minio",
-            "MINIO_ROOT_PASSWORD": "secret",
+            "SILO_ROOT_USER": "silo",
+            "SILO_ROOT_PASSWORD": "secret",
         },
         text=True,
         capture_output=True,
@@ -4037,8 +4038,8 @@ def _preflight_restore_env(bin_dir: Path, fixture: Path) -> dict[str, str]:
         "SUPABASE_DB_USER": "postgres",
         "SUPABASE_DB_PASSWORD": "secret",
         "SUPABASE_DB_NAME": "postgres",
-        "MINIO_ROOT_USER": "minio",
-        "MINIO_ROOT_PASSWORD": "secret",
+        "SILO_ROOT_USER": "silo",
+        "SILO_ROOT_PASSWORD": "secret",
         "BACKUP_COMMAND_TIMEOUT_SECONDS": "2",
     }
 
@@ -4278,8 +4279,8 @@ def test_restore_requires_external_manifest_key_and_deployment_identity() -> Non
             "SUPABASE_DB_USER": "postgres",
             "SUPABASE_DB_PASSWORD": "secret",
             "SUPABASE_DB_NAME": "postgres",
-            "MINIO_ROOT_USER": "minio",
-            "MINIO_ROOT_PASSWORD": "secret",
+            "SILO_ROOT_USER": "silo",
+            "SILO_ROOT_PASSWORD": "secret",
         },
         text=True,
         capture_output=True,
@@ -4309,8 +4310,8 @@ def test_restore_rejects_an_invalid_deployment_identity(deployment_id: str, mess
             "SUPABASE_DB_USER": "postgres",
             "SUPABASE_DB_PASSWORD": "secret",
             "SUPABASE_DB_NAME": "postgres",
-            "MINIO_ROOT_USER": "minio",
-            "MINIO_ROOT_PASSWORD": "secret",
+            "SILO_ROOT_USER": "silo",
+            "SILO_ROOT_PASSWORD": "secret",
             "BACKUP_MANIFEST_HMAC_KEY": "a" * 64,
             "BACKUP_DEPLOYMENT_ID": deployment_id,
         },
@@ -4452,8 +4453,8 @@ exit 0
             "SUPABASE_DB_USER": "postgres",
             "SUPABASE_DB_PASSWORD": "secret",
             "SUPABASE_DB_NAME": "postgres",
-            "MINIO_ROOT_USER": "minio",
-            "MINIO_ROOT_PASSWORD": "secret",
+            "SILO_ROOT_USER": "silo",
+            "SILO_ROOT_PASSWORD": "secret",
             "BACKUP_MANIFEST_HMAC_KEY": "a" * 64,
             "BACKUP_DEPLOYMENT_ID": "atlas-test-deployment",
             "BACKUP_RESTORE_MAINTENANCE_MODE": "confirmed",
@@ -4509,8 +4510,8 @@ def test_backup_timeout_must_be_a_positive_integer() -> None:
             "SUPABASE_DB_USER": "postgres",
             "SUPABASE_DB_PASSWORD": "secret",
             "SUPABASE_DB_NAME": "postgres",
-            "MINIO_ROOT_USER": "minio",
-            "MINIO_ROOT_PASSWORD": "secret",
+            "SILO_ROOT_USER": "silo",
+            "SILO_ROOT_PASSWORD": "secret",
         },
         text=True,
         capture_output=True,
@@ -4533,8 +4534,8 @@ def test_restore_timeout_rejects_values_too_large_for_lock_deadline() -> None:
             "SUPABASE_DB_USER": "postgres",
             "SUPABASE_DB_PASSWORD": "secret",
             "SUPABASE_DB_NAME": "postgres",
-            "MINIO_ROOT_USER": "minio",
-            "MINIO_ROOT_PASSWORD": "secret",
+            "SILO_ROOT_USER": "silo",
+            "SILO_ROOT_PASSWORD": "secret",
         },
         text=True,
         capture_output=True,
@@ -4579,8 +4580,8 @@ def test_restore_rejects_impossible_calendar_timestamps(
             "SUPABASE_DB_USER": "postgres",
             "SUPABASE_DB_PASSWORD": "secret",
             "SUPABASE_DB_NAME": "postgres",
-            "MINIO_ROOT_USER": "minio",
-            "MINIO_ROOT_PASSWORD": "secret",
+            "SILO_ROOT_USER": "silo",
+            "SILO_ROOT_PASSWORD": "secret",
         },
         text=True,
         capture_output=True,
@@ -4637,8 +4638,8 @@ esac
             "SUPABASE_DB_USER": "postgres",
             "SUPABASE_DB_PASSWORD": "secret",
             "SUPABASE_DB_NAME": "postgres",
-            "MINIO_ROOT_USER": "minio",
-            "MINIO_ROOT_PASSWORD": "secret",
+            "SILO_ROOT_USER": "silo",
+            "SILO_ROOT_PASSWORD": "secret",
         },
         text=True,
         capture_output=True,
@@ -4679,7 +4680,7 @@ esac
         **os.environ, "PATH": f"{bin_dir}:{os.environ.get('PATH', '')}", "FIXTURE": str(tmp_path), "TRACE": str(trace),
         "BACKUP_RESTORE_MAINTENANCE_MODE": "confirmed", "BACKUP_MANIFEST_HMAC_KEY": key_hex,
         "BACKUP_DEPLOYMENT_ID": "atlas-test-deployment", "SUPABASE_DB_USER": "postgres", "SUPABASE_DB_PASSWORD": "secret",
-        "SUPABASE_DB_NAME": "postgres", "MINIO_ROOT_USER": "minio", "MINIO_ROOT_PASSWORD": "secret",
+        "SUPABASE_DB_NAME": "postgres", "SILO_ROOT_USER": "silo", "SILO_ROOT_PASSWORD": "secret",
     }
     result = subprocess.run(["sh", str(REPO / "services/backup/init/scripts/restore-postgres.sh")], env=base_env, text=True, capture_output=True, check=False)
     assert result.returncode != 0
@@ -4776,8 +4777,8 @@ EOF
             "SUPABASE_DB_USER": "postgres",
             "SUPABASE_DB_PASSWORD": "secret",
             "SUPABASE_DB_NAME": "atlas",
-            "MINIO_ROOT_USER": "minio",
-            "MINIO_ROOT_PASSWORD": "secret",
+            "SILO_ROOT_USER": "silo",
+            "SILO_ROOT_PASSWORD": "secret",
             "BACKUP_MANIFEST_HMAC_KEY": "a" * 64,
             "BACKUP_DEPLOYMENT_ID": "atlas-test-deployment",
             "BACKUP_TIMESTAMP": "20260829_120000",
@@ -4840,7 +4841,7 @@ exit 0
         env={
             **os.environ, "PATH": f"{tmp_path}:{os.environ.get('PATH', '')}", "TRACE": str(trace),
             "SUPABASE_DB_USER": "postgres", "SUPABASE_DB_PASSWORD": "secret", "SUPABASE_DB_NAME": "postgres",
-            "MINIO_ROOT_USER": "minio", "MINIO_ROOT_PASSWORD": "secret", "BACKUP_MANIFEST_HMAC_KEY": "5" * 64,
+            "SILO_ROOT_USER": "silo", "SILO_ROOT_PASSWORD": "secret", "BACKUP_MANIFEST_HMAC_KEY": "5" * 64,
             "BACKUP_DEPLOYMENT_ID": "atlas-test-deployment", "BACKUP_TIMESTAMP": "20260829_120000",
         }, text=True, capture_output=True, check=False,
     )
@@ -5884,7 +5885,7 @@ def _restore_harness(tmp_path, *, token: str, publish_postgres: bool, marker: st
         (bucket / ts / "postgres.complete").write_text(payload + f"hmac_sha256={mac}\n")
     return subprocess.run(
         ["sh", str(_BACKUP_SCRIPTS / 'restore-databases.sh'), "prepare"], capture_output=True, text=True, timeout=120,
-        env={**env, "MINIO_ROOT_USER": "u", "MINIO_ROOT_PASSWORD": "p", "BACKUP_TIMESTAMP": ts,
+        env={**env, "SILO_ROOT_USER": "u", "SILO_ROOT_PASSWORD": "p", "BACKUP_TIMESTAMP": ts,
              "BACKUP_RESTORE_TOKEN": token, "DATABASE_RESTORE_ROOT": f"/tmp/atlas-database-restore-test-{token}"})
 
 

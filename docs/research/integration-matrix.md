@@ -14,7 +14,6 @@
 | kong | infra | 9 | [rows/kong.md](./rows/kong.md) |
 | litellm | llm | 14 | [rows/litellm.md](./rows/litellm.md) |
 | local-deep-researcher | apps | 12 | [rows/local-deep-researcher.md](./rows/local-deep-researcher.md) |
-| minio | data | 11 | [rows/minio.md](./rows/minio.md) |
 | multi2vec-clip | data | 6 | [rows/multi2vec-clip.md](./rows/multi2vec-clip.md) |
 | n8n | agents | 12 | [rows/n8n.md](./rows/n8n.md) |
 | neo4j | data | 12 | [rows/neo4j.md](./rows/neo4j.md) |
@@ -23,6 +22,7 @@
 | openclaw | agents | 11 | [rows/openclaw.md](./rows/openclaw.md) |
 | redis | data | 11 | [rows/redis.md](./rows/redis.md) |
 | searxng | media | 13 | [rows/searxng.md](./rows/searxng.md) |
+| silo | data | 11 | [rows/silo.md](./rows/silo.md) |
 | stt-provider | media | 15 | [rows/stt-provider.md](./rows/stt-provider.md) |
 | supabase | data | 12 | [rows/supabase.md](./rows/supabase.md) |
 | tts-provider | media | 10 | [rows/tts-provider.md](./rows/tts-provider.md) |
@@ -45,10 +45,10 @@
 
 ### 2.3. data
 
-- [minio](./rows/minio.md)
 - [multi2vec-clip](./rows/multi2vec-clip.md)
 - [neo4j](./rows/neo4j.md)
 - [redis](./rows/redis.md)
+- [silo](./rows/silo.md)
 - [supabase](./rows/supabase.md)
 - [weaviate](./rows/weaviate.md)
 
@@ -76,7 +76,7 @@ Shipped and rejected candidates are not listed; their one-pagers stay under `can
 | Candidate | Category fit | Referenced by | One-pager |
 |---|---|---|---|
 | Browserless | media | n8n, searxng | [candidates/browserless.md](./candidates/browserless.md) |
-| Dagster | agents | minio | [candidates/dagster.md](./candidates/dagster.md) |
+| Dagster | agents | silo | [candidates/dagster.md](./candidates/dagster.md) |
 | Docling MCP Server | agents | doc-processor | [candidates/docling-mcp.md](./candidates/docling-mcp.md) |
 | FinRL And FinGPT | apps | _(none)_ | [candidates/finrl-fingpt.md](./candidates/finrl-fingpt.md) |
 | Firecrawl | media | local-deep-researcher | [candidates/firecrawl.md](./candidates/firecrawl.md) |
@@ -85,7 +85,7 @@ Shipped and rejected candidates are not listed; their one-pagers stay under `can
 | Honcho | data | openclaw | [candidates/honcho.md](./candidates/honcho.md) |
 | imgproxy | media | supabase | [candidates/imgproxy.md](./candidates/imgproxy.md) |
 | Keycloak | infra | kong | [candidates/keycloak.md](./candidates/keycloak.md) |
-| Lakekeeper | data | minio | [candidates/lakekeeper.md](./candidates/lakekeeper.md) |
+| Lakekeeper | data | silo | [candidates/lakekeeper.md](./candidates/lakekeeper.md) |
 | mcpo (MCP-to-OpenAPI Proxy) | agents | open-webui | [candidates/mcpo.md](./candidates/mcpo.md) |
 | NeoDash | apps | neo4j | [candidates/neodash.md](./candidates/neodash.md) |
 | NocoDB | apps | n8n | [candidates/nocodb.md](./candidates/nocodb.md) |
@@ -96,7 +96,7 @@ Shipped and rejected candidates are not listed; their one-pagers stay under `can
 | Redis Stack (redis-stack-server) | data | redis | [candidates/redis-stack.md](./candidates/redis-stack.md) |
 | RedisInsight | data | redis | [candidates/redisinsight.md](./candidates/redisinsight.md) |
 | Supabase Edge Functions (Deno runtime) | apps | supabase | [candidates/supabase-edge-functions.md](./candidates/supabase-edge-functions.md) |
-| Apache Superset | apps | minio | [candidates/superset.md](./candidates/superset.md) |
+| Apache Superset | apps | silo | [candidates/superset.md](./candidates/superset.md) |
 | TimescaleDB | data | supabase | [candidates/timescaledb.md](./candidates/timescaledb.md) |
 | Unmute (Kyutai) | media | tts-provider | [candidates/unmute.md](./candidates/unmute.md) |
 | Voicebox (jamiepine) | media | _(none)_ | [candidates/voicebox.md](./candidates/voicebox.md) |

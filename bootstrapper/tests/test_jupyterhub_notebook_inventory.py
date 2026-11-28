@@ -168,7 +168,7 @@ def test_python_and_scala_spark_examples_share_runtime_contracts():
 
     for text in (python_spark, scala_spark):
         assert "SPARK_REMOTE" in text
-        assert "MINIO_BUCKET_SPARK_HISTORY" in text  # bucket follows the env (#1392)
+        assert "SILO_BUCKET_SPARK_HISTORY" in text  # bucket follows the env (#1392)
     assert "LITELLM_DEFAULT_MODEL" in scala_basics_code
     assert '"ollama/qwen3.8:latest"' not in scala_basics_code
 
@@ -233,16 +233,16 @@ def test_advanced_sql_notebook_follows_the_configured_iceberg_buckets():
     environment = yaml.safe_load(COMPOSE_FILE.read_text(encoding="utf-8"))[
         "services"
     ]["jupyterhub"]["environment"]
-    for var in ("MINIO_BUCKET_ICEBERG_LANDING", "MINIO_BUCKET_ICEBERG_CHECKPOINTS"):
+    for var in ("SILO_BUCKET_ICEBERG_LANDING", "SILO_BUCKET_ICEBERG_CHECKPOINTS"):
         assert f'os.environ.get("{var}"' in code
         assert var in environment
     assert "s3a://landing/" not in code and "s3a://checkpoints/" not in code
 
 
-# ─── bucket names follow MINIO_BUCKET_*; a disabled Weaviate is reported (#1392)
+# ─── bucket names follow SILO_BUCKET_*; a disabled Weaviate is reported (#1392)
 
 
-def test_notebook_code_names_no_minio_bucket_literally():
+def test_notebook_code_names_no_silo_bucket_literally():
     """A renamed bucket got probe writes to one that does not exist."""
     literal = re.compile(r"s3a://(spark-history|landing|checkpoints)(?=[/\"'\s]|$)")
     code = [

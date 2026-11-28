@@ -26,10 +26,10 @@ capabilities:
     status: partial
     verification: documented
     note: "Disabling containers preserves generated Neo4j data, while upstream labels share the selected database and Atlas cannot prevent collisions or destructive cleanup in a shared database."
-  - name: "Turn-key MinIO and Docling ingestion"
+  - name: "Turn-key Silo and Docling ingestion"
     status: not-supported
     verification: documented
-    note: "MinIO endpoint-compatible S3 ingestion and a direct Docling handoff are integration points only. In the stock Atlas path, operators must use local, wiki, or web sources."
+    note: "Silo endpoint-compatible S3 ingestion and a direct Docling handoff are integration points only. In the stock Atlas path, operators must use local, wiki, or web sources."
 
 containers:
   - llm-graph-builder-backend
@@ -164,7 +164,7 @@ depends_on:
     - litellm
     - kong
   optional:
-    - minio
+    - silo
     - docling
 
 rows:

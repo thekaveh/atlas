@@ -67,7 +67,7 @@ def test_redpanda_manifest_contract() -> None:
         "zeppelin",
         "airflow",
         "iceberg-rest",
-        "minio",
+        "silo",
     ]
     assert manifest["data_flow"]["calls"] == []
 

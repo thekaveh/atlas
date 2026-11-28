@@ -3,7 +3,7 @@ documented in reusing-atlas.md (issue #349).
 
 A downstream consumer joining the Atlas network needs to know how to bridge
 Atlas's computed endpoint variables (COMFYUI_ENDPOINT, OLLAMA_ENDPOINT,
-LITELLM_BASE_URL, MINIO_ENDPOINT) into its own service variables. This test
+LITELLM_BASE_URL, SILO_ENDPOINT) into its own service variables. This test
 asserts the documentation exists so it can't be accidentally deleted.
 """
 from __future__ import annotations

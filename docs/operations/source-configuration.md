@@ -154,19 +154,19 @@ Each row lists the options from the service's `service.yml` `sources:` block; **
 | `FAL_SOURCE` | `enabled`, **`disabled`** | fal.ai cloud media. Needs `FAL_API_KEY` when enabled. See §4.3.5. | [FAL](../../services/fal/README.md) |
 | `GRAFANA_SOURCE` | `container`, **`disabled`** | Dashboards and alerting at `grafana.localhost`; admin password generated. Pair it with `PROMETHEUS_SOURCE=container`, or every panel shows "datasource unreachable". | [Grafana](../../services/grafana/README.md) |
 | `HERMES_SOURCE` | **`container`**, `localhost`†, `disabled` | Agent runtime; `litellm-init` registers `hermes-agent` in LiteLLM unless disabled. `HERMES_DEFAULT_MODEL` needs a context window of at least 64K. `localhost`: install Hermes on the host, run `hermes gateway run`, and set `HERMES_LOCALHOST_PORT` (default `8642`) if needed. | [Hermes Agent](../../services/hermes/README.md) |
-| `ICEBERG_REST_SOURCE` | `container`, **`disabled`** | Iceberg REST catalog (Supabase JDBC catalog, MinIO warehouse). | [Iceberg REST](../../services/iceberg-rest/README.md) |
-| `JENKINS_SOURCE` | `container`, **`disabled`** | Maven Spark-app builder at `jenkins.localhost`; it publishes JARs to the MinIO `jars` bucket. Requires `MINIO_SOURCE=container`. Atlas ships no downstream jobs. | [Jenkins](../../services/jenkins/README.md) |
+| `ICEBERG_REST_SOURCE` | `container`, **`disabled`** | Iceberg REST catalog (Supabase JDBC catalog, Silo warehouse). | [Iceberg REST](../../services/iceberg-rest/README.md) |
+| `JENKINS_SOURCE` | `container`, **`disabled`** | Maven Spark-app builder at `jenkins.localhost`; it publishes JARs to the Silo `jars` bucket. Requires `SILO_SOURCE=container`. Atlas ships no downstream jobs. | [Jenkins](../../services/jenkins/README.md) |
 | `JUPYTERHUB_SOURCE` | **`container`**, `disabled` | DS/ML and lakehouse notebooks. Includes `boto3`, `s3fs`, `pyiceberg[s3fs]`, `pyarrow` and `duckdb`. | [JupyterHub](../../services/jupyterhub/README.md) |
-| `LABEL_STUDIO_SOURCE` | `container`, **`disabled`** | Dataset review and annotation for the ML Engineering track, at `label-studio.localhost`. Requires `MINIO_SOURCE=container`. | [Label Studio](../../services/label-studio/README.md) |
-| `LANGFUSE_SOURCE` | `container`, **`disabled`** | LLM traces and evals for LiteLLM-routed calls, at `langfuse.localhost`. Requires `MINIO_SOURCE=container`, which the `gen-ai-*` tracks disable: pass `--minio-source container` there. | [Langfuse](../../services/langfuse/README.md) |
+| `LABEL_STUDIO_SOURCE` | `container`, **`disabled`** | Dataset review and annotation for the ML Engineering track, at `label-studio.localhost`. Requires `SILO_SOURCE=container`. | [Label Studio](../../services/label-studio/README.md) |
+| `LANGFUSE_SOURCE` | `container`, **`disabled`** | LLM traces and evals for LiteLLM-routed calls, at `langfuse.localhost`. Requires `SILO_SOURCE=container`, which the `gen-ai-*` tracks disable: pass `--silo-source container` there. | [Langfuse](../../services/langfuse/README.md) |
 | `LIGHTRAG_SOURCE` | `container`, `localhost`†, **`disabled`** | `container` stores data in Supabase pgvector, Neo4j and Redis. If one is disabled, LightRAG fails to start unless its `LIGHTRAG_*_STORAGE` names an in-process class. `localhost` uses `LIGHTRAG_LOCALHOST_PORT` (default `63068`). | [LightRAG](../../services/lightrag/README.md) |
 | `LLM_GRAPH_BUILDER_SOURCE` | `container`, **`disabled`** | Neo4j LLM Graph Builder (pinned source build). | [LLM Graph Builder](../../services/llm-graph-builder/README.md) |
 | `LLM_PROVIDER_SOURCE` | **`ollama-container-cpu`**, `ollama-container-gpu`, `ollama-localhost`†, `none` | Ollama upstream for LiteLLM. See §4.1.1. | [Ollama](../../services/ollama/README.md) |
 | `LOCAL_DEEP_RESEARCHER_SOURCE` | **`container`**, `disabled` | LangGraph research agent. Requires `SEARXNG_SOURCE=container`; otherwise the start auto-disables it with a warning. | [Local Deep Researcher](../../services/local-deep-researcher/README.md) |
 | `LOKI_SOURCE` | `container`, **`disabled`** | Local queryable log store. | [Loki](../../services/loki/README.md) |
 | `MCP_SERVERS_SOURCE` | `container`, **`disabled`** | Read-only Postgres, Neo4j and SearXNG tools over Streamable HTTP at `/mcp` (`mcp.localhost`). Requires `NEO4J_GRAPH_DB_SOURCE=container` and `SEARXNG_SOURCE=container`. Tool output is untrusted. | [MCP Servers](../../services/mcp-servers/README.md) |
-| `MINIO_SOURCE` | **`container`**, `disabled` | S3-compatible object storage with scoped per-consumer buckets. See §4.3.3. | [MinIO](../../services/minio/README.md) |
-| `MLFLOW_SOURCE` | `container`, **`disabled`** | Experiment tracking at `mlflow.localhost`; JupyterHub gets `MLFLOW_TRACKING_URI=http://mlflow:5000`. Requires `MINIO_SOURCE=container`. Model promotion and serving are not included. | [MLflow](../../services/mlflow/README.md) |
+| `SILO_SOURCE` | **`container`**, `disabled` | S3-compatible object storage with scoped per-consumer buckets. See §4.3.3. | [Silo](../../services/silo/README.md) |
+| `MLFLOW_SOURCE` | `container`, **`disabled`** | Experiment tracking at `mlflow.localhost`; JupyterHub gets `MLFLOW_TRACKING_URI=http://mlflow:5000`. Requires `SILO_SOURCE=container`. Model promotion and serving are not included. | [MLflow](../../services/mlflow/README.md) |
 | `MULTI2VEC_CLIP_SOURCE` | **`container-cpu`**, `container-gpu`, `disabled` | CLIP vectorizer for Weaviate. `container-gpu` sets `ENABLE_CUDA=1`, but Compose requests no GPU device for it. This variable has no `sources:` block; it is declared in the Weaviate manifest. See §4.3.2. | [multi2vec-clip](../../services/multi2vec-clip/README.md) |
 | `N8N_SOURCE` | **`container`**, `disabled` | Workflow automation. | [n8n](../../services/n8n/README.md) |
 | `NEO4J_GRAPH_DB_SOURCE` | **`container`**, `localhost`†, `disabled` | Graph database. | [Neo4j](../../services/neo4j/README.md) |
@@ -177,20 +177,20 @@ Each row lists the options from the service's `service.yml` `sources:` block; **
 | `RAY_SOURCE` | `ray-container-cpu`, `ray-container-gpu`, **`disabled`** | Head plus `RAY_WORKER_COUNT` workers (`0` = head only), dashboard at `ray.localhost`. GPU needs the NVIDIA Container Toolkit. Disabled: Backend `/api/ray/*` returns 503 and `ray.init()` in notebooks fails. | [Ray](../../services/ray/README.md) |
 | `REDPANDA_SOURCE` | `container`, **`disabled`** | Kafka-API broker, console and demo topics. | [Redpanda](../../services/redpanda/README.md) |
 | `SEARXNG_SOURCE` | **`container`**, `disabled` | Privacy metasearch. | [SearXNG](../../services/searxng/README.md) |
-| `SPARK_SOURCE` | `container`, **`disabled`** | Standalone cluster with Spark Connect. Requires `MINIO_SOURCE=container`. With Spark disabled, set `ZEPPELIN_SOURCE=disabled` too. See §4.3.4. | [Spark](../../services/spark/README.md) |
+| `SPARK_SOURCE` | `container`, **`disabled`** | Standalone cluster with Spark Connect. Requires `SILO_SOURCE=container`. With Spark disabled, set `ZEPPELIN_SOURCE=disabled` too. See §4.3.4. | [Spark](../../services/spark/README.md) |
 | `SPEECH_GATE_SOURCE` | **`container`**, `disabled` | Voice-activity check in front of Speaches. Runs only with a `speaches-container-*` STT source. `disabled` sends consumers straight to Speaches. | [Speech Gate](../../services/speech-gate/README.md) |
 | `STT_PROVIDER_SOURCE` | **`speaches-container-cpu`**, `speaches-container-gpu`, `parakeet-container-gpu`, `parakeet-localhost`†, `whisper-cpp-localhost`†, `disabled` | Speech-to-text engine. | [STT Provider](../../services/stt-provider/README.md) |
 | `SUPAVISOR_SOURCE` | `container`, **`disabled`** | Postgres transaction pooler. | [Supavisor](../../services/supavisor/README.md) |
 | `TEI_RERANKER_SOURCE` | `container-cpu`, `container-gpu`, `localhost`†, **`disabled`** | Cross-encoder reranker (`mixedbread-ai/mxbai-rerank-base-v1`) with a `/rerank` route. On arm64, `container-cpu` uses the digest-pinned `cpu-arm64-latest` image. LightRAG gets `RERANK_BINDING=null`; direct LightRAG-to-TEI reranking needs an adapter. | [TEI Reranker](../../services/tei-reranker/README.md) |
 | `TEMPO_SOURCE` | `container`, **`disabled`** | Local distributed-trace store. | [Tempo](../../services/tempo/README.md) |
 | `TIKA_SOURCE` | `container`, `tika-localhost`†, **`disabled`** | Fallback text extractor for formats Docling does not support (EML, MSG, RTF, OpenDocument, archives). `tika-localhost` uses `TIKA_LOCALHOST_PORT` (default `9998`). | [Apache Tika](../../services/tika/README.md) |
-| `TRINO_SOURCE` | `container`, **`disabled`** | Federated SQL over Iceberg REST and the MinIO lakehouse. | [Trino](../../services/trino/README.md) |
+| `TRINO_SOURCE` | `container`, **`disabled`** | Federated SQL over Iceberg REST and the Silo lakehouse. | [Trino](../../services/trino/README.md) |
 | `TRUEFORGE_SOURCE` | `container`, **`disabled`** | Agent runtime with MCP tools, approvals and schedules, at `trueforge.localhost`. Uses a LiteLLM virtual key. `MCP_SERVERS_SOURCE=container` is optional. | [TrueForge](../../services/trueforge/README.md) |
 | `TTS_PROVIDER_SOURCE` | **`speaches-container-cpu`**, `speaches-container-gpu`, `chatterbox-container-gpu`, `chatterbox-localhost`†, `disabled` | Text-to-speech engine. | [TTS Provider](../../services/tts-provider/README.md) |
 | `VERBA_SOURCE` | `container`, **`disabled`** | Archived Weaviate RAG demo UI at `verba.localhost`. Needs `WEAVIATE_SOURCE` `container` or `localhost`. | [Verba](../../services/verba/README.md) |
 | `VLLM_METAL_SOURCE` | `managed-localhost`†, **`disabled`** | Managed Apple-silicon LLM server for LiteLLM. See §4.1.2. | [vLLM Metal](../../services/vllm-metal/README.md) |
 | `WEAVIATE_SOURCE` | **`container`**, `localhost`†, `disabled` | Vector database. See §4.3.2. | [Weaviate](../../services/weaviate/README.md) |
-| `ZEPPELIN_SOURCE` | `container`, **`disabled`** | Spark-first notebook with a loopback-only direct UI at `http://127.0.0.1:${ZEPPELIN_PORT}`. Requires `SPARK_SOURCE=container` and `MINIO_SOURCE=container`; with Spark disabled, the start stops with an error. | [Zeppelin](../../services/zeppelin/README.md) |
+| `ZEPPELIN_SOURCE` | `container`, **`disabled`** | Spark-first notebook with a loopback-only direct UI at `http://127.0.0.1:${ZEPPELIN_PORT}`. Requires `SPARK_SOURCE=container` and `SILO_SOURCE=container`; with Spark disabled, the start stops with an error. | [Zeppelin](../../services/zeppelin/README.md) |
 
 The cloud switches (`CLOUD_*_SOURCE`) are in §4.1.3.
 
@@ -198,13 +198,13 @@ The cloud switches (`CLOUD_*_SOURCE`) are in §4.1.3.
 
 #### 4.3.1. Airflow Connections
 
-`airflow-init` seeds `postgres_supabase`, `litellm_default` and `redis_default` always. It seeds `spark_default`, `minio_default`, `weaviate_default` and `neo4j_default` only when that sibling's source is `container`. Without `spark_default`, `SparkSubmitOperator` tasks fail.
+`airflow-init` seeds `postgres_supabase`, `litellm_default` and `redis_default` always. It seeds `spark_default`, `silo_default`, `weaviate_default` and `neo4j_default` only when that sibling's source is `container`. Without `spark_default`, `SparkSubmitOperator` tasks fail.
 
 The image includes `apache-airflow-providers-openai`, wired to LiteLLM. For LangChain, use `langchain-openai` with `PythonOperator`; no `apache-airflow-providers-langchain` package exists. The image also has Java 17, `spark-submit` and the S3A and Iceberg jars. `SparkSubmitOperator` can submit a JAR from `s3a://jars/...` to `spark://spark-master:7077` with `deploy_mode="cluster"`.
 
 To read a seeded Connection from a `docker exec` script outside a task, see the [Airflow README](../../services/airflow/README.md) §4.
 
-The manual `lakehouse_spark_submit_smoke` DAG submits a validation JAR from `s3a://jars/` and records Spark History. It needs Spark, MinIO and Iceberg REST. See the [Airflow README](../../services/airflow/README.md) §4 (seeded Connections) and §5 (sample and smoke DAGs).
+The manual `lakehouse_spark_submit_smoke` DAG submits a validation JAR from `s3a://jars/` and records Spark History. It needs Spark, Silo and Iceberg REST. See the [Airflow README](../../services/airflow/README.md) §4 (seeded Connections) and §5 (sample and smoke DAGs).
 
 `AIRFLOW_SOURCE=container` generates these secrets in `.env` on the first start:
 
@@ -233,20 +233,20 @@ MULTI2VEC_CLIP_SIGLIP2_IMAGE=semitechnologies/multi2vec-clip:google-siglip2-so40
 - CLIP runs only beside a container Weaviate. With `WEAVIATE_SOURCE=localhost` or `disabled` it is scaled to 0, because Weaviate is its only consumer.
 - `MULTI2VEC_CLIP_SIGLIP2_IMAGE` is an opt-in alternative to `MULTI2VEC_CLIP_IMAGE`. It changes vectors from 512-d to 1152-d, so existing collections that use `multi2vec-clip` must be recreated or revectorized. See the [multi2vec-clip README](../../services/multi2vec-clip/README.md).
 
-#### 4.3.3. MinIO
+#### 4.3.3. Silo
 
-`MINIO_ENDPOINT` (`http://minio:9000`) and `MINIO_PUBLIC_ENDPOINT` are auto-managed. The S3 API is at `http://localhost:${MINIO_PORT}` and the console at `http://localhost:${MINIO_CONSOLE_PORT}` (63020 and 63021 at the default base port).
+`SILO_ENDPOINT` (`http://silo:9000`) and `SILO_PUBLIC_ENDPOINT` are auto-managed. The S3 API is at `http://localhost:${SILO_PORT}` and the console at `http://localhost:${SILO_CONSOLE_PORT}` (63020 and 63021 at the default base port).
 
 Their Compose fragments wire these consumers. They are Airflow, Asset Worker, Asset Baker, Backend, Celery, backup, Iceberg REST, Jenkins, JupyterHub, Label Studio, Langfuse, MLflow, Spark, Trino and Zeppelin. Most get scoped service-account credentials. Airflow and the backup service use the root credentials. Backend and Celery get the endpoint plus the credential variables a consumer manifest's `storage` block declares.
 
-With `MINIO_SOURCE=disabled`, some services refuse to start, and the error names the service. They are Spark, Iceberg REST, Trino, Jenkins, MLflow, Label Studio, Langfuse, the asset worker and baker, and a local-mode backup. Disable them too, set `BACKUP_S3_MODE=external` for backups, or keep MinIO on. See [MinIO](../../services/minio/README.md) for the bucket-to-consumer table.
+With `SILO_SOURCE=disabled`, some services refuse to start, and the error names the service. They are Spark, Iceberg REST, Trino, Jenkins, MLflow, Label Studio, Langfuse, the asset worker and baker, and a local-mode backup. Disable them too, set `BACKUP_S3_MODE=external` for backups, or keep Silo on. See [Silo](../../services/silo/README.md) for the bucket-to-consumer table.
 
 #### 4.3.4. Spark, Iceberg REST and notebook clients
 
 - Spark runs a master, N workers (`SPARK_WORKER_COUNT`, 1 to 8), a history server, a `spark-connect` gRPC sidecar and a one-shot `spark-init`.
 - In-stack clients use Spark Connect at `sc://spark-connect:15002`. JupyterHub gets `SPARK_REMOTE=sc://spark-connect:15002`.
 - Zeppelin uses the standalone master (`spark://spark-master:7077`), because its launcher calls `spark-submit`. The Backend has no Spark wiring.
-- The Spark image includes `iceberg-spark-runtime-4.1_2.13:1.11.0` and `iceberg-aws-bundle:1.11.0`. It preconfigures a `lakehouse` Iceberg REST catalog at `http://iceberg-rest:8181` on MinIO.
+- The Spark image includes `iceberg-spark-runtime-4.1_2.13:1.11.0` and `iceberg-aws-bundle:1.11.0`. It preconfigures a `lakehouse` Iceberg REST catalog at `http://iceberg-rest:8181` on Silo.
 - The catalog works only when `ICEBERG_REST_SOURCE=container`.
 
 Client setup is in the [Spark](../../services/spark/README.md), [JupyterHub](../../services/jupyterhub/README.md) and [Zeppelin](../../services/zeppelin/README.md) READMEs.
@@ -306,7 +306,7 @@ Before you start, set the API key of each cloud provider you enable in `.env`, o
           --searxng-source disabled \
           --hermes-source disabled \
           --jupyterhub-source disabled \
-          --minio-source disabled
+          --silo-source disabled
 ```
 
 ### 5.4. Mixed Setup

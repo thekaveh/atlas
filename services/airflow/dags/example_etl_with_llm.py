@@ -1,4 +1,4 @@
-"""Example DAG demonstrating Spark + MinIO + LiteLLM integrations.
+"""Example DAG demonstrating Spark + Silo + LiteLLM integrations.
 
 Runs daily. Three PythonOperator steps exercising the cross-stack
 integrations:
@@ -17,8 +17,8 @@ integrations:
    ``OpenAITriggerBatchOperator``; there is no ``OpenAIOperator``, so we
    use the Hook directly. For richer chains see the commented LangChain
    block at the bottom of this file.
-3. ``list_minio_buckets`` calls ``S3Hook.list_buckets()`` against
-   ``minio_default``.
+3. ``list_silo_buckets`` calls ``S3Hook.list_buckets()`` against
+   ``silo_default``.
 
 This DAG is intentionally tiny — replace with your own DAGs.
 
@@ -96,18 +96,18 @@ def summarize_via_litellm(**_ctx):
     print(f"litellm reply: {response.choices[0].message.content}")
 
 
-def list_minio(**_ctx):
+def list_silo(**_ctx):
     # head_bucket needs only s3:ListBucket on this bucket, which the scoped
     # spark account has. list_buckets (ListAllMyBuckets) it lacks (#1487).
-    s3 = S3Hook(aws_conn_id="minio_default")
-    bucket = os.environ.get("MINIO_BUCKET_ICEBERG_LANDING", "landing")
+    s3 = S3Hook(aws_conn_id="silo_default")
+    bucket = os.environ.get("SILO_BUCKET_ICEBERG_LANDING", "landing")
     s3.get_conn().head_bucket(Bucket=bucket)
     print(f"bucket reachable: {bucket}")
 
 
 with DAG(
     "example_etl_with_llm",
-    description="Smoke test: Spark + MinIO + LiteLLM Connections",
+    description="Smoke test: Spark + Silo + LiteLLM Connections",
     default_args=default_args,
     schedule="@daily",
     # Stable past start_date — using a date near "today" creates a year's
@@ -128,12 +128,12 @@ with DAG(
         python_callable=summarize_via_litellm,
     )
 
-    minio_step = PythonOperator(
-        task_id="list_minio_buckets",
-        python_callable=list_minio,
+    silo_step = PythonOperator(
+        task_id="list_silo_buckets",
+        python_callable=list_silo,
     )
 
-    spark_step >> llm_step >> minio_step
+    spark_step >> llm_step >> silo_step
 
 
 # ─── LangChain example (commented; uncomment + adapt as needed) ───

@@ -225,7 +225,7 @@ def _kong_service(monkeypatch, method: str) -> dict:
     from utils.kong_config_generator import KongConfigGenerator
 
     gen = KongConfigGenerator(ConfigParser("."))
-    env = {"PROMETHEUS_SOURCE": "container", "MINIO_SOURCE": "container"}
+    env = {"PROMETHEUS_SOURCE": "container", "SILO_SOURCE": "container"}
     monkeypatch.setattr(gen, "get_env_value", lambda key, default="": env.get(key, default))
     return getattr(gen, method)()
 
@@ -252,10 +252,10 @@ def test_prometheus_lifecycle_is_blocked_at_the_gateway(monkeypatch):
     )
 
 
-def test_minio_metrics_are_blocked_at_the_gateway(monkeypatch):
-    """#1386: public MinIO metrics must not be readable via s3.minio.localhost."""
+def test_silo_metrics_are_blocked_at_the_gateway(monkeypatch):
+    """#1386: public Silo metrics must not be readable via s3.silo.localhost."""
     _assert_blocks(
-        _kong_service(monkeypatch, "generate_minio_s3_service"),
+        _kong_service(monkeypatch, "generate_silo_s3_service"),
         ("/minio/v2/metrics/cluster", "/minio%2Fv2%2Fmetrics/node", "/minio/metrics/v3",
          "/minio/metrics/v3/system/cpu", "/minio/prometheus/metrics"),
         ("/minio/health/live", "/bucket/object"),
@@ -275,7 +275,7 @@ def test_every_plugin_the_generator_emits_is_allowed_by_kong(tmp_path):
 
     repo = Path(__file__).resolve().parents[2]
     lines = (repo / ".env.example").read_text(encoding="utf-8").splitlines()
-    enabled = {"PROMETHEUS_SOURCE": "container", "GRAFANA_SOURCE": "container", "MINIO_SOURCE": "container"}
+    enabled = {"PROMETHEUS_SOURCE": "container", "GRAFANA_SOURCE": "container", "SILO_SOURCE": "container"}
     lines = [line for line in lines if line.split("=", 1)[0] not in enabled] + [f"{k}={v}" for k, v in enabled.items()]
     env_path = tmp_path / ".env"
     env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")

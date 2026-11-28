@@ -433,7 +433,7 @@ def _calls_in_nodes(nodes: list[ast.stmt]) -> tuple[tuple[str, tuple[str, ...]],
 
 
 def _assert_migration_execution_contract(contract: dict[str, object]) -> None:
-    assert contract["versions"] == (1, 2, 3, 4, 5)
+    assert contract["versions"] == (1, 2, 3, 4, 5, 6)
     imports = contract["imports"]
     imported_callable_aliases: set[str] = set()
     for version in contract["versions"]:
@@ -458,6 +458,7 @@ def _assert_migration_execution_contract(contract: dict[str, object]) -> None:
         "_needs_v3", "_apply_v3", "_stamp_v3",
         "_needs_v4", "_apply_v4", "_stamp_v4",
         "_needs_v4", "_needs_v5", "_apply_v5", "_stamp_v5",
+        "_needs_v4", "_needs_v5", "_needs_v6", "_apply_v6", "_stamp_v6",
     )
     calls = contract["calls"]
     assert tuple(name for name, _ in calls) == expected_call_order
@@ -470,6 +471,7 @@ def _assert_migration_execution_contract(contract: dict[str, object]) -> None:
         "_needs_v3(env_path)",
         "_needs_v4(env_path)",
         "not _needs_v4(env_path) and _needs_v5(env_path)",
+        "not _needs_v4(env_path) and (not _needs_v5(env_path)) and _needs_v6(env_path)",
     )
     assert contract["gates"] == expected_gates
     assert contract["execution_branches"] == tuple(

@@ -51,7 +51,7 @@ def test_superset_service_manifest_is_not_added_by_watchlist_decision() -> None:
     assert not SERVICE_MANIFEST.exists()
 
 
-def test_superset_candidate_is_indexed_from_minio_research_row() -> None:
+def test_superset_candidate_is_indexed_from_silo_research_row() -> None:
     matrix = MATRIX.read_text(encoding="utf-8")
 
-    assert "| Apache Superset | apps | minio | [candidates/superset.md]" in matrix
+    assert "| Apache Superset | apps | silo | [candidates/superset.md]" in matrix

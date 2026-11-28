@@ -67,12 +67,12 @@ def test_spark_connect_defaults_include_lakehouse_rest_catalog():
         "spark.sql.catalog.lakehouse=org.apache.iceberg.spark.SparkCatalog",
         "spark.sql.catalog.lakehouse.type=rest",
         "spark.sql.catalog.lakehouse.uri=http://iceberg-rest:8181",
-        "spark.sql.catalog.lakehouse.warehouse=s3a://${MINIO_BUCKET_ICEBERG_LAKEHOUSE:-lakehouse}/",
+        "spark.sql.catalog.lakehouse.warehouse=s3a://${SILO_BUCKET_ICEBERG_LAKEHOUSE:-lakehouse}/",
         "spark.sql.catalog.lakehouse.io-impl=org.apache.iceberg.aws.s3.S3FileIO",
-        "spark.sql.catalog.lakehouse.s3.endpoint=http://minio:9000",
+        "spark.sql.catalog.lakehouse.s3.endpoint=http://silo:9000",
         "spark.sql.catalog.lakehouse.s3.path-style-access=true",
         "spark.sql.catalog.lakehouse.client.credentials-provider=software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider",
-        "spark.sql.catalog.lakehouse.client.region=${MINIO_REGION:-us-east-1}",
+        "spark.sql.catalog.lakehouse.client.region=${SILO_REGION:-us-east-1}",
     }
     for conf in expected_confs:
         assert conf in joined
@@ -115,10 +115,10 @@ def test_every_iceberg_client_derives_bucket_and_region_from_the_same_vars():
     """Clients of one catalog must not disagree about where it lives.
 
     spark-connect and zeppelin both configure `spark.sql.catalog.lakehouse`.
-    zeppelin read MINIO_BUCKET_ICEBERG_LAKEHOUSE and MINIO_REGION while
+    zeppelin read SILO_BUCKET_ICEBERG_LAKEHOUSE and SILO_REGION while
     spark-connect hardcoded `s3a://lakehouse/` and `us-east-1`, so setting
     either variable pointed the two clients at different warehouses -- and at a
-    bucket minio-init had not provisioned under that name.
+    bucket silo-init had not provisioned under that name.
     """
     import re
 
@@ -129,25 +129,25 @@ def test_every_iceberg_client_derives_bucket_and_region_from_the_same_vars():
             if stripped.startswith("#"):
                 continue
             if "spark.sql.catalog.lakehouse.warehouse=" in stripped:
-                if "MINIO_BUCKET_ICEBERG_LAKEHOUSE" not in stripped:
+                if "SILO_BUCKET_ICEBERG_LAKEHOUSE" not in stripped:
                     offenders.append(f"{fragment.relative_to(REPO_ROOT)}: {stripped}")
             if "spark.sql.catalog.lakehouse.client.region=" in stripped:
-                if "MINIO_REGION" not in stripped:
+                if "SILO_REGION" not in stripped:
                     offenders.append(f"{fragment.relative_to(REPO_ROOT)}: {stripped}")
 
     assert not offenders, (
         "an Iceberg client hardcodes the warehouse bucket or region instead of "
-        "tracking the variables minio-init and the other clients use:\n  "
+        "tracking the variables silo-init and the other clients use:\n  "
         + "\n  ".join(offenders)
     )
 
 
-def test_no_minio_secret_is_passed_on_a_spark_command_line():
-    """#1884: a MinIO secret on a --conf or -D argument shows in `ps` and
+def test_no_silo_secret_is_passed_on_a_spark_command_line():
+    """#1884: a Silo secret on a --conf or -D argument shows in `ps` and
     `docker top` for the life of the container. The services take the spark
     account from the environment instead."""
     root = Path(__file__).resolve().parents[2]
-    secret = re.compile(r"\$\{MINIO_\w*(ACCESS|SECRET)_KEY\}")
+    secret = re.compile(r"\$\{SILO_\w*(ACCESS|SECRET)_KEY\}")
     leaks = []
     for relative in (
         "services/spark/compose.yml", "services/spark/service.yml",

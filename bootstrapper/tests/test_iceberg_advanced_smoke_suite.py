@@ -60,7 +60,7 @@ def test_opt_in_smoke_script_covers_spark_connect_and_zeppelin_surfaces() -> Non
     # prefix (which does not configure the bootstrapper).
     assert "--spark-source container" in script
     assert "--iceberg-rest-source container" in script
-    assert "--minio-source container" in script
+    assert "--silo-source container" in script
     assert "--zeppelin-source container" in script
     assert 'require_container "${project}-zeppelin" "--zeppelin-source container"' in script
     assert 'require_container "${project}-jupyterhub" "--jupyterhub-source container"' in script
@@ -120,7 +120,7 @@ def test_docs_describe_no_new_service_contract_and_opt_in_validation() -> None:
         "scripts/smoke-iceberg-advanced-sql.sh",
         "SPARK_SOURCE=container",
         "ICEBERG_REST_SOURCE=container",
-        "MINIO_SOURCE=container",
+        "SILO_SOURCE=container",
         "No new service",
         "no new SOURCE",
         "no new port",

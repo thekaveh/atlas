@@ -106,7 +106,7 @@ def test_failed_consumer_load_warns_and_declares_no_sources():
     starter = _starter(_broken)
 
     declared = start_module._consumer_declared_source_keys(
-        starter, {"minio_source": "container"}
+        starter, {"silo_source": "container"}
     )
 
     assert declared == frozenset()
@@ -119,13 +119,13 @@ def test_failed_consumer_load_warns_and_declares_no_sources():
 
 def test_declared_sources_are_limited_to_cli_source_args_without_a_warning():
     consumer = SimpleNamespace(
-        env_overrides={"MINIO_SOURCE": "container", "OLLAMA_SOURCE": "disabled", "FOO": "x"}
+        env_overrides={"SILO_SOURCE": "container", "OLLAMA_SOURCE": "disabled", "FOO": "x"}
     )
     starter = _starter(lambda: consumer)
 
     declared = start_module._consumer_declared_source_keys(
-        starter, {"minio_source": "disabled"}
+        starter, {"silo_source": "disabled"}
     )
 
-    assert declared == frozenset({"minio_source"})
+    assert declared == frozenset({"silo_source"})
     assert starter.banner.messages == []

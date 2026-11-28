@@ -37,7 +37,7 @@ No standalone Atlas service wiring should be added while FinRL and FinGPT remain
 
 - JupyterHub -> FinRL/FinGPT packages for curated notebooks, local experiments, benchmark notebooks, and paper-only examples.
 - OpenBB and CCXT -> notebooks for read-only market data; private CCXT methods and live exchange credentials remain blocked by Atlas helpers.
-- MinIO -> notebooks for versioned datasets, parquet/CSV snapshots, model artifacts, and exported experiment inputs.
+- Silo -> notebooks for versioned datasets, parquet/CSV snapshots, model artifacts, and exported experiment inputs.
 - MLflow -> notebooks for experiment metrics, parameters, artifacts, and reproducibility of paper or offline runs.
 - LiteLLM -> FinGPT notebooks for LLM summarization or model comparison through Atlas' gateway, not autonomous investment decisions.
 - Langfuse -> LiteLLM/notebook calls for traceability when LLM-generated strategy explanations or forecasts are produced.
@@ -60,16 +60,16 @@ Medium. Adding notebook examples is manageable, but doing it safely requires pin
 - **Category:** `apps`, because the approved surface is JupyterHub notebooks and image/package content, not a new runtime service. Do not add a new category for FinRL/FinGPT.
 - **Sources:** no standalone SOURCE values. Do not add `FINRL_SOURCE` or `FINGPT_SOURCE`; use `JUPYTERHUB_SOURCE=container` plus a later explicit notebook/package flag only if Atlas establishes a JupyterHub image-profile convention. Any optional profile must be disabled by default.
 - **Wizard placement:** after the OpenBB/CCXT financial research kit and before any trading execution discussion, with copy that these are research notebooks, not financial advice, not production trading intelligence, and not live execution.
-- **Ports and routes:** no ports, no Kong aliases, and no direct URLs. Access remains through JupyterHub. Custom `BASE_PORT` only matters indirectly through JupyterHub, MLflow, MinIO, LiteLLM, and Langfuse.
-- **Required dependencies:** JupyterHub, MinIO, MLflow, LiteLLM, Langfuse, OpenBB, and CCXT for the first notebook slice.
+- **Ports and routes:** no ports, no Kong aliases, and no direct URLs. Access remains through JupyterHub. Custom `BASE_PORT` only matters indirectly through JupyterHub, MLflow, Silo, LiteLLM, and Langfuse.
+- **Required dependencies:** JupyterHub, Silo, MLflow, LiteLLM, Langfuse, OpenBB, and CCXT for the first notebook slice.
 - **Optional dependencies:** TimescaleDB only after the trading-data watchlist decision is reopened; Ray only for later controlled training/evaluation scale-out; no live trading engines in the first slice.
 - **Downstream consumers:** human notebook users and MLflow dashboards. Backend, n8n, Hermes, Open WebUI, and MCP consumers may read summaries only after a future tool-safety design, not raw trade signals.
-- **Manifest and topology:** no service manifest, topology row, route, or `data_flow.calls` edge for FinRL/FinGPT while they are notebook assets. Future docs may mention conceptual notebook calls from JupyterHub to MinIO, MLflow, LiteLLM, and Langfuse.
+- **Manifest and topology:** no service manifest, topology row, route, or `data_flow.calls` edge for FinRL/FinGPT while they are notebook assets. Future docs may mention conceptual notebook calls from JupyterHub to Silo, MLflow, LiteLLM, and Langfuse.
 - **Datasets:** curated datasets must have provenance, licenses, date ranges, train/validation/test splits, symbol universes, fees/slippage assumptions, and no hidden live credential requirement.
 - **Eval criteria:** notebooks must report baseline comparisons, walk-forward or out-of-sample checks where applicable, drawdown, turnover, costs, and failure cases. Generated model text must be framed as analysis, not advice.
 - **Paper-trading guardrails:** no live exchange credentials, no private CCXT methods, no order submission, no automatic promotion from notebook output to execution, and no agent workflow that treats outputs as orders.
 - **Tests required:** focused decision tests, financial-helper guard tests, notebook registration checks, dependency pin checks if packages are added, no-service-manifest checks, research schema, docs drift, link checks, track membership, custom `BASE_PORT` indirect checks through existing services, and full bootstrapper pytest.
-- **Edge cases:** missing optional GPU, model download failures, stale cached datasets, time-zone/calendar mismatches, look-ahead bias, empty symbols, insufficient history, API rate limits, disabled MinIO/MLflow/Langfuse, stale `.env` live keys, disabled trading track, notebook output copied into n8n, generated-doc drift, and misleading "AI trader" wording.
+- **Edge cases:** missing optional GPU, model download failures, stale cached datasets, time-zone/calendar mismatches, look-ahead bias, empty symbols, insufficient history, API rate limits, disabled Silo/MLflow/Langfuse, stale `.env` live keys, disabled trading track, notebook output copied into n8n, generated-doc drift, and misleading "AI trader" wording.
 
 ## 8. Revisit criteria
 Reconsider a FinRL/FinGPT notebook slice only when all of these are true:

@@ -11,7 +11,7 @@ sources_consulted:
   - services/jupyterhub/service.yml
   - services/jupyterhub/build/requirements.txt
   - services/jupyterhub/README.md
-  - services/minio/service.yml
+  - services/silo/service.yml
   - services/backend/service.yml
   - services/hermes/service.yml
   - services/openclaw/service.yml
@@ -22,12 +22,12 @@ sources_consulted:
 
 ## 1. Missing-pair integrations
 
-- **jupyterhub ↔ minio**
+- **jupyterhub ↔ silo**
   - Why valuable: Notebooks routinely need durable artifact storage (datasets, model weights, parquet shards, plots). Today the only persistent surface is a Docker volume on `/home/jovyan/work`; sharing artifacts with backend, n8n, or ComfyUI requires copying through Supabase blobs.
-  - Mechanism sketch: Inject `AWS_S3_ENDPOINT_URL=http://minio:9000`, `AWS_ACCESS_KEY_ID=${MINIO_ROOT_USER}`, `AWS_SECRET_ACCESS_KEY=${MINIO_ROOT_PASSWORD}`, plus pre-install `s3fs`/`boto3` so `pd.read_parquet("s3://bucket/...")` and `fsspec` Just Work.
+  - Mechanism sketch: Inject `AWS_S3_ENDPOINT_URL=http://silo:9000`, `AWS_ACCESS_KEY_ID=${SILO_ROOT_USER}`, `AWS_SECRET_ACCESS_KEY=${SILO_ROOT_PASSWORD}`, plus pre-install `s3fs`/`boto3` so `pd.read_parquet("s3://bucket/...")` and `fsspec` Just Work.
   - Effort: small (env wiring + two requirements.txt entries; manifest already has `runtime_adaptive` precedent).
   - Risks / open questions: Bucket-creation responsibility (notebook vs init container); root credentials vs scoped service account.
-  - Confidence: high (MinIO is S3-API compatible and s3fs/boto3 both accept `endpoint_url`; pattern is widely deployed).
+  - Confidence: high (Silo is S3-API compatible and s3fs/boto3 both accept `endpoint_url`; pattern is widely deployed).
 
 - **jupyterhub ↔ backend**
   - Why valuable: The FastAPI backend already aggregates LiteLLM, Weaviate, Neo4j, ComfyUI, and Hermes behind one API surface. Notebooks reimplementing those calls duplicates logic and skips backend-side auth/observability.
@@ -60,12 +60,12 @@ sources_consulted:
 ## 2. Candidate new services
 
 - **MLflow** → `../candidates/mlflow.md`
-  - Headline: Experiment, run, and model-registry tracking server backed by Supabase Postgres + MinIO artifacts.
+  - Headline: Experiment, run, and model-registry tracking server backed by Supabase Postgres + Silo artifacts.
   - Other consumers in stack: backend, n8n, hermes.
 
 - **Label Studio** → `../candidates/label-studio.md`
   - Headline: Open-source data-annotation UI for building supervised datasets consumed by notebooks and Weaviate ingestion.
-  - Other consumers in stack: backend, weaviate, minio.
+  - Other consumers in stack: backend, weaviate, silo.
 
 ## 3. Per-service feature gaps
 

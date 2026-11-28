@@ -35,8 +35,8 @@ sources_consulted:
   - Other consumers in stack: redis, supabase, n8n, ollama, litellm, backend
 
 - **Keycloak** → `../candidates/keycloak.md`
-  - Headline: OIDC provider that lets Kong front jupyterhub, open-webui, n8n, minio, neo4j-browser, and hermes with a single SSO instead of per-service basic-auth.
-  - Other consumers in stack: jupyterhub, open-webui, n8n, minio, neo4j, hermes, openclaw
+  - Headline: OIDC provider that lets Kong front jupyterhub, open-webui, n8n, silo, neo4j-browser, and hermes with a single SSO instead of per-service basic-auth.
+  - Other consumers in stack: jupyterhub, open-webui, n8n, silo, neo4j, hermes, openclaw
 
 - **Grafana Loki** → `../candidates/grafana-loki.md`
   - Headline: Sink for Kong's `http-log` plugin (and a single log store for backend/n8n/hermes) so operators can correlate request traces across services.

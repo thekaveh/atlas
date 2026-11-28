@@ -18,7 +18,7 @@ LAKEHOUSE_SERVICES = {
     "airflow",
     "jupyterhub",
     "zeppelin",
-    "minio",
+    "silo",
     "iceberg-rest",
     "trino",
     "redpanda",
@@ -45,7 +45,7 @@ def test_data_eng_track_no_tui_synthesis_keeps_lakehouse_and_disables_off_track(
         "airflow_source": None,
         "jupyterhub_source": None,
         "zeppelin_source": None,
-        "minio_source": None,
+        "silo_source": None,
         "iceberg_rest_source": None,
         "trino_source": None,
         "redpanda_source": None,
@@ -65,7 +65,7 @@ def test_data_eng_track_no_tui_synthesis_keeps_lakehouse_and_disables_off_track(
         "airflow_source",
         "jupyterhub_source",
         "zeppelin_source",
-        "minio_source",
+        "silo_source",
         "iceberg_rest_source",
         "trino_source",
         "redpanda_source",
@@ -84,7 +84,7 @@ def test_data_eng_lakehouse_services_have_cli_flags_and_wizard_copy() -> None:
         "airflow_webserver_source": ("airflow-webserver", "container", "SparkSubmit"),
         "jupyterhub_source": ("jupyterhub", "container", "lakehouse"),
         "zeppelin_source": ("zeppelin", "container", "Spark-first"),
-        "minio_source": ("minio", "container", "object storage"),
+        "silo_source": ("silo", "container", "object storage"),
         "iceberg_rest_source": ("iceberg-rest", "container", "Iceberg"),
         "trino_source": ("trino", "container", "SQL"),
         "redpanda_source": ("redpanda", "container", "Kafka"),
@@ -108,7 +108,7 @@ def test_data_eng_lakehouse_categories_and_ports_use_topology() -> None:
         "airflow": "agents",
         "jupyterhub": "apps",
         "zeppelin": "apps",
-        "minio": "data",
+        "silo": "data",
         "iceberg-rest": "data",
         "trino": "data",
         "redpanda": "data",
@@ -128,5 +128,5 @@ def test_strategy_report_current_snapshot_mentions_iceberg_rest_in_data_eng() ->
 
     assert (
         "`data-eng`: `spark`, `airflow`, `jupyterhub`, `zeppelin`, "
-        "`minio`, `iceberg-rest`, `trino`, `redpanda`, `weaviate`, `neo4j`"
+        "`silo`, `iceberg-rest`, `trino`, `redpanda`, `weaviate`, `neo4j`"
     ) in report

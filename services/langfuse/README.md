@@ -28,25 +28,25 @@ LANGFUSE_ENCRYPTION_KEY=              # auto-generated
 LANGFUSE_NEXTAUTH_SECRET=             # auto-generated
 LANGFUSE_CLICKHOUSE_PASSWORD=         # auto-generated
 LANGFUSE_CLICKHOUSE_MEMORY_LIMIT=4g   # langfuse-clickhouse container memory limit
-MINIO_BUCKET_LANGFUSE=langfuse
+SILO_BUCKET_LANGFUSE=langfuse
 ```
 
 ClickHouse sizes its server memory from the container limit. Without `LANGFUSE_CLICKHOUSE_MEMORY_LIMIT` it sized itself from host RAM (#1356).
 
-Langfuse self-hosting needs a web container, a worker container, Postgres, ClickHouse, Redis/Valkey and S3/blob storage. Atlas reuses Supabase Postgres, Redis and MinIO, and adds a Langfuse-owned ClickHouse container. This is a low-scale local Docker Compose deployment, not a high-availability production cluster.
+Langfuse self-hosting needs a web container, a worker container, Postgres, ClickHouse, Redis/Valkey and S3/blob storage. Atlas reuses Supabase Postgres, Redis and Silo, and adds a Langfuse-owned ClickHouse container. This is a low-scale local Docker Compose deployment, not a high-availability production cluster.
 
 ## 4. Architecture & Wiring
 
 When enabled, the family starts:
 
-- `langfuse-init`: after `minio-init` provisions the bucket and service account, checks the Langfuse Postgres database. `supabase-db-init` creates that database (`services/supabase/db/scripts/05-scoped-roles.sh`).
+- `langfuse-init`: after `silo-init` provisions the bucket and service account, checks the Langfuse Postgres database. `supabase-db-init` creates that database (`services/supabase/db/scripts/05-scoped-roles.sh`).
 - `langfuse-clickhouse`: stores traces, observations, and scores. A compose `configs:` entry mounted into `config.d` keeps ClickHouse's own system log tables (`metric_log`, `text_log`, `trace_log` and others) for 7 days. It also sets logging to `warning` level, 3 × 100 MB. Without it they grow about 126 MB a day while idle. On a volume that an Atlas release without this file created, ClickHouse renames each changed system table to `<name>_0`. Drop those tables once to reclaim the space.
 - `langfuse-web`: serves the UI and ingestion APIs.
 - `langfuse-worker`: processes queued ingestion work.
 
 LiteLLM receives `LANGFUSE_HOST`, `LANGFUSE_BASE_URL`, `LANGFUSE_PUBLIC_KEY`, and `LANGFUSE_SECRET_KEY`. The generated LiteLLM config adds `success_callback: ["langfuse"]` and `failure_callback: ["langfuse"]` only while `LANGFUSE_SOURCE=container`. Disabling Langfuse removes both callbacks on the next config render. Existing Prometheus callbacks stay in place.
 
-Media attachments are not browser-viewable. `LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT` is the in-network `http://minio:9000`, so presigned URLs given to the browser or to host-side SDK uploads point at a host they cannot resolve. Text traces (all LiteLLM traffic) are unaffected.
+Media attachments are not browser-viewable. `LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT` is the in-network `http://silo:9000`, so presigned URLs given to the browser or to host-side SDK uploads point at a host they cannot resolve. Text traces (all LiteLLM traffic) are unaffected.
 
 ### 4.1. Why two host variables
 
@@ -76,7 +76,7 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
-| Self-hosted LLM observability stack | supported | tested | Atlas configures the Langfuse web, worker, ClickHouse, Postgres, Redis, and MinIO dependencies as one optional self-hosted deployment. |
+| Self-hosted LLM observability stack | supported | tested | Atlas configures the Langfuse web, worker, ClickHouse, Postgres, Redis, and Silo dependencies as one optional self-hosted deployment. |
 | Automatic LiteLLM trace capture | partial | tested | LiteLLM success callbacks emit traces when Langfuse is enabled, but calls that bypass LiteLLM or use native provider bindings are not captured automatically. |
 | Highly available Langfuse deployment | not-supported | documented | The stock topology is a local low-scale deployment without replicated Langfuse, ClickHouse, or supporting data-store services. |
 
@@ -91,7 +91,7 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
     To probe end to end, make one chat completion through LiteLLM. Then run `curl -u "$LANGFUSE_PUBLIC_KEY:$LANGFUSE_SECRET_KEY" http://localhost:${LANGFUSE_PORT}/api/public/traces` and check that `meta.totalItems` went up. Use the direct port: through Kong, the dashboard basic auth takes the `Authorization` header.
 
 - **`langfuse-web` is `(unhealthy)` but the UI works.** Next.js binds `$HOSTNAME`, which Docker sets to the container ID, so loopback probes fail. Atlas sets `HOSTNAME=0.0.0.0`. If the problem returns, check `docker exec <project>-langfuse-web printenv HOSTNAME`.
-- **`./start.sh` stops with a Langfuse error:** Langfuse needs MinIO for S3-compatible event storage. With `MINIO_SOURCE=disabled`, `./start.sh` stops with an error before Compose starts. Pass `--minio-source container` to `./start.sh`, or set `MINIO_SOURCE=container` in `.env`. The gen-ai-rag, gen-ai-eng and gen-ai-creative tracks disable MinIO when the wizard ends. In those tracks, use the flag or a consumer-manifest `env.values` entry.
+- **`./start.sh` stops with a Langfuse error:** Langfuse needs Silo for S3-compatible event storage. With `SILO_SOURCE=disabled`, `./start.sh` stops with an error before Compose starts. Pass `--silo-source container` to `./start.sh`, or set `SILO_SOURCE=container` in `.env`. The gen-ai-rag, gen-ai-eng and gen-ai-creative tracks disable Silo when the wizard ends. In those tracks, use the flag or a consumer-manifest `env.values` entry.
 - **Rollback to direct LiteLLM behavior:** for a rollback, set `LANGFUSE_SOURCE=disabled` and rerun `./start.sh`. The Langfuse containers scale to zero, Kong stops routing `langfuse.localhost`, and LiteLLM no longer emits the Langfuse `success_callback` / `failure_callback`.
 - **ClickHouse timezone or empty queries:** keep ClickHouse and Postgres on UTC. The compose fragment sets ClickHouse `TZ=UTC`.
 
@@ -107,8 +107,8 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 
 | Service | Category |
 |---|---|
-| minio | data |
 | redis | data |
+| silo | data |
 | supabase | data |
 
 ### 7.2. Current — Downstream (services that call this)

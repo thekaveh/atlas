@@ -2,7 +2,7 @@
 
 ## 1. Overview
 
-Label Studio is Atlas's disabled-by-default dataset review and annotation surface for ML, RAG and creative outputs. It runs the Apache-2.0 community image `heartexlabs/label-studio:1.23.0`. It stores application metadata in a dedicated Supabase Postgres database and media and uploads in a scoped, S3-compatible MinIO bucket.
+Label Studio is Atlas's disabled-by-default dataset review and annotation surface for ML, RAG and creative outputs. It runs the Apache-2.0 community image `heartexlabs/label-studio:1.23.0`. It stores application metadata in a dedicated Supabase Postgres database and media and uploads in a scoped, S3-compatible Silo bucket.
 
 ## 2. Access
 
@@ -21,17 +21,17 @@ LABEL_STUDIO_SOURCE=disabled
 LABEL_STUDIO_DB_NAME=label_studio
 LABEL_STUDIO_DB_USER=label_studio
 LABEL_STUDIO_USERNAME=admin@atlas.local
-MINIO_BUCKET_LABEL_STUDIO=label-studio
+SILO_BUCKET_LABEL_STUDIO=label-studio
 ```
 
 Track: `ml-eng` (not `data-eng`). Category: `apps`.
 
 ## 4. Architecture & Wiring
 
-When the service is enabled, `supabase-db-init` creates the dedicated Postgres database and role (`services/supabase/db/scripts/05-scoped-roles.sh`). `minio-init` provisions the `label-studio` bucket and a scoped service account, and `label-studio-init` then verifies the login. The app container receives:
+When the service is enabled, `supabase-db-init` creates the dedicated Postgres database and role (`services/supabase/db/scripts/05-scoped-roles.sh`). `silo-init` provisions the `label-studio` bucket and a scoped service account, and `label-studio-init` then verifies the login. The app container receives:
 
 - Postgres metadata settings via `DJANGO_DB=default` and `POSTGRE_*`.
-- S3-compatible storage settings via `STORAGE_TYPE=s3`, `STORAGE_AWS_ENDPOINT_URL=http://minio:9000`, and the scoped `MINIO_LABEL_STUDIO_*` credentials.
+- S3-compatible storage settings via `STORAGE_TYPE=s3`, `STORAGE_AWS_ENDPOINT_URL=http://silo:9000`, and the scoped `SILO_LABEL_STUDIO_*` credentials.
 - `LABEL_STUDIO_HOST` and `CSRF_TRUSTED_ORIGINS` for the Kong alias.
 - `LABEL_STUDIO_USER_TOKEN`, exposed as upstream `USER_TOKEN`, for API/notebook smoke paths.
 
@@ -69,17 +69,17 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
 | Human dataset review and annotation | supported | tested | Atlas starts the Label Studio UI/API with a dedicated Postgres role and initial administrator for operator-created labeling projects. |
-| Scoped MinIO project storage | partial | tested | Atlas provisions a dedicated bucket and credentials, but each project must still configure its own import or export storage connection in Label Studio. |
+| Scoped Silo project storage | partial | tested | Atlas provisions a dedicated bucket and credentials, but each project must still configure its own import or export storage connection in Label Studio. |
 | Notebook export integration | partial | tested | JupyterHub receives the Label Studio URL and legacy API token for REST exports, while MLflow, Weaviate, and Backend review loops remain notebook-owned or future work. |
 | Label Studio access control | partial | tested | The direct port relies on Label Studio login and disabled open signup. Kong adds dashboard Basic Auth and ACL. Atlas does not integrate Supabase SSO or enterprise roles. |
-| Annotation service high availability | not-supported | documented | Postgres and MinIO preserve metadata and assets. Atlas runs one Label Studio replica and one local data volume, without a tested backup or failover workflow. |
+| Annotation service high availability | not-supported | documented | Postgres and Silo preserve metadata and assets. Atlas runs one Label Studio replica and one local data volume, without a tested backup or failover workflow. |
 
 ## 6. Troubleshooting
 
 - **Route missing:** confirm `LABEL_STUDIO_SOURCE=container`; Kong only emits `label-studio.localhost` when the service is enabled.
-- **Storage errors:** confirm `MINIO_SOURCE=container`; Label Studio requires MinIO.
+- **Storage errors:** confirm `SILO_SOURCE=container`; Label Studio requires Silo.
 - **Login unavailable:** use `LABEL_STUDIO_USERNAME` and the generated `LABEL_STUDIO_PASSWORD` from `.env`.
-- **Project storage not visible:** add the provisioned MinIO bucket as a project-specific source or target storage connection in Label Studio.
+- **Project storage not visible:** add the provisioned Silo bucket as a project-specific source or target storage connection in Label Studio.
 
 ## 7. Dependencies & Integrations
 
@@ -93,7 +93,7 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 
 | Service | Category |
 |---|---|
-| minio | data |
+| silo | data |
 | supabase | data |
 
 ### 7.2. Current — Downstream (services that call this)

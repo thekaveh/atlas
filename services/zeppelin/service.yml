@@ -8,7 +8,7 @@ capabilities:
     status: supported
     verification: tested
     note: "Atlas bundles a matching Spark runtime and seeds the standalone Spark interpreter for Scala, PySpark and SQL paragraphs against the in-stack cluster. PySpark's driver runs a bundled CPython 3.10, the minor release the cluster's executors run."
-  - name: "MinIO and Iceberg lakehouse notebooks"
+  - name: "Silo and Iceberg lakehouse notebooks"
     status: partial
     verification: tested
     note: "The interpreter receives scoped S3A and Iceberg REST settings and starter notebooks, while advanced operations remain an operator-run live smoke."
@@ -92,7 +92,7 @@ env:
 depends_on:
   required:
     - spark
-    - minio
+    - silo
   optional:
     - supabase
     - iceberg-rest
@@ -108,7 +108,7 @@ rows:
     source_var: ZEPPELIN_SOURCE
     port_var: ZEPPELIN_PORT
     scale_var: ZEPPELIN_SCALE
-    description: "Loopback-only Spark-first notebook UI. Requires Spark and MinIO."
+    description: "Loopback-only Spark-first notebook UI. Requires Spark and Silo."
 
 exports: []
 
@@ -124,18 +124,18 @@ runtime_sc:
         SPARK_HOME: /opt/spark
         SPARK_MASTER: "spark://spark-master:7077"
         SPARK_KAFKA_BOOTSTRAP_SERVERS: ${SPARK_KAFKA_BOOTSTRAP_SERVERS:-}
-        MINIO_ENDPOINT: http://minio:9000
-        MINIO_REGION: ${MINIO_REGION:-us-east-1}
-        MINIO_BUCKET_SPARK_HISTORY: ${MINIO_BUCKET_SPARK_HISTORY:-spark-history}
-        MINIO_SPARK_ACCESS_KEY: ${MINIO_SPARK_ACCESS_KEY}
-        MINIO_SPARK_SECRET_KEY: ${MINIO_SPARK_SECRET_KEY}
-        AWS_ACCESS_KEY_ID: ${MINIO_SPARK_ACCESS_KEY}
-        AWS_SECRET_ACCESS_KEY: ${MINIO_SPARK_SECRET_KEY}
-        MINIO_BUCKET_ICEBERG_LAKEHOUSE: ${MINIO_BUCKET_ICEBERG_LAKEHOUSE:-lakehouse}
-        MINIO_BUCKET_ICEBERG_LANDING: ${MINIO_BUCKET_ICEBERG_LANDING:-landing}
-        MINIO_BUCKET_ICEBERG_CHECKPOINTS: ${MINIO_BUCKET_ICEBERG_CHECKPOINTS:-checkpoints}
-        MINIO_ICEBERG_ACCESS_KEY: ${MINIO_ICEBERG_ACCESS_KEY}
-        MINIO_ICEBERG_SECRET_KEY: ${MINIO_ICEBERG_SECRET_KEY}
+        SILO_ENDPOINT: http://silo:9000
+        SILO_REGION: ${SILO_REGION:-us-east-1}
+        SILO_BUCKET_SPARK_HISTORY: ${SILO_BUCKET_SPARK_HISTORY:-spark-history}
+        SILO_SPARK_ACCESS_KEY: ${SILO_SPARK_ACCESS_KEY}
+        SILO_SPARK_SECRET_KEY: ${SILO_SPARK_SECRET_KEY}
+        AWS_ACCESS_KEY_ID: ${SILO_SPARK_ACCESS_KEY}
+        AWS_SECRET_ACCESS_KEY: ${SILO_SPARK_SECRET_KEY}
+        SILO_BUCKET_ICEBERG_LAKEHOUSE: ${SILO_BUCKET_ICEBERG_LAKEHOUSE:-lakehouse}
+        SILO_BUCKET_ICEBERG_LANDING: ${SILO_BUCKET_ICEBERG_LANDING:-landing}
+        SILO_BUCKET_ICEBERG_CHECKPOINTS: ${SILO_BUCKET_ICEBERG_CHECKPOINTS:-checkpoints}
+        SILO_ICEBERG_ACCESS_KEY: ${SILO_ICEBERG_ACCESS_KEY}
+        SILO_ICEBERG_SECRET_KEY: ${SILO_ICEBERG_SECRET_KEY}
         ICEBERG_REST_URI: http://iceberg-rest:8181
         TRINO_SOURCE: ${TRINO_SOURCE:-disabled}
         TRINO_ENDPOINT: http://trino:8080
@@ -149,23 +149,23 @@ runtime_sc:
           --conf spark.driver.host=zeppelin
           --conf spark.cores.max=${ZEPPELIN_SPARK_CORES_MAX:-1}
           --conf spark.driver.memory=${ZEPPELIN_SPARK_DRIVER_MEMORY:-512m}
-          --conf spark.hadoop.fs.s3a.endpoint=http://minio:9000
+          --conf spark.hadoop.fs.s3a.endpoint=http://silo:9000
           --conf spark.hadoop.fs.s3a.aws.credentials.provider=software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider
           --conf spark.hadoop.fs.s3a.path.style.access=true
-          --conf spark.hadoop.fs.s3a.endpoint.region=${MINIO_REGION:-us-east-1}
+          --conf spark.hadoop.fs.s3a.endpoint.region=${SILO_REGION:-us-east-1}
           --conf spark.hadoop.fs.s3a.connection.ssl.enabled=false
           --conf spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions
           --conf spark.sql.catalog.lakehouse=org.apache.iceberg.spark.SparkCatalog
           --conf spark.sql.catalog.lakehouse.type=rest
           --conf spark.sql.catalog.lakehouse.uri=http://iceberg-rest:8181
-          --conf spark.sql.catalog.lakehouse.warehouse=s3a://${MINIO_BUCKET_ICEBERG_LAKEHOUSE:-lakehouse}/
+          --conf spark.sql.catalog.lakehouse.warehouse=s3a://${SILO_BUCKET_ICEBERG_LAKEHOUSE:-lakehouse}/
           --conf spark.sql.catalog.lakehouse.io-impl=org.apache.iceberg.aws.s3.S3FileIO
-          --conf spark.sql.catalog.lakehouse.s3.endpoint=http://minio:9000
+          --conf spark.sql.catalog.lakehouse.s3.endpoint=http://silo:9000
           --conf spark.sql.catalog.lakehouse.s3.path-style-access=true
           --conf spark.sql.catalog.lakehouse.client.credentials-provider=software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider
-          --conf spark.sql.catalog.lakehouse.client.region=${MINIO_REGION:-us-east-1}
+          --conf spark.sql.catalog.lakehouse.client.region=${SILO_REGION:-us-east-1}
           --conf spark.eventLog.enabled=true
-          --conf spark.eventLog.dir=s3a://${MINIO_BUCKET_SPARK_HISTORY:-spark-history}/
+          --conf spark.eventLog.dir=s3a://${SILO_BUCKET_SPARK_HISTORY:-spark-history}/
         ZEPPELIN_JDBC_POSTGRES_URL: "jdbc:postgresql://supabase-db:5432/${SUPABASE_DB_NAME_URI}"
         ZEPPELIN_JDBC_POSTGRES_USER: "${ZEPPELIN_DB_USER}"
         ZEPPELIN_JDBC_POSTGRES_PASSWORD: "${ZEPPELIN_DB_PASSWORD}"
@@ -184,15 +184,15 @@ runtime_sc:
         JAVA_HOME: /opt/java/openjdk
         SPARK_HOME: /opt/spark
         SPARK_MASTER: "spark://spark-master:7077"
-        MINIO_ENDPOINT: http://minio:9000
-        MINIO_REGION: ${MINIO_REGION:-us-east-1}
-        MINIO_BUCKET_SPARK_HISTORY: ${MINIO_BUCKET_SPARK_HISTORY:-spark-history}
+        SILO_ENDPOINT: http://silo:9000
+        SILO_REGION: ${SILO_REGION:-us-east-1}
+        SILO_BUCKET_SPARK_HISTORY: ${SILO_BUCKET_SPARK_HISTORY:-spark-history}
         ZEPPELIN_SPARK_CORES_MAX: ${ZEPPELIN_SPARK_CORES_MAX:-1}
-        MINIO_SPARK_ACCESS_KEY: ${MINIO_SPARK_ACCESS_KEY}
-        MINIO_SPARK_SECRET_KEY: ${MINIO_SPARK_SECRET_KEY}
-        MINIO_BUCKET_ICEBERG_LAKEHOUSE: ${MINIO_BUCKET_ICEBERG_LAKEHOUSE:-lakehouse}
-        MINIO_ICEBERG_ACCESS_KEY: ${MINIO_ICEBERG_ACCESS_KEY}
-        MINIO_ICEBERG_SECRET_KEY: ${MINIO_ICEBERG_SECRET_KEY}
+        SILO_SPARK_ACCESS_KEY: ${SILO_SPARK_ACCESS_KEY}
+        SILO_SPARK_SECRET_KEY: ${SILO_SPARK_SECRET_KEY}
+        SILO_BUCKET_ICEBERG_LAKEHOUSE: ${SILO_BUCKET_ICEBERG_LAKEHOUSE:-lakehouse}
+        SILO_ICEBERG_ACCESS_KEY: ${SILO_ICEBERG_ACCESS_KEY}
+        SILO_ICEBERG_SECRET_KEY: ${SILO_ICEBERG_SECRET_KEY}
         ICEBERG_REST_URI: http://iceberg-rest:8181
         ICEBERG_REST_SOURCE: ${ICEBERG_REST_SOURCE:-disabled}
         TRINO_SOURCE: ${TRINO_SOURCE:-disabled}
@@ -219,11 +219,11 @@ data_flow:
   calls:
     - spark
     - supabase
-    - minio
+    - silo
     - iceberg-rest
     - target: redpanda
       status: optional
-      condition: "Kafka jars not bundled (#1376); Atlas passes only SPARK_KAFKA_BOOTSTRAP_SERVERS"
+      condition: "Kafka connector baked into the Spark runtime (#1376); Atlas passes only SPARK_KAFKA_BOOTSTRAP_SERVERS"
       evidence: services/zeppelin/compose.yml
     - trino
 

@@ -34,13 +34,13 @@ def _publish_local(target: Path, data: bytes) -> None:
 
 class ArtifactStorage:
     """Content-addressed artifact store, mirroring the asset-worker schema
-    (#343): outputs are keyed by sha256 and written to MinIO when enabled, or a
+    (#343): outputs are keyed by sha256 and written to Silo when enabled, or a
     local artifact dir otherwise. Baked outputs live under ``bake/``."""
 
     def __init__(self) -> None:
         self.artifact_dir = Path(os.getenv("ASSET_BAKER_ARTIFACT_DIR", "/data/artifacts"))
-        self.minio_enabled = _truthy(os.getenv("ASSET_BAKER_MINIO_ENABLED", "true"))
-        self.output_bucket = os.getenv("ASSET_BAKER_MINIO_BUCKET", "asset-baker")
+        self.silo_enabled = _truthy(os.getenv("ASSET_BAKER_SILO_ENABLED", "true"))
+        self.output_bucket = os.getenv("ASSET_BAKER_SILO_BUCKET", "asset-baker")
 
     def fetch(self, bucket: str, key: str) -> bytes:
         client = self._client()
@@ -69,7 +69,7 @@ class ArtifactStorage:
         """Store one content-addressed artifact. ``suffix`` is the extension
         (``glb`` / ``png``); the key is ``bake/<sha256>.<suffix>``."""
         key = f"bake/{sha256}.{suffix}"
-        if self.minio_enabled:
+        if self.silo_enabled:
             client = self._client()
             self._ensure_bucket(client, self.output_bucket)
             client.put_object(
@@ -80,7 +80,7 @@ class ArtifactStorage:
                 Metadata={"sha256": sha256},
             )
             return {
-                "storage": "minio",
+                "storage": "silo",
                 "bucket": self.output_bucket,
                 "key": key,
                 "uri": f"s3://{self.output_bucket}/{key}",
@@ -101,10 +101,10 @@ class ArtifactStorage:
 
         return boto3.client(
             "s3",
-            endpoint_url=os.getenv("ASSET_BAKER_MINIO_ENDPOINT") or os.getenv("MINIO_ENDPOINT", "http://minio:9000"),
-            aws_access_key_id=os.getenv("ASSET_BAKER_MINIO_ACCESS_KEY") or os.getenv("MINIO_ROOT_USER", "minioadmin"),
-            aws_secret_access_key=os.getenv("ASSET_BAKER_MINIO_SECRET_KEY") or os.getenv("MINIO_ROOT_PASSWORD", ""),
-            region_name=os.getenv("MINIO_REGION", "us-east-1"),
+            endpoint_url=os.getenv("ASSET_BAKER_SILO_ENDPOINT") or os.getenv("SILO_ENDPOINT", "http://silo:9000"),
+            aws_access_key_id=os.getenv("ASSET_BAKER_SILO_ACCESS_KEY") or os.getenv("SILO_ROOT_USER", "minioadmin"),
+            aws_secret_access_key=os.getenv("ASSET_BAKER_SILO_SECRET_KEY") or os.getenv("SILO_ROOT_PASSWORD", ""),
+            region_name=os.getenv("SILO_REGION", "us-east-1"),
             config=Config(s3={"addressing_style": "path"}),
         )
 

@@ -1,6 +1,6 @@
 ARG BASE_IMAGE=jenkins/jenkins:lts-jdk21@sha256:c1e4c349365f6d16d88595b2c5f7e8ff39b8ae1d061f62420bac193b4b9616d0
-# The MinIO client comes from the maintained pgsty fork (#1288), the same
-# digest-pinned image the stack's minio-init uses. The official minio/mc
+# The Silo client comes from the maintained pgsty fork (#1288), the same
+# digest-pinned image the stack's silo-init uses. The official minio/mc
 # release is abandoned and its Go 1.24.6 toolchain carries fixable findings.
 ARG MC_IMAGE=pgsty/mc:RELEASE.2026-09-16T00-00-00Z@sha256:cfc83108c3abb371f8fb84d99c1fdc88f8c237e022409b0081fb7c0a3be634dd
 

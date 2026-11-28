@@ -88,7 +88,7 @@ Limits:
 - **Per-request timeout.** A larger `timeout_seconds` (1–3600) extends Atlas's deadline and FAL's server-side queue-start limit together, so a long-queued job is not dropped. The queue-start limit is never below `FAL_TIMEOUT_SECONDS`, which still bounds each submit and poll HTTP call.
 - **No GLB.** A completed job with no GLB in its result stays `succeeded`, with `artifact_url: null` and `provenance.glb_missing: true`. FAL billed it, so its spend settles as spent.
 - An unrecognised FAL queue status or an unreadable result returns HTTP 502, not 400.
-- **Baking.** A successful GLB (`artifact_url` + `license`/`provenance`) stays on FAL's CDN. To bake it, download it and upload it to the `raw-assets` MinIO bucket. The asset-baker `/assets/bake/ref` endpoint accepts only `{bucket, key}` in an allowlisted bucket, and the gateway never calls it.
+- **Baking.** A successful GLB (`artifact_url` + `license`/`provenance`) stays on FAL's CDN. To bake it, download it and upload it to the `raw-assets` Silo bucket. The asset-baker `/assets/bake/ref` endpoint accepts only `{bucket, key}` in an allowlisted bucket, and the gateway never calls it.
 
 | Endpoint id | Family | License | Commercial use | Input hosting |
 |---|---|---|---|---|

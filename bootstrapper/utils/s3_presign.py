@@ -8,12 +8,12 @@ request. That means a presigned URL is only valid when it is *served from
 the exact host it was signed against*. The historical bug class this module
 eliminates is:
 
-    1. Sign the request against an internal address (e.g. ``minio:9000``,
+    1. Sign the request against an internal address (e.g. ``silo:9000``,
        reachable only inside the Docker network).
     2. Rewrite the URL's host afterwards to the browser-visible public
        endpoint (e.g. ``http://localhost:63018``) so a browser can reach it.
-    3. The browser presents a signature that was computed for ``minio:9000``
-       against a URL whose host is now ``localhost:63018`` → S3/MinIO
+    3. The browser presents a signature that was computed for ``silo:9000``
+       against a URL whose host is now ``localhost:63018`` → S3/Silo
        recomputes the signature over the *new* host, it does not match, and
        the download fails with ``SignatureDoesNotMatch``.
 
@@ -131,7 +131,7 @@ def presign_get_url(
         ``response-content-type`` / ``response-content-disposition`` query
         params.
     path_style:
-        True → ``{endpoint}/{bucket}/{key}`` (MinIO default). False →
+        True → ``{endpoint}/{bucket}/{key}`` (Silo default). False →
         virtual-host style ``{scheme}://{bucket}.{host}/{key}``.
     now:
         Injectable UTC datetime for deterministic tests. Defaults to

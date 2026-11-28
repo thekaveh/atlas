@@ -9,13 +9,13 @@
     },
     {
       "title": "Markdown — intro",
-      "text": "%md\n# Spark + MinIO + Postgres + Trino quickstart\n\nThis notebook confirms the core integrations are wired:\n1. `%spark` — Scala against the in-stack cluster\n2. S3A read/write via MinIO (`s3a://spark-history/...`)\n3. `%trino` — JDBC metadata query when `TRINO_SOURCE=container`\n4. JDBC read against Supabase Postgres, after the one-time `postgres` interpreter setup in services/zeppelin/README.md §4\n",
+      "text": "%md\n# Spark + Silo + Postgres + Trino quickstart\n\nThis notebook confirms the core integrations are wired:\n1. `%spark` — Scala against the in-stack cluster\n2. S3A read/write via Silo (`s3a://spark-history/...`)\n3. `%trino` — JDBC metadata query when `TRINO_SOURCE=container`\n4. JDBC read against Supabase Postgres, after the one-time `postgres` interpreter setup in services/zeppelin/README.md §4\n",
       "user": "anonymous",
       "config": {"editorSetting": {"language": "markdown"}}
     },
     {
-      "title": "MinIO round-trip via S3A",
-      "text": "%spark\nval df = Seq((1, \"alice\"), (2, \"bob\")).toDF(\"id\", \"name\")\nval path = s\"s3a://${sys.env.getOrElse(\"MINIO_BUCKET_SPARK_HISTORY\", \"spark-history\")}/_test_round_trip\"\ndf.write.mode(\"overwrite\").parquet(path)\nspark.read.parquet(path).show()",
+      "title": "Silo round-trip via S3A",
+      "text": "%spark\nval df = Seq((1, \"alice\"), (2, \"bob\")).toDF(\"id\", \"name\")\nval path = s\"s3a://${sys.env.getOrElse(\"SILO_BUCKET_SPARK_HISTORY\", \"spark-history\")}/_test_round_trip\"\ndf.write.mode(\"overwrite\").parquet(path)\nspark.read.parquet(path).show()",
       "user": "anonymous"
     },
     {

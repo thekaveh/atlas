@@ -13,7 +13,7 @@ from __future__ import annotations
 import re
 from typing import Sequence
 
-# A compose `image:` line that names a manifest variable, `${MINIO_IMAGE}`.
+# A compose `image:` line that names a manifest variable, `${SILO_IMAGE}`.
 _IMAGE_VARIABLE_RE = re.compile(r"\$\{(?P<var>[A-Za-z_][A-Za-z0-9_]*)")
 CHANGED_SERVICE_FILE_RE = re.compile(
     r" b/services/(?P<service>[^/]+)/"

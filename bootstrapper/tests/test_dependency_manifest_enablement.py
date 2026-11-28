@@ -3,7 +3,7 @@
 The old hand-maintained _SCALE_VAR_MAPPING/_SOURCE_VAR_MAPPING dicts omitted
 newer manifest services (trino / redpanda / iceberg-rest), so a disabled
 service fell through to "assume enabled" and produced false violations like
-"trino requires minio but it's disabled" on a fresh gen-ai-rag track start.
+"trino requires silo but it's disabled" on a fresh gen-ai-rag track start.
 These tests pin the manifest-derived behavior for every acceptance criterion.
 """
 
@@ -66,31 +66,31 @@ def test_every_source_configurable_manifest_service_honors_disabled(tmp_path):
 
 
 # ── AC: disabled Trino does NOT validate its deps; enabled Trino fails early ──
-def test_disabled_trino_with_disabled_minio_passes(tmp_path):
+def test_disabled_trino_with_disabled_silo_passes(tmp_path):
     dm = _make_dm(
         tmp_path,
         # LANGFUSE_SOURCE is spelled out because an ABSENT source var still
         # resolves to scale 1 rather than the manifest's `disabled` default,
         # so leaving it out would enable Langfuse here and fire its own
-        # minio requirement -- noise from a different service in a trino test.
+        # silo requirement -- noise from a different service in a trino test.
         "TRINO_SOURCE=disabled\nREDPANDA_SOURCE=disabled\n"
-        "ICEBERG_REST_SOURCE=disabled\nMINIO_SOURCE=disabled\nMINIO_SCALE=0\n"
+        "ICEBERG_REST_SOURCE=disabled\nSILO_SOURCE=disabled\nSILO_SCALE=0\n"
         "LANGFUSE_SOURCE=disabled\n",
     )
     assert dm.check_service_dependencies() is True
     assert dm.get_dependency_violations() == []
 
 
-def test_enabled_trino_with_disabled_minio_fails_early(tmp_path):
+def test_enabled_trino_with_disabled_silo_fails_early(tmp_path):
     dm = _make_dm(
         tmp_path,
         "TRINO_SOURCE=container\nICEBERG_REST_SOURCE=container\n"
-        "MINIO_SOURCE=disabled\nMINIO_SCALE=0\nREDPANDA_SOURCE=disabled\n",
+        "SILO_SOURCE=disabled\nSILO_SCALE=0\nREDPANDA_SOURCE=disabled\n",
     )
     assert dm.check_service_dependencies() is False
     violations = dm.get_dependency_violations()
     assert any(
-        v["service"] == "trino" and v["required_service"] == "minio"
+        v["service"] == "trino" and v["required_service"] == "silo"
         for v in violations
     )
 
@@ -123,7 +123,7 @@ def test_auto_resolve_zeroes_all_family_scale_vars(tmp_path):
         tmp_path,
         "LANGFUSE_SOURCE=container\nLANGFUSE_WEB_SCALE=1\nLANGFUSE_WORKER_SCALE=1\n"
         "LANGFUSE_CLICKHOUSE_SCALE=1\nLANGFUSE_INIT_SCALE=1\n"
-        "MINIO_SOURCE=disabled\nMINIO_SCALE=0\n",
+        "SILO_SOURCE=disabled\nSILO_SCALE=0\n",
     )
     assert dm.check_service_dependencies() is False
     disabled = dm.auto_resolve_dependency_violations()
@@ -149,7 +149,7 @@ def test_auto_resolve_handles_trino(tmp_path):
     dm = _make_dm(
         tmp_path,
         "TRINO_SOURCE=container\nTRINO_SCALE=1\n"
-        "ICEBERG_REST_SOURCE=disabled\nMINIO_SOURCE=disabled\nMINIO_SCALE=0\n"
+        "ICEBERG_REST_SOURCE=disabled\nSILO_SOURCE=disabled\nSILO_SCALE=0\n"
         "REDPANDA_SOURCE=disabled\n",
     )
     assert dm.check_service_dependencies() is False
@@ -262,7 +262,7 @@ def test_auto_resolve_disables_each_service_once(tmp_path):
     dm = _make_dm(
         tmp_path,
         "TRINO_SCALE=1\nTRINO_SOURCE=container\n"
-        "MINIO_SOURCE=disabled\nICEBERG_REST_SOURCE=disabled\n",
+        "SILO_SOURCE=disabled\nICEBERG_REST_SOURCE=disabled\n",
     )
     dm.check_service_dependencies()
     offenders = [v["service"] for v in dm.dependency_violations]
@@ -270,28 +270,28 @@ def test_auto_resolve_disables_each_service_once(tmp_path):
 
     disabled = dm.auto_resolve_dependency_violations()
     assert disabled.count("trino") == 1, f"resolved more than once: {disabled}"
-# ── Langfuse cannot start without MinIO; that must be enforced, not implied ──
-def test_enabled_langfuse_with_disabled_minio_fails_early(tmp_path):
+# ── Langfuse cannot start without Silo; that must be enforced, not implied ──
+def test_enabled_langfuse_with_disabled_silo_fails_early(tmp_path):
     """Langfuse needs S3-compatible event storage and langfuse-init runs after
-    minio-init provisions the bucket. depends_on drives ordering only; without
+    silo-init provisions the bucket. depends_on drives ordering only; without
     a runtime_deps entry the combination starts a Langfuse that never works and
-    reports nothing. Three tracks offer Langfuse while MinIO is off-track.
+    reports nothing. Three tracks offer Langfuse while Silo is off-track.
     """
     dm = _make_dm(
         tmp_path,
-        "LANGFUSE_SOURCE=container\nMINIO_SOURCE=disabled\nMINIO_SCALE=0\n",
+        "LANGFUSE_SOURCE=container\nSILO_SOURCE=disabled\nSILO_SCALE=0\n",
     )
 
     assert dm.check_service_dependencies() is False
     assert any(
-        v["service"] == "langfuse" and v["required_service"] == "minio"
+        v["service"] == "langfuse" and v["required_service"] == "silo"
         for v in dm.get_dependency_violations()
     )
 
 
-def test_enabled_langfuse_with_minio_available_passes(tmp_path):
-    """The new requirement must not fire when MinIO is actually present."""
-    dm = _make_dm(tmp_path, "LANGFUSE_SOURCE=container\nMINIO_SOURCE=container\n")
+def test_enabled_langfuse_with_silo_available_passes(tmp_path):
+    """The new requirement must not fire when Silo is actually present."""
+    dm = _make_dm(tmp_path, "LANGFUSE_SOURCE=container\nSILO_SOURCE=container\n")
 
     dm.check_service_dependencies()
 
@@ -302,9 +302,9 @@ def test_enabled_langfuse_with_minio_available_passes(tmp_path):
 
 
 def test_disabled_langfuse_does_not_validate_its_own_requirements(tmp_path):
-    """A disabled Langfuse must not drag MinIO into the check."""
+    """A disabled Langfuse must not drag Silo into the check."""
     dm = _make_dm(
-        tmp_path, "LANGFUSE_SOURCE=disabled\nMINIO_SOURCE=disabled\nMINIO_SCALE=0\n"
+        tmp_path, "LANGFUSE_SOURCE=disabled\nSILO_SOURCE=disabled\nSILO_SCALE=0\n"
     )
 
     dm.check_service_dependencies()
@@ -312,27 +312,27 @@ def test_disabled_langfuse_does_not_validate_its_own_requirements(tmp_path):
     assert [v for v in dm.get_dependency_violations() if v["service"] == "langfuse"] == []
 
 
-def _langfuse_minio_violations(dm):
+def _langfuse_silo_violations(dm):
     dm.check_service_dependencies()
     return [
         v for v in dm.get_dependency_violations()
-        if v["service"].startswith("langfuse") and v["required_service"] == "minio"
+        if v["service"].startswith("langfuse") and v["required_service"] == "silo"
     ]
 
 
 def test_a_host_run_dependency_satisfies_its_dependents(tmp_path):
-    """MINIO_SOURCE=localhost renders minio at scale 0 (no container), yet
+    """SILO_SOURCE=localhost renders silo at scale 0 (no container), yet
     langfuse's requirement is met; it must not be auto-disabled."""
-    dm = _make_dm(tmp_path, "MINIO_SOURCE=localhost\nMINIO_SCALE=0\n"
+    dm = _make_dm(tmp_path, "SILO_SOURCE=localhost\nSILO_SCALE=0\n"
                             "LANGFUSE_SOURCE=container\nLANGFUSE_WEB_SCALE=1\n")
-    assert _langfuse_minio_violations(dm) == []
+    assert _langfuse_silo_violations(dm) == []
 
 
 def test_a_dependency_disabled_by_auto_resolve_still_counts_as_missing(tmp_path):
     """Auto-resolve writes *_SCALE=0 and keeps a container SOURCE."""
-    dm = _make_dm(tmp_path, "MINIO_SOURCE=container\nMINIO_SCALE=0\n"
+    dm = _make_dm(tmp_path, "SILO_SOURCE=container\nSILO_SCALE=0\n"
                             "LANGFUSE_SOURCE=container\nLANGFUSE_WEB_SCALE=1\n")
-    assert _langfuse_minio_violations(dm)
+    assert _langfuse_silo_violations(dm)
 
 
 def test_a_disabled_supabase_subservice_does_not_disable_the_database(tmp_path):

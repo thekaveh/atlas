@@ -321,15 +321,15 @@ def test_lakehouse_architecture_includes_durable_catalog_metadata() -> None:
     assert ("Iceberg REST", "Supabase/Postgres", "metadata") in (
         ARCHITECTURE_EDGES[slug]
     )
-    assert ("Iceberg REST", "MinIO", "warehouse objects") in (
+    assert ("Iceberg REST", "Silo", "warehouse objects") in (
         ARCHITECTURE_EDGES[slug]
     )
     assert "services/supabase/service.yml" in ARCHITECTURE_SOURCE_FILES[slug]
     assert set(ARCHITECTURE_ROUTES[slug]) == {
-        ("Spark", "MinIO"),
+        ("Spark", "Silo"),
         ("Trino", "Iceberg REST"),
-        ("Iceberg REST", "MinIO"),
-        ("Trino", "MinIO"),
+        ("Iceberg REST", "Silo"),
+        ("Trino", "Silo"),
     }
     assert {
         "services/jupyterhub/service.yml",
@@ -366,17 +366,17 @@ def _orthogonal_segments_intersect(first, second) -> bool:
     )
 
 
-def test_lakehouse_minio_routes_use_distinct_nonintersecting_anchors() -> None:
+def test_lakehouse_silo_routes_use_distinct_nonintersecting_anchors() -> None:
     from bootstrapper.docs.sitegen.pages import ARCHITECTURE_ROUTES
 
     routes = ARCHITECTURE_ROUTES["data-engineering-lakehouse-flow"]
-    minio_routes = [
+    silo_routes = [
         routes[edge][0]
-        for edge in (("Spark", "MinIO"), ("Trino", "MinIO"), ("Iceberg REST", "MinIO"))
+        for edge in (("Spark", "Silo"), ("Trino", "Silo"), ("Iceberg REST", "Silo"))
     ]
-    assert len({route[-1] for route in minio_routes}) == len(minio_routes)
-    for index, route in enumerate(minio_routes):
-        for other in minio_routes[index + 1 :]:
+    assert len({route[-1] for route in silo_routes}) == len(silo_routes)
+    for index, route in enumerate(silo_routes):
+        for other in silo_routes[index + 1 :]:
             assert not any(
                 _orthogonal_segments_intersect(left, right)
                 for left in _orthogonal_segments(route)

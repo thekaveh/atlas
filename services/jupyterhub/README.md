@@ -2,7 +2,7 @@
 
 - **Port:** `JUPYTERHUB_PORT` (default 63094 with `BASE_PORT=63000`)
 - **Category:** `apps`
-- **Primary dependencies:** PostgreSQL, Redis, LiteLLM (gateway to Ollama and cloud LLMs), Weaviate, Neo4j, MinIO, Iceberg REST and Spark. §17 lists the full upstream set.
+- **Primary dependencies:** PostgreSQL, Redis, LiteLLM (gateway to Ollama and cloud LLMs), Weaviate, Neo4j, Silo, Iceberg REST and Spark. §17 lists the full upstream set.
 
 ---
 
@@ -41,7 +41,7 @@ JUPYTERHUB_SOURCE=disabled
 
 - **Pre-installed AI Libraries**: OpenAI SDK (pointed at LiteLLM), LangChain, LlamaIndex, Transformers, Chonkie, Ragas
 - **Database Clients**: Weaviate, Neo4j, PostgreSQL, Redis, Supabase
-- **Lakehouse Clients**: PySpark Connect, `boto3`, `s3fs`, `pyiceberg`, `pyarrow`, and `duckdb` for MinIO + Iceberg REST workflows
+- **Lakehouse Clients**: PySpark Connect, `boto3`, `s3fs`, `pyiceberg`, `pyarrow`, and `duckdb` for Silo + Iceberg REST workflows
 - **Financial Research Kit**: OpenBB + CCXT libraries and a guarded paper-portfolio notebook for read-only market research
 - **Sample Notebooks**: 16 notebooks (00-15) demonstrating service integration; Ray Client needs a compatible kernel (§5).
 - **Persistent Storage**: Your work is saved in the `jupyterhub-data` volume (§7)
@@ -82,7 +82,7 @@ Direct notebook calls to Docling and Atlas-managed Parakeet must send the matchi
 
 ## 5. Sample Notebooks
 
-The notebooks read MinIO bucket names from the `MINIO_BUCKET_*` variables (`MINIO_BUCKET_SPARK_HISTORY`, `MINIO_BUCKET_ICEBERG_LANDING`, …) and fall back to the default names. A renamed bucket needs no notebook edit.
+The notebooks read Silo bucket names from the `SILO_BUCKET_*` variables (`SILO_BUCKET_SPARK_HISTORY`, `SILO_BUCKET_ICEBERG_LANDING`, …) and fall back to the default names. A renamed bucket needs no notebook edit.
 
 | Notebook | Description |
 |----------|-------------|
@@ -95,9 +95,9 @@ The notebooks read MinIO bucket names from the `MINIO_BUCKET_*` variables (`MINI
 | `06_n8n_workflows.ipynb` | Workflow automation |
 | `07_ray_cluster.ipynb` | Distributed compute on the Ray cluster. Currently fails at `ray.init()`: the kernel runs Python 3.13 and the Ray image 3.10 (see the Ray README, §6). |
 | `08_scala_basics.ipynb` | Scala 3 syntax, `import $ivy` dependency loading, calling LiteLLM from Scala, Scala-3 enums + extension methods. Opens on the `scala3` kernel. |
-| `09_spark_connect.ipynb` | Distributed Spark via the `spark-connect` sidecar (DataFrame/SQL + an s3a MinIO round-trip). Requires `SPARK_SOURCE != disabled`. |
-| `10_spark_scala.ipynb` | The Scala counterpart to 09 — Spark Connect from the **Scala 2.13** kernel, including the same DataFrame, SQL, and MinIO round-trip checks. |
-| `11_financial_research_kit.ipynb` | Read-only OpenBB + CCXT market research, paper portfolio analytics, optional MinIO datasets, MLflow paper-run metrics, and LiteLLM summaries. No live trading. |
+| `09_spark_connect.ipynb` | Distributed Spark via the `spark-connect` sidecar (DataFrame/SQL + an s3a Silo round-trip). Requires `SPARK_SOURCE != disabled`. |
+| `10_spark_scala.ipynb` | The Scala counterpart to 09 — Spark Connect from the **Scala 2.13** kernel, including the same DataFrame, SQL, and Silo round-trip checks. |
+| `11_financial_research_kit.ipynb` | Read-only OpenBB + CCXT market research, paper portfolio analytics, optional Silo datasets, MLflow paper-run metrics, and LiteLLM summaries. No live trading. |
 | `12_iceberg_advanced_sql.ipynb` | Spark Connect advanced Iceberg smoke: `MERGE INTO`, `VERSION AS OF`, branch/WAP, schema evolution, nested JSON, Structured Streaming, and table maintenance. |
 | `13_chonkie_chunking.ipynb` | Compare Chonkie token, recursive, and optional semantic chunking, then call the Backend `/api/chunk` runtime endpoint. |
 | `14_ragas_evaluation.ipynb` | Evaluate RAG answers with Ragas metrics and the Backend `/api/rag/evaluate` runtime endpoint. |
@@ -133,13 +133,13 @@ Other clients read injected process variables, so no credentials need hand-assem
 | Ray | `RAY_ADDRESS` |
 | MLflow | `MLFLOW_TRACKING_URI` (`http://mlflow:5000`) |
 | Redpanda (Kafka) | `SPARK_KAFKA_BOOTSTRAP_SERVERS` |
-| MinIO, Iceberg (`boto3`, `pyiceberg`, `duckdb`) | `AWS_ENDPOINT_URL_S3`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `ICEBERG_REST_URI`, `ICEBERG_WAREHOUSE`, `PYICEBERG_CATALOG__REST__*` |
+| Silo, Iceberg (`boto3`, `pyiceberg`, `duckdb`) | `AWS_ENDPOINT_URL_S3`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `ICEBERG_REST_URI`, `ICEBERG_WAREHOUSE`, `PYICEBERG_CATALOG__REST__*` |
 | Other services | `COMFYUI_BASE_URL`, `N8N_BASE_URL`, `SEARXNG_URL`, `BACKEND_API_URL`, `HERMES_ENDPOINT`, `LABEL_STUDIO_URL`, `MCP_SERVERS_URL`, `STT_ENDPOINT`, `TTS_ENDPOINT`, `DOCLING_ENDPOINT` |
 
 Three limits apply:
 
-- DuckDB reads the key and region from the environment, but not the endpoint. Before `read_parquet('s3://…')`, run `CREATE SECRET (TYPE s3, ENDPOINT 'minio:9000', URL_STYLE 'path', USE_SSL false)`. Otherwise DuckDB targets AWS.
-- The JupyterHub MinIO account is read-only on the `lakehouse` bucket by design. Write tables through Spark Connect, not PyIceberg or boto3.
+- DuckDB reads the key and region from the environment, but not the endpoint. Before `read_parquet('s3://…')`, run `CREATE SECRET (TYPE s3, ENDPOINT 'silo:9000', URL_STYLE 'path', USE_SSL false)`. Otherwise DuckDB targets AWS.
+- The JupyterHub Silo account is read-only on the `lakehouse` bucket by design. Write tables through Spark Connect, not PyIceberg or boto3.
 - `ray.init()` from the notebook kernel fails: the kernel runs Python 3.13 and the Ray image Python 3.10. Submit Ray work through the Ray Jobs REST API instead. The Ray README troubleshooting section has an example.
 
 Docling and Parakeet calls need a bearer token (§4.2). Runnable examples are in the sample notebooks (§5): `01_litellm_basics.ipynb`, `02_langchain_rag.ipynb`, `03_neo4j_graphs.ipynb` and `09_spark_connect.ipynb`.
@@ -148,11 +148,11 @@ For the advanced Iceberg/Spark validation flow (`MERGE INTO`, `VERSION AS OF`, S
 
 For a small local JSON ingestion example, use the optional [dlt and DuckDB recipe](../../docs/operations/dlt-duckdb.md). It demonstrates incremental updates, schema evolution and load recovery in a separate Python 3.12 environment.
 
-For bounded SQL analytics over local or MinIO Parquet, use the optional [embedded DuckDB recipe](../../docs/operations/duckdb-analytics.md). It runs in-process with the image's `duckdb` and needs no Spark or Trino.
+For bounded SQL analytics over local or Silo Parquet, use the optional [embedded DuckDB recipe](../../docs/operations/duckdb-analytics.md). It runs in-process with the image's `duckdb` and needs no Spark or Trino.
 
 ### 6.1. Connecting to the lakehouse from Python
 
-The image ships the lakehouse clients `boto3`, `s3fs`, `pyiceberg[s3fs]`, `pyarrow` and `duckdb`, pre-wired against MinIO and the Iceberg REST catalog. `s3fs` and `fsspec` are pinned together at 2026.6.0, past CVE-2026-104851 (#1394). To confirm connectivity, load the catalog with `pyiceberg.catalog.load_catalog` and call `list_namespaces()`:
+The image ships the lakehouse clients `boto3`, `s3fs`, `pyiceberg[s3fs]`, `pyarrow` and `duckdb`, pre-wired against Silo and the Iceberg REST catalog. `s3fs` and `fsspec` are pinned together at 2026.6.0, past CVE-2026-104851 (#1394). To confirm connectivity, load the catalog with `pyiceberg.catalog.load_catalog` and call `list_namespaces()`:
 
 ```python
 import os
@@ -166,7 +166,7 @@ catalog = load_catalog(
 print(catalog.list_namespaces())
 ```
 
-MinIO access goes through `boto3`/`s3fs` against `AWS_ENDPOINT_URL_S3`. To check from the host that the client packages import:
+Silo access goes through `boto3`/`s3fs` against `AWS_ENDPOINT_URL_S3`. To check from the host that the client packages import:
 
 ```bash
 docker exec ${PROJECT_NAME}-jupyterhub python -c \
@@ -178,7 +178,7 @@ docker exec ${PROJECT_NAME}-jupyterhub python -c \
 - **Work Directory**: `/home/jovyan/work` - Persisted in `jupyterhub-data` volume
 - **Sample Notebooks**: `/home/jovyan/notebooks` - Read-only bind mount of `services/jupyterhub/build/notebooks/`. Each start copies any missing notebook into `work/examples/` and never overwrites an existing copy. Delete a copy to get the updated version.
 - **Shared Config**: `/shared` - Weaviate configuration (read-only)
-- **Generated `.env`**: `startup.sh` rewrites `work/.env` (owner-only) on every start. It holds the LiteLLM key and database and MinIO secrets.
+- **Generated `.env`**: `startup.sh` rewrites `work/.env` (owner-only) on every start. It holds the LiteLLM key and database and Silo secrets.
 
 `./stop.sh --cold` removes `jupyterhub-data` and everything in `work/`.
 
@@ -320,7 +320,7 @@ Scala/Almond versions are pinned by build args near the top of `services/jupyter
 
 JupyterHub runs inside the Docker Compose network and receives environment variables for the enabled services. It reaches LLMs through the always-on LiteLLM gateway (`LITELLM_BASE_URL` / `LITELLM_API_KEY`). `startup.sh` provides `OPENAI_API_BASE` / `OPENAI_API_KEY` process aliases when unset (§6). When they are available, it connects directly to these services:
 
-- data: Weaviate, Neo4j, PostgreSQL/Supabase, Redis, MinIO, Iceberg REST;
+- data: Weaviate, Neo4j, PostgreSQL/Supabase, Redis, Silo, Iceberg REST;
 - compute and ML: Spark Connect, the Ray Jobs API, MLflow;
 - media and workflow: ComfyUI, n8n, STT/TTS, document processing.
 
@@ -351,7 +351,7 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
 | Integrated data and AI notebooks | supported | tested | Atlas ships a synchronized Python and Scala notebook inventory with clients and environment seams for LLM, RAG, lakehouse, ML, and media experimentation. |
-| Spark Connect and lakehouse clients | partial | tested | Bundled notebooks configure Spark Connect, MinIO, and Iceberg clients, but service-dependent cells are static contracts until an operator runs the corresponding live smoke. |
+| Spark Connect and lakehouse clients | partial | tested | Bundled notebooks configure Spark Connect, Silo, and Iceberg clients, but service-dependent cells are static contracts until an operator runs the corresponding live smoke. |
 | Token-authenticated notebook access | partial | tested | The direct and CORS-only jupyter.localhost paths require one Jupyter token. Browser origins are limited to Jupyter's same-origin check by default (JUPYTER_ALLOW_ORIGIN is empty); do not set it to '*'. |
 | Operator-trusted credential environment | partial | documented | The server receives high-privilege database and service credentials and runs arbitrary user code. It is an engineering workspace, not a hostile multi-tenant sandbox. GRANT_SUDO is set but inert, because the container does not start as root. |
 | Notebook workspace persistence | supported | tested | User work persists in jupyterhub-data and bundled notebooks mount read-only, but cold volume removal still deletes the writable workspace. |
@@ -407,10 +407,10 @@ The jupyterhub container has no memory limit, so it can use all memory Docker ha
 |---|---|---|
 | ray | infra | current |
 | iceberg-rest | data | current |
-| minio | data | current |
 | neo4j | data | current |
 | redis | data | current |
 | redpanda | data | current |
+| silo | data | current |
 | spark | data | current |
 | supabase | data | current |
 | weaviate | data | current |

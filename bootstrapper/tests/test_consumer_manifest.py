@@ -213,12 +213,12 @@ def test_consumer_manifest_rejects_nested_duplicate_yaml_keys(tmp_path: Path) ->
 name: duplicate-probe
 env:
   values:
-    MINIO_SOURCE: container
-    MINIO_SOURCE: disabled
+    SILO_SOURCE: container
+    SILO_SOURCE: disabled
 """.strip()
     )
 
-    with pytest.raises(ConsumerManifestError, match="duplicate key.*MINIO_SOURCE"):
+    with pytest.raises(ConsumerManifestError, match="duplicate key.*SILO_SOURCE"):
         load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
 
 
@@ -352,7 +352,7 @@ env:
     "merge_body",
     (
         "<<: &defaults\n      WEAVIATE_MEMORY_LIMIT: 2g\n      WEAVIATE_MEMORY_LIMIT: 3g",
-        "<<: &first {WEAVIATE_MEMORY_LIMIT: 2g}\n    <<: &second {MINIO_SOURCE: container}",
+        "<<: &first {WEAVIATE_MEMORY_LIMIT: 2g}\n    <<: &second {SILO_SOURCE: container}",
     ),
 )
 def test_consumer_manifest_rejects_duplicates_in_yaml_merge_contracts(

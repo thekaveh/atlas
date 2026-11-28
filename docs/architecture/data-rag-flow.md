@@ -10,7 +10,7 @@ Ingestion, document processing, object storage, vector and graph stores, backend
 
 ## 2. Notes
 
-Backend is not the only writer into these stores. LightRAG writes directly to Neo4j over Bolt and to Supabase pgvector. Other MinIO consumers (the Iceberg pipeline, asset-worker) write with their own scoped IAM credentials. This view shows only Backend's ingestion path.
+Backend is not the only writer into these stores. LightRAG writes directly to Neo4j over Bolt and to Supabase pgvector. Other Silo consumers (the Iceberg pipeline, asset-worker) write with their own scoped IAM credentials. This view shows only Backend's ingestion path.
 
 ## 3. Source Files
 

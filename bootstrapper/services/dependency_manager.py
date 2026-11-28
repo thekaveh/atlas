@@ -12,7 +12,7 @@ Service enablement (scale/source lookup) is DERIVED from the same manifests
 hand-maintained service map to fall out of date. Before this, newer
 manifest services (trino / redpanda / iceberg-rest) were missing from the
 local dicts and fell through to "assume enabled" — a disabled Trino then
-failed startup with a false "trino requires minio" violation.
+failed startup with a false "trino requires silo" violation.
 """
 
 import re

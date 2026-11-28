@@ -23,15 +23,15 @@ sources_consulted:
   - Risks / open questions: Couples backend to a Weaviate-internal module; if `MULTI2VEC_CLIP_SOURCE=disabled`, backend feature must degrade gracefully.
   - Confidence: high (endpoint confirmed in upstream `app.py`).
 
-- **multi2vec-clip ↔ minio**
-  - Why valuable: MinIO already hosts artifact buckets (comfyui, backend, n8n, jupyter, docling). None of those image artifacts are indexed for semantic retrieval. A small ingest worker can stream new objects through CLIP into Weaviate, enabling cross-bucket image search.
-  - Mechanism sketch: MinIO bucket-notification webhook (or polling worker) → fetch object → base64 → `POST /vectorize` → upsert into a `MediaAssets` Weaviate collection vectorized by `multi2vec-clip`.
+- **multi2vec-clip ↔ silo**
+  - Why valuable: Silo already hosts artifact buckets (comfyui, backend, n8n, jupyter, docling). None of those image artifacts are indexed for semantic retrieval. A small ingest worker can stream new objects through CLIP into Weaviate, enabling cross-bucket image search.
+  - Mechanism sketch: Silo bucket-notification webhook (or polling worker) → fetch object → base64 → `POST /vectorize` → upsert into a `MediaAssets` Weaviate collection vectorized by `multi2vec-clip`.
   - Effort: medium
-  - Risks / open questions: Where the worker lives (backend vs. dedicated init) is undecided; MinIO event config not currently scripted in `minio-init`.
-  - Confidence: medium (MinIO events documented; no existing wiring).
+  - Risks / open questions: Where the worker lives (backend vs. dedicated init) is undecided; Silo event config not currently scripted in `silo-init`.
+  - Confidence: medium (Silo events documented; no existing wiring).
 
 - **multi2vec-clip ↔ comfyui**
-  - Why valuable: ComfyUI continuously generates images that vanish into MinIO/local volumes. Auto-embedding each generation into Weaviate enables prompt-similarity search, dedup, and "find prior renders that look like X" workflows.
+  - Why valuable: ComfyUI continuously generates images that vanish into Silo/local volumes. Auto-embedding each generation into Weaviate enables prompt-similarity search, dedup, and "find prior renders that look like X" workflows.
   - Mechanism sketch: ComfyUI custom "SaveImage" post-hook → call backend ingest endpoint → backend forwards image bytes to `multi2vec-clip:8080/vectorize` and upserts.
   - Effort: medium
   - Risks / open questions: Requires either a Comfy custom node or an out-of-band watcher; throughput on CPU-only CLIP (`ENABLE_CUDA=0`) may bottleneck batch generations.

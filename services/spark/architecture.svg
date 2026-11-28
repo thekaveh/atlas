@@ -37,8 +37,8 @@
 </g>
 
 <g><rect x="128" y="88" width="108" height="22" rx="4" fill="#0f172a"/><rect x="128" y="88" width="108" height="22" rx="4" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1"/><text x="182" y="103" fill="white" font-size="10" text-anchor="middle">iceberg-rest</text></g>
-<g><rect x="240" y="88" width="108" height="22" rx="4" fill="#0f172a"/><rect x="240" y="88" width="108" height="22" rx="4" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1"/><text x="294" y="103" fill="white" font-size="10" text-anchor="middle">minio</text></g>
-<g><rect x="128" y="114" width="108" height="22" rx="4" fill="#0f172a"/><rect x="128" y="114" width="108" height="22" rx="4" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1"/><text x="182" y="129" fill="white" font-size="10" text-anchor="middle">redpanda</text></g>
+<g><rect x="240" y="88" width="108" height="22" rx="4" fill="#0f172a"/><rect x="240" y="88" width="108" height="22" rx="4" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1"/><text x="294" y="103" fill="white" font-size="10" text-anchor="middle">redpanda</text></g>
+<g><rect x="128" y="114" width="108" height="22" rx="4" fill="#0f172a"/><rect x="128" y="114" width="108" height="22" rx="4" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1"/><text x="182" y="129" fill="white" font-size="10" text-anchor="middle">silo</text></g>
 </g>
 <g>
 <g class="cluster">

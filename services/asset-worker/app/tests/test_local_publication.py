@@ -84,7 +84,7 @@ class WriteGate:
 @pytest.fixture
 def publication(tmp_path, monkeypatch):
     monkeypatch.setenv("ASSET_WORKER_ARTIFACT_DIR", str(tmp_path))
-    monkeypatch.setenv("ASSET_WORKER_MINIO_ENABLED", "false")
+    monkeypatch.setenv("ASSET_WORKER_SILO_ENABLED", "false")
     return Publication(tmp_path, "glb")
 
 

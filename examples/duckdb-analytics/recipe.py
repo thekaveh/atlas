@@ -106,7 +106,7 @@ def engine_config(memory_limit, threads, temp_directory, max_temp):
 def s3_endpoint(environ):
     url = environ.get("AWS_ENDPOINT_URL_S3") or environ.get("AWS_ENDPOINT_URL")
     if not url:
-        raise RecipeError("set AWS_ENDPOINT_URL_S3, for example http://minio:9000")
+        raise RecipeError("set AWS_ENDPOINT_URL_S3, for example http://silo:9000")
     parts = urlsplit(url)
     if parts.scheme not in ("http", "https") or not parts.hostname:
         raise RecipeError("AWS_ENDPOINT_URL_S3 must be an http(s) URL")

@@ -38,18 +38,18 @@ class PostprocessParams(BaseModel):
         return self.collider_decimation
 
 
-class MinioInput(BaseModel):
+class SiloInput(BaseModel):
     bucket: str = Field(min_length=1)
     key: str = Field(min_length=1)
 
 
 class RefPostprocessRequest(BaseModel):
-    input: MinioInput
+    input: SiloInput
     params: PostprocessParams = Field(default_factory=PostprocessParams)
 
 
 class ArtifactRef(BaseModel):
-    storage: Literal["local", "minio"]
+    storage: Literal["local", "silo"]
     key: str
     content_type: str = "model/gltf-binary"
     bucket: str | None = None

@@ -63,7 +63,7 @@ class ServiceRow:
     pending: bool = False     # drives pending-state rendering
     off_track: bool = False   # True when a track is active and this service is excluded
     # Extra (label, value) rows appended to the hover tooltip card — e.g.
-    # MinIO's S3 endpoints, which aren't the row's own console URL. Empty
+    # Silo's S3 endpoints, which aren't the row's own console URL. Empty
     # for most services.
     tooltip_extra: list[tuple[str, str]] = field(default_factory=list)
     # Hover-card metadata (from the manifest): all selectable source ids and
@@ -154,7 +154,7 @@ def _alias_url(r: ServiceRow) -> str:
 
 
 def _extra_endpoints(r: ServiceRow) -> list[tuple[str, str]]:
-    """The row's extra card endpoints (MinIO's S3 URLs), under the same
+    """The row's extra card endpoints (Silo's S3 URLs), under the same
     availability rule as ``_alias_url``: a source without an endpoint
     advertises none."""
     return list(r.tooltip_extra) if source_has_endpoint(r.source or "") else []
@@ -175,19 +175,19 @@ def _source_pairs(r: ServiceRow) -> list[tuple[str, str]]:
     return pairs
 
 
-def minio_s3_endpoints(env: dict, kong_port: str) -> list[tuple[str, str]]:
-    """S3 API endpoints for the MinIO Console hover card.
+def silo_s3_endpoints(env: dict, kong_port: str) -> list[tuple[str, str]]:
+    """S3 API endpoints for the Silo Console hover card.
 
     Derived from ``env`` and ``kong_port`` so callers that re-derive ports
     for a new base port pass their synthetic env and get matching URLs. A
     blank port omits its pair rather than showing a guessed default.
     """
     pairs: list[tuple[str, str]] = []
-    s3_port = (env.get("MINIO_PORT") or "").strip()
+    s3_port = (env.get("SILO_PORT") or "").strip()
     if s3_port:
         pairs.append(("S3 API", f"http://localhost:{s3_port}"))
     if kong_port:
-        pairs.append(("S3 (Kong)", f"http://s3.minio.localhost:{kong_port}"))
+        pairs.append(("S3 (Kong)", f"http://s3.silo.localhost:{kong_port}"))
     return pairs
 
 

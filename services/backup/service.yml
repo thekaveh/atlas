@@ -13,7 +13,7 @@ capabilities:
   - name: "On-demand Postgres and consistency-safe snapshot export"
     status: supported
     verification: documented
-    note: "The orchestrated runner creates a snapshot-consistent PostgreSQL custom-format dump, an offline Neo4j Community dump, and a native online Weaviate snapshot. Deployment-key-authenticated manifests cover these three. It also archives Supabase Storage, outside the signed manifest and with no restore procedure yet. It uploads everything to constrained on-stack MinIO or external S3."
+    note: "The orchestrated runner creates a snapshot-consistent PostgreSQL custom-format dump, an offline Neo4j Community dump, and a native online Weaviate snapshot. Deployment-key-authenticated manifests cover these three. It also archives Supabase Storage, outside the signed manifest and with no restore procedure yet. It uploads everything to constrained on-stack Silo or external S3."
   - name: "Postgres restore workflow"
     status: partial
     verification: tested
@@ -54,18 +54,18 @@ env:
     description: "Target bucket for backups."
   - name: BACKUP_S3_MODE
     default: local
-    description: "Credential/dependency mode: local uses on-stack MinIO and permits the documented `MINIO_ROOT_*` upgrade fallback; external requires dedicated `BACKUP_S3_*` credentials and has no MinIO runtime dependency."
+    description: "Credential/dependency mode: local uses on-stack Silo and permits the documented `SILO_ROOT_*` upgrade fallback; external requires dedicated `BACKUP_S3_*` credentials and has no Silo runtime dependency."
   - name: BACKUP_S3_ENDPOINT
-    default: "http://minio:9000"
-    description: "S3 endpoint as a strict HTTP(S) origin: canonical DNS/IPv4 or bracketed IPv6, optional canonical port, and no userinfo/path/query/fragment. The default is on-stack MinIO."
+    default: "http://silo:9000"
+    description: "S3 endpoint as a strict HTTP(S) origin: canonical DNS/IPv4 or bracketed IPv6, optional canonical port, and no userinfo/path/query/fragment. The default is on-stack Silo."
   - name: BACKUP_S3_ACCESS_KEY
     default: ""
     secret: true
-    description: "Dedicated S3 access key. Required for external endpoints; local MinIO may fall back to MINIO_ROOT_USER for upgrade compatibility."
+    description: "Dedicated S3 access key. Required for external endpoints; local Silo may fall back to SILO_ROOT_USER for upgrade compatibility."
   - name: BACKUP_S3_SECRET_KEY
     default: ""
     secret: true
-    description: "Dedicated S3 secret key. Required for external endpoints; local MinIO may fall back to MINIO_ROOT_PASSWORD for upgrade compatibility."
+    description: "Dedicated S3 secret key. Required for external endpoints; local Silo may fall back to SILO_ROOT_PASSWORD for upgrade compatibility."
   - name: BACKUP_S3_REGION
     default: us-east-1
     description: "S3 signing and bucket-creation region."
@@ -75,7 +75,7 @@ env:
     description: "Optional S3 security token for temporary credentials."
   - name: BACKUP_S3_TLS_VERIFY
     default: true
-    description: "Verify HTTPS certificates. false is valid only with an https endpoint and explicitly enables the MinIO client's insecure certificate mode."
+    description: "Verify HTTPS certificates. false is valid only with an https endpoint and explicitly enables the Silo client's insecure certificate mode."
   - name: BACKUP_S3_ALIAS_URL
     default: ""
     description: "Deprecated pre-M11 endpoint variable accepted only as a migration fallback when BACKUP_S3_ENDPOINT remains at its local default."
@@ -121,7 +121,7 @@ depends_on:
   required:
     - supabase
   optional:
-    - minio
+    - silo
 
 rows:
   - display_name: "Backup / restore"
@@ -152,9 +152,9 @@ runtime_deps:
         when_defaults:
           BACKUP_S3_MODE: local
         requires:
-          - minio
+          - silo
         auto_resolve: false
-        error_message: "Backup local S3 mode requires MINIO_SOURCE to be enabled; select BACKUP_S3_MODE=external before disabling MinIO."
+        error_message: "Backup local S3 mode requires SILO_SOURCE to be enabled; select BACKUP_S3_MODE=external before disabling Silo."
 
 data_flow:
   calls:
@@ -162,7 +162,7 @@ data_flow:
       status: optional
       condition: BACKUP_SOURCE=container; runs on demand, not resident
       evidence: services/backup/init/scripts/backup-all.sh
-    - minio
+    - silo
     - neo4j
     - weaviate
 

@@ -182,7 +182,7 @@ backup_s3_json_escape() {
 prepare_backup_s3() {
   BACKUP_S3_LOG_PREFIX=${1:-backup}
   BACKUP_S3_MODE=${BACKUP_S3_MODE:-local}
-  BACKUP_S3_ENDPOINT=${BACKUP_S3_ENDPOINT:-http://minio:9000}
+  BACKUP_S3_ENDPOINT=${BACKUP_S3_ENDPOINT:-http://silo:9000}
   BACKUP_S3_REGION=${BACKUP_S3_REGION:-us-east-1}
   BACKUP_S3_TLS_VERIFY=${BACKUP_S3_TLS_VERIFY:-true}
   BACKUP_S3_SESSION_TOKEN=${BACKUP_S3_SESSION_TOKEN:-}
@@ -193,7 +193,7 @@ prepare_backup_s3() {
   esac
 
   if [ -n "${BACKUP_S3_ALIAS_URL:-}" ]; then
-    if [ "$BACKUP_S3_ENDPOINT" = "http://minio:9000" ]; then
+    if [ "$BACKUP_S3_ENDPOINT" = "http://silo:9000" ]; then
       BACKUP_S3_ENDPOINT=$BACKUP_S3_ALIAS_URL
       printf '%s: WARNING — BACKUP_S3_ALIAS_URL is deprecated; migrate to BACKUP_S3_ENDPOINT\n' "$BACKUP_S3_LOG_PREFIX" >&2
     elif [ "$BACKUP_S3_ALIAS_URL" != "$BACKUP_S3_ENDPOINT" ]; then
@@ -220,18 +220,18 @@ prepare_backup_s3() {
 
   case "$BACKUP_S3_MODE" in
     local)
-      [ "$BACKUP_S3_ENDPOINT" = "http://minio:9000" ] || {
-        backup_s3_error "BACKUP_S3_MODE=local requires BACKUP_S3_ENDPOINT=http://minio:9000" || return $?
+      [ "$BACKUP_S3_ENDPOINT" = "http://silo:9000" ] || {
+        backup_s3_error "BACKUP_S3_MODE=local requires BACKUP_S3_ENDPOINT=http://silo:9000" || return $?
       }
       if [ -n "${BACKUP_S3_ACCESS_KEY:-}" ] || [ -n "${BACKUP_S3_SECRET_KEY:-}" ]; then
         [ -n "${BACKUP_S3_ACCESS_KEY:-}" ] && [ -n "${BACKUP_S3_SECRET_KEY:-}" ] || {
           backup_s3_error "BACKUP_S3_ACCESS_KEY and BACKUP_S3_SECRET_KEY must be set together" || return $?
         }
       else
-        BACKUP_S3_ACCESS_KEY=${MINIO_ROOT_USER:-}
-        BACKUP_S3_SECRET_KEY=${MINIO_ROOT_PASSWORD:-}
+        BACKUP_S3_ACCESS_KEY=${SILO_ROOT_USER:-}
+        BACKUP_S3_SECRET_KEY=${SILO_ROOT_PASSWORD:-}
         [ -n "$BACKUP_S3_ACCESS_KEY" ] && [ -n "$BACKUP_S3_SECRET_KEY" ] || {
-          backup_s3_error "local mode requires dedicated S3 credentials or both MINIO_ROOT_USER and MINIO_ROOT_PASSWORD" || return $?
+          backup_s3_error "local mode requires dedicated S3 credentials or both SILO_ROOT_USER and SILO_ROOT_PASSWORD" || return $?
         }
         [ -z "$BACKUP_S3_SESSION_TOKEN" ] || {
           backup_s3_error "BACKUP_S3_SESSION_TOKEN requires dedicated S3 credentials in local mode" || return $?
@@ -256,7 +256,7 @@ prepare_backup_s3() {
   backup_s3_secret_key=$BACKUP_S3_SECRET_KEY
   backup_s3_session_token=$BACKUP_S3_SESSION_TOKEN
   unset BACKUP_S3_ACCESS_KEY BACKUP_S3_SECRET_KEY BACKUP_S3_SESSION_TOKEN
-  unset MINIO_ROOT_USER MINIO_ROOT_PASSWORD
+  unset SILO_ROOT_USER SILO_ROOT_PASSWORD
   unset MC_HOST_s3 MC_CONFIG_ENV_FILE
   unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_SECURITY_TOKEN
 

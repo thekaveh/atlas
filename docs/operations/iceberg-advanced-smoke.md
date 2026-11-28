@@ -8,10 +8,10 @@ data-eng services. It adds no infrastructure.
 - No new service, no new SOURCE, no new port, no new Kong route, and no new
   wizard step.
 - Tracks: `data-eng` and `all`.
-- Existing services: Spark, Iceberg REST, MinIO, JupyterHub, and optionally
+- Existing services: Spark, Iceberg REST, Silo, JupyterHub, and optionally
   Zeppelin.
 - Categories stay unchanged: Spark and Iceberg REST are `data`; JupyterHub and
-  Zeppelin are `apps`; MinIO remains `data`.
+  Zeppelin are `apps`; Silo remains `data`.
 - The smoke uses isolated `lakehouse.atlas_smoke` objects. It does not create
   `bronze`, `silver`, or `gold` namespaces because downstream projects own
   their medallion layout.
@@ -22,7 +22,7 @@ data-eng services. It adds no infrastructure.
 ./start.sh --track data-eng \
   --spark-source container \
   --iceberg-rest-source container \
-  --minio-source container \
+  --silo-source container \
   --jupyterhub-source container
 ```
 
@@ -84,7 +84,7 @@ take longer than the wait.
 
 Both surfaces are kept because Spark Connect and Zeppelin's Spark-submit
 interpreter use different runtime paths. They share the Iceberg REST catalog,
-the MinIO warehouse and the Spark image.
+the Silo warehouse and the Spark image.
 
 ## 6. CI Posture
 

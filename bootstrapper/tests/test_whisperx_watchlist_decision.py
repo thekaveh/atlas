@@ -35,7 +35,7 @@ def test_whisperx_future_service_spec_covers_atlas_service_contract() -> None:
         "`STT_PROVIDER_SOURCE`",
         "Wizard placement",
         "`whisperx.localhost`",
-        "`whisperx -> minio`",
+        "`whisperx -> silo`",
         "`whisperx -> supabase`",
         "`whisperx -> weaviate`",
         "Hugging Face/pyannote token",

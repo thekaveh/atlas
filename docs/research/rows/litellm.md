@@ -9,7 +9,7 @@ sources_consulted:
   - services/litellm/README.md
   - services/backend/service.yml
   - services/docling/service.yml
-  - services/minio/service.yml
+  - services/silo/service.yml
   - services/neo4j/service.yml
   - services/searxng/service.yml
   - https://docs.litellm.ai/docs/proxy/logging
@@ -24,12 +24,12 @@ sources_consulted:
 
 ## 1. Missing-pair integrations
 
-- **litellm ↔ minio**
-  - Why valuable: LiteLLM ships a first-class S3 logger that persists full request/response payloads (incl. prompts, tool calls, token counts) to any S3-compatible bucket. MinIO is already in the stack and unused for LLM telemetry — wiring it would give offline replay, prompt-regression diffs, and an audit trail without adding a new dependency.
-  - Mechanism sketch: set `litellm_settings.success_callback: ["s3"]` + `s3_callback_params` pointing at `http://minio:9000` with `MINIO_ROOT_USER/MINIO_ROOT_PASSWORD`; provision a `litellm-logs` bucket via the existing `minio-init` container.
+- **litellm ↔ silo**
+  - Why valuable: LiteLLM ships a first-class S3 logger that persists full request/response payloads (incl. prompts, tool calls, token counts) to any S3-compatible bucket. Silo is already in the stack and unused for LLM telemetry — wiring it would give offline replay, prompt-regression diffs, and an audit trail without adding a new dependency.
+  - Mechanism sketch: set `litellm_settings.success_callback: ["s3"]` + `s3_callback_params` pointing at `http://silo:9000` with `SILO_ROOT_USER/SILO_ROOT_PASSWORD`; provision a `litellm-logs` bucket via the existing `silo-init` container.
   - Effort: small
   - Risks / open questions: prompts can contain secrets — bucket should be private and lifecycle-policied; cost of writing every call to S3 on high-RPS workloads.
-  - Confidence: high (LiteLLM S3 logger is documented and stable; MinIO is S3-API-compatible).
+  - Confidence: high (LiteLLM S3 logger is documented and stable; Silo is S3-API-compatible).
 
 - **litellm ↔ stt-provider** (parakeet / speaches engine)
   - Why valuable: LiteLLM exposes a unified `/v1/audio/transcriptions` (Whisper-shaped) endpoint that proxies to any backend. Today every consumer (n8n, backend, hermes, jupyterhub) hits `STT_ENDPOINT` directly, bypassing LiteLLM's auth, rate-limit, spend, and Kong-alias affordances. Routing STT through LiteLLM gives one URL + one bearer token for *every* model surface — matching the existing chat/embeddings pattern.

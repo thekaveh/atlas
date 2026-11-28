@@ -1,6 +1,6 @@
 ARG BASE_IMAGE=postgres:17.11-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
-# The MinIO client comes from the maintained pgsty fork (#1288), the same
-# digest-pinned image the stack's minio-init uses. The official minio/mc
+# The Silo client comes from the maintained pgsty fork (#1288), the same
+# digest-pinned image the stack's silo-init uses. The official minio/mc
 # release is abandoned and its Go 1.24.6 toolchain carries fixable findings.
 ARG MC_IMAGE=pgsty/mc:RELEASE.2026-09-16T00-00-00Z@sha256:cfc83108c3abb371f8fb84d99c1fdc88f8c237e022409b0081fb7c0a3be634dd
 FROM ${MC_IMAGE} AS mc

@@ -46,7 +46,7 @@ Runtime image: `${PROJECT_NAME}-backup:local`. Compose builds it from the digest
 
 - The base's PostgreSQL major must be equal to or higher than the `supabase-db` server (17.x). Otherwise `pg_dump` aborts on the server-version mismatch.
 - The Dockerfile applies Alpine's published package updates at build time, because the pinned base lags them and the final-image scan gate reports that. It then installs the exact package `openssl=3.5.9-r0`.
-- The image also contains the checksum-pinned MinIO client `mc` `RELEASE.2026-09-16T00-00-00Z` from the maintained [pgsty/mc](https://github.com/pgsty/mc) fork. §4 (**Client binaries**) describes how the entrypoint verifies it.
+- The image also contains the checksum-pinned Silo client `mc` `RELEASE.2026-09-16T00-00-00Z` from the maintained [pgsty/mc](https://github.com/pgsty/mc) fork. §4 (**Client binaries**) describes how the entrypoint verifies it.
 - The runner never mounts the live Neo4j or Weaviate data volumes.
 
 Scripts live under `services/backup/init/scripts/`:
@@ -94,7 +94,7 @@ The backup runner has no published port and no Kong route. You start it through 
 | Path | URL | Notes |
 |---|---|---|
 | Trigger | `services/backup/run-consistent-backup.sh` | Quiesces Neo4j, restores its prior state, then runs `backup-all.sh`. |
-| Bucket (MinIO) | `http://localhost:${MINIO_CONSOLE_PORT}` | Browse backups in the MinIO console. |
+| Bucket (Silo) | `http://localhost:${SILO_CONSOLE_PORT}` | Browse backups in the Silo console. |
 
 ## 3. Configuration
 
@@ -102,7 +102,7 @@ The backup runner has no published port and no Kong route. You start it through 
 BACKUP_SOURCE=disabled          # set to container to enable
 BACKUP_BUCKET=atlas-backups     # target bucket
 BACKUP_S3_MODE=local            # local or external credential/dependency boundary
-BACKUP_S3_ENDPOINT=http://minio:9000 # absolute HTTP(S) S3 origin
+BACKUP_S3_ENDPOINT=http://silo:9000 # absolute HTTP(S) S3 origin
 BACKUP_S3_ACCESS_KEY=           # dedicated access key; required in external mode
 BACKUP_S3_SECRET_KEY=           # dedicated secret key; required in external mode
 BACKUP_S3_REGION=us-east-1      # signing and bucket-creation region
@@ -128,20 +128,20 @@ Set `BACKUP_SOURCE=container` to allow on-demand runs. `BACKUP_SCALE` stays zero
 
 **Local S3 mode.** `BACKUP_S3_MODE=local` is the safe default.
 
-- It requires the exact internal origin `http://minio:9000`. An endpoint override therefore cannot send on-stack MinIO root credentials to a remote host.
+- It requires the exact internal origin `http://silo:9000`. An endpoint override therefore cannot send on-stack Silo root credentials to a remote host.
 - Set the dedicated `BACKUP_S3_ACCESS_KEY` / `BACKUP_S3_SECRET_KEY` pair in new deployments, also in local mode.
-- Atlas does not create that MinIO account. Create it yourself, for example with `mc admin user add`, and put its keys in `.env`.
+- Atlas does not create that Silo account. Create it yourself, for example with `mc admin user add`, and put its keys in `.env`.
 - Its policy must allow `s3:CreateBucket`, `s3:ListBucket`, `s3:GetObject`, `s3:PutObject` and `s3:DeleteObject` on the backup bucket. The runner issues `mc mb --ignore-existing` before it uploads.
-- A key that MinIO does not know fails the run at bucket creation.
-- For upgrade compatibility only, local mode uses `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` when both dedicated values are empty. A partial pair fails closed. A session token requires the dedicated pair.
+- A key that Silo does not know fails the run at bucket creation.
+- For upgrade compatibility only, local mode uses `SILO_ROOT_USER` / `SILO_ROOT_PASSWORD` when both dedicated values are empty. A partial pair fails closed. A session token requires the dedicated pair.
 
 **External S3 mode.** For AWS S3 or another offsite S3-compatible service:
 
 - Set `BACKUP_S3_MODE=external`, the provider's origin (for example `https://s3.us-east-1.amazonaws.com`), and dedicated `BACKUP_S3_ACCESS_KEY` / `BACKUP_S3_SECRET_KEY` values.
-- `BACKUP_S3_SESSION_TOKEN` is optional, for temporary credentials. External mode never reads `MINIO_ROOT_*`.
-- If no other selected service needs on-stack MinIO, also select `MINIO_SOURCE=disabled`. The synthesizer then renders `minio` and `minio-init` at zero replicas, and the backup runner stays available.
-- Startup validation rejects `BACKUP_S3_MODE=local` with disabled MinIO before Compose launch. External mode allows that combination.
-- `BACKUP_S3_MODE` does not change the global MinIO source, because other enabled services can still depend on it.
+- `BACKUP_S3_SESSION_TOKEN` is optional, for temporary credentials. External mode never reads `SILO_ROOT_*`.
+- If no other selected service needs on-stack Silo, also select `SILO_SOURCE=disabled`. The synthesizer then renders `silo` and `silo-init` at zero replicas, and the backup runner stays available.
+- Startup validation rejects `BACKUP_S3_MODE=local` with disabled Silo before Compose launch. External mode allows that combination.
+- `BACKUP_S3_MODE` does not change the global Silo source, because other enabled services can still depend on it.
 
 **Endpoint, region and credential syntax.** Startup rejects a value that breaks these rules:
 
@@ -158,7 +158,7 @@ Set `BACKUP_SOURCE=container` to allow on-demand runs. `BACKUP_SCALE` stays zero
 
 The client imports credentials through a private per-run `0600` configuration file and removes the source at once. It deletes the client configuration on success, error or signal. Raw S3 credentials never go into command arguments.
 
-**Legacy alias.** `BACKUP_S3_ALIAS_URL` is still accepted as a deprecated migration aid, but only when `BACKUP_S3_ENDPOINT` keeps its default. Move the value to `BACKUP_S3_ENDPOINT` and set the mode explicitly. Conflicting values fail. A remote legacy alias still requires `BACKUP_S3_MODE=external` and dedicated credentials, so it cannot redirect local MinIO root credentials.
+**Legacy alias.** `BACKUP_S3_ALIAS_URL` is still accepted as a deprecated migration aid, but only when `BACKUP_S3_ENDPOINT` keeps its default. Move the value to `BACKUP_S3_ENDPOINT` and set the mode explicitly. Conflicting values fail. A remote legacy alias still requires `BACKUP_S3_MODE=external` and dedicated credentials, so it cannot redirect local Silo root credentials.
 
 **Deadlines.** Each value is a canonical positive decimal integer, with no leading zeroes.
 
@@ -343,7 +343,7 @@ Arbitrary authenticated archives generally require superuser-equivalent restore 
 - Postgres data lives in `supabase-db-data`, but the runner captures it with `pg_dump`, not a volume tar, so the dump is logically consistent.
 - Only `SUPABASE_DB_NAME` is dumped. The per-service databases on the same server are not. Their default names are `litellm`, `airflow`, `langfuse`, `trueforge`, `mlflow`, `label_studio`, `iceberg` and `supavisor`.
 - LightRAG's full documents, chunks, LLM cache and document status live in Redis db 2, which is not backed up. A restored LightRAG has its Neo4j graph and Postgres vectors but not the content they point to. Re-ingesting duplicates graph content.
-- In local mode the artifacts live in this project's MinIO volume, which `./stop.sh --cold` deletes. Copy them off the host, or use external mode, before a reset.
+- In local mode the artifacts live in this project's Silo volume, which `./stop.sh --cold` deletes. Copy them off the host, or use external mode, before a reset.
 
 **Compose scope.** The host entry points (`run-consistent-backup.sh`, `run-database-restore.sh`) scope every `docker compose` call to `PROJECT_NAME` and this checkout's `docker-compose.yml`. They set `COMPOSE_PROJECT_NAME` / `COMPOSE_FILE` unless you set them. They therefore work from cron, a worktree or a consumer submodule. A bare `docker compose` there would name the project after the working directory and mistake running databases for stopped ones.
 
@@ -351,7 +351,7 @@ Arbitrary authenticated archives generally require superuser-equivalent restore 
 
 **PostgreSQL versions.** Restore reads PostgreSQL 17 target catalogs, including libc, ICU and builtin locale-provider metadata. Backups from older supported server majors can restore into PostgreSQL 17. A backup from a newer major is rejected.
 
-**Client binaries.** `init/Dockerfile` copies `/usr/bin/mc` from `pgsty/mc:RELEASE.2026-09-16T00-00-00Z@sha256:cfc83108c3abb371f8fb84d99c1fdc88f8c237e022409b0081fb7c0a3be634dd` to `/usr/local/bin/mc`. `minio-init` runs the same image. Backup and restore never download a client.
+**Client binaries.** `init/Dockerfile` copies `/usr/bin/mc` from `pgsty/mc:RELEASE.2026-09-16T00-00-00Z@sha256:cfc83108c3abb371f8fb84d99c1fdc88f8c237e022409b0081fb7c0a3be634dd` to `/usr/local/bin/mc`. `silo-init` runs the same image. Backup and restore never download a client.
 
 - The shared entrypoint (`init/scripts/entrypoint.sh`) accepts only amd64 or arm64. It verifies the architecture-specific SHA-256 of the binary and `mc --version`, and fails closed.
 - A missing `mc` exits 69. A checksum or version mismatch exits 65.
@@ -359,9 +359,9 @@ Arbitrary authenticated archives generally require superuser-equivalent restore 
 - The Dockerfile installs exact `openssl=3.5.9-r1` while it builds `${PROJECT_NAME}-backup:local`. Backup and restore never resolve OpenSSL from a package repository at runtime. The entrypoint fails clearly if the built-image invariant is broken.
 - The entrypoint and target are invoked via `sh`, so the bind-mounted scripts (read-only, mode 0644) need no executable bit.
 
-**CI.** CI builds `atlas-backup:local` from the same digest-pinned Postgres base and pulls the pinned MinIO server and client images. It runs the built image's real entrypoint checksum and version check of its baked `mc` against isolated tmpfs S3 on an internal network. Local test runs stay offline-safe: the production-image test is skipped unless `ATLAS_BACKUP_PRODUCTION_IMAGE_INTEGRATION=1`. An opted-in run fails, rather than skipping, when an exact image is absent.
+**CI.** CI builds `atlas-backup:local` from the same digest-pinned Postgres base and pulls the pinned Silo server and client images. It runs the built image's real entrypoint checksum and version check of its baked `mc` against isolated tmpfs S3 on an internal network. Local test runs stay offline-safe: the production-image test is skipped unless `ATLAS_BACKUP_PRODUCTION_IMAGE_INTEGRATION=1`. An opted-in run fails, rather than skipping, when an exact image is absent.
 
-**Network.** Attached to `backend-network` only — reaches `supabase-db:5432` and, in local mode, `minio:9000` via Docker DNS. External mode reaches the configured S3 origin without a Compose `depends_on` edge to MinIO.
+**Network.** Attached to `backend-network` only — reaches `supabase-db:5432` and, in local mode, `silo:9000` via Docker DNS. External mode reaches the configured S3 origin without a Compose `depends_on` edge to Silo.
 
 ## 5. Capabilities & limitations
 
@@ -372,7 +372,7 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
-| On-demand Postgres and consistency-safe snapshot export | supported | documented | The orchestrated runner creates a snapshot-consistent PostgreSQL custom-format dump, an offline Neo4j Community dump, and a native online Weaviate snapshot. Deployment-key-authenticated manifests cover these three. It also archives Supabase Storage, outside the signed manifest and with no restore procedure yet. It uploads everything to constrained on-stack MinIO or external S3. |
+| On-demand Postgres and consistency-safe snapshot export | supported | documented | The orchestrated runner creates a snapshot-consistent PostgreSQL custom-format dump, an offline Neo4j Community dump, and a native online Weaviate snapshot. Deployment-key-authenticated manifests cover these three. It also archives Supabase Storage, outside the signed manifest and with no restore procedure yet. It uploads everything to constrained on-stack Silo or external S3. |
 | Postgres restore workflow | partial | tested | The tested PostgreSQL workflow fail-closes on missing, unauthenticated, or mismatched deployment/identity/integrity inventories. It preserves target database attributes, ACLs, and settings. It restores and validates a temporary database, then performs a recoverable maintenance-mode cutover that retains the original. Supabase Storage volume archives still have no restore workflow. |
 | Consistent Neo4j and Weaviate backup/restore | supported | tested | The host orchestrator captures Neo4j Community 5.26.31 offline and restores both databases into a disposable exact-version stage. For Weaviate 1.38.17 it uses the native online backup and an isolated exact-version restore stage. Snapshots from the previous pins (Neo4j 5.26.30, Weaviate 1.38.13) stay restorable. Live cutover is quiesced, copy-based, query-validated, and protected by retained rollback volumes. |
 | Scheduled and remote retention | partial | documented | Atlas has no scheduler and does not delete S3 objects. Bounded local native-snapshot and rollback-volume retention runs only after successful publication or cutover. Operators provide scheduling and an S3 lifecycle. |
@@ -385,17 +385,17 @@ The `atlas_compose` commands below use the Compose helper from [Troubleshooting]
 
 - The usual cause is a `backup` image built before the client was baked in. Backup and restore runs reuse the existing local image and do not rebuild it.
 - Otherwise the image was built from a modified Dockerfile or an overridden `MC_IMAGE`.
-- Do not bypass verification or substitute Alpine's mutable `minio-client` package. Rebuild from the committed Dockerfile (`atlas_compose build backup`), check the architecture, and retry.
+- Do not bypass verification or substitute Alpine's mutable `silo-client` package. Rebuild from the committed Dockerfile (`atlas_compose build backup`), check the architecture, and retry.
 
-**`Backup local S3 mode requires MINIO_SOURCE to be enabled`**. Either enable on-stack MinIO for local mode, or explicitly select `BACKUP_S3_MODE=external` and provide dedicated external credentials before disabling MinIO.
+**`Backup local S3 mode requires SILO_SOURCE to be enabled`**. Either enable on-stack Silo for local mode, or explicitly select `BACKUP_S3_MODE=external` and provide dedicated external credentials before disabling Silo.
 
 **`pg_dump: connection refused`.** `supabase-db` is not healthy. Check `atlas_compose ps supabase-db` and wait for the health check to pass before running the backup.
 
-**`ERROR: bucket does not exist`.** The bucket is auto-created by the script (`mc mb --ignore-existing`). In local mode, check `atlas_compose ps minio`. In external mode, verify the endpoint, region, dedicated credentials, bucket-creation permission, and provider network policy.
+**`ERROR: bucket does not exist`.** The bucket is auto-created by the script (`mc mb --ignore-existing`). In local mode, check `atlas_compose ps silo`. In external mode, verify the endpoint, region, dedicated credentials, bucket-creation permission, and provider network policy.
 
-**`BACKUP_S3_ACCESS_KEY and BACKUP_S3_SECRET_KEY are required for external endpoints`.** External mode never falls back to `MINIO_ROOT_*`. Supply a dedicated pair and, when using temporary credentials, the matching session token.
+**`BACKUP_S3_ACCESS_KEY and BACKUP_S3_SECRET_KEY are required for external endpoints`.** External mode never falls back to `SILO_ROOT_*`. Supply a dedicated pair and, when using temporary credentials, the matching session token.
 
-**`BACKUP_S3_MODE=local requires BACKUP_S3_ENDPOINT=http://minio:9000`.** Select `external` before configuring any remote origin. This is a fail-closed credential boundary, not a connectivity error.
+**`BACKUP_S3_MODE=local requires BACKUP_S3_ENDPOINT=http://silo:9000`.** Select `external` before configuring any remote origin. This is a fail-closed credential boundary, not a connectivity error.
 
 **`Neo4j offline snapshot is missing`.** Run `services/backup/run-consistent-backup.sh`, not the container command directly. The wrapper is the bounded stop/dump/restart boundary; the runner refuses to tar a live graph volume.
 
@@ -421,8 +421,8 @@ For general startup and routing issues, see [Troubleshooting](../../docs/quick-s
 
 | Service | Category | Status |
 |---|---|---|
-| minio | data | current |
 | neo4j | data | current |
+| silo | data | current |
 | supabase | data | optional: BACKUP_SOURCE=container; runs on demand, not resident |
 | weaviate | data | current |
 

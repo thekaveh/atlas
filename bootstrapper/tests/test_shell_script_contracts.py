@@ -218,7 +218,7 @@ def test_n8n_custom_node_set_survives_an_offline_restart(tmp_path) -> None:
 
 
 def test_airflow_init_keeps_operator_connections_for_localhost_sources(tmp_path) -> None:
-    """The orphan pass deleted spark/minio/weaviate/neo4j_default on every
+    """The orphan pass deleted spark/silo/weaviate/neo4j_default on every
     start, including the ones an operator made for a localhost source."""
     import os
     import subprocess
@@ -239,10 +239,10 @@ def test_airflow_init_keeps_operator_connections_for_localhost_sources(tmp_path)
     )
     (bin_dir / "airflow").chmod(0o755)
     env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "SPARK_SOURCE": "disabled",
-           "MINIO_SOURCE": "container", "WEAVIATE_SOURCE": "localhost", "NEO4J_GRAPH_DB_SOURCE": "localhost"}
+           "SILO_SOURCE": "container", "WEAVIATE_SOURCE": "localhost", "NEO4J_GRAPH_DB_SOURCE": "localhost"}
     subprocess.run(["sh", "-c", loop], env=env, check=True)
     calls = (tmp_path / "calls").read_text()
-    assert "delete spark_default" in calls and "delete minio_default" in calls
+    assert "delete spark_default" in calls and "delete silo_default" in calls
     assert "delete weaviate_default" in calls  # stale seeded Connection removed
     assert "delete neo4j_default" not in calls  # operator's Connection kept
 

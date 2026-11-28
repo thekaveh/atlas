@@ -11,7 +11,7 @@ Services include:
 - LLM inference: Ollama, plus cloud-provider passthroughs through LiteLLM.
 - Chat UI: Open WebUI. Workflow and DAG automation: n8n, Airflow.
 - Vector and graph databases: Weaviate, Neo4j. Distributed compute: Ray, Spark.
-- Notebooks: JupyterHub, Zeppelin. Object storage: MinIO. Observability: Prometheus, Grafana.
+- Notebooks: JupyterHub, Zeppelin. Object storage: Silo. Observability: Prometheus, Grafana.
 
 Each service can run as a container, on localhost or be disabled, with CPU/GPU variants where the service supports them.
 
@@ -163,7 +163,7 @@ Key modules:
 - `services/env_assembler.py` — generates `.env.example` from manifests' env-var declarations + topology port defaults.
 - `services/source_validator.py` — SOURCE validation
 - `services/migrations/` — frozen, ordered env-file migrations. The chain
-  currently runs v1 through v5; [`start.py::run_port_migration`](bootstrapper/start.py)
+  currently runs v1 through v6; [`start.py::run_port_migration`](bootstrapper/start.py)
   is the source of truth for the complete sequence, gates, and current purpose
   of each version. Add a new versioned module instead of editing a migration
   that existing `.env` files may already have stamped.

@@ -199,7 +199,7 @@ def test_init_script_gates_each_sibling_connection():
     """
     body = SCRIPT.read_text(encoding="utf-8")
     assert 'if [ "${SPARK_SOURCE}" = "container" ]' in body
-    assert 'if [ "${MINIO_SOURCE}" = "container" ]' in body
+    assert 'if [ "${SILO_SOURCE}" = "container" ]' in body
     assert 'if [ "${WEAVIATE_SOURCE}" = "container" ]' in body
     assert 'if [ "${NEO4J_GRAPH_DB_SOURCE}" = "container" ]' in body
     # No conditional should reference the bogus NEO4J_SOURCE name.
@@ -228,8 +228,8 @@ def test_airflow_contract_discloses_unsandboxed_privileged_dag_execution():
     scheduler = yaml.safe_load(COMPOSE.read_text())["services"]["airflow-scheduler"]
 
     assert_contains(body, (
-        'os.environ["MINIO_SPARK_ACCESS_KEY"]',
-        'os.environ["MINIO_SPARK_SECRET_KEY"]',
+        'os.environ["SILO_SPARK_ACCESS_KEY"]',
+        'os.environ["SILO_SPARK_SECRET_KEY"]',
         "${LITELLM_MASTER_KEY}",
         "${AIRFLOW_ATLAS_DB_USER}",
         "${AIRFLOW_ATLAS_DB_PASSWORD}",
@@ -251,7 +251,7 @@ def test_airflow_contract_discloses_unsandboxed_privileged_dag_execution():
     ) == ("LocalExecutor", True, ("not-supported", "tested"))
     assert_contains(capability["note"], (
         "operator-authored DAGs execute unsandboxed",
-        "scoped MinIO spark pair",
+        "scoped Silo spark pair",
         "LiteLLM master",
         "Neo4j administrator",
         # The Supabase connection uses the scoped reader role (AIRFLOW_ATLAS_DB_USER).
@@ -319,8 +319,8 @@ def test_init_script_weaviate_default_uses_bare_host_and_grpc_extras():
     assert '"grpc_port": 50051' in body
 
 
-def test_init_script_minio_default_carries_path_style_addressing():
-    """MinIO doesn't do DNS-style addressing (bucket.minio:9000); boto3
+def test_init_script_silo_default_carries_path_style_addressing():
+    """Silo doesn't do DNS-style addressing (bucket.silo:9000); boto3
     defaults to virtual-hosted style. Any S3 op other than list_buckets
     fails DNS resolution without the addressing_style override. Mirrors
     spark.hadoop.fs.s3a.path.style.access=true on Spark's compose.
@@ -328,11 +328,11 @@ def test_init_script_minio_default_carries_path_style_addressing():
     body = SCRIPT.read_text(encoding="utf-8")
     # JSON keys appear escaped (\"...\") inside the bash add_conn argument.
     assert "addressing_style" in body and "path" in body, (
-        "minio_default extras must include S3 addressing_style=path or "
+        "silo_default extras must include S3 addressing_style=path or "
         "boto3 fails DNS on bucket-level operations."
     )
     assert "region_name" in body, (
-        "minio_default extras must set region_name to avoid NoRegionError "
+        "silo_default extras must set region_name to avoid NoRegionError "
         "on newer boto3 versions."
     )
 
@@ -368,7 +368,7 @@ def test_init_script_orphan_cleanup_pass_present():
     body = SCRIPT.read_text(encoding="utf-8")
     # Every source-gated Connection is in the cleanup pass, which skips a
     # localhost source (that Connection is the operator's).
-    for conn in ("spark_default", "minio_default", "weaviate_default", "neo4j_default"):
+    for conn in ("spark_default", "silo_default", "weaviate_default", "neo4j_default"):
         assert f'"{conn}:${{' in body, conn
     assert "*localhost*)" in body and 'seeded_host "$conn"' in body  # keeps operator-made ones
 
