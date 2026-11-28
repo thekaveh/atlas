@@ -75,6 +75,7 @@ The Atlas-owned scripts do this work:
 - Ensuring schemas `auth` and `storage` exist (`02-schemas.sql`)
 - Creating custom types for Supabase Auth / GoTrue (`03-auth-types.sql`)
 - GoTrue migration sync shim (`03b-gotrue-migration-sync.sql`)
+- GoTrue legacy migration tracker copy (`03c-gotrue-legacy-tracker.sql`): on volumes from before #991, copies GoTrue's history from `public.schema_migrations` into `auth.schema_migrations`
 - Setting up storage schema and tables (`04-storage.sql`)
 - Creating the scoped per-service logins, databases and grants (`05-scoped-roles.sh`; run after the SQL pass, before the `_user` scripts)
 - Granting appropriate permissions to standard roles (`06-permissions.sql`)
@@ -211,6 +212,7 @@ execute privilege is revoked from public API roles despite its required
 - **Token claims**: `GOTRUE_JWT_AUD` and `GOTRUE_JWT_DEFAULT_GROUP_NAME` are `authenticated`, so user tokens carry the `aud` and `role` the backend and PostgREST require. Users stored with an empty `aud` and `role` are repaired on the next start.
 - **Profile sync**: the `auth.users` → `public.users` sync runs as the no-login role `atlas_auth_sync`. Init statements that write another role's table run as that role, so code planted by that role never runs as the init superuser.
 - **Limits**: GoTrue's `SITE_URL` (`http://supabase-studio:3000`) and `API_EXTERNAL_URL` (`http://supabase-auth:9999`) are container-internal. SMTP points at a local relay that does not exist. Email confirmation, recovery, magic-link and OAuth redirect links therefore do not work from a browser; the stock defaults auto-confirm sign-ups instead.
+- **Migration tracker**: GoTrue v2.191.0 connects as `supabase_auth_admin` (search_path `auth`), so it records its migrations in `auth.schema_migrations`. Before #991 it connected as `supabase_admin`, whose search_path puts `public` first, and the history sits in `public.schema_migrations`. `03c-gotrue-legacy-tracker.sql` copies that history across once, before GoTrue starts (#1825). The version list is `services/supabase/db/gotrue-v2.191.0-migrations.txt`, and the live test `test_gotrue_tracked_list_matches_the_pinned_image` (run with `ATLAS_GOTRUE_TRACKER_LIVE=1`) checks it against the pinned image. A GoTrue pin bump needs that list regenerated.
 
 ### 4.3. Storage Service
 
