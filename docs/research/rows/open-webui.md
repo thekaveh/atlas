@@ -32,11 +32,11 @@ sources_consulted:
   - Risks / open questions: JupyterHub spawns per-user servers — Open WebUI needs a service-account token or a single-user fallback; kernel lifecycle and quota management.
   - Confidence: high (Jupyter engine documented in Open WebUI env reference — https://docs.openwebui.com/).
 
-- **open-webui ↔ minio**
-  - Why valuable: Chat file uploads, generated images, and TTS audio currently live in the `open-web-ui-data` Docker volume — losing them on `--cold`. Open WebUI supports S3 storage natively, and MinIO is already in the stack.
-  - Mechanism sketch: `STORAGE_PROVIDER=s3`, `S3_ENDPOINT_URL=http://minio:9000`, `S3_BUCKET_NAME=openwebui`, `S3_ACCESS_KEY_ID=${MINIO_ROOT_USER}`, `S3_SECRET_ACCESS_KEY=${MINIO_ROOT_PASSWORD}`; add a `mc mb` step to the MinIO init.
+- **open-webui ↔ silo**
+  - Why valuable: Chat file uploads, generated images, and TTS audio currently live in the `open-web-ui-data` Docker volume — losing them on `--cold`. Open WebUI supports S3 storage natively, and Silo is already in the stack.
+  - Mechanism sketch: `STORAGE_PROVIDER=s3`, `S3_ENDPOINT_URL=http://silo:9000`, `S3_BUCKET_NAME=openwebui`, `S3_ACCESS_KEY_ID=${SILO_ROOT_USER}`, `S3_SECRET_ACCESS_KEY=${SILO_ROOT_PASSWORD}`; add a `mc mb` step to the Silo init.
   - Effort: small
-  - Risks / open questions: bucket lifecycle/quotas; signed-URL behaviour behind Kong; path-style addressing for MinIO.
+  - Risks / open questions: bucket lifecycle/quotas; signed-URL behaviour behind Kong; path-style addressing for Silo.
   - Confidence: high (S3 storage provider is a documented Open WebUI feature).
 
 - **open-webui ↔ n8n**

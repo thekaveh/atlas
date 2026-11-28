@@ -9,7 +9,7 @@ capabilities:
     status: supported
     verification: tested
     note: "Atlas starts the Label Studio UI/API with a dedicated Postgres role and initial administrator for operator-created labeling projects."
-  - name: "Scoped MinIO project storage"
+  - name: "Scoped Silo project storage"
     status: partial
     verification: tested
     note: "Atlas provisions a dedicated bucket and credentials, but each project must still configure its own import or export storage connection in Label Studio."
@@ -24,7 +24,7 @@ capabilities:
   - name: "Annotation service high availability"
     status: not-supported
     verification: documented
-    note: "Postgres and MinIO preserve metadata and assets. Atlas runs one Label Studio replica and one local data volume, without a tested backup or failover workflow."
+    note: "Postgres and Silo preserve metadata and assets. Atlas runs one Label Studio replica and one local data volume, without a tested backup or failover workflow."
 
 containers:
   - label-studio-init
@@ -49,7 +49,7 @@ sources:
 
 env:
   - name: LABEL_STUDIO_SOURCE
-    description: "Deployment source for Label Studio: container or disabled. The container source requires MINIO_SOURCE to be enabled."
+    description: "Deployment source for Label Studio: container or disabled. The container source requires SILO_SOURCE to be enabled."
     default: disabled
   - name: LABEL_STUDIO_PORT
     description: "Host port for the Label Studio UI/API (in-container 8080)."
@@ -94,7 +94,7 @@ env:
 depends_on:
   required:
     - supabase
-    - minio
+    - silo
   optional:
     - jupyterhub
     - mlflow
@@ -138,7 +138,7 @@ runtime_sc:
 data_flow:
   calls:
     - supabase
-    - minio
+    - silo
 
 # Support tier (#1050). Selectable is not validated: this family is `experimental`
 # until a cited cold-start, workflow, and upgrade qualification run promotes it.

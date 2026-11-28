@@ -297,22 +297,22 @@ def test_final_wizard_sources_are_probed_without_replaying_consumer_values(owned
     assert s.setup_env_file(False)
     before = s.config_parser.env_file_path.read_bytes()
     options = {"base_port": 20000, "base_port_intent": "inherited", "project_name": "consumer-b"}
-    s.resolve_wizard_base_port({"minio_source": "container"}, options)
+    s.resolve_wizard_base_port({"silo_source": "container"}, options)
     assert options["base_port"] == 21000
-    assert s.allocations[-1] == {"source_overrides": {"MINIO_SOURCE": "container"}}
+    assert s.allocations[-1] == {"source_overrides": {"SILO_SOURCE": "container"}}
     assert s.config_parser.env_file_path.read_bytes() == before
 
 
 def test_launch_preview_retains_an_explicit_localhost_port():
     from ui.textual.widgets.prompt_panel import SecondaryNumberInput
-    row = NS(name="MinIO", port="9000")
+    row = NS(name="Silo", port="9000")
     option = PromptOption(value="localhost", label="Host", secondary_number=SecondaryNumberInput(
-        env_var="MINIO_LOCALHOST_PORT", default_value=9000, number_min=1024, number_max=65535))
-    step = PromptStep(title="MinIO source", heading="Source?", step_index=1, step_total=1,
-                      service_name="MinIO", options=[option])
+        env_var="SILO_LOCALHOST_PORT", default_value=9000, number_min=1024, number_max=65535))
+    step = PromptStep(title="Silo source", heading="Source?", step_index=1, step_total=1,
+                      service_name="Silo", options=[option])
     screen = NS(_services=[row], _steps=[step], _selections={
-        "MinIO source": "localhost", "__secondary__:MINIO_LOCALHOST_PORT": "29999"},
-        _on_base_port_change=lambda base, rows: [NS(name="MinIO", port="9000")],
+        "Silo source": "localhost", "__secondary__:SILO_LOCALHOST_PORT": "29999"},
+        _on_base_port_change=lambda base, rows: [NS(name="Silo", port="9000")],
         _service_table=NS(set_rows=lambda *a: None), _refresh_info_panel=lambda: None)
     screen._typed_host_port = MethodType(ws.WizardScreen._typed_host_port, screen)
     screen._reapply_typed_host_ports = MethodType(ws.WizardScreen._reapply_typed_host_ports, screen)

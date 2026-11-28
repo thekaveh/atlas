@@ -13,7 +13,7 @@ capabilities:
   - name: "Spark Connect and history services"
     status: supported
     verification: tested
-    note: "A health-checked backend-only Spark Connect sidecar serves remote sessions while the history server reads event logs from a provisioned MinIO bucket."
+    note: "A health-checked backend-only Spark Connect sidecar serves remote sessions while the history server reads event logs from a provisioned Silo bucket."
   - name: "Iceberg and Kafka data paths"
     status: partial
     verification: tested
@@ -94,7 +94,7 @@ env:
 
 depends_on:
   required:
-    - minio
+    - silo
   optional:
     - supabase
     - iceberg-rest
@@ -146,10 +146,10 @@ runtime_sc:
     container:
       scale: 2   # overridden by SPARK_WORKER_COUNT via auto_managed SPARK_WORKER_SCALE
       environment:
-        AWS_ACCESS_KEY_ID: ${MINIO_SPARK_ACCESS_KEY}
-        AWS_SECRET_ACCESS_KEY: ${MINIO_SPARK_SECRET_KEY}
-        AWS_REGION: ${MINIO_REGION:-us-east-1}
-        AWS_ENDPOINT_URL_S3: http://minio:9000
+        AWS_ACCESS_KEY_ID: ${SILO_SPARK_ACCESS_KEY}
+        AWS_SECRET_ACCESS_KEY: ${SILO_SPARK_SECRET_KEY}
+        AWS_REGION: ${SILO_REGION:-us-east-1}
+        AWS_ENDPOINT_URL_S3: http://silo:9000
         SPARK_KAFKA_BOOTSTRAP_SERVERS: ${SPARK_KAFKA_BOOTSTRAP_SERVERS:-}
       deploy: {}
       extra_hosts: []
@@ -162,15 +162,15 @@ runtime_sc:
     container:
       scale: 1
       environment:
-        AWS_ACCESS_KEY_ID: ${MINIO_SPARK_ACCESS_KEY}
-        AWS_SECRET_ACCESS_KEY: ${MINIO_SPARK_SECRET_KEY}
+        AWS_ACCESS_KEY_ID: ${SILO_SPARK_ACCESS_KEY}
+        AWS_SECRET_ACCESS_KEY: ${SILO_SPARK_SECRET_KEY}
         SPARK_KAFKA_BOOTSTRAP_SERVERS: ${SPARK_KAFKA_BOOTSTRAP_SERVERS:-}
         SPARK_HISTORY_OPTS: >-
-          -Dspark.history.fs.logDirectory=s3a://${MINIO_BUCKET_SPARK_HISTORY:-spark-history}/
-          -Dspark.hadoop.fs.s3a.endpoint=http://minio:9000
+          -Dspark.history.fs.logDirectory=s3a://${SILO_BUCKET_SPARK_HISTORY:-spark-history}/
+          -Dspark.hadoop.fs.s3a.endpoint=http://silo:9000
           -Dspark.hadoop.fs.s3a.aws.credentials.provider=software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider
           -Dspark.hadoop.fs.s3a.path.style.access=true
-          -Dspark.hadoop.fs.s3a.endpoint.region=${MINIO_REGION:-us-east-1}
+          -Dspark.hadoop.fs.s3a.endpoint.region=${SILO_REGION:-us-east-1}
       deploy: {}
       extra_hosts: []
     disabled:
@@ -186,8 +186,8 @@ runtime_sc:
     container:
       scale: 1
       environment:
-        AWS_ACCESS_KEY_ID: ${MINIO_SPARK_ACCESS_KEY}
-        AWS_SECRET_ACCESS_KEY: ${MINIO_SPARK_SECRET_KEY}
+        AWS_ACCESS_KEY_ID: ${SILO_SPARK_ACCESS_KEY}
+        AWS_SECRET_ACCESS_KEY: ${SILO_SPARK_SECRET_KEY}
         SPARK_KAFKA_BOOTSTRAP_SERVERS: ${SPARK_KAFKA_BOOTSTRAP_SERVERS:-}
       deploy: {}
       extra_hosts: []
@@ -207,7 +207,7 @@ data_flow:
   # user-driven, not part of the runtime topology (same rule as
   # zeppelin's litellm exclusion).
   calls:
-    - minio      # s3a:// history + user data
+    - silo      # s3a:// history + user data
     - iceberg-rest  # lakehouse REST catalog when enabled
     - redpanda  # optional Kafka API broker for Structured Streaming jobs
 

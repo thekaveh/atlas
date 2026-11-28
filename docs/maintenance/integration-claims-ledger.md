@@ -96,8 +96,8 @@ edits move lines without invalidating a verdict.
 | Edge | Caller manifest line | Call site (kind) | Address variable | Receiving API | SOURCE variants | Status | Verdict | Notes |
 |---|---|---|---|---|---|---|---|---|
 | `airflow → supabase` | `services/airflow/service.yml:348` | `services/airflow/init/scripts/init-airflow.sh:17` psql, `:21` `airflow db migrate` (init code); metadata DSN (loaded config) | `AIRFLOW__DATABASE__SQL_ALCHEMY_CONN` at `services/airflow/compose.yml:20` | Postgres wire protocol on supabase-db:5432, databases `airflow` and `${SUPABASE_DB_NAME}` | `AIRFLOW_SOURCE=container` (`services/airflow/service.yml:43-50`); Supabase always on | current | unconfirmed | Init-time call only; the runtime connection is made inside the upstream image from its SQLAlchemy DSN. The seeded `postgres_supabase` Connection is unused by vendored DAGs |
-| `asset-baker → minio` | `services/asset-baker/service.yml:168` | `services/asset-baker/app/asset_baker/storage.py:30` `get_object`, `:58` `put_object` (code) | `ASSET_BAKER_MINIO_ENDPOINT` at `services/asset-baker/compose.yml:31` | S3 API on minio:9000 (GetObject/PutObject) | `ASSET_BAKER_SOURCE=container-cpu`; MinIO required (`services/asset-baker/service.yml:109-111`) | current | confirmed | Writes gated by `ASSET_BAKER_MINIO_ENABLED` (default true) |
-| `asset-worker → minio` | `services/asset-worker/service.yml:148` | `services/asset-worker/app/asset_worker/storage.py:27` `get_object`, `:53` `put_object` (code) | `ASSET_WORKER_MINIO_ENDPOINT` at `services/asset-worker/compose.yml:29` | S3 API on minio:9000 (GetObject/PutObject) | `ASSET_WORKER_SOURCE=container`; MinIO required (`services/asset-worker/service.yml:93-95`) | current | confirmed | Writes gated by `ASSET_WORKER_MINIO_ENABLED` (default true) |
+| `asset-baker → silo` | `services/asset-baker/service.yml:168` | `services/asset-baker/app/asset_baker/storage.py:30` `get_object`, `:58` `put_object` (code) | `ASSET_BAKER_SILO_ENDPOINT` at `services/asset-baker/compose.yml:31` | S3 API on silo:9000 (GetObject/PutObject) | `ASSET_BAKER_SOURCE=container-cpu`; Silo required (`services/asset-baker/service.yml:109-111`) | current | confirmed | Writes gated by `ASSET_BAKER_SILO_ENABLED` (default true) |
+| `asset-worker → silo` | `services/asset-worker/service.yml:148` | `services/asset-worker/app/asset_worker/storage.py:27` `get_object`, `:53` `put_object` (code) | `ASSET_WORKER_SILO_ENDPOINT` at `services/asset-worker/compose.yml:29` | S3 API on silo:9000 (GetObject/PutObject) | `ASSET_WORKER_SOURCE=container`; Silo required (`services/asset-worker/service.yml:93-95`) | current | confirmed | Writes gated by `ASSET_WORKER_SILO_ENABLED` (default true) |
 | `backend → supabase` | `services/backend/service.yml:364` | `services/backend/app/app/db_connection.py:147` `asyncpg.create_pool` (code); Storage client via Kong at `main.py:508-511` | `DATABASE_URL` at `services/backend/compose.yml:82` (from `SUPAVISOR_DATABASE_URL`, `bootstrapper/services/service_config.py:1420-1442`); `KONG_URL` at `:38` | Postgres wire protocol on supabase-db:5432; HTTP `/storage/v1/*` via Kong | Both container-only; Postgres via supavisor:6543 when `SUPAVISOR_SOURCE` is enabled | current | confirmed | Storage leg is backend → kong → supabase |
 | `backend → neo4j` | `services/backend/service.yml:387` (removed by this pass, §2.2; restored as `planned` by #1273) | none found: no Bolt connection in backend code; `services/backend/app/app/graphiti_experiment.py:102` only reads `NEO4J_URI` to report configuration | `NEO4J_URI` at `services/backend/compose.yml:88` | Would be Bolt on neo4j-graph-db:7687; never opened | `NEO4J_URI` injected unconditionally; Neo4j optional in runtime_deps (`services/backend/service.yml:351`) | future | incorrect | Manifest marks the capability stubbed (`service.yml:28-31`); README lists it as future work |
 | `backup → supabase` | `services/backup/service.yml:161` | `services/backup/init/scripts/backup-all.sh:234` `pg_dump -h supabase-db` (script) | Host literal `supabase-db`; credentials at `services/backup/compose.yml:32-34` | Postgres wire protocol on supabase-db:5432 | `BACKUP_SOURCE=container`; scale 0, runs on demand only (`services/backup/service.yml:136`) | optional | confirmed | On-demand runner, not a resident caller |
@@ -106,8 +106,8 @@ edits move lines without invalidating a verdict.
 | `docling-lightrag-adapter → docling` | `services/docling-lightrag-adapter/service.yml:40` | `services/docling/provider/adapter/upstream.py:58-64` httpx POST (code) | `DOCLING_ADAPTER_UPSTREAM_ENDPOINT` at `services/docling/compose.yml:83` (from `bootstrapper/services/service_config.py:753-762`) | HTTP POST `/internal/lightrag/bundle` on docling-gpu:8000 or host Docling | `LIGHTRAG_SOURCE=container` and `DOC_PROCESSOR_SOURCE` in `docling-container-gpu`/`docling-localhost` | optional | confirmed | Virtual manifest; container in `services/docling/compose.yml:71` |
 | `grafana → prometheus` | `services/grafana/service.yml:106` | `services/grafana/config/provisioning/datasources/prometheus.yml:12` `url: ${PROMETHEUS_ENDPOINT}` (loaded datasource config) | `PROMETHEUS_ENDPOINT` at `services/grafana/compose.yml:15` | Prometheus HTTP query API on prometheus:9090 | Both `container` (both default disabled); hard depends_on prometheus | current | confirmed | Proxy-mode datasource; compose fallback re-adds URL when Prometheus disabled |
 | `hermes → litellm` | `services/hermes/service.yml:254` | `services/hermes/init/templates/config.yaml.tmpl:19` `base_url: http://litellm:4000/v1` (config the image loads); init curl `services/hermes/init/scripts/init-hermes.sh:95-99` | Hardcoded in template; hermes-init `LITELLM_BASE_URL` at `services/hermes/compose.yml:27` | HTTP POST `/v1/chat/completions`, GET `/v1/models` on litellm:4000 | HERMES `container` (Atlas renders the config; `localhost` at `services/hermes/service.yml:66` is operator-configured); LiteLLM always on | current | confirmed | Init + runtime callers |
-| `iceberg-rest → minio` | `services/iceberg-rest/service.yml:114` | Compose env only: `CATALOG_IO__IMPL=S3FileIO` and `CATALOG_S3_ENDPOINT` at `services/iceberg-rest/compose.yml:31-32`, read by the unvendored `apache/iceberg-rest-fixture` image | `CATALOG_S3_ENDPOINT` at `services/iceberg-rest/compose.yml:32` | S3 API on minio:9000, bucket `s3://lakehouse/` | ICEBERG_REST `container` requires MINIO `container` (`service_config.py:1536-1543`) | current | unconfirmed | FileIO settings are explicit, but the S3 calls happen inside the upstream image |
-| `jenkins → minio` | `services/jenkins/service.yml:110` | none found in shipped code; sample Jenkinsfile `mc cp` at `services/jenkins/README.md:44-45` | `MINIO_ENDPOINT` at `services/jenkins/compose.yml:23` | S3 API (`mc cp`) on minio:9000, jars bucket | JENKINS `container` requires MINIO `container` (`service_config.py:1063-1069`) | optional | unconfirmed | Only env, creds and `mc` binary ship; no job does the upload |
+| `iceberg-rest → silo` | `services/iceberg-rest/service.yml:114` | Compose env only: `CATALOG_IO__IMPL=S3FileIO` and `CATALOG_S3_ENDPOINT` at `services/iceberg-rest/compose.yml:31-32`, read by the unvendored `apache/iceberg-rest-fixture` image | `CATALOG_S3_ENDPOINT` at `services/iceberg-rest/compose.yml:32` | S3 API on silo:9000, bucket `s3://lakehouse/` | ICEBERG_REST `container` requires SILO `container` (`service_config.py:1536-1543`) | current | unconfirmed | FileIO settings are explicit, but the S3 calls happen inside the upstream image |
+| `jenkins → silo` | `services/jenkins/service.yml:110` | none found in shipped code; sample Jenkinsfile `mc cp` at `services/jenkins/README.md:44-45` | `SILO_ENDPOINT` at `services/jenkins/compose.yml:23` | S3 API (`mc cp`) on silo:9000, jars bucket | JENKINS `container` requires SILO `container` (`service_config.py:1063-1069`) | optional | unconfirmed | Only env, creds and `mc` binary ship; no job does the upload |
 | `jupyterhub → litellm` | `services/jupyterhub/service.yml:198` | `services/jupyterhub/build/notebooks/01_litellm_basics.ipynb:30,78` (notebook code) | `LITELLM_BASE_URL` at `services/jupyterhub/compose.yml:38`; `build/scripts/startup.sh:35` writes it to `/home/jovyan/work/.env` as `OPENAI_API_BASE`, which notebooks read with `load_dotenv()` | HTTP `/v1/chat/completions`, `/v1/embeddings`, `/v1/models` on litellm:4000 | JUPYTERHUB `container` (default); LiteLLM always on | current | confirmed | Fires when a user runs a notebook |
 | `jupyterhub → mcp-servers` | `services/jupyterhub/service.yml:218` | `services/jupyterhub/build/notebooks/15_mcp_clients.ipynb:86,129` `Client(MCP_SERVERS_URL)` (notebook code) | `MCP_SERVERS_URL` at `services/jupyterhub/compose.yml:83` (resolved at `bootstrapper/services/service_config.py:2053`) | MCP Streamable HTTP `/mcp` on mcp-servers:8000 | JUPYTERHUB `container` + MCP_SERVERS `container` (default disabled); URL blank otherwise | optional | confirmed | — |
 | `kong → backend` | `services/kong/service.yml:92` | `bootstrapper/utils/kong_config_generator.py:1795-1802` service `backend-api` → `http://backend:8000/` (route generator) | none (hardcoded upstream); host `api.localhost` | HTTP any path on backend:8000 | Kong always on; BACKEND `container` only | current | confirmed | Proxy direction |
@@ -125,7 +125,7 @@ edits move lines without invalidating a verdict.
 | `openclaw → litellm` | `services/openclaw/service.yml:160` | Compose env only (`services/openclaw/compose.yml:72-73`) to the unvendored upstream image; init wrote no provider config at review | `LITELLM_BASE_URL` at `services/openclaw/compose.yml:72` | OpenAI-compatible HTTP on litellm:4000 (path not in repo) | `OPENCLAW_SOURCE=container` only; bypassed by `OPENCLAW_*_API_KEY` overrides | optional | unconfirmed | At review, operators set `baseUrl` by hand. Since 2026-10-06 (`2c6c554f`), openclaw-init seeds it; see the §2.2 update. The gateway runs `--allow-unconfigured` |
 | `otel-collector → tempo` | `services/otel-collector/service.yml:93` | `services/otel-collector/config/config.yaml:48-49` exporter `otlp_http/tempo`, used at `:71-74` (loaded config) | none: literal `http://tempo:4318` (`config.yaml:49`) | OTLP/HTTP POST `/v1/traces` on tempo:4318 | Collector `container` hard-requires `TEMPO_SOURCE=container` (`bootstrapper/services/service_config.py:1269-1275`) | current | confirmed | `TEMPO_ENDPOINT` is not passed to the Collector; the exporter address is a literal |
 | `prometheus → kong` | `services/prometheus/service.yml:168` | `services/prometheus/config/prometheus.yml:32-38` scrape job `kong` (loaded config) | none: literal `kong-api-gateway:8100` | HTTP GET `/metrics` on kong-api-gateway:8100 | `PROMETHEUS_SOURCE=container`; Kong always on | current | confirmed | — |
-| `spark → minio` | `services/spark/service.yml:207` | `services/spark/compose.yml:303-304` spark-init `mc alias set`/`mc mb` (init); s3a config at `:106-115`, `:266-270` (loaded config) | none: literal `http://minio:9000` (e.g. `AWS_ENDPOINT_URL_S3` at `services/spark/compose.yml:99`) | S3 API on minio:9000, `s3a://spark-history/` and lakehouse bucket | `SPARK_SOURCE=container` hard-requires MinIO (`service_config.py:1003-1010`) | current | confirmed | Four containers, two credential sets |
+| `spark → silo` | `services/spark/service.yml:207` | `services/spark/compose.yml:303-304` spark-init `mc alias set`/`mc mb` (init); s3a config at `:106-115`, `:266-270` (loaded config) | none: literal `http://silo:9000` (e.g. `AWS_ENDPOINT_URL_S3` at `services/spark/compose.yml:99`) | S3 API on silo:9000, `s3a://spark-history/` and lakehouse bucket | `SPARK_SOURCE=container` hard-requires Silo (`service_config.py:1003-1010`) | current | confirmed | Four containers, two credential sets |
 | `supavisor → supabase` | `services/supavisor/service.yml:129` | `services/supavisor/pooler/pooler.exs:4` `select version()` and `:9-33` tenant registration, run by `services/supavisor/compose.yml:36` before the server starts (loaded config: the registered tenant is what the pooler uses at runtime) | `DATABASE_URL` at `services/supavisor/compose.yml:15`; `POSTGRES_HOST` at `:23` | Postgres wire protocol on supabase-db:5432 | `SUPAVISOR_SOURCE=container`; Supabase always on | current | confirmed | — |
 | `trino → iceberg-rest` | `services/trino/service.yml:95` | `services/trino/catalog/lakehouse.properties:1-3` REST catalog (loaded config) | none: literal `iceberg.rest-catalog.uri=http://iceberg-rest:8181` | Iceberg REST catalog HTTP API on iceberg-rest:8181 | `TRINO_SOURCE=container` hard-requires `ICEBERG_REST_SOURCE=container` (`service_config.py:1571-1577`) | current | confirmed | — |
 | `trueforge → supabase` | `services/trueforge/service.yml:165` | Compose env only (`services/trueforge/compose.yml:36,90`) to the unvendored upstream image | `DATABASE_URL` at `services/trueforge/compose.yml:36` | Postgres wire protocol on supabase-db:5432, database `trueforge` | `TRUEFORGE_SOURCE=container`; Supabase always on | current | unconfirmed | DB is provisioned and `STANDALONE=false`; no in-repo call site |
@@ -153,7 +153,7 @@ call itself cannot be seen in the repo. For six of them, the only in-repo call
 is an init script, which does not count:
 
 - `airflow → supabase`
-- `iceberg-rest → minio`
+- `iceberg-rest → silo`
 - `label-studio → supabase`
 - `langfuse → supabase`
 - `lightrag → litellm`
@@ -168,7 +168,7 @@ Three exist only after operator setup outside the repo:
 
 - `cloudflared → kong`: the tunnel's public hostnames are configured in the
   Cloudflare dashboard.
-- `jenkins → minio`: no Jenkins job ships with Atlas.
+- `jenkins → silo`: no Jenkins job ships with Atlas.
 - `openclaw → litellm`: operators set the provider `baseUrl` by hand, and
   openclaw-init writes no provider config.
 
@@ -239,7 +239,7 @@ The edges this pass found optional now carry their conditions:
 
 - `jupyterhub → mcp-servers`
 - `kong → ray`
-- `jenkins → minio`
+- `jenkins → silo`
 - `cloudflared → kong`
 - `openclaw → litellm`
 - `docling-lightrag-adapter → docling`
@@ -261,32 +261,32 @@ and removed.
 
 | Caller | Unsampled | Edges (manifest line) |
 |---|---:|---|
-| `airflow` | 8 | spark (:338), redpanda (:339), minio (:340), iceberg-rest (:341), litellm (:342), weaviate (:343), neo4j (:344), redis (:345) |
-| `backend` | 17 | weaviate (:357), litellm (:358), comfyui (:359), fal (:360), n8n (:361), ray (:362), local-deep-researcher (:363), celery (:364), supavisor (:365), tika (:366), docling (:367), lightrag (:368), tei-reranker (:369), minio (:370), redis (:371), otel-collector (:372), kong (:373) |
-| `backup` | 3 | minio (:162), neo4j (:163), weaviate (:164) |
-| `celery` | 9 | supabase (:140), litellm (:141), weaviate (:142), supavisor (:143), docling (:144), tika (:145), lightrag (:146), minio (:147), otel-collector (:148) |
+| `airflow` | 8 | spark (:338), redpanda (:339), silo (:340), iceberg-rest (:341), litellm (:342), weaviate (:343), neo4j (:344), redis (:345) |
+| `backend` | 17 | weaviate (:357), litellm (:358), comfyui (:359), fal (:360), n8n (:361), ray (:362), local-deep-researcher (:363), celery (:364), supavisor (:365), tika (:366), docling (:367), lightrag (:368), tei-reranker (:369), silo (:370), redis (:371), otel-collector (:372), kong (:373) |
+| `backup` | 3 | silo (:162), neo4j (:163), weaviate (:164) |
+| `celery` | 9 | supabase (:140), litellm (:141), weaviate (:142), supavisor (:143), docling (:144), tika (:145), lightrag (:146), silo (:147), otel-collector (:148) |
 | `grafana` | 2 | tempo (:104), loki (:105) |
 | `hermes` | 6 | stt-provider (:242), tts-provider (:243), comfyui (:244), searxng (:245), airflow (:253), lightrag (:254) |
 | `iceberg-rest` | 1 | supabase (:111) |
-| `jupyterhub` | 19 | hermes (:196), weaviate (:197), neo4j (:198), supabase (:199), ray (:200), spark (:201), redpanda (:202), redis (:203), comfyui (:204), n8n (:205), backend (:206), searxng (:207), minio (:208), iceberg-rest (:209), mlflow (:210), label-studio (:211), docling (:212), stt-provider (:213), tts-provider (:214) |
-| `kong` | 37 | open-webui (:84), jupyterhub (:85), n8n (:86), hermes (:87), openclaw (:88), local-deep-researcher (:89), minio (:90), supabase (:91), weaviate (:92), neo4j (:93), comfyui (:94), searxng (:95), stt-provider (:96), tts-provider (:97), doc-processor (:98), litellm (:99), ollama (:100), airflow (:101), spark (:102), lightrag (:103), tei-reranker (:104), verba (:105), trino (:108), redpanda (:109), tika (:110), crawl4ai (:111), langfuse (:112), mlflow (:113), label-studio (:114), jenkins (:115), llm-graph-builder (:116), mcp-servers (:117), celery (:118), asset-baker (:119), asset-worker (:120), grafana (:125), prometheus (:126) |
-| `label-studio` | 1 | minio (:139) |
-| `langfuse` | 2 | redis (:210), minio (:211) |
+| `jupyterhub` | 19 | hermes (:196), weaviate (:197), neo4j (:198), supabase (:199), ray (:200), spark (:201), redpanda (:202), redis (:203), comfyui (:204), n8n (:205), backend (:206), searxng (:207), silo (:208), iceberg-rest (:209), mlflow (:210), label-studio (:211), docling (:212), stt-provider (:213), tts-provider (:214) |
+| `kong` | 37 | open-webui (:84), jupyterhub (:85), n8n (:86), hermes (:87), openclaw (:88), local-deep-researcher (:89), silo (:90), supabase (:91), weaviate (:92), neo4j (:93), comfyui (:94), searxng (:95), stt-provider (:96), tts-provider (:97), doc-processor (:98), litellm (:99), ollama (:100), airflow (:101), spark (:102), lightrag (:103), tei-reranker (:104), verba (:105), trino (:108), redpanda (:109), tika (:110), crawl4ai (:111), langfuse (:112), mlflow (:113), label-studio (:114), jenkins (:115), llm-graph-builder (:116), mcp-servers (:117), celery (:118), asset-baker (:119), asset-worker (:120), grafana (:125), prometheus (:126) |
+| `label-studio` | 1 | silo (:139) |
+| `langfuse` | 2 | redis (:210), silo (:211) |
 | `lightrag` | 5 | supabase (:313), neo4j (:314), redis (:315), docling-lightrag-adapter (:316), backend (:317) |
 | `litellm` | 10 | redis (:138), ollama (:139), cloud-providers (:140), hermes (:141), lightrag (:142), vllm-metal (:143), fal (:144), tei-reranker (:145), otel-collector (:146), langfuse (:147) |
 | `llm-graph-builder` | 1 | litellm (:190) |
 | `local-deep-researcher` | 2 | searxng (:152), crawl4ai (:153) |
 | `mcp-servers` | 2 | neo4j (:113), searxng (:114) |
-| `mlflow` | 1 | minio (:133) |
+| `mlflow` | 1 | silo (:133) |
 | `n8n` | 13 | redis (:222), weaviate (:223), backend (:228), doc-processor (:229), tika (:230), hermes (:231), litellm (:232), stt-provider (:233), tts-provider (:234), searxng (:235), lightrag (:236), crawl4ai (:237), supavisor (:238) |
 | `open-webui` | 7 | supabase (:200), redis (:201), backend (:202), comfyui (:203), stt-provider (:204), tts-provider (:205), local-deep-researcher (:206) |
 | `otel-collector` | 1 | loki (:92) |
-| `prometheus` | 10 | litellm (:165), backend (:166), asset-worker (:167), asset-baker (:168), n8n (:169), weaviate (:170), minio (:171), supabase (:172), redis (:173), grafana (:174) |
+| `prometheus` | 10 | litellm (:165), backend (:166), asset-worker (:167), asset-baker (:168), n8n (:169), weaviate (:170), silo (:171), supabase (:172), redis (:173), grafana (:174) |
 | `spark` | 2 | iceberg-rest (:204), redpanda (:205) |
-| `trino` | 1 | minio (:94) |
+| `trino` | 1 | silo (:94) |
 | `trueforge` | 3 | redis (:160), litellm (:161), mcp-servers (:162) |
 | `verba` | 1 | litellm (:113) |
 | `weaviate` | 1 | multi2vec-clip (:216) |
-| `zeppelin` | 5 | supabase (:206), minio (:207), iceberg-rest (:208), redpanda (:209), trino (:210) |
+| `zeppelin` | 5 | supabase (:206), silo (:207), iceberg-rest (:208), redpanda (:209), trino (:210) |
 
 Edges added after this pass are not in the table. `kong → trueforge` (`services/kong/service.yml:141` at `65a556f2`) was added by `ac002f50` (#1489) on 2026-10-09 and is unsampled.

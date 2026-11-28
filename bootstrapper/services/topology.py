@@ -61,7 +61,7 @@ CATEGORY_LABELS: dict[str, str] = {
 # CATEGORY_ORDER reads as a distinct tone on the dark background.
 CATEGORY_COLORS: dict[str, str] = {
     "infra":  "#fb7185",  # rose-400   — Kong / gateway / control plane
-    "data":   "#a78bfa",  # violet-400 — Supabase / Weaviate / Neo4j / Redis / MinIO
+    "data":   "#a78bfa",  # violet-400 — Supabase / Weaviate / Neo4j / Redis / Silo
     "llm":    "#fbbf24",  # amber-400  — LiteLLM / Ollama / cloud providers
     "media":  "#fb923c",  # orange-400 — STT / TTS / docs / images / search
     "agents": "#34d399",  # emerald-400 — Airflow / Hermes / OpenClaw / n8n
@@ -87,7 +87,7 @@ CATEGORY_FILLS: dict[str, str] = {
 # Each category gets a contiguous range relative to BASE_PORT:
 #   infra:  BASE_PORT + 0..9      (Kong HTTP+HTTPS, Ray×3, Langfuse, Prometheus,
 #                                  Node Exporter, cAdvisor, Grafana — band full)
-#   data:   BASE_PORT + 10..39    (Supabase, Redis, MinIO, Iceberg, Trino,
+#   data:   BASE_PORT + 10..39    (Supabase, Redis, Silo, Iceberg, Trino,
 #                                  Redpanda, Spark, Weaviate, Neo4j)
 #   llm:    BASE_PORT + 40..49    (LiteLLM + inference helpers)
 #   media:  BASE_PORT + 50..69    (ComfyUI/STT/TTS/Doc/SearxNG/Speaches/
@@ -215,6 +215,12 @@ def validate_acyclic(manifests: list[Manifest]) -> None:
     _topo_sort(manifests)
 
 
+# Tiebreak-only renames: a service renamed after its port layout shipped keeps
+# its old name for ordering, so the slot allocator does not renumber every
+# later port default. The name itself is the new one everywhere else.
+_TIEBREAK_LEGACY_NAMES = {"silo": "minio"}
+
+
 def _topo_sort(manifests: list[Manifest]) -> list[str]:
     """Kahn's algorithm with lexicographic tiebreaker.
 
@@ -223,6 +229,9 @@ def _topo_sort(manifests: list[Manifest]) -> list[str]:
     """
     from collections import defaultdict
     import heapq
+
+    def _tiebreak(name: str) -> str:
+        return _TIEBREAK_LEGACY_NAMES.get(name, name)
 
     names = {m.name for m in manifests}
     in_degree: dict[str, int] = {m.name: 0 for m in manifests}
@@ -234,17 +243,17 @@ def _topo_sort(manifests: list[Manifest]) -> list[str]:
                 forward[dep].append(m.name)
                 in_degree[m.name] += 1
 
-    ready: list[str] = [n for n, d in in_degree.items() if d == 0]
+    ready: list[tuple[str, str]] = [(_tiebreak(n), n) for n, d in in_degree.items() if d == 0]
     heapq.heapify(ready)
 
     order: list[str] = []
     while ready:
-        n = heapq.heappop(ready)
+        _, n = heapq.heappop(ready)
         order.append(n)
         for child in forward[n]:
             in_degree[child] -= 1
             if in_degree[child] == 0:
-                heapq.heappush(ready, child)
+                heapq.heappush(ready, (_tiebreak(child), child))
 
     if len(order) != len(manifests):
         unresolved = sorted(n for n, d in in_degree.items() if d > 0)
@@ -369,8 +378,8 @@ def _build_from_manifests(manifests: list[Manifest], base_port: int) -> Topology
             ))
             if r.alias:
                 aliases.append(r.alias)
-        # Extra Kong hostnames (beyond rows[].alias) — e.g. minio's
-        # s3.minio.localhost. Projected here so --setup-hosts wires them.
+        # Extra Kong hostnames (beyond rows[].alias) — e.g. silo's
+        # s3.silo.localhost. Projected here so --setup-hosts wires them.
         aliases.extend(m.extra_kong_aliases)
 
     return Topology(

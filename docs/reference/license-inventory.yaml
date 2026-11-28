@@ -135,7 +135,7 @@ open_items:
     - redistribution
   R-BUILD:
     question: Which licenses apply to binaries a local Dockerfile downloads or copies on top of its base image? Known cases are the headless Blender that asset-baker adds, which has no image row of its
-      own, and the MinIO mc client that the backup and Jenkins images copy from the digest-pinned pgsty/mc image (its minio MINIO_INIT_IMAGE row records AGPL-3.0). asset-worker copies the npm tree from
+      own, and the MinIO mc client that the backup and Jenkins images copy from the digest-pinned pgsty/mc image (its silo SILO_INIT_IMAGE row records AGPL-3.0). asset-worker copies the npm tree from
       its node stage, where @gltf-transform/cli 4.5.1 pulls sharp 0.35.5 and its LGPL-3.0-or-later libvips binaries (@img/sharp-libvips-linux-x64 and -linux-arm64 1.3.4). The spark, zeppelin and
       airflow builds add the hadoop-aws, AWS SDK v2 bundle, Iceberg Spark runtime and Iceberg AWS bundle jars from Maven Central. spark also adds the Kafka connector jars, kafka-clients and
       commons-pool2. zeppelin also copies the whole Spark distribution from the apache/spark image (its spark SPARK_IMAGE row records Apache-2.0). iceberg-rest adds the PostgreSQL JDBC driver
@@ -470,15 +470,15 @@ images:
   upstream: Python 3.12.14 (build base)
   license: PSF-2.0
   url: https://github.com/python/cpython/blob/2abcf904b8dac8c999d2b3aac76681abb333798a/LICENSE
-- service: minio
-  var: MINIO_IMAGE
+- service: silo
+  var: SILO_IMAGE
   image: pgsty/silo:RELEASE.2026-09-16T00-00-00Z@sha256:635197cb9f36d01bee221d34d1c7d7960f6a95c48b0b6c01d99cd13bdae51a46
   upstream: Pigsty Silo (MinIO fork) RELEASE.2026-09-16T00-00-00Z
   license: AGPL-3.0
   url: https://github.com/pgsty/silo/blob/2a4d51406b7ed87af5fe6fe0f801f3290f96eb3c/LICENSE
   notice: https://github.com/pgsty/silo/blob/2a4d51406b7ed87af5fe6fe0f801f3290f96eb3c/NOTICE
-- service: minio
-  var: MINIO_INIT_IMAGE
+- service: silo
+  var: SILO_INIT_IMAGE
   image: pgsty/mc:RELEASE.2026-09-16T00-00-00Z@sha256:cfc83108c3abb371f8fb84d99c1fdc88f8c237e022409b0081fb7c0a3be634dd
   upstream: Pigsty mc (MinIO client fork) RELEASE.2026-09-16T00-00-00Z
   license: AGPL-3.0

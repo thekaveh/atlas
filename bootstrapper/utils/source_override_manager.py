@@ -31,7 +31,7 @@ class SourceOverrideManager:
             'fal_source': 'FAL_SOURCE',
             'speech_gate_source': 'SPEECH_GATE_SOURCE',
             'weaviate_source': 'WEAVIATE_SOURCE',
-            'minio_source': 'MINIO_SOURCE',
+            'silo_source': 'SILO_SOURCE',
             'n8n_source': 'N8N_SOURCE',
             'searxng_source': 'SEARXNG_SOURCE',
             'crawl4ai_source': 'CRAWL4AI_SOURCE',

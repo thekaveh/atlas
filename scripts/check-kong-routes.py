@@ -74,11 +74,11 @@ EXPECTED_HOST_ROUTES = {
     # both roles on its single port).
     "stt.localhost": "http://speaches:8000/",
     "tts.localhost": "http://speaches:8000/",
-    # MinIO admin console (port 9001) and S3 API (port 9000), both
-    # default-on (MINIO_SOURCE=container): minio.localhost → console,
-    # s3.minio.localhost → the S3 API (added 2026-06-19).
-    "minio.localhost": "http://minio:9001/",
-    "s3.minio.localhost": "http://minio:9000/",
+    # Silo admin console (port 9001) and S3 API (port 9000), both
+    # default-on (SILO_SOURCE=container): silo.localhost → console,
+    # s3.silo.localhost → the S3 API (added 2026-06-19).
+    "silo.localhost": "http://silo:9001/",
+    "s3.silo.localhost": "http://silo:9000/",
     # openclaw is opt-in: .env.example defaults OPENCLAW_SOURCE=disabled, so
     # the generator omits its route. Add an opt-in check separately if the
     # default ever flips to OPENCLAW_SOURCE=container.
@@ -211,21 +211,21 @@ EXPECTED_ROUTES: dict[str, dict] = {
         "strip_path": True, "preserve_host": None,
         "service_plugins": ["acl", "basic-auth", "cors"], "route_plugins": [],
     },
-    "minio-console-all": {
-        "service": "minio-console", "url": "http://minio:9001/",
-        "hosts": ["minio.localhost"], "paths": [],
+    "silo-console-all": {
+        "service": "silo-console", "url": "http://silo:9001/",
+        "hosts": ["silo.localhost"], "paths": [],
         "strip_path": False, "preserve_host": True,
         "service_plugins": ["cors"], "route_plugins": [],
     },
-    "minio-s3-all": {
-        "service": "minio-s3", "url": "http://minio:9000/",
-        "hosts": ["s3.minio.localhost"], "paths": [],
+    "silo-s3-all": {
+        "service": "silo-s3", "url": "http://silo:9000/",
+        "hosts": ["s3.silo.localhost"], "paths": [],
         "strip_path": False, "preserve_host": True,
         "service_plugins": ["cors"], "route_plugins": [],
     },
-    "minio-s3-metrics-blocked": {
-        "service": "minio-s3", "url": "http://minio:9000/",
-        "hosts": ["s3.minio.localhost"], "paths": ["/minio(?:/|\\x252[Ff])+(?:v[23](?:/|\\x252[Ff])+metrics|metrics(?:/|\\x252[Ff])+v3|prometheus(?:/|\\x252[Ff])+metrics)"],
+    "silo-s3-metrics-blocked": {
+        "service": "silo-s3", "url": "http://silo:9000/",
+        "hosts": ["s3.silo.localhost"], "paths": ["/minio(?:/|\\x252[Ff])+(?:v[23](?:/|\\x252[Ff])+metrics|metrics(?:/|\\x252[Ff])+v3|prometheus(?:/|\\x252[Ff])+metrics)"],
         "strip_path": False, "preserve_host": None,
         "service_plugins": ["cors"], "route_plugins": ["request-termination"],
     },
@@ -387,7 +387,7 @@ def host_url_map(config: dict) -> dict[str, str]:
 def _conflicting_host_issues(config: dict) -> list[str]:
     """A host routed to two or more upstreams is an error: the host map keeps
     only the last one, so the others would be hidden (E1-12). Several routes to
-    one upstream are allowed (a path-scoped guard such as minio-s3-metrics-blocked);
+    one upstream are allowed (a path-scoped guard such as silo-s3-metrics-blocked);
     any extra route to that upstream is caught by the route-name checks."""
     return [
         f"  {host}: CONFLICTING host routed to {len(set(urls))} upstreams -> {', '.join(dict.fromkeys(urls))}"

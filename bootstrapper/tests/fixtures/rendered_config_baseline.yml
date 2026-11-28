@@ -34,16 +34,16 @@ services:
       ATLAS_LAKEHOUSE_SMOKE_JAR_PATH: /opt/airflow/atlas-jars/atlas-lakehouse-smoke.jar
       ATLAS_LAKEHOUSE_SPARK_DEPLOY_MODE: cluster
       ICEBERG_REST_URI: http://iceberg-rest:8181
-      MINIO_BUCKET_ICEBERG_JARS: jars
-      MINIO_BUCKET_ICEBERG_LAKEHOUSE: lakehouse
-      MINIO_BUCKET_ICEBERG_LANDING: landing
-      MINIO_BUCKET_SPARK_HISTORY: spark-history
-      MINIO_ENDPOINT: http://minio:9000
-      MINIO_ICEBERG_ACCESS_KEY: ''
-      MINIO_ICEBERG_SECRET_KEY: ''
-      MINIO_REGION: us-east-1
-      MINIO_SPARK_SECRET_KEY: ''
-      MINIO_SPARK_ACCESS_KEY: ''
+      SILO_BUCKET_ICEBERG_JARS: jars
+      SILO_BUCKET_ICEBERG_LAKEHOUSE: lakehouse
+      SILO_BUCKET_ICEBERG_LANDING: landing
+      SILO_BUCKET_SPARK_HISTORY: spark-history
+      SILO_ENDPOINT: http://silo:9000
+      SILO_ICEBERG_ACCESS_KEY: ''
+      SILO_ICEBERG_SECRET_KEY: ''
+      SILO_REGION: us-east-1
+      SILO_SPARK_SECRET_KEY: ''
+      SILO_SPARK_ACCESS_KEY: ''
       SPARK_KAFKA_BOOTSTRAP_SERVERS: ''
       SPARK_MASTER_URL: spark://spark-master:7077
     healthcheck:
@@ -107,10 +107,10 @@ services:
       GRAPH_DB_USER: neo4j
       ICEBERG_REST_SOURCE: disabled
       LITELLM_MASTER_KEY: ''
-      MINIO_REGION: us-east-1
-      MINIO_SPARK_SECRET_KEY: ''
-      MINIO_SPARK_ACCESS_KEY: ''
-      MINIO_SOURCE: container
+      SILO_REGION: us-east-1
+      SILO_SPARK_SECRET_KEY: ''
+      SILO_SPARK_ACCESS_KEY: ''
+      SILO_SOURCE: container
       NEO4J_GRAPH_DB_SOURCE: container
       REDIS_PASSWORD: redis_password
       SPARK_SOURCE: disabled
@@ -167,16 +167,16 @@ services:
       ATLAS_LAKEHOUSE_SMOKE_JAR_PATH: /opt/airflow/atlas-jars/atlas-lakehouse-smoke.jar
       ATLAS_LAKEHOUSE_SPARK_DEPLOY_MODE: cluster
       ICEBERG_REST_URI: http://iceberg-rest:8181
-      MINIO_BUCKET_ICEBERG_JARS: jars
-      MINIO_BUCKET_ICEBERG_LAKEHOUSE: lakehouse
-      MINIO_BUCKET_ICEBERG_LANDING: landing
-      MINIO_BUCKET_SPARK_HISTORY: spark-history
-      MINIO_ENDPOINT: http://minio:9000
-      MINIO_ICEBERG_ACCESS_KEY: ''
-      MINIO_ICEBERG_SECRET_KEY: ''
-      MINIO_REGION: us-east-1
-      MINIO_SPARK_SECRET_KEY: ''
-      MINIO_SPARK_ACCESS_KEY: ''
+      SILO_BUCKET_ICEBERG_JARS: jars
+      SILO_BUCKET_ICEBERG_LAKEHOUSE: lakehouse
+      SILO_BUCKET_ICEBERG_LANDING: landing
+      SILO_BUCKET_SPARK_HISTORY: spark-history
+      SILO_ENDPOINT: http://silo:9000
+      SILO_ICEBERG_ACCESS_KEY: ''
+      SILO_ICEBERG_SECRET_KEY: ''
+      SILO_REGION: us-east-1
+      SILO_SPARK_SECRET_KEY: ''
+      SILO_SPARK_ACCESS_KEY: ''
       SPARK_KAFKA_BOOTSTRAP_SERVERS: ''
       SPARK_MASTER_URL: spark://spark-master:7077
     healthcheck:
@@ -238,16 +238,16 @@ services:
       ATLAS_LAKEHOUSE_SMOKE_JAR_PATH: /opt/airflow/atlas-jars/atlas-lakehouse-smoke.jar
       ATLAS_LAKEHOUSE_SPARK_DEPLOY_MODE: cluster
       ICEBERG_REST_URI: http://iceberg-rest:8181
-      MINIO_BUCKET_ICEBERG_JARS: jars
-      MINIO_BUCKET_ICEBERG_LAKEHOUSE: lakehouse
-      MINIO_BUCKET_ICEBERG_LANDING: landing
-      MINIO_BUCKET_SPARK_HISTORY: spark-history
-      MINIO_ENDPOINT: http://minio:9000
-      MINIO_ICEBERG_ACCESS_KEY: ''
-      MINIO_ICEBERG_SECRET_KEY: ''
-      MINIO_REGION: us-east-1
-      MINIO_SPARK_SECRET_KEY: ''
-      MINIO_SPARK_ACCESS_KEY: ''
+      SILO_BUCKET_ICEBERG_JARS: jars
+      SILO_BUCKET_ICEBERG_LAKEHOUSE: lakehouse
+      SILO_BUCKET_ICEBERG_LANDING: landing
+      SILO_BUCKET_SPARK_HISTORY: spark-history
+      SILO_ENDPOINT: http://silo:9000
+      SILO_ICEBERG_ACCESS_KEY: ''
+      SILO_ICEBERG_SECRET_KEY: ''
+      SILO_REGION: us-east-1
+      SILO_SPARK_SECRET_KEY: ''
+      SILO_SPARK_ACCESS_KEY: ''
       SPARK_KAFKA_BOOTSTRAP_SERVERS: ''
       SPARK_MASTER_URL: spark://spark-master:7077
     healthcheck:
@@ -294,10 +294,10 @@ services:
         BLENDER_VERSION: 4.5.16
     container_name: atlas-asset-baker
     depends_on:
-      minio:
+      silo:
         condition: service_healthy
         required: true
-      minio-init:
+      silo-init:
         condition: service_completed_successfully
         required: true
     deploy:
@@ -310,16 +310,16 @@ services:
       ASSET_BAKER_CANONICAL_SIZE: '4.0'
       ASSET_BAKER_CONCURRENCY: '1'
       ASSET_BAKER_MAX_UPLOAD_MB: '200'
-      ASSET_BAKER_MINIO_ACCESS_KEY: ''
-      ASSET_BAKER_MINIO_BUCKET: asset-baker
-      ASSET_BAKER_MINIO_ENABLED: 'true'
-      ASSET_BAKER_MINIO_ENDPOINT: http://minio:9000
-      ASSET_BAKER_MINIO_SECRET_KEY: ''
+      ASSET_BAKER_SILO_ACCESS_KEY: ''
+      ASSET_BAKER_SILO_BUCKET: asset-baker
+      ASSET_BAKER_SILO_ENABLED: 'true'
+      ASSET_BAKER_SILO_ENDPOINT: http://silo:9000
+      ASSET_BAKER_SILO_SECRET_KEY: ''
       ASSET_BAKER_TARGET_TRIS: '39000'
       ASSET_BAKER_TEX_SIZE: '2048'
       ASSET_BAKER_TIMEOUT_SECONDS: '600'
       ASSET_BAKER_UPLOAD_TIMEOUT_SECONDS: '300'
-      MINIO_REGION: us-east-1
+      SILO_REGION: us-east-1
       PROJECT_NAME: atlas
     healthcheck:
       test:
@@ -359,10 +359,10 @@ services:
         GLTF_TRANSFORM_VERSION: 4.5.1
     container_name: atlas-asset-worker
     depends_on:
-      minio:
+      silo:
         condition: service_healthy
         required: true
-      minio-init:
+      silo-init:
         condition: service_completed_successfully
         required: true
     deploy:
@@ -374,14 +374,14 @@ services:
       ASSET_WORKER_CONCURRENCY: '1'
       ASSET_WORKER_MAX_NORMALIZATION_VERTICES: '250000'
       ASSET_WORKER_MAX_UPLOAD_MB: '200'
-      ASSET_WORKER_MINIO_ACCESS_KEY: ''
-      ASSET_WORKER_MINIO_BUCKET: asset-worker
-      ASSET_WORKER_MINIO_ENABLED: 'true'
-      ASSET_WORKER_MINIO_ENDPOINT: http://minio:9000
-      ASSET_WORKER_MINIO_SECRET_KEY: ''
+      ASSET_WORKER_SILO_ACCESS_KEY: ''
+      ASSET_WORKER_SILO_BUCKET: asset-worker
+      ASSET_WORKER_SILO_ENABLED: 'true'
+      ASSET_WORKER_SILO_ENDPOINT: http://silo:9000
+      ASSET_WORKER_SILO_SECRET_KEY: ''
       ASSET_WORKER_TIMEOUT_SECONDS: '300'
       ASSET_WORKER_UPLOAD_TIMEOUT_SECONDS: '300'
-      MINIO_REGION: us-east-1
+      SILO_REGION: us-east-1
       PROJECT_NAME: atlas
     healthcheck:
       test:
@@ -543,7 +543,7 @@ services:
       MEDIA_LEDGER_RECOVERY_MAX_CYCLES: '4'
       MEDIA_OPERATION_TTL_SECONDS: '604800'
       MEDIA_REQUEST_MAX_BYTES: '41943040'
-      MINIO_ENDPOINT: ''
+      SILO_ENDPOINT: ''
       N8N_API_KEY: ''
       N8N_BASE_URL: http://n8n:5678
       NEO4J_PASSWORD: neo4j_password
@@ -646,7 +646,7 @@ services:
       BACKUP_RESTORE_MAX_CANDIDATES: '100'
       BACKUP_S3_ACCESS_KEY: ''
       BACKUP_S3_ALIAS_URL: ''
-      BACKUP_S3_ENDPOINT: http://minio:9000
+      BACKUP_S3_ENDPOINT: http://silo:9000
       BACKUP_S3_MODE: local
       BACKUP_S3_REGION: us-east-1
       BACKUP_S3_SECRET_KEY: ''
@@ -654,8 +654,8 @@ services:
       BACKUP_S3_TLS_VERIFY: 'true'
       BACKUP_SOURCE: disabled
       BACKUP_WEAVIATE_SOURCE: container
-      MINIO_ROOT_PASSWORD: ''
-      MINIO_ROOT_USER: minioadmin
+      SILO_ROOT_PASSWORD: ''
+      SILO_ROOT_USER: minioadmin
       SUPABASE_DB_NAME: postgres
       SUPABASE_DB_PASSWORD: password
       SUPABASE_DB_USER: supabase_admin
@@ -783,7 +783,7 @@ services:
       LITELLM_BASE_URL: http://litellm:4000
       LITELLM_DEFAULT_MODEL: ollama/qwen3.8:latest
       LITELLM_EMBEDDING_MODEL: ollama/nomic-embed-text
-      MINIO_ENDPOINT: ''
+      SILO_ENDPOINT: ''
       N8N_BASE_URL: http://n8n:5678
       OTEL_EXPORTER_OTLP_ENDPOINT: ''
       OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
@@ -1355,7 +1355,7 @@ services:
       iceberg-rest-init:
         condition: service_completed_successfully
         required: true
-      minio-init:
+      silo-init:
         condition: service_completed_successfully
         required: true
     deploy:
@@ -1368,7 +1368,7 @@ services:
       CATALOG_IO__IMPL: org.apache.iceberg.aws.s3.S3FileIO
       CATALOG_JDBC_PASSWORD: atlas-db-password
       CATALOG_JDBC_USER: iceberg
-      CATALOG_S3_ENDPOINT: http://minio:9000
+      CATALOG_S3_ENDPOINT: http://silo:9000
       CATALOG_S3_PATH__STYLE__ACCESS: 'true'
       CATALOG_URI: jdbc:postgresql://supabase-db:5432/iceberg
       CATALOG_WAREHOUSE: s3://lakehouse/
@@ -1430,7 +1430,7 @@ services:
         BASE_IMAGE: jenkins/jenkins:lts-jdk21@sha256:c1e4c349365f6d16d88595b2c5f7e8ff39b8ae1d061f62420bac193b4b9616d0
     container_name: atlas-jenkins
     depends_on:
-      minio-init:
+      silo-init:
         condition: service_completed_successfully
         required: true
     deploy:
@@ -1445,11 +1445,11 @@ services:
       JENKINS_ADMIN_USER: admin
       JENKINS_OPTS: --httpPort=8080
       KONG_HTTP_PORT: '63000'
-      MINIO_BUCKET_ICEBERG_JARS: jars
-      MINIO_ENDPOINT: http://minio:9000
-      MINIO_JENKINS_ACCESS_KEY: ''
-      MINIO_JENKINS_SECRET_KEY: ''
-      MINIO_REGION: us-east-1
+      SILO_BUCKET_ICEBERG_JARS: jars
+      SILO_ENDPOINT: http://silo:9000
+      SILO_JENKINS_ACCESS_KEY: ''
+      SILO_JENKINS_SECRET_KEY: ''
+      SILO_REGION: us-east-1
     healthcheck:
       test:
       - CMD-SHELL
@@ -1510,7 +1510,7 @@ services:
     environment:
       AWS_ACCESS_KEY_ID: ''
       AWS_DEFAULT_REGION: us-east-1
-      AWS_ENDPOINT_URL_S3: http://minio:9000
+      AWS_ENDPOINT_URL_S3: http://silo:9000
       AWS_SECRET_ACCESS_KEY: ''
       BACKEND_API_URL: http://backend:8000
       BACKEND_NOTEBOOK_API_TOKEN: ''
@@ -1534,11 +1534,11 @@ services:
       LITELLM_DEFAULT_MODEL: ollama/qwen3.8:latest
       LITELLM_EMBEDDING_MODEL: ollama/nomic-embed-text
       MCP_SERVERS_URL: ''
-      MINIO_BUCKET_ICEBERG_CHECKPOINTS: checkpoints
-      MINIO_BUCKET_ICEBERG_LANDING: landing
-      MINIO_BUCKET_JUPYTER: jupyter
-      MINIO_BUCKET_SPARK_HISTORY: spark-history
-      MINIO_ENDPOINT: http://minio:9000
+      SILO_BUCKET_ICEBERG_CHECKPOINTS: checkpoints
+      SILO_BUCKET_ICEBERG_LANDING: landing
+      SILO_BUCKET_JUPYTER: jupyter
+      SILO_BUCKET_SPARK_HISTORY: spark-history
+      SILO_ENDPOINT: http://silo:9000
       MLFLOW_TRACKING_URI: ''
       N8N_BASE_URL: http://n8n:5678
       NEO4J_PASSWORD: neo4j_password
@@ -1546,7 +1546,7 @@ services:
       NEO4J_USER: neo4j
       PARAKEET_API_TOKEN: ''
       PYICEBERG_CATALOG__REST__S3__ACCESS_KEY_ID: ''
-      PYICEBERG_CATALOG__REST__S3__ENDPOINT: http://minio:9000
+      PYICEBERG_CATALOG__REST__S3__ENDPOINT: http://silo:9000
       PYICEBERG_CATALOG__REST__S3__FORCE_VIRTUAL_ADDRESSING: 'false'
       PYICEBERG_CATALOG__REST__S3__REGION: us-east-1
       PYICEBERG_CATALOG__REST__S3__SECRET_ACCESS_KEY: ''
@@ -1714,7 +1714,7 @@ services:
       SSRF_PROTECTION_ENABLED: 'true'
       STORAGE_AWS_ACCESS_KEY_ID: ''
       STORAGE_AWS_BUCKET_NAME: label-studio
-      STORAGE_AWS_ENDPOINT_URL: http://minio:9000
+      STORAGE_AWS_ENDPOINT_URL: http://silo:9000
       STORAGE_AWS_REGION_NAME: us-east-1
       STORAGE_AWS_S3_USE_SSL: 'false'
       STORAGE_AWS_SECRET_ACCESS_KEY: ''
@@ -1763,7 +1763,7 @@ services:
         BASE_IMAGE: alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
     container_name: atlas-label-studio-init
     depends_on:
-      minio-init:
+      silo-init:
         condition: service_completed_successfully
         required: true
       supabase-db-init:
@@ -1846,7 +1846,7 @@ services:
         BASE_IMAGE: alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
     container_name: atlas-langfuse-init
     depends_on:
-      minio-init:
+      silo-init:
         condition: service_completed_successfully
         required: true
       supabase-db-init:
@@ -1908,21 +1908,21 @@ services:
       LANGFUSE_S3_BATCH_EXPORT_ACCESS_KEY_ID: ''
       LANGFUSE_S3_BATCH_EXPORT_BUCKET: langfuse
       LANGFUSE_S3_BATCH_EXPORT_ENABLED: 'false'
-      LANGFUSE_S3_BATCH_EXPORT_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_BATCH_EXPORT_ENDPOINT: http://silo:9000
       LANGFUSE_S3_BATCH_EXPORT_FORCE_PATH_STYLE: 'true'
       LANGFUSE_S3_BATCH_EXPORT_PREFIX: exports/
       LANGFUSE_S3_BATCH_EXPORT_REGION: us-east-1
       LANGFUSE_S3_BATCH_EXPORT_SECRET_ACCESS_KEY: ''
       LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: ''
       LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
-      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://silo:9000
       LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: 'true'
       LANGFUSE_S3_EVENT_UPLOAD_PREFIX: events/
       LANGFUSE_S3_EVENT_UPLOAD_REGION: us-east-1
       LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ''
       LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: ''
       LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse
-      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://silo:9000
       LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: 'true'
       LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: media/
       LANGFUSE_S3_MEDIA_UPLOAD_REGION: us-east-1
@@ -1994,21 +1994,21 @@ services:
       LANGFUSE_S3_BATCH_EXPORT_ACCESS_KEY_ID: ''
       LANGFUSE_S3_BATCH_EXPORT_BUCKET: langfuse
       LANGFUSE_S3_BATCH_EXPORT_ENABLED: 'false'
-      LANGFUSE_S3_BATCH_EXPORT_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_BATCH_EXPORT_ENDPOINT: http://silo:9000
       LANGFUSE_S3_BATCH_EXPORT_FORCE_PATH_STYLE: 'true'
       LANGFUSE_S3_BATCH_EXPORT_PREFIX: exports/
       LANGFUSE_S3_BATCH_EXPORT_REGION: us-east-1
       LANGFUSE_S3_BATCH_EXPORT_SECRET_ACCESS_KEY: ''
       LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID: ''
       LANGFUSE_S3_EVENT_UPLOAD_BUCKET: langfuse
-      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT: http://silo:9000
       LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE: 'true'
       LANGFUSE_S3_EVENT_UPLOAD_PREFIX: events/
       LANGFUSE_S3_EVENT_UPLOAD_REGION: us-east-1
       LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY: ''
       LANGFUSE_S3_MEDIA_UPLOAD_ACCESS_KEY_ID: ''
       LANGFUSE_S3_MEDIA_UPLOAD_BUCKET: langfuse
-      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://minio:9000
+      LANGFUSE_S3_MEDIA_UPLOAD_ENDPOINT: http://silo:9000
       LANGFUSE_S3_MEDIA_UPLOAD_FORCE_PATH_STYLE: 'true'
       LANGFUSE_S3_MEDIA_UPLOAD_PREFIX: media/
       LANGFUSE_S3_MEDIA_UPLOAD_REGION: us-east-1
@@ -2635,13 +2635,13 @@ services:
       published: '63078'
       protocol: tcp
     restart: unless-stopped
-  minio:
+  silo:
     command:
     - server
     - /data
     - --console-address
     - :9001
-    container_name: atlas-minio
+    container_name: atlas-silo
     deploy:
       replicas: 1
     environment:
@@ -2667,7 +2667,9 @@ services:
         max-file: '3'
         max-size: 10m
     networks:
-      backend-network: null
+      backend-network:
+        aliases:
+        - minio
     ports:
     - mode: ingress
       host_ip: 127.0.0.1
@@ -2682,75 +2684,75 @@ services:
     restart: unless-stopped
     volumes:
     - type: volume
-      source: minio-data
+      source: silo-data
       target: /data
       volume: {}
-  minio-init:
-    container_name: atlas-minio-init
+  silo-init:
+    container_name: atlas-silo-init
     depends_on:
-      minio:
+      silo:
         condition: service_healthy
         required: true
     deploy:
       replicas: 1
     entrypoint:
     - /bin/sh
-    - /scripts/init-minio.sh
+    - /scripts/init-silo.sh
     environment:
-      ASSET_BAKER_MINIO_BUCKET: asset-baker
-      ASSET_WORKER_MINIO_BUCKET: asset-worker
-      MINIO_ASSET_BAKER_ACCESS_KEY: ''
-      MINIO_ASSET_BAKER_SECRET_KEY: ''
-      MINIO_ASSET_INGEST_ACCESS_KEY: ''
-      MINIO_ASSET_INGEST_SECRET_KEY: ''
-      MINIO_ASSET_WORKER_ACCESS_KEY: ''
-      MINIO_ASSET_WORKER_SECRET_KEY: ''
-      MINIO_BACKEND_ACCESS_KEY: ''
-      MINIO_BACKEND_SECRET_KEY: ''
-      MINIO_BUCKET_ASSET_INPUTS: raw-assets
-      MINIO_BUCKET_BACKEND: backend
-      MINIO_BUCKET_COMFYUI: comfyui
-      MINIO_BUCKET_DOCLING: docling
-      MINIO_BUCKET_ICEBERG_CHECKPOINTS: checkpoints
-      MINIO_BUCKET_ICEBERG_JARS: jars
-      MINIO_BUCKET_ICEBERG_LAKEHOUSE: lakehouse
-      MINIO_BUCKET_ICEBERG_LANDING: landing
-      MINIO_BUCKET_JUPYTER: jupyter
-      MINIO_BUCKET_LABEL_STUDIO: label-studio
-      MINIO_BUCKET_LANGFUSE: langfuse
-      MINIO_BUCKET_MLFLOW: mlflow
-      MINIO_BUCKET_N8N: n8n
-      MINIO_BUCKET_SPARK_HISTORY: spark-history
-      MINIO_COMFYUI_ACCESS_KEY: ''
-      MINIO_COMFYUI_SECRET_KEY: ''
-      MINIO_DOCLING_ACCESS_KEY: ''
-      MINIO_DOCLING_SECRET_KEY: ''
-      MINIO_EXTRA_CONSUMERS: ''
-      MINIO_ICEBERG_ACCESS_KEY: ''
-      MINIO_ICEBERG_SECRET_KEY: ''
-      MINIO_JENKINS_ACCESS_KEY: ''
-      MINIO_JENKINS_SECRET_KEY: ''
-      MINIO_JUPYTER_ACCESS_KEY: ''
-      MINIO_JUPYTER_SECRET_KEY: ''
-      MINIO_LABEL_STUDIO_ACCESS_KEY: ''
-      MINIO_LABEL_STUDIO_SECRET_KEY: ''
-      MINIO_LANGFUSE_ACCESS_KEY: ''
-      MINIO_LANGFUSE_SECRET_KEY: ''
-      MINIO_MLFLOW_ACCESS_KEY: ''
-      MINIO_MLFLOW_SECRET_KEY: ''
-      MINIO_N8N_ACCESS_KEY: ''
-      MINIO_N8N_SECRET_KEY: ''
-      MINIO_ROOT_PASSWORD: ''
-      MINIO_ROOT_USER: minioadmin
-      MINIO_SPARK_ACCESS_KEY: ''
-      MINIO_SPARK_SECRET_KEY: ''
+      ASSET_BAKER_SILO_BUCKET: asset-baker
+      ASSET_WORKER_SILO_BUCKET: asset-worker
+      SILO_ASSET_BAKER_ACCESS_KEY: ''
+      SILO_ASSET_BAKER_SECRET_KEY: ''
+      SILO_ASSET_INGEST_ACCESS_KEY: ''
+      SILO_ASSET_INGEST_SECRET_KEY: ''
+      SILO_ASSET_WORKER_ACCESS_KEY: ''
+      SILO_ASSET_WORKER_SECRET_KEY: ''
+      SILO_BACKEND_ACCESS_KEY: ''
+      SILO_BACKEND_SECRET_KEY: ''
+      SILO_BUCKET_ASSET_INPUTS: raw-assets
+      SILO_BUCKET_BACKEND: backend
+      SILO_BUCKET_COMFYUI: comfyui
+      SILO_BUCKET_DOCLING: docling
+      SILO_BUCKET_ICEBERG_CHECKPOINTS: checkpoints
+      SILO_BUCKET_ICEBERG_JARS: jars
+      SILO_BUCKET_ICEBERG_LAKEHOUSE: lakehouse
+      SILO_BUCKET_ICEBERG_LANDING: landing
+      SILO_BUCKET_JUPYTER: jupyter
+      SILO_BUCKET_LABEL_STUDIO: label-studio
+      SILO_BUCKET_LANGFUSE: langfuse
+      SILO_BUCKET_MLFLOW: mlflow
+      SILO_BUCKET_N8N: n8n
+      SILO_BUCKET_SPARK_HISTORY: spark-history
+      SILO_COMFYUI_ACCESS_KEY: ''
+      SILO_COMFYUI_SECRET_KEY: ''
+      SILO_DOCLING_ACCESS_KEY: ''
+      SILO_DOCLING_SECRET_KEY: ''
+      SILO_EXTRA_CONSUMERS: ''
+      SILO_ICEBERG_ACCESS_KEY: ''
+      SILO_ICEBERG_SECRET_KEY: ''
+      SILO_JENKINS_ACCESS_KEY: ''
+      SILO_JENKINS_SECRET_KEY: ''
+      SILO_JUPYTER_ACCESS_KEY: ''
+      SILO_JUPYTER_SECRET_KEY: ''
+      SILO_LABEL_STUDIO_ACCESS_KEY: ''
+      SILO_LABEL_STUDIO_SECRET_KEY: ''
+      SILO_LANGFUSE_ACCESS_KEY: ''
+      SILO_LANGFUSE_SECRET_KEY: ''
+      SILO_MLFLOW_ACCESS_KEY: ''
+      SILO_MLFLOW_SECRET_KEY: ''
+      SILO_N8N_ACCESS_KEY: ''
+      SILO_N8N_SECRET_KEY: ''
+      SILO_ROOT_PASSWORD: ''
+      SILO_ROOT_USER: minioadmin
+      SILO_SPARK_ACCESS_KEY: ''
+      SILO_SPARK_SECRET_KEY: ''
     image: pgsty/mc:RELEASE.2026-09-16T00-00-00Z@sha256:cfc83108c3abb371f8fb84d99c1fdc88f8c237e022409b0081fb7c0a3be634dd
     networks:
       backend-network: null
     restart: 'no'
     volumes:
     - type: bind
-      source: '{REPO_ROOT}/services/minio/init/scripts'
+      source: '{REPO_ROOT}/services/silo/init/scripts'
       target: /scripts
       read_only: true
       bind: {}
@@ -2779,7 +2781,7 @@ services:
       AWS_ACCESS_KEY_ID: ''
       AWS_DEFAULT_REGION: us-east-1
       AWS_SECRET_ACCESS_KEY: ''
-      MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+      MLFLOW_S3_ENDPOINT_URL: http://silo:9000
       MLFLOW_SERVER_ALLOWED_HOSTS: mlflow,mlflow:5000,localhost,localhost:5000,localhost:63092,127.0.0.1:63092,mlflow.localhost,mlflow.localhost:63000,mlflow.localhost:63001
       MLFLOW_SERVER_CORS_ALLOWED_ORIGINS: http://mlflow.localhost:63000,https://mlflow.localhost:63001,http://localhost:63092,http://127.0.0.1:63092
       MLFLOW_SQLALCHEMYSTORE_MAX_OVERFLOW: '3'
@@ -2822,7 +2824,7 @@ services:
         BASE_IMAGE: alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
     container_name: atlas-mlflow-init
     depends_on:
-      minio-init:
+      silo-init:
         condition: service_completed_successfully
         required: true
       supabase-db-init:
@@ -3909,7 +3911,7 @@ services:
     - --conf
     - spark.cores.max=1
     - --conf
-    - spark.hadoop.fs.s3a.endpoint=http://minio:9000
+    - spark.hadoop.fs.s3a.endpoint=http://silo:9000
     - --conf
     - spark.hadoop.fs.s3a.aws.credentials.provider=software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider
     - --conf
@@ -3929,7 +3931,7 @@ services:
     - --conf
     - spark.sql.catalog.lakehouse.io-impl=org.apache.iceberg.aws.s3.S3FileIO
     - --conf
-    - spark.sql.catalog.lakehouse.s3.endpoint=http://minio:9000
+    - spark.sql.catalog.lakehouse.s3.endpoint=http://silo:9000
     - --conf
     - spark.sql.catalog.lakehouse.s3.path-style-access=true
     - --conf
@@ -3988,7 +3990,7 @@ services:
     deploy:
       replicas: 0
     environment:
-      SPARK_HISTORY_OPTS: -Dspark.history.fs.logDirectory=s3a://spark-history/ -Dspark.hadoop.fs.s3a.endpoint=http://minio:9000 -Dspark.hadoop.fs.s3a.aws.credentials.provider=software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider -Dspark.hadoop.fs.s3a.path.style.access=true -Dspark.hadoop.fs.s3a.endpoint.region=us-east-1
+      SPARK_HISTORY_OPTS: -Dspark.history.fs.logDirectory=s3a://spark-history/ -Dspark.hadoop.fs.s3a.endpoint=http://silo:9000 -Dspark.hadoop.fs.s3a.aws.credentials.provider=software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider -Dspark.hadoop.fs.s3a.path.style.access=true -Dspark.hadoop.fs.s3a.endpoint.region=us-east-1
       SPARK_KAFKA_BOOTSTRAP_SERVERS: ''
       AWS_ACCESS_KEY_ID: ''
       AWS_SECRET_ACCESS_KEY: ''
@@ -4011,16 +4013,16 @@ services:
     command:
     - 'set -e
 
-      printf ''%s\n%s\n'' "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}" | mc alias set minio http://minio:9000 >/dev/null
+      printf ''%s\n%s\n'' "$${SILO_ROOT_USER}" "$${SILO_ROOT_PASSWORD}" | mc alias set silo http://silo:9000 >/dev/null
 
-      mc mb --ignore-existing minio/spark-history
+      mc mb --ignore-existing silo/spark-history
 
       echo "spark-init: spark-history bucket ready"
 
       '
     container_name: atlas-spark-init
     depends_on:
-      minio-init:
+      silo-init:
         condition: service_completed_successfully
         required: true
     deploy:
@@ -4029,8 +4031,8 @@ services:
     - sh
     - -c
     environment:
-      MINIO_ROOT_PASSWORD: ''
-      MINIO_ROOT_USER: minioadmin
+      SILO_ROOT_PASSWORD: ''
+      SILO_ROOT_USER: minioadmin
     image: pgsty/mc:RELEASE.2026-09-16T00-00-00Z@sha256:cfc83108c3abb371f8fb84d99c1fdc88f8c237e022409b0081fb7c0a3be634dd
     networks:
       backend-network: null
@@ -4098,7 +4100,7 @@ services:
       \ \"$${HADOOP_CONF_DIR}\"\n# Serialize literal daemon credentials as XML text, preserving\
       \ & and <.\npython3 - <<'PY'\nimport os\nimport xml.etree.ElementTree as ET\n\n\
       configuration = ET.Element(\"configuration\")\nfor name, value in (\n    (\"fs.s3a.endpoint\"\
-      , \"http://minio:9000\"),\n    (\"fs.s3a.endpoint.region\", os.environ[\"AWS_REGION\"\
+      , \"http://silo:9000\"),\n    (\"fs.s3a.endpoint.region\", os.environ[\"AWS_REGION\"\
       ]),\n    (\"fs.s3a.path.style.access\", \"true\"),\n    (\"fs.s3a.connection.ssl.enabled\"\
       , \"false\"),\n    (\"fs.s3a.aws.credentials.provider\", \"org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider\"\
       ),\n    (\"fs.s3a.access.key\", os.environ[\"AWS_ACCESS_KEY_ID\"]),\n    (\"fs.s3a.secret.key\"\
@@ -4122,7 +4124,7 @@ services:
     - -lc
     environment:
       AWS_ACCESS_KEY_ID: ''
-      AWS_ENDPOINT_URL_S3: http://minio:9000
+      AWS_ENDPOINT_URL_S3: http://silo:9000
       AWS_REGION: us-east-1
       AWS_SECRET_ACCESS_KEY: ''
       SPARK_KAFKA_BOOTSTRAP_SERVERS: ''
@@ -4767,7 +4769,7 @@ services:
       iceberg-rest:
         condition: service_healthy
         required: true
-      minio-init:
+      silo-init:
         condition: service_completed_successfully
         required: true
     deploy:
@@ -4777,10 +4779,10 @@ services:
           memory: '4294967296'
     environment:
       JAVA_TOOL_OPTIONS: -Dhttp-server.process-forwarded=true
-      MINIO_BUCKET_ICEBERG_LAKEHOUSE: lakehouse
-      MINIO_ICEBERG_ACCESS_KEY: ''
-      MINIO_ICEBERG_SECRET_KEY: ''
-      MINIO_REGION: us-east-1
+      SILO_BUCKET_ICEBERG_LAKEHOUSE: lakehouse
+      SILO_ICEBERG_ACCESS_KEY: ''
+      SILO_ICEBERG_SECRET_KEY: ''
+      SILO_REGION: us-east-1
     healthcheck:
       test:
       - CMD
@@ -5107,7 +5109,7 @@ services:
         SPARK_IMAGE: apache/spark:4.1.2
     container_name: atlas-zeppelin
     depends_on:
-      minio-init:
+      silo-init:
         condition: service_completed_successfully
         required: true
       spark-init:
@@ -5127,20 +5129,20 @@ services:
       ZEPPELIN_MEM: -Xmx512m
       ICEBERG_REST_URI: http://iceberg-rest:8181
       JAVA_HOME: /opt/java/openjdk
-      MINIO_BUCKET_ICEBERG_CHECKPOINTS: checkpoints
-      MINIO_BUCKET_ICEBERG_LAKEHOUSE: lakehouse
-      MINIO_BUCKET_ICEBERG_LANDING: landing
-      MINIO_BUCKET_SPARK_HISTORY: spark-history
-      MINIO_ENDPOINT: http://minio:9000
-      MINIO_ICEBERG_ACCESS_KEY: ''
-      MINIO_ICEBERG_SECRET_KEY: ''
-      MINIO_REGION: us-east-1
-      MINIO_SPARK_ACCESS_KEY: ''
-      MINIO_SPARK_SECRET_KEY: ''
+      SILO_BUCKET_ICEBERG_CHECKPOINTS: checkpoints
+      SILO_BUCKET_ICEBERG_LAKEHOUSE: lakehouse
+      SILO_BUCKET_ICEBERG_LANDING: landing
+      SILO_BUCKET_SPARK_HISTORY: spark-history
+      SILO_ENDPOINT: http://silo:9000
+      SILO_ICEBERG_ACCESS_KEY: ''
+      SILO_ICEBERG_SECRET_KEY: ''
+      SILO_REGION: us-east-1
+      SILO_SPARK_ACCESS_KEY: ''
+      SILO_SPARK_SECRET_KEY: ''
       SPARK_HOME: /opt/spark
       SPARK_KAFKA_BOOTSTRAP_SERVERS: ''
       SPARK_MASTER: spark://spark-master:7077
-      SPARK_SUBMIT_OPTIONS: --conf spark.submit.deployMode=client --conf spark.driver.bindAddress=0.0.0.0 --conf spark.driver.host=zeppelin --conf spark.cores.max=1 --conf spark.driver.memory=512m --conf spark.hadoop.fs.s3a.endpoint=http://minio:9000 --conf spark.hadoop.fs.s3a.aws.credentials.provider=software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider --conf spark.hadoop.fs.s3a.path.style.access=true --conf spark.hadoop.fs.s3a.endpoint.region=us-east-1 --conf spark.hadoop.fs.s3a.connection.ssl.enabled=false --conf spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions --conf spark.sql.catalog.lakehouse=org.apache.iceberg.spark.SparkCatalog --conf spark.sql.catalog.lakehouse.type=rest --conf spark.sql.catalog.lakehouse.uri=http://iceberg-rest:8181 --conf spark.sql.catalog.lakehouse.warehouse=s3a://lakehouse/ --conf spark.sql.catalog.lakehouse.io-impl=org.apache.iceberg.aws.s3.S3FileIO --conf spark.sql.catalog.lakehouse.s3.endpoint=http://minio:9000 --conf spark.sql.catalog.lakehouse.s3.path-style-access=true --conf spark.sql.catalog.lakehouse.client.credentials-provider=software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider --conf spark.sql.catalog.lakehouse.client.region=us-east-1 --conf spark.eventLog.enabled=true --conf spark.eventLog.dir=s3a://spark-history/
+      SPARK_SUBMIT_OPTIONS: --conf spark.submit.deployMode=client --conf spark.driver.bindAddress=0.0.0.0 --conf spark.driver.host=zeppelin --conf spark.cores.max=1 --conf spark.driver.memory=512m --conf spark.hadoop.fs.s3a.endpoint=http://silo:9000 --conf spark.hadoop.fs.s3a.aws.credentials.provider=software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider --conf spark.hadoop.fs.s3a.path.style.access=true --conf spark.hadoop.fs.s3a.endpoint.region=us-east-1 --conf spark.hadoop.fs.s3a.connection.ssl.enabled=false --conf spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions --conf spark.sql.catalog.lakehouse=org.apache.iceberg.spark.SparkCatalog --conf spark.sql.catalog.lakehouse.type=rest --conf spark.sql.catalog.lakehouse.uri=http://iceberg-rest:8181 --conf spark.sql.catalog.lakehouse.warehouse=s3a://lakehouse/ --conf spark.sql.catalog.lakehouse.io-impl=org.apache.iceberg.aws.s3.S3FileIO --conf spark.sql.catalog.lakehouse.s3.endpoint=http://silo:9000 --conf spark.sql.catalog.lakehouse.s3.path-style-access=true --conf spark.sql.catalog.lakehouse.client.credentials-provider=software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider --conf spark.sql.catalog.lakehouse.client.region=us-east-1 --conf spark.eventLog.enabled=true --conf spark.eventLog.dir=s3a://spark-history/
       TRINO_ENDPOINT: http://trino:8080
       TRINO_JDBC_DEPENDENCY: io.trino:trino-jdbc:482
       TRINO_JDBC_DRIVER: io.trino.jdbc.TrinoDriver
@@ -5193,7 +5195,7 @@ services:
   zeppelin-init:
     container_name: atlas-zeppelin-init
     depends_on:
-      minio-init:
+      silo-init:
         condition: service_completed_successfully
         required: true
       spark-init:
@@ -5211,16 +5213,16 @@ services:
       ICEBERG_REST_SOURCE: disabled
       ICEBERG_REST_URI: http://iceberg-rest:8181
       JAVA_HOME: /opt/java/openjdk
-      MINIO_BUCKET_ICEBERG_CHECKPOINTS: checkpoints
-      MINIO_BUCKET_ICEBERG_LAKEHOUSE: lakehouse
-      MINIO_BUCKET_ICEBERG_LANDING: landing
-      MINIO_BUCKET_SPARK_HISTORY: spark-history
-      MINIO_ENDPOINT: http://minio:9000
-      MINIO_ICEBERG_ACCESS_KEY: ''
-      MINIO_ICEBERG_SECRET_KEY: ''
-      MINIO_REGION: us-east-1
-      MINIO_SPARK_ACCESS_KEY: ''
-      MINIO_SPARK_SECRET_KEY: ''
+      SILO_BUCKET_ICEBERG_CHECKPOINTS: checkpoints
+      SILO_BUCKET_ICEBERG_LAKEHOUSE: lakehouse
+      SILO_BUCKET_ICEBERG_LANDING: landing
+      SILO_BUCKET_SPARK_HISTORY: spark-history
+      SILO_ENDPOINT: http://silo:9000
+      SILO_ICEBERG_ACCESS_KEY: ''
+      SILO_ICEBERG_SECRET_KEY: ''
+      SILO_REGION: us-east-1
+      SILO_SPARK_ACCESS_KEY: ''
+      SILO_SPARK_SECRET_KEY: ''
       SPARK_HOME: /opt/spark
       SPARK_MASTER: spark://spark-master:7077
       TRINO_ENDPOINT: http://trino:8080
@@ -5314,7 +5316,7 @@ volumes:
   loki-data:
     name: atlas-loki-data
     driver: local
-  minio-data:
+  silo-data:
     name: atlas-minio-data
     driver: local
   n8n-data:

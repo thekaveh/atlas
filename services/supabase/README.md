@@ -509,7 +509,7 @@ _No upstream calls._
 <a id="95-future--candidate-new-services"></a>
 
 - **[Supabase Edge Functions (Deno)](../../docs/reference/candidate-decisions.md#candidate-supabase-edge-functions)** — *Headline:* self-hosted Deno serverless layer that lets Postgres triggers and Kong routes invoke short TypeScript handlers without n8n. *Wires into:* litellm, n8n, supabase-storage, kong.
-- **[imgproxy](../../docs/reference/candidate-decisions.md#candidate-imgproxy)** — *Headline:* on-the-fly image transform and resize sidecar; Supabase Storage's `IMGPROXY_URL` setting is built to call it. *Wires into:* supabase-storage, minio, comfyui, open-webui, backend.
+- **[imgproxy](../../docs/reference/candidate-decisions.md#candidate-imgproxy)** — *Headline:* on-the-fly image transform and resize sidecar; Supabase Storage's `IMGPROXY_URL` setting is built to call it. *Wires into:* supabase-storage, silo, comfyui, open-webui, backend.
 
 ### 11.6. Future — Unused features in this service
 

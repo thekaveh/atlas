@@ -7,7 +7,7 @@ sources_consulted:
   - services/parakeet/service.yml
   - services/speaches/service.yml
   - services/stt-provider/README.md
-  - services/minio/service.yml
+  - services/silo/service.yml
   - services/weaviate/service.yml
   - services/redis/service.yml
   - services/doc-processor/service.yml
@@ -25,12 +25,12 @@ sources_consulted:
 
 ## 1. Missing-pair integrations
 
-- **stt-provider ↔ minio**
-  - Why valuable: Transcripts are an HTTP response nothing persists. Pushing source audio + transcript JSON to MinIO gives every service a stable URL and enables re-transcription on engine swap without re-uploading audio.
-  - Mechanism sketch: New bucket `stt-transcripts` provisioned by `minio-init`; producers put `s3://stt-transcripts/<sha256>.wav` plus a sidecar `.json` from a post-transcribe hook in the backend; S3 SigV4 over `http://minio:9000`.
+- **stt-provider ↔ silo**
+  - Why valuable: Transcripts are an HTTP response nothing persists. Pushing source audio + transcript JSON to Silo gives every service a stable URL and enables re-transcription on engine swap without re-uploading audio.
+  - Mechanism sketch: New bucket `stt-transcripts` provisioned by `silo-init`; producers put `s3://stt-transcripts/<sha256>.wav` plus a sidecar `.json` from a post-transcribe hook in the backend; S3 SigV4 over `http://silo:9000`.
   - Effort: small
   - Risks / open questions: Where the hook lives (backend vs n8n vs each producer); raw-audio lifecycle policy.
-  - Confidence: high (MinIO already pre-provisions per-service buckets via `minio-init`).
+  - Confidence: high (Silo already pre-provisions per-service buckets via `silo-init`).
 
 - **stt-provider ↔ weaviate**
   - Why valuable: Indexing durable transcripts turns long-form audio (meetings, podcasts, voice notes) into a semantically searchable corpus alongside the doc-processor pipeline. No engine ships search; this is the natural downstream.
@@ -62,16 +62,16 @@ sources_consulted:
 
 - **stt-provider ↔ supabase**
   - Why valuable: Transcript metadata (user, session, source URI, model, language, duration) belongs in a relational store. Gives Open WebUI / backend a "my transcripts" view keyed by Supabase JWT `sub`.
-  - Mechanism sketch: `transcripts` table via PostgREST at `http://supabase-api:3000`, RLS on `auth.uid()`; the post-transcribe hook writes rows pointing at MinIO URIs.
+  - Mechanism sketch: `transcripts` table via PostgREST at `http://supabase-api:3000`, RLS on `auth.uid()`; the post-transcribe hook writes rows pointing at Silo URIs.
   - Effort: medium
-  - Risks / open questions: RLS policy design; keeping MinIO + Weaviate + Supabase writes consistent (or a single hook owns all three).
+  - Risks / open questions: RLS policy design; keeping Silo + Weaviate + Supabase writes consistent (or a single hook owns all three).
   - Confidence: medium (Supabase + PostgREST are in-stack; orchestrator undesigned).
 
 ## 2. Candidate new services
 
 - **WhisperX** → `../candidates/whisperx.md`
   - Headline: Watchlisted diarized long-form audio engine for future named meeting/audio ingestion workflows.
-  - Other consumers in stack: backend, n8n, open-webui, hermes, openclaw, minio, weaviate
+  - Other consumers in stack: backend, n8n, open-webui, hermes, openclaw, silo, weaviate
 
 ## 3. Per-service feature gaps
 

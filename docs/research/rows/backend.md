@@ -8,8 +8,8 @@ sources_consulted:
   - services/backend/compose.yml
   - services/backend/app/app/main.py
   - services/backend/app/app/requirements.txt
-  - services/minio/init/scripts/init-minio.sh
-  - services/minio/service.yml
+  - services/silo/init/scripts/init-silo.sh
+  - services/silo/service.yml
   - services/hermes/compose.yml
   - services/hermes/README.md
   - services/jupyterhub/service.yml
@@ -20,12 +20,12 @@ sources_consulted:
 
 ## 1. Missing-pair integrations
 
-- **backend ↔ minio**
-  - Why valuable: `minio-init` already provisions a dedicated `backend` bucket plus a scoped `MINIO_BACKEND_ACCESS_KEY`/`SECRET_KEY` service account, but the backend container receives none of the `MINIO_*` env vars and ships no S3 client. Artifact-tier storage (research outputs, ComfyUI image cache, large user uploads) currently spills into Supabase Storage, which is sized for app data, not blobs.
-  - Mechanism sketch: pass `MINIO_ENDPOINT=http://minio:9000`, `MINIO_BUCKET_BACKEND`, and the backend access/secret keys into `services/backend/compose.yml`; add `boto3` (or the `minio` py SDK) to `requirements.txt`; expose `POST /storage/artifact` and `GET /storage/artifact/{key}` next to the existing Supabase `/storage/upload`.
+- **backend ↔ silo**
+  - Why valuable: `silo-init` already provisions a dedicated `backend` bucket plus a scoped `SILO_BACKEND_ACCESS_KEY`/`SECRET_KEY` service account, but the backend container receives none of the `SILO_*` env vars and ships no S3 client. Artifact-tier storage (research outputs, ComfyUI image cache, large user uploads) currently spills into Supabase Storage, which is sized for app data, not blobs.
+  - Mechanism sketch: pass `SILO_ENDPOINT=http://silo:9000`, `SILO_BUCKET_BACKEND`, and the backend access/secret keys into `services/backend/compose.yml`; add `boto3` (or the `silo` py SDK) to `requirements.txt`; expose `POST /storage/artifact` and `GET /storage/artifact/{key}` next to the existing Supabase `/storage/upload`.
   - Effort: small
-  - Risks / open questions: dual-storage UX (which backend goes to Supabase vs MinIO?); presigned-URL TTL policy; CORS for browser direct-upload.
-  - Confidence: high (the bucket + creds are visibly declared in `services/minio/init/scripts/init-minio.sh:28`).
+  - Risks / open questions: dual-storage UX (which backend goes to Supabase vs Silo?); presigned-URL TTL policy; CORS for browser direct-upload.
+  - Confidence: high (the bucket + creds are visibly declared in `services/silo/init/scripts/init-silo.sh:28`).
 
 - **backend ↔ hermes**
   - Why valuable: `HERMES_ENDPOINT` and `HERMES_API_KEY` are already passed into the backend container, but no Python client or FastAPI endpoint consumes them. Talking to Hermes only through the LiteLLM `hermes-agent` model loses Hermes-native surfaces (skill/tool registration, session state at `/opt/data`, dashboard introspection).
@@ -36,7 +36,7 @@ sources_consulted:
 
 - **backend ↔ jupyterhub**
   - Why valuable: notebook users currently can't reach backend's research/memory/ComfyUI APIs except through Kong + tokens — and the backend has no view into JupyterHub state. A thin bridge enables programmatic notebook launches for batch evaluations (e.g. ranking research outputs, replaying memory consolidations).
-  - Mechanism sketch: backend calls JupyterHub REST at `http://jupyterhub:8000/hub/api` using `Authorization: token ${JUPYTERHUB_TOKEN}`; expose `POST /notebooks/users/{name}/server` and `GET /notebooks/users` proxies; share `MINIO_BUCKET_JUPYTER` for artifact handoff.
+  - Mechanism sketch: backend calls JupyterHub REST at `http://jupyterhub:8000/hub/api` using `Authorization: token ${JUPYTERHUB_TOKEN}`; expose `POST /notebooks/users/{name}/server` and `GET /notebooks/users` proxies; share `SILO_BUCKET_JUPYTER` for artifact handoff.
   - Effort: medium
   - Risks / open questions: JupyterHub admin token rotation; auth model mismatch (backend uses Supabase JWT, JupyterHub uses its own token); spawner type may not support headless start.
   - Confidence: medium (JupyterHub manifest exists and exposes `JUPYTERHUB_TOKEN`; upstream REST API is well-known but not verified in-repo).
@@ -60,7 +60,7 @@ sources_consulted:
 
 - **MLflow** → `../candidates/mlflow.md`
   - Headline: Experiment tracking + model registry for the LangMem extraction/embedding models, ComfyUI checkpoints, and Hermes skill evaluations.
-  - Other consumers in stack: jupyterhub, comfyui, hermes, minio
+  - Other consumers in stack: jupyterhub, comfyui, hermes, silo
 
 ## 3. Per-service feature gaps
 

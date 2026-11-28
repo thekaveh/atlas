@@ -23,7 +23,7 @@ include:
   - services/supabase/compose.yml
   - services/supavisor/compose.yml
   - services/redis/compose.yml
-  - services/minio/compose.yml
+  - services/silo/compose.yml
   - services/iceberg-rest/compose.yml
   - services/trino/compose.yml
   - services/redpanda/compose.yml

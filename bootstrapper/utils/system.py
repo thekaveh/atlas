@@ -342,7 +342,7 @@ def _compose_env_file_values(compose_cmd: list) -> dict:
 SINK_COMPOSE_TIMEOUT_SECONDS = 600
 
 
-def resolved_minio_environment(compose_cmd: list, cwd: str | Path, timeout_seconds: float) -> dict:
+def resolved_silo_environment(compose_cmd: list, cwd: str | Path, timeout_seconds: float) -> dict:
     """Resolve bucket names using Compose's shell, env-file and overlay rules.
 
     Capture privately: rendered configuration can contain credentials.
@@ -357,13 +357,13 @@ def resolved_minio_environment(compose_cmd: list, cwd: str | Path, timeout_secon
         timeout_seconds=timeout_seconds,
     )
     if result.returncode != 0:
-        raise RuntimeError("Could not resolve MinIO bucket configuration with Compose")
+        raise RuntimeError("Could not resolve Silo bucket configuration with Compose")
     try:
-        environment = json.loads(result.stdout)['services']['minio-init']['environment']
+        environment = json.loads(result.stdout)['services']['silo-init']['environment']
     except (ValueError, KeyError, TypeError):
-        raise RuntimeError("Could not read MinIO bucket configuration from Compose") from None
+        raise RuntimeError("Could not read Silo bucket configuration from Compose") from None
     if not isinstance(environment, dict):
-        raise RuntimeError("Compose returned invalid MinIO bucket configuration")
+        raise RuntimeError("Compose returned invalid Silo bucket configuration")
     return environment
 
 

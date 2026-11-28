@@ -153,7 +153,7 @@ def test_no_profiles_yields_no_artifacts(tmp_path: Path) -> None:
     assert config.rag_ingestion_overlay is None
 
 
-def test_minio_corpus_source(tmp_path: Path) -> None:
+def test_silo_corpus_source(tmp_path: Path) -> None:
     _write_root(tmp_path)
     manifest = _write_consumer(
         tmp_path, "c",
@@ -165,25 +165,25 @@ def test_minio_corpus_source(tmp_path: Path) -> None:
           version: 1
           profiles:
             - name: p
-              corpus: {source: minio, bucket: corpora, prefix: showcase/}
+              corpus: {source: silo, bucket: corpora, prefix: showcase/}
               vector_targets:
                 - {backend: weaviate, collection_prefix: P, on_unavailable: skip}
         """,
     )
     config = load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
     corpus = config.rag_ingestion_profiles[0].corpus
-    assert corpus.source == "minio" and corpus.bucket == "corpora" and corpus.prefix == "showcase/"
-    assert corpus.access_key_var == "MINIO_C_CORPUS_ACCESS_KEY"
-    assert corpus.secret_key_var == "MINIO_C_CORPUS_SECRET_KEY"
+    assert corpus.source == "silo" and corpus.bucket == "corpora" and corpus.prefix == "showcase/"
+    assert corpus.access_key_var == "SILO_C_CORPUS_ACCESS_KEY"
+    assert corpus.secret_key_var == "SILO_C_CORPUS_SECRET_KEY"
     compiled = json.loads(config.rag_ingestion_file.content)["profiles"][0]["corpus"]
-    assert compiled["access_key_var"] == "MINIO_C_CORPUS_ACCESS_KEY"
-    assert compiled["secret_key_var"] == "MINIO_C_CORPUS_SECRET_KEY"
+    assert compiled["access_key_var"] == "SILO_C_CORPUS_ACCESS_KEY"
+    assert compiled["secret_key_var"] == "SILO_C_CORPUS_SECRET_KEY"
     assert config.rag_ingestion_overlay.content.count(
-        "MINIO_C_CORPUS_ACCESS_KEY: ${MINIO_C_CORPUS_ACCESS_KEY:-}"
+        "SILO_C_CORPUS_ACCESS_KEY: ${SILO_C_CORPUS_ACCESS_KEY:-}"
     ) == 2
 
 
-def test_minio_corpus_requires_same_consumer_storage_bucket(tmp_path: Path) -> None:
+def test_silo_corpus_requires_same_consumer_storage_bucket(tmp_path: Path) -> None:
     _write_root(tmp_path)
     manifest = _write_consumer(
         tmp_path,
@@ -193,7 +193,7 @@ def test_minio_corpus_requires_same_consumer_storage_bucket(tmp_path: Path) -> N
           version: 1
           profiles:
             - name: p
-              corpus: {source: minio, bucket: undeclared, prefix: docs/}
+              corpus: {source: silo, bucket: undeclared, prefix: docs/}
               vector_targets:
                 - {backend: weaviate, collection_prefix: P, on_unavailable: skip}
         """,
@@ -201,7 +201,7 @@ def test_minio_corpus_requires_same_consumer_storage_bucket(tmp_path: Path) -> N
 
     with pytest.raises(
         ConsumerManifestError,
-        match="MinIO bucket 'undeclared' must be declared under storage.buckets",
+        match="Silo bucket 'undeclared' must be declared under storage.buckets",
     ):
         load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
 
@@ -360,11 +360,11 @@ def test_mount_path_safety(tmp_path: Path, bad: str) -> None:
         load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
 
 
-def test_minio_requires_bucket_and_prefix(tmp_path: Path) -> None:
+def test_silo_requires_bucket_and_prefix(tmp_path: Path) -> None:
     _write_root(tmp_path)
     manifest = _write_consumer(
         tmp_path, "c",
-        "rag_ingestion_profiles:\n  version: 1\n  profiles:\n    - name: p\n      corpus: {source: minio, bucket: onlybucket}\n      vector_targets: [{backend: weaviate, collection_prefix: A, on_unavailable: skip}]\n",
+        "rag_ingestion_profiles:\n  version: 1\n  profiles:\n    - name: p\n      corpus: {source: silo, bucket: onlybucket}\n      vector_targets: [{backend: weaviate, collection_prefix: A, on_unavailable: skip}]\n",
     )
     with pytest.raises(ConsumerManifestError, match="requires both bucket and prefix"):
         load_consumer_config(tmp_path, explicit_paths=[str(manifest)])

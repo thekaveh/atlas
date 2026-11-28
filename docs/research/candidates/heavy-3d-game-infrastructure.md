@@ -23,7 +23,7 @@ Hunyuan3D and TRELLIS/TRELLIS.2 can generate high-fidelity 3D assets from images
 ## 3. Deferred decision (2026-07-04)
 Atlas should keep heavy 3D/game infrastructure deferred and must not add `services/hunyuan3d/service.yml`, must not add `services/trellis/service.yml`, must not add `services/nerfstudio/service.yml`, must not add `services/unreal-mcp/service.yml`, and must not add `services/livekit/service.yml` in this decision ticket.
 
-The approved posture is asset pipeline first: ComfyUI concepts, MinIO asset buckets, imgproxy-style thumbnails, glTF-Transform inspection/optimization, and the existing disabled localhost-only Blender MCP profile. Atlas should build that product path before adding GPU-heavy 3D foundation models, reconstruction stacks, game-engine editor automation, or realtime media infrastructure. This is not a default generate-a-whole-game promise.
+The approved posture is asset pipeline first: ComfyUI concepts, Silo asset buckets, imgproxy-style thumbnails, glTF-Transform inspection/optimization, and the existing disabled localhost-only Blender MCP profile. Atlas should build that product path before adding GPU-heavy 3D foundation models, reconstruction stacks, game-engine editor automation, or realtime media infrastructure. This is not a default generate-a-whole-game promise.
 
 Current upstream checks reinforce the boundary:
 
@@ -35,12 +35,12 @@ Current upstream checks reinforce the boundary:
 ## 4. Stack wiring sketch
 No current Atlas wiring should be added while heavy 3D/game infrastructure remains deferred. If future tickets reopen individual pieces, the expected topology is:
 
-- ComfyUI -> MinIO for concept images, textures, previews, and source prompts.
-- MinIO -> glTF-Transform for GLB inspection, validation, optimization, meshopt compression, texture compression, metadata extraction, and artifact lineage.
+- ComfyUI -> Silo for concept images, textures, previews, and source prompts.
+- Silo -> glTF-Transform for GLB inspection, validation, optimization, meshopt compression, texture compression, metadata extraction, and artifact lineage.
 - imgproxy -> root dashboard or asset-browser surfaces for cheap thumbnails and previews of generated media and 3D-adjacent assets.
 - Blender MCP -> host-local review, cleanup, and scene assembly only after explicit human approval and no Kong route for editor automation.
-- Hunyuan3D/TRELLIS -> MinIO/Blender MCP/glTF-Transform only after VRAM, model-cache size, output-format contracts, and license posture are pinned.
-- Nerfstudio -> MinIO/glTF-Transform only for reconstruction/scanning workflows with capture provenance and GPU budgets.
+- Hunyuan3D/TRELLIS -> Silo/Blender MCP/glTF-Transform only after VRAM, model-cache size, output-format contracts, and license posture are pinned.
+- Nerfstudio -> Silo/glTF-Transform only for reconstruction/scanning workflows with capture provenance and GPU budgets.
 - Unreal MCP -> host-local developer option only; no default container, no public route, and no route through Kong for editor automation.
 - LiveKit -> collaborative realtime review or voice-driven creator workflow only after Atlas has a product use case, auth, TURN/networking, and observability.
 - Open WebUI and Hermes may become downstream consumers of safe asset summaries or curated MCP tools only after policy and prompt-injection controls exist.
@@ -62,14 +62,14 @@ Large. Each candidate has a different runtime shape: GPU model service, reconstr
 - **Sources:** `HUNYUAN3D_SOURCE=disabled|container-gpu|localhost`, `TRELLIS_SOURCE=disabled|container-gpu|localhost`, `NERFSTUDIO_SOURCE=disabled|container-gpu|localhost`, `UNREAL_MCP_SOURCE=disabled|localhost`, and `LIVEKIT_SOURCE=disabled|container|localhost`; all disabled by default.
 - **Wizard placement:** after ComfyUI, imgproxy/thumbnailing, glTF-Transform, and Blender MCP. Prompt copy must say these are heavy optional 3D/game integrations, not a default generate-a-whole-game promise.
 - **Ports and aliases:** allocate ports through Atlas topology/category slot rules with custom `BASE_PORT` for any container service. Expected aliases, if ever enabled, are service-specific and only for safe UIs/APIs. There must be no Kong route for editor automation, no public Unreal/Blender MCP route, and no model-download or asset-import endpoint without auth and limits.
-- **Required dependencies:** MinIO, ComfyUI, glTF-Transform asset postprocess, thumbnail/preview path, and the existing Blender MCP safety pattern before Hunyuan3D/TRELLIS/Nerfstudio. LiveKit additionally needs auth, TURN/networking decisions, observability, and a voice/review workflow.
+- **Required dependencies:** Silo, ComfyUI, glTF-Transform asset postprocess, thumbnail/preview path, and the existing Blender MCP safety pattern before Hunyuan3D/TRELLIS/Nerfstudio. LiveKit additionally needs auth, TURN/networking decisions, observability, and a voice/review workflow.
 - **Optional dependencies:** imgproxy for thumbnails, backend for mediated jobs, Open WebUI and Hermes for safe consumer surfaces, LiteLLM for prompt orchestration, Langfuse for LLM traceability, and Ray only for later batch rendering or evaluation scale-out.
 - **Downstream consumers:** asset browser/root dashboard, backend mediated asset jobs, Open WebUI previews, Hermes agent workflows, Blender MCP cleanup, and future review UIs. Consumers must use bounded job APIs and validated artifacts rather than raw editor-control sockets.
 - **Manifest and topology:** each reopened service needs a manifest, topology row, source validation, env assembly, docs, diagrams, and `data_flow.calls` entries covering asset reads/writes, model cache, editor-control paths, realtime media paths, and downstream consumers.
 - **Init companion:** likely yes for GPU model services and LiveKit. The init companion must create asset/model-cache directories, validate GPU/profile settings, seed safe config, refuse prod-unsafe editor automation, check credentials, and keep model downloads explicit.
 - **Volumes and secrets:** separate model caches, raw inputs, generated assets, thumbnails, optimized GLB output, logs, and credentials. Signed asset-provider/model-download credentials must not be scattered through `.env` once secrets manager support exists.
 - **Tests required:** focused decision tests, manifest/source/topology/env tests, disabled-default behavior, prod-profile restrictions, no-Kong-editor-route audits, custom `BASE_PORT`, GPU/CPU profile gating, model-cache env validation, source permutations, docs drift, research schema, route checks, link checks, and service-specific smoke tests with tiny fixtures where possible.
-- **Edge cases:** disabled ComfyUI, disabled MinIO, missing glTF-Transform, missing imgproxy, missing GPU, insufficient VRAM, stale model cache, failed downloads, incompatible CUDA, unsupported asset format, invalid GLB, huge textures, unsafe Blender/Unreal scripts, Kong exposure drift, LiveKit TURN/networking failures, prod profile restrictions, stale `.env`, and generated-doc drift.
+- **Edge cases:** disabled ComfyUI, disabled Silo, missing glTF-Transform, missing imgproxy, missing GPU, insufficient VRAM, stale model cache, failed downloads, incompatible CUDA, unsupported asset format, invalid GLB, huge textures, unsafe Blender/Unreal scripts, Kong exposure drift, LiveKit TURN/networking failures, prod profile restrictions, stale `.env`, and generated-doc drift.
 
 ## 8. Revisit criteria
 Reconsider individual heavy 3D/game services only when all of these are true:

@@ -8,7 +8,7 @@ capabilities:
   - name: "Self-hosted LLM observability stack"
     status: supported
     verification: tested
-    note: "Atlas configures the Langfuse web, worker, ClickHouse, Postgres, Redis, and MinIO dependencies as one optional self-hosted deployment."
+    note: "Atlas configures the Langfuse web, worker, ClickHouse, Postgres, Redis, and Silo dependencies as one optional self-hosted deployment."
   - name: "Automatic LiteLLM trace capture"
     status: partial
     verification: tested
@@ -49,7 +49,7 @@ sources:
 
 env:
   - name: LANGFUSE_SOURCE
-    description: "Deployment source for Langfuse (web, worker and ClickHouse): container or disabled. The container source requires MINIO_SOURCE to be enabled."
+    description: "Deployment source for Langfuse (web, worker and ClickHouse): container or disabled. The container source requires SILO_SOURCE to be enabled."
     default: disabled
   - name: LANGFUSE_PORT
     description: "Host port for the Langfuse web UI/API (in-container 3000)."
@@ -144,7 +144,7 @@ depends_on:
   required:
     - supabase
     - redis
-    - minio
+    - silo
     - litellm
     - kong
     - ray
@@ -209,27 +209,27 @@ runtime_sc:
 # Enforced runtime requirement, distinct from the depends_on ordering above.
 # depends_on drives startup order and display; service_dependencies (synthesized
 # from this block) is what DependencyManager.check_service_dependencies actually
-# validates, and only services declaring runtime_deps are checked. MinIO is the
+# validates, and only services declaring runtime_deps are checked. Silo is the
 # one source-configurable dependency Langfuse cannot start without -- it needs
-# S3-compatible event storage, and langfuse-init runs after minio-init
+# S3-compatible event storage, and langfuse-init runs after silo-init
 # provisions the bucket and service account. Matches the trino ->
-# minio/iceberg-rest precedent. Note: service_config._generate_langfuse_config
-# refuses MINIO_SOURCE=disabled with a hard error, and that runs before
-# check_service_dependencies. So a Langfuse + disabled-MinIO start stops there
-# (naming --minio-source container), never reaching this block's report or
+# silo/iceberg-rest precedent. Note: service_config._generate_langfuse_config
+# refuses SILO_SOURCE=disabled with a hard error, and that runs before
+# check_service_dependencies. So a Langfuse + disabled-Silo start stops there
+# (naming --silo-source container), never reaching this block's report or
 # auto-resolve. gen-ai-rag, gen-ai-eng and gen-ai-creative offer Langfuse but
-# force-disable MinIO, so choosing Langfuse in them hits that error.
+# force-disable Silo, so choosing Langfuse in them hits that error.
 runtime_deps:
   langfuse:
     requires:
-      - minio
+      - silo
     optional: []
 
 data_flow:
   calls:
     - supabase
     - redis
-    - minio
+    - silo
 
 # Support tier (#1050). Selectable is not validated: this family is `experimental`
 # until a cited cold-start, workflow, and upgrade qualification run promotes it.

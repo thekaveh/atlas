@@ -1,9 +1,9 @@
 """Consumer object-storage contract (#404).
 
 A consumer declares object stores in its manifest ``storage:`` block; Atlas
-compiles each to the existing #409 ``MINIO_EXTRA_CONSUMERS`` provisioning
+compiles each to the existing #409 ``SILO_EXTRA_CONSUMERS`` provisioning
 grammar, validates names/collisions, exports stable per-store endpoint and
-credential-reference fields (consumed by #345), and generates a minio-init
+credential-reference fields (consumed by #345), and generates a silo-init
 overlay so the consumer writes no compose override.
 """
 from __future__ import annotations
@@ -18,7 +18,7 @@ from core.consumer_manifest import (
     compile_storage_exports,
     compile_storage_provisioning,
     load_consumer_config,
-    render_minio_storage_overlay,
+    render_silo_storage_overlay,
     storage_credential_tokens,
 )
 
@@ -61,15 +61,15 @@ def test_storage_compiles_to_extra_consumers_provisioning(tmp_path: Path) -> Non
     assert store.bucket == "daydreams-artifacts"
 
     prov = compile_storage_provisioning(config.storage)
-    assert prov["MINIO_BUCKET_DAYDREAMS_ARTIFACTS"] == "daydreams-artifacts"
-    assert prov["MINIO_EXTRA_CONSUMERS"] == (
-        "daydreams-artifacts:MINIO_BUCKET_DAYDREAMS_ARTIFACTS:"
-        "MINIO_DAYDREAMS_ARTIFACTS_ACCESS_KEY:MINIO_DAYDREAMS_ARTIFACTS_SECRET_KEY"
+    assert prov["SILO_BUCKET_DAYDREAMS_ARTIFACTS"] == "daydreams-artifacts"
+    assert prov["SILO_EXTRA_CONSUMERS"] == (
+        "daydreams-artifacts:SILO_BUCKET_DAYDREAMS_ARTIFACTS:"
+        "SILO_DAYDREAMS_ARTIFACTS_ACCESS_KEY:SILO_DAYDREAMS_ARTIFACTS_SECRET_KEY"
     )
     # Provisioning is carried by the overlay, NOT persisted to .env — so
-    # removing the store later cannot orphan a MINIO_EXTRA_CONSUMERS entry.
-    assert "MINIO_EXTRA_CONSUMERS" not in config.env_overrides
-    assert "MINIO_BUCKET_DAYDREAMS_ARTIFACTS" not in config.env_overrides
+    # removing the store later cannot orphan a SILO_EXTRA_CONSUMERS entry.
+    assert "SILO_EXTRA_CONSUMERS" not in config.env_overrides
+    assert "SILO_BUCKET_DAYDREAMS_ARTIFACTS" not in config.env_overrides
 
 
 def test_bucket_name_defaults_to_consumer_and_store(tmp_path: Path) -> None:
@@ -86,7 +86,7 @@ def test_bucket_name_defaults_to_consumer_and_store(tmp_path: Path) -> None:
     config = load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
     assert config.storage[0].bucket == "rag-showcase-corpus"
     prov = compile_storage_provisioning(config.storage)
-    assert prov["MINIO_BUCKET_RAG_SHOWCASE_CORPUS"] == "rag-showcase-corpus"
+    assert prov["SILO_BUCKET_RAG_SHOWCASE_CORPUS"] == "rag-showcase-corpus"
 
 
 def test_extra_buckets_share_the_scoped_account(tmp_path: Path) -> None:
@@ -104,10 +104,10 @@ def test_extra_buckets_share_the_scoped_account(tmp_path: Path) -> None:
     )
     config = load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
     prov = compile_storage_provisioning(config.storage)
-    assert prov["MINIO_BUCKET_DAYDREAMS_MEDIA_EXTRA_0"] == "daydreams-thumbs"
-    assert prov["MINIO_BUCKET_DAYDREAMS_MEDIA_EXTRA_1"] == "daydreams-exports"
-    assert prov["MINIO_EXTRA_CONSUMERS"].endswith(
-        ":MINIO_BUCKET_DAYDREAMS_MEDIA_EXTRA_0,MINIO_BUCKET_DAYDREAMS_MEDIA_EXTRA_1"
+    assert prov["SILO_BUCKET_DAYDREAMS_MEDIA_EXTRA_0"] == "daydreams-thumbs"
+    assert prov["SILO_BUCKET_DAYDREAMS_MEDIA_EXTRA_1"] == "daydreams-exports"
+    assert prov["SILO_EXTRA_CONSUMERS"].endswith(
+        ":SILO_BUCKET_DAYDREAMS_MEDIA_EXTRA_0,SILO_BUCKET_DAYDREAMS_MEDIA_EXTRA_1"
     )
 
 
@@ -122,7 +122,7 @@ def test_multiple_consumers_accumulate_extra_consumers(tmp_path: Path) -> None:
         "storage:\n  buckets:\n    - {name: store, bucket: beta-store}\n",
     )
     config = load_consumer_config(tmp_path, explicit_paths=[str(one), str(two)])
-    entries = compile_storage_provisioning(config.storage)["MINIO_EXTRA_CONSUMERS"].split()
+    entries = compile_storage_provisioning(config.storage)["SILO_EXTRA_CONSUMERS"].split()
     assert len(entries) == 2
     assert any(e.startswith("alpha-store:") for e in entries)
     assert any(e.startswith("beta-store:") for e in entries)
@@ -139,18 +139,18 @@ def test_exports_expose_distinct_internal_and_public_endpoints(tmp_path: Path) -
     config = load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
     exports = compile_storage_exports(
         config.storage,
-        minio_endpoint="http://minio:9000",
-        minio_public_endpoint="http://localhost:63020",
-        minio_region="us-east-1",
+        silo_endpoint="http://silo:9000",
+        silo_public_endpoint="http://localhost:63020",
+        silo_region="us-east-1",
     )
     p = "ATLAS_STORE_DAYDREAMS_ARTIFACTS"
     assert exports[f"{p}_BUCKET"] == "daydreams-artifacts"
-    assert exports[f"{p}_INTERNAL_ENDPOINT"] == "http://minio:9000"
+    assert exports[f"{p}_INTERNAL_ENDPOINT"] == "http://silo:9000"
     assert exports[f"{p}_PUBLIC_ENDPOINT"] == "http://localhost:63020"
     assert exports[f"{p}_REGION"] == "us-east-1"
     # secret references (var NAMES) — never raw secret values
-    assert exports[f"{p}_ACCESS_KEY_VAR"] == "MINIO_DAYDREAMS_ARTIFACTS_ACCESS_KEY"
-    assert exports[f"{p}_SECRET_KEY_VAR"] == "MINIO_DAYDREAMS_ARTIFACTS_SECRET_KEY"
+    assert exports[f"{p}_ACCESS_KEY_VAR"] == "SILO_DAYDREAMS_ARTIFACTS_ACCESS_KEY"
+    assert exports[f"{p}_SECRET_KEY_VAR"] == "SILO_DAYDREAMS_ARTIFACTS_SECRET_KEY"
     # distinct internal vs public fields
     assert exports[f"{p}_INTERNAL_ENDPOINT"] != exports[f"{p}_PUBLIC_ENDPOINT"]
 
@@ -162,9 +162,9 @@ def test_exports_track_base_port_change(tmp_path: Path) -> None:
         "storage:\n  buckets:\n    - {name: artifacts, bucket: daydreams-artifacts}\n",
     )
     config = load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
-    kw = dict(minio_endpoint="http://minio:9000", minio_region="us-east-1")
-    a = compile_storage_exports(config.storage, minio_public_endpoint="http://localhost:63020", **kw)
-    b = compile_storage_exports(config.storage, minio_public_endpoint="http://localhost:64020", **kw)
+    kw = dict(silo_endpoint="http://silo:9000", silo_region="us-east-1")
+    a = compile_storage_exports(config.storage, silo_public_endpoint="http://localhost:63020", **kw)
+    b = compile_storage_exports(config.storage, silo_public_endpoint="http://localhost:64020", **kw)
     key = "ATLAS_STORE_DAYDREAMS_ARTIFACTS_PUBLIC_ENDPOINT"
     assert a[key] != b[key]
     assert b[key] == "http://localhost:64020"
@@ -194,7 +194,7 @@ def test_credential_tokens_for_keygen_backfill(tmp_path: Path) -> None:
         ("a" * 64, "3-63"),                        # too long
         ("dd..artifacts", r"\.\."),                # double dot
         ("10.0.0.1", "IP-formatted"),              # ip-like
-        ("ab.-cd", r"'\.-'"),                     # MinIO rejects (cycle 31)
+        ("ab.-cd", r"'\.-'"),                     # Silo rejects (cycle 31)
         ("ab-.cd", r"'-\.'"),
     ],
 )
@@ -238,21 +238,21 @@ def storage_runtime_probe(tmp_path):
         manifest = tmp_path / "atlas.consumer.yml"
         manifest.write_text(yaml.safe_dump(payload), encoding="utf-8")
         config = load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
-        env = {**config.env_overrides, "MINIO_SOURCE": source}
+        env = {**config.env_overrides, "SILO_SOURCE": source}
         effects = []
         starter = AtlasStarter.__new__(AtlasStarter)
         starter.root_dir = tmp_path
         starter.config_parser = SimpleNamespace(
             load_consumer_config=lambda: config, parse_env_file=lambda: env,
         )
-        starter.docker_manager = SimpleNamespace(resolved_minio_environment=lambda: env)
+        starter.docker_manager = SimpleNamespace(resolved_silo_environment=lambda: env)
         starter.key_generator = SimpleNamespace(
-            generate_and_update_extra_minio_consumer_keys=lambda tokens: effects.append("keys"),
+            generate_and_update_extra_silo_consumer_keys=lambda tokens: effects.append("keys"),
         )
         starter.banner = SimpleNamespace(show_status_message=lambda *args: None)
         starter._remove_env_keys_by_prefix = lambda prefix: effects.append("clear")
         starter._merge_env_file_overrides = lambda values: effects.append("exports")
-        overlay = tmp_path / "volumes/minio/consumer-storage.compose.yml"
+        overlay = tmp_path / "volumes/silo/consumer-storage.compose.yml"
         overlay.parent.mkdir(parents=True)
         overlay.write_text("owned previous overlay\n", encoding="utf-8")
         return starter, effects, overlay
@@ -261,12 +261,12 @@ def storage_runtime_probe(tmp_path):
 
 
 @pytest.mark.parametrize("case", [
-    ("MINIO_BUCKET_BACKEND", "shared-artifacts", (), "container", False),
-    ("ASSET_WORKER_MINIO_BUCKET", "shared-artifacts", (), "container", False),
-    ("MINIO_BUCKET_BACKEND", "consumer-artifacts", ("shared-artifacts",), "container", False),
-    ("MINIO_BUCKET_BACKEND", "consumer-artifacts", (), "container", True),
-    ("MINIO_BUCKET_BACKEND", "shared-artifacts", (), "disabled", True),
-    ("MINIO_BUCKET_BACKEND", None, (), "container", True),
+    ("SILO_BUCKET_BACKEND", "shared-artifacts", (), "container", False),
+    ("ASSET_WORKER_SILO_BUCKET", "shared-artifacts", (), "container", False),
+    ("SILO_BUCKET_BACKEND", "consumer-artifacts", ("shared-artifacts",), "container", False),
+    ("SILO_BUCKET_BACKEND", "consumer-artifacts", (), "container", True),
+    ("SILO_BUCKET_BACKEND", "shared-artifacts", (), "disabled", True),
+    ("SILO_BUCKET_BACKEND", None, (), "container", True),
 ], ids=["renamed-backend", "renamed-asset-output", "extra-bucket", "distinct", "disabled", "no-store"])
 def test_effective_builtin_bucket_collision_precedes_storage_writes(
     storage_runtime_probe, case
@@ -302,16 +302,16 @@ def test_compose_bucket_resolution_precedes_storage_writes(tmp_path, monkeypatch
     _write_root(tmp_path)
     bucket = "${RENAMED_BUCKET}" if mode == "reference" else "backend"
     (tmp_path / ".env").write_text(
-        "PROJECT_NAME=owned-storage-probe\nMINIO_SOURCE=container\n"
-        f"RENAMED_BUCKET=shared-artifacts\nMINIO_BUCKET_BACKEND={bucket}\n",
+        "PROJECT_NAME=owned-storage-probe\nSILO_SOURCE=container\n"
+        f"RENAMED_BUCKET=shared-artifacts\nSILO_BUCKET_BACKEND={bucket}\n",
         encoding="utf-8",
     )
     if mode == "shell":
-        monkeypatch.setenv("MINIO_BUCKET_BACKEND", "shared-artifacts")
-    compose_bucket = "shared-artifacts" if mode == "literal-compose" else "${MINIO_BUCKET_BACKEND}"
+        monkeypatch.setenv("SILO_BUCKET_BACKEND", "shared-artifacts")
+    compose_bucket = "shared-artifacts" if mode == "literal-compose" else "${SILO_BUCKET_BACKEND}"
     (tmp_path / "docker-compose.yml").write_text(
-        "services:\n  minio-init:\n    image: scratch\n    environment:\n"
-        f"      MINIO_BUCKET_BACKEND: {compose_bucket}\n", encoding="utf-8",
+        "services:\n  silo-init:\n    image: scratch\n    environment:\n"
+        f"      SILO_BUCKET_BACKEND: {compose_bucket}\n", encoding="utf-8",
     )
     config = load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
     parser = ConfigParser(str(tmp_path))
@@ -324,7 +324,7 @@ def test_compose_bucket_resolution_precedes_storage_writes(tmp_path, monkeypatch
     )
     starter.docker_manager = DockerManager(str(tmp_path))
     starter.key_generator = SimpleNamespace(
-        generate_and_update_extra_minio_consumer_keys=lambda tokens: effects.append("keys"),
+        generate_and_update_extra_silo_consumer_keys=lambda tokens: effects.append("keys"),
     )
     starter.banner = SimpleNamespace(show_status_message=lambda *args: messages.append(args))
     starter._remove_env_keys_by_prefix = lambda prefix: effects.append("clear")
@@ -339,7 +339,7 @@ def test_compose_bucket_resolution_precedes_storage_writes(tmp_path, monkeypatch
 @pytest.mark.parametrize("failure", [
     (1, "", "owned-private-marker"),
     (0, "owned-private-marker", ""),
-    (0, '{"services":{"minio-init":{"environment":"owned-private-marker"}}}', ""),
+    (0, '{"services":{"silo-init":{"environment":"owned-private-marker"}}}', ""),
 ], ids=["command-failed", "invalid-json", "invalid-environment"])
 def test_unresolved_storage_projection_preserves_artifacts(
     storage_runtime_probe, monkeypatch, failure, capsys
@@ -349,7 +349,7 @@ def test_unresolved_storage_projection_preserves_artifacts(
     from core.docker_manager import DockerManager
 
     starter, effects, overlay = storage_runtime_probe(
-        ("MINIO_BUCKET_BACKEND", "consumer-artifacts", (), "container", True)
+        ("SILO_BUCKET_BACKEND", "consumer-artifacts", (), "container", True)
     )
     manager = DockerManager.__new__(DockerManager)
     manager.root_dir = starter.root_dir
@@ -400,7 +400,7 @@ def test_empty_buckets_list_rejected(tmp_path: Path) -> None:
 
 # ── generated overlay ───────────────────────────────────────────────
 
-def test_storage_overlay_wires_minio_init_without_consumer_override(tmp_path: Path) -> None:
+def test_storage_overlay_wires_silo_init_without_consumer_override(tmp_path: Path) -> None:
     _write_root(tmp_path)
     manifest = _write_manifest(
         tmp_path, "daydreams",
@@ -409,13 +409,13 @@ def test_storage_overlay_wires_minio_init_without_consumer_override(tmp_path: Pa
     config = load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
     assert config.storage_overlay is not None
     content = config.storage_overlay.content
-    assert "minio-init:" in content
+    assert "silo-init:" in content
     # bucket name is LITERAL (source of truth is the manifest, not .env)
-    assert 'MINIO_BUCKET_DAYDREAMS_ARTIFACTS: "daydreams-artifacts"' in content
-    # MINIO_EXTRA_CONSUMERS merges with any operator/_user value from .env
-    assert "${MINIO_EXTRA_CONSUMERS:-} daydreams-artifacts:MINIO_BUCKET_DAYDREAMS_ARTIFACTS" in content
+    assert 'SILO_BUCKET_DAYDREAMS_ARTIFACTS: "daydreams-artifacts"' in content
+    # SILO_EXTRA_CONSUMERS merges with any operator/_user value from .env
+    assert "${SILO_EXTRA_CONSUMERS:-} daydreams-artifacts:SILO_BUCKET_DAYDREAMS_ARTIFACTS" in content
     # credential comes from .env (persisted, blank-only)
-    assert "MINIO_DAYDREAMS_ARTIFACTS_ACCESS_KEY: ${MINIO_DAYDREAMS_ARTIFACTS_ACCESS_KEY:-}" in content
+    assert "SILO_DAYDREAMS_ARTIFACTS_ACCESS_KEY: ${SILO_DAYDREAMS_ARTIFACTS_ACCESS_KEY:-}" in content
     assert config.storage_overlay.path.name == "consumer-storage.compose.yml"
 
 
@@ -428,12 +428,12 @@ def test_render_overlay_is_valid_yaml_and_merges_extra_consumers() -> None:
         consumer="daydreams", name="artifacts", key="DAYDREAMS_ARTIFACTS",
         consumer_id="daydreams-artifacts", bucket="daydreams-artifacts",
     )
-    env = yaml.safe_load(render_minio_storage_overlay([store]))[
-        "services"]["minio-init"]["environment"]
+    env = yaml.safe_load(render_silo_storage_overlay([store]))[
+        "services"]["silo-init"]["environment"]
     # literal bucket, credential reference, and operator-merging extra consumers
-    assert env["MINIO_BUCKET_DAYDREAMS_ARTIFACTS"] == "daydreams-artifacts"
-    assert env["MINIO_DAYDREAMS_ARTIFACTS_ACCESS_KEY"] == "${MINIO_DAYDREAMS_ARTIFACTS_ACCESS_KEY:-}"
-    assert env["MINIO_EXTRA_CONSUMERS"].startswith("${MINIO_EXTRA_CONSUMERS:-} ")
+    assert env["SILO_BUCKET_DAYDREAMS_ARTIFACTS"] == "daydreams-artifacts"
+    assert env["SILO_DAYDREAMS_ARTIFACTS_ACCESS_KEY"] == "${SILO_DAYDREAMS_ARTIFACTS_ACCESS_KEY:-}"
+    assert env["SILO_EXTRA_CONSUMERS"].startswith("${SILO_EXTRA_CONSUMERS:-} ")
 
 
 def test_no_storage_block_is_inert(tmp_path: Path) -> None:
@@ -442,14 +442,14 @@ def test_no_storage_block_is_inert(tmp_path: Path) -> None:
     config = load_consumer_config(tmp_path, explicit_paths=[str(manifest)])
     assert config.storage == ()
     assert config.storage_overlay is None
-    assert "MINIO_EXTRA_CONSUMERS" not in config.env_overrides
+    assert "SILO_EXTRA_CONSUMERS" not in config.env_overrides
 
 
 # ── runtime wiring (docker_manager + KeyGenerator) ──────────────────
 
 def test_docker_manager_includes_storage_overlay_when_present(tmp_path: Path) -> None:
     from core.docker_manager import DockerManager
-    from core.consumer_manifest import MINIO_STORAGE_OVERLAY_PATH
+    from core.consumer_manifest import SILO_STORAGE_OVERLAY_PATH
 
     (tmp_path / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
     (tmp_path / ".env").write_text("PROJECT_NAME=atlas\n", encoding="utf-8")
@@ -459,28 +459,28 @@ def test_docker_manager_includes_storage_overlay_when_present(tmp_path: Path) ->
     # No overlay yet → default auto-discovery (empty -f list).
     assert manager._compose_file_args() == ['-f', 'docker-compose.yml']
 
-    overlay = tmp_path / MINIO_STORAGE_OVERLAY_PATH
+    overlay = tmp_path / SILO_STORAGE_OVERLAY_PATH
     overlay.parent.mkdir(parents=True, exist_ok=True)
-    overlay.write_text("services: {minio-init: {environment: {}}}\n", encoding="utf-8")
+    overlay.write_text("services: {silo-init: {environment: {}}}\n", encoding="utf-8")
 
     args = manager._compose_file_args()
     assert "-f" in args
     assert "docker-compose.yml" in args
-    assert str(MINIO_STORAGE_OVERLAY_PATH) in args
+    assert str(SILO_STORAGE_OVERLAY_PATH) in args
 
 
-def test_extra_minio_consumer_keys_are_blank_only(tmp_path: Path) -> None:
+def test_extra_silo_consumer_keys_are_blank_only(tmp_path: Path) -> None:
     from utils.key_generator import KeyGenerator
 
     env = tmp_path / ".env"
     env.write_text(
-        "MINIO_DAYDREAMS_ARTIFACTS_ACCESS_KEY=\n"
-        "MINIO_DAYDREAMS_ARTIFACTS_SECRET_KEY=preset-secret\n",
+        "SILO_DAYDREAMS_ARTIFACTS_ACCESS_KEY=\n"
+        "SILO_DAYDREAMS_ARTIFACTS_SECRET_KEY=preset-secret\n",
         encoding="utf-8",
     )
     gen = KeyGenerator(str(tmp_path))
     gen.env_file_path = env
-    gen.generate_and_update_extra_minio_consumer_keys(["DAYDREAMS_ARTIFACTS"])
+    gen.generate_and_update_extra_silo_consumer_keys(["DAYDREAMS_ARTIFACTS"])
 
     values = {}
     for line in env.read_text(encoding="utf-8").splitlines():
@@ -488,25 +488,25 @@ def test_extra_minio_consumer_keys_are_blank_only(tmp_path: Path) -> None:
             k, v = line.split("=", 1)
             values[k] = v
     # blank access key was generated; preset secret was preserved (blank-only).
-    assert values["MINIO_DAYDREAMS_ARTIFACTS_ACCESS_KEY"]
-    assert values["MINIO_DAYDREAMS_ARTIFACTS_SECRET_KEY"] == "preset-secret"
+    assert values["SILO_DAYDREAMS_ARTIFACTS_ACCESS_KEY"]
+    assert values["SILO_DAYDREAMS_ARTIFACTS_SECRET_KEY"] == "preset-secret"
 
 
 def test_finalize_consumer_storage_end_to_end(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """_finalize_consumer_storage generates creds, merges resolved exports, and
-    writes the minio-init overlay — the single chokepoint both flows call."""
+    writes the silo-init overlay — the single chokepoint both flows call."""
     import start as start_module
-    from core.consumer_manifest import MINIO_STORAGE_OVERLAY_PATH
+    from core.consumer_manifest import SILO_STORAGE_OVERLAY_PATH
 
     (tmp_path / ".env.example").write_text("PROJECT_NAME=atlas\n", encoding="utf-8")
     (tmp_path / ".env").write_text(
         "PROJECT_NAME=atlas\n"
-        "MINIO_PORT=63020\n"
-        "MINIO_REGION=us-east-1\n"
-        "MINIO_ENDPOINT=http://minio:9000\n"
-        "MINIO_PUBLIC_ENDPOINT=http://localhost:63020\n",
+        "SILO_PORT=63020\n"
+        "SILO_REGION=us-east-1\n"
+        "SILO_ENDPOINT=http://silo:9000\n"
+        "SILO_PUBLIC_ENDPOINT=http://localhost:63020\n",
         encoding="utf-8",
     )
     manifest = _write_manifest(
@@ -522,25 +522,25 @@ def test_finalize_consumer_storage_end_to_end(
     starter.config_parser.env_example_path = tmp_path / ".env.example"
     starter.key_generator.env_file_path = tmp_path / ".env"
 
-    starter.docker_manager.resolved_minio_environment = starter.config_parser.parse_env_file
+    starter.docker_manager.resolved_silo_environment = starter.config_parser.parse_env_file
 
     assert starter._finalize_consumer_storage() is True
 
     env_text = (tmp_path / ".env").read_text(encoding="utf-8")
     # scoped credentials generated (blank-only)
-    assert "MINIO_DAYDREAMS_ARTIFACTS_ACCESS_KEY=" in env_text
-    assert "\nMINIO_DAYDREAMS_ARTIFACTS_ACCESS_KEY=\n" not in env_text  # not blank
+    assert "SILO_DAYDREAMS_ARTIFACTS_ACCESS_KEY=" in env_text
+    assert "\nSILO_DAYDREAMS_ARTIFACTS_ACCESS_KEY=\n" not in env_text  # not blank
     # resolved exports merged
     assert "ATLAS_STORE_DAYDREAMS_ARTIFACTS_PUBLIC_ENDPOINT=http://localhost:63020" in env_text
-    assert "ATLAS_STORE_DAYDREAMS_ARTIFACTS_INTERNAL_ENDPOINT=http://minio:9000" in env_text
-    assert "ATLAS_STORE_DAYDREAMS_ARTIFACTS_ACCESS_KEY_VAR=MINIO_DAYDREAMS_ARTIFACTS_ACCESS_KEY" in env_text
+    assert "ATLAS_STORE_DAYDREAMS_ARTIFACTS_INTERNAL_ENDPOINT=http://silo:9000" in env_text
+    assert "ATLAS_STORE_DAYDREAMS_ARTIFACTS_ACCESS_KEY_VAR=SILO_DAYDREAMS_ARTIFACTS_ACCESS_KEY" in env_text
     # provisioning is NOT persisted to .env (lives only in the overlay)
-    assert "MINIO_EXTRA_CONSUMERS=daydreams" not in env_text
-    assert "MINIO_BUCKET_DAYDREAMS_ARTIFACTS=" not in env_text
+    assert "SILO_EXTRA_CONSUMERS=daydreams" not in env_text
+    assert "SILO_BUCKET_DAYDREAMS_ARTIFACTS=" not in env_text
     # overlay written for docker_manager to include
-    overlay = tmp_path / MINIO_STORAGE_OVERLAY_PATH
+    overlay = tmp_path / SILO_STORAGE_OVERLAY_PATH
     assert overlay.is_file()
-    assert "minio-init" in overlay.read_text(encoding="utf-8")
+    assert "silo-init" in overlay.read_text(encoding="utf-8")
 
 
 def _starter_at(tmp_path: Path):
@@ -552,7 +552,7 @@ def _starter_at(tmp_path: Path):
     starter.config_parser.env_file_path = tmp_path / ".env"
     starter.config_parser.env_example_path = tmp_path / ".env.example"
     starter.key_generator.env_file_path = tmp_path / ".env"
-    starter.docker_manager.resolved_minio_environment = starter.config_parser.parse_env_file
+    starter.docker_manager.resolved_silo_environment = starter.config_parser.parse_env_file
     return starter
 
 
@@ -560,14 +560,14 @@ def test_removing_storage_leaves_no_dangling_provisioning(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Regression: after a store is removed, a warm restart must not leave a
-    MINIO_EXTRA_CONSUMERS entry in .env that would crash minio-init."""
-    from core.consumer_manifest import MINIO_STORAGE_OVERLAY_PATH
+    SILO_EXTRA_CONSUMERS entry in .env that would crash silo-init."""
+    from core.consumer_manifest import SILO_STORAGE_OVERLAY_PATH
 
     (tmp_path / ".env.example").write_text("PROJECT_NAME=atlas\n", encoding="utf-8")
     (tmp_path / ".env").write_text(
-        "PROJECT_NAME=atlas\nMINIO_SOURCE=container\nMINIO_PORT=63020\n"
-        "MINIO_REGION=us-east-1\nMINIO_ENDPOINT=http://minio:9000\n"
-        "MINIO_PUBLIC_ENDPOINT=http://localhost:63020\n",
+        "PROJECT_NAME=atlas\nSILO_SOURCE=container\nSILO_PORT=63020\n"
+        "SILO_REGION=us-east-1\nSILO_ENDPOINT=http://silo:9000\n"
+        "SILO_PUBLIC_ENDPOINT=http://localhost:63020\n",
         encoding="utf-8",
     )
     manifest = _write_manifest(
@@ -578,11 +578,11 @@ def test_removing_storage_leaves_no_dangling_provisioning(
 
     # Run 1: storage declared → overlay written, exports emitted.
     assert _starter_at(tmp_path)._finalize_consumer_storage() is True
-    overlay = tmp_path / MINIO_STORAGE_OVERLAY_PATH
+    overlay = tmp_path / SILO_STORAGE_OVERLAY_PATH
     assert overlay.is_file()
     assert "ATLAS_STORE_DAYDREAMS_ARTIFACTS_BUCKET" in (tmp_path / ".env").read_text()
     # provisioning was never written to .env in the first place
-    assert "MINIO_EXTRA_CONSUMERS=daydreams" not in (tmp_path / ".env").read_text()
+    assert "SILO_EXTRA_CONSUMERS=daydreams" not in (tmp_path / ".env").read_text()
 
     # Run 2 (warm restart): storage removed from the manifest.
     manifest.write_text("name: daydreams\n", encoding="utf-8")
@@ -590,21 +590,21 @@ def test_removing_storage_leaves_no_dangling_provisioning(
 
     env_text = (tmp_path / ".env").read_text(encoding="utf-8")
     assert not overlay.exists()                       # overlay removed
-    assert "MINIO_EXTRA_CONSUMERS=daydreams" not in env_text  # no dangling entry
+    assert "SILO_EXTRA_CONSUMERS=daydreams" not in env_text  # no dangling entry
     assert "ATLAS_STORE_DAYDREAMS_ARTIFACTS" not in env_text   # stale exports cleared
 
 
-def test_storage_skipped_when_minio_disabled(
+def test_storage_skipped_when_silo_disabled(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A storage declaration against disabled MinIO is skipped (no overlay, no
+    """A storage declaration against disabled Silo is skipped (no overlay, no
     unusable empty-endpoint export) rather than silently provisioned."""
-    from core.consumer_manifest import MINIO_STORAGE_OVERLAY_PATH
+    from core.consumer_manifest import SILO_STORAGE_OVERLAY_PATH
 
     (tmp_path / ".env.example").write_text("PROJECT_NAME=atlas\n", encoding="utf-8")
     (tmp_path / ".env").write_text(
-        "PROJECT_NAME=atlas\nMINIO_SOURCE=disabled\n"
-        "MINIO_ENDPOINT=\nMINIO_PUBLIC_ENDPOINT=\n",
+        "PROJECT_NAME=atlas\nSILO_SOURCE=disabled\n"
+        "SILO_ENDPOINT=\nSILO_PUBLIC_ENDPOINT=\n",
         encoding="utf-8",
     )
     manifest = _write_manifest(
@@ -614,7 +614,7 @@ def test_storage_skipped_when_minio_disabled(
     monkeypatch.setenv("ATLAS_CONSUMER_MANIFEST", str(manifest))
 
     assert _starter_at(tmp_path)._finalize_consumer_storage() is True
-    assert not (tmp_path / MINIO_STORAGE_OVERLAY_PATH).exists()
+    assert not (tmp_path / SILO_STORAGE_OVERLAY_PATH).exists()
     assert "ATLAS_STORE_DAYDREAMS_ARTIFACTS" not in (tmp_path / ".env").read_text()
 
 

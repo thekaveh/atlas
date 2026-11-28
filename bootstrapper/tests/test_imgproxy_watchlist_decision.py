@@ -31,15 +31,15 @@ def test_imgproxy_future_service_spec_covers_atlas_topology_and_integrations() -
         "`gen-ai-creative`",
         "Wizard",
         "topology",
-        "MinIO",
+        "Silo",
         "ComfyUI",
         "Blender MCP",
         "root dashboard",
         "asset browser",
         "`backend -> imgproxy`",
-        "`imgproxy -> minio`",
+        "`imgproxy -> silo`",
         "`IMGPROXY_S3_ALLOWED_BUCKETS`",
-        "read-only MinIO credentials",
+        "read-only Silo credentials",
     ]
 
     for term in expected_terms:

@@ -654,7 +654,7 @@ def test_grafana_kong_route_preserves_host():
     route = grafana_svc["routes"][0]
     assert route.get("preserve_host") is True, (
         "preserve_host: True is mandatory for SPAs that build redirects "
-        "from the Host header — same lesson as n8n / MinIO / Ray."
+        "from the Host header — same lesson as n8n / Silo / Ray."
     )
 
 
@@ -777,7 +777,7 @@ import pytest
 
 def test_spark_master_route_exists_with_preserve_host():
     """Spark Master Web UI is an SPA — its redirects build URLs from the
-    Host header, same lesson as Grafana / n8n / MinIO / Ray. Without
+    Host header, same lesson as Grafana / n8n / Silo / Ray. Without
     preserve_host=True, Kong rewrites Host to ``spark-master:8080`` and
     the browser can't resolve it. Regression guard.
     """

@@ -125,9 +125,9 @@ env:
 
   # Migration sentinels
   - name: BOOTSTRAPPER_PORT_LAYOUT_VERSION
-    default: 5
+    default: 6
     auto_managed: false
-    description: "Env-migration sentinel. A missing value or one below 5 runs the chained migrations up to v5. They cover port layout, URL to PORT, ComfyUI model set, stale Ollama model cleanup and Weaviate backup-filesystem. Fresh .env files are v5."
+    description: "Env-migration sentinel. A missing value or one below 6 runs migrations up to v6: port layout, URL to PORT, ComfyUI model set, Ollama model cleanup, Weaviate backup module, and the MINIO_* to SILO_* rename. Fresh .env files are v6."
 
 depends_on:
   required: []

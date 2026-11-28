@@ -158,7 +158,7 @@ def test_bake_upload_stores_content_addressed_local_artifacts(monkeypatch, tmp_p
 
     monkeypatch.setattr(api, "run_bake", fake_run)
     monkeypatch.setenv("ASSET_BAKER_ARTIFACT_DIR", str(tmp_path))
-    monkeypatch.setenv("ASSET_BAKER_MINIO_ENABLED", "false")
+    monkeypatch.setenv("ASSET_BAKER_SILO_ENABLED", "false")
 
     client = _client(api)
     response = client.post(
@@ -205,7 +205,7 @@ def test_bake_ref_round_trips_through_content_addressed_bucket(monkeypatch, tmp_
         def store(self, data, *, sha256, suffix, content_type):
             stored.append((sha256, suffix, content_type))
             return {
-                "storage": "minio", "bucket": self.output_bucket,
+                "storage": "silo", "bucket": self.output_bucket,
                 "key": f"bake/{sha256}.{suffix}",
                 "uri": f"s3://{self.output_bucket}/bake/{sha256}.{suffix}",
                 "content_type": content_type,
@@ -228,7 +228,7 @@ def test_bake_ref_round_trips_through_content_addressed_bucket(monkeypatch, tmp_
     assert response.status_code == 200, response.text
     body = response.json()
     glb_sha = hashlib.sha256(b"lp-glb-bytes").hexdigest()
-    assert body["artifact"]["storage"] == "minio"
+    assert body["artifact"]["storage"] == "silo"
     assert body["artifact"]["bucket"] == "asset-baker"
     assert body["artifact"]["uri"] == f"s3://asset-baker/bake/{glb_sha}.glb"
     assert body["download_url"] is None
@@ -244,7 +244,7 @@ def test_foliage_skip_mode_emits_no_textures(monkeypatch, tmp_path):
 
     monkeypatch.setattr(api, "run_bake", fake_run)
     monkeypatch.setenv("ASSET_BAKER_ARTIFACT_DIR", str(tmp_path))
-    monkeypatch.setenv("ASSET_BAKER_MINIO_ENABLED", "false")
+    monkeypatch.setenv("ASSET_BAKER_SILO_ENABLED", "false")
 
     client = _client(api)
     response = client.post(
@@ -267,7 +267,7 @@ def test_black_bake_returns_422(monkeypatch, tmp_path):
         raise BakeError("baked color is black (mean 0.02)", kind="black_bake")
 
     monkeypatch.setattr(api, "run_bake", fake_run)
-    monkeypatch.setenv("ASSET_BAKER_MINIO_ENABLED", "false")
+    monkeypatch.setenv("ASSET_BAKER_SILO_ENABLED", "false")
     monkeypatch.setenv("ASSET_BAKER_ARTIFACT_DIR", str(tmp_path))
 
     client = _client(api)
@@ -287,7 +287,7 @@ def test_timeout_returns_504(monkeypatch, tmp_path):
         raise BakeError("bake timed out after 600s", kind="timeout")
 
     monkeypatch.setattr(api, "run_bake", fake_run)
-    monkeypatch.setenv("ASSET_BAKER_MINIO_ENABLED", "false")
+    monkeypatch.setenv("ASSET_BAKER_SILO_ENABLED", "false")
     monkeypatch.setenv("ASSET_BAKER_ARTIFACT_DIR", str(tmp_path))
 
     client = _client(api)
@@ -422,7 +422,7 @@ def test_long_decimal_content_length_preserves_admission(declared, expected):
         assert client.post("/assets/bake", content=b"x").status_code == 422
 
 
-def test_minio_reference_rejects_oversize_object_before_read(monkeypatch) -> None:
+def test_silo_reference_rejects_oversize_object_before_read(monkeypatch) -> None:
     from asset_baker.storage import ArtifactStorage, ArtifactTooLargeError
 
     class Body:
@@ -636,7 +636,7 @@ def test_glb_with_external_image_uri_is_rejected_before_blender_runs(monkeypatch
 
     monkeypatch.setattr(api, "run_bake", lambda *a, **k: (_ for _ in ()).throw(AssertionError("ran")))
     monkeypatch.setenv("ASSET_BAKER_ARTIFACT_DIR", str(tmp_path))
-    monkeypatch.setenv("ASSET_BAKER_MINIO_ENABLED", "false")
+    monkeypatch.setenv("ASSET_BAKER_SILO_ENABLED", "false")
     response = _client(api).post(
         "/assets/bake", files={"file": ("x.glb", glb, "model/gltf-binary")}, data={"mode": "skip"},
     )
@@ -650,7 +650,7 @@ def test_non_glb_input_is_rejected_instead_of_reaching_blender(monkeypatch, tmp_
     gltf_json = b'{"asset":{"version":"2.0"},"images":[{"uri":"/proc/self/environ"}]}'
     monkeypatch.setattr(api, "run_bake", lambda *a, **k: (_ for _ in ()).throw(AssertionError("ran")))
     monkeypatch.setenv("ASSET_BAKER_ARTIFACT_DIR", str(tmp_path))
-    monkeypatch.setenv("ASSET_BAKER_MINIO_ENABLED", "false")
+    monkeypatch.setenv("ASSET_BAKER_SILO_ENABLED", "false")
     response = _client(api).post("/assets/bake", files={"file": ("x.glb", gltf_json, "model/gltf-binary")}, data={"mode": "skip"})
     assert response.status_code == 400
     assert "binary glTF 2.0" in response.json()["detail"]
@@ -667,7 +667,7 @@ def test_non_list_images_are_rejected_not_a_500(monkeypatch, tmp_path):
     glb = _struct.pack("<III", 0x46546C67, 2, 20 + len(doc)) + _struct.pack("<II", len(doc), 0x4E4F534A) + doc
     monkeypatch.setattr(api, "run_bake", lambda *a, **k: (_ for _ in ()).throw(AssertionError("ran")))
     monkeypatch.setenv("ASSET_BAKER_ARTIFACT_DIR", str(tmp_path))
-    monkeypatch.setenv("ASSET_BAKER_MINIO_ENABLED", "false")
+    monkeypatch.setenv("ASSET_BAKER_SILO_ENABLED", "false")
     response = _client(api).post("/assets/bake", files={"file": ("x.glb", glb, "model/gltf-binary")}, data={"mode": "skip"})
     assert response.status_code == 400
 
@@ -700,7 +700,7 @@ def test_invalid_glb_framing_is_rejected_before_bake(monkeypatch, tmp_path, fram
 
     monkeypatch.setattr(api, "run_bake", fake_run)
     monkeypatch.setenv("ASSET_BAKER_ARTIFACT_DIR", str(tmp_path))
-    monkeypatch.setenv("ASSET_BAKER_MINIO_ENABLED", "false")
+    monkeypatch.setenv("ASSET_BAKER_SILO_ENABLED", "false")
     response = _client(api).post(
         "/assets/bake", files={"file": ("mesh.glb", payload, "model/gltf-binary")},
     )
@@ -724,7 +724,7 @@ def test_valid_glb_extension_chunks_still_reach_bake(monkeypatch, tmp_path):
 
     monkeypatch.setattr(api, "run_bake", fake_run)
     monkeypatch.setenv("ASSET_BAKER_ARTIFACT_DIR", str(tmp_path))
-    monkeypatch.setenv("ASSET_BAKER_MINIO_ENABLED", "false")
+    monkeypatch.setenv("ASSET_BAKER_SILO_ENABLED", "false")
     response = _client(api).post(
         "/assets/bake", files={"file": ("mesh.glb", payload, "model/gltf-binary")},
     )
@@ -733,7 +733,7 @@ def test_valid_glb_extension_chunks_still_reach_bake(monkeypatch, tmp_path):
 
 
 @pytest.mark.parametrize("bad_limit", ["invalid", "nan", "inf", "1e309"])
-def test_minio_reference_closes_acquired_stream_on_invalid_limit(monkeypatch, bad_limit):
+def test_silo_reference_closes_acquired_stream_on_invalid_limit(monkeypatch, bad_limit):
     from io import BytesIO
     from types import SimpleNamespace
     from botocore.response import StreamingBody

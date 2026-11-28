@@ -301,17 +301,17 @@ def test_generate_missing_keys_creates_scoped_first_party_tokens(tmp_path):
     assert len({n8n_token, webui_token, "sk-atlas-internal-test"}) == 3
 
 
-def test_generate_missing_keys_creates_asset_api_and_minio_tokens(tmp_path):
+def test_generate_missing_keys_creates_asset_api_and_silo_tokens(tmp_path):
     _seed_env(
         tmp_path,
         "ASSET_WORKER_API_TOKEN=\n"
         "ASSET_BAKER_API_TOKEN=\n"
-        "MINIO_ASSET_WORKER_ACCESS_KEY=\n"
-        "MINIO_ASSET_WORKER_SECRET_KEY=\n"
-        "MINIO_ASSET_BAKER_ACCESS_KEY=\n"
-        "MINIO_ASSET_BAKER_SECRET_KEY=\n"
-        "MINIO_ASSET_INGEST_ACCESS_KEY=\n"
-        "MINIO_ASSET_INGEST_SECRET_KEY=\n",
+        "SILO_ASSET_WORKER_ACCESS_KEY=\n"
+        "SILO_ASSET_WORKER_SECRET_KEY=\n"
+        "SILO_ASSET_BAKER_ACCESS_KEY=\n"
+        "SILO_ASSET_BAKER_SECRET_KEY=\n"
+        "SILO_ASSET_INGEST_ACCESS_KEY=\n"
+        "SILO_ASSET_INGEST_SECRET_KEY=\n",
     )
     kg = KeyGenerator(str(tmp_path))
 
@@ -319,14 +319,14 @@ def test_generate_missing_keys_creates_asset_api_and_minio_tokens(tmp_path):
 
     for service in ("ASSET_WORKER", "ASSET_BAKER"):
         api_token = kg.get_current_env_value(f"{service}_API_TOKEN")
-        access_key = kg.get_current_env_value(f"MINIO_{service}_ACCESS_KEY")
-        secret_key = kg.get_current_env_value(f"MINIO_{service}_SECRET_KEY")
+        access_key = kg.get_current_env_value(f"SILO_{service}_ACCESS_KEY")
+        secret_key = kg.get_current_env_value(f"SILO_{service}_SECRET_KEY")
         assert results[f"{service}_API_TOKEN"] is True
         assert api_token.startswith(f"sk-{service.lower().replace('_', '-')}-")
         assert access_key
         assert secret_key
-    assert kg.get_current_env_value("MINIO_ASSET_INGEST_ACCESS_KEY")
-    assert kg.get_current_env_value("MINIO_ASSET_INGEST_SECRET_KEY")
+    assert kg.get_current_env_value("SILO_ASSET_INGEST_ACCESS_KEY")
+    assert kg.get_current_env_value("SILO_ASSET_INGEST_SECRET_KEY")
 
 
 @pytest.mark.parametrize("source", ["container", "disabled"])

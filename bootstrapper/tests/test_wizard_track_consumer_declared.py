@@ -41,18 +41,18 @@ def _svc(key: str, display_name: str):
 
 
 def test_consumer_declared_source_survives_out_of_track_selection():
-    """MINIO_SOURCE declared by a consumer manifest's env.values must
-    NOT be force-set to 'disabled' when minio is off-track, even though
+    """SILO_SOURCE declared by a consumer manifest's env.values must
+    NOT be force-set to 'disabled' when silo is off-track, even though
     the wizard never showed (and the user never answered) its step."""
-    services_info = [_svc("minio", "MinIO")]
-    selections = {PICKER_STEP_TITLE: "gen-ai-rag"}  # minio step was skipped
+    services_info = [_svc("silo", "Silo")]
+    selections = {PICKER_STEP_TITLE: "gen-ai-rag"}  # silo step was skipped
 
     source_args, _ = _selections_to_args(
         selections, services_info, current_base_port=63000, env_vars={},
-        consumer_declared=frozenset({"minio_source"}),
+        consumer_declared=frozenset({"silo_source"}),
     )
 
-    assert "minio_source" not in source_args, (
+    assert "silo_source" not in source_args, (
         "a consumer-declared SOURCE must be left unwritten so the "
         f"manifest's own env.values write is not clobbered; got {source_args!r}"
     )
@@ -62,7 +62,7 @@ def test_undeclared_out_of_track_service_still_force_disabled():
     """Without a consumer declaration, the exact same off-track service
     still gets force-disabled — consumer_declared is an exemption, not
     a relaxation of the base rule."""
-    services_info = [_svc("minio", "MinIO")]
+    services_info = [_svc("silo", "Silo")]
     selections = {PICKER_STEP_TITLE: "gen-ai-rag"}
 
     source_args, _ = _selections_to_args(
@@ -70,21 +70,21 @@ def test_undeclared_out_of_track_service_still_force_disabled():
         consumer_declared=frozenset(),
     )
 
-    assert source_args.get("minio_source") == "disabled"
+    assert source_args.get("silo_source") == "disabled"
 
 
 def test_consumer_declared_only_exempts_the_declared_key():
     """A declaration for one off-track service must not exempt a
     different off-track service that wasn't declared."""
-    services_info = [_svc("minio", "MinIO"), _svc("comfyui", "ComfyUI")]
+    services_info = [_svc("silo", "Silo"), _svc("comfyui", "ComfyUI")]
     selections = {PICKER_STEP_TITLE: "gen-ai-rag"}
 
     source_args, _ = _selections_to_args(
         selections, services_info, current_base_port=63000, env_vars={},
-        consumer_declared=frozenset({"minio_source"}),
+        consumer_declared=frozenset({"silo_source"}),
     )
 
-    assert "minio_source" not in source_args
+    assert "silo_source" not in source_args
     assert source_args.get("comfyui_source") == "disabled"
 
 
@@ -92,14 +92,14 @@ def test_consumer_declared_defaults_to_empty_and_preserves_old_behavior():
     """Callers that don't pass consumer_declared (every pre-existing
     direct caller, including the other parity suites) get exactly the
     old force-disable-everything-off-track behavior."""
-    services_info = [_svc("minio", "MinIO")]
+    services_info = [_svc("silo", "Silo")]
     selections = {PICKER_STEP_TITLE: "gen-ai-rag"}
 
     source_args, _ = _selections_to_args(
         selections, services_info, current_base_port=63000, env_vars={},
     )
 
-    assert source_args.get("minio_source") == "disabled"
+    assert source_args.get("silo_source") == "disabled"
 
 
 def test_registry_load_failure_degrades_to_no_synthesis(monkeypatch):

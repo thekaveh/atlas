@@ -447,7 +447,7 @@ A disabled optional service degrades only its feature:
 
 **RAG ingestion job engine (`rag_ingestion/`).** `POST /api/rag/ingestions` runs an idempotent lifecycle over a consumer-declared `rag_ingestion_profile`. The phases are discover, parse, chunk, embed, vector-store write, LightRAG upload, drain and finalize. It runs through the Celery tier when enabled, and synchronously otherwise. Profile contract: [Consumer Manifest Reference §11](../../docs/reference/consumer-manifest.md#11-rag_ingestion_profiles).
 
-- **Submission:** the job snapshots the corpus path and profile definitions, so a queued worker runs what was submitted even if the registry changes. Mount and MinIO fingerprints hash bounded file bytes; the worker reads them again. A corpus or declared destination change between submission and discovery clears that job's dedup eligibility before writes. Upgrading fingerprint or job-key formats may cause one new ingestion for unchanged content.
+- **Submission:** the job snapshots the corpus path and profile definitions, so a queued worker runs what was submitted even if the registry changes. Mount and Silo fingerprints hash bounded file bytes; the worker reads them again. A corpus or declared destination change between submission and discovery clears that job's dedup eligibility before writes. Upgrading fingerprint or job-key formats may cause one new ingestion for unchanged content.
 - **Reuse:** pending and running duplicates with the same job key share the existing job. Completed jobs are reused only while their Weaviate target publications remain current. Restoring earlier corpus bytes or an embedding model after another generation changes an overlapping class starts ingestion again. Empty-corpus publications follow the same rule. Missing or expired publication evidence can also cause another ingestion.
 - **Destinations:** job identity includes each declared Weaviate or LightRAG endpoint and its configured availability. Changing endpoints or enabling a skipped destination creates a new job. URL credentials, query strings and fragments do not affect this identity. Data loss behind an unchanged endpoint still requires recovery.
 - **Progress:** each phase reports status, counts and actionable errors. Each run removes prior-generation Weaviate objects that are no longer in the source corpus. Failed sources are excluded from stale-object deletion; their earlier vectors can still be lost during class replacement.
@@ -605,9 +605,9 @@ _Rows marked planned are documented or intended, not wired yet._
 | kong ↔ | infra | current |
 | otel-collector | infra | current |
 | ray | infra | current |
-| minio | data | current |
 | neo4j | data | planned |
 | redis | data | current |
+| silo | data | current |
 | supabase | data | current |
 | supavisor | data | current |
 | weaviate | data | current |
@@ -649,9 +649,9 @@ _Rows marked planned are documented or intended, not wired yet._
 <a id="64-future-missing-pair-integrations"></a>
 <a id="64-future--missing-pair-integrations"></a>
 
-- **backend ↔ minio (general artifact API)**
-  - *Why:* RAG ingestion reads consumer-declared MinIO corpora through manifest-bound scoped credentials. Research results stay in PostgreSQL, ComfyUI outputs stay with ComfyUI, and `/storage/upload` uses Supabase Storage. These paths do not use the built-in `backend` bucket.
-  - *Mechanism:* add an artifact client using `MINIO_BUCKET_BACKEND` plus `MINIO_BACKEND_ACCESS_KEY`/`SECRET_KEY`; expose `POST /storage/artifact` + `GET /storage/artifact/{key}`.
+- **backend ↔ silo (general artifact API)**
+  - *Why:* RAG ingestion reads consumer-declared Silo corpora through manifest-bound scoped credentials. Research results stay in PostgreSQL, ComfyUI outputs stay with ComfyUI, and `/storage/upload` uses Supabase Storage. These paths do not use the built-in `backend` bucket.
+  - *Mechanism:* add an artifact client using `SILO_BUCKET_BACKEND` plus `SILO_BACKEND_ACCESS_KEY`/`SECRET_KEY`; expose `POST /storage/artifact` + `GET /storage/artifact/{key}`.
   - *Effort:* small. *Confidence:* high.
 - **backend ↔ hermes**
   - *Why:* `HERMES_ENDPOINT` + `HERMES_API_KEY` are passed in, but no client uses them. Through LiteLLM's `hermes-agent` model alone, the Backend loses Hermes-native surfaces: skill/tool registration, session state at `/opt/data`, dashboard introspection.
@@ -659,7 +659,7 @@ _Rows marked planned are documented or intended, not wired yet._
   - *Effort:* small. *Confidence:* medium.
 - **backend ↔ jupyterhub**
   - *Why:* notebooks call the Backend directly at `BACKEND_API_URL` with a scoped notebook token. That token reaches only `/documents/extract`, `/api/chunk` and `/api/rag/evaluate`. Other routes need a Supabase user JWT or a service token. The Backend has no view of notebook-server state. A thin bridge enables programmatic notebook runs for batch evaluations.
-  - *Mechanism:* pass `JUPYTERHUB_TOKEN` to the Backend. Call the single-user Jupyter Server REST API at `http://jupyterhub:8888/api` (kernels, sessions, contents) with `Authorization: token ${JUPYTERHUB_TOKEN}`. Expose a `POST /notebooks/sessions` proxy. Per-user server launch needs the multi-user Hub listed in [JupyterHub](../jupyterhub/README.md) §17.6. Share `MINIO_BUCKET_JUPYTER` for artifact handoff.
+  - *Mechanism:* pass `JUPYTERHUB_TOKEN` to the Backend. Call the single-user Jupyter Server REST API at `http://jupyterhub:8888/api` (kernels, sessions, contents) with `Authorization: token ${JUPYTERHUB_TOKEN}`. Expose a `POST /notebooks/sessions` proxy. Per-user server launch needs the multi-user Hub listed in [JupyterHub](../jupyterhub/README.md) §17.6. Share `SILO_BUCKET_JUPYTER` for artifact handoff.
   - *Effort:* medium. *Confidence:* medium.
 - **backend ↔ neo4j (knowledge-graph endpoints)**
   - *Why:* `neo4j`, `langchain-neo4j` and `NEO4J_URI`/`USER`/`PASSWORD` are installed and injected, but no graph endpoints exist. LangMem facts and research sources fit a graph well.

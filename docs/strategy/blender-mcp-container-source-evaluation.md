@@ -76,11 +76,11 @@ Each row is pass/fail with evidence (log excerpt, saved image, or metric):
 | 2 | **Wire-schema compatibility** — the pinned add-on's current JSON command schema matches what an in-network client sends | successful round-trip of a trivial command frame |
 | 3 | **Intentional container binding** — the add-on socket is reachable at `blender-mcp:9876` from another container (not just `127.0.0.1`) | `nc`/client connect from a sibling container |
 | 4 | **execute_code** — run arbitrary Blender Python via the socket | returned result of a scene mutation |
-| 5 | **import GLB from MinIO** — pull a GLB via a scoped object-storage call and import it | object visible in scene (via #7) |
+| 5 | **import GLB from Silo** — pull a GLB via a scoped object-storage call and import it | object visible in scene (via #7) |
 | 6 | **save `.blend`** — persist the scene to a mounted path | file present on the volume after save |
 | 7 | **viewport screenshot** — capture the *headed* viewport (the agent's "eyes") under Xvfb/EGL with **no GPU** | a non-blank PNG whose content matches the scene |
-| 8 | **CPU render** — trigger an EEVEE/Cycles **CPU** render to a MinIO-persisted path | rendered image + wall-clock timing |
-| 9 | **MinIO asset transfer** — round-trip import-asset and export-render through scoped object-storage calls (no FUSE) | objects land in the expected bucket/prefix |
+| 8 | **CPU render** — trigger an EEVEE/Cycles **CPU** render to a Silo-persisted path | rendered image + wall-clock timing |
+| 9 | **Silo asset transfer** — round-trip import-asset and export-render through scoped object-storage calls (no FUSE) | objects land in the expected bucket/prefix |
 | 10 | **autosave / restart recovery** — kill and restart the container; the last saved scene reloads | scene state present after restart |
 | 11 | **graceful shutdown** — SIGTERM stops Blender + the socket cleanly without orphaning the display server | clean exit, no zombie Xvfb |
 
@@ -97,7 +97,7 @@ The add-on executes **arbitrary Python inside Blender** by design; a container s
 | **Arbitrary code execution** | The socket accepts `execute_code`. Treat the endpoint as a **trusted-callers-only** internal service. Never expose through Kong; never bind a host-published port by default; in-network only. Default `BLENDER_MCP_SOURCE=disabled`. |
 | **Network egress** | Blender + arbitrary Python can reach the internet (asset downloads, exfiltration). The spike must document the egress posture and the future source should support a restricted/deny-by-default egress policy. |
 | **Mounts** | Only a dedicated, scoped volume for `.blend`/render artifacts. No host-root mounts, no Docker socket, no broad bind mounts. Asset I/O goes through scoped object-storage calls, not host paths. |
-| **Secrets** | The container must not receive stack-wide credentials. MinIO access uses **consumer-scoped, least-privilege** credentials limited to the composition bucket/prefix (mirrors the #404 consumer object-storage contract). |
+| **Secrets** | The container must not receive stack-wide credentials. Silo access uses **consumer-scoped, least-privilege** credentials limited to the composition bucket/prefix (mirrors the #404 consumer object-storage contract). |
 | **Resource limits** | CPU render and an arbitrary-code surface invite DoS. Require CPU/memory limits and a render/timeout budget; a runaway `execute_code` must not starve the stack. |
 | **Denial of service** | Single-session assumption; concurrent drivers can corrupt scene state and exhaust memory. Document the concurrency model (single active session) and the eviction/timeout behaviour. |
 
@@ -105,9 +105,9 @@ Unauthenticated exposure beyond the stack network is **forbidden**. If a future 
 
 ## 6. Persistence contract (no FUSE)
 
-Per the triage, **do not add a MinIO FUSE mount.** Persistence is achieved by either:
+Per the triage, **do not add a Silo FUSE mount.** Persistence is achieved by either:
 
-- **Scoped object-storage calls** — the driver (or an in-container helper) `PUT`s the saved `.blend` and rendered images to a consumer-scoped MinIO bucket/prefix and `GET`s assets to import, using least-privilege credentials; or
+- **Scoped object-storage calls** — the driver (or an in-container helper) `PUT`s the saved `.blend` and rendered images to a consumer-scoped Silo bucket/prefix and `GET`s assets to import, using least-privilege credentials; or
 - **A dedicated volume with explicit export** — `.blend`/render artifacts persist to a named volume, and a deliberate export step copies them to object storage.
 
 In-memory scene state is **not** durable until a `.blend` save; the container source must make the save step explicit in its lifecycle, and asset paths must be rooted in the mounted directory so a restart can reload them.
@@ -128,7 +128,7 @@ Any of the following is a **NO-GO** (keep `localhost | managed-localhost | disab
 
 - **Do not** add a `container` id to `BLENDER_MCP_SOURCE` or convert the virtual manifest to a container family.
 - **Do not** add a `compose.yml`, Dockerfile, or Kong route for a containerized Blender.
-- **Do not** add a MinIO FUSE mount.
+- **Do not** add a Silo FUSE mount.
 - **Do not** fork the add-on onto an unpinned/`main` branch; any binding change is a pinned, reviewed patch.
 - **Do not** build a "Composer service" — the vision-LLM ↔ MCP ↔ render-verify agent loop and its product rules stay **consumer-side** (the LiteLLM "substrate, not agent" division). That is a separate, far larger ticket.
 
@@ -138,7 +138,7 @@ When the spike returns **GO**, a follow-up implementation ticket may:
 
 - [ ] Add `container` to `BLENDER_MCP_SOURCE` (→ `container | localhost | managed-localhost | disabled`) and convert `services/blender-mcp/` from a virtual manifest to a real container family (`compose.yml`, pinned image, `runtime_sc` for the new source), preserving both existing host-source behaviours byte-for-byte.
 - [ ] Ship the pinned add-on config/patch that binds the `9876` socket to a container-routable interface, reachable as `blender-mcp:9876`; **no Kong route, no host-published port by default**.
-- [ ] Prove the in-network client contract: execute code, import a GLB from MinIO, take a viewport screenshot, and trigger a CPU render written to a MinIO-persisted path — with automated tests (mocked where hardware/GPU-less capture cannot run in CI; a marked, optional live test for the real round-trip).
+- [ ] Prove the in-network client contract: execute code, import a GLB from Silo, take a viewport screenshot, and trigger a CPU render written to a Silo-persisted path — with automated tests (mocked where hardware/GPU-less capture cannot run in CI; a marked, optional live test for the real round-trip).
 - [ ] Persist scene/session state across container restart via the §6 contract (no FUSE).
 - [ ] Enforce every §5 threat-model control; keep `BLENDER_MCP_SOURCE` default `disabled`; document the arbitrary-code-execution surface and the in-network-only rule in `services/blender-mcp/README.md`.
 - [ ] Regenerate the standard new-source surfaces (`.env.example`, manifest/topology, three-surface docs, source-configuration matrix, discovery/permutation/fragment tests) — see the "new source-service gates" for the full list.

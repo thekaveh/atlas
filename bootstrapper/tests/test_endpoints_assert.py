@@ -22,7 +22,7 @@ class _CP:
         return {
             "BASE_PORT": "63000",
             "LITELLM_SOURCE": "container",
-            "MINIO_SOURCE": "container",
+            "SILO_SOURCE": "container",
         }
 
 

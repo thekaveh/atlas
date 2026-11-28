@@ -85,7 +85,7 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 - Keep `BLENDER_MCP_SOURCE=disabled` unless you are actively using a trusted local Blender session.
 - Do not expose the Blender MCP socket on public interfaces. For `managed-localhost`, keep `BLENDER_MCP_BIND=127.0.0.1` and `BLENDER_MCP_ALLOW_REMOTE=false`. For the user-run `localhost` source, the Blender add-on sets the bind; keep it on loopback. `BLENDER_MCP_HOST` sets only the endpoint hint, not the bind address.
 - Do not add a Kong route without a separate design review covering auth, network reachability, tool approval, and prompt-injection behavior.
-- Do not paste Atlas database, cloud-provider, Supabase, MinIO, or GitHub credentials into host MCP client configuration for this bridge.
+- Do not paste Atlas database, cloud-provider, Supabase, Silo, or GitHub credentials into host MCP client configuration for this bridge.
 
 ## 7. glTF-Transform Asset Postprocess
 

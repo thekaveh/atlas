@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS public.media_spend_ledger (
     estimated_cost_usd NUMERIC(12, 6),
     final_cost_usd NUMERIC(12, 6),
     pricing_source_ts TIMESTAMPTZ,
-    -- MinIO content hashes / artifact URLs for the generated outputs.
+    -- Silo content hashes / artifact URLs for the generated outputs.
     artifact_refs JSONB NOT NULL DEFAULT '[]'::jsonb,
     -- Policy-denial explanation (kill-switch / over-budget / unknown-cost).
     reason TEXT,

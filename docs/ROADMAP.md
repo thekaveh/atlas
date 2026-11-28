@@ -64,11 +64,11 @@ The stack orchestrates repository-defined containerized and virtual service fami
 - Embedded in Backend service (no separate container)
 - Dual vector backend: Weaviate preferred, pgvector fallback
 
-**MinIO object storage (artifact tier)**
+**Silo object storage (artifact tier)**
 
-- S3-compatible artifact-tier storage server (Go, AGPL-v3). Runs Silo, the Pigsty-maintained fork of the archived MinIO community server, pinned to `pgsty/silo:RELEASE.2026-09-16T00-00-00Z` and `pgsty/mc:RELEASE.2026-09-16T00-00-00Z` by tag and index digest. MinIO stopped publishing community images, deleted `minio/minio` from Docker Hub, and `quay.io/minio` has refused anonymous pulls since 2026-09-24. Silo keeps the `MINIO_*` environment, the `/minio/*` routes and the `mc admin` API, and a scoped service account can no longer mint an unrestricted one (the CVE-2025-62506 escalation). Choosing a long-term S3 server (SeaweedFS or RustFS) is tracked in #1277. The live bring-up, including an in-place upgrade from a `RELEASE.2025-09-07` volume, passed on 2026-11-08 (#1278).
-- Sixteen pre-provisioned buckets across thirteen consumers — `comfyui`, `backend`, `n8n`, `jupyter`, `spark`, `docling`, `langfuse`, `mlflow`, `label-studio`, `iceberg` (4 buckets), `asset-ingest`, `asset-worker`, `asset-baker` — each with a scoped service-account credential surfaced as `MINIO_<NAME>_ACCESS_KEY` / `MINIO_<NAME>_SECRET_KEY` in `.env`.
-- Admin console at `http://localhost:63021`; S3 API at `http://localhost:63020` (host) / `http://minio:9000` (internal).
+- S3-compatible artifact-tier storage server (Go, AGPL-v3). Runs Silo, the Pigsty-maintained fork of the archived MinIO community server, pinned to `pgsty/silo:RELEASE.2026-09-16T00-00-00Z` and `pgsty/mc:RELEASE.2026-09-16T00-00-00Z` by tag and index digest. Silo stopped publishing community images, deleted `minio/minio` from Docker Hub, and `quay.io/silo` has refused anonymous pulls since 2026-09-24. Silo keeps the `SILO_*` environment, the `/minio/*` routes and the `mc admin` API, and a scoped service account can no longer mint an unrestricted one (the CVE-2025-62506 escalation). Choosing a long-term S3 server (SeaweedFS or RustFS) is tracked in #1277. The live bring-up, including an in-place upgrade from a `RELEASE.2025-09-07` volume, passed on 2026-11-08 (#1278).
+- Sixteen pre-provisioned buckets across thirteen consumers — `comfyui`, `backend`, `n8n`, `jupyter`, `spark`, `docling`, `langfuse`, `mlflow`, `label-studio`, `iceberg` (4 buckets), `asset-ingest`, `asset-worker`, `asset-baker` — each with a scoped service-account credential surfaced as `SILO_<NAME>_ACCESS_KEY` / `SILO_<NAME>_SECRET_KEY` in `.env`.
+- Admin console at `http://localhost:63021`; S3 API at `http://localhost:63020` (host) / `http://silo:9000` (internal).
 - Complements Supabase Storage rather than replacing it. JupyterHub reads its scoped credential. Backend reads the credentials that a consumer manifest's `storage` block declares. The built-in `comfyui`, `backend`, `n8n` and `docling` buckets and their scoped credentials are provisioned in `.env`, but no service uses them yet.
 
 **Ray distributed-compute cluster**
@@ -130,7 +130,7 @@ The stack orchestrates repository-defined containerized and virtual service fami
 
 **Per-service configuration modularization** — delivered (Phases A–E, May 2026; fragment/container counts below are as of that milestone)
 
-- Compose: 1,425-line monolithic `docker-compose.yml` → 55-line thin `include:`-shell that pulls in `services/<name>/compose.yml` fragments (one per service family — supabase, redis, minio, neo4j, litellm, ollama, weaviate, comfyui, n8n, open-webui, backend, searxng, jupyterhub, parakeet, speaches, chatterbox, docling, openclaw, hermes, local-deep-researcher, kong, plus virtual cloud-providers, tts-provider, and globals manifests).
+- Compose: 1,425-line monolithic `docker-compose.yml` → 55-line thin `include:`-shell that pulls in `services/<name>/compose.yml` fragments (one per service family — supabase, redis, silo, neo4j, litellm, ollama, weaviate, comfyui, n8n, open-webui, backend, searxng, jupyterhub, parakeet, speaches, chatterbox, docling, openclaw, hermes, local-deep-researcher, kong, plus virtual cloud-providers, tts-provider, and globals manifests).
 - Manifests: `services/<name>/service.yml` is the single source of truth for env vars (with auto_managed/secret flags), source variants, image refs, and dependencies. JSON-schema-validated. Bootstrapper runtime data lives under per-manifest `runtime_sc:`/`runtime_adaptive:`/`runtime_deps:` blocks; `bootstrapper/services/sc_synthesizer.py` reassembles the dict that `ConfigParser.load_yaml_config()` returns.
 - Safety nets: `bootstrapper/services/manifest_validator.py` (cross-manifest checks), `bootstrapper/tools/validate_fragments.py` CLI lint with `--check-env-example`, and `bootstrapper/tests/test_fragment_equivalence.py` (golden `rendered_config_baseline.yml` diff — byte-equivalence proven across the 36-container stack).
 - Locality: every service's source code, init scripts, build context, and config files live under `services/<name>/<subdir>/`. Repo top-level is just `bootstrapper/`, `docs/`, `services/`, plus standard files.
@@ -139,7 +139,7 @@ The stack orchestrates repository-defined containerized and virtual service fami
 
 - Prometheus scraper + TSDB with bundled node-exporter (host metrics) and cAdvisor (container metrics), bundled as `services/prometheus/`.
 - Grafana with 7 pre-provisioned dashboards (stack overview, LiteLLM, Kong, Postgres+Redis, Containers+Host, n8n, app-tier) — `services/grafana/`.
-- 15 scrape targets — Kong, LiteLLM, Weaviate, n8n + n8n-worker, MinIO, Backend, Asset Worker, Asset Baker, Prometheus + Grafana self, node-exporter, cAdvisor, plus postgres-exporter and redis-exporter sidecars. JupyterHub and Hermes are not scraped: neither exposes a `/metrics` endpoint Prometheus can reach.
+- 15 scrape targets — Kong, LiteLLM, Weaviate, n8n + n8n-worker, Silo, Backend, Asset Worker, Asset Baker, Prometheus + Grafana self, node-exporter, cAdvisor, plus postgres-exporter and redis-exporter sidecars. JupyterHub and Hermes are not scraped: neither exposes a `/metrics` endpoint Prometheus can reach.
 - Unified Grafana alerting enabled (no separate Alertmanager); contact points / rules to be added by users.
 - Loki (logs) + Tempo (traces) + OpenTelemetry collector — the full observability triangle, shipped as `services/{loki,tempo,otel-collector}/` with Tempo + Loki datasources provisioned in Grafana (`services/grafana/config/provisioning/datasources/tempo-loki.yml`).
 
@@ -185,7 +185,7 @@ Two architecturally distinct expansion paths were evaluated. Neither ships today
 **Phase 2 expansions (as value is proven):**
 
 - `mcp-weaviate` (community — evaluate quality before pinning) → vector search
-- `mcp-server-s3` against MinIO → artifact ops
+- `mcp-server-s3` against Silo → artifact ops
 - `n8n-mcp` (community) → workflow triggering and inspection
 - Custom Backend MCP server (~150–200 LOC Python wrapping app-specific routes including LangMem)
 
@@ -210,7 +210,7 @@ MCP is for **LLM-callable tools**, not arbitrary service-to-service integration.
 
 - **Data stores** — Supabase (Postgres), Neo4j, Weaviate, Redis (limited use-cases)
 - **Search** — SearXNG
-- **Storage** — MinIO (via generic S3 MCP)
+- **Storage** — Silo (via generic S3 MCP)
 - **Workflow** — n8n (triggering / inspection)
 - **Notebooks** — JupyterHub (execute / inspect; community implementations vary)
 - **Custom application surface** — Backend (FastAPI) custom routes (LangMem operations, app-specific endpoints) — requires writing the wrapper ourselves
@@ -235,7 +235,7 @@ So "the full MCP-ification of the stack" is realistically ~6–9 MCP servers, no
 
 Depends on (services the MCP gateway would consume):
 
-- **MCP server adapters** wrapping individual stack services (Postgres / Neo4j / Weaviate / SearXNG / MinIO / n8n / custom Backend)
+- **MCP server adapters** wrapping individual stack services (Postgres / Neo4j / Weaviate / SearXNG / Silo / n8n / custom Backend)
 - **Kong API Gateway** — exposes the MCP gateway via an `mcp.localhost` route
 - **Supabase (PostgreSQL), future only** — MetaMCP namespace/auth persistence or a Gateway configuration store would be introduced only if that optional layer is adopted
 
@@ -253,7 +253,7 @@ Consumed by (services that would call the MCP gateway):
 - Open-source LLM tracing, prompt management, dataset, and evaluation platform (MIT)
 - LiteLLM ships a **native Langfuse callback** — zero-glue integration of every gateway-routed call (consumers automatically gain traces)
 - Closes the LLM-specific observability gap that Prometheus + Grafana (infra metrics) does not address: prompt versioning, prompt-level cost/latency attribution, eval scoring, conversation replay
-- Self-hosted footprint reuses the stack's Postgres + Redis + MinIO; adds ClickHouse for high-volume trace events
+- Self-hosted footprint reuses the stack's Postgres + Redis + Silo; adds ClickHouse for high-volume trace events
 
 **Stack integration points:**
 
@@ -262,7 +262,7 @@ Depends on (services Langfuse consumes):
 - **Supabase (PostgreSQL)** — control-plane metadata
 - **ClickHouse** — high-volume trace event store (added alongside)
 - **Redis** — queueing and rate-limit state
-- **MinIO** — S3 event and media storage (required: with `MINIO_SOURCE=disabled`, `./start.sh` stops with a Langfuse error)
+- **Silo** — S3 event and media storage (required: with `SILO_SOURCE=disabled`, `./start.sh` stops with a Langfuse error)
 
 Consumed by (services that would call Langfuse):
 
@@ -335,7 +335,7 @@ These services are pipeline-agnostic — useful to every strategic track (3D / g
 
 Depends on (services E2B would consume):
 
-- **MinIO** — code and artifact storage
+- **Silo** — code and artifact storage
 - **OpenSearch** — execution-trace search and forensic queries
 
 Consumed by (services that would call E2B):
@@ -581,7 +581,7 @@ Depends on (services the 3D pipeline foundation would consume):
 
 - **Hunyuan3D-2 / TRELLIS / InstantMesh** — raw mesh outputs
 - **Blender** — assembled scene exports
-- **MinIO** — optimized-asset bucket (signed URLs via Backend)
+- **Silo** — optimized-asset bucket (signed URLs via Backend)
 - **Kong** — `viewer.<host>` route for the WebGL app static delivery
 
 Consumed by (services that would call the 3D pipeline foundation):
@@ -707,7 +707,7 @@ Tier 3 has five named sub-sections: **General-purpose**, **3D / game-generation*
 - Scheduled AI processing jobs
 - Complex workflow dependencies
 - Cross-track role: alternative endpoint of the **`ORCHESTRATOR_SOURCE`** source-variant pattern proposed under the Data engineering track (Tier 3). **Dagster** is the recommended primary orchestrator for lakehouse / asset-centric work; Airflow is the alternative for task-centric workloads and for teams with existing Airflow muscle memory.
-- Shipped with: 9-provider bundle (apache-spark, amazon, postgres, redis, common-sql, weaviate, neo4j, openai, fab) + `pyspark[connect]==4.1.2` + 7 seeded Connections (3 unconditional: `postgres_supabase` / `litellm_default` / `redis_default`; 4 conditional on sibling source: `spark_default` / `minio_default` / `weaviate_default` / `neo4j_default`) + Spark/MinIO/LiteLLM-wired sample DAG + Hermes → Airflow REST trigger documentation. The sample DAG uses `OpenAIHook` (the openai provider has no `OpenAIOperator`); a commented LangChain block shows the recommended chain pattern via `PythonOperator` + `langchain-openai` (there is no published `apache-airflow-providers-langchain`). See `services/airflow/README.md` and the PR #35 design at `docs/superpowers/specs/2026-06-04-airflow-spark-zeppelin-design.md`.
+- Shipped with: 9-provider bundle (apache-spark, amazon, postgres, redis, common-sql, weaviate, neo4j, openai, fab) + `pyspark[connect]==4.1.2` + 7 seeded Connections (3 unconditional: `postgres_supabase` / `litellm_default` / `redis_default`; 4 conditional on sibling source: `spark_default` / `silo_default` / `weaviate_default` / `neo4j_default`) + Spark/Silo/LiteLLM-wired sample DAG + Hermes → Airflow REST trigger documentation. The sample DAG uses `OpenAIHook` (the openai provider has no `OpenAIOperator`); a commented LangChain block shows the recommended chain pattern via `PythonOperator` + `langchain-openai` (there is no published `apache-airflow-providers-langchain`). See `services/airflow/README.md` and the PR #35 design at `docs/superpowers/specs/2026-06-04-airflow-spark-zeppelin-design.md`.
 
 **MeiliSearch (lightweight full-text search)**
 
@@ -756,7 +756,7 @@ Consumed by (services that would call OpenSearch):
 
 Depends on (services InvokeAI would consume):
 
-- Optional **MinIO** — model and output bucket
+- Optional **Silo** — model and output bucket
 
 Consumed by (services that would call InvokeAI):
 
@@ -813,7 +813,7 @@ Consumed by (services that would call Letta):
 Depends on (services Windmill would consume):
 
 - **Supabase (PostgreSQL)** — job metadata and run history
-- **MinIO** — large input / output artifacts
+- **Silo** — large input / output artifacts
 
 Consumed by (services that would call Windmill):
 
@@ -832,7 +832,7 @@ Consumed by (services that would call Windmill):
 
 Depends on (services AudioCraft would consume):
 
-- Optional **MinIO** — generated-audio bucket
+- Optional **Silo** — generated-audio bucket
 
 Consumed by (services that would call AudioCraft):
 
@@ -920,7 +920,7 @@ This track composes a full pipeline: **ComfyUI** (concept image, exists) → **H
 
 Depends on (services Blender would consume):
 
-- **MinIO** — texture and exported-asset bucket
+- **Silo** — texture and exported-asset bucket
 - **ComfyUI** — upstream texture / concept-image generation
 
 Consumed by (services that would call Blender):
@@ -942,7 +942,7 @@ Consumed by (services that would call Blender):
 Depends on (services Hunyuan3D-2 / TRELLIS would consume):
 
 - **ComfyUI** — upstream concept-image generation
-- **MinIO** — output mesh bucket
+- **Silo** — output mesh bucket
 
 Consumed by (services that would call the image-to-3D service):
 
@@ -961,7 +961,7 @@ Consumed by (services that would call the image-to-3D service):
 
 Depends on (services NerfStudio would consume):
 
-- **MinIO** — capture-input and reconstructed-scene bucket
+- **Silo** — capture-input and reconstructed-scene bucket
 
 Consumed by (services that would call NerfStudio):
 
@@ -980,7 +980,7 @@ Consumed by (services that would call NerfStudio):
 
 Depends on (services Godot would consume):
 
-- **MinIO** — game-asset bucket
+- **Silo** — game-asset bucket
 - **Blender** — primary asset upstream
 - **Hunyuan3D-2 / NerfStudio** — additional asset upstreams
 
@@ -997,7 +997,7 @@ Consumed by (services that would call Godot):
 
 **Stack integration points:**
 
-Depends on: **ComfyUI** (concept image), **MinIO** (mesh bucket).
+Depends on: **ComfyUI** (concept image), **Silo** (mesh bucket).
 
 Consumed by: **Backend (FastAPI)** (draft-mesh API), **Hunyuan3D-2 / TRELLIS** (downstream refinement), **Blender** (cleanup and re-mesh), **Hermes** (agent draft-iteration tool).
 
@@ -1008,7 +1008,7 @@ Consumed by: **Backend (FastAPI)** (draft-mesh API), **Hunyuan3D-2 / TRELLIS** (
 
 **Stack integration points:**
 
-Depends on: **ComfyUI**, **MinIO**.
+Depends on: **ComfyUI**, **Silo**.
 
 Consumed by: **Backend (FastAPI)**, **SuperSplat worker** (downstream optimization), **Three.js + r3f viewer** (3DGS loader in browser).
 
@@ -1018,7 +1018,7 @@ Consumed by: **Backend (FastAPI)**, **SuperSplat worker** (downstream optimizati
 
 **Stack integration points:**
 
-Depends on: **DreamGaussian** (raw splat output), **MinIO**.
+Depends on: **DreamGaussian** (raw splat output), **Silo**.
 
 Consumed by: **Three.js + r3f viewer**, **Backend (FastAPI)**, **n8n** (batch-splat workflows).
 
@@ -1030,7 +1030,7 @@ Consumed by: **Three.js + r3f viewer**, **Backend (FastAPI)**, **n8n** (batch-sp
 
 **Stack integration points:**
 
-Depends on: **MinIO** (voxel input + glTF output buckets).
+Depends on: **Silo** (voxel input + glTF output buckets).
 
 Consumed by: **Backend (FastAPI)**, **glTF-Transform worker** (downstream optimization), **n8n** (voxel-ingest workflows), **Three.js + r3f viewer** (final delivery).
 
@@ -1045,7 +1045,7 @@ Consumed by: **Backend (FastAPI)**, **glTF-Transform worker** (downstream optimi
 Depends on (services the vector-tile stack would consume):
 
 - **Supabase (PostgreSQL)** — host for the PostGIS extension; zero new container
-- **MinIO** — large-asset storage for non-vector layers
+- **Silo** — large-asset storage for non-vector layers
 
 Consumed by (services that would call the vector-tile stack):
 
@@ -1200,7 +1200,7 @@ Consumed by (services that would use FinRL / FinGPT):
 
 - **Wallet / ledger service** (Phase 1) — thin FastAPI service exposing a unified API to bots regardless of mode. Paper-mode is a synthetic ledger on Supabase Postgres tables; live-mode delegates to CCXT (crypto) and `alpaca-py` / `ib_insync` (equities) behind the same interface.
 - **Risk-control service** (Phase 2) — small FastAPI worker that subscribes to Redpanda order-event topics, enforces per-strategy notional caps, per-account drawdown, and market-wide circuit breakers, and publishes a `halt` topic every bot subscribes to.
-- **Audit-sealer worker** (Phase 2) — small Python worker that batches order events from Redpanda, computes a Merkle root, signs it via **OpenBao**, and writes a WORM-locked archive to MinIO Object Lock. The anchor record lives in Supabase Postgres for queryability.
+- **Audit-sealer worker** (Phase 2) — small Python worker that batches order events from Redpanda, computes a Merkle root, signs it via **OpenBao**, and writes a WORM-locked archive to Silo Object Lock. The anchor record lives in Supabase Postgres for queryability.
 - These pieces are intentionally in-house: the OSS landscape for these specific roles is thin in 2026, and small targeted FastAPI services are cheaper to maintain than evaluating unmaintained third-party alternatives.
 
 #### 2.5.4. Data engineering track
@@ -1211,11 +1211,11 @@ This planned track combines a lakehouse, ingestion, BI and optional MLOps alongs
 
 **Dagster** is the proposed asset-centric orchestrator. **Apache Airflow** shipped 2026-06-04 in PR #35 and remains the alternative. The proposed `ORCHESTRATOR_SOURCE` selector is future work.
 
-The planned lake reuses MinIO, and catalogs reuse Postgres for metadata. Feast's online store would use Redis. OpenMetadata's search would use the roadmapped OpenSearch. Debezium's sink would use shipped Redpanda, and parallel work would use shipped **Ray** (see Completed above).
+The planned lake reuses Silo, and catalogs reuse Postgres for metadata. Feast's online store would use Redis. OpenMetadata's search would use the roadmapped OpenSearch. Debezium's sink would use shipped Redpanda, and parallel work would use shipped **Ray** (see Completed above).
 
 **Apache Spark (standalone + Spark Connect) — distributed compute** — **Shipped 2026-06-04** (PR #35; Spark 4.1.2)
 
-- Apache-2.0; Spark 4.x. 5-container family on `apache/spark:4.1.2`: four long-running roles (master, worker, history, `spark-connect` gRPC sidecar) plus a one-shot minio/mc-based `spark-init` that creates the `spark-history` bucket. Spark Connect (GA since Spark 3.4, recommended in 4.x) is a gRPC server that exposes Spark to Python / Scala / Go / Rust clients transparently — the cluster runs JVM, clients do not.
+- Apache-2.0; Spark 4.x. 5-container family on `apache/spark:4.1.2`: four long-running roles (master, worker, history, `spark-connect` gRPC sidecar) plus a one-shot silo/mc-based `spark-init` that creates the `spark-history` bucket. Spark Connect (GA since Spark 3.4, recommended in 4.x) is a gRPC server that exposes Spark to Python / Scala / Go / Rust clients transparently — the cluster runs JVM, clients do not.
 - Phase 1 anchor of the data-engineering track. **The Spark Connect server is the architectural unlock**: it lets the FastAPI backend, JupyterHub Python kernels, Dagster / Airflow workers, and Hermes-orchestrated jobs use Spark without a JVM in their containers.
 - **Follow-up — Spark × Prometheus + Grafana observability**: spec §5.1 marked this CRITICAL-opt-in (JMX exporter sidecar + scrape job + a starter `spark.json` Grafana dashboard) but the wiring did not ship in PR #35. cAdvisor's container-level metrics cover the gap in existing dashboards until the JMX integration lands.
 
@@ -1223,7 +1223,7 @@ The planned lake reuses MinIO, and catalogs reuse Postgres for metadata. Feast's
 
 Depends on (services Spark would consume):
 
-- **MinIO** — `s3a://` access for lake reads/writes
+- **Silo** — `s3a://` access for lake reads/writes
 - **Lakekeeper** — Iceberg REST catalog
 - **Supabase (PostgreSQL)** — operational metadata when needed
 
@@ -1254,7 +1254,7 @@ Consumed by: **Apache Spark**, **Trino**, **DuckDB** (via Iceberg connector), **
 
 **Stack integration points:**
 
-Depends on: **Iceberg REST catalog** (`services/iceberg-rest`), **MinIO** (lake reads).
+Depends on: **Iceberg REST catalog** (`services/iceberg-rest`), **Silo** (lake reads).
 
 Consumed by: **Apache Superset** (BI queries), **Backend (FastAPI)** (application analytical queries), **JupyterHub** (research notebooks), **Hermes / MCP gateway** (text-to-SQL agent tool), **Feast** (offline feature reads).
 
@@ -1265,7 +1265,7 @@ Consumed by: **Apache Superset** (BI queries), **Backend (FastAPI)** (applicatio
 
 **Stack integration points:**
 
-Depends on: **Supabase (PostgreSQL)** (metadata), **Redis** (caching), **Trino** + **Lakekeeper** + **MinIO** (data path).
+Depends on: **Supabase (PostgreSQL)** (metadata), **Redis** (caching), **Trino** + **Lakekeeper** + **Silo** (data path).
 
 Consumed by: end users (browser dashboards), **Kong** (`superset.localhost` route), **Backend (FastAPI)** (programmatic dashboard embedding).
 
@@ -1276,7 +1276,7 @@ Consumed by: end users (browser dashboards), **Kong** (`superset.localhost` rout
 
 **Stack integration points:**
 
-Depends on: **Supabase (PostgreSQL)** (run history + asset materialization records), **Redis** (sensor / queue state), **MinIO** (artifacts).
+Depends on: **Supabase (PostgreSQL)** (run history + asset materialization records), **Redis** (sensor / queue state), **Silo** (artifacts).
 
 Consumed by: **Apache Spark** (jobs run as Dagster assets), **dbt-core** (transformations run as Dagster assets), **JupyterHub** (notebooks-as-assets), **n8n / Windmill** (cross-orchestrator workflows), **Hermes / MCP gateway** (agent-driven asset materialization), **OpenMetadata** (lineage events).
 
@@ -1313,25 +1313,25 @@ Consumed by: **Backend (FastAPI)** (catalog-aware data APIs), **Hermes / MCP gat
 
 **MLflow — experiment + model tracking** — Shipped
 
-- Apache-2.0; still dominant in 2026 for OSS experiment tracking. Postgres-backed registry + MinIO artifact store — both reuse existing services.
+- Apache-2.0; still dominant in 2026 for OSS experiment tracking. Postgres-backed registry + Silo artifact store — both reuse existing services.
 - **ClearML** (Apache-2.0) is documented as a defensible richer alternative when MLflow's tracking-only feature surface becomes insufficient (datasets + pipelines + agent).
 - **W&B Local** requires a commercial license and is skipped on license grounds.
 
 **Stack integration points:**
 
-Depends on: **Supabase (PostgreSQL)** (registry), **MinIO** (artifacts).
+Depends on: **Supabase (PostgreSQL)** (registry), **Silo** (artifacts).
 
 Consumed by: **JupyterHub** (notebook training runs), **Dagster** (training assets), **Backend (FastAPI)** (model-version-aware inference routing).
 
-**lakeFS — Git-like data versioning over MinIO (Phase 3)**
+**lakeFS — Git-like data versioning over Silo (Phase 3)**
 
-- Apache-2.0; branches and merges over object-storage data, scales to petabytes without copying. Sits on top of the existing MinIO buckets.
+- Apache-2.0; branches and merges over object-storage data, scales to petabytes without copying. Sits on top of the existing Silo buckets.
 - **DVC** (Apache-2.0) is the Git-side companion library-in-image for Git-tracked ML experiments (small datasets, model snapshots).
 - **Pachyderm** is **skipped**: HPE discontinued OSS releases in 2024.
 
 **Stack integration points:**
 
-Depends on: **MinIO** (object backend), **Supabase (PostgreSQL)** (lakeFS's own metadata).
+Depends on: **Silo** (object backend), **Supabase (PostgreSQL)** (lakeFS's own metadata).
 
 Consumed by: **MLflow** (versioned dataset references), **Dagster** (asset materialization against branches), **JupyterHub** (branch-aware experiments), **Backend (FastAPI)** (versioned data exports).
 
@@ -1342,7 +1342,7 @@ Consumed by: **MLflow** (versioned dataset references), **Dagster** (asset mater
 
 **Stack integration points:**
 
-Depends on: **Redis** (online store), **Trino** + **Lakekeeper** + **MinIO** (offline store), **Supabase (PostgreSQL)** (registry).
+Depends on: **Redis** (online store), **Trino** + **Lakekeeper** + **Silo** (offline store), **Supabase (PostgreSQL)** (registry).
 
 Consumed by: **JupyterHub** (feature-engineering notebooks), **Backend (FastAPI)** (online feature reads during inference), **Dagster** (feature-pipeline assets).
 
@@ -1504,7 +1504,7 @@ The following candidates were evaluated and explicitly *not* recommended at this
 - **Lean / QuantConnect** — Apache-2.0 but C#-centric and heavy; the brokerage-abstraction value is realised better via direct CCXT + per-broker libraries inside the in-house wallet service.
 - **Silent Shard / Web3Auth MPC wallets** — over-engineered for a single-operator fleet; OpenBao Transit + per-exchange API-key scoping covers the threat model. Revisit if threshold signing across multiple machines becomes a real requirement.
 - **Daytona for the LLM-strategy sandbox** — Docker rootless gives only kernel-shared isolation; E2B's Firecracker microVMs are the correct safety bar for untrusted LLM-generated code.
-- **Blockchain-anchored / specialized trading audit-trail products** — proprietary, expensive, over-engineered at boutique scale; OpenSearch + MinIO Object Lock + Merkle anchors in Postgres is sufficient.
+- **Blockchain-anchored / specialized trading audit-trail products** — proprietary, expensive, over-engineered at boutique scale; OpenSearch + Silo Object Lock + Merkle anchors in Postgres is sufficient.
 
 **From the data-engineering stack-fit research (2026-05-21 — see git log for the design doc, retired with `docs/superpowers/` 2026-05-22):**
 
@@ -1592,9 +1592,9 @@ Atlas has no fixed release cadence. Release tags are cut on `main` at the mainta
 **Foundation for vertical AI applications**
 
 - **3D and game generation** — host the full pipeline end-to-end: text or sketch (**Excalidraw** + ControlNet) → image (**ComfyUI**) → 3D mesh fast-path (**InstantMesh**) or fidelity-path (**Hunyuan3D-2** / **TRELLIS**) or splat-path (**DreamGaussian**) → scene assembly (**Blender headless**) → real-scene capture (**NerfStudio**) → optimized asset pipeline (**glTF-Transform** / **SuperSplat**) → browser viewer (**Three.js** + **react-three-fiber**) → multiplayer (**Colyseus**); world representations evolve from snowdome-style free-form scenes to voxel (**Vengi**-converted) and RTS-tile (**PostGIS** + **Tegola** + **MapLibre**) maps, with **LightRAG** indexing the asset graph and **AudioCraft / MusicGen** providing procedural audio
-- **Financial / trading AI** — paper-first fleet (**Hummingbot API** + Dashboard orchestrating **NautilusTrader** workers via **CCXT** and equities adapters) over **OpenBB Platform** data, **TimescaleDB**-backed market history, **Redpanda** for streaming fan-out; strategies promoted to live via signed **Windmill** flows, executed against **OpenBao**-custodied keys, gated by an in-house risk-control service, evaluated at fleet scale on **Ray** with **E2B** sandboxes for LLM-generated code, monitored via **Langfuse** + **Grafana** + Hummingbot Dashboard, audited via **OpenSearch** + **MinIO Object Lock** with Merkle anchors, and exposed to every LLM consumer through the **MCP gateway**
+- **Financial / trading AI** — paper-first fleet (**Hummingbot API** + Dashboard orchestrating **NautilusTrader** workers via **CCXT** and equities adapters) over **OpenBB Platform** data, **TimescaleDB**-backed market history, **Redpanda** for streaming fan-out; strategies promoted to live via signed **Windmill** flows, executed against **OpenBao**-custodied keys, gated by an in-house risk-control service, evaluated at fleet scale on **Ray** with **E2B** sandboxes for LLM-generated code, monitored via **Langfuse** + **Grafana** + Hummingbot Dashboard, audited via **OpenSearch** + **Silo Object Lock** with Merkle anchors, and exposed to every LLM consumer through the **MCP gateway**
 - **RAG specializations** — compose domain-tuned RAG pipelines (legal, academic, financial-research, personal-knowledge) from **TEI** + **LightRAG** + **GROBID** / **Apache Tika** / **Docling** / **whisperX**, with the appropriate ingestion surface (**Karakeep** for captures, **SilverBullet** for authored notes, **Paperless-ngx** for OCR'd archives, **Crawl4AI** + **Browserless** for the open web)
-- **Data Engineering — lakehouse + ML platform** — host a complete data-engineering pipeline: **MinIO** lake → **Apache Iceberg** tables in **Lakekeeper** catalog → **Trino** + **DuckDB** for federated SQL → **dbt-core** transformations → **Apache Superset** for BI; orchestrated by **Dagster** (or **Apache Airflow** under `ORCHESTRATOR_SOURCE`); ingested via **dlt** + **Debezium Server** → Redpanda; quality enforced by **Soda Core** + **Elementary**; cataloged in **OpenMetadata**; MLOps via **MLflow** + **lakeFS** + **Feast**; Scala notebooks via **Almond** on existing **JupyterHub**, with **Spark Connect** keeping the rest of the stack Python-native
+- **Data Engineering — lakehouse + ML platform** — host a complete data-engineering pipeline: **Silo** lake → **Apache Iceberg** tables in **Lakekeeper** catalog → **Trino** + **DuckDB** for federated SQL → **dbt-core** transformations → **Apache Superset** for BI; orchestrated by **Dagster** (or **Apache Airflow** under `ORCHESTRATOR_SOURCE`); ingested via **dlt** + **Debezium Server** → Redpanda; quality enforced by **Soda Core** + **Elementary**; cataloged in **OpenMetadata**; MLOps via **MLflow** + **lakeFS** + **Feast**; Scala notebooks via **Almond** on existing **JupyterHub**, with **Spark Connect** keeping the rest of the stack Python-native
 
 ---
 

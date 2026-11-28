@@ -1,49 +1,49 @@
 #!/bin/sh
-# MinIO bucket + service-account provisioning. Idempotent: re-running is a no-op.
+# Silo bucket + service-account provisioning. Idempotent: re-running is a no-op.
 set -eu
 
-echo "minio-init: starting MinIO provisioning..."
+echo "silo-init: starting Silo provisioning..."
 
 # Required env vars
-: "${MINIO_ROOT_USER:?MINIO_ROOT_USER is required}"
-: "${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required}"
+: "${SILO_ROOT_USER:?SILO_ROOT_USER is required}"
+: "${SILO_ROOT_PASSWORD:?SILO_ROOT_PASSWORD is required}"
 
-# Wait for MinIO server (depends_on healthcheck should already guarantee this, but be defensive)
-echo "minio-init: waiting for MinIO at http://minio:9000..."
+# Wait for Silo server (depends_on healthcheck should already guarantee this, but be defensive)
+echo "silo-init: waiting for Silo at http://silo:9000..."
 i=0
 # Keys on stdin, not argv: argv is world-readable in /proc while this runs.
-until printf '%s\n%s\n' "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" | mc alias set local http://minio:9000 >/dev/null 2>&1; do
+until printf '%s\n%s\n' "$SILO_ROOT_USER" "$SILO_ROOT_PASSWORD" | mc alias set local http://silo:9000 >/dev/null 2>&1; do
     i=$((i + 1))
     if [ "$i" -gt 30 ]; then
-        echo "minio-init: ERROR — could not reach MinIO after 30 attempts; aborting" >&2
+        echo "silo-init: ERROR — could not reach Silo after 30 attempts; aborting" >&2
         exit 1
     fi
     sleep 2
 done
-echo "minio-init: alias 'local' configured"
+echo "silo-init: alias 'local' configured"
 
 # Each consumer: primary bucket name var, access-key var, secret-key var,
 # optional comma-separated writable and read-only bucket vars.
 # Format: CONSUMER:BUCKET_VAR:ACCESS_VAR:SECRET_VAR[:RW_BUCKET_VAR,...[:RO_BUCKET_VAR,...]]
 consumer_entries='
-comfyui:MINIO_BUCKET_COMFYUI:MINIO_COMFYUI_ACCESS_KEY:MINIO_COMFYUI_SECRET_KEY
-backend:MINIO_BUCKET_BACKEND:MINIO_BACKEND_ACCESS_KEY:MINIO_BACKEND_SECRET_KEY
-n8n:MINIO_BUCKET_N8N:MINIO_N8N_ACCESS_KEY:MINIO_N8N_SECRET_KEY
-jupyter:MINIO_BUCKET_JUPYTER:MINIO_JUPYTER_ACCESS_KEY:MINIO_JUPYTER_SECRET_KEY::MINIO_BUCKET_ICEBERG_LAKEHOUSE
-spark:MINIO_BUCKET_SPARK_HISTORY:MINIO_SPARK_ACCESS_KEY:MINIO_SPARK_SECRET_KEY:MINIO_BUCKET_ICEBERG_LAKEHOUSE,MINIO_BUCKET_ICEBERG_JARS,MINIO_BUCKET_ICEBERG_CHECKPOINTS,MINIO_BUCKET_ICEBERG_LANDING
-docling:MINIO_BUCKET_DOCLING:MINIO_DOCLING_ACCESS_KEY:MINIO_DOCLING_SECRET_KEY
-langfuse:MINIO_BUCKET_LANGFUSE:MINIO_LANGFUSE_ACCESS_KEY:MINIO_LANGFUSE_SECRET_KEY
-mlflow:MINIO_BUCKET_MLFLOW:MINIO_MLFLOW_ACCESS_KEY:MINIO_MLFLOW_SECRET_KEY
-label-studio:MINIO_BUCKET_LABEL_STUDIO:MINIO_LABEL_STUDIO_ACCESS_KEY:MINIO_LABEL_STUDIO_SECRET_KEY
-iceberg:MINIO_BUCKET_ICEBERG_LAKEHOUSE:MINIO_ICEBERG_ACCESS_KEY:MINIO_ICEBERG_SECRET_KEY:MINIO_BUCKET_ICEBERG_JARS,MINIO_BUCKET_ICEBERG_CHECKPOINTS,MINIO_BUCKET_ICEBERG_LANDING
-jenkins:MINIO_BUCKET_ICEBERG_JARS:MINIO_JENKINS_ACCESS_KEY:MINIO_JENKINS_SECRET_KEY
-asset-ingest:MINIO_BUCKET_ASSET_INPUTS:MINIO_ASSET_INGEST_ACCESS_KEY:MINIO_ASSET_INGEST_SECRET_KEY
-asset-worker:ASSET_WORKER_MINIO_BUCKET:MINIO_ASSET_WORKER_ACCESS_KEY:MINIO_ASSET_WORKER_SECRET_KEY::MINIO_BUCKET_ASSET_INPUTS
-asset-baker:ASSET_BAKER_MINIO_BUCKET:MINIO_ASSET_BAKER_ACCESS_KEY:MINIO_ASSET_BAKER_SECRET_KEY::MINIO_BUCKET_ASSET_INPUTS
+comfyui:SILO_BUCKET_COMFYUI:SILO_COMFYUI_ACCESS_KEY:SILO_COMFYUI_SECRET_KEY
+backend:SILO_BUCKET_BACKEND:SILO_BACKEND_ACCESS_KEY:SILO_BACKEND_SECRET_KEY
+n8n:SILO_BUCKET_N8N:SILO_N8N_ACCESS_KEY:SILO_N8N_SECRET_KEY
+jupyter:SILO_BUCKET_JUPYTER:SILO_JUPYTER_ACCESS_KEY:SILO_JUPYTER_SECRET_KEY::SILO_BUCKET_ICEBERG_LAKEHOUSE
+spark:SILO_BUCKET_SPARK_HISTORY:SILO_SPARK_ACCESS_KEY:SILO_SPARK_SECRET_KEY:SILO_BUCKET_ICEBERG_LAKEHOUSE,SILO_BUCKET_ICEBERG_JARS,SILO_BUCKET_ICEBERG_CHECKPOINTS,SILO_BUCKET_ICEBERG_LANDING
+docling:SILO_BUCKET_DOCLING:SILO_DOCLING_ACCESS_KEY:SILO_DOCLING_SECRET_KEY
+langfuse:SILO_BUCKET_LANGFUSE:SILO_LANGFUSE_ACCESS_KEY:SILO_LANGFUSE_SECRET_KEY
+mlflow:SILO_BUCKET_MLFLOW:SILO_MLFLOW_ACCESS_KEY:SILO_MLFLOW_SECRET_KEY
+label-studio:SILO_BUCKET_LABEL_STUDIO:SILO_LABEL_STUDIO_ACCESS_KEY:SILO_LABEL_STUDIO_SECRET_KEY
+iceberg:SILO_BUCKET_ICEBERG_LAKEHOUSE:SILO_ICEBERG_ACCESS_KEY:SILO_ICEBERG_SECRET_KEY:SILO_BUCKET_ICEBERG_JARS,SILO_BUCKET_ICEBERG_CHECKPOINTS,SILO_BUCKET_ICEBERG_LANDING
+jenkins:SILO_BUCKET_ICEBERG_JARS:SILO_JENKINS_ACCESS_KEY:SILO_JENKINS_SECRET_KEY
+asset-ingest:SILO_BUCKET_ASSET_INPUTS:SILO_ASSET_INGEST_ACCESS_KEY:SILO_ASSET_INGEST_SECRET_KEY
+asset-worker:ASSET_WORKER_SILO_BUCKET:SILO_ASSET_WORKER_ACCESS_KEY:SILO_ASSET_WORKER_SECRET_KEY::SILO_BUCKET_ASSET_INPUTS
+asset-baker:ASSET_BAKER_SILO_BUCKET:SILO_ASSET_BAKER_ACCESS_KEY:SILO_ASSET_BAKER_SECRET_KEY::SILO_BUCKET_ASSET_INPUTS
 '
 
-if [ -n "${MINIO_EXTRA_CONSUMERS:-}" ]; then
-    for extra_entry in $MINIO_EXTRA_CONSUMERS; do
+if [ -n "${SILO_EXTRA_CONSUMERS:-}" ]; then
+    for extra_entry in $SILO_EXTRA_CONSUMERS; do
         consumer_entries="${consumer_entries}
 ${extra_entry}"
     done
@@ -51,7 +51,7 @@ fi
 
 # Access keys this run manages. The loop below runs in a pipeline subshell,
 # so it records them in a file; the prune step reads that file (#1385).
-access_keys_file=/tmp/minio-managed-access-keys
+access_keys_file=/tmp/silo-managed-access-keys
 : > "$access_keys_file"
 
 printf '%s\n' "$consumer_entries" | while IFS= read -r entry; do
@@ -65,7 +65,7 @@ printf '%s\n' "$consumer_entries" | while IFS= read -r entry; do
     read_only_bucket_vars=$(echo "$entry" | cut -d: -f6-)
 
     if [ -z "$consumer" ] || [ -z "$bucket_var" ] || [ -z "$access_var" ] || [ -z "$secret_var" ]; then
-        echo "minio-init: ERROR — invalid consumer entry '$entry'; expected CONSUMER:BUCKET_VAR:ACCESS_VAR:SECRET_VAR[:RW_BUCKET_VAR,...[:RO_BUCKET_VAR,...]]" >&2
+        echo "silo-init: ERROR — invalid consumer entry '$entry'; expected CONSUMER:BUCKET_VAR:ACCESS_VAR:SECRET_VAR[:RW_BUCKET_VAR,...[:RO_BUCKET_VAR,...]]" >&2
         exit 1
     fi
 
@@ -76,7 +76,7 @@ printf '%s\n' "$consumer_entries" | while IFS= read -r entry; do
     echo "$access" >> "$access_keys_file"
 
     if [ -z "$bucket" ] || [ -z "$access" ] || [ -z "$secret" ]; then
-        echo "minio-init: ERROR — missing env for consumer '$consumer' ($bucket_var/$access_var/$secret_var)" >&2
+        echo "silo-init: ERROR — missing env for consumer '$consumer' ($bucket_var/$access_var/$secret_var)" >&2
         exit 1
     fi
 
@@ -88,7 +88,7 @@ printf '%s\n' "$consumer_entries" | while IFS= read -r entry; do
             IFS=$old_ifs
             eval "extra_bucket=\${$extra_bucket_var:-}"
             if [ -z "$extra_bucket" ]; then
-                echo "minio-init: ERROR — missing env for consumer '$consumer' ($extra_bucket_var)" >&2
+                echo "silo-init: ERROR — missing env for consumer '$consumer' ($extra_bucket_var)" >&2
                 exit 1
             fi
             writable_buckets="$writable_buckets $extra_bucket"
@@ -105,7 +105,7 @@ printf '%s\n' "$consumer_entries" | while IFS= read -r entry; do
             IFS=$old_ifs
             eval "read_only_bucket=\${$read_only_bucket_var:-}"
             if [ -z "$read_only_bucket" ]; then
-                echo "minio-init: ERROR — missing env for consumer '$consumer' ($read_only_bucket_var)" >&2
+                echo "silo-init: ERROR — missing env for consumer '$consumer' ($read_only_bucket_var)" >&2
                 exit 1
             fi
             read_only_buckets="$read_only_buckets $read_only_bucket"
@@ -118,7 +118,7 @@ printf '%s\n' "$consumer_entries" | while IFS= read -r entry; do
 
     # 1. Create bucket(s) (idempotent)
     for provision_bucket in $buckets; do
-        echo "minio-init: ensuring bucket 'local/$provision_bucket'..."
+        echo "silo-init: ensuring bucket 'local/$provision_bucket'..."
         mc mb --ignore-existing "local/$provision_bucket"
     done
 
@@ -180,10 +180,10 @@ EOF
     # 3. Create or update the named policy (idempotent). NOTE: this named
     # policy is never ATTACHED to anything — the service account below
     # carries its policy inline (step 4). It's maintained purely so
-    # operators can inspect the per-consumer grants in the MinIO console.
+    # operators can inspect the per-consumer grants in the Silo console.
     policy_name="${consumer}-policy"
     if mc admin policy info local "$policy_name" >/dev/null 2>&1; then
-        echo "minio-init: updating existing policy '$policy_name'..."
+        echo "silo-init: updating existing policy '$policy_name'..."
         # `mc admin policy create` overwrites if the name exists in recent mc versions;
         # older versions require remove+create. Try create; if it errors, do the dance.
         if ! mc admin policy create local "$policy_name" "$policy_file" 2>/dev/null; then
@@ -191,7 +191,7 @@ EOF
             mc admin policy create local "$policy_name" "$policy_file"
         fi
     else
-        echo "minio-init: creating policy '$policy_name'..."
+        echo "silo-init: creating policy '$policy_name'..."
         mc admin policy create local "$policy_name" "$policy_file"
     fi
 
@@ -201,9 +201,9 @@ EOF
     # either).
     atlas_managed_description="atlas-managed:${consumer}"
     if mc admin user svcacct info local "$access" >/dev/null 2>&1; then
-        echo "minio-init: service account '$access' exists - refreshing secret + policy..."
+        echo "silo-init: service account '$access' exists - refreshing secret + policy..."
         # mc has no stdin, env or file form for --secret-key (pgsty/mc RELEASE.2026-09-16).
-        # This argv exposure is the accepted exception in services/minio/README.md (#1381).
+        # This argv exposure is the accepted exception in services/silo/README.md (#1381).
         # stdout carries the keys back, so it goes nowhere; stderr stays so a
         # failure still names its cause (#1974).
         mc admin user svcacct edit local "$access" \
@@ -211,10 +211,10 @@ EOF
             --policy "$policy_file" \
             --description "$atlas_managed_description" >/dev/null
     else
-        echo "minio-init: creating service account '$access' for bucket(s) '$buckets'..."
+        echo "silo-init: creating service account '$access' for bucket(s) '$buckets'..."
         # `svcacct add` prints "Access Key:" and "Secret Key:" on success (#1974).
         # Same --secret-key argv exception as the edit branch above (#1381).
-        mc admin user svcacct add local "$MINIO_ROOT_USER" \
+        mc admin user svcacct add local "$SILO_ROOT_USER" \
             --access-key "$access" \
             --secret-key "$secret" \
             --policy "$policy_file" \
@@ -227,7 +227,7 @@ done
 # Revoke superseded accounts (#1385). Only accounts tagged atlas-managed:<consumer>
 # are candidates, so an account an operator made by hand survives. An account is
 # superseded when its access key is no longer one this run manages (a rotated
-# .env key, or a consumer removed from MINIO_EXTRA_CONSUMERS).
+# .env key, or a consumer removed from SILO_EXTRA_CONSUMERS).
 # The mc image has no sed or grep, so this uses shell parameter expansion only.
 json_field() { # json_field <name> <line>: print a JSON string value from one line
     rest=${2#*\""$1"\":\"}
@@ -241,7 +241,7 @@ is_managed_access_key() { # is_managed_access_key <access-key>
     return 1
 }
 prune_superseded_accounts() {
-    mc admin user svcacct ls local "$MINIO_ROOT_USER" --json 2>/dev/null \
+    mc admin user svcacct ls local "$SILO_ROOT_USER" --json 2>/dev/null \
         | while IFS= read -r line; do
             account=$(json_field accessKey "$line")
             [ -n "$account" ] || continue
@@ -253,11 +253,11 @@ prune_superseded_accounts() {
             if is_managed_access_key "$account"; then
                 continue
             fi
-            echo "minio-init: revoking superseded service account '$account' (${description#atlas-managed:})"
+            echo "silo-init: revoking superseded service account '$account' (${description#atlas-managed:})"
             mc admin user svcacct rm local "$account" >/dev/null
         done
 }
 prune_superseded_accounts
 rm -f "$access_keys_file"
 
-echo "minio-init: provisioning complete"
+echo "silo-init: provisioning complete"

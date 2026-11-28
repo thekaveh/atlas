@@ -2,7 +2,7 @@
 
 Each client is a thin, injectable adapter so the orchestrator can be driven with
 fakes in tests (no live services). Real implementations use ``httpx`` (matching
-the existing ``document_extraction``/``memory_store`` conventions); the MinIO SDK
+the existing ``document_extraction``/``memory_store`` conventions); the Silo SDK
 is imported lazily so ``main.py``'s import closure never requires it.
 
 Capability-gating: every client exposes ``available()`` derived from its
@@ -272,11 +272,11 @@ class MountCorpusReader:
         ).hexdigest()
 
 
-class MinioCorpusReader:
-    """Lists + fetches objects under a bucket/prefix via the MinIO SDK (lazy)."""
+class SiloCorpusReader:
+    """Lists + fetches objects under a bucket/prefix via the Silo SDK (lazy)."""
 
     def __init__(self) -> None:
-        self._endpoint = os.getenv("MINIO_ENDPOINT", "")
+        self._endpoint = os.getenv("SILO_ENDPOINT", "")
 
     def available(self) -> bool:
         return bool(self._endpoint.strip())
@@ -284,10 +284,10 @@ class MinioCorpusReader:
     @staticmethod
     def _credentials(corpus: Dict[str, Any]) -> tuple[str, str]:
         access_var = str(
-            corpus.get("access_key_var") or "MINIO_BACKEND_ACCESS_KEY"
+            corpus.get("access_key_var") or "SILO_BACKEND_ACCESS_KEY"
         )
         secret_var = str(
-            corpus.get("secret_key_var") or "MINIO_BACKEND_SECRET_KEY"
+            corpus.get("secret_key_var") or "SILO_BACKEND_SECRET_KEY"
         )
         return os.getenv(access_var, ""), os.getenv(secret_var, "")
 
@@ -391,23 +391,23 @@ class MinioCorpusReader:
 
 
 class CorpusReader:
-    """Dispatches to the mount or minio reader by ``corpus.source``."""
+    """Dispatches to the mount or silo reader by ``corpus.source``."""
 
-    def __init__(self, mount: Optional[MountCorpusReader] = None, minio: Optional[MinioCorpusReader] = None) -> None:
+    def __init__(self, mount: Optional[MountCorpusReader] = None, silo: Optional[SiloCorpusReader] = None) -> None:
         self._mount = mount or MountCorpusReader()
-        self._minio = minio or MinioCorpusReader()
+        self._silo = silo or SiloCorpusReader()
 
     def discover(self, corpus: Dict[str, Any], override_path: Optional[str] = None) -> List[CorpusFile]:
         source = corpus.get("source")
-        if source == "minio":
-            return self._minio.discover(corpus, override_path)
+        if source == "silo":
+            return self._silo.discover(corpus, override_path)
         return self._mount.discover(corpus, override_path)
 
     def fingerprint(
         self, corpus: Dict[str, Any], override_path: Optional[str] = None
     ) -> str:
-        if corpus.get("source") == "minio":
-            return self._minio.fingerprint(corpus, override_path)
+        if corpus.get("source") == "silo":
+            return self._silo.fingerprint(corpus, override_path)
         return self._mount.fingerprint(corpus, override_path)
 
 

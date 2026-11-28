@@ -162,7 +162,7 @@ def test_trading_track_is_research_only_and_excludes_live_trading_services() -> 
     assert trading.display_name == "Trading / Financial Research"
     assert "paper portfolios" in trading.description.lower()
 
-    for service in ("jupyterhub", "minio", "mlflow", "langfuse"):
+    for service in ("jupyterhub", "silo", "mlflow", "langfuse"):
         assert is_in_track(trading, service, always_on=registry.always_on)
 
     for service in ("redpanda", "trino", "airflow", "spark"):

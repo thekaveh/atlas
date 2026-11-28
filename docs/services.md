@@ -30,29 +30,29 @@ The *Support* column comes from each family's manifest `support:` block. Tiers a
 | Service | Title | Support | Tracks | SOURCE | Default | Values | Start order |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | [backend](../services/backend/README.md) | Backend API (FastAPI) | experimental | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | BACKEND_SOURCE | container | container | supabase, redis, litellm |
-| [jenkins](../services/jenkins/README.md) | Jenkins (Maven Spark app builder) | experimental | all, data-eng | JENKINS_SOURCE | disabled | container, disabled | minio |
+| [jenkins](../services/jenkins/README.md) | Jenkins (Maven Spark app builder) | experimental | all, data-eng | JENKINS_SOURCE | disabled | container, disabled | silo |
 | [jupyterhub](../services/jupyterhub/README.md) | JupyterHub (DS/ML + LLM notebooks) | experimental | all, data-eng, gen-ai-eng, ml-eng, trading | JUPYTERHUB_SOURCE | container | container, disabled | supabase, redis, litellm |
-| [label-studio](../services/label-studio/README.md) | Label Studio (dataset review + annotation) | experimental | all, ml-eng | LABEL_STUDIO_SOURCE | disabled | container, disabled | supabase, minio |
+| [label-studio](../services/label-studio/README.md) | Label Studio (dataset review + annotation) | experimental | all, ml-eng | LABEL_STUDIO_SOURCE | disabled | container, disabled | supabase, silo |
 | [llm-graph-builder](../services/llm-graph-builder/README.md) | Neo4j LLM Graph Builder | experimental | all, gen-ai-rag | LLM_GRAPH_BUILDER_SOURCE | disabled | container, disabled | neo4j, litellm, kong |
 | [local-deep-researcher](../services/local-deep-researcher/README.md) | Local Deep Researcher (LangGraph research agent) | experimental | all, gen-ai-eng, gen-ai-rag | LOCAL_DEEP_RESEARCHER_SOURCE | container | container, disabled | searxng, litellm |
-| [mlflow](../services/mlflow/README.md) | MLflow (experiment tracking + artifacts) | experimental | all, ml-eng, trading | MLFLOW_SOURCE | disabled | container, disabled | supabase, minio |
+| [mlflow](../services/mlflow/README.md) | MLflow (experiment tracking + artifacts) | experimental | all, ml-eng, trading | MLFLOW_SOURCE | disabled | container, disabled | supabase, silo |
 | [open-webui](../services/open-webui/README.md) | Open WebUI (chat interface) | experimental | all, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng | OPEN_WEB_UI_SOURCE | container | container, disabled | supabase, redis, litellm |
 | [verba](../services/verba/README.md) | Verba (archived Weaviate RAG UI) | experimental | all, gen-ai-rag | VERBA_SOURCE | disabled | container, disabled | weaviate, litellm, kong |
-| [zeppelin](../services/zeppelin/README.md) | Apache Zeppelin (Spark-first notebook) | experimental | all, data-eng, ml-eng | ZEPPELIN_SOURCE | disabled | container, disabled | spark, minio |
+| [zeppelin](../services/zeppelin/README.md) | Apache Zeppelin (Spark-first notebook) | experimental | all, data-eng, ml-eng | ZEPPELIN_SOURCE | disabled | container, disabled | spark, silo |
 
 ### 1.4. data
 
 | Service | Title | Support | Tracks | SOURCE | Default | Values | Start order |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| [iceberg-rest](../services/iceberg-rest/README.md) | Apache Iceberg REST Catalog | experimental | all, data-eng | ICEBERG_REST_SOURCE | disabled | container, disabled | minio, supabase |
-| [minio](../services/minio/README.md) | MinIO (S3-compatible object storage) | experimental | all, data-eng, ml-eng, trading | MINIO_SOURCE, MINIO_INIT_SOURCE | container | container, disabled | supabase |
+| [iceberg-rest](../services/iceberg-rest/README.md) | Apache Iceberg REST Catalog | experimental | all, data-eng | ICEBERG_REST_SOURCE | disabled | container, disabled | silo, supabase |
 | [neo4j](../services/neo4j/README.md) | Neo4j (graph database) | experimental | all, data-eng, gen-ai-eng, gen-ai-rag | NEO4J_GRAPH_DB_SOURCE | container | container, localhost, disabled | supabase |
 | [redis](../services/redis/README.md) | Redis (cache & queue) | experimental | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | REDIS_SOURCE | container | container | supabase |
 | [redpanda](../services/redpanda/README.md) | Redpanda (Kafka API streaming) | experimental | all, data-eng | REDPANDA_SOURCE | disabled | container, disabled | - |
-| [spark](../services/spark/README.md) | Apache Spark (standalone cluster) | experimental | all, data-eng, ml-eng | SPARK_SOURCE | disabled | container, disabled | minio |
+| [silo](../services/silo/README.md) | Silo (S3-compatible object storage, pgsty fork of MinIO) | experimental | all, data-eng, ml-eng, trading | SILO_SOURCE, SILO_INIT_SOURCE | container | container, disabled | supabase |
+| [spark](../services/spark/README.md) | Apache Spark (standalone cluster) | experimental | all, data-eng, ml-eng | SPARK_SOURCE | disabled | container, disabled | silo |
 | [supabase](../services/supabase/README.md) | Supabase (db, auth, api, storage, realtime, studio, meta) | experimental | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | SUPABASE_DB_SOURCE, SUPABASE_DB_INIT_SOURCE, SUPABASE_META_SOURCE, SUPABASE_STORAGE_SOURCE, SUPABASE_AUTH_SOURCE, SUPABASE_API_SOURCE, SUPABASE_REALTIME_SOURCE, SUPABASE_STUDIO_SOURCE | container | container, disabled | - |
 | [supavisor](../services/supavisor/README.md) | Supavisor (Postgres transaction pooler) | experimental | all, data-eng, gen-ai-eng, gen-ai-rag, ml-eng | SUPAVISOR_SOURCE | disabled | container, disabled | supabase |
-| [trino](../services/trino/README.md) | Trino | experimental | all, data-eng | TRINO_SOURCE | disabled | container, disabled | minio, iceberg-rest |
+| [trino](../services/trino/README.md) | Trino | experimental | all, data-eng | TRINO_SOURCE | disabled | container, disabled | silo, iceberg-rest |
 | [weaviate](../services/weaviate/README.md) | Weaviate (vector database) | experimental | all, data-eng, gen-ai-creative, gen-ai-rag | WEAVIATE_SOURCE, WEAVIATE_INIT_SOURCE, MULTI2VEC_CLIP_SOURCE | container, container-cpu | container, localhost, disabled, container-cpu, container-gpu | supabase, litellm |
 
 ### 1.5. infra
@@ -64,7 +64,7 @@ The *Support* column comes from each family's manifest `support:` block. Tiers a
 | [globals](../services/globals/README.md) | Globals (project + branding) | experimental | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | - | - | - | - |
 | [grafana](../services/grafana/README.md) | Grafana (observability UI + alerting) | experimental | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | GRAFANA_SOURCE | disabled | container, disabled | prometheus, supabase, kong, ray |
 | [kong](../services/kong/README.md) | Kong (API gateway) | experimental | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | KONG_API_GATEWAY_SOURCE | container | container | supabase, redis |
-| [langfuse](../services/langfuse/README.md) | Langfuse (LLM traces + evals) | experimental | all, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | LANGFUSE_SOURCE | disabled | container, disabled | supabase, redis, minio, litellm, kong, ray |
+| [langfuse](../services/langfuse/README.md) | Langfuse (LLM traces + evals) | experimental | all, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | LANGFUSE_SOURCE | disabled | container, disabled | supabase, redis, silo, litellm, kong, ray |
 | [loki](../services/loki/README.md) | Loki (queryable log store) | experimental | all, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng | LOKI_SOURCE | disabled | container, disabled | kong, ray |
 | [otel-collector](../services/otel-collector/README.md) | OpenTelemetry Collector (telemetry ingest) | experimental | all, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng | OTEL_COLLECTOR_SOURCE | disabled | container, disabled | tempo, loki |
 | [prometheus](../services/prometheus/README.md) | Prometheus (metrics scraper + TSDB) | experimental | all, data-eng, gen-ai-creative, gen-ai-eng, gen-ai-rag, ml-eng, trading | PROMETHEUS_SOURCE | disabled | container, disabled | supabase, redis, kong, ray |
@@ -85,8 +85,8 @@ The *Support* column comes from each family's manifest `support:` block. Tiers a
 
 | Service | Title | Support | Tracks | SOURCE | Default | Values | Start order |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| [asset-baker](../services/asset-baker/README.md) | Asset Baker (Blender HP→LP bake) | experimental | all, gen-ai-creative | ASSET_BAKER_SOURCE | disabled | container-cpu, disabled | minio |
-| [asset-worker](../services/asset-worker/README.md) | Asset Worker (glTF post-processing) | experimental | all, gen-ai-creative | ASSET_WORKER_SOURCE | disabled | container, disabled | minio |
+| [asset-baker](../services/asset-baker/README.md) | Asset Baker (Blender HP→LP bake) | experimental | all, gen-ai-creative | ASSET_BAKER_SOURCE | disabled | container-cpu, disabled | silo |
+| [asset-worker](../services/asset-worker/README.md) | Asset Worker (glTF post-processing) | experimental | all, gen-ai-creative | ASSET_WORKER_SOURCE | disabled | container, disabled | silo |
 | [blender-mcp](../services/blender-mcp/README.md) | Blender MCP | experimental | all, gen-ai-creative | BLENDER_MCP_SOURCE | disabled | localhost, managed-localhost, disabled | - |
 | [chatterbox](../services/chatterbox/README.md) | Chatterbox (voice-cloning TTS, GPU) | experimental | all, gen-ai-creative, gen-ai-eng | - | - | - | tts-provider |
 | [comfyui](../services/comfyui/README.md) | ComfyUI (image generation) | experimental | all, gen-ai-creative, gen-ai-eng | COMFYUI_SOURCE, COMFYUI_INIT_SOURCE | container-cpu, container | container-cpu, container-gpu, localhost, managed-localhost-mps, disabled, container | supabase, litellm, ollama |

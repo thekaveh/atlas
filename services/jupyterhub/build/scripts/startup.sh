@@ -15,7 +15,7 @@ echo "  • ComfyUI: ${COMFYUI_BASE_URL:-not configured}"
 echo "  • Database: ${DATABASE_URL:+configured}"
 echo "  • Redis: ${REDIS_URL:+configured}"
 echo "  • Supabase: ${SUPABASE_URL:-not configured}"
-echo "  • MinIO: ${MINIO_ENDPOINT:-not configured}"
+echo "  • Silo: ${SILO_ENDPOINT:-not configured}"
 echo "  • Iceberg REST: ${ICEBERG_REST_URI:-not configured}"
 
 # Preserve literal aliases for notebook clients before dotenv parses the file.
@@ -58,8 +58,8 @@ NEO4J_PASSWORD=${NEO4J_PASSWORD}
 COMFYUI_BASE_URL=${COMFYUI_BASE_URL:-http://comfyui:18188}
 
 # Lakehouse
-MINIO_ENDPOINT=${MINIO_ENDPOINT:-http://minio:9000}
-AWS_ENDPOINT_URL_S3=${AWS_ENDPOINT_URL_S3:-http://minio:9000}
+SILO_ENDPOINT=${SILO_ENDPOINT:-http://silo:9000}
+AWS_ENDPOINT_URL_S3=${AWS_ENDPOINT_URL_S3:-http://silo:9000}
 AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
 AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
 AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-us-east-1}
@@ -148,7 +148,7 @@ The following integration URLs are available as environment variables:
 - `N8N_BASE_URL` - Workflow automation
 - `SEARXNG_URL` - Privacy-focused search
 - `BACKEND_API_URL` - Backend API
-- `MINIO_ENDPOINT` / `AWS_ENDPOINT_URL_S3` - MinIO object storage
+- `SILO_ENDPOINT` / `AWS_ENDPOINT_URL_S3` - Silo object storage
 - `ICEBERG_REST_URI` / `ICEBERG_WAREHOUSE` - Iceberg REST catalog
 
 ## Quick Start

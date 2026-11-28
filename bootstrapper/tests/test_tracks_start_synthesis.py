@@ -130,17 +130,17 @@ def test_explicit_off_track_disabled_flag_is_not_reported_as_enabling_override()
 def test_consumer_declared_source_survives_track_force_disable():
     """#783: a SOURCE var the consumer manifest declares in env.values is
     exempt from the off-track force-disable — declared intent beats the track
-    default (daydreams' MINIO_SOURCE: container was silently reverted to
-    disabled under gen-ai-creative, forcing a --minio-source workaround flag).
+    default (daydreams' SILO_SOURCE: container was silently reverted to
+    disabled under gen-ai-creative, forcing a --silo-source workaround flag).
     An explicit CLI value still wins over both."""
     reg = load_tracks()
     source_args = {
-        "minio_source": None,       # off-track for gen-ai-creative? verified below
+        "silo_source": None,       # off-track for gen-ai-creative? verified below
         "airflow_source": None,     # off-track, NOT consumer-declared
     }
     track = reg.by_key["gen-ai-creative"]
-    assert not is_in_track(track, "minio", always_on=reg.always_on), (
-        "precondition: minio must be out of gen-ai-creative for this test"
+    assert not is_in_track(track, "silo", always_on=reg.always_on), (
+        "precondition: silo must be out of gen-ai-creative for this test"
     )
 
     overridden = synthesize_track_source_args(
@@ -148,29 +148,29 @@ def test_consumer_declared_source_survives_track_force_disable():
         track_key="gen-ai-creative",
         registry=reg,
         force_disable=True,
-        consumer_declared=frozenset({"minio_source"}),
+        consumer_declared=frozenset({"silo_source"}),
     )
 
-    assert source_args["minio_source"] is None      # NOT filled with disabled
+    assert source_args["silo_source"] is None      # NOT filled with disabled
     assert source_args["airflow_source"] == "disabled"  # undeclared: unchanged behavior
-    assert "minio" in overridden                    # advisory surface records it
+    assert "silo" in overridden                    # advisory surface records it
 
 
 def test_consumer_declared_does_not_shadow_explicit_cli_disable():
-    """--minio-source disabled on the CLI wins even when the manifest declares
+    """--silo-source disabled on the CLI wins even when the manifest declares
     the var (per-run operator intent beats committed intent)."""
     reg = load_tracks()
-    source_args = {"minio_source": "disabled"}
+    source_args = {"silo_source": "disabled"}
 
     overridden = synthesize_track_source_args(
         source_args,
         track_key="gen-ai-creative",
         registry=reg,
         force_disable=True,
-        consumer_declared=frozenset({"minio_source"}),
+        consumer_declared=frozenset({"silo_source"}),
     )
 
-    assert source_args["minio_source"] == "disabled"
+    assert source_args["silo_source"] == "disabled"
     assert overridden == set()
 
 
@@ -207,9 +207,9 @@ def test_overridden_keys_are_recorded_in_normalized_form():
         neo4j_graph_db_source -> "neo4j-graph-db" (folder "neo4j")
 
     so a consumer manifest declaration or an explicit `--<svc>-source` flag was
-    force-disabled anyway. `ray`, `spark`, `minio` and the rest were unaffected
+    force-disabled anyway. `ray`, `spark`, `silo` and the rest were unaffected
     because their stem already equals the folder name — which is precisely why
-    the existing cases here (minio, weaviate) could not catch it.
+    the existing cases here (silo, weaviate) could not catch it.
     """
     from tracks import load_tracks, normalize_service_key, synthesize_track_source_args
 

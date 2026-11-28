@@ -84,7 +84,7 @@ seeded_host() {
     neo4j_default) echo neo4j-graph-db ;;
   esac
 }
-for pair in "spark_default:${SPARK_SOURCE:-}" "minio_default:${MINIO_SOURCE:-}" \
+for pair in "spark_default:${SPARK_SOURCE:-}" "silo_default:${SILO_SOURCE:-}" \
             "weaviate_default:${WEAVIATE_SOURCE:-}" "neo4j_default:${NEO4J_GRAPH_DB_SOURCE:-}"; do
   conn="${pair%%:*}"
   case "${pair#*:}" in
@@ -122,8 +122,8 @@ if [ "${SPARK_SOURCE}" = "container" ]; then
     --conn-extra "{\"deploy-mode\": \"${deploy_mode}\", \"spark-binary\": \"spark-submit\"}"
 fi
 
-if [ "${MINIO_SOURCE}" = "container" ]; then
-  # MinIO doesn't use DNS-style addressing (bucket.minio:9000); boto3
+if [ "${SILO_SOURCE}" = "container" ]; then
+  # Silo doesn't use DNS-style addressing (bucket.silo:9000); boto3
   # defaults to virtual-hosted style and would fail DNS for any
   # bucket-level S3 op. region_name avoids NoRegionError on newer
   # boto3. Mirrors the spark.hadoop.fs.s3a.path.style.access=true
@@ -131,16 +131,16 @@ if [ "${MINIO_SOURCE}" = "container" ]; then
   # json.dumps, not shell interpolation: a quote or backslash in the
   # credentials made the extra invalid JSON, failing airflow-init (and so
   # every Airflow container gated on it).
-  minio_extra=$(python3 -c 'import json, os; print(json.dumps({
-      "endpoint_url": "http://minio:9000",
-      "aws_access_key_id": os.environ["MINIO_SPARK_ACCESS_KEY"],
-      "aws_secret_access_key": os.environ["MINIO_SPARK_SECRET_KEY"],
-      "region_name": os.environ.get("MINIO_REGION") or "us-east-1",
+  silo_extra=$(python3 -c 'import json, os; print(json.dumps({
+      "endpoint_url": "http://silo:9000",
+      "aws_access_key_id": os.environ["SILO_SPARK_ACCESS_KEY"],
+      "aws_secret_access_key": os.environ["SILO_SPARK_SECRET_KEY"],
+      "region_name": os.environ.get("SILO_REGION") or "us-east-1",
       "config_kwargs": {"s3": {"addressing_style": "path"}},
   }))')
-  add_conn minio_default \
+  add_conn silo_default \
     --conn-type aws \
-    --conn-extra "$minio_extra"
+    --conn-extra "$silo_extra"
 fi
 
 # OpenAIHook.get_conn() does:

@@ -132,14 +132,14 @@ def test_asset_worker_manifest_contract() -> None:
             {"id": "disabled", "label": "Disabled"},
         ],
     }
-    assert manifest["depends_on"]["required"] == ["minio"]
+    assert manifest["depends_on"]["required"] == ["silo"]
     assert set(manifest["depends_on"]["optional"]) >= {"backend", "comfyui", "fal", "blender-mcp"}
-    assert manifest["data_flow"]["calls"] == ["minio"]
+    assert manifest["data_flow"]["calls"] == ["silo"]
     assert manifest["rows"][0]["alias"] == "asset-worker.localhost"
     assert env["ASSET_WORKER_SOURCE"]["default"] == "disabled"
     assert "ASSET_WORKER_PORT" in env
     assert env["ASSET_WORKER_ENDPOINT"]["auto_managed"] is True
-    assert env["ASSET_WORKER_MINIO_BUCKET"]["default"] == "asset-worker"
+    assert env["ASSET_WORKER_SILO_BUCKET"]["default"] == "asset-worker"
     assert env["ASSET_WORKER_GLTF_TRANSFORM_VERSION"]["default"] == "4.5.1"
 
 
@@ -174,7 +174,7 @@ def test_asset_worker_env_docs_and_site_surfaces() -> None:
     wiki_service = surface_text("services/asset-worker/README.md", "wiki")
 
     assert "ASSET_WORKER_SOURCE=disabled" in env_example
-    assert "ASSET_WORKER_MINIO_BUCKET=asset-worker" in env_example
+    assert "ASSET_WORKER_SILO_BUCKET=asset-worker" in env_example
     assert "POST /gltf/postprocess" in service_page
     assert "ASSET_WORKER_SOURCE" in source_values
     assert "asset-worker.localhost" in ports_routes
@@ -240,20 +240,20 @@ def test_asset_worker_gltf_version_pins_agree_with_package_json() -> None:
     [("asset-worker", "ASSET_WORKER_SOURCE=container"),
      ("asset-baker", "ASSET_BAKER_SOURCE=container-cpu")],
 )
-def test_asset_processors_fail_dependency_check_without_minio(env_with_overrides, service, source):
-    """Compose gates both on minio + minio-init; with MinIO off (the
+def test_asset_processors_fail_dependency_check_without_silo(env_with_overrides, service, source):
+    """Compose gates both on silo + silo-init; with Silo off (the
     gen-ai-creative track default) the launch used to hang, not fail."""
     from start import AtlasStarter
 
     key, value = source.split("=")
     starter = AtlasStarter()
     starter.config_parser.env_file_path = env_with_overrides({
-        key: value, "MINIO_SOURCE": "disabled", "MINIO_SCALE": "0", "MINIO_INIT_SCALE": "0",
+        key: value, "SILO_SOURCE": "disabled", "SILO_SCALE": "0", "SILO_INIT_SCALE": "0",
     })
 
     assert starter.check_service_dependencies() is False
     assert any(
-        v["service"] == service and v["required_service"] == "minio"
+        v["service"] == service and v["required_service"] == "silo"
         for v in starter.dependency_manager.get_dependency_violations()
     )
 

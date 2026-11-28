@@ -120,7 +120,7 @@ A repo-wide search finds no Landlock, seccomp, AppArmor, gVisor or sandbox-runne
 | `openclaw` | Untrusted agent command isolation: "Atlas configures no mandatory sandbox runner or per-channel authorization policy." | `not-supported` |
 | `hermes` | Untrusted autonomous tool isolation: "no per-user sandbox or policy engine for untrusted agent execution." | `not-supported` |
 | `trueforge` | Git-backed skills and code sandbox execution: "no sandbox provider (upstream supports Daytona only)." | `not-supported` |
-| `airflow` | Untrusted DAG code isolation: DAGs "execute unsandboxed with Airflow Connections holding MinIO root, LiteLLM master, Neo4j administrator" credentials. | `not-supported` |
+| `airflow` | Untrusted DAG code isolation: DAGs "execute unsandboxed with Airflow Connections holding Silo root, LiteLLM master, Neo4j administrator" credentials. | `not-supported` |
 | `zeppelin` | Interpreter process isolation and HA: no per-user sandboxing. | `not-supported` |
 | `backend` | Plugins: Atlas "installs and imports operator-supplied Python code at Backend startup without sandboxing". | `partial` |
 
@@ -348,7 +348,7 @@ binaries: [/usr/bin/curl, /usr/local/bin/curl, /usr/bin/python3, /sandbox/.venv/
 | SearXNG, Crawl4AI | A "research" preset that denies the open internet and allows only Atlas's SearXNG and Crawl4AI, so web access is mediated and logged. | S | Medium |
 | Weaviate, Neo4j | REST and GraphQL L7 rules for Weaviate, Bolt as `tcp`, with read-only presets. | S-M | Medium |
 | Redis | A `protocol: tcp` rule. Agents cannot propose TCP rules, so an operator must add it. | S | Medium |
-| MinIO | An endpointless S3 profile with SigV4 re-signing, or an STS refresh strategy. Agents would get a scoped bucket without holding MinIO keys. | M | Low-medium: documented only for AWS hosts; plain-HTTP signing untested |
+| Silo | An endpointless S3 profile with SigV4 re-signing, or an STS refresh strategy. Agents would get a scoped bucket without holding Silo keys. | M | Low-medium: documented only for AWS hosts; plain-HTTP signing untested |
 | Supabase Postgres | Gateway state in Postgres (`OPENSHELL_DB_URL`), so the `backup` service covers it. Only worthwhile for the `container` source. | S | Medium |
 
 ### 6.5. Operations and security

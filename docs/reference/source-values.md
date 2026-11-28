@@ -35,8 +35,6 @@
 | LOCAL_DEEP_RESEARCHER_SOURCE | local-deep-researcher | container | container, disabled |
 | LOKI_SOURCE | loki | disabled | container, disabled |
 | MCP_SERVERS_SOURCE | mcp-servers | disabled | container, disabled |
-| MINIO_SOURCE | minio | container | container, disabled |
-| MINIO_INIT_SOURCE | minio | container | container, disabled |
 | MLFLOW_SOURCE | mlflow | disabled | container, disabled |
 | N8N_SOURCE | n8n | container | container, disabled |
 | N8N_INIT_SOURCE | n8n | container | container, disabled |
@@ -52,6 +50,8 @@
 | REDIS_SOURCE | redis | container | container |
 | REDPANDA_SOURCE | redpanda | disabled | container, disabled |
 | SEARXNG_SOURCE | searxng | container | container, disabled |
+| SILO_SOURCE | silo | container | container, disabled |
+| SILO_INIT_SOURCE | silo | container | container, disabled |
 | SPARK_SOURCE | spark | disabled | container, disabled |
 | SPEECH_GATE_SOURCE | speech-gate | container | container, disabled |
 | SUPABASE_DB_SOURCE | supabase | container | container |

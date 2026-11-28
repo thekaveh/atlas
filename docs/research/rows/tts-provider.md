@@ -20,9 +20,9 @@ sources_consulted:
 
 ## 1. Missing-pair integrations
 
-- **tts-provider ↔ minio**
-  - Why valuable: Chatterbox's `/voices` library and any persisted reference WAVs live on the container's ephemeral FS today, so a rebuild wipes user-registered voices. MinIO already hosts other artifact buckets; a `tts-voices` bucket plus an audio-output cache bucket gives durable storage.
-  - Mechanism sketch: bind-mount a fuse-mounted or rclone-synced MinIO bucket at `/app/voices` for chatterbox, or sidecar that mirrors `/voices` POSTs to `s3://tts-voices/` via the upstream `/voices` GET/POST endpoint.
+- **tts-provider ↔ silo**
+  - Why valuable: Chatterbox's `/voices` library and any persisted reference WAVs live on the container's ephemeral FS today, so a rebuild wipes user-registered voices. Silo already hosts other artifact buckets; a `tts-voices` bucket plus an audio-output cache bucket gives durable storage.
+  - Mechanism sketch: bind-mount a fuse-mounted or rclone-synced Silo bucket at `/app/voices` for chatterbox, or sidecar that mirrors `/voices` POSTs to `s3://tts-voices/` via the upstream `/voices` GET/POST endpoint.
   - Effort: medium
   - Risks / open questions: chatterbox container expects local filesystem semantics; sidecar adds a sync race; speaches has no equivalent custom-voice slot.
   - Confidence: high (chatterbox `/voices` GET/POST + multipart `voice_file=` per upstream docs).
@@ -36,14 +36,14 @@ sources_consulted:
 
 - **tts-provider ↔ doc-processor**
   - Why valuable: turns ingested PDFs/HTML into audiobook WAVs — a natural "read this document" feature surfaced through backend/Open WebUI. Closes the loop: doc-processor extracts text, TTS narrates.
-  - Mechanism sketch: backend orchestrator chunks doc-processor's markdown output, POSTs each chunk to `${TTS_ENDPOINT}/v1/audio/speech`, concatenates WAV segments, writes to MinIO.
+  - Mechanism sketch: backend orchestrator chunks doc-processor's markdown output, POSTs each chunk to `${TTS_ENDPOINT}/v1/audio/speech`, concatenates WAV segments, writes to Silo.
   - Effort: medium
   - Risks / open questions: chunk-boundary prosody artifacts; long-document jobs need async queue (n8n or backend background task); voice consistency across chunks.
   - Confidence: high (both services already speak HTTP; orchestration is application code).
 
 - **tts-provider ↔ supabase**
   - Why valuable: voice metadata (owner, language, source clip, registered-by user) belongs in a relational table, not just chatterbox's in-memory `/voices` registry. Lets Open WebUI users see their own voices and admins audit usage.
-  - Mechanism sketch: backend writes a `tts_voices` row in Supabase on every chatterbox `POST /voices`; on startup, a small reconciler re-POSTs registered voices from MinIO+Supabase back into chatterbox.
+  - Mechanism sketch: backend writes a `tts_voices` row in Supabase on every chatterbox `POST /voices`; on startup, a small reconciler re-POSTs registered voices from Silo+Supabase back into chatterbox.
   - Effort: medium
   - Risks / open questions: dual write needs idempotency; speaches doesn't expose user-uploaded voices, so the table only covers chatterbox.
   - Confidence: medium (depends on chatterbox `/voices` POST semantics stabilising upstream).

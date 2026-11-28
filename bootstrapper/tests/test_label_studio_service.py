@@ -43,9 +43,9 @@ def test_label_studio_manifest_admission_contract() -> None:
         "container",
         "disabled",
     }
-    assert manifest["depends_on"]["required"] == ["supabase", "minio"]
+    assert manifest["depends_on"]["required"] == ["supabase", "silo"]
     assert manifest["depends_on"].get("optional", []) == ["jupyterhub", "mlflow"]
-    assert manifest["data_flow"]["calls"] == ["supabase", "minio"]
+    assert manifest["data_flow"]["calls"] == ["supabase", "silo"]
 
     images = {entry["var"]: entry for entry in manifest["images"]}
     assert images["LABEL_STUDIO_IMAGE"]["default"] == IMAGE
@@ -117,7 +117,7 @@ def test_label_studio_topology_track_and_env_example_contract() -> None:
         "LABEL_STUDIO_PASSWORD=",
         "LABEL_STUDIO_USER_TOKEN=",
         "LABEL_STUDIO_SECRET_KEY=",
-        "MINIO_BUCKET_LABEL_STUDIO=label-studio",
+        "SILO_BUCKET_LABEL_STUDIO=label-studio",
     ):
         assert expected in env_example
 
@@ -131,10 +131,10 @@ def test_label_studio_source_cli_mapping_exists() -> None:
     }
 
 
-def test_label_studio_scale_generation_and_minio_gate() -> None:
+def test_label_studio_scale_generation_and_silo_gate() -> None:
     sc = ServiceConfig(config_parser=MagicMock())
 
-    sc.service_sources = {"LABEL_STUDIO_SOURCE": "disabled", "MINIO_SOURCE": "disabled"}
+    sc.service_sources = {"LABEL_STUDIO_SOURCE": "disabled", "SILO_SOURCE": "disabled"}
     assert sc._generate_label_studio_config() == {
         "LABEL_STUDIO_INIT_SCALE": "0",
         "LABEL_STUDIO_SCALE": "0",
@@ -142,7 +142,7 @@ def test_label_studio_scale_generation_and_minio_gate() -> None:
         "LABEL_STUDIO_API_URL": "",
     }
 
-    sc.service_sources = {"LABEL_STUDIO_SOURCE": "container", "MINIO_SOURCE": "container"}
+    sc.service_sources = {"LABEL_STUDIO_SOURCE": "container", "SILO_SOURCE": "container"}
     assert sc._generate_label_studio_config() == {
         "LABEL_STUDIO_INIT_SCALE": "1",
         "LABEL_STUDIO_SCALE": "1",
@@ -150,8 +150,8 @@ def test_label_studio_scale_generation_and_minio_gate() -> None:
         "LABEL_STUDIO_API_URL": "http://label-studio:8080",
     }
 
-    sc.service_sources = {"LABEL_STUDIO_SOURCE": "container", "MINIO_SOURCE": "disabled"}
-    with pytest.raises(ValueError, match="Label Studio requires MinIO"):
+    sc.service_sources = {"LABEL_STUDIO_SOURCE": "container", "SILO_SOURCE": "disabled"}
+    with pytest.raises(ValueError, match="Label Studio requires Silo"):
         sc._generate_label_studio_config()
 
 
@@ -162,7 +162,7 @@ def test_label_studio_compose_contract() -> None:
 
     assert init["build"]["context"] == "./init"
     assert init["depends_on"]["supabase-db-init"]["condition"] == "service_completed_successfully"
-    assert init["depends_on"]["minio-init"]["condition"] == "service_completed_successfully"
+    assert init["depends_on"]["silo-init"]["condition"] == "service_completed_successfully"
     assert init["environment"]["LABEL_STUDIO_DB_NAME"] == "${LABEL_STUDIO_DB_NAME:-label_studio}"
     assert init["environment"]["LABEL_STUDIO_DB_USER"] == "${LABEL_STUDIO_DB_USER:?LABEL_STUDIO_DB_USER is required}"
     assert init["environment"]["LABEL_STUDIO_DB_PASSWORD"] == "${LABEL_STUDIO_DB_PASSWORD:?LABEL_STUDIO_DB_PASSWORD is required}"
@@ -186,38 +186,38 @@ def test_label_studio_compose_contract() -> None:
     assert env["SECRET_KEY"] == "${LABEL_STUDIO_SECRET_KEY}"
     assert env["DISABLE_SIGNUP_WITHOUT_LINK"] == "true"
     assert env["STORAGE_TYPE"] == "s3"
-    assert env["STORAGE_AWS_ENDPOINT_URL"] == "http://minio:9000"
-    assert env["STORAGE_AWS_BUCKET_NAME"] == "${MINIO_BUCKET_LABEL_STUDIO:-label-studio}"
-    assert env["STORAGE_AWS_ACCESS_KEY_ID"] == "${MINIO_LABEL_STUDIO_ACCESS_KEY}"
-    assert env["STORAGE_AWS_SECRET_ACCESS_KEY"] == "${MINIO_LABEL_STUDIO_SECRET_KEY}"
+    assert env["STORAGE_AWS_ENDPOINT_URL"] == "http://silo:9000"
+    assert env["STORAGE_AWS_BUCKET_NAME"] == "${SILO_BUCKET_LABEL_STUDIO:-label-studio}"
+    assert env["STORAGE_AWS_ACCESS_KEY_ID"] == "${SILO_LABEL_STUDIO_ACCESS_KEY}"
+    assert env["STORAGE_AWS_SECRET_ACCESS_KEY"] == "${SILO_LABEL_STUDIO_SECRET_KEY}"
     assert env["STORAGE_AWS_S3_USE_SSL"] == "false"
-    assert env["STORAGE_AWS_REGION_NAME"] == "${MINIO_REGION:-us-east-1}"
+    assert env["STORAGE_AWS_REGION_NAME"] == "${SILO_REGION:-us-east-1}"
 
 
-def test_minio_provisions_label_studio_bucket_and_scoped_credentials() -> None:
-    minio_manifest = yaml.safe_load(
-        (REPO_ROOT / "services" / "minio" / "service.yml").read_text()
+def test_silo_provisions_label_studio_bucket_and_scoped_credentials() -> None:
+    silo_manifest = yaml.safe_load(
+        (REPO_ROOT / "services" / "silo" / "service.yml").read_text()
     )
-    env_vars = {entry["name"]: entry for entry in minio_manifest["env"]}
+    env_vars = {entry["name"]: entry for entry in silo_manifest["env"]}
 
-    assert env_vars["MINIO_BUCKET_LABEL_STUDIO"]["default"] == "label-studio"
-    assert env_vars["MINIO_LABEL_STUDIO_ACCESS_KEY"]["secret"] is True
-    assert env_vars["MINIO_LABEL_STUDIO_SECRET_KEY"]["secret"] is True
+    assert env_vars["SILO_BUCKET_LABEL_STUDIO"]["default"] == "label-studio"
+    assert env_vars["SILO_LABEL_STUDIO_ACCESS_KEY"]["secret"] is True
+    assert env_vars["SILO_LABEL_STUDIO_SECRET_KEY"]["secret"] is True
 
-    minio_compose = yaml.safe_load(
-        (REPO_ROOT / "services" / "minio" / "compose.yml").read_text()
+    silo_compose = yaml.safe_load(
+        (REPO_ROOT / "services" / "silo" / "compose.yml").read_text()
     )
-    minio_init_env = minio_compose["services"]["minio-init"]["environment"]
-    assert minio_init_env["MINIO_BUCKET_LABEL_STUDIO"] == "${MINIO_BUCKET_LABEL_STUDIO}"
-    assert minio_init_env["MINIO_LABEL_STUDIO_ACCESS_KEY"] == "${MINIO_LABEL_STUDIO_ACCESS_KEY}"
-    assert minio_init_env["MINIO_LABEL_STUDIO_SECRET_KEY"] == "${MINIO_LABEL_STUDIO_SECRET_KEY}"
+    silo_init_env = silo_compose["services"]["silo-init"]["environment"]
+    assert silo_init_env["SILO_BUCKET_LABEL_STUDIO"] == "${SILO_BUCKET_LABEL_STUDIO}"
+    assert silo_init_env["SILO_LABEL_STUDIO_ACCESS_KEY"] == "${SILO_LABEL_STUDIO_ACCESS_KEY}"
+    assert silo_init_env["SILO_LABEL_STUDIO_SECRET_KEY"] == "${SILO_LABEL_STUDIO_SECRET_KEY}"
 
     script = (
-        REPO_ROOT / "services" / "minio" / "init" / "scripts" / "init-minio.sh"
+        REPO_ROOT / "services" / "silo" / "init" / "scripts" / "init-silo.sh"
     ).read_text()
     assert (
-        "label-studio:MINIO_BUCKET_LABEL_STUDIO:"
-        "MINIO_LABEL_STUDIO_ACCESS_KEY:MINIO_LABEL_STUDIO_SECRET_KEY"
+        "label-studio:SILO_BUCKET_LABEL_STUDIO:"
+        "SILO_LABEL_STUDIO_ACCESS_KEY:SILO_LABEL_STUDIO_SECRET_KEY"
     ) in script
 
 
@@ -229,8 +229,8 @@ def test_key_generator_creates_label_studio_credentials(tmp_path: Path) -> None:
         "LABEL_STUDIO_PASSWORD=\n"
         "LABEL_STUDIO_USER_TOKEN=\n"
         "LABEL_STUDIO_SECRET_KEY=\n"
-        "MINIO_LABEL_STUDIO_ACCESS_KEY=\n"
-        "MINIO_LABEL_STUDIO_SECRET_KEY=\n"
+        "SILO_LABEL_STUDIO_ACCESS_KEY=\n"
+        "SILO_LABEL_STUDIO_SECRET_KEY=\n"
     )
 
     results = KeyGenerator(str(tmp_path)).generate_missing_keys()
@@ -241,8 +241,8 @@ def test_key_generator_creates_label_studio_credentials(tmp_path: Path) -> None:
         "LABEL_STUDIO_PASSWORD",
         "LABEL_STUDIO_USER_TOKEN",
         "LABEL_STUDIO_SECRET_KEY",
-        "MINIO_LABEL_STUDIO_ACCESS_KEY",
-        "MINIO_LABEL_STUDIO_SECRET_KEY",
+        "SILO_LABEL_STUDIO_ACCESS_KEY",
+        "SILO_LABEL_STUDIO_SECRET_KEY",
     ):
         assert results[key] is True
         assert generated[key]
@@ -322,7 +322,7 @@ def test_label_studio_docs_describe_storage_exports_and_guardrails() -> None:
         "Category: `apps`",
         "heartexlabs/label-studio:1.23.0",
         "Postgres",
-        "MinIO",
+        "Silo",
         "S3-compatible",
         "intentionally not bundled",
         "MLflow",

@@ -43,7 +43,7 @@ ARCHITECTURE_PERSPECTIVES: dict[str, tuple[str, str, list[str]]] = {
     "data-rag-flow": (
         "Data And RAG Flow",
         "Ingestion, document processing, object storage, vector and graph stores, backend APIs, Open WebUI, and tool/MCP-adjacent flows.",
-        ["Ingestion", "Doc Processing", "MinIO", "Weaviate", "LightRAG", "Neo4j", "Backend", "Open WebUI"],
+        ["Ingestion", "Doc Processing", "Silo", "Weaviate", "LightRAG", "Neo4j", "Backend", "Open WebUI"],
     ),
     "llm-provider-flow": (
         "LLM Provider Flow",
@@ -55,9 +55,9 @@ ARCHITECTURE_PERSPECTIVES: dict[str, tuple[str, str, list[str]]] = {
     ),
     "data-engineering-lakehouse-flow": (
         "Data Engineering Lakehouse Flow",
-        "MinIO, Iceberg REST, Supabase Postgres, Spark, JupyterHub, Zeppelin, Airflow, Trino, and Redpanda.",
+        "Silo, Iceberg REST, Supabase Postgres, Spark, JupyterHub, Zeppelin, Airflow, Trino, and Redpanda.",
         [
-            "MinIO", "Iceberg REST", "Supabase/Postgres", "Spark",
+            "Silo", "Iceberg REST", "Supabase/Postgres", "Spark",
             "JupyterHub", "Zeppelin", "Airflow", "Trino", "Redpanda",
         ],
     ),
@@ -128,7 +128,7 @@ ARCHITECTURE_SOURCE_FILES: dict[str, list[str]] = {
         "services/zeppelin/service.yml",
         "services/airflow/service.yml",
         "services/redpanda/service.yml",
-        "services/minio/service.yml",
+        "services/silo/service.yml",
         "services/trino/service.yml",
         "services/iceberg-rest/service.yml",
         "services/spark/service.yml",
@@ -216,11 +216,11 @@ ARCHITECTURE_EDGES: dict[str, list[tuple[str, str, str]]] = {
     ],
     "data-rag-flow": [
         ("Ingestion", "Doc Processing", "extract"),
-        ("Ingestion", "MinIO", "objects"),
+        ("Ingestion", "Silo", "objects"),
         ("Doc Processing", "Weaviate", "vectors"),
         ("Doc Processing", "LightRAG", "documents"),
         ("LightRAG", "Neo4j", "graph"),
-        ("MinIO", "Backend", "artifacts"),
+        ("Silo", "Backend", "artifacts"),
         ("Weaviate", "Backend", "retrieve"),
         # Backend reaches the graph through LightRAG; its direct neo4j call
         # is `status: planned` in services/backend/service.yml.
@@ -243,10 +243,10 @@ ARCHITECTURE_EDGES: dict[str, list[tuple[str, str, str]]] = {
         ("Redpanda", "Spark", "stream"),
         ("Spark", "Iceberg REST", "catalog"),
         ("Trino", "Iceberg REST", "catalog"),
-        ("Spark", "MinIO", "objects"),
-        ("Trino", "MinIO", "objects"),
+        ("Spark", "Silo", "objects"),
+        ("Trino", "Silo", "objects"),
         ("Iceberg REST", "Supabase/Postgres", "metadata"),
-        ("Iceberg REST", "MinIO", "warehouse objects"),
+        ("Iceberg REST", "Silo", "warehouse objects"),
     ],
     "observability-flow": [
         ("Backend", "OTel Collector", "OTLP"),
@@ -319,7 +319,7 @@ ARCHITECTURE_LAYOUTS: dict[str, dict[str, tuple[int, int]]] = {
     },
     "data-rag-flow": {
         "Ingestion": (50, 240), "Doc Processing": (280, 100),
-        "MinIO": (280, 390), "Weaviate": (550, 190),
+        "Silo": (280, 390), "Weaviate": (550, 190),
         "LightRAG": (550, 40), "Neo4j": (810, 40), "Backend": (810, 300),
         "Open WebUI": (1060, 300),
     },
@@ -334,7 +334,7 @@ ARCHITECTURE_LAYOUTS: dict[str, dict[str, tuple[int, int]]] = {
         "JupyterHub": (40, 30), "Zeppelin": (40, 160),
         "Airflow": (40, 290), "Redpanda": (40, 420),
         "Spark": (390, 180), "Trino": (390, 430),
-        "Iceberg REST": (720, 100), "MinIO": (1050, 400),
+        "Iceberg REST": (720, 100), "Silo": (1050, 400),
         "Supabase/Postgres": (1050, 30),
     },
     "observability-flow": {
@@ -397,7 +397,7 @@ ARCHITECTURE_ROUTES: dict[
         ),
     },
     "data-engineering-lakehouse-flow": {
-        ("Spark", "MinIO"): (
+        ("Spark", "Silo"): (
             [(530, 210), (610, 260), (940, 260), (940, 415), (1050, 415)],
             (780, 250),
         ),
@@ -405,11 +405,11 @@ ARCHITECTURE_ROUTES: dict[
             [(530, 460), (610, 520), (1210, 520), (1210, 180), (790, 180), (790, 160)],
             (1040, 510),
         ),
-        ("Iceberg REST", "MinIO"): (
+        ("Iceberg REST", "Silo"): (
             [(860, 130), (1020, 130), (1020, 360), (1120, 360), (1120, 400)],
             (1010, 245),
         ),
-        ("Trino", "MinIO"): (
+        ("Trino", "Silo"): (
             [(530, 460), (980, 460), (980, 430), (1050, 430)],
             (790, 450),
         ),
@@ -424,7 +424,7 @@ _NODE_KINDS = {
     "Services": "backend", "Atlas Services": "backend",
     "Celery Workers": "backend", "Service APIs": "backend", "adaptive apps": "backend",
     "Doc Processing": "backend", "Ingestion": "backend", "LightRAG": "backend",
-    "Data Stores": "data", "MinIO": "data", "Weaviate": "data",
+    "Data Stores": "data", "Silo": "data", "Weaviate": "data",
     "Neo4j": "data", "Iceberg REST": "data", "Supabase Auth": "data",
     "Supabase/Postgres": "data",
     "Cloud Providers": "cloud", "Cloud LLMs": "cloud", "Cloud Keys": "cloud",
@@ -480,7 +480,7 @@ ARCHITECTURE_INTERPRETATIONS: dict[str, str] = {
     "data-rag-flow": (
         (
             'Backend is not the only writer into these stores. LightRAG writes directly '
-            'to Neo4j over Bolt and to Supabase pgvector. Other MinIO consumers (the '
+            'to Neo4j over Bolt and to Supabase pgvector. Other Silo consumers (the '
             'Iceberg pipeline, asset-worker) write with their own scoped IAM credentials.'
             " This view shows only Backend's ingestion path."
         )

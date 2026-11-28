@@ -8,7 +8,7 @@ capabilities:
   - name: "SQL over the Atlas Iceberg lakehouse"
     status: supported
     verification: tested
-    note: "Atlas configures Trino's Iceberg REST catalog, MinIO S3 access, and required service ordering for querying the in-stack lakehouse."
+    note: "Atlas configures Trino's Iceberg REST catalog, Silo S3 access, and required service ordering for querying the in-stack lakehouse."
   - name: "Coordinator access control"
     status: partial
     verification: tested
@@ -25,20 +25,20 @@ images:
   - var: TRINO_IMAGE
     default: "trinodb/trino:482"
     container: trino
-    notes: "Pinned to the current Trino release tag validated against the Iceberg REST + MinIO catalog contract."
+    notes: "Pinned to the current Trino release tag validated against the Iceberg REST + Silo catalog contract."
 
 sources:
   var: TRINO_SOURCE
   default: disabled
   options:
     - id: container
-      label: "Container (federated SQL over Iceberg REST + MinIO lakehouse)"
+      label: "Container (federated SQL over Iceberg REST + Silo lakehouse)"
     - id: disabled
       label: "Disabled"
 
 env:
   - name: TRINO_SOURCE
-    description: "Deployment source for the Trino coordinator: container or disabled (default). container requires MinIO and the Iceberg REST catalog."
+    description: "Deployment source for the Trino coordinator: container or disabled (default). container requires Silo and the Iceberg REST catalog."
     default: disabled
   - name: TRINO_PORT
     description: "Host port for the Trino coordinator UI/API (in-container 8080)."
@@ -51,7 +51,7 @@ env:
 
 depends_on:
   required:
-    - minio
+    - silo
     - iceberg-rest
   optional:
     - spark
@@ -85,7 +85,7 @@ runtime_sc:
 runtime_deps:
   trino:
     requires:
-      - minio
+      - silo
       - iceberg-rest
     optional:
       - spark
@@ -96,7 +96,7 @@ runtime_deps:
 data_flow:
   calls:
     - iceberg-rest
-    - minio
+    - silo
 
 # Support tier (#1050). Selectable is not validated: this family is `experimental`
 # until a cited cold-start, workflow, and upgrade qualification run promotes it.

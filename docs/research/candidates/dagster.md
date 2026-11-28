@@ -5,7 +5,7 @@ generated: 2026-07-04
 license: Apache-2.0
 lifecycle: deferred
 name: Dagster
-referenced-by: [minio]
+referenced-by: [silo]
 slug: dagster
 superseded-by: https://github.com/thekaveh/atlas/issues/224
 type: external-service
@@ -34,15 +34,15 @@ Future service shape, if a later asset-orchestration ticket promotes this:
 - Kong alias and route behavior: `dagster.localhost` only when `DAGSTER_SOURCE=container`; route must be protected with Dagster login or upstream auth before production use.
 - Direct URL expectations: direct host port for local admin/dev; Kong URL for browser use.
 - Required dependencies: Supabase/Postgres for Dagster instance storage, generated config/secrets as needed, and the selected asset workflow dependencies.
-- Optional dependencies: Airflow REST API for observation or Airlift, MinIO/Iceberg/Trino/Spark for lakehouse assets, MLflow for model assets, Label Studio for dataset-review assets, Superset for BI asset outputs, and OpenMetadata later for catalog governance.
+- Optional dependencies: Airflow REST API for observation or Airlift, Silo/Iceberg/Trino/Spark for lakehouse assets, MLflow for model assets, Label Studio for dataset-review assets, Superset for BI asset outputs, and OpenMetadata later for catalog governance.
 - Downstream consumers: humans through the Dagster UI, and possibly Airflow only during a deliberate Airlift migration/proxy step.
-- `data_flow.calls` topology edges for a future service: `dagster -> supabase`, optional `dagster -> airflow`, optional `dagster -> minio`, optional `dagster -> trino`, optional `dagster -> spark`, optional `dagster -> mlflow`, and optional `dagster -> label-studio`.
+- `data_flow.calls` topology edges for a future service: `dagster -> supabase`, optional `dagster -> airflow`, optional `dagster -> silo`, optional `dagster -> trino`, optional `dagster -> spark`, optional `dagster -> mlflow`, and optional `dagster -> label-studio`.
 - Init companion: likely yes. It must bootstrap instance configuration, storage schema/migrations if needed, admin/dev auth if enabled, and seed only safe example assets.
 - Containers: expect at least webserver, daemon, and one user-code/code-location container. A future PR must make this explicit instead of squeezing everything into one opaque container.
-- Volumes and secrets: `DAGSTER_HOME`/config volume, workspace/code-location config, generated admin/auth secrets if used, scoped Airflow/Trino/MinIO/Spark credentials, no hardcoded example secrets.
+- Volumes and secrets: `DAGSTER_HOME`/config volume, workspace/code-location config, generated admin/auth secrets if used, scoped Airflow/Trino/Silo/Spark credentials, no hardcoded example secrets.
 - Asset-workflow readiness gate: identify one concrete asset graph first, such as `landing -> bronze -> silver -> gold` Iceberg tables, MLflow run-to-model promotion, or Label Studio export-to-training-data.
 - Tests required for a future service PR: manifest validation, source validation, env assembly, topology/category, track membership, Kong route/auth, compose source-permutation coverage, init idempotency, docs drift, Airflow coexistence rules, disabled-dependency behavior, and at least one smoke for the chosen asset graph.
-- Edge cases: disabled Airflow, disabled MinIO/Iceberg/Trino/Spark, duplicate schedule ownership, stale `.env`, custom `BASE_PORT`, code-location reloads, user-code image drift, prod profile route/auth restrictions, and generated-doc drift.
+- Edge cases: disabled Airflow, disabled Silo/Iceberg/Trino/Spark, duplicate schedule ownership, stale `.env`, custom `BASE_PORT`, code-location reloads, user-code image drift, prod profile route/auth restrictions, and generated-doc drift.
 
 ## 3. Problem it solves
 Atlas already has Airflow for scheduled DAGs, but Airflow does not make data assets the center of the product. Dagster would become valuable once Atlas wants a visible asset graph for lakehouse tables, model artifacts, dataset review outputs, and BI dashboards. It should enter only when that asset graph exists and the user can see how Dagster complements or replaces specific Airflow responsibilities.
@@ -50,7 +50,7 @@ Atlas already has Airflow for scheduled DAGs, but Airflow does not make data ass
 ## 4. Stack wiring sketch
 - dagster -> supabase for instance/run/event storage.
 - dagster -> airflow when observing existing DAGs or using Airlift migration paths.
-- dagster -> minio for asset inputs/outputs and lakehouse object storage.
+- dagster -> silo for asset inputs/outputs and lakehouse object storage.
 - dagster -> trino for SQL asset checks over Iceberg tables.
 - dagster -> spark for materializing Spark-backed assets.
 - dagster -> mlflow for model/experiment assets if MLflow is enabled.

@@ -43,7 +43,7 @@ def test_finrl_fingpt_future_notebook_contract_is_conservative() -> None:
         "no Kong aliases",
         "no direct URLs",
         "JupyterHub",
-        "MinIO",
+        "Silo",
         "MLflow",
         "LiteLLM",
         "Langfuse",

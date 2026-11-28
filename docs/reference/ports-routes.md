@@ -30,7 +30,6 @@ Generated summary of model-backed service port variables and Kong aliases. For b
 | llm-graph-builder | apps | `LLM_GRAPH_BUILDER_PORT` | `graphbuilder.localhost`, `graphbuilder-api.localhost` |
 | local-deep-researcher | apps | `LOCAL_DEEP_RESEARCHER_PORT` | `research.localhost` |
 | mcp-servers | agents | `MCP_SERVERS_PORT` | `mcp.localhost` |
-| minio | data | `MINIO_PORT`, `MINIO_CONSOLE_PORT` | `minio.localhost`, `s3.minio.localhost` |
 | mlflow | apps | `MLFLOW_PORT` | `mlflow.localhost` |
 | n8n | agents | `N8N_PORT` | `n8n.localhost` |
 | neo4j | data | `GRAPH_DB_PORT`, `GRAPH_DB_DASHBOARD_PORT`, `NEO4J_LOCALHOST_HTTP_PORT`, `NEO4J_LOCALHOST_BOLT_PORT` | `graph.localhost` |
@@ -43,6 +42,7 @@ Generated summary of model-backed service port variables and Kong aliases. For b
 | redis | data | `REDIS_PORT`, `REDIS_EXPORTER_PORT` | `-` |
 | redpanda | data | `REDPANDA_KAFKA_PORT`, `REDPANDA_CONSOLE_PORT` | `redpanda.localhost` |
 | searxng | media | `SEARXNG_PORT` | `search.localhost` |
+| silo | data | `SILO_PORT`, `SILO_CONSOLE_PORT` | `silo.localhost`, `s3.silo.localhost` |
 | spark | data | `SPARK_MASTER_UI_PORT`, `SPARK_HISTORY_PORT` | `spark.localhost`, `spark-history.localhost` |
 | speaches | media | `SPEACHES_PORT` | `-` |
 | speech-gate | media | `SPEECH_GATE_PORT` | `-` |

@@ -24,9 +24,9 @@ sources_consulted:
   - Risks / open questions: embedding model selection (multi2vec-clip vs LiteLLM-hosted embedder); idempotency on re-ingest; large-doc memory.
   - Confidence: high (Docling docs ship a Weaviate RAG example — see sources).
 
-- **doc-processor ↔ minio**
-  - Why valuable: today every consumer POSTs the raw file over HTTP; processed markdown/JSON is discarded. MinIO already exists for artifacts; persisting `(source_hash → converted output)` removes re-processing cost (1–8 s/page) and lets n8n / backend reference results by S3 key.
-  - Mechanism sketch: Docling service mounts the MinIO S3 endpoint; on convert, write `s3://docling-cache/<sha256>.json` (DocTags) via boto3; subsequent requests with same hash short-circuit.
+- **doc-processor ↔ silo**
+  - Why valuable: today every consumer POSTs the raw file over HTTP; processed markdown/JSON is discarded. Silo already exists for artifacts; persisting `(source_hash → converted output)` removes re-processing cost (1–8 s/page) and lets n8n / backend reference results by S3 key.
+  - Mechanism sketch: Docling service mounts the Silo S3 endpoint; on convert, write `s3://docling-cache/<sha256>.json` (DocTags) via boto3; subsequent requests with same hash short-circuit.
   - Effort: medium
   - Risks / open questions: cache invalidation when processing options change; bucket lifecycle policy.
   - Confidence: medium (mechanism standard; no upstream reference impl).
@@ -56,7 +56,7 @@ sources_consulted:
   - Why valuable: convert is slow (~1–8 s/page) and frequently re-requested by open-webui / local-deep-researcher. Redis is already the stack's cache.
   - Mechanism sketch: response cache keyed on `sha256(file)+options`, TTL 24 h, stored in `redis://redis:6379/2`.
   - Effort: small
-  - Risks / open questions: value size (use compressed JSON or pointer-to-MinIO for >512 KB).
+  - Risks / open questions: value size (use compressed JSON or pointer-to-Silo for >512 KB).
   - Confidence: medium.
 
 ## 2. Candidate new services

@@ -29,7 +29,7 @@ from rag_ingestion.clients import (
     CorpusFile,
     CorpusPathError,
     LightRagClient,
-    MinioCorpusReader,
+    SiloCorpusReader,
     MountCorpusReader,
     ParsedDocument,
     ParserAdapter,
@@ -1581,7 +1581,7 @@ def test_mount_corpus_rejects_file_count_over_configured_limit(tmp_path, monkeyp
 
 
 @pytest.mark.parametrize("operation", ["discover", "fingerprint"])
-def test_minio_corpus_rejects_oversize_metadata_before_download(monkeypatch, operation):
+def test_silo_corpus_rejects_oversize_metadata_before_download(monkeypatch, operation):
     import minio
 
     get_calls = []
@@ -1599,18 +1599,18 @@ def test_minio_corpus_rejects_oversize_metadata_before_download(monkeypatch, ope
             raise AssertionError("oversize object must not be downloaded")
 
     monkeypatch.setattr(minio, "Minio", lambda *args, **kwargs: FakeClient())
-    monkeypatch.setenv("MINIO_ENDPOINT", "http://minio:9000")
+    monkeypatch.setenv("SILO_ENDPOINT", "http://silo:9000")
     monkeypatch.setenv("RAG_INGESTION_MAX_FILE_BYTES", "4")
     monkeypatch.setenv("RAG_INGESTION_MAX_CORPUS_BYTES", "100")
 
     with pytest.raises(ValueError, match="large.bin.*4 bytes"):
-        getattr(MinioCorpusReader(), operation)(
-            {"source": "minio", "bucket": "corpus", "prefix": "docs/"}
+        getattr(SiloCorpusReader(), operation)(
+            {"source": "silo", "bucket": "corpus", "prefix": "docs/"}
         )
     assert get_calls == []
 
 
-def test_minio_corpus_uses_compiled_scoped_credentials(monkeypatch):
+def test_silo_corpus_uses_compiled_scoped_credentials(monkeypatch):
     import minio
 
     captured = {}
@@ -1625,17 +1625,17 @@ def test_minio_corpus_uses_compiled_scoped_credentials(monkeypatch):
         return FakeClient()
 
     monkeypatch.setattr(minio, "Minio", fake_client)
-    monkeypatch.setenv("MINIO_ENDPOINT", "http://minio:9000")
-    monkeypatch.setenv("MINIO_RAG_CORPUS_ACCESS_KEY", "scoped-access")
-    monkeypatch.setenv("MINIO_RAG_CORPUS_SECRET_KEY", "scoped-secret")
+    monkeypatch.setenv("SILO_ENDPOINT", "http://silo:9000")
+    monkeypatch.setenv("SILO_RAG_CORPUS_ACCESS_KEY", "scoped-access")
+    monkeypatch.setenv("SILO_RAG_CORPUS_SECRET_KEY", "scoped-secret")
 
-    MinioCorpusReader().discover(
+    SiloCorpusReader().discover(
         {
-            "source": "minio",
+            "source": "silo",
             "bucket": "rag-corpus",
             "prefix": "docs/",
-            "access_key_var": "MINIO_RAG_CORPUS_ACCESS_KEY",
-            "secret_key_var": "MINIO_RAG_CORPUS_SECRET_KEY",
+            "access_key_var": "SILO_RAG_CORPUS_ACCESS_KEY",
+            "secret_key_var": "SILO_RAG_CORPUS_SECRET_KEY",
         }
     )
 
@@ -1644,7 +1644,7 @@ def test_minio_corpus_uses_compiled_scoped_credentials(monkeypatch):
 
 
 @pytest.mark.parametrize("operation", ["discover", "fingerprint"])
-def test_minio_corpus_bounds_stream_when_size_metadata_is_missing(monkeypatch, operation):
+def test_silo_corpus_bounds_stream_when_size_metadata_is_missing(monkeypatch, operation):
     import io
     import minio
 
@@ -1665,19 +1665,19 @@ def test_minio_corpus_bounds_stream_when_size_metadata_is_missing(monkeypatch, o
             return response
 
     monkeypatch.setattr(minio, "Minio", lambda *args, **kwargs: FakeClient())
-    monkeypatch.setenv("MINIO_ENDPOINT", "http://minio:9000")
+    monkeypatch.setenv("SILO_ENDPOINT", "http://silo:9000")
     monkeypatch.setenv("RAG_INGESTION_MAX_FILE_BYTES", "4")
     monkeypatch.setenv("RAG_INGESTION_MAX_CORPUS_BYTES", "100")
 
     with pytest.raises(ValueError, match="unknown-size.bin.*4 bytes"):
-        getattr(MinioCorpusReader(), operation)(
-            {"source": "minio", "bucket": "corpus", "prefix": "docs/"}
+        getattr(SiloCorpusReader(), operation)(
+            {"source": "silo", "bucket": "corpus", "prefix": "docs/"}
         )
     assert cleanup == ["closed", "released"]
 
 
 @pytest.mark.parametrize("operation", ["discover", "fingerprint"])
-def test_minio_corpus_bounds_aggregate_stream_when_size_metadata_is_missing(
+def test_silo_corpus_bounds_aggregate_stream_when_size_metadata_is_missing(
     monkeypatch, operation
 ):
     """Each object is under the per-file limit; their sum is not. Without size
@@ -1704,13 +1704,13 @@ def test_minio_corpus_bounds_aggregate_stream_when_size_metadata_is_missing(
             return response()
 
     monkeypatch.setattr(minio, "Minio", lambda *args, **kwargs: FakeClient())
-    monkeypatch.setenv("MINIO_ENDPOINT", "http://minio:9000")
+    monkeypatch.setenv("SILO_ENDPOINT", "http://silo:9000")
     monkeypatch.setenv("RAG_INGESTION_MAX_FILE_BYTES", "4")
     monkeypatch.setenv("RAG_INGESTION_MAX_CORPUS_BYTES", "5")
 
     with pytest.raises(ValueError, match="corpus exceeds configured limit"):
-        getattr(MinioCorpusReader(), operation)(
-            {"source": "minio", "bucket": "corpus", "prefix": "docs/"}
+        getattr(SiloCorpusReader(), operation)(
+            {"source": "silo", "bucket": "corpus", "prefix": "docs/"}
         )
 
 
@@ -1741,7 +1741,7 @@ def test_embedder_disabled_is_attributed_to_embedder_not_weaviate(tmp_path, monk
 
 def test_corpus_override_only_for_mount(tmp_path, monkeypatch):
     _corpus(tmp_path, monkeypatch, {"a.txt": "x"})
-    pf = _profiles_file(tmp_path, corpus={"source": "minio", "bucket": "b", "prefix": "p/"})
+    pf = _profiles_file(tmp_path, corpus={"source": "silo", "bucket": "b", "prefix": "p/"})
     svc = _service(tmp_path, Deps(embedder=FakeEmbedder(), weaviate=FakeWeaviate(), lightrag=FakeLightrag(), poll_interval=0.01), pf)
     with pytest.raises(ValueError, match="only valid for source=mount"):
         svc.submit("showcase-default", corpus_path="docs")
@@ -3640,7 +3640,7 @@ def test_the_last_renewal_attempt_ends_before_the_lease_expires():
 
 
 def _mutable_ingestion_corpus(tmp_path, monkeypatch, source):
-    if source != "minio":
+    if source != "silo":
         root = _corpus(tmp_path, monkeypatch, {"a.txt": "A"})
         if source == "nested-mount":
             (root / "docs/a").mkdir()
@@ -3661,7 +3661,7 @@ def _mutable_ingestion_corpus(tmp_path, monkeypatch, source):
             return response
 
     monkeypatch.setattr(minio, "Minio", lambda *_args, **_kwargs: Client())
-    monkeypatch.setenv("MINIO_ENDPOINT", "http://minio:9000")
+    monkeypatch.setenv("SILO_ENDPOINT", "http://silo:9000")
     return {"source": source, "bucket": "corpus", "prefix": "docs/"}, lambda value: payload.update(content=value)
 
 
@@ -3683,7 +3683,7 @@ def _corpus_change_service(tmp_path, corpus, store):
     )
 
 
-@pytest.mark.parametrize("source", ["mount", "minio"])
+@pytest.mark.parametrize("source", ["mount", "silo"])
 @pytest.mark.parametrize("live_redis", [False, True])
 def test_changed_queued_corpus_does_not_dedup_a_restored_corpus(
     tmp_path, monkeypatch, source, live_redis
@@ -3704,7 +3704,7 @@ def test_changed_queued_corpus_does_not_dedup_a_restored_corpus(
     assert store.create_if_absent(restored)[1] is False
 
 
-@pytest.mark.parametrize("source", ["mount", "minio", "nested-mount"])
+@pytest.mark.parametrize("source", ["mount", "silo", "nested-mount"])
 @pytest.mark.parametrize("live_redis", [False, True])
 def test_unchanged_queued_corpus_remains_a_dedup_candidate(
     tmp_path, monkeypatch, source, live_redis

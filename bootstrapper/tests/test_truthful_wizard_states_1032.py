@@ -540,24 +540,24 @@ def test_a_pinned_source_keeps_its_env_default_under_the_prod_profile() -> None:
 
 
 def test_a_consumer_declared_source_is_neither_skipped_nor_dimmed_by_a_wizard_track() -> None:
-    """Picked in the wizard, gen-ai-rag skipped and dimmed a MinIO the
+    """Picked in the wizard, gen-ai-rag skipped and dimmed a Silo the
     consumer declared, while the launch kept it running (#783)."""
     from tracks import load_tracks
 
-    declared = frozenset({"minio_source"})
+    declared = frozenset({"silo_source"})
     steps, rows, services_info, *_ = I._build_steps_and_rows(
         ConfigParser(), consumer_declared=declared,
     )
     registry = load_tracks()
-    if "minio" in registry.by_key["gen-ai-rag"].services:
-        pytest.skip("gen-ai-rag now includes MinIO; pick another off-track service")
-    minio = next(s for s in steps if s.title.startswith("MinIO"))
-    assert minio.skip_if_prev({I.PICKER_STEP_TITLE: "gen-ai-rag"}) is False
+    if "silo" in registry.by_key["gen-ai-rag"].services:
+        pytest.skip("gen-ai-rag now includes Silo; pick another off-track service")
+    silo = next(s for s in steps if s.title.startswith("Silo"))
+    assert silo.skip_if_prev({I.PICKER_STEP_TITLE: "gen-ai-rag"}) is False
     from tracks import consumer_override_keys
 
     overridden = consumer_override_keys(declared, services_info)
     marked = remark_off_track_rows("gen-ai-rag", rows, services_info=services_info, overridden=overridden)
-    assert not next(r for r in marked if r.name.startswith("MinIO")).off_track
+    assert not next(r for r in marked if r.name.startswith("Silo")).off_track
 
 
 def test_the_cli_flag_overview_shows_the_profiles_sources_unless_pinned() -> None:

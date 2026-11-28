@@ -115,12 +115,12 @@ def test_every_auto_managed_var_has_writer(var):
     [
         ("ASSET_WORKER_SOURCE", "container", "ASSET_WORKER_ENDPOINT", "http://asset-worker:8095"),
         ("ASSET_WORKER_SOURCE", "disabled", "ASSET_WORKER_ENDPOINT", ""),
-        ("ASSET_WORKER_SOURCE", "container", "ASSET_WORKER_MINIO_ENDPOINT", "http://minio:9000"),
-        ("ASSET_WORKER_SOURCE", "disabled", "ASSET_WORKER_MINIO_ENDPOINT", ""),
+        ("ASSET_WORKER_SOURCE", "container", "ASSET_WORKER_SILO_ENDPOINT", "http://silo:9000"),
+        ("ASSET_WORKER_SOURCE", "disabled", "ASSET_WORKER_SILO_ENDPOINT", ""),
         ("ASSET_BAKER_SOURCE", "container-cpu", "ASSET_BAKER_ENDPOINT", "http://asset-baker:8096"),
         ("ASSET_BAKER_SOURCE", "disabled", "ASSET_BAKER_ENDPOINT", ""),
-        ("ASSET_BAKER_SOURCE", "container-cpu", "ASSET_BAKER_MINIO_ENDPOINT", "http://minio:9000"),
-        ("ASSET_BAKER_SOURCE", "disabled", "ASSET_BAKER_MINIO_ENDPOINT", ""),
+        ("ASSET_BAKER_SOURCE", "container-cpu", "ASSET_BAKER_SILO_ENDPOINT", "http://silo:9000"),
+        ("ASSET_BAKER_SOURCE", "disabled", "ASSET_BAKER_SILO_ENDPOINT", ""),
     ],
 )
 def test_endpoint_var_follows_source(source_var, source, var, expected):

@@ -60,10 +60,10 @@ def test_docs_model_uses_manifest_docs_paths_when_present() -> None:
 def test_docs_model_merges_topology_and_extra_kong_aliases() -> None:
     model = load_docs_model(ROOT)
 
-    minio = model.services_by_name["minio"]
+    silo = model.services_by_name["silo"]
     graph_builder = model.services_by_name["llm-graph-builder"]
 
-    assert minio.kong_aliases == ["minio.localhost", "s3.minio.localhost"]
+    assert silo.kong_aliases == ["silo.localhost", "s3.silo.localhost"]
     assert graph_builder.kong_aliases == [
         "graphbuilder.localhost",
         "graphbuilder-api.localhost",

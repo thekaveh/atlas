@@ -256,9 +256,9 @@ class ServiceConfig:
         comfyui_config = self._generate_comfyui_config()
         env_vars.update(comfyui_config)
         
-        # Generate MinIO configuration
-        minio_config = self._generate_minio_config()
-        env_vars.update(minio_config)
+        # Generate Silo configuration
+        silo_config = self._generate_silo_config()
+        env_vars.update(silo_config)
 
         # Generate Weaviate configuration
         weaviate_config = self._generate_weaviate_config()
@@ -363,11 +363,11 @@ class ServiceConfig:
         zeppelin_config = self._generate_zeppelin_config()
         env_vars.update(zeppelin_config)
 
-        # Generate Jenkins configuration (hard-gated on MinIO artifact storage)
+        # Generate Jenkins configuration (hard-gated on Silo artifact storage)
         jenkins_config = self._generate_jenkins_config()
         env_vars.update(jenkins_config)
 
-        # Generate MLflow configuration (hard-gated on MinIO artifact storage)
+        # Generate MLflow configuration (hard-gated on Silo artifact storage)
         env_vars.update(self._generate_mlflow_config())
         env_vars.update(self._generate_label_studio_config())
         env_vars.update(self._generate_verba_config())
@@ -376,7 +376,7 @@ class ServiceConfig:
         mcp_servers_config = self._generate_mcp_servers_config()
         env_vars.update(mcp_servers_config)
 
-        # Generate Langfuse LLM observability configuration (hard-gated on MinIO)
+        # Generate Langfuse LLM observability configuration (hard-gated on Silo)
         langfuse_config = self._generate_langfuse_config()
         env_vars.update(langfuse_config)
 
@@ -519,38 +519,38 @@ class ServiceConfig:
             
         return env_vars
     
-    def _generate_minio_config(self) -> Dict[str, str]:
-        """Generate MinIO env vars from the minio manifest's runtime_sc block."""
-        source_value = self.service_sources.get('MINIO_SOURCE', 'container')
-        config = self.get_service_config('minio', source_value)
+    def _generate_silo_config(self) -> Dict[str, str]:
+        """Generate Silo env vars from the silo manifest's runtime_sc block."""
+        source_value = self.service_sources.get('SILO_SOURCE', 'container')
+        config = self.get_service_config('silo', source_value)
         env_vars: Dict[str, str] = {}
 
         # Scale follows the source variant directly.
-        env_vars['MINIO_SCALE'] = str(config.get('scale', 1))
+        env_vars['SILO_SCALE'] = str(config.get('scale', 1))
 
-        # MINIO_ENDPOINT — internal Compose-network URL; written as-is from YAML.
-        env_vars['MINIO_ENDPOINT'] = config.get('environment', {}).get('MINIO_ENDPOINT', '')
+        # SILO_ENDPOINT — internal Compose-network URL; written as-is from YAML.
+        env_vars['SILO_ENDPOINT'] = config.get('environment', {}).get('SILO_ENDPOINT', '')
 
-        # MINIO_PUBLIC_ENDPOINT — host S3 API URL; may contain a ${MINIO_PORT} token
+        # SILO_PUBLIC_ENDPOINT — host S3 API URL; may contain a ${SILO_PORT} token
         # from the manifest's runtime_sc block. Expand against the current .env value.
         current_env = self.config_parser.parse_env_file()
-        public_template = config.get('environment', {}).get('MINIO_PUBLIC_ENDPOINT', '')
+        public_template = config.get('environment', {}).get('SILO_PUBLIC_ENDPOINT', '')
         if public_template:
-            minio_port = current_env.get('MINIO_PORT', '63020')
-            env_vars['MINIO_PUBLIC_ENDPOINT'] = public_template.replace('${MINIO_PORT}', minio_port)
+            silo_port = current_env.get('SILO_PORT', '63020')
+            env_vars['SILO_PUBLIC_ENDPOINT'] = public_template.replace('${SILO_PORT}', silo_port)
         else:
-            env_vars['MINIO_PUBLIC_ENDPOINT'] = ''
+            env_vars['SILO_PUBLIC_ENDPOINT'] = ''
 
-        # MINIO_PUBLIC_CONSOLE_ENDPOINT — host console URL; may contain a
-        # ${MINIO_CONSOLE_PORT} token from the manifest. Used by MinIO's
+        # SILO_PUBLIC_CONSOLE_ENDPOINT — host console URL; may contain a
+        # ${SILO_CONSOLE_PORT} token from the manifest. Used by Silo's
         # MINIO_BROWSER_REDIRECT_URL — must point at the console (port 9001 / host
-        # MINIO_CONSOLE_PORT), NOT the S3 API.
-        console_template = config.get('environment', {}).get('MINIO_PUBLIC_CONSOLE_ENDPOINT', '')
+        # SILO_CONSOLE_PORT), NOT the S3 API.
+        console_template = config.get('environment', {}).get('SILO_PUBLIC_CONSOLE_ENDPOINT', '')
         if console_template:
-            console_port = current_env.get('MINIO_CONSOLE_PORT', '63021')
-            env_vars['MINIO_PUBLIC_CONSOLE_ENDPOINT'] = console_template.replace('${MINIO_CONSOLE_PORT}', console_port)
+            console_port = current_env.get('SILO_CONSOLE_PORT', '63021')
+            env_vars['SILO_PUBLIC_CONSOLE_ENDPOINT'] = console_template.replace('${SILO_CONSOLE_PORT}', console_port)
         else:
-            env_vars['MINIO_PUBLIC_CONSOLE_ENDPOINT'] = ''
+            env_vars['SILO_PUBLIC_CONSOLE_ENDPOINT'] = ''
 
         return env_vars
 
@@ -1110,10 +1110,10 @@ class ServiceConfig:
         apache/spark's start-connect-server.sh (the upstream path for
         binding the gRPC Connect listener on port 15002).
 
-        Hard-fails if SPARK_SOURCE=container but MINIO_SOURCE=disabled.
-        spark-init bootstraps the spark-history bucket via minio-init and
-        `depends_on: minio-init: condition: service_completed_successfully`
-        — with MinIO off, minio-init never starts and the stack hangs at
+        Hard-fails if SPARK_SOURCE=container but SILO_SOURCE=disabled.
+        spark-init bootstraps the spark-history bucket via silo-init and
+        `depends_on: silo-init: condition: service_completed_successfully`
+        — with Silo off, silo-init never starts and the stack hangs at
         compose-up. Surface the conflict at source-resolution time instead.
         Mirrors the Zeppelin → Spark gate in `_generate_zeppelin_config`.
         """
@@ -1128,12 +1128,12 @@ class ServiceConfig:
             env_vars["SPARK_CONNECT_SCALE"] = "0"
             return env_vars
 
-        minio_source = self.service_sources.get("MINIO_SOURCE", "disabled")
-        if minio_source == "disabled":
+        silo_source = self.service_sources.get("SILO_SOURCE", "disabled")
+        if silo_source == "disabled":
             raise ValueError(
-                "Spark requires MinIO to be enabled. spark-init bootstraps "
-                "the spark-history bucket via minio-init and would hang at "
-                "compose-up without it. Either pass --minio-source container "
+                "Spark requires Silo to be enabled. spark-init bootstraps "
+                "the spark-history bucket via silo-init and would hang at "
+                "compose-up without it. Either pass --silo-source container "
                 "alongside --spark-source container, or set --spark-source disabled."
             )
 
@@ -1180,19 +1180,19 @@ class ServiceConfig:
         """Generate JENKINS_SCALE.
 
         Jenkins is optional, but its Atlas contract is specifically the Maven
-        builder plus MinIO JAR publishing seam. Running it without MinIO would
+        builder plus Silo JAR publishing seam. Running it without Silo would
         boot a UI that cannot satisfy the advertised artifact path, so fail
-        early instead of letting compose wait on minio-init forever.
+        early instead of letting compose wait on silo-init forever.
         """
         source = self.service_sources.get("JENKINS_SOURCE", "disabled")
         if source == "disabled":
             return {"JENKINS_SCALE": "0"}
 
-        minio_source = self.service_sources.get("MINIO_SOURCE", "disabled")
-        if minio_source == "disabled":
+        silo_source = self.service_sources.get("SILO_SOURCE", "disabled")
+        if silo_source == "disabled":
             raise ValueError(
-                "Jenkins requires MinIO to be enabled for artifact publishing. "
-                "Either pass --minio-source container alongside "
+                "Jenkins requires Silo to be enabled for artifact publishing. "
+                "Either pass --silo-source container alongside "
                 "--jenkins-source container, or set --jenkins-source disabled."
             )
 
@@ -1202,7 +1202,7 @@ class ServiceConfig:
         """Generate MLflow scales and tracking endpoint.
 
         MLflow's Atlas contract is a tracking server backed by Supabase
-        Postgres plus MinIO artifacts. Running it without MinIO would boot a
+        Postgres plus Silo artifacts. Running it without Silo would boot a
         UI that cannot persist artifacts, so fail before compose starts.
         """
         source = self.service_sources.get("MLFLOW_SOURCE", "disabled")
@@ -1214,11 +1214,11 @@ class ServiceConfig:
                 "MLFLOW_TRACKING_URI": "",
             }
 
-        minio_source = self.service_sources.get("MINIO_SOURCE", "disabled")
-        if minio_source == "disabled":
+        silo_source = self.service_sources.get("SILO_SOURCE", "disabled")
+        if silo_source == "disabled":
             raise ValueError(
-                "MLflow requires MinIO to be enabled for artifact storage. "
-                "Either pass --minio-source container alongside "
+                "MLflow requires Silo to be enabled for artifact storage. "
+                "Either pass --silo-source container alongside "
                 "--mlflow-source container, or set --mlflow-source disabled."
             )
 
@@ -1240,11 +1240,11 @@ class ServiceConfig:
                 "LABEL_STUDIO_API_URL": "",
             }
 
-        minio_source = self.service_sources.get("MINIO_SOURCE", "disabled")
-        if minio_source == "disabled":
+        silo_source = self.service_sources.get("SILO_SOURCE", "disabled")
+        if silo_source == "disabled":
             raise ValueError(
-                "Label Studio requires MinIO to be enabled for S3-compatible "
-                "media and export storage. Either pass --minio-source container "
+                "Label Studio requires Silo to be enabled for S3-compatible "
+                "media and export storage. Either pass --silo-source container "
                 "alongside --label-studio-source container, or set "
                 "--label-studio-source disabled."
             )
@@ -1330,7 +1330,7 @@ class ServiceConfig:
         """Generate Langfuse family scales and endpoint.
 
         Langfuse v3 requires S3/blob storage for ingestion payloads. Atlas
-        reuses MinIO for that layer, so enabling Langfuse while MinIO is
+        reuses Silo for that layer, so enabling Langfuse while Silo is
         disabled would boot a UI that cannot ingest traces. Fail before
         compose starts and before LiteLLM renders a stale callback.
         """
@@ -1344,11 +1344,11 @@ class ServiceConfig:
                 "LANGFUSE_ENDPOINT": "",
             }
 
-        minio_source = self.service_sources.get("MINIO_SOURCE", "container")
-        if minio_source == "disabled":
+        silo_source = self.service_sources.get("SILO_SOURCE", "container")
+        if silo_source == "disabled":
             raise ValueError(
-                "Langfuse requires MinIO to be enabled for S3-backed trace "
-                "ingestion. Either pass --minio-source container alongside "
+                "Langfuse requires Silo to be enabled for S3-backed trace "
+                "ingestion. Either pass --silo-source container alongside "
                 "--langfuse-source container, or set --langfuse-source disabled."
             )
 
@@ -1651,8 +1651,8 @@ class ServiceConfig:
     def _generate_iceberg_rest_config(self) -> dict:
         """Generate ICEBERG_REST_*_SCALE based on ICEBERG_REST_SOURCE.
 
-        The REST service needs MinIO buckets/service-account provisioning and
-        Supabase Postgres. Supabase is locked always-on; MinIO is configurable,
+        The REST service needs Silo buckets/service-account provisioning and
+        Supabase Postgres. Supabase is locked always-on; Silo is configurable,
         so fail early when the catalog is enabled without object storage.
         """
         source_value = self.service_sources.get("ICEBERG_REST_SOURCE", "disabled")
@@ -1662,11 +1662,11 @@ class ServiceConfig:
                 "ICEBERG_REST_INIT_SCALE": "0",
             }
 
-        minio_source = self.service_sources.get("MINIO_SOURCE", "disabled")
-        if minio_source == "disabled":
+        silo_source = self.service_sources.get("SILO_SOURCE", "disabled")
+        if silo_source == "disabled":
             raise ValueError(
-                "Iceberg REST Catalog requires MinIO to be enabled. "
-                "Either pass --minio-source container alongside "
+                "Iceberg REST Catalog requires Silo to be enabled. "
+                "Either pass --silo-source container alongside "
                 "--iceberg-rest-source container, or set "
                 "--iceberg-rest-source disabled."
             )
@@ -1680,7 +1680,7 @@ class ServiceConfig:
         """Generate TRINO_SCALE based on TRINO_SOURCE.
 
         Trino's first Atlas integration is the Iceberg lakehouse query path.
-        It needs both MinIO object storage and the Iceberg REST catalog to be
+        It needs both Silo object storage and the Iceberg REST catalog to be
         running; otherwise the coordinator would boot without the advertised
         `lakehouse` catalog. Fail during source resolution instead of letting
         users discover the broken catalog from the UI.
@@ -1689,11 +1689,11 @@ class ServiceConfig:
         if source_value == "disabled":
             return {"TRINO_SCALE": "0"}
 
-        minio_source = self.service_sources.get("MINIO_SOURCE", "disabled")
-        if minio_source == "disabled":
+        silo_source = self.service_sources.get("SILO_SOURCE", "disabled")
+        if silo_source == "disabled":
             raise ValueError(
-                "Trino requires MinIO to be enabled for the Iceberg warehouse. "
-                "Either pass --minio-source container alongside "
+                "Trino requires Silo to be enabled for the Iceberg warehouse. "
+                "Either pass --silo-source container alongside "
                 "--trino-source container, or set --trino-source disabled."
             )
 
@@ -1923,14 +1923,14 @@ class ServiceConfig:
         else:
             env_vars['HERMES_INIT_SCALE'] = '0'
 
-        # MINIO_INIT_SCALE: follows MINIO_SOURCE (1 when container, 0 when disabled)
-        # Critical: without this, minio-init blocks on a never-healthy minio when
-        # MinIO is disabled, hanging compose-up indefinitely.
-        minio_source = self.service_sources.get('MINIO_SOURCE', 'container')
-        if minio_source == 'container':
-            env_vars['MINIO_INIT_SCALE'] = '1'
+        # SILO_INIT_SCALE: follows SILO_SOURCE (1 when container, 0 when disabled)
+        # Critical: without this, silo-init blocks on a never-healthy silo when
+        # Silo is disabled, hanging compose-up indefinitely.
+        silo_source = self.service_sources.get('SILO_SOURCE', 'container')
+        if silo_source == 'container':
+            env_vars['SILO_INIT_SCALE'] = '1'
         else:
-            env_vars['MINIO_INIT_SCALE'] = '0'
+            env_vars['SILO_INIT_SCALE'] = '0'
 
         # Cloudflared tunnel — scale derives from CLOUDFLARED_SOURCE via the
         # manifest (container → 1, disabled → 0). The compose fragment reads
@@ -1968,9 +1968,9 @@ class ServiceConfig:
         blender_env = self.get_service_config('blender_mcp', blender_source).get('environment', {})
         return {
             'ASSET_WORKER_ENDPOINT': worker_env.get('ASSET_WORKER_ENDPOINT', ''),
-            'ASSET_WORKER_MINIO_ENDPOINT': worker_env.get('ASSET_WORKER_MINIO_ENDPOINT', ''),
+            'ASSET_WORKER_SILO_ENDPOINT': worker_env.get('ASSET_WORKER_SILO_ENDPOINT', ''),
             'ASSET_BAKER_ENDPOINT': baker_env.get('ASSET_BAKER_ENDPOINT', ''),
-            'ASSET_BAKER_MINIO_ENDPOINT': baker_env.get('ASSET_BAKER_MINIO_ENDPOINT', ''),
+            'ASSET_BAKER_SILO_ENDPOINT': baker_env.get('ASSET_BAKER_SILO_ENDPOINT', ''),
             'BLENDER_MCP_ENDPOINT': self._resolved_host_url(
                 blender_env.get('BLENDER_MCP_ENDPOINT', '')),
         }

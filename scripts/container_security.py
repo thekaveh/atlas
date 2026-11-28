@@ -669,7 +669,7 @@ def _changed_service_images(
         # GPU images) never appear as compose defaults. Bases used only by
         # local builds stay out: their final images are built and scanned
         # instead. A base that a Compose service also runs directly
-        # (minio-init's mc, weaviate-init's alpine) is a deployed image.
+        # (silo-init's mc, weaviate-init's alpine) is a deployed image.
         builds = set().union(*(build.base_images for build in load_compose_builds(services_dir)))
         build_only = builds - set(load_compose_image_refs(services_dir))
         owned = _manifest_owned_images(path) & (set(load_image_inventory(services_dir)) - build_only)

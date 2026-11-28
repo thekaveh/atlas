@@ -31,7 +31,7 @@
     "services/local-deep-researcher/README.md": 15,
     "services/loki/README.md": 15,
     "services/mcp-servers/README.md": 15,
-    "services/minio/README.md": 16,
+    "services/silo/README.md": 16,
     "services/mlflow/README.md": 15,
     "services/multi2vec-clip/README.md": 14,
     "services/n8n/README.md": 15,

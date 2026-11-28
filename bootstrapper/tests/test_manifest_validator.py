@@ -934,7 +934,7 @@ def test_reviewed_optional_and_planned_edges_are_qualified() -> None:
 
     manifests = {m.name: m for m in load_manifests(Path(__file__).resolve().parents[2] / "services")}
     optional = [
-        ("jupyterhub", "mcp-servers"), ("kong", "ray"), ("jenkins", "minio"),
+        ("jupyterhub", "mcp-servers"), ("kong", "ray"), ("jenkins", "silo"),
         ("cloudflared", "kong"), ("openclaw", "litellm"),
         ("docling-lightrag-adapter", "docling"), ("backup", "supabase"), ("weaviate", "litellm"),
     ]

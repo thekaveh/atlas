@@ -100,7 +100,7 @@ The Backend rejects a Celery ingestion whose graph targets' `timeout_seconds` su
 
 The worker uses JSON task and result serialization, with Redis as broker and result backend. Memory consolidation tasks hit a soft time limit before the hard time limit, so the failure is recorded and no request stays open. The public job endpoint reports a Celery failure with the generic `Background job failed` message. Exception types are logged server-side; detailed errors and raw tracebacks remain in worker logs and Flower for operators.
 
-The Redis visibility timeout is longer than the hard task time limit. RAG ingestion uses the Backend's Redis state database and the same compiled profiles, upstream endpoints, corpus limits and scoped MinIO credential references.
+The Redis visibility timeout is longer than the hard task time limit. RAG ingestion uses the Backend's Redis state database and the same compiled profiles, upstream endpoints, corpus limits and scoped Silo credential references.
 
 - Redis can re-deliver a task if a worker dies before it acknowledges the task. Tasks must be idempotent or tolerate a retry.
 - RAG ingestion takes and renews an owner-fenced execution lease before phase side effects. Every state save checks the owner.
@@ -141,8 +141,8 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 | Service | Category |
 |---|---|
 | otel-collector | infra |
-| minio | data |
 | redis | data |
+| silo | data |
 | supabase | data |
 | supavisor | data |
 | weaviate | data |

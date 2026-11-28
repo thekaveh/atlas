@@ -24,11 +24,11 @@ The stack has Neo4j but no opinionated ingestion path from documents to graph �
 - Open browser → `kong` (route `graphbuilder.localhost`) → llm-graph-builder UI
 - llm-graph-builder backend → `neo4j` via `bolt://neo4j-graph-db:7687`
 - llm-graph-builder → `litellm` for LLM calls (OpenAI-compatible base URL)
-- llm-graph-builder → `minio` (S3) for source-document buckets
+- llm-graph-builder → `silo` (S3) for source-document buckets
 - `doc-processor` → llm-graph-builder ingestion endpoint for already-parsed docs (optional)
 
 ## 4. Effort
-medium — official Docker images exist (`neo4j/llm-graph-builder-backend` + `-frontend`), but we'd need a new `services/llm-graph-builder/` family (manifest, compose, kong route, env wiring to LiteLLM and MinIO).
+medium — official Docker images exist (`neo4j/llm-graph-builder-backend` + `-frontend`), but we'd need a new `services/llm-graph-builder/` family (manifest, compose, kong route, env wiring to LiteLLM and Silo).
 
 ## 5. Risks & open questions
 - App assumes OpenAI-compatible endpoint; need to confirm LiteLLM base-URL override works end-to-end for the embeddings call.

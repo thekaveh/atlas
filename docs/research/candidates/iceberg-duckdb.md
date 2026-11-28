@@ -5,7 +5,7 @@ generated: 2026-05-19
 license: Apache-2.0
 lifecycle: shipped
 name: Apache Iceberg + DuckDB
-referenced-by: [minio]
+referenced-by: [silo]
 slug: iceberg-duckdb
 superseded-by: https://github.com/thekaveh/atlas/issues/201
 type: external-service
@@ -15,20 +15,20 @@ upstream: https://iceberg.apache.org/
 # Apache Iceberg + DuckDB
 
 ## 1. Headline
-Open table format (Iceberg) on top of MinIO plus an embedded SQL engine (DuckDB) that gives the stack a queryable analytics tier over the artifact buckets without standing up a warehouse.
+Open table format (Iceberg) on top of Silo plus an embedded SQL engine (DuckDB) that gives the stack a queryable analytics tier over the artifact buckets without standing up a warehouse.
 
 ## 2. Problem it solves
-MinIO holds five buckets of unstructured artifacts (ComfyUI renders, docling parses, n8n exports, jupyter datasets, backend blobs). There's no way to ask cross-bucket questions like "how many docling parses last week produced a payload >1 MB?" or "what's the token cost per ComfyUI workflow?" without writing one-off scripts. Iceberg + DuckDB turns Parquet/JSON dumped to MinIO into versioned tables that any consumer can query via standard SQL.
+Silo holds five buckets of unstructured artifacts (ComfyUI renders, docling parses, n8n exports, jupyter datasets, backend blobs). There's no way to ask cross-bucket questions like "how many docling parses last week produced a payload >1 MB?" or "what's the token cost per ComfyUI workflow?" without writing one-off scripts. Iceberg + DuckDB turns Parquet/JSON dumped to Silo into versioned tables that any consumer can query via standard SQL.
 
 ## 3. Stack wiring sketch
-- jupyterhub → DuckDB (embedded in the notebook kernel) → Iceberg catalog → minio (`s3://analytics/`).
+- jupyterhub → DuckDB (embedded in the notebook kernel) → Iceberg catalog → silo (`s3://analytics/`).
 - backend → DuckDB (Python `duckdb` package) → same Iceberg tables for serving aggregated stats.
 - n8n → DuckDB CLI (HTTP node calling a sidecar) for scheduled rollups.
 - doc-processor → writes parsed docs as Iceberg-compatible Parquet to `s3://analytics/docling/`.
-- A lightweight `iceberg-rest-catalog` container (Tabular's reference image) sits between consumers and minio for metadata coordination.
+- A lightweight `iceberg-rest-catalog` container (Tabular's reference image) sits between consumers and silo for metadata coordination.
 
 ## 4. Effort
-medium — new `iceberg-rest-catalog` service.yml + Kong alias + a sixth MinIO bucket slot for `analytics`; consumer wiring is a `pip install duckdb iceberg` in the relevant images.
+medium — new `iceberg-rest-catalog` service.yml + Kong alias + a sixth Silo bucket slot for `analytics`; consumer wiring is a `pip install duckdb iceberg` in the relevant images.
 
 ## 5. Risks & open questions
 - DuckDB's Iceberg writer is newer than its reader — production writes may be limited; could mitigate by writing Parquet directly and registering via REST catalog.
@@ -36,7 +36,7 @@ medium — new `iceberg-rest-catalog` service.yml + Kong alias + a sixth MinIO b
 - Migration story when Iceberg spec versions bump.
 
 ## 6. Why now (and why not sooner)
-This only becomes interesting once the artifact buckets actually have content. With MinIO just landing and the per-consumer buckets pre-provisioned, the data layer is finally ready to support an analytics overlay; doing this earlier would have been speculative.
+This only becomes interesting once the artifact buckets actually have content. With Silo just landing and the per-consumer buckets pre-provisioned, the data layer is finally ready to support an analytics overlay; doing this earlier would have been speculative.
 
 ## 7. Upstream evidence
 - https://iceberg.apache.org/ — spec + REST catalog reference.
@@ -44,4 +44,4 @@ This only becomes interesting once the artifact buckets actually have content. W
 - https://min.io/blog/iceberg-on-minio/ — MinIO's own Iceberg integration write-up.
 
 ## 8. Atlas status (2026-07-03)
-Shipped in two parts. [#201](https://github.com/thekaveh/atlas/issues/201) added the Iceberg REST catalog and lakehouse buckets on MinIO (`services/iceberg-rest/`). DuckDB ships as the embedded client in the JupyterHub image (`services/jupyterhub/build/requirements.txt`), pre-wired to MinIO and the Iceberg catalog. No Backend or n8n DuckDB tier was decided. [#1210](https://github.com/thekaveh/atlas/issues/1210) tracks a notebook recipe on the existing client, not a new service.
+Shipped in two parts. [#201](https://github.com/thekaveh/atlas/issues/201) added the Iceberg REST catalog and lakehouse buckets on Silo (`services/iceberg-rest/`). DuckDB ships as the embedded client in the JupyterHub image (`services/jupyterhub/build/requirements.txt`), pre-wired to Silo and the Iceberg catalog. No Backend or n8n DuckDB tier was decided. [#1210](https://github.com/thekaveh/atlas/issues/1210) tracks a notebook recipe on the existing client, not a new service.

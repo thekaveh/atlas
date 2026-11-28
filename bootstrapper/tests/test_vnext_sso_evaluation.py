@@ -40,7 +40,7 @@ def test_authentik_sso_evaluation_covers_current_service_implications() -> None:
         "Open WebUI",
         "JupyterHub",
         "n8n",
-        "MinIO",
+        "Silo",
         "Neo4j",
         "Kong",
         "Supabase Auth",

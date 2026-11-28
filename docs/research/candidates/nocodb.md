@@ -34,9 +34,9 @@ Future service shape, if a later human-review ticket promotes this:
 - Kong alias and route behavior: `nocodb.localhost` only when `NOCODB_SOURCE=container`; route must be protected by NocoDB auth and/or Atlas route auth before any production profile.
 - Direct URL expectations: direct host port for local development; Kong URL for browser use.
 - Required dependencies: Supabase/Postgres for NocoDB metadata and review-table storage, plus Redis if the chosen NocoDB deployment uses upstream cache/job-queue behavior.
-- Optional dependencies: n8n's first-party NocoDB node for workflow CRUD, backend REST calls for admin or queue lifecycle operations, MinIO/S3 if attachments belong in review rows, and the future Atlas SSO provider if/when the auth track lands.
+- Optional dependencies: n8n's first-party NocoDB node for workflow CRUD, backend REST calls for admin or queue lifecycle operations, Silo/S3 if attachments belong in review rows, and the future Atlas SSO provider if/when the auth track lands.
 - Downstream consumers: `n8n -> nocodb` for row CRUD and `backend -> nocodb` only for scoped admin/review operations.
-- `data_flow.calls` topology edges for a future service: `nocodb -> supabase`, `nocodb -> redis`, optional `nocodb -> minio`, optional `n8n -> nocodb`, and optional `backend -> nocodb`.
+- `data_flow.calls` topology edges for a future service: `nocodb -> supabase`, `nocodb -> redis`, optional `nocodb -> silo`, optional `n8n -> nocodb`, and optional `backend -> nocodb`.
 - Init companion: likely yes. It must create the isolated schema/database/role, generate first-user/bootstrap secrets without hardcoding them, and seed only a safe example base if the selected workflow requires one.
 - Containers: expect at least a web/API container and possibly a worker-mode container if imports, exports, automations, or background jobs are enabled.
 - Review-workflow readiness gate: identify the producer, reviewer, state machine, table/schema ownership, downstream consumer, retention, and provenance columns before adding the service.

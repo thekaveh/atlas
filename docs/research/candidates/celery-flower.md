@@ -36,7 +36,7 @@ small — one additional service folder (`services/celery/`) reusing backend's D
 - Observability overlaps with Langfuse — decide which owns "job ran" vs "LLM call traced".
 
 ## 6. Why now (and why not sooner)
-Each new backend endpoint (research, comfyui, memory) has pushed average request duration further from the FastAPI sweet spot. The next obvious feature — batch document ingestion through Docling + MinIO — is impossible on a synchronous request model.
+Each new backend endpoint (research, comfyui, memory) has pushed average request duration further from the FastAPI sweet spot. The next obvious feature — batch document ingestion through Docling + Silo — is impossible on a synchronous request model.
 
 ## 7. Upstream evidence
 - https://github.com/celery/celery — broker-based distributed task queue, BSD-licensed.

@@ -46,9 +46,9 @@ def test_mlflow_manifest_admission_contract() -> None:
         "container",
         "disabled",
     }
-    assert manifest["depends_on"]["required"] == ["supabase", "minio"]
+    assert manifest["depends_on"]["required"] == ["supabase", "silo"]
     assert manifest["depends_on"].get("optional", []) == ["jupyterhub"]
-    assert manifest["data_flow"]["calls"] == ["supabase", "minio"]
+    assert manifest["data_flow"]["calls"] == ["supabase", "silo"]
 
     env_vars = {entry["name"]: entry for entry in manifest["env"]}
     assert env_vars["MLFLOW_SOURCE"]["default"] == "disabled"
@@ -87,7 +87,7 @@ def test_mlflow_topology_alias_and_env_example_contract() -> None:
         "MLFLOW_DB_NAME=mlflow",
         "MLFLOW_DB_USER=mlflow",
         "MLFLOW_DB_PASSWORD=",
-        "MINIO_BUCKET_MLFLOW=mlflow",
+        "SILO_BUCKET_MLFLOW=mlflow",
     ):
         assert expected in env_example
 
@@ -122,10 +122,10 @@ def test_mlflow_source_cli_mapping_exists() -> None:
     }
 
 
-def test_mlflow_scale_generation_and_minio_gate() -> None:
+def test_mlflow_scale_generation_and_silo_gate() -> None:
     sc = ServiceConfig(config_parser=MagicMock())
 
-    sc.service_sources = {"MLFLOW_SOURCE": "disabled", "MINIO_SOURCE": "disabled"}
+    sc.service_sources = {"MLFLOW_SOURCE": "disabled", "SILO_SOURCE": "disabled"}
     assert sc._generate_mlflow_config() == {
         "MLFLOW_INIT_SCALE": "0",
         "MLFLOW_SCALE": "0",
@@ -133,7 +133,7 @@ def test_mlflow_scale_generation_and_minio_gate() -> None:
         "MLFLOW_TRACKING_URI": "",
     }
 
-    sc.service_sources = {"MLFLOW_SOURCE": "container", "MINIO_SOURCE": "container"}
+    sc.service_sources = {"MLFLOW_SOURCE": "container", "SILO_SOURCE": "container"}
     assert sc._generate_mlflow_config() == {
         "MLFLOW_INIT_SCALE": "1",
         "MLFLOW_SCALE": "1",
@@ -141,8 +141,8 @@ def test_mlflow_scale_generation_and_minio_gate() -> None:
         "MLFLOW_TRACKING_URI": "http://mlflow:5000",
     }
 
-    sc.service_sources = {"MLFLOW_SOURCE": "container", "MINIO_SOURCE": "disabled"}
-    with pytest.raises(ValueError, match="MLflow requires MinIO"):
+    sc.service_sources = {"MLFLOW_SOURCE": "container", "SILO_SOURCE": "disabled"}
+    with pytest.raises(ValueError, match="MLflow requires Silo"):
         sc._generate_mlflow_config()
 
 
@@ -153,9 +153,9 @@ def test_mlflow_compose_contract() -> None:
 
     assert init["build"]["context"] == "./init"
     assert init["depends_on"]["supabase-db-init"]["condition"] == "service_completed_successfully"
-    assert init["depends_on"]["minio-init"]["condition"] == "service_completed_successfully"
+    assert init["depends_on"]["silo-init"]["condition"] == "service_completed_successfully"
     assert init["environment"]["MLFLOW_DB_NAME"] == "${MLFLOW_DB_NAME:-mlflow}"
-    assert "MINIO_ROOT_USER" not in init["environment"]
+    assert "SILO_ROOT_USER" not in init["environment"]
 
     assert service["image"] == "${PROJECT_NAME}-mlflow:local"
     assert service["build"] == {
@@ -165,9 +165,9 @@ def test_mlflow_compose_contract() -> None:
     }
     assert service["ports"] == ["${HOST_BIND_IP-127.0.0.1:}${MLFLOW_PORT}:5000"]
     assert service["depends_on"]["mlflow-init"]["condition"] == "service_completed_successfully"
-    assert service["environment"]["MLFLOW_S3_ENDPOINT_URL"] == "http://minio:9000"
-    assert service["environment"]["AWS_ACCESS_KEY_ID"] == "${MINIO_MLFLOW_ACCESS_KEY}"
-    assert service["environment"]["AWS_SECRET_ACCESS_KEY"] == "${MINIO_MLFLOW_SECRET_KEY}"
+    assert service["environment"]["MLFLOW_S3_ENDPOINT_URL"] == "http://silo:9000"
+    assert service["environment"]["AWS_ACCESS_KEY_ID"] == "${SILO_MLFLOW_ACCESS_KEY}"
+    assert service["environment"]["AWS_SECRET_ACCESS_KEY"] == "${SILO_MLFLOW_SECRET_KEY}"
     assert service["command"] == ["python", "atlas_server.py"]
     assert service["working_dir"] == "/opt/atlas"
     assert "volumes" not in service
@@ -176,7 +176,7 @@ def test_mlflow_compose_contract() -> None:
     assert environment["_MLFLOW_SERVER_FILE_STORE"] == database_uri
     assert environment["_MLFLOW_SERVER_REGISTRY_STORE"] == database_uri
     assert environment["_MLFLOW_SERVER_ARTIFACT_ROOT"] == "mlflow-artifacts:/"
-    assert environment["_MLFLOW_SERVER_ARTIFACT_DESTINATION"] == "s3://${MINIO_BUCKET_MLFLOW:-mlflow}"
+    assert environment["_MLFLOW_SERVER_ARTIFACT_DESTINATION"] == "s3://${SILO_BUCKET_MLFLOW:-mlflow}"
     assert environment["_MLFLOW_SERVER_SERVE_ARTIFACTS"] == "true"
     assert "localhost:5000" in environment["MLFLOW_SERVER_ALLOWED_HOSTS"].split(",")
     # The Kong origin must be allowed or every UI write through Kong is a 403.
@@ -185,28 +185,28 @@ def test_mlflow_compose_contract() -> None:
     assert "http://localhost:${MLFLOW_PORT}" in origins
 
 
-def test_minio_provisions_mlflow_bucket_and_scoped_credentials() -> None:
-    minio_manifest = yaml.safe_load(
-        (REPO_ROOT / "services" / "minio" / "service.yml").read_text()
+def test_silo_provisions_mlflow_bucket_and_scoped_credentials() -> None:
+    silo_manifest = yaml.safe_load(
+        (REPO_ROOT / "services" / "silo" / "service.yml").read_text()
     )
-    env_vars = {entry["name"]: entry for entry in minio_manifest["env"]}
+    env_vars = {entry["name"]: entry for entry in silo_manifest["env"]}
 
-    assert env_vars["MINIO_BUCKET_MLFLOW"]["default"] == "mlflow"
-    assert env_vars["MINIO_MLFLOW_ACCESS_KEY"]["secret"] is True
-    assert env_vars["MINIO_MLFLOW_SECRET_KEY"]["secret"] is True
+    assert env_vars["SILO_BUCKET_MLFLOW"]["default"] == "mlflow"
+    assert env_vars["SILO_MLFLOW_ACCESS_KEY"]["secret"] is True
+    assert env_vars["SILO_MLFLOW_SECRET_KEY"]["secret"] is True
 
-    minio_compose = yaml.safe_load(
-        (REPO_ROOT / "services" / "minio" / "compose.yml").read_text()
+    silo_compose = yaml.safe_load(
+        (REPO_ROOT / "services" / "silo" / "compose.yml").read_text()
     )
-    minio_init_env = minio_compose["services"]["minio-init"]["environment"]
-    assert minio_init_env["MINIO_BUCKET_MLFLOW"] == "${MINIO_BUCKET_MLFLOW}"
-    assert minio_init_env["MINIO_MLFLOW_ACCESS_KEY"] == "${MINIO_MLFLOW_ACCESS_KEY}"
-    assert minio_init_env["MINIO_MLFLOW_SECRET_KEY"] == "${MINIO_MLFLOW_SECRET_KEY}"
+    silo_init_env = silo_compose["services"]["silo-init"]["environment"]
+    assert silo_init_env["SILO_BUCKET_MLFLOW"] == "${SILO_BUCKET_MLFLOW}"
+    assert silo_init_env["SILO_MLFLOW_ACCESS_KEY"] == "${SILO_MLFLOW_ACCESS_KEY}"
+    assert silo_init_env["SILO_MLFLOW_SECRET_KEY"] == "${SILO_MLFLOW_SECRET_KEY}"
 
     script = (
-        REPO_ROOT / "services" / "minio" / "init" / "scripts" / "init-minio.sh"
+        REPO_ROOT / "services" / "silo" / "init" / "scripts" / "init-silo.sh"
     ).read_text()
-    assert "mlflow:MINIO_BUCKET_MLFLOW:MINIO_MLFLOW_ACCESS_KEY:MINIO_MLFLOW_SECRET_KEY" in script
+    assert "mlflow:SILO_BUCKET_MLFLOW:SILO_MLFLOW_ACCESS_KEY:SILO_MLFLOW_SECRET_KEY" in script
 
 
 def test_key_generator_creates_mlflow_credentials(tmp_path: Path) -> None:
@@ -214,19 +214,19 @@ def test_key_generator_creates_mlflow_credentials(tmp_path: Path) -> None:
     env_file.write_text(
         "PROJECT_NAME=atlas-test\n"
         "MLFLOW_DB_PASSWORD=\n"
-        "MINIO_MLFLOW_ACCESS_KEY=\n"
-        "MINIO_MLFLOW_SECRET_KEY=\n"
+        "SILO_MLFLOW_ACCESS_KEY=\n"
+        "SILO_MLFLOW_SECRET_KEY=\n"
     )
 
     results = KeyGenerator(str(tmp_path)).generate_missing_keys()
     generated = ConfigParser(str(tmp_path)).parse_env_file()
 
     assert results["MLFLOW_DB_PASSWORD"] is True
-    assert results["MINIO_MLFLOW_ACCESS_KEY"] is True
-    assert results["MINIO_MLFLOW_SECRET_KEY"] is True
+    assert results["SILO_MLFLOW_ACCESS_KEY"] is True
+    assert results["SILO_MLFLOW_SECRET_KEY"] is True
     assert generated["MLFLOW_DB_PASSWORD"]
-    assert generated["MINIO_MLFLOW_ACCESS_KEY"]
-    assert generated["MINIO_MLFLOW_SECRET_KEY"]
+    assert generated["SILO_MLFLOW_ACCESS_KEY"]
+    assert generated["SILO_MLFLOW_SECRET_KEY"]
 
 
 def test_jupyterhub_receives_mlflow_tracking_uri_and_client() -> None:
@@ -288,7 +288,7 @@ def test_mlflow_docs_describe_scope_and_notebook_smoke() -> None:
     assert "MLFLOW_SOURCE=disabled" in readme
     assert "mlflow.localhost" in readme
     assert "MLFLOW_TRACKING_URI" in readme
-    assert "MinIO-backed artifact" in readme
+    assert "Silo-backed artifact" in readme
     assert "model promotion automations are out of scope" in readme
     assert "mlflow.start_run" in readme
 

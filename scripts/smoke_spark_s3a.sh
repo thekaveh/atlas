@@ -8,7 +8,7 @@ fi
 
 spark_image="$1"
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-minio_image="pgsty/silo:RELEASE.2026-09-16T00-00-00Z@sha256:635197cb9f36d01bee221d34d1c7d7960f6a95c48b0b6c01d99cd13bdae51a46"
+silo_image="pgsty/silo:RELEASE.2026-09-16T00-00-00Z@sha256:635197cb9f36d01bee221d34d1c7d7960f6a95c48b0b6c01d99cd13bdae51a46"
 mc_image="pgsty/mc:RELEASE.2026-09-16T00-00-00Z@sha256:cfc83108c3abb371f8fb84d99c1fdc88f8c237e022409b0081fb7c0a3be634dd"
 access_key="atlasS3aAccess"
 secret_key="atlasS3aSecret123"
@@ -31,7 +31,7 @@ export ATLAS_S3A_OWNER_TOKEN="$owner_token"
 owner_label="com.atlas.s3a-smoke-token"
 suffix="$owner_token"
 network="atlas-s3a-smoke-${suffix}"
-server="atlas-s3a-minio-${suffix}"
+server="atlas-s3a-silo-${suffix}"
 client="atlas-s3a-mc-${suffix}"
 probe="atlas-s3a-spark-${suffix}"
 ready_dir=""
@@ -94,8 +94,8 @@ child_is_running() {
 mark_successful_resource_command() {
   case "$1" in
     "create S3A smoke network") network_uncertain=false ;;
-    "start S3A smoke MinIO") server_uncertain=false ;;
-    "probe S3A smoke MinIO readiness") client_uncertain=false ;;
+    "start S3A smoke Silo") server_uncertain=false ;;
+    "probe S3A smoke Silo readiness") client_uncertain=false ;;
     "run Spark S3A round trip") probe_uncertain=false ;;
   esac
 }
@@ -385,9 +385,9 @@ trap 'handle_interrupt TERM 143' TERM
 
 ready_dir="$(mktemp -d "${TMPDIR:-/tmp}/atlas-s3a-ready.XXXXXX")"
 
-run_bounded "pull MinIO server image" "$pull_timeout" docker pull "$minio_image" \
+run_bounded "pull Silo server image" "$pull_timeout" docker pull "$silo_image" \
   >/dev/null
-run_bounded "pull MinIO client image" "$pull_timeout" docker pull "$mc_image" \
+run_bounded "pull Silo client image" "$pull_timeout" docker pull "$mc_image" \
   >/dev/null
 network_reconcile_timeout="$(remaining_reconcile_timeout "$command_timeout")"
 network_registered=true
@@ -399,32 +399,33 @@ network_uncertain=false
 # appear in host argv (ps). The file is removed by cleanup().
 server_env_file="$(mktemp "${TMPDIR:-/tmp}/atlas-s3a-env.XXXXXX")"
 chmod 600 "$server_env_file"
+# The Silo server container reads its own MINIO_ROOT_* names (see services/silo/compose.yml).
 printf 'MINIO_ROOT_USER=%s\nMINIO_ROOT_PASSWORD=%s\n' "$access_key" "$secret_key" >"$server_env_file"
 server_reconcile_timeout="$(remaining_reconcile_timeout "$command_timeout")"
 server_registered=true
 server_uncertain=true
-run_bounded "start S3A smoke MinIO" "$command_timeout" docker run \
+run_bounded "start S3A smoke Silo" "$command_timeout" docker run \
   --pull=never \
   --detach --rm \
   --name "$server" \
   --label "${owner_label}=${owner_token}" \
   --network "$network" \
-  --network-alias minio \
+  --network-alias silo \
   --env-file "$server_env_file" \
   --tmpfs /data:rw,size=128m \
-  "$minio_image" server /data --address :9000 >/dev/null
+  "$silo_image" server /data --address :9000 >/dev/null
 server_uncertain=false
 
 client_env_file="$(mktemp "${TMPDIR:-/tmp}/atlas-s3a-env.XXXXXX")"
 chmod 600 "$client_env_file"
-printf 'MC_HOST_atlas=http://%s:%s@minio:9000\n' "$access_key" "$secret_key" >"$client_env_file"
+printf 'MC_HOST_atlas=http://%s:%s@silo:9000\n' "$access_key" "$secret_key" >"$client_env_file"
 
 ready=false
 for _attempt in $(seq 1 60); do
   client_reconcile_timeout="$(remaining_reconcile_timeout "$command_timeout")"
   client_registered=true
   client_uncertain=true
-  if run_bounded "probe S3A smoke MinIO readiness" "$command_timeout" docker run \
+  if run_bounded "probe S3A smoke Silo readiness" "$command_timeout" docker run \
     --pull=never \
     --name "$client" \
     --label "${owner_label}=${owner_token}" \
@@ -450,7 +451,7 @@ for _attempt in $(seq 1 60); do
   fi
 done
 if [[ "$ready" != true ]]; then
-  echo "MinIO did not become ready for the S3A smoke" >&2
+  echo "Silo did not become ready for the S3A smoke" >&2
   exit 1
 fi
 
@@ -468,7 +469,7 @@ run_bounded "run Spark S3A round trip" "$pull_timeout" docker run \
   /opt/spark/bin/spark-submit \
   --master 'local[1]' \
   --conf spark.ui.enabled=false \
-  --conf spark.hadoop.fs.s3a.endpoint=http://minio:9000 \
+  --conf spark.hadoop.fs.s3a.endpoint=http://silo:9000 \
   --conf spark.hadoop.fs.s3a.endpoint.region=us-east-1 \
   --conf spark.hadoop.fs.s3a.path.style.access=true \
   --conf spark.hadoop.fs.s3a.connection.ssl.enabled=false \

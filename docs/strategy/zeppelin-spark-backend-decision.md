@@ -13,7 +13,7 @@ For Zeppelin, #211 should seed:
 - `SPARK_HOME` inside the Zeppelin runtime.
 - `spark.master=spark://spark-master:7077`.
 - Iceberg REST catalog settings for `lakehouse`.
-- MinIO S3A settings for event logs, warehouse reads/writes, and Iceberg's S3
+- Silo S3A settings for event logs, warehouse reads/writes, and Iceberg's S3
   file IO.
 
 Atlas should not require Zeppelin `%spark` Scala to use
@@ -91,7 +91,7 @@ Service admission contract:
   or explicit CLI/source choice enables it.
 - Ports: no new host ports; keep `ZEPPELIN_PORT` bound to host loopback.
 - Kong alias: none while Zeppelin ships without authentication.
-- Dependencies: keep Spark and MinIO required; document optional/runtime edges
+- Dependencies: keep Spark and Silo required; document optional/runtime edges
   to Supabase and Iceberg REST when the lakehouse catalog is seeded.
 - Topology/data flow: `services/zeppelin/service.yml` should include
   `iceberg-rest` in `depends_on.optional` and `data_flow.calls` when the seeded
@@ -101,8 +101,8 @@ Service admission contract:
   when `ZEPPELIN_SOURCE=disabled`, and should update/restart interpreter
   settings idempotently through Zeppelin's REST API or an equivalent mounted
   config.
-- Secrets: use scoped Spark/S3A and Iceberg MinIO credentials; do not expose
-  MinIO root credentials to the notebook process.
+- Secrets: use scoped Spark/S3A and Iceberg Silo credentials; do not expose
+  Silo root credentials to the notebook process.
 - Wizard text: describe Zeppelin as a Spark-first notebook with zero-touch
   standalone Spark and lakehouse catalog setup when enabled. Do not present
   `spark.remote=sc://spark-connect:15002` as the happy path for Zeppelin.
@@ -112,7 +112,7 @@ Validation required by #211:
 - Unit tests for manifest/runtime scales, init script idempotence, interpreter
   property generation, source gating, wizard copy, topology edges, docs, and
   generated baselines.
-- A cold-start Compose smoke with Supabase DB, MinIO/init, Iceberg REST/init,
+- A cold-start Compose smoke with Supabase DB, Silo/init, Iceberg REST/init,
   Spark, Zeppelin, and the Zeppelin init companion.
 - The smoke should create a fresh Zeppelin notebook/paragraph and run a cell
   equivalent to `SHOW NAMESPACES IN lakehouse` through `%spark` or `%spark.sql`.

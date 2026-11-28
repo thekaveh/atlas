@@ -36,7 +36,7 @@ def test_dagster_future_service_spec_covers_atlas_service_contract() -> None:
         "`dagster.localhost`",
         "`dagster -> supabase`",
         "`dagster -> airflow`",
-        "`dagster -> minio`",
+        "`dagster -> silo`",
         "`dagster -> trino`",
         "`dagster -> spark`",
         "Init companion",
@@ -52,7 +52,7 @@ def test_dagster_service_manifest_is_not_added_by_watchlist_decision() -> None:
     assert not SERVICE_MANIFEST.exists()
 
 
-def test_dagster_candidate_is_indexed_from_minio_research_row() -> None:
+def test_dagster_candidate_is_indexed_from_silo_research_row() -> None:
     matrix = MATRIX.read_text(encoding="utf-8")
 
-    assert "| Dagster | agents | minio | [candidates/dagster.md]" in matrix
+    assert "| Dagster | agents | silo | [candidates/dagster.md]" in matrix

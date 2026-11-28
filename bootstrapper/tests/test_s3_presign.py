@@ -2,7 +2,7 @@
 
 The core guarantee under test: the URL is signed against the exact host it
 will be served from, and is NEVER rewritten after signing — so signing
-against one host and serving from another (the classic ``minio:9000`` →
+against one host and serving from another (the classic ``silo:9000`` →
 ``localhost`` rewrite bug) is structurally impossible.
 """
 
@@ -263,8 +263,8 @@ def test_endpoint_without_scheme_raises():
     ("endpoint", "message"),
     [
         # A scheme-less netloc parses with an empty scheme; only the scheme
-        # guard stops it from signing a "://minio.example:9000" URL.
-        ("//minio.example:9000", "must include a scheme"),
+        # guard stops it from signing a "://silo.example:9000" URL.
+        ("//silo.example:9000", "must include a scheme"),
         # urlsplit reads "localhost" as the scheme here, so the host guard fires.
         ("localhost:63018", "must include a host"),
         ("", "non-empty URL"),

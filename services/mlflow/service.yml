@@ -9,10 +9,10 @@ capabilities:
     status: supported
     verification: tested
     note: "Atlas runs an MLflow tracking server with a dedicated Postgres database and injects its tracking URI plus client into JupyterHub."
-  - name: "Scoped MinIO artifact storage"
+  - name: "Scoped Silo artifact storage"
     status: supported
     verification: tested
-    note: "MLflow proxies artifacts to a dedicated MinIO bucket with generated service credentials and refuses Atlas enablement when MinIO is unavailable."
+    note: "MLflow proxies artifacts to a dedicated Silo bucket with generated service credentials and refuses Atlas enablement when Silo is unavailable."
   - name: "MLflow ingress authentication"
     status: partial
     verification: tested
@@ -28,7 +28,7 @@ capabilities:
   - name: "Tracking service high availability"
     status: not-supported
     verification: documented
-    note: "Postgres and MinIO persist state, but Atlas runs one MLflow server without replicas, failover routing, or a tested backup-and-restore workflow for the combined stores."
+    note: "Postgres and Silo persist state, but Atlas runs one MLflow server without replicas, failover routing, or a tested backup-and-restore workflow for the combined stores."
 
 containers:
   - mlflow-init
@@ -47,13 +47,13 @@ sources:
   default: disabled
   options:
     - id: container
-      label: "Container (MLflow tracking server + MinIO artifacts)"
+      label: "Container (MLflow tracking server + Silo artifacts)"
     - id: disabled
       label: "Disabled"
 
 env:
   - name: MLFLOW_SOURCE
-    description: "MLflow deployment source: container or disabled. container requires MINIO_SOURCE=container for artifact storage."
+    description: "MLflow deployment source: container or disabled. container requires SILO_SOURCE=container for artifact storage."
     default: disabled
   - name: MLFLOW_PORT
     description: "Host port for the MLflow UI/API (in-container 5000)."
@@ -92,7 +92,7 @@ env:
 depends_on:
   required:
     - supabase
-    - minio
+    - silo
   optional:
     - jupyterhub
 
@@ -102,7 +102,7 @@ rows:
     port_var: MLFLOW_PORT
     scale_var: MLFLOW_SCALE
     alias: mlflow.localhost
-    description: "Experiment tracking, model registry metadata, and MinIO-backed artifacts."
+    description: "Experiment tracking, model registry metadata, and Silo-backed artifacts."
 
 runtime_sc:
   mlflow-init:
@@ -135,7 +135,7 @@ runtime_sc:
 data_flow:
   calls:
     - supabase
-    - minio
+    - silo
 
 # Support tier (#1050). Selectable is not validated: this family is `experimental`
 # until a cited cold-start, workflow, and upgrade qualification run promotes it.

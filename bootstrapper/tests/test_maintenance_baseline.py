@@ -34,7 +34,7 @@ EXPECTED_BASELINE_SNAPSHOT = {
     # #2148 (speech gate) attributes the twenty-two speech-gate additions.
     # #2107 audit repair pass attributes the new test and helper modules (see refresh_notes_2026_11_26_audit_repairs).
     # #1825 attributes the GoTrue legacy tracker copy and its migration list (see refresh_notes_2026_11_27_gotrue_tracker).
-    "tracked_files": 1745,
+    "tracked_files": 1749,
     "v0.1.0_tracked_files": 667,
 }
 EXPECTED_EXTENDED_PYTHON_SNAPSHOT = {

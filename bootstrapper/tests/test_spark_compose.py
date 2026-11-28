@@ -1,7 +1,7 @@
 """Smoke + structural tests for services/spark/compose.yml.
 
 The fragment cross-references `backend-network` (defined in top-level
-docker-compose.yml) and `depends_on: minio-init` (from services/minio/),
+docker-compose.yml) and `depends_on: silo-init` (from services/silo/),
 so it cannot render standalone. We exercise it through the merged
 top-level compose, which is also how it ships at runtime.
 """
@@ -89,25 +89,25 @@ def test_spark_connect_caps_standalone_cluster_cores():
     assert "spark.cores.max" not in worker_cmd
 
 
-def test_spark_init_uses_minio_mc_image():
-    """spark-init must use the MinIO Client (mc) image — Alpine's `apk add mc`
-    installs GNU Midnight Commander (TUI file manager), NOT MinIO Client.
+def test_spark_init_uses_silo_mc_image():
+    """spark-init must use the Silo Client (mc) image — Alpine's `apk add mc`
+    installs GNU Midnight Commander (TUI file manager), NOT Silo Client.
     Pass 2 audit P2-1 verified this empirically; this test locks the fix.
-    The default is the same pinned mc image minio-init uses (Silo's pgsty/mc
+    The default is the same pinned mc image silo-init uses (Silo's pgsty/mc
     since quay.io/minio stopped serving anonymous pulls).
     """
     doc = yaml.safe_load(COMPOSE.read_text(encoding="utf-8"))
     image = doc["services"]["spark-init"]["image"]
     manifest = yaml.safe_load(
-        (COMPOSE.parent.parent / "minio" / "service.yml").read_text(encoding="utf-8")
+        (COMPOSE.parent.parent / "silo" / "service.yml").read_text(encoding="utf-8")
     )
     init_image = next(
         entry["default"] for entry in manifest["images"]
-        if entry["var"] == "MINIO_INIT_IMAGE"
+        if entry["var"] == "SILO_INIT_IMAGE"
     )
-    assert image == f"${{MINIO_INIT_IMAGE:-{init_image}}}", (
-        f"spark-init image should default to minio-init's mc image, got {image!r}. "
-        "alpine:latest's mc package is Midnight Commander, not MinIO Client."
+    assert image == f"${{SILO_INIT_IMAGE:-{init_image}}}", (
+        f"spark-init image should default to silo-init's mc image, got {image!r}. "
+        "alpine:latest's mc package is Midnight Commander, not Silo Client."
     )
 
 
@@ -126,12 +126,12 @@ def test_spark_connect_emits_event_log_to_history_bucket():
         "empty forever. Pass 15 fix."
     )
     assert (
-        "spark.eventLog.dir=s3a://${MINIO_BUCKET_SPARK_HISTORY:-spark-history}/"
+        "spark.eventLog.dir=s3a://${SILO_BUCKET_SPARK_HISTORY:-spark-history}/"
         in joined
     ), (
-        "spark-connect must point eventLog at the bucket minio-init actually "
+        "spark-connect must point eventLog at the bucket silo-init actually "
         "provisions. A literal name silently diverges from the History Server "
-        "and the provisioner as soon as MINIO_BUCKET_SPARK_HISTORY is set."
+        "and the provisioner as soon as SILO_BUCKET_SPARK_HISTORY is set."
     )
 
 
@@ -169,7 +169,7 @@ def test_spark_connect_runs_in_foreground_via_wait_flag():
 
 def test_spark_connect_depends_on_spark_init():
     """spark-connect must wait for spark-init (which creates the
-    spark-history MinIO bucket) before starting — Spark 4.x's
+    spark-history Silo bucket) before starting — Spark 4.x's
     EventLogFileWriters does NOT auto-create the base eventLog dir;
     a cold-start race would throw IllegalArgumentException at the
     first Spark Connect session.
@@ -237,8 +237,8 @@ def test_event_log_writer_reader_and_provisioner_agree_on_one_bucket():
     """Three sites must name the same bucket or the History Server is empty.
 
     Drivers write event logs to `spark.eventLog.dir`, the History Server reads
-    `spark.history.fs.logDirectory`, and minio-init provisions the bucket from
-    MINIO_BUCKET_SPARK_HISTORY. Any of the three hardcoding the name keeps
+    `spark.history.fs.logDirectory`, and silo-init provisions the bucket from
+    SILO_BUCKET_SPARK_HISTORY. Any of the three hardcoding the name keeps
     working on the default and silently diverges the moment the var is set --
     logs land in one bucket while the server reads another, or the bucket the
     server wants was never created.
@@ -248,7 +248,7 @@ def test_event_log_writer_reader_and_provisioner_agree_on_one_bucket():
         COMPOSE.parent / "service.yml"
     ).read_text(encoding="utf-8")
 
-    bucket_ref = "${MINIO_BUCKET_SPARK_HISTORY:-spark-history}"
+    bucket_ref = "${SILO_BUCKET_SPARK_HISTORY:-spark-history}"
     for label, text in (("compose", raw), ("manifest", manifest)):
         for setting in ("spark.eventLog.dir=", "spark.history.fs.logDirectory="):
             for line in text.splitlines():
@@ -257,5 +257,5 @@ def test_event_log_writer_reader_and_provisioner_agree_on_one_bucket():
                     continue
                 assert bucket_ref in stripped, (
                     f"{label}: {setting} hardcodes the history bucket instead "
-                    f"of tracking MINIO_BUCKET_SPARK_HISTORY: {stripped}"
+                    f"of tracking SILO_BUCKET_SPARK_HISTORY: {stripped}"
                 )

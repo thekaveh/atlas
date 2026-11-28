@@ -42,7 +42,7 @@ def _cli_safe_token_urlsafe(nbytes: int) -> str:
 class KeyGenerator:
     """Generates and manages encryption keys for Atlas services."""
 
-    MINIO_CONSUMERS = (
+    SILO_CONSUMERS = (
         "COMFYUI",
         "BACKEND",
         "N8N",
@@ -190,7 +190,7 @@ class KeyGenerator:
         Reads all .env values in one pass via _read_env_values() so
         inline-comment and quote semantics are handled correctly. Only
         vars listed in PLACEHOLDER_DEFAULTS are checked — generated-when-
-        absent vars (LITELLM_MASTER_KEY, Airflow secrets, MinIO keys, etc.)
+        absent vars (LITELLM_MASTER_KEY, Airflow secrets, Silo keys, etc.)
         are intentionally excluded because they have no shipped placeholder.
         """
         values = self._read_env_values()
@@ -292,17 +292,17 @@ class KeyGenerator:
         """Generate Parakeet's API token when absent; never rotate it implicitly."""
         return self._generate_and_update_provider_api_token("PARAKEET")
 
-    def generate_minio_root_password(self) -> str:
-        """MinIO root password — 32-char URL-safe random."""
+    def generate_silo_root_password(self) -> str:
+        """Silo root password — 32-char URL-safe random."""
         return _cli_safe_token_urlsafe(24)
 
-    def generate_minio_access_key(self) -> str:
-        """MinIO service-account access key — 20-char uppercase alphanumeric (S3 convention)."""
+    def generate_silo_access_key(self) -> str:
+        """Silo service-account access key — 20-char uppercase alphanumeric (S3 convention)."""
         alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
         return "".join(secrets.choice(alphabet) for _ in range(20))
 
-    def generate_minio_secret_key(self) -> str:
-        """MinIO service-account secret key — 40-char URL-safe random."""
+    def generate_silo_secret_key(self) -> str:
+        """Silo service-account secret key — 40-char URL-safe random."""
         return _cli_safe_token_urlsafe(30)
 
     def get_current_env_value(self, key_name: str) -> Optional[str]:
@@ -946,55 +946,55 @@ class KeyGenerator:
             ),
         }
 
-    def generate_and_update_minio_root_password(self, force: bool = False) -> bool:
-        """Generate MINIO_ROOT_PASSWORD when absent. Hand-edits stick unless force=True."""
-        current_value = self.get_current_env_value('MINIO_ROOT_PASSWORD')
+    def generate_and_update_silo_root_password(self, force: bool = False) -> bool:
+        """Generate SILO_ROOT_PASSWORD when absent. Hand-edits stick unless force=True."""
+        current_value = self.get_current_env_value('SILO_ROOT_PASSWORD')
         if not force and current_value:
             return True
-        new_value = self.generate_minio_root_password()
-        return self.update_env_key('MINIO_ROOT_PASSWORD', new_value)
+        new_value = self.generate_silo_root_password()
+        return self.update_env_key('SILO_ROOT_PASSWORD', new_value)
 
-    def generate_and_update_minio_consumer_keys(self, force: bool = False) -> Dict[str, bool]:
-        """Generate MINIO_<NAME>_ACCESS_KEY + MINIO_<NAME>_SECRET_KEY for every consumer in
-        MINIO_CONSUMERS, only when blank. Returns a per-variable success map.
+    def generate_and_update_silo_consumer_keys(self, force: bool = False) -> Dict[str, bool]:
+        """Generate SILO_<NAME>_ACCESS_KEY + SILO_<NAME>_SECRET_KEY for every consumer in
+        SILO_CONSUMERS, only when blank. Returns a per-variable success map.
         """
         results: Dict[str, bool] = {}
-        for consumer in self.MINIO_CONSUMERS:
-            access_var = f'MINIO_{consumer}_ACCESS_KEY'
-            secret_var = f'MINIO_{consumer}_SECRET_KEY'
+        for consumer in self.SILO_CONSUMERS:
+            access_var = f'SILO_{consumer}_ACCESS_KEY'
+            secret_var = f'SILO_{consumer}_SECRET_KEY'
 
             if force or not self.get_current_env_value(access_var):
-                results[access_var] = self.update_env_key(access_var, self.generate_minio_access_key())
+                results[access_var] = self.update_env_key(access_var, self.generate_silo_access_key())
             else:
                 results[access_var] = True
 
             if force or not self.get_current_env_value(secret_var):
-                results[secret_var] = self.update_env_key(secret_var, self.generate_minio_secret_key())
+                results[secret_var] = self.update_env_key(secret_var, self.generate_silo_secret_key())
             else:
                 results[secret_var] = True
 
         return results
 
-    def generate_and_update_extra_minio_consumer_keys(
+    def generate_and_update_extra_silo_consumer_keys(
         self, tokens, force: bool = False
     ) -> Dict[str, bool]:
-        """Generate MINIO_<TOKEN>_ACCESS_KEY + _SECRET_KEY for manifest-declared
+        """Generate SILO_<TOKEN>_ACCESS_KEY + _SECRET_KEY for manifest-declared
         consumer storage tokens (#404), only when blank. Mirrors the built-in
         consumer-key rotator so scoped secrets persist across restarts.
         """
         results: Dict[str, bool] = {}
         for token in tokens:
-            access_var = f'MINIO_{token}_ACCESS_KEY'
-            secret_var = f'MINIO_{token}_SECRET_KEY'
+            access_var = f'SILO_{token}_ACCESS_KEY'
+            secret_var = f'SILO_{token}_SECRET_KEY'
             if force or not self.get_current_env_value(access_var):
                 results[access_var] = self.update_env_key(
-                    access_var, self.generate_minio_access_key()
+                    access_var, self.generate_silo_access_key()
                 )
             else:
                 results[access_var] = True
             if force or not self.get_current_env_value(secret_var):
                 results[secret_var] = self.update_env_key(
-                    secret_var, self.generate_minio_secret_key()
+                    secret_var, self.generate_silo_secret_key()
                 )
             else:
                 results[secret_var] = True
@@ -1313,9 +1313,9 @@ class KeyGenerator:
         # every launch with the placeholder.
         results['OPEN_WEB_UI_SECRET_KEY'] = self.generate_and_update_webui_secret_key(force=False)
 
-        # MinIO root password — never force-regenerate (would lock out console + break
+        # Silo root password — never force-regenerate (would lock out console + break
         # provisioning). Only generate when absent.
-        results['MINIO_ROOT_PASSWORD'] = self.generate_and_update_minio_root_password(force=False)
+        results['SILO_ROOT_PASSWORD'] = self.generate_and_update_silo_root_password(force=False)
 
         # Grafana admin password — same posture as LITELLM_MASTER_KEY. Only
         # generate when absent; force-overwriting would sign out every
@@ -1326,9 +1326,9 @@ class KeyGenerator:
         # disabled so enabling LANGFUSE_SOURCE later has stable project keys.
         results.update(self.generate_and_update_langfuse_secrets(force=False))
 
-        # MinIO per-consumer service-account credentials — only generate when absent.
-        # Rotating these means re-running minio-init, which is a deliberate operator action.
-        results.update(self.generate_and_update_minio_consumer_keys(force=False))
+        # Silo per-consumer service-account credentials — only generate when absent.
+        # Rotating these means re-running silo-init, which is a deliberate operator action.
+        results.update(self.generate_and_update_silo_consumer_keys(force=False))
 
         # Airflow secrets — Fernet (Connection encryption), session, admin
         # login password, and the airflow-role Postgres password. All
