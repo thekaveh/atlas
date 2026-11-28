@@ -31,7 +31,7 @@ GPU_DOCKERFILE_EXCLUSIONS = {
 REVIEWED_REMOTE_BASE_DIGESTS = {
     "nginx:alpine": "sha256:7fc0fb4af7bf006aeb31aea88069976060f8f0a0a86b667126742cc17f4e31ae",
     "node:20": "sha256:8f693eaa7e0a8e71560c9a82b55fd54c2ae920a2ba5d2cde28bac7d1c01c9ba5",
-    "python:3.12-slim": "sha256:191083cdf6c7bda8c76158983163ead5d5cf7b77cf3033e805bb0f5296f51b4b",
+    "python:3.12-slim": "sha256:5b5fe805d367f8f5a359ded6ab2652b7f9a206453ee6ee789c0045ba6ec15016",
 }
 
 
@@ -1413,6 +1413,7 @@ def test_contract_ledger_records_remote_base_digest_review_provenance() -> None:
     assert "docker-library/python@3d7e95597e56a415d9e4abc0f15877e005d2cb2e" in ledger
     assert "sha256:4a68d3169325c47e1bafbb86425220f03fbdff6f079a419e8d39407183288217" in ledger
     assert "sha256:d85015f061f0c189e6cc615135bf107d344b9eedcfaaf9d13c45aca0377c6a35" in ledger
+    assert "7.2.14. 2026-11-28 — python:3.12-slim republish" in ledger
 
 
 _POLICY_REJECTION_CASES = (
