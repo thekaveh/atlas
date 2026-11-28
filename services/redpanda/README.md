@@ -120,7 +120,7 @@ _No upstream calls._
 | spark | data | current |
 | airflow | agents | optional: an operator-authored DAG; Atlas passes only SPARK_KAFKA_BOOTSTRAP_SERVERS |
 | jupyterhub | apps | current |
-| zeppelin | apps | optional: Kafka jars not bundled (#1376); Atlas passes only SPARK_KAFKA_BOOTSTRAP_SERVERS |
+| zeppelin | apps | optional: Kafka connector baked into the Spark runtime (#1376); Atlas passes only SPARK_KAFKA_BOOTSTRAP_SERVERS |
 
 ### 8.3. Architecture diagram
 

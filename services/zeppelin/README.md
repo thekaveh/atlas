@@ -21,7 +21,7 @@ It also replaces the server's Jackson and BouncyCastle jars with checksum-pinned
 The Zeppelin Backend Decision (`docs/strategy/zeppelin-spark-backend-decision.md`) selects the standalone Spark interpreter path. Zeppelin submits to `spark://spark-master:7077` through `spark-submit` in client mode. The stack should not require `%spark` Scala to use Spark Connect: Spark 4 rejects `spark.remote` together with master or deploy-mode settings. JupyterHub remains the Spark Connect notebook path (`SPARK_REMOTE` or `SparkSession.builder.remote(...)`).
 
 - `spark.cores.max` is `ZEPPELIN_SPARK_CORES_MAX` (default 1). The interpreter is long-lived. Without the cap it holds every free worker core, and Airflow cluster-mode submits wait. `zeppelin-init` re-seeds the value on each start, so change it in `.env`, not in the interpreter UI.
-- `format("kafka")` does not work from `%spark`. The driver runs in Zeppelin, and Zeppelin's Spark runtime has no Kafka connector jars (open issue #1376).
+- `format("kafka")` is available from `%spark`. The Spark runtime bakes in the four Kafka connector jars the Spark workers use (`spark-sql-kafka-0-10_2.13`, `spark-token-provider-kafka-0-10_2.13`, `kafka-clients` and `commons-pool2`). They sit in `/opt/spark/jars` at the same versions and SHA-512 pins as `services/spark/build/Dockerfile` (#1376). Compose passes the broker address in as `SPARK_KAFKA_BOOTSTRAP_SERVERS`.
 
 ### 1.2. Zero-touch Spark interpreter seeding
 
@@ -230,7 +230,7 @@ Set `PROJECT_NAME` in your shell to the value in `.env` (default `atlas`) before
 |---|---|---|
 | iceberg-rest | data | current |
 | minio | data | current |
-| redpanda | data | optional: Kafka jars not bundled (#1376); Atlas passes only SPARK_KAFKA_BOOTSTRAP_SERVERS |
+| redpanda | data | optional: Kafka connector baked into the Spark runtime (#1376); Atlas passes only SPARK_KAFKA_BOOTSTRAP_SERVERS |
 | spark | data | current |
 | supabase | data | current |
 | trino | data | current |

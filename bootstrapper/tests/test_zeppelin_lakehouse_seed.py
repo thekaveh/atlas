@@ -55,7 +55,7 @@ def test_zeppelin_manifest_declares_lakehouse_init_family() -> None:
         {
             "target": "redpanda",
             "status": "optional",
-            "condition": "Kafka jars not bundled (#1376); Atlas passes only SPARK_KAFKA_BOOTSTRAP_SERVERS",
+            "condition": "Kafka connector baked into the Spark runtime (#1376); Atlas passes only SPARK_KAFKA_BOOTSTRAP_SERVERS",
             "evidence": "services/zeppelin/compose.yml",
         },
         "trino",
