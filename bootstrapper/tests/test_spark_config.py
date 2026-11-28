@@ -10,18 +10,18 @@ from services.service_config import ServiceConfig
 ROOT = Path(__file__).resolve().parent.parent.parent
 
 
-def _build_config(source_value: str, worker_count: str = "2", minio_source: str = "container"):
+def _build_config(source_value: str, worker_count: str = "2", silo_source: str = "container"):
     """Build a ServiceConfig stub for _generate_spark_config.
 
-    MinIO defaults to ``container`` because Spark hard-requires MinIO at
+    Silo defaults to ``container`` because Spark hard-requires Silo at
     source-resolution time (see _generate_spark_config docstring and the
-    dedicated gate test in tests/test_spark_minio_gating.py). The
+    dedicated gate test in tests/test_spark_silo_gating.py). The
     "Spark=disabled" cases pass through the short-circuit before the
-    MinIO check, so MinIO can stay disabled there.
+    Silo check, so Silo can stay disabled there.
     """
     sc = ServiceConfig(config_parser=MagicMock())
     sc.localhost_host = "host.docker.internal"
-    sc.service_sources = {"SPARK_SOURCE": source_value, "MINIO_SOURCE": minio_source}
+    sc.service_sources = {"SPARK_SOURCE": source_value, "SILO_SOURCE": silo_source}
     sc.yaml_config = {
         "source_configurable": {
             "spark": {

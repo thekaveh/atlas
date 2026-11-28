@@ -39,9 +39,9 @@ Active aliases (every `*-localhost` source also routes through `host.docker.inte
 - `lightrag.localhost` → LightRAG API + WebUI (`LIGHTRAG_SOURCE != disabled`; `preserve_host: True` for the SPA)
 - `litellm.localhost` → LiteLLM gateway + admin dashboard (always-on; same alias exposes `/ui/`, `/v1/*`, `/spend/*`)
 - `mcp.localhost` → MCP servers gateway (`MCP_SERVERS_SOURCE != disabled`; Kong dashboard basic-auth/ACL)
-- `minio.localhost` → MinIO admin console (`MINIO_SOURCE != disabled`)
+- `silo.localhost` → Silo admin console (`SILO_SOURCE != disabled`)
 - `mlflow.localhost` → MLflow tracking UI (`MLFLOW_SOURCE != disabled`; Kong dashboard basic-auth/ACL)
-- `s3.minio.localhost` → MinIO S3 API (`MINIO_SOURCE != disabled`; S3 clients can also use the direct `MINIO_PORT`)
+- `s3.silo.localhost` → Silo S3 API (`SILO_SOURCE != disabled`; S3 clients can also use the direct `SILO_PORT`)
 - `n8n.localhost` → n8n (`N8N_SOURCE != disabled`)
 - `ollama.localhost` → Ollama upstream (`LLM_PROVIDER_SOURCE` is `ollama-container-*` or `ollama-localhost`)
 - `openclaw.localhost` → OpenClaw gateway (`OPENCLAW_SOURCE != disabled`)
@@ -68,7 +68,7 @@ Active aliases (every `*-localhost` source also routes through `host.docker.inte
 
 **Blocked paths.** Kong answers `403` for these paths and does not forward them:
 
-- `s3.minio.localhost`: the MinIO Prometheus metrics paths `/minio/v2/metrics/*`, `/minio/metrics/v3/*` and `/minio/prometheus/metrics`. MinIO serves metrics without authentication so that Prometheus can scrape it on the internal network.
+- `s3.silo.localhost`: the Silo Prometheus metrics paths `/minio/v2/metrics/*`, `/minio/metrics/v3/*` and `/minio/prometheus/metrics`. Silo serves metrics without authentication so that Prometheus can scrape it on the internal network.
 - `prometheus.localhost`: `/-/quit` and `/-/reload`, the Prometheus lifecycle API.
 
 The direct ports do not apply this filter.

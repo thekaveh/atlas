@@ -32,9 +32,9 @@ Existing integrations on the back-compatible `_user` discovery slot can keep
 `infra/services/_user/<name>/compose.yml` before start. New integrations should
 use the manifest.
 
-Parent-owned object-storage consumers declare a `storage:` block in `atlas.consumer.yml`. Atlas compiles it, generates scoped credentials once and writes the `minio-init` overlay. It exports stable per-store `ATLAS_STORE_<KEY>_*` fields: internal and public-read endpoints, region and credential references.
+Parent-owned object-storage consumers declare a `storage:` block in `atlas.consumer.yml`. Atlas compiles it, generates scoped credentials once and writes the `silo-init` overlay. It exports stable per-store `ATLAS_STORE_<KEY>_*` fields: internal and public-read endpoints, region and credential references.
 
-The block compiles to `MINIO_EXTRA_CONSUMERS`, for example `daydreams:MINIO_BUCKET_DAYDREAMS:MINIO_DAYDREAMS_ACCESS_KEY:MINIO_DAYDREAMS_SECRET_KEY`. `_user` overlays can still set it directly. The hook creates the extra bucket and a scoped MinIO service account without forking Atlas. Presign browser GETs against the **public** endpoint, and never rewrite a signed URL. Use boto3 `endpoint_url=<public>` or the reference presigner `bootstrapper/utils/s3_presign.py`.
+The block compiles to `SILO_EXTRA_CONSUMERS`, for example `daydreams:SILO_BUCKET_DAYDREAMS:SILO_DAYDREAMS_ACCESS_KEY:SILO_DAYDREAMS_SECRET_KEY`. `_user` overlays can still set it directly. The hook creates the extra bucket and a scoped Silo service account without forking Atlas. Presign browser GETs against the **public** endpoint, and never rewrite a signed URL. Use boto3 `endpoint_url=<public>` or the reference presigner `bootstrapper/utils/s3_presign.py`.
 
 Before you commit a parent consumer update, verify three things:
 
@@ -150,7 +150,7 @@ atlas/
 │   ├── n8n/                   # n8n + n8n-worker + n8n-init (with init/ assets, workflows-stage/)
 │   ├── open-webui/            # open-web-ui + open-webui-init (with extras/ tools+functions)
 │   ├── hermes/                # hermes + hermes-init (with init/ scripts & templates)
-│   ├── minio/                 # minio + minio-init (with init/ bucket provisioning scripts)
+│   ├── silo/                 # silo + silo-init (with init/ bucket provisioning scripts)
 │   ├── backend/               # FastAPI backend (with app/ source code)
 │   ├── jupyterhub/            # JupyterHub (with build/ Dockerfile + notebooks)
 │   ├── neo4j/                 # Neo4j (with build/ Dockerfile + scripts)

@@ -231,12 +231,12 @@ sections:
       source: services/mcp-servers/README.md
       diagrams:
       - service-mcp-servers
-    - id: service-minio
+    - id: service-silo
       number: 5.2.32
-      title: minio
-      source: services/minio/README.md
+      title: silo
+      source: services/silo/README.md
       diagrams:
-      - service-minio
+      - service-silo
     - id: service-mlflow
       number: 5.2.33
       title: mlflow
@@ -760,8 +760,8 @@ diagrams:
   master: services/loki/architecture.html
 - id: service-mcp-servers
   master: services/mcp-servers/architecture.html
-- id: service-minio
-  master: services/minio/architecture.html
+- id: service-silo
+  master: services/silo/architecture.html
 - id: service-mlflow
   master: services/mlflow/architecture.html
 - id: service-multi2vec-clip

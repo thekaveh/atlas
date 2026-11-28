@@ -44,11 +44,11 @@ def test_jenkins_manifest_admission_contract() -> None:
         "container",
         "disabled",
     }
-    assert manifest["depends_on"]["required"] == ["minio"]
+    assert manifest["depends_on"]["required"] == ["silo"]
     assert manifest["depends_on"].get("optional", []) == ["airflow", "spark"]
-    # #1273: no Jenkins job ships, so the MinIO edge is optional.
+    # #1273: no Jenkins job ships, so the Silo edge is optional.
     assert manifest["data_flow"]["calls"] == [{
-        "target": "minio",
+        "target": "silo",
         "status": "optional",
         "condition": "an operator-authored Jenkins job; none ships with Atlas",
         "evidence": "services/jenkins/README.md",
@@ -121,17 +121,17 @@ def test_jenkins_source_cli_mapping_exists() -> None:
     }
 
 
-def test_jenkins_scale_generation_and_minio_gate() -> None:
+def test_jenkins_scale_generation_and_silo_gate() -> None:
     sc = ServiceConfig(config_parser=MagicMock())
 
-    sc.service_sources = {"JENKINS_SOURCE": "disabled", "MINIO_SOURCE": "disabled"}
+    sc.service_sources = {"JENKINS_SOURCE": "disabled", "SILO_SOURCE": "disabled"}
     assert sc._generate_jenkins_config() == {"JENKINS_SCALE": "0"}
 
-    sc.service_sources = {"JENKINS_SOURCE": "container", "MINIO_SOURCE": "container"}
+    sc.service_sources = {"JENKINS_SOURCE": "container", "SILO_SOURCE": "container"}
     assert sc._generate_jenkins_config() == {"JENKINS_SCALE": "1"}
 
-    sc.service_sources = {"JENKINS_SOURCE": "container", "MINIO_SOURCE": "disabled"}
-    with pytest.raises(ValueError, match="Jenkins requires MinIO"):
+    sc.service_sources = {"JENKINS_SOURCE": "container", "SILO_SOURCE": "disabled"}
+    with pytest.raises(ValueError, match="Jenkins requires Silo"):
         sc._generate_jenkins_config()
 
 
@@ -161,9 +161,9 @@ def test_jenkins_compose_contract() -> None:
     assert service["environment"]["JENKINS_ADMIN_USER"] == "${JENKINS_ADMIN_USER:-admin}"
     assert service["environment"]["JENKINS_ADMIN_PASSWORD"] == "${JENKINS_ADMIN_PASSWORD:?JENKINS_ADMIN_PASSWORD is required}"
     assert service["environment"]["KONG_HTTP_PORT"] == "${KONG_HTTP_PORT}"
-    assert service["environment"]["MINIO_ENDPOINT"] == "http://minio:9000"
-    assert service["environment"]["MINIO_BUCKET_ICEBERG_JARS"] == "${MINIO_BUCKET_ICEBERG_JARS:-jars}"
-    assert service["depends_on"]["minio-init"]["condition"] == "service_completed_successfully"
+    assert service["environment"]["SILO_ENDPOINT"] == "http://silo:9000"
+    assert service["environment"]["SILO_BUCKET_ICEBERG_JARS"] == "${SILO_BUCKET_ICEBERG_JARS:-jars}"
+    assert service["depends_on"]["silo-init"]["condition"] == "service_completed_successfully"
     assert "privileged" not in service
     assert "/var/run/docker.sock" not in "\n".join(service.get("volumes", []))
 
@@ -177,7 +177,7 @@ def test_jenkins_dockerfile_and_plugins_are_minimal_and_pinned() -> None:
     assert "USER root" in dockerfile
     assert "maven" in dockerfile
     # #1288: mc comes from the maintained pgsty fork's digest-pinned image,
-    # the same one minio-init runs, never from the abandoned official release.
+    # the same one silo-init runs, never from the abandoned official release.
     assert (
         "ARG MC_IMAGE=pgsty/mc:RELEASE.2026-09-16T00-00-00Z@sha256:"
         "cfc83108c3abb371f8fb84d99c1fdc88f8c237e022409b0081fb7c0a3be634dd"
@@ -185,7 +185,7 @@ def test_jenkins_dockerfile_and_plugins_are_minimal_and_pinned() -> None:
     assert "FROM ${MC_IMAGE} AS mc" in dockerfile
     assert "COPY --from=mc /usr/bin/mc /usr/local/bin/mc" in dockerfile
     assert "github.com/minio/mc" not in dockerfile
-    assert "MINIO_MC_" not in dockerfile
+    assert "SILO_MC_" not in dockerfile
     assert "dl.min.io" not in dockerfile
     assert "sha256sum -c -" in dockerfile
     # #1449: plugins.txt pins the whole closure, and --latest false stops the

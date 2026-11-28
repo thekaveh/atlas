@@ -1,12 +1,12 @@
 # 5.2.55. Trino
 
-Trino is an optional, disabled-by-default SQL query engine for the Data Engineering track. Atlas wires Trino to the Iceberg REST catalog and the MinIO lakehouse buckets. Notebooks, Zeppelin, Airflow tasks and local tools can then query the same tables in SQL.
+Trino is an optional, disabled-by-default SQL query engine for the Data Engineering track. Atlas wires Trino to the Iceberg REST catalog and the Silo lakehouse buckets. Notebooks, Zeppelin, Airflow tasks and local tools can then query the same tables in SQL.
 
 ## 1. Overview
 
 Image: `trinodb/trino:482`.
 
-Atlas runs one coordinator, one `lakehouse` catalog and no workers. The catalog uses Iceberg REST for table metadata and MinIO for objects, the same path Spark uses.
+Atlas runs one coordinator, one `lakehouse` catalog and no workers. The catalog uses Iceberg REST for table metadata and Silo for objects, the same path Spark uses.
 
 ## 2. Access
 
@@ -28,7 +28,7 @@ TRINO_MEMORY_LIMIT=4g                # container memory limit
 
 The image sizes the JVM heap at 80% of available memory. `TRINO_MEMORY_LIMIT` makes that 80% of the container limit instead of the host's RAM. The compose healthcheck runs the image's `health-check` every 15 s with a 60 s start period; a cold start was healthy in 6–11 s (#1356).
 
-`TRINO_SOURCE=container` also needs `MINIO_SOURCE=container` and `ICEBERG_REST_SOURCE=container`. If either is disabled, `./start.sh` stops with an error before Compose starts. Enable both, or set `TRINO_SOURCE=disabled`.
+`TRINO_SOURCE=container` also needs `SILO_SOURCE=container` and `ICEBERG_REST_SOURCE=container`. If either is disabled, `./start.sh` stops with an error before Compose starts. Enable both, or set `TRINO_SOURCE=disabled`.
 
 ## 4. Architecture & Wiring
 
@@ -39,9 +39,9 @@ The mounted catalog file at `services/trino/catalog/lakehouse.properties` define
 - `connector.name=iceberg`
 - `iceberg.catalog.type=rest`
 - `iceberg.rest-catalog.uri=http://iceberg-rest:8181`
-- `iceberg.rest-catalog.warehouse=s3://${ENV:MINIO_BUCKET_ICEBERG_LAKEHOUSE}/` (the bucket iceberg-rest, Spark and minio-init use; default `lakehouse`)
-- `fs.native-s3.enabled=true` for Trino 482 native S3 access to MinIO at `http://minio:9000`
-- scoped Iceberg MinIO credentials through `${ENV:MINIO_ICEBERG_ACCESS_KEY}` and `${ENV:MINIO_ICEBERG_SECRET_KEY}`
+- `iceberg.rest-catalog.warehouse=s3://${ENV:SILO_BUCKET_ICEBERG_LAKEHOUSE}/` (the bucket iceberg-rest, Spark and silo-init use; default `lakehouse`)
+- `fs.native-s3.enabled=true` for Trino 482 native S3 access to Silo at `http://silo:9000`
+- scoped Iceberg Silo credentials through `${ENV:SILO_ICEBERG_ACCESS_KEY}` and `${ENV:SILO_ICEBERG_SECRET_KEY}`
 
 Atlas runs Trino with no Trino authenticator configured. The example user `atlas` is a convention shared by Atlas notebooks and clients, not an authentication boundary: the local coordinator accepts any user string. Do not use this setup as access control.
 
@@ -118,14 +118,14 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 
 | Capability | Status | Verification | Notes |
 |---|---|---|---|
-| SQL over the Atlas Iceberg lakehouse | supported | tested | Atlas configures Trino's Iceberg REST catalog, MinIO S3 access, and required service ordering for querying the in-stack lakehouse. |
+| SQL over the Atlas Iceberg lakehouse | supported | tested | Atlas configures Trino's Iceberg REST catalog, Silo S3 access, and required service ordering for querying the in-stack lakehouse. |
 | Coordinator access control | partial | tested | Kong applies Basic authentication to the browser route, but the directly published coordinator has no Trino authenticator and accepts operator-supplied user names. |
 | Distributed multi-catalog query cluster | not-supported | documented | The stock deployment is one coordinator with no workers and one Iceberg catalog; Atlas does not provision clustered execution or additional federation catalogs. |
 
 ## 6. Troubleshooting
 
 - **Catalog missing:** confirm `ICEBERG_REST_SOURCE=container` and that `iceberg-rest` is healthy before Trino starts.
-- **S3 access denied:** confirm `minio-init` completed (it creates the `iceberg` service account) and `.env` has non-empty `MINIO_ICEBERG_ACCESS_KEY` / `MINIO_ICEBERG_SECRET_KEY`.
+- **S3 access denied:** confirm `silo-init` completed (it creates the `iceberg` service account) and `.env` has non-empty `SILO_ICEBERG_ACCESS_KEY` / `SILO_ICEBERG_SECRET_KEY`.
 - **Kong alias does not load:** run `./start.sh --setup-hosts` so `trino.localhost` resolves locally.
 
 ## 7. Dependencies & Integrations
@@ -141,7 +141,7 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 | Service | Category |
 |---|---|
 | iceberg-rest | data |
-| minio | data |
+| silo | data |
 
 ### 7.2. Current — Downstream (services that call this)
 

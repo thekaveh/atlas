@@ -247,7 +247,7 @@ def test_airflow_lock_contains_the_compatible_security_patch_family(package, ver
     assert f"{package}=={version}" in lines
 
 
-def test_lakehouse_images_share_hadoops_minio_compatible_aws_sdk_bundle() -> None:
+def test_lakehouse_images_share_hadoops_silo_compatible_aws_sdk_bundle() -> None:
     version = "ARG AWS_SDK_BUNDLE_VERSION=2.29.52"
     checksum = (
         "ARG AWS_SDK_BUNDLE_SHA512="

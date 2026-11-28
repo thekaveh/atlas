@@ -334,7 +334,7 @@ Atlas recovery never uses daemon-wide cleanup (`docker system prune`, `docker vo
 
 ```bash
 # Disable memory-heavy services
-./start.sh --n8n-source disabled --weaviate-source disabled --minio-source disabled
+./start.sh --n8n-source disabled --weaviate-source disabled --silo-source disabled
 
 # Use localhost services to reduce container overhead
 ./start.sh --llm-provider-source ollama-localhost --comfyui-source localhost
@@ -451,7 +451,7 @@ cat bootstrapper/utils/kong_config_generator.py | head -80
 grep -E '^KONG_' .env
 
 # Inspect the SOURCE values the stack was configured with
-grep -E "(LLM_PROVIDER|COMFYUI|N8N|WEAVIATE|CLOUD|MINIO)[A-Z_]*_SOURCE" .env
+grep -E "(LLM_PROVIDER|COMFYUI|N8N|WEAVIATE|CLOUD|SILO)[A-Z_]*_SOURCE" .env
 ```
 
 ### 8.3. Network Testing
@@ -514,7 +514,7 @@ Atlas recovery is **project-scoped**. Everything Atlas creates (containers, the 
 `./stop.sh --cold` stops the stack and **deletes every named Atlas project volume**: databases, n8n workflows, downloaded models and generated artifacts. There is no undo.
 
 - If you started the stack with `--consumer <manifest>`, stop it with the same `--consumer`. Otherwise the volumes of its compose overlays are unknown to the stop. The cold stop then names them and exits non-zero, and does not report a full wipe. `./start.sh --cold` checks the same way and stops before it rotates any secret.
-- Take a backup first (§10.3). With the default `BACKUP_S3_MODE=local`, the backup is in this project's MinIO volume and the Neo4j and Weaviate snapshot volumes, so `--cold` deletes it too. Use `BACKUP_S3_MODE=external`, or copy the bucket off the host before the reset.
+- Take a backup first (§10.3). With the default `BACKUP_S3_MODE=local`, the backup is in this project's Silo volume and the Neo4j and Weaviate snapshot volumes, so `--cold` deletes it too. Use `BACKUP_S3_MODE=external`, or copy the bucket off the host before the reset.
 - Keep your own copy of `BACKUP_MANIFEST_HMAC_KEY`, `BACKUP_DEPLOYMENT_ID`, `GRAPH_DB_PASSWORD` and `GRAPH_DB_AUTH`. A backup cannot be restored without them.
 
 ```bash
@@ -577,14 +577,14 @@ PYTHON
 Do **not** copy a running database's data directory as a backup. A file-by-file copy of a live PostgreSQL data directory is torn mid-write and is not known to restore. Use the consistency-safe backup service. It captures a `pg_dump -Fc` Postgres dump, bounded offline Neo4j dumps, a native Weaviate snapshot and a Supabase Storage archive. It pushes authenticated artifacts to the stack's S3 bucket.
 
 ```bash
-# One-time prerequisites: the backup runner and MinIO must be enabled, and
+# One-time prerequisites: the backup runner and Silo must be enabled, and
 # the manifest signing key and deployment id must be set in .env (Atlas does
 # not generate them; keep a copy outside the bucket, a restore needs them).
 # Run `openssl rand -hex 32` and paste its output into the
 # BACKUP_MANIFEST_HMAC_KEY= line (present after the first ./start.sh; add it
 # otherwise; .env does not run commands), and set
 # BACKUP_DEPLOYMENT_ID= to a stable name (letters, digits, . _ -; max 128).
-./start.sh --backup-source container --minio-source container --detach
+./start.sh --backup-source container --silo-source container --detach
 
 # Run a full consistency-safe backup (host entry point; quiesces Neo4j
 # and writes a completion marker per timestamp)
@@ -596,7 +596,7 @@ Coverage and limits:
 - Captured: the main Supabase database (`SUPABASE_DB_NAME`), Neo4j, Weaviate and Supabase Storage.
 - **Not** captured: the other databases on the same Postgres server (LiteLLM, Airflow, Langfuse, MLflow, Label Studio, the Iceberg catalog, Supavisor and similar). A reset loses their keys, spend, traces, registries and metadata.
 - **Not** captured: `.env`. Keep your own copy; it holds the keys that decrypt what the databases store.
-- In local mode, artifacts are in this project's MinIO volume and do not survive `./stop.sh --cold` (§10.1).
+- In local mode, artifacts are in this project's Silo volume and do not survive `./stop.sh --cold` (§10.1).
 - Postgres and Storage are archived at slightly different times. Storage has no restore procedure yet (it is not in the signed manifest). After a Postgres restore, `storage.objects` rows may not match the files on disk.
 - Only a restore proves a backup. Before you rely on one, and before you delete anything, rehearse the restore on a disposable project. Follow [Backup README](../../services/backup/README.md) (`run-database-restore.sh` / `restore-postgres.sh`). A guided restore rehearsal is tracked in [#1034](https://github.com/thekaveh/atlas/issues/1034).
 

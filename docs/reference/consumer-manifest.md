@@ -18,7 +18,7 @@ Atlas accepts exactly these keys. An unknown or misspelled key (for example `com
 | `profile`, `profile_overrides` | Default deployment profile and per-profile overrides. | [§4](#4-profile-profile_overrides) |
 | `compose_overlays` | External Compose files appended to the Compose command. | [§5](#5-compose_overlays) |
 | `model_sidecars`, `custom_nodes` | Extra ComfyUI and Ollama models; extra ComfyUI nodes. | [§6](#6-model_sidecars-custom_nodes) |
-| `storage` | Parent-owned MinIO buckets. | [§7](#7-storage) |
+| `storage` | Parent-owned Silo buckets. | [§7](#7-storage) |
 | `backend_plugins` | Plugin roots for the backend seam. | [§8](#8-backend_plugins-and-pluginyml) |
 | `litellm_models` | Plugin routes as LiteLLM models. | [§9](#9-litellm_models) |
 | `n8n_workflows` | Seeded n8n workflows. | [§10](#10-n8n_workflows) |
@@ -35,8 +35,8 @@ Atlas rejects a manifest that breaks one of these rules:
 
 - A `litellm_models` alias must not shadow a stack-owned model (`hermes-agent`, `lightrag`, `fal-image`, `tei-rerank`) or any catalog model name.
 - n8n workflow ids are namespaced `atlas-consumer-<id>`. The id `plan` is reserved for the seed plan.
-- A storage bucket must not reuse a built-in name. Built-in names include `comfyui`, `backend`, `n8n`, `jupyter`, `mlflow`, `lakehouse`, `spark-history`, `raw-assets`, `asset-worker` and `asset-baker`. Every default `MINIO_BUCKET_*` / `ASSET_*_MINIO_BUCKET` value in `.env.example` is also reserved.
-- A store's generated `MINIO_BUCKET_<KEY>`, `MINIO_<KEY>_ACCESS_KEY` and `MINIO_<KEY>_SECRET_KEY` names must not match a stack variable or another store's. For example, consumer `asset` with store `baker` would alias asset-baker's credentials.
+- A storage bucket must not reuse a built-in name. Built-in names include `comfyui`, `backend`, `n8n`, `jupyter`, `mlflow`, `lakehouse`, `spark-history`, `raw-assets`, `asset-worker` and `asset-baker`. Every default `SILO_BUCKET_*` / `ASSET_*_SILO_BUCKET` value in `.env.example` is also reserved.
+- A store's generated `SILO_BUCKET_<KEY>`, `SILO_<KEY>_ACCESS_KEY` and `SILO_<KEY>_SECRET_KEY` names must not match a stack variable or another store's. For example, consumer `asset` with store `baker` would alias asset-baker's credentials.
 - A `managed_host_services` name must not match a stack host runtime or an exported service name ([§13](#13-managed_host_services)).
 
 ---
@@ -196,18 +196,18 @@ storage:
 
 Bucket names must follow S3 rules: 3 to 63 characters, lowercase alphanumeric with hyphens or dots, no `..`, `.-` or `-.`, and not IP-formatted. They must not collide with built-in buckets or other consumers' buckets ([§1.1](#11-reserved-names)).
 
-Atlas compiles each store to the `MINIO_EXTRA_CONSUMERS` grammar ([Reusing Atlas §6.1.2](../operations/reusing-atlas.md#612-adding-parent-owned-minio-buckets)). It generates a scoped service-account credential once and keeps it across restarts. It writes the `minio-init` overlay (gitignored `volumes/minio/consumer-storage.compose.yml`) and exports these fields per store:
+Atlas compiles each store to the `SILO_EXTRA_CONSUMERS` grammar ([Reusing Atlas §6.1.2](../operations/reusing-atlas.md#612-adding-parent-owned-silo-buckets)). It generates a scoped service-account credential once and keeps it across restarts. It writes the `silo-init` overlay (gitignored `volumes/silo/consumer-storage.compose.yml`) and exports these fields per store:
 
 ```text
 ATLAS_STORE_DAYDREAMS_ARTIFACTS_BUCKET=daydreams-artifacts
-ATLAS_STORE_DAYDREAMS_ARTIFACTS_INTERNAL_ENDPOINT=http://minio:9000     # write path
-ATLAS_STORE_DAYDREAMS_ARTIFACTS_PUBLIC_ENDPOINT=http://localhost:${MINIO_PORT}  # browser read base
+ATLAS_STORE_DAYDREAMS_ARTIFACTS_INTERNAL_ENDPOINT=http://silo:9000     # write path
+ATLAS_STORE_DAYDREAMS_ARTIFACTS_PUBLIC_ENDPOINT=http://localhost:${SILO_PORT}  # browser read base
 ATLAS_STORE_DAYDREAMS_ARTIFACTS_REGION=us-east-1
-ATLAS_STORE_DAYDREAMS_ARTIFACTS_ACCESS_KEY_VAR=MINIO_DAYDREAMS_ARTIFACTS_ACCESS_KEY  # reference, not a raw secret
-ATLAS_STORE_DAYDREAMS_ARTIFACTS_SECRET_KEY_VAR=MINIO_DAYDREAMS_ARTIFACTS_SECRET_KEY
+ATLAS_STORE_DAYDREAMS_ARTIFACTS_ACCESS_KEY_VAR=SILO_DAYDREAMS_ARTIFACTS_ACCESS_KEY  # reference, not a raw secret
+ATLAS_STORE_DAYDREAMS_ARTIFACTS_SECRET_KEY_VAR=SILO_DAYDREAMS_ARTIFACTS_SECRET_KEY
 ```
 
-Sign presigned GET URLs against the public endpoint (`…_PUBLIC_ENDPOINT`). Never sign against `minio:9000` and then rewrite the host, because that breaks the signature. Use boto3 with `endpoint_url=<public>`, or the reference presigner `bootstrapper/utils/s3_presign.py::presign_get_url`. See [MinIO §6](../../services/minio/README.md#6-consumer-integration-recipe).
+Sign presigned GET URLs against the public endpoint (`…_PUBLIC_ENDPOINT`). Never sign against `silo:9000` and then rewrite the host, because that breaks the signature. Use boto3 with `endpoint_url=<public>`, or the reference presigner `bootstrapper/utils/s3_presign.py::presign_get_url`. See [Silo §6](../../services/silo/README.md#6-consumer-integration-recipe).
 
 ---
 
@@ -385,9 +385,9 @@ rag_ingestion_profiles:
   profiles:
     - name: showcase-default                 # stable, globally-unique profile id
       corpus:
-        source: mount                         # mount | minio — NEVER an arbitrary host path
+        source: mount                         # mount | silo — NEVER an arbitrary host path
         path: corpus/raw                       # mount: relative, under the backend corpus root
-        # bucket / prefix                      # minio: the object prefix to ingest
+        # bucket / prefix                      # silo: the object prefix to ingest
       parser_order: [docling, tika, plain_text]  # first parser that succeeds wins; plain_text (appended last) decodes text files only
       chunker: { strategy: recursive, chunk_size: 700, overlap: 120 }  # Chonkie strategy
       vector_targets:
@@ -398,7 +398,7 @@ rag_ingestion_profiles:
 
 Accepted values: `parser_order` entries `docling`, `tika`, `plain_text`; `chunker.strategy` `token`, `recursive`, `semantic`; vector backend `weaviate`; graph backend `lightrag` with mode `upload_documents`.
 
-On `./start.sh`, the bootstrapper validates and normalizes each profile and hashes it into a stable `revision`. It writes the gitignored `volumes/backend/rag-ingestion-profiles.json` and mounts it into Backend and Celery at a reserved internal path. Both services get the same `RAG_INGESTION_PROFILES_FILE`, Redis state URL, upstream endpoints and resource limits. A MinIO corpus bucket must also be in the same consumer's `storage.buckets`. Atlas then injects only that store's credential variable names into both services.
+On `./start.sh`, the bootstrapper validates and normalizes each profile and hashes it into a stable `revision`. It writes the gitignored `volumes/backend/rag-ingestion-profiles.json` and mounts it into Backend and Celery at a reserved internal path. Both services get the same `RAG_INGESTION_PROFILES_FILE`, Redis state URL, upstream endpoints and resource limits. A Silo corpus bucket must also be in the same consumer's `storage.buckets`. Atlas then injects only that store's credential variable names into both services.
 
 Use the direct Backend URL as `BACKEND_URL` and send `BACKEND_INTERNAL_API_TOKEN` as the bearer token. Follow the [Backend access policy](../../services/backend/README.md#2-access) for gateway authentication.
 
@@ -428,14 +428,14 @@ services:
       - ${MYPROJECT_CORPUS_DIR}:/app/corpus:ro
 ```
 
-- **Corpus paths.** A `mount` corpus must be a relative path under `RAG_INGESTION_CORPUS_ROOT` (default `/app/corpus`). An absolute path, `~` or a `..` segment is rejected. A MinIO corpus must name a store the same consumer declared. A missing path is never an empty corpus: submission returns HTTP 400, and a worker without the backend's mount fails the job.
+- **Corpus paths.** A `mount` corpus must be a relative path under `RAG_INGESTION_CORPUS_ROOT` (default `/app/corpus`). An absolute path, `~` or a `..` segment is rejected. A Silo corpus must name a store the same consumer declared. A missing path is never an empty corpus: submission returns HTTP 400, and a worker without the backend's mount fails the job.
 - **Bounds.** Discovery stops at `RAG_INGESTION_MAX_FILE_BYTES` (default 100 MiB), `RAG_INGESTION_MAX_CORPUS_BYTES` (default 1 GiB) and `RAG_INGESTION_MAX_FILES` (default 10,000), before content is held in memory.
 - **Chunk limit.** Chunking holds about 20–25 bytes of memory per character, so Atlas chunks a document only up to 20,000,000 characters. A longer document is a per-file chunk error and is excluded from stale-object deletion. Class replacement can still remove its earlier vectors.
 - **Parsing.** Parsers run in `parser_order`. The `plain_text` entry that Atlas appends last accepts only text (UTF-8, Windows-1252, or BOM-marked UTF-16/32). A binary file that Docling and Tika failed on is a per-file error. It is never indexed as raw bytes. Cleanup excludes it, but class replacement can remove its earlier vectors.
 - **Targets.** A profile may declare at most one `graph_target` (Atlas has one LightRAG endpoint). Each target declares `on_unavailable: fail | skip`, so a disabled backend fails or skips visibly. A `wait_for_extraction: true` graph target polls LightRAG until idle or `timeout_seconds`, then finalizes.
 - **Graph targets.** LightRAG uploads only add documents. A changed or deleted file keeps its earlier LightRAG document until you delete it through the LightRAG document API.
 - **Phases.** Each job records its phases (`discover → parse → chunk → embed → vector_write → lightrag_upload → drain → finalize`). Errors are isolated per file, so one bad file does not fail the batch.
-- **Idempotency.** The job key combines consumer, profile, revision, corpus fingerprint, embedding model and declared ingestion destinations. Mount and MinIO fingerprints hash bounded file bytes. Pending and running duplicates with the same key reuse the existing job. Completed reuse also requires current Weaviate publications for its configured targets. Changed content or `LITELLM_EMBEDDING_MODEL` creates a new job.
+- **Idempotency.** The job key combines consumer, profile, revision, corpus fingerprint, embedding model and declared ingestion destinations. Mount and Silo fingerprints hash bounded file bytes. Pending and running duplicates with the same key reuse the existing job. Completed reuse also requires current Weaviate publications for its configured targets. Changed content or `LITELLM_EMBEDDING_MODEL` creates a new job.
 - **Destination changes.** Changing a declared Weaviate or LightRAG endpoint, or enabling a skipped destination, creates a new job. URL credentials, query strings and fragments do not affect destination identity. Discovery clears dedup eligibility if content or destination settings changed after submission. Data loss behind an unchanged endpoint still requires recovery.
 - **Restoration.** Restoring earlier corpus bytes or an embedding model starts a new job after another generation changes an overlapping Weaviate class. Empty-corpus publications follow this rule. Retained completed records alone do not prove current vectors. Missing, expired or legacy publication evidence can cause a new ingestion.
 - **Publication failures.** If a class replacement, write or cleanup may have changed vectors, historical success is no longer reused. Later phase failure or cancellation does not restore its eligibility. A run that discovers files but produces no chunks refuses destructive cleanup and leaves the previous publication unchanged.
@@ -448,7 +448,7 @@ services:
 - **Recovery.** Correct the failed input or upstream. A completed job with file errors can still deduplicate unchanged input while its target publications remain current. If that result is still current, change the corpus or profile definition to create a new job. Run `./start.sh --consumer <manifest>` to regenerate an edited profile's revision. Each affected file must parse, chunk, embed and write successfully.
 - **Class names.** Profile names that map to one class (`a-b` and `a.b` both become `{prefix}_a_b`) are rejected at load. Object ids include the profile name.
 
-MinIO fingerprints hash bytes instead of object metadata; all fingerprints use consistent filename ordering. Upgrading fingerprint or job-key formats may cause one new ingestion for unchanged content.
+Silo fingerprints hash bytes instead of object metadata; all fingerprints use consistent filename ordering. Upgrading fingerprint or job-key formats may cause one new ingestion for unchanged content.
 
 **Time limits.** With the Celery tier on, one task runs the whole job, with its own soft and hard limits. When the soft limit expires, the job is recorded `failed`, so a resubmit creates a new job. Collection guards can still block its writes until operator recovery.
 
@@ -517,7 +517,7 @@ managed_host_services:
 
 | Field | Required | Notes |
 |-------|----------|-------|
-| `name` | yes | `[a-z0-9][a-z0-9-]*`. Becomes `~/.atlas/<name>` and `ATLAS_<NAME>_HOST_ENDPOINT`, so two loaded consumers cannot share one. Reserved: `comfyui-mps`, `vllm-metal`, `blender-mcp`, and the export's service names (`backend`, `litellm`, `comfyui`, `asset-worker`, `ollama`, `minio`, `weaviate`, `neo4j`, `n8n`, `redis`, `supabase`). The state directory is per user, so separate consumer repos on one machine also need distinct names. |
+| `name` | yes | `[a-z0-9][a-z0-9-]*`. Becomes `~/.atlas/<name>` and `ATLAS_<NAME>_HOST_ENDPOINT`, so two loaded consumers cannot share one. Reserved: `comfyui-mps`, `vllm-metal`, `blender-mcp`, and the export's service names (`backend`, `litellm`, `comfyui`, `asset-worker`, `ollama`, `silo`, `weaviate`, `neo4j`, `n8n`, `redis`, `supabase`). The state directory is per user, so separate consumer repos on one machine also need distinct names. |
 | `command` | yes | String (POSIX-split) or list. Argv, **not** a shell line. |
 | `port` | yes | Integer or integer string from 1–65535. Booleans and fractional values are rejected. |
 | `workdir` | no | Defaults to the manifest's directory. Must resolve inside the consumer root. |

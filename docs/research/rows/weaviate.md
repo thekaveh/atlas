@@ -21,12 +21,12 @@ sources_consulted:
 
 ## 1. Missing-pair integrations
 
-- **weaviate ↔ minio**
-  - Why valuable: Weaviate currently has no backup strategy; `weaviate-data` is a single local volume. The `backup-s3` module turns MinIO into the durable backup target without any new infra.
-  - Mechanism sketch: enable `backup-s3` in `ENABLE_MODULES`; set `BACKUP_S3_BUCKET`, `BACKUP_S3_ENDPOINT=minio:9000`, `BACKUP_S3_USE_SSL=false`, `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` from MinIO root creds; trigger via `POST /v1/backups/s3`.
+- **weaviate ↔ silo**
+  - Why valuable: Weaviate currently has no backup strategy; `weaviate-data` is a single local volume. The `backup-s3` module turns Silo into the durable backup target without any new infra.
+  - Mechanism sketch: enable `backup-s3` in `ENABLE_MODULES`; set `BACKUP_S3_BUCKET`, `BACKUP_S3_ENDPOINT=silo:9000`, `BACKUP_S3_USE_SSL=false`, `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` from Silo root creds; trigger via `POST /v1/backups/s3`.
   - Effort: small
   - Risks / open questions: bucket lifecycle/retention policy; restore-on-cold-start tooling.
-  - Confidence: high (docs explicitly confirm MinIO compatibility for `backup-s3`).
+  - Confidence: high (docs explicitly confirm Silo compatibility for `backup-s3`).
 
 - **weaviate ↔ doc-processor**
   - Why valuable: Closes the RAG loop. Docling already extracts structured text+tables from PDFs; today nothing routes that output into Weaviate, so n8n/backend re-implement chunking ad hoc.
@@ -53,7 +53,7 @@ sources_consulted:
   - Why valuable: ComfyUI generates images but they're write-only artifacts on disk. CLIP-vectorizing them into Weaviate enables similarity search over the user's own generation history ("more like this").
   - Mechanism sketch: ComfyUI custom node or n8n post-execution hook → `POST /v1/objects` to a `Generation` collection vectorized by `multi2vec-clip` (already enabled); image bytes or URL.
   - Effort: medium
-  - Risks / open questions: storage of original image (MinIO link vs base64); CLIP module must stay enabled.
+  - Risks / open questions: storage of original image (Silo link vs base64); CLIP module must stay enabled.
   - Confidence: medium (CLIP module present; ComfyUI extensibility well-documented).
 
 ## 2. Candidate new services
@@ -64,7 +64,7 @@ sources_consulted:
 
 ## 3. Per-service feature gaps
 
-- **backup-s3 module** — Why pursue: zero current backup story; MinIO is already in-stack. Effort: small.
+- **backup-s3 module** — Why pursue: zero current backup story; Silo is already in-stack. Effort: small.
 - **Named vectors** (`vectorConfig` array) — Why pursue: lets one collection carry both a text2vec-openai vector and a multi2vec-clip vector for hybrid text+image search instead of two collections. Effort: medium.
 - **Reranker modules** (`reranker-transformers` or `reranker-cohere`) — Why pursue: cheap quality lift on RAG queries; the transformers variant runs in-cluster with no extra API costs. Effort: medium.
 - **Multi-tenancy** (per-collection tenant shards) — Why pursue: backend/n8n/Hermes could share one Weaviate cluster with per-user isolation instead of single-tenant anonymous access. Effort: medium.

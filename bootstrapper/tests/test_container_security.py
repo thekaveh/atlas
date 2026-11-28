@@ -157,20 +157,20 @@ def test_container_security_preserves_explicit_single_arch_platforms() -> None:
 
 
 def test_swapping_one_image_variable_for_another_schedules_the_new_image() -> None:
-    # `image: ${MINIO_IMAGE}` -> `${MINIO_INIT_IMAGE}` names no resolved
+    # `image: ${SILO_IMAGE}` -> `${SILO_INIT_IMAGE}` names no resolved
     # reference, so the literal match scheduled nothing (#1389).
     scans = container_security.load_changed_image_scans(
         ROOT / "services",
         [
-            "diff --git a/services/minio/compose.yml b/services/minio/compose.yml",
-            "-    image: ${MINIO_IMAGE}",
-            "+    image: ${MINIO_INIT_IMAGE}",
+            "diff --git a/services/silo/compose.yml b/services/silo/compose.yml",
+            "-    image: ${SILO_IMAGE}",
+            "+    image: ${SILO_INIT_IMAGE}",
         ],
     )
     assert next(
         row["default"]
-        for row in yaml.safe_load((ROOT / "services/minio/service.yml").read_text(encoding="utf-8"))["images"]
-        if row["var"] == "MINIO_INIT_IMAGE"
+        for row in yaml.safe_load((ROOT / "services/silo/service.yml").read_text(encoding="utf-8"))["images"]
+        if row["var"] == "SILO_INIT_IMAGE"
     ) in {scan.image for scan in scans}
 
 
@@ -272,17 +272,17 @@ def test_changed_dockerfile_defers_base_to_final_image_scan() -> None:
 
 
 def test_changed_manifest_scans_a_build_base_that_compose_also_deploys() -> None:
-    # minio-init runs the mc image directly, though backup/jenkins builds use
+    # silo-init runs the mc image directly, though backup/jenkins builds use
     # it as a base, so its declaration change needs the required scan.
     image = next(
         row["default"]
-        for row in yaml.safe_load((ROOT / "services/minio/service.yml").read_text(encoding="utf-8"))["images"]
-        if row["var"] == "MINIO_INIT_IMAGE"
+        for row in yaml.safe_load((ROOT / "services/silo/service.yml").read_text(encoding="utf-8"))["images"]
+        if row["var"] == "SILO_INIT_IMAGE"
     )
     scans = container_security.load_changed_image_scans(
         ROOT / "services",
         [
-            "diff --git a/services/minio/service.yml b/services/minio/service.yml",
+            "diff --git a/services/silo/service.yml b/services/silo/service.yml",
             f'+    default: "{image}"',
         ],
     )

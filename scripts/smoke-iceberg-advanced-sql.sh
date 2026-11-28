@@ -14,7 +14,7 @@ Prerequisites:
   ./start.sh --track data-eng \
     --spark-source container \
     --iceberg-rest-source container \
-    --minio-source container \
+    --silo-source container \
     --jupyterhub-source container
 
 For the Zeppelin surface also enable:
@@ -23,7 +23,7 @@ For the Zeppelin surface also enable:
 This opt-in smoke covers Iceberg MERGE INTO, VERSION AS OF, rollback_to_snapshot,
 CREATE BRANCH / spark.wap.branch, schema evolution, nested JSON/explode,
 Structured Streaming from s3a://landing/ into Iceberg with checkpoints under
-s3a://checkpoints/ (default bucket names; MINIO_BUCKET_ICEBERG_LANDING /
+s3a://checkpoints/ (default bucket names; SILO_BUCKET_ICEBERG_LANDING /
 _CHECKPOINTS override them), and maintenance procedures rewrite_data_files,
 expire_snapshots, and remove_orphan_files.
 USAGE
@@ -73,8 +73,8 @@ namespace = "lakehouse.atlas_smoke"
 table = f"{namespace}.advanced_sql"
 stream_table = f"{namespace}.advanced_stream"
 run_id = uuid4().hex[:12]
-landing_bucket = os.environ.get("MINIO_BUCKET_ICEBERG_LANDING", "landing")
-checkpoint_bucket = os.environ.get("MINIO_BUCKET_ICEBERG_CHECKPOINTS", "checkpoints")
+landing_bucket = os.environ.get("SILO_BUCKET_ICEBERG_LANDING", "landing")
+checkpoint_bucket = os.environ.get("SILO_BUCKET_ICEBERG_CHECKPOINTS", "checkpoints")
 landing_path = f"s3a://{landing_bucket}/atlas-smoke-advanced-json/{run_id}"
 checkpoint_path = f"s3a://{checkpoint_bucket}/atlas-smoke-advanced-json/{run_id}"
 

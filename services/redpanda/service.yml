@@ -81,7 +81,7 @@ depends_on:
     - zeppelin
     - airflow
     - iceberg-rest
-    - minio
+    - silo
 
 rows:
   - display_name: "Redpanda Console"
@@ -139,7 +139,7 @@ runtime_deps:
       - zeppelin
       - airflow
       - iceberg-rest
-      - minio
+      - silo
 
 data_flow:
   calls: []

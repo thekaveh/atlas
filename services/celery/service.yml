@@ -99,7 +99,7 @@ depends_on:
     - docling
     - tika
     - lightrag
-    - minio
+    - silo
     - otel-collector
 
 rows:
@@ -152,7 +152,7 @@ data_flow:
     - docling
     - tika
     - lightrag
-    - minio
+    - silo
     - otel-collector
 
 # Support tier (#1050). Selectable is not validated: this family is `experimental`

@@ -53,7 +53,7 @@ sources_consulted:
   - Why valuable: Document parsing is expensive and idempotent on file SHA. A Redis cache keyed on `sha256(file)` would let repeat ingests (common during n8n flow iteration) short-circuit, and a Redis stream would broadcast `doc:parsed` events to backend + weaviate ingest.
   - Mechanism sketch: Cache: `SETEX doc:parsed:<sha> 86400 <json>`; event bus: `XADD doc:events` consumed by backend.
   - Effort: small
-  - Risks / open questions: parsed payloads can be MB-scale — cap at metadata + S3/MinIO pointer.
+  - Risks / open questions: parsed payloads can be MB-scale — cap at metadata + S3/Silo pointer.
   - Confidence: medium.
 
 - **redis ↔ weaviate**

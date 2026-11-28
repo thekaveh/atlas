@@ -145,7 +145,7 @@ Every manifest declares one of six categories. The category drives two things: t
 | Category | Wizard block | Representative services (not exhaustive) | When to pick |
 |---|---|---|---|
 | `infra` | Infra | Kong, globals, Prometheus, Grafana, Ray, backup, cloudflared | Gateways, project-wide config, observability, prod-readiness |
-| `data` | Data | Supabase, Redis, MinIO, Neo4j, Weaviate (+ `multi2vec-clip` as a Weaviate sub-module), Spark | Databases, caches, object storage |
+| `data` | Data | Supabase, Redis, Silo, Neo4j, Weaviate (+ `multi2vec-clip` as a Weaviate sub-module), Spark | Databases, caches, object storage |
 | `llm` | LLM Core | LiteLLM, Ollama, cloud-providers, TEI Reranker | LLM gateways / engines |
 | `media` | Media | ComfyUI, parakeet, speaches, chatterbox, docling, searxng, tts-provider | Multimodal AI (image / audio / doc / search) |
 | `agents` | Agents & Workflows | Hermes, n8n, openclaw, Airflow, LightRAG | Programmable AI agents, workflow runners |
@@ -220,7 +220,7 @@ Every user-configurable service has an `<SVC>_SOURCE` env var. The wizard reads 
     | `agents` | 70 | 20 | 63070-63089 |
     | `apps` | 90 | 20 | 63090-63109 |
 
-- Within each category block, services consume slots in **topological order** (driven by `depends_on.required` — see Decision 5). Multi-port services (e.g. Supabase's 8 port vars, Weaviate's HTTP + gRPC pair, MinIO's API + Console pair) get a contiguous run.
+- Within each category block, services consume slots in **topological order** (driven by `depends_on.required` — see Decision 5). Multi-port services (e.g. Supabase's 8 port vars, Weaviate's HTTP + gRPC pair, Silo's API + Console pair) get a contiguous run.
 - A category-overflow lint trips if you blow past your block. Fixes: move manifests to a different category (rare), or extend the block size in `CATEGORY_SLOTS` (also rare — coordinate with maintainers).
 
 **How to declare a port:**
@@ -235,7 +235,7 @@ env:
 
 The `bootstrapper/services/env_assembler.py` regen step emits the resolved port into `.env.example`. Never hand-edit `.env.example` — it's a generated artifact (byte-equivalence-tested in CI).
 
-> **Worked example — Qdrant:** Qdrant declares `QDRANT_PORT` with no default. Topology slots it into the `data` block at the next free offset. Its place in the topo sort relative to its siblings sets that offset (Supabase microservices, Redis, MinIO, Neo4j, Weaviate). The exact number is auto-resolved at every regen — don't pin it.
+> **Worked example — Qdrant:** Qdrant declares `QDRANT_PORT` with no default. Topology slots it into the `data` block at the next free offset. Its place in the topo sort relative to its siblings sets that offset (Supabase microservices, Redis, Silo, Neo4j, Weaviate). The exact number is auto-resolved at every regen — don't pin it.
 
 <a id="9-decision-5--dependencies-depends_onrequired--optional"></a>
 
@@ -509,7 +509,7 @@ Add to the top-level `include:` block in the `# Data tier` section:
   # Data tier
   - services/supabase/compose.yml
   - services/redis/compose.yml
-  - services/minio/compose.yml
+  - services/silo/compose.yml
   - services/neo4j/compose.yml
   - services/qdrant/compose.yml              # ← new
 ```
@@ -820,7 +820,7 @@ Each service folder can hold additional subdirectories beyond `service.yml` and 
 |---|---|---|
 | `app/` | Source code for an app the manifest builds (the manifest's primary container is **this** code) | `services/backend/app/` (FastAPI source) |
 | `build/` | Dockerfile + build inputs when the manifest builds a container from scratch | `services/jupyterhub/build/`, `services/neo4j/build/`, `services/local-deep-researcher/build/` |
-| `init/` | Scripts + templates bind-mounted into a `<service>-init` sidecar container that prepares state before the main container starts | `services/n8n/init/`, `services/hermes/init/`, `services/comfyui/init/`, `services/minio/init/`, `services/weaviate/init/` |
+| `init/` | Scripts + templates bind-mounted into a `<service>-init` sidecar container that prepares state before the main container starts | `services/n8n/init/`, `services/hermes/init/`, `services/comfyui/init/`, `services/silo/init/`, `services/weaviate/init/` |
 | `pull/` | Same as `init/` but the sidecar is named `<service>-pull` (only ollama) | `services/ollama/pull/` |
 | `config/` | Read-only configuration files bind-mounted into the main container at runtime | `services/searxng/config/` (settings.yml) |
 | `db/` | SQL seed and migration scripts | `services/supabase/db/` (`scripts/` + the downstream `_user/` SQL slot) |

@@ -1,7 +1,7 @@
 #!/bin/sh
 # Shared entrypoint for the backup runner.
 #
-# Verifies the baked, pinned MinIO client (`mc`) and OpenSSL, then execs the requested script.
+# Verifies the baked, pinned Silo client (`mc`) and OpenSSL, then execs the requested script.
 # Running the check here (in the entrypoint, not in `command`) means it also
 # applies when the command is overridden for a restore:
 #

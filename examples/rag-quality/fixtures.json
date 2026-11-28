@@ -56,11 +56,11 @@
       "question": "Where does MLflow keep run metadata and run artifacts in Atlas?",
       "contexts": [
         {"source": "mlflow-metadata", "text": "MLflow stores run metadata in Supabase Postgres."},
-        {"source": "mlflow-artifacts", "text": "MLflow stores run artifacts in MinIO."}
+        {"source": "mlflow-artifacts", "text": "MLflow stores run artifacts in Silo."}
       ],
-      "expected_traits": ["postgres", "minio"],
+      "expected_traits": ["postgres", "silo"],
       "expected_sources": ["mlflow-metadata", "mlflow-artifacts"],
-      "ground_truth": "Run metadata lives in Supabase Postgres and artifacts live in MinIO."
+      "ground_truth": "Run metadata lives in Supabase Postgres and artifacts live in Silo."
     },
     {
       "id": "tracks",

@@ -349,6 +349,11 @@ class ConfigParser:
                     key, value = assignment
                     env_vars[key] = value
 
+        # Storage rename alias window: an absent SILO_* key reads its old
+        # MINIO_* value (in memory only; migration_v6 rewrites the file).
+        from services.storage_aliases import apply_alias_fallback
+        env_vars = apply_alias_fallback(env_vars)
+
         self._env_cache = {stamp: dict(env_vars)}  # single entry: only the current file
         return env_vars
 

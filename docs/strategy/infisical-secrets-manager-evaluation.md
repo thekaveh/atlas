@@ -71,7 +71,7 @@ Only new high-risk credentials should be candidates for the first Infisical-back
 | Paid model/provider keys for optional tracks | Can leak spend or data to external vendors. | Keep existing cloud-provider `.env` keys unchanged; use Infisical only for newly added provider integrations. |
 | Webhook or bridge tokens for new services | Often copied across n8n/backend/notebook surfaces. | Prefer short-lived or easily rotated values when provider supports it. |
 
-Existing Supabase, Redis, LiteLLM, MinIO, Neo4j, Label Studio, MLflow, Langfuse, and generated Atlas secrets should stay in `.env` for the first slice.
+Existing Supabase, Redis, LiteLLM, Silo, Neo4j, Label Studio, MLflow, Langfuse, and generated Atlas secrets should stay in `.env` for the first slice.
 
 ## 5. Service Admission Contract
 

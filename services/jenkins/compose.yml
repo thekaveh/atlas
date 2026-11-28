@@ -20,18 +20,18 @@ services:
       JENKINS_ADMIN_PASSWORD: ${JENKINS_ADMIN_PASSWORD:?JENKINS_ADMIN_PASSWORD is required}
       KONG_HTTP_PORT: ${KONG_HTTP_PORT}
       JENKINS_OPTS: "--httpPort=8080"
-      MINIO_ENDPOINT: http://minio:9000
-      MINIO_REGION: ${MINIO_REGION:-us-east-1}
-      MINIO_BUCKET_ICEBERG_JARS: ${MINIO_BUCKET_ICEBERG_JARS:-jars}
-      MINIO_JENKINS_ACCESS_KEY: ${MINIO_JENKINS_ACCESS_KEY}
-      MINIO_JENKINS_SECRET_KEY: ${MINIO_JENKINS_SECRET_KEY}
+      SILO_ENDPOINT: http://silo:9000
+      SILO_REGION: ${SILO_REGION:-us-east-1}
+      SILO_BUCKET_ICEBERG_JARS: ${SILO_BUCKET_ICEBERG_JARS:-jars}
+      SILO_JENKINS_ACCESS_KEY: ${SILO_JENKINS_ACCESS_KEY}
+      SILO_JENKINS_SECRET_KEY: ${SILO_JENKINS_SECRET_KEY}
     ports:
       - "${HOST_BIND_IP-127.0.0.1:}${JENKINS_PORT}:8080"
     volumes:
       - jenkins-home:/var/jenkins_home
       - ./casc:/var/jenkins_home/casc:ro
     depends_on:
-      minio-init:
+      silo-init:
         condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS http://localhost:8080/login >/dev/null"]

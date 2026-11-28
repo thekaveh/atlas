@@ -43,11 +43,11 @@ sources_consulted:
   - Risks / open questions: LangGraph node injection requires editing the cloned upstream src; alternative is a backend-side ingester reading from the LangGraph state endpoint.
   - Confidence: medium
 
-- **local-deep-researcher ↔ minio**
+- **local-deep-researcher ↔ silo**
   - Why valuable: the final markdown report and any `fetch_full_page` HTML dumps live only in `/app/data` inside the LDR container; no other service can consume them. A bucket like `research-reports/` makes outputs visible to Open WebUI uploads, JupyterHub notebooks, and n8n workflows.
-  - Mechanism sketch: on `finalize_summary`, S3 `PutObject` to `${MINIO_ENDPOINT}` bucket `research-reports` keyed by `session_id`.
+  - Mechanism sketch: on `finalize_summary`, S3 `PutObject` to `${SILO_ENDPOINT}` bucket `research-reports` keyed by `session_id`.
   - Effort: small
-  - Risks / open questions: bucket creation belongs in `services/minio/init/` to keep ownership boundaries clean.
+  - Risks / open questions: bucket creation belongs in `services/silo/init/` to keep ownership boundaries clean.
   - Confidence: medium
 
 - **local-deep-researcher ↔ hermes**
@@ -58,7 +58,7 @@ sources_consulted:
   - Confidence: medium
 
 - **local-deep-researcher ↔ jupyterhub**
-  - Why valuable: notebooks today have no programmatic way to trigger or consume research runs. A thin Python helper plus access to the persisted reports on MinIO would let DS notebooks evaluate, fine-tune, or grade LDR outputs.
+  - Why valuable: notebooks today have no programmatic way to trigger or consume research runs. A thin Python helper plus access to the persisted reports on Silo would let DS notebooks evaluate, fine-tune, or grade LDR outputs.
   - Mechanism sketch: JupyterHub container env `LOCAL_DEEP_RESEARCHER_URL=http://local-deep-researcher:2024`; notebook calls `/threads/{id}/runs`.
   - Effort: small
   - Risks / open questions: blocked behind the LDR/backend pair landing first (notebook would prefer the backend wrapper).

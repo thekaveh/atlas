@@ -81,7 +81,7 @@ def test_detached_json_status_summary_reports_unhealthy_service(monkeypatch, cap
 
     starter = start_module.AtlasStarter()
     monkeypatch.setattr(starter, "_rendered_compose_services", lambda: {
-        "backend": {}, "n8n": {}, "minio-init": {"restart": "no"},
+        "backend": {}, "n8n": {}, "silo-init": {"restart": "no"},
     })
 
     rows = [
@@ -98,7 +98,7 @@ def test_detached_json_status_summary_reports_unhealthy_service(monkeypatch, cap
             "Status": "Up 10 seconds (unhealthy)",
         },
         {
-            "Service": "minio-init", "ID": "minio-init-1",
+            "Service": "silo-init", "ID": "silo-init-1",
             "State": "exited",
             "ExitCode": 0,
             "Status": "Exited (0) 5 seconds ago",
@@ -117,7 +117,7 @@ def test_detached_json_status_summary_reports_unhealthy_service(monkeypatch, cap
     assert payload["ok"] is False
     by_service = {entry["service"]: entry for entry in payload["services"]}
     assert by_service["backend"]["ok"] is True
-    assert by_service["minio-init"]["ok"] is True
+    assert by_service["silo-init"]["ok"] is True
     assert by_service["n8n"]["ok"] is False
     assert by_service["n8n"]["health"] == "unhealthy"
 
@@ -540,7 +540,7 @@ def test_wait_race_requires_finite_role_and_zero_evidence(monkeypatch, case):
 
 @pytest.mark.parametrize("job", [
     "airflow-init", "backup", "comfyui-init", "hermes-init", "iceberg-rest-init",
-    "label-studio-init", "langfuse-init", "lightrag-init", "litellm-init", "minio-init",
+    "label-studio-init", "langfuse-init", "lightrag-init", "litellm-init", "silo-init",
     "mlflow-init", "n8n-init", "n8n-seed", "ollama-pull", "open-webui-init",
     "openclaw-init", "redpanda-init", "spark-init", "supabase-db-init", "trueforge-init",
     "weaviate-init", "zeppelin-init",

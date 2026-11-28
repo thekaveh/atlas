@@ -10,10 +10,10 @@ breaking change for consumers. Endpoints are grouped per service into distinct
 named kinds so a consumer can pick the right URL for its context:
 
 - ``ATLAS_<SVC>_SOURCE``            active SOURCE mode (container/localhost/disabled/…)
-- ``ATLAS_<SVC>_CONTAINER_ENDPOINT`` in-network URL (e.g. ``http://minio:9000``)
+- ``ATLAS_<SVC>_CONTAINER_ENDPOINT`` in-network URL (e.g. ``http://silo:9000``)
 - ``ATLAS_<SVC>_HOST_ENDPOINT``      host URL (e.g. ``http://localhost:63020``)
 - ``ATLAS_<SVC>_KONG_ENDPOINT``      Kong ``*.localhost`` route (when exposed)
-- ``ATLAS_<SVC>_PUBLIC_ENDPOINT``    browser-facing public read base (MinIO presigned reads)
+- ``ATLAS_<SVC>_PUBLIC_ENDPOINT``    browser-facing public read base (Silo presigned reads)
 
 Plus ``ATLAS_KONG_GATEWAY`` and every per-consumer ``ATLAS_STORE_*`` field from
 the storage contract (#404). Secrets are emitted as ``${VAR}`` references by
@@ -129,12 +129,12 @@ CONSUMER_SERVICES: tuple[ServiceEndpoints, ...] = (
         kong_alias="ollama.localhost",
     ),
     ServiceEndpoints(
-        service="MINIO",
-        source_var="MINIO_SOURCE",
-        container_var="MINIO_ENDPOINT",
-        public_var="MINIO_PUBLIC_ENDPOINT",
-        host_port_var="MINIO_PORT",
-        kong_alias="s3.minio.localhost",
+        service="SILO",
+        source_var="SILO_SOURCE",
+        container_var="SILO_ENDPOINT",
+        public_var="SILO_PUBLIC_ENDPOINT",
+        host_port_var="SILO_PORT",
+        kong_alias="s3.silo.localhost",
     ),
     ServiceEndpoints(
         service="WEAVIATE",
@@ -192,12 +192,12 @@ _STORAGE_CRED_SUFFIXES = ("_ACCESS_KEY_VAR", "_SECRET_KEY_VAR")
 # value in default output so a mis-named operator var can't leak.
 _STORAGE_CRED_VALUE_SUFFIXES = ("_ACCESS_KEY", "_SECRET_KEY")
 # A ``_VAR`` reference is only resolved under --with-secrets when its target var
-# matches the consumer-scoped MinIO credential naming the #404 generator emits
-# (``MINIO_<KEY>_ACCESS_KEY`` / ``MINIO_<KEY>_SECRET_KEY``). This makes the
+# matches the consumer-scoped Silo credential naming the #404 generator emits
+# (``SILO_<KEY>_ACCESS_KEY`` / ``SILO_<KEY>_SECRET_KEY``). This makes the
 # "never resolves an infra secret" guarantee an enforced invariant rather than a
 # trusted-input assumption — a hand-mangled ``_VAR=REDIS_PASSWORD`` stays a
 # reference, never a resolved value.
-_STORAGE_CRED_TARGET_PREFIX = "MINIO_"
+_STORAGE_CRED_TARGET_PREFIX = "SILO_"
 
 DISABLED_SOURCES = frozenset({"disabled", "none", ""})
 # An unset sub-component SOURCE keeps its service default, so only an explicit
@@ -206,15 +206,15 @@ _DISABLED_SUBSOURCES = DISABLED_SOURCES - {""}
 
 
 def _is_scoped_cred_target(var_name: str) -> bool:
-    """True iff ``var_name`` is a consumer-scoped MinIO credential var. The
-    stack's own service-account credentials (MINIO_BACKEND_SECRET_KEY, ...)
+    """True iff ``var_name`` is a consumer-scoped Silo credential var. The
+    stack's own service-account credentials (SILO_BACKEND_SECRET_KEY, ...)
     share the naming pattern and are excluded by name."""
-    from core.consumer_manifest import _stack_minio_reservations  # noqa: PLC0415 - cycle
+    from core.consumer_manifest import _stack_silo_reservations  # noqa: PLC0415 - cycle
 
     return (
         var_name.startswith(_STORAGE_CRED_TARGET_PREFIX)
         and var_name.endswith(_STORAGE_CRED_VALUE_SUFFIXES)
-        and var_name not in _stack_minio_reservations()[0]
+        and var_name not in _stack_silo_reservations()[0]
     )
 
 
@@ -468,7 +468,7 @@ def _storage_fields(
                 fields.append(ExportField(key, value))
             else:
                 # Default mode, or a --with-secrets reference pointing outside the
-                # consumer-scoped MinIO namespace: keep it as a masked reference.
+                # consumer-scoped Silo namespace: keep it as a masked reference.
                 fields.append(ExportField(key, value, secret=True))
         elif key.endswith(_STORAGE_CRED_VALUE_SUFFIXES):
             # Hand-authored bare credential value (Atlas never emits these).

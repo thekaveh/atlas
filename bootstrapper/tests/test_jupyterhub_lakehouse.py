@@ -37,24 +37,24 @@ def test_jupyterhub_compose_exposes_lakehouse_runtime_environment() -> None:
     env = compose["services"]["jupyterhub"]["environment"]
 
     assert env["SPARK_REMOTE"] == "${SPARK_REMOTE:-sc://spark-connect:15002}"
-    assert env["MINIO_ENDPOINT"] == "http://minio:9000"
-    assert env["AWS_ENDPOINT_URL_S3"] == "http://minio:9000"
-    assert env["AWS_ACCESS_KEY_ID"] == "${MINIO_JUPYTER_ACCESS_KEY}"
-    assert env["AWS_SECRET_ACCESS_KEY"] == "${MINIO_JUPYTER_SECRET_KEY}"
-    assert env["AWS_DEFAULT_REGION"] == "${MINIO_REGION:-us-east-1}"
+    assert env["SILO_ENDPOINT"] == "http://silo:9000"
+    assert env["AWS_ENDPOINT_URL_S3"] == "http://silo:9000"
+    assert env["AWS_ACCESS_KEY_ID"] == "${SILO_JUPYTER_ACCESS_KEY}"
+    assert env["AWS_SECRET_ACCESS_KEY"] == "${SILO_JUPYTER_SECRET_KEY}"
+    assert env["AWS_DEFAULT_REGION"] == "${SILO_REGION:-us-east-1}"
     assert env["ICEBERG_REST_URI"] == "http://iceberg-rest:8181"
-    assert env["ICEBERG_WAREHOUSE"] == "s3://${MINIO_BUCKET_ICEBERG_LAKEHOUSE:-lakehouse}/"
+    assert env["ICEBERG_WAREHOUSE"] == "s3://${SILO_BUCKET_ICEBERG_LAKEHOUSE:-lakehouse}/"
 
     assert env["PYICEBERG_CATALOG__REST__TYPE"] == "rest"
     assert env["PYICEBERG_CATALOG__REST__URI"] == "http://iceberg-rest:8181"
     assert (
         env["PYICEBERG_CATALOG__REST__WAREHOUSE"]
-        == "s3://${MINIO_BUCKET_ICEBERG_LAKEHOUSE:-lakehouse}/"
+        == "s3://${SILO_BUCKET_ICEBERG_LAKEHOUSE:-lakehouse}/"
     )
-    assert env["PYICEBERG_CATALOG__REST__S3__ENDPOINT"] == "http://minio:9000"
-    assert env["PYICEBERG_CATALOG__REST__S3__ACCESS_KEY_ID"] == "${MINIO_JUPYTER_ACCESS_KEY}"
-    assert env["PYICEBERG_CATALOG__REST__S3__SECRET_ACCESS_KEY"] == "${MINIO_JUPYTER_SECRET_KEY}"
-    assert env["PYICEBERG_CATALOG__REST__S3__REGION"] == "${MINIO_REGION:-us-east-1}"
+    assert env["PYICEBERG_CATALOG__REST__S3__ENDPOINT"] == "http://silo:9000"
+    assert env["PYICEBERG_CATALOG__REST__S3__ACCESS_KEY_ID"] == "${SILO_JUPYTER_ACCESS_KEY}"
+    assert env["PYICEBERG_CATALOG__REST__S3__SECRET_ACCESS_KEY"] == "${SILO_JUPYTER_SECRET_KEY}"
+    assert env["PYICEBERG_CATALOG__REST__S3__REGION"] == "${SILO_REGION:-us-east-1}"
     assert env["PYICEBERG_CATALOG__REST__S3__FORCE_VIRTUAL_ADDRESSING"] == "false"
 
 
@@ -72,8 +72,8 @@ def test_jupyterhub_manifest_declares_lakehouse_topology() -> None:
         "disabled",
     }
     assert set(manifest["depends_on"]["required"]) == {"supabase", "redis", "litellm"}
-    assert {"minio", "iceberg-rest", "spark"} <= set(manifest["depends_on"]["optional"])
-    assert {"minio", "iceberg-rest", "spark"} <= set(
+    assert {"silo", "iceberg-rest", "spark"} <= set(manifest["depends_on"]["optional"])
+    assert {"silo", "iceberg-rest", "spark"} <= set(
         manifest["runtime_deps"]["jupyterhub"]["optional"]
     )
     # A calls entry is a name or a qualified object (#1273).
@@ -81,7 +81,7 @@ def test_jupyterhub_manifest_declares_lakehouse_topology() -> None:
         entry["target"] if isinstance(entry, dict) else entry
         for entry in manifest["data_flow"]["calls"]
     }
-    assert {"minio", "iceberg-rest", "spark"} <= targets
+    assert {"silo", "iceberg-rest", "spark"} <= targets
     assert "lakehouse" in manifest["rows"][0]["description"].lower()
 
 
@@ -128,7 +128,7 @@ def test_jupyterhub_docs_cover_lakehouse_clients_and_validation() -> None:
         assert expected in combined
 
     future_pairs = _future_pair_body(readme)
-    assert "jupyterhub ↔ minio" not in future_pairs
+    assert "jupyterhub ↔ silo" not in future_pairs
 
 
 def test_jupyterhub_deployment_docs_describe_current_data_track_lakehouse_path() -> None:

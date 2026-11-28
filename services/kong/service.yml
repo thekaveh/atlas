@@ -48,7 +48,7 @@ env:
   - name: DASHBOARD_PASSWORD
     default: kong_password
     secret: true
-    description: "Auto-generated on first ./start.sh when left at the placeholder (rotate-when-absent, like MINIO_ROOT_PASSWORD). Gates the Kong-routed Studio dashboard via basic-auth."
+    description: "Auto-generated on first ./start.sh when left at the placeholder (rotate-when-absent, like SILO_ROOT_PASSWORD). Gates the Kong-routed Studio dashboard via basic-auth."
 
 depends_on:
   # Kong is a proxy — it does not need its upstream targets to be UP to start
@@ -96,7 +96,7 @@ data_flow:
     - hermes
     - openclaw
     - local-deep-researcher
-    - minio
+    - silo
     - supabase
     - weaviate
     - neo4j

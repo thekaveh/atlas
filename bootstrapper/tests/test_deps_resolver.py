@@ -66,9 +66,9 @@ def test_dep_graph_byte_deterministic():
 
 
 def test_empty_data_flow_calls_means_empty_upstream():
-    """minio has data_flow.calls: [] — so minio's upstream is empty."""
+    """silo has data_flow.calls: [] — so silo's upstream is empty."""
     from docs.deps_resolver import build_graph
-    g = build_graph("minio", SERVICES_DIR)
+    g = build_graph("silo", SERVICES_DIR)
     assert g.upstream == ()
 
 

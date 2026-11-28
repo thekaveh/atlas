@@ -30,7 +30,7 @@ USER root
 # https://repo.maven.apache.org/maven2/org/apache/hadoop/hadoop-aws/3.4.2/hadoop-aws-3.4.2.pom
 # Iceberg 1.11.0 is the first Iceberg release with a Spark 4.1 /
 # Scala 2.13 runtime jar. The separate iceberg-aws-bundle is required
-# for org.apache.iceberg.aws.s3.S3FileIO against MinIO.
+# for org.apache.iceberg.aws.s3.S3FileIO against Silo.
 #
 # SHA-512s are checked because both jars land on the Spark driver +
 # executor classpath at runtime and execute with whatever privileges the

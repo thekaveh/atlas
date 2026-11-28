@@ -163,7 +163,7 @@ def test_multipart_glb_postprocess_stores_content_addressed_local_artifact(
 
     monkeypatch.setattr(api, "run_gltf_transform", fake_run)
     monkeypatch.setenv("ASSET_WORKER_ARTIFACT_DIR", str(tmp_path))
-    monkeypatch.setenv("ASSET_WORKER_MINIO_ENABLED", "false")
+    monkeypatch.setenv("ASSET_WORKER_SILO_ENABLED", "false")
 
     client = _client(api)
     response = client.post(
@@ -214,12 +214,12 @@ def test_multipart_glb_postprocess_stores_content_addressed_local_artifact(
     assert downloaded.headers["content-type"] == "model/gltf-binary"
 
 
-def test_minio_reference_postprocess_round_trips_through_content_addressed_bucket(
+def test_silo_reference_postprocess_round_trips_through_content_addressed_bucket(
     monkeypatch, tmp_path
 ) -> None:
     from asset_worker import api
 
-    output_bytes = b"optimized-from-minio"
+    output_bytes = b"optimized-from-silo"
     stored = {}
 
     class FakeStorage:
@@ -234,7 +234,7 @@ def test_minio_reference_postprocess_round_trips_through_content_addressed_bucke
             stored["data"] = data
             stored["sha256"] = sha256
             return {
-                "storage": "minio",
+                "storage": "silo",
                 "bucket": self.output_bucket,
                 "key": f"gltf/{sha256}.glb",
                 "uri": f"s3://{self.output_bucket}/gltf/{sha256}.glb",
@@ -248,7 +248,7 @@ def test_minio_reference_postprocess_round_trips_through_content_addressed_bucke
     monkeypatch.setattr(api, "ArtifactStorage", FakeStorage)
     monkeypatch.setattr(api, "run_gltf_transform", fake_run)
     monkeypatch.setenv("ASSET_WORKER_ARTIFACT_DIR", str(tmp_path))
-    monkeypatch.setenv("ASSET_WORKER_MINIO_ENABLED", "true")
+    monkeypatch.setenv("ASSET_WORKER_SILO_ENABLED", "true")
 
     client = _client(api)
     response = client.post(
@@ -263,7 +263,7 @@ def test_minio_reference_postprocess_round_trips_through_content_addressed_bucke
     body = response.json()
     expected_sha = hashlib.sha256(output_bytes).hexdigest()
     assert body["sha256"] == expected_sha
-    assert body["artifact"]["storage"] == "minio"
+    assert body["artifact"]["storage"] == "silo"
     assert body["artifact"]["bucket"] == "asset-worker"
     assert body["artifact"]["key"] == f"gltf/{expected_sha}.glb"
     assert body["artifact"]["uri"] == f"s3://asset-worker/gltf/{expected_sha}.glb"
@@ -380,7 +380,7 @@ def test_reference_route_rejects_bucket_outside_allowlist(monkeypatch) -> None:
     assert response.status_code == 403
 
 
-def test_minio_reference_rejects_oversize_object_before_read(monkeypatch) -> None:
+def test_silo_reference_rejects_oversize_object_before_read(monkeypatch) -> None:
     from asset_worker.storage import ArtifactStorage, ArtifactTooLargeError
 
     class Body:
@@ -475,7 +475,7 @@ def test_cancelled_request_holds_slot_until_transform_thread_exits(
 
     monkeypatch.setattr(api, "run_gltf_transform", blocking_run)
     monkeypatch.setenv("ASSET_WORKER_ARTIFACT_DIR", str(tmp_path))
-    monkeypatch.setenv("ASSET_WORKER_MINIO_ENABLED", "false")
+    monkeypatch.setenv("ASSET_WORKER_SILO_ENABLED", "false")
     app = api.create_app(api_token=_TOKEN)
 
     async def scenario() -> int:
@@ -583,7 +583,7 @@ def test_missing_reference_object_is_404_not_500(monkeypatch, tmp_path) -> None:
 
     monkeypatch.setattr(api, "ArtifactStorage", FakeStorage)
     monkeypatch.setenv("ASSET_WORKER_ARTIFACT_DIR", str(tmp_path))
-    monkeypatch.setenv("ASSET_WORKER_MINIO_ENABLED", "true")
+    monkeypatch.setenv("ASSET_WORKER_SILO_ENABLED", "true")
     response = _client(api).post(
         "/gltf/postprocess/ref",
         json={"input": {"bucket": "raw-assets", "key": "incoming/none.glb"}, "params": {}},
@@ -675,7 +675,7 @@ def test_invalid_glb_framing_is_rejected_before_conversion(monkeypatch, tmp_path
         output.write_bytes(RAW_GLB)
     monkeypatch.setattr(api, "run_gltf_transform", convert)
     monkeypatch.setenv("ASSET_WORKER_ARTIFACT_DIR", str(tmp_path))
-    monkeypatch.setenv("ASSET_WORKER_MINIO_ENABLED", "false")
+    monkeypatch.setenv("ASSET_WORKER_SILO_ENABLED", "false")
 
     response = _client(api).post(
         "/gltf/postprocess", files={"file": ("scene.glb", bytes(payload), "model/gltf-binary")},
@@ -686,7 +686,7 @@ def test_invalid_glb_framing_is_rejected_before_conversion(monkeypatch, tmp_path
 
 
 @pytest.mark.parametrize("bad_limit", ["invalid", "nan", "inf", "1e309"])
-def test_minio_reference_closes_acquired_stream_on_invalid_limit(monkeypatch, bad_limit):
+def test_silo_reference_closes_acquired_stream_on_invalid_limit(monkeypatch, bad_limit):
     from io import BytesIO
     from types import SimpleNamespace
     from botocore.response import StreamingBody

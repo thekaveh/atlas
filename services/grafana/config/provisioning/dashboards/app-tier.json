@@ -30,7 +30,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "Prometheus" },
-      "title": "MinIO — request rate (S3 API)",
+      "title": "Silo — request rate (S3 API)",
       "type": "timeseries",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
       "id": 3,
@@ -41,7 +41,7 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "Prometheus" },
-      "title": "MinIO — cluster usage (bytes)",
+      "title": "Silo — cluster usage (bytes)",
       "type": "stat",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
       "id": 4,
@@ -52,11 +52,11 @@
     }
   ],
   "schemaVersion": 39,
-  "tags": ["weaviate", "minio", "apps"],
+  "tags": ["weaviate", "silo", "apps"],
   "templating": { "list": [] },
   "time": { "from": "now-1h", "to": "now" },
   "timezone": "",
-  "title": "App tier (Weaviate + MinIO)",
+  "title": "App tier (Weaviate + Silo)",
   "uid": "app-tier",
   "version": 1,
   "weekStart": ""

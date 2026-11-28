@@ -7,7 +7,7 @@ from pyspark.sql import SparkSession
 
 def main() -> None:
     target = sys.argv[1]
-    expected = [(1, "atlas"), (2, "minio")]
+    expected = [(1, "atlas"), (2, "silo")]
     spark = SparkSession.builder.appName("atlas-s3a-roundtrip").getOrCreate()
     try:
         spark.createDataFrame(expected, ["id", "value"]).write.mode(

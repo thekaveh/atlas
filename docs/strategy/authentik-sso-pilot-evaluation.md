@@ -13,7 +13,7 @@ Atlas currently has a fragmented auth model:
 - Open WebUI has its own user/account flow.
 - JupyterHub runs one shared JupyterLab server protected by a single token (`JUPYTERHUB_TOKEN`); it has no per-user login.
 - n8n has first-owner setup and its own credential store.
-- MinIO has root/user policies and optional OIDC support.
+- Silo has root/user policies and optional OIDC support.
 - Neo4j has its own database credentials and optional OIDC settings.
 - Supabase Auth is present as an application-auth substrate, but it is not the stack-wide login surface for all browser UIs.
 - Kong currently applies a mix of pass-through, `key-auth`, dashboard `basic-auth`/`acl`, service-native bearer tokens, and unauthenticated local/dev routes.
@@ -66,7 +66,7 @@ Preferred route choice:
 - Use a low-risk dashboard surface that is already non-core and disabled by default, such as `ray.localhost` or `flower.localhost`, if that service is enabled in the test stack.
 - If choosing an existing service makes verification too brittle, add a tiny static `sso-smoke.localhost` route for the pilot only. That route should prove the mechanics without putting a production data surface in the blast radius.
 
-Do not use the root Atlas dashboard, Supabase Studio, Open WebUI, n8n, MinIO, or Neo4j as the first pilot. Those are important enough that a failed SSO rollout would interrupt real work or hide recovery paths.
+Do not use the root Atlas dashboard, Supabase Studio, Open WebUI, n8n, Silo, or Neo4j as the first pilot. Those are important enough that a failed SSO rollout would interrupt real work or hide recovery paths.
 
 ## 6. Service Admission Contract
 
@@ -112,10 +112,10 @@ n8n:
 - Putting it behind forward auth is not the same as migrating n8n users.
 - Future work should decide whether Authentik only gates access or becomes an actual n8n identity provider where supported.
 
-MinIO:
+Silo:
 
-- MinIO supports external identity patterns, but it is a data-control surface.
-- Do not choose MinIO Console as the first route-level pilot.
+- Silo supports external identity patterns, but it is a data-control surface.
+- Do not choose Silo Console as the first route-level pilot.
 - Future work must map policies, groups, service accounts, and S3 API behavior separately from the browser UI.
 
 Neo4j:
@@ -173,7 +173,7 @@ Do not:
 - One non-critical route is protected with Authentik forward auth or an equivalent documented route-level mechanism.
 - The pilot route has automated tests proving the Kong route includes the expected auth integration only when Authentik is enabled.
 - The pilot route remains ungated or removed when `AUTHENTIK_SOURCE=disabled`, according to its documented recovery behavior.
-- Open WebUI, JupyterHub, n8n, MinIO, Neo4j, Kong, and Supabase Auth implications are documented before any of them are migrated.
+- Open WebUI, JupyterHub, n8n, Silo, Neo4j, Kong, and Supabase Auth implications are documented before any of them are migrated.
 - The implementation explicitly blocks no broad migration until the route-level pilot passes.
 - Docs include operator recovery steps, local-only warnings, direct-port limitations, logout/session-reset guidance, and upstream links.
 - Local verification includes the bootstrapper pytest suite, docs drift check, link check, compose source-dependency check, Kong route check, manifest fragment validation, `docker compose --env-file .env.example -f docker-compose.yml config -q`, and `git diff --check`.

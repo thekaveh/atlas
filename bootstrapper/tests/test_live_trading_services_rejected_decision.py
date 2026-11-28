@@ -54,7 +54,7 @@ def test_live_trading_future_service_contract_is_guarded_and_complete() -> None:
         "sandbox",
         "read-only keys",
         "JupyterHub",
-        "MinIO",
+        "Silo",
         "MLflow",
         "Langfuse",
         "TimescaleDB",

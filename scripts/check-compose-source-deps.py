@@ -75,28 +75,28 @@ FORBIDDEN_OPTIONAL_DEPENDS_ON = {
 # Reviewed hard edges into SOURCE-replaceable families: each dependent cannot
 # do its job without that dependency, and is only enabled alongside it (#1389).
 ALLOWED_REPLACEABLE_DEPENDS_ON = {
-    ("asset-baker", "minio"),
-    ("asset-baker", "minio-init"),
-    ("asset-worker", "minio"),
-    ("asset-worker", "minio-init"),
+    ("asset-baker", "silo"),
+    ("asset-baker", "silo-init"),
+    ("asset-worker", "silo"),
+    ("asset-worker", "silo-init"),
     ("comfyui-init", "ollama-pull"),
-    ("iceberg-rest", "minio-init"),
-    ("jenkins", "minio-init"),
-    ("label-studio-init", "minio-init"),
-    ("langfuse-init", "minio-init"),
+    ("iceberg-rest", "silo-init"),
+    ("jenkins", "silo-init"),
+    ("label-studio-init", "silo-init"),
+    ("langfuse-init", "silo-init"),
     ("llm-graph-builder-backend", "neo4j-graph-db"),
     ("local-deep-researcher", "searxng"),
     ("mcp-servers", "neo4j-graph-db"),
     ("mcp-servers", "searxng"),
-    ("mlflow-init", "minio-init"),
+    ("mlflow-init", "silo-init"),
     ("otel-collector", "loki"),
     ("otel-collector", "tempo"),
-    ("spark-init", "minio-init"),
+    ("spark-init", "silo-init"),
     ("trino", "iceberg-rest"),
-    ("trino", "minio-init"),
+    ("trino", "silo-init"),
     ("verba", "weaviate"),
-    ("zeppelin", "minio-init"),
-    ("zeppelin-init", "minio-init"),
+    ("zeppelin", "silo-init"),
+    ("zeppelin-init", "silo-init"),
     ("zeppelin-init", "spark-init"),
 }
 
@@ -160,7 +160,7 @@ REQUIRED_DEPENDS_ON = {
     # Pass 16 spark cold-start race fix: spark.eventLog.dir is read at
     # session start; Spark doesn't auto-create the s3a:// base dir, so
     # spark-connect + zeppelin must wait for spark-init (which creates
-    # the spark-history MinIO bucket via minio/mc).
+    # the spark-history Silo bucket via minio/mc).
     ("spark-connect", "spark-init"),
     ("zeppelin", "spark-init"),
     # LightRAG (2026-06-05): init container has service_completed_successfully

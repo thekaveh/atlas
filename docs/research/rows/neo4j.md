@@ -64,18 +64,18 @@ sources_consulted:
   - Risks / open questions: latency budget per turn; safe Cypher generation (read-only role).
   - Confidence: medium
 
-- **neo4j ↔ minio**
-  - Why valuable: Neo4j currently dumps backups to a local bind mount (`./services/neo4j/build/snapshot/`). Pushing dumps to MinIO gives durable, versioned, off-node backup with the same S3 tooling used elsewhere.
-  - Mechanism sketch: Modify `backup.sh` to `mc cp` the dump to `s3://${MINIO_BUCKET}/neo4j-backups/`. Or add a sidecar cron container.
+- **neo4j ↔ silo**
+  - Why valuable: Neo4j currently dumps backups to a local bind mount (`./services/neo4j/build/snapshot/`). Pushing dumps to Silo gives durable, versioned, off-node backup with the same S3 tooling used elsewhere.
+  - Mechanism sketch: Modify `backup.sh` to `mc cp` the dump to `s3://${SILO_BUCKET}/neo4j-backups/`. Or add a sidecar cron container.
   - Effort: small
-  - Risks / open questions: secret handoff for MinIO creds inside the neo4j container; retention policy.
+  - Risks / open questions: secret handoff for Silo creds inside the neo4j container; retention policy.
   - Confidence: high
 
 ## 2. Candidate new services
 
 - **Neo4j LLM Knowledge Graph Builder** → `../candidates/neo4j-llm-graph-builder.md`
   - Headline: First-party Neo4j Labs app that turns PDFs / web pages / YouTube transcripts into a queryable knowledge graph.
-  - Other consumers in stack: backend, doc-processor, open-webui, minio.
+  - Other consumers in stack: backend, doc-processor, open-webui, silo.
 
 - **Graphiti (Zep)** → `../candidates/graphiti.md`
   - Headline: Temporal knowledge-graph framework for agent memory, built on Neo4j.

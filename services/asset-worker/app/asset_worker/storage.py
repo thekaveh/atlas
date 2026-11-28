@@ -38,8 +38,8 @@ def _publish_local(target: Path, data: bytes) -> None:
 class ArtifactStorage:
     def __init__(self) -> None:
         self.artifact_dir = Path(os.getenv("ASSET_WORKER_ARTIFACT_DIR", "/data/artifacts"))
-        self.minio_enabled = _truthy(os.getenv("ASSET_WORKER_MINIO_ENABLED", "true"))
-        self.output_bucket = os.getenv("ASSET_WORKER_MINIO_BUCKET", "asset-worker")
+        self.silo_enabled = _truthy(os.getenv("ASSET_WORKER_SILO_ENABLED", "true"))
+        self.output_bucket = os.getenv("ASSET_WORKER_SILO_BUCKET", "asset-worker")
 
     def fetch(self, bucket: str, key: str) -> bytes:
         client = self._client()
@@ -66,7 +66,7 @@ class ArtifactStorage:
 
     def store(self, data: bytes, *, sha256: str) -> dict[str, str]:
         key = f"gltf/{sha256}.glb"
-        if self.minio_enabled:
+        if self.silo_enabled:
             client = self._client()
             self._ensure_bucket(client, self.output_bucket)
             client.put_object(
@@ -77,7 +77,7 @@ class ArtifactStorage:
                 Metadata={"sha256": sha256},
             )
             return {
-                "storage": "minio",
+                "storage": "silo",
                 "bucket": self.output_bucket,
                 "key": key,
                 "uri": f"s3://{self.output_bucket}/{key}",
@@ -98,10 +98,10 @@ class ArtifactStorage:
 
         return boto3.client(
             "s3",
-            endpoint_url=os.getenv("ASSET_WORKER_MINIO_ENDPOINT") or os.getenv("MINIO_ENDPOINT", "http://minio:9000"),
-            aws_access_key_id=os.getenv("ASSET_WORKER_MINIO_ACCESS_KEY") or os.getenv("MINIO_ROOT_USER", "minioadmin"),
-            aws_secret_access_key=os.getenv("ASSET_WORKER_MINIO_SECRET_KEY") or os.getenv("MINIO_ROOT_PASSWORD", ""),
-            region_name=os.getenv("MINIO_REGION", "us-east-1"),
+            endpoint_url=os.getenv("ASSET_WORKER_SILO_ENDPOINT") or os.getenv("SILO_ENDPOINT", "http://silo:9000"),
+            aws_access_key_id=os.getenv("ASSET_WORKER_SILO_ACCESS_KEY") or os.getenv("SILO_ROOT_USER", "minioadmin"),
+            aws_secret_access_key=os.getenv("ASSET_WORKER_SILO_SECRET_KEY") or os.getenv("SILO_ROOT_PASSWORD", ""),
+            region_name=os.getenv("SILO_REGION", "us-east-1"),
             config=Config(s3={"addressing_style": "path"}),
         )
 

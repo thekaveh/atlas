@@ -21,7 +21,7 @@ Postgres time-series extension for tick, OHLCV, order-book, and paper-trading hi
 
 Keep TimescaleDB on the watchlist for now: Atlas **must not add `services/timescaledb/service.yml` yet** and must not modify the Supabase Postgres image in this ticket. TimescaleDB belongs in a later trading-data slice, not standalone Atlas platform infrastructure.
 
-The current trading track is intentionally read-only financial research plus paper portfolios in JupyterHub. TimescaleDB becomes useful after those notebooks create enough tick, OHLCV, order-book, trade, or paper-order history to justify hypertables, compression/columnstore, and retention policies. Until then, plain MinIO datasets and notebook-owned CSV/parquet are enough.
+The current trading track is intentionally read-only financial research plus paper portfolios in JupyterHub. TimescaleDB becomes useful after those notebooks create enough tick, OHLCV, order-book, trade, or paper-order history to justify hypertables, compression/columnstore, and retention policies. Until then, plain Silo datasets and notebook-owned CSV/parquet are enough.
 
 Future service shape, if a later trading-data ticket promotes this:
 
@@ -33,7 +33,7 @@ Future service shape, if a later trading-data ticket promotes this:
 - Topology and port strategy: no new port for `extension` mode; allocate a `data` topology slot only for a separate container mode.
 - Kong route behavior: no public Kong route. Database access remains in-network or host Postgres tooling only.
 - Required dependencies: `timescaledb -> supabase` for extension mode, or a separate Postgres-compatible data volume for container mode.
-- Optional producers/consumers: `jupyterhub -> timescaledb` for OpenBB/CCXT research inserts, optional `redpanda -> timescaledb` for future market-data stream sinks, MLflow for paper-run metadata, MinIO for raw CSV/parquet archives, and Grafana/Superset later for read-only dashboards.
+- Optional producers/consumers: `jupyterhub -> timescaledb` for OpenBB/CCXT research inserts, optional `redpanda -> timescaledb` for future market-data stream sinks, MLflow for paper-run metadata, Silo for raw CSV/parquet archives, and Grafana/Superset later for read-only dashboards.
 - Data guardrails: isolated `trading` database/schema, read-only/paper ingestion credentials, no live exchange credentials, explicit symbol/venue/timeframe namespace, and no mutation path from notebooks to real broker/exchange APIs.
 - Retention policies: define raw tick, OHLCV, order-book snapshot, trade, and paper-order retention before storage is added.
 - Hypertable design: define time column, partitioning dimensions, hypertable chunk interval, indexes, compression/columnstore policy, and downsampling/continuous aggregate strategy.
@@ -48,7 +48,7 @@ Trading research needs high-volume time-series storage once notebooks move beyon
 - jupyterhub -> timescaledb for read-only OpenBB/CCXT market-data research inserts and paper portfolio history.
 - timescaledb -> supabase when implemented as an extension path on the existing Postgres family.
 - redpanda -> timescaledb later if market-data streams need a durable sink.
-- minio -> timescaledb only by import jobs that load archived CSV/parquet datasets.
+- silo -> timescaledb only by import jobs that load archived CSV/parquet datasets.
 - grafana/superset -> timescaledb later for read-only dashboards.
 
 ## 5. Effort

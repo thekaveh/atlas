@@ -33,21 +33,21 @@ Future service shape, if a later audio-ingestion ticket promotes this:
 - Wizard placement: RAG/voice ingestion section after STT provider selection, with copy that this is for diarized long-form audio, not the default STT path.
 - Topology and port strategy: allocate one `media` topology slot for the API only if a service manifest is added. Worker/model-cache containers stay internal.
 - Kong alias and route behavior: `whisperx.localhost` only when a container API exists; route should be treated as an internal/local ingestion API, not a broad public upload surface.
-- Required dependencies: likely `whisperx -> minio` for source audio and transcript artifacts, and `whisperx -> supabase` for transcript metadata/provenance.
+- Required dependencies: likely `whisperx -> silo` for source audio and transcript artifacts, and `whisperx -> supabase` for transcript metadata/provenance.
 - Optional dependencies: `whisperx -> weaviate` or LightRAG/doc-processor for RAG indexing, n8n/backend/open-webui/hermes/openclaw as consumers, and Redis/Celery for long-running job orchestration.
 - Diarization gate: document Hugging Face/pyannote token requirements, model access/user agreement, model license/terms, offline-cache behavior, and missing/invalid-token behavior. Diarization must be optional or fail clearly.
 - Resource gate: document expected CPU/GPU behavior, VRAM/model-cache needs, long-file timeouts, concurrency limits, and why a GPU source is preferred for long meetings.
 - Provenance gate: define source audio URI, sha256, duration, language, model/revision, diarization model, alignment model, speaker IDs, segment start/end/word timestamps, user/session/project namespace, and downstream chunk IDs before indexing transcripts.
 - Init companion: maybe. Add one only if Atlas seeds model caches, creates transcript artifact buckets/metadata schemas, or validates token availability.
 - Tests required for a future service PR: manifest validation, source validation, env assembly, topology/category, track membership, Kong route/auth, disabled default, token/env validation, missing-token behavior, provenance schema fixtures, artifact path conventions, compose source-permutation coverage, custom `BASE_PORT`, docs drift, and an opt-in smoke over a short audio fixture if legally safe.
-- Edge cases: no Hugging Face token, token accepted but model access not granted, CPU-only host, insufficient VRAM, very long files, multi-channel audio, speaker-label instability across reruns, duplicate transcript chunks, PII retention, stale `.env`, disabled MinIO/Supabase/Weaviate, and generated-doc drift.
+- Edge cases: no Hugging Face token, token accepted but model access not granted, CPU-only host, insufficient VRAM, very long files, multi-channel audio, speaker-label instability across reruns, duplicate transcript chunks, PII retention, stale `.env`, disabled Silo/Supabase/Weaviate, and generated-doc drift.
 
 ## 3. Problem it solves
 Speaches (Faster-Whisper) and Parakeet both transcribe but neither attributes utterances to speakers, and Whisper's native timestamps are utterance-level only. Meeting summaries, podcast pipelines, and conversational analytics need "who said what when" with provenance. WhisperX wraps Faster-Whisper + wav2vec2 alignment + pyannote diarization behind one CLI/Python surface, but Atlas should only package it once that meeting/audio workflow exists.
 
 ## 4. Stack wiring sketch
 - backend → whisperx via `POST http://whisperx:8000/v1/audio/transcriptions` (OpenAI-shape wrapper around `whisperx.transcribe`)
-- whisperx → minio via `s3://transcripts/<session-id>.json` for diarized transcript artifacts
+- whisperx → silo via `s3://transcripts/<session-id>.json` for diarized transcript artifacts
 - n8n → whisperx via the same HTTP endpoint for meeting-recording workflows
 - weaviate ← whisperx-emitted utterance chunks (speaker-keyed) for semantic search across long-form audio
 - hermes → whisperx as a skill, surfacing speaker-attributed transcripts as agent context

@@ -21,6 +21,7 @@ from services.migrations.migration_v2 import needs_migration as needs_v2
 from services.migrations.migration_v3 import needs_migration as needs_v3
 from services.migrations.migration_v4 import needs_migration as needs_v4
 from services.migrations.migration_v5 import needs_migration as needs_v5
+from services.migrations.migration_v6 import needs_migration as needs_v6
 
 
 def _legacy_v0_env(tmp_path: Path) -> Path:
@@ -260,11 +261,11 @@ def _assert_marker_completed(starter, env):
     assert (
         parsed[_MARKER], parsed["LITELLM_DEFAULT_MODEL"],
         parsed["WEAVIATE_ENABLE_MODULES"], parsed["CUSTOM_LITERAL"],
-    ) == ("5", "ollama/qwen3.8:latest", "text2vec-ollama,backup-filesystem", "a$z\\q # literal")
-    assert [needs(env) for needs in (needs_v1, needs_v2, needs_v3, needs_v4, needs_v5)] == [False] * 5
+    ) == ("6", "ollama/qwen3.8:latest", "text2vec-ollama,backup-filesystem", "a$z\\q # literal")
+    assert [needs(env) for needs in (needs_v1, needs_v2, needs_v3, needs_v4, needs_v5, needs_v6)] == [False] * 6
     from utils.atomic_write import decode_env_assignment, env_lines
     assignments = [decode_env_assignment(line, origin=str(env)) for line in env_lines(env.read_text(encoding="utf-8-sig"))]
-    assert [item[1] for item in assignments if item is not None and item[0] == _MARKER] == ["5"]
+    assert [item[1] for item in assignments if item is not None and item[0] == _MARKER] == ["6"]
 
 
 @pytest.mark.parametrize("markers", [
@@ -301,10 +302,10 @@ def test_duplicate_legacy_marker_completes_and_preserves_pristine_backup(tmp_pat
 
 
 @pytest.mark.parametrize("markers", [
-    f"{_MARKER}=3\n{_MARKER}=5\n", f"{_MARKER}=3\n{_MARKER}=9\n",
-    f"{_MARKER}=5\n{_MARKER}=5\n", f"{_MARKER}=9\n{_MARKER}=9\n",
-    f"\ufeff{_MARKER}=3\r\nexport {_MARKER}=' 5 ' # current\r\n",
-    f"{_MARKER}=3\n\u00a0{_MARKER}=5\n",
+    f"{_MARKER}=3\n{_MARKER}=6\n", f"{_MARKER}=3\n{_MARKER}=9\n",
+    f"{_MARKER}=6\n{_MARKER}=6\n", f"{_MARKER}=9\n{_MARKER}=9\n",
+    f"\ufeff{_MARKER}=3\r\nexport {_MARKER}=' 6 ' # current\r\n",
+    f"{_MARKER}=3\n\u00a0{_MARKER}=6\n",
     f"{_MARKER}=3\n{_MARKER}\u00a0=9\n",
 ])
 def test_duplicate_current_or_future_marker_is_exact_noop(tmp_path, monkeypatch, markers):
@@ -316,7 +317,7 @@ def test_duplicate_current_or_future_marker_is_exact_noop(tmp_path, monkeypatch,
     def forbidden(*args, **kwargs):
         pytest.fail("current/future effective marker must bypass the historical chain")
 
-    for name in ("_needs_v1", "_needs_v2", "_needs_v3", "_needs_v4", "_needs_v5"):
+    for name in ("_needs_v1", "_needs_v2", "_needs_v3", "_needs_v4", "_needs_v5", "_needs_v6"):
         monkeypatch.setattr(start, name, forbidden)
     starter.run_port_migration(False)
     assert (env.read_bytes(), list(tmp_path.glob(".env.backup.*")), events) == (original, [], [])
@@ -412,7 +413,7 @@ def test_duplicate_marker_v5_module_failure_remains_retryable(tmp_path, modules)
     text = env.read_text().replace(modules, "WEAVIATE_ENABLE_MODULES=text2vec-ollama\n")
     atomic_write_text(env, text, mode=0o600)
     starter.run_port_migration(False)
-    assert starter.config_parser.parse_env_file()[_MARKER] == "5"
+    assert starter.config_parser.parse_env_file()[_MARKER] == "6"
 
 
 @pytest.mark.parametrize("ending", ["\n", "\r\n", "\r", ""])

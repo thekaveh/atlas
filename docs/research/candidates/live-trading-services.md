@@ -37,12 +37,12 @@ That shared backtest-to-live path is exactly why Atlas should not add these as s
 No current Atlas wiring should be added while live trading services remain rejected. If a later ticket reopens this decision, the first topology should be paper or sandbox only:
 
 - JupyterHub -> Hummingbot/Freqtrade/NautilusTrader for controlled strategy notebooks, paper portfolio handoff, and backtest notebooks only.
-- MinIO -> trading services for historical CSV/parquet datasets, model artifacts, and immutable run inputs.
+- Silo -> trading services for historical CSV/parquet datasets, model artifacts, and immutable run inputs.
 - MLflow -> trading services for paper-run metrics, parameters, artifacts, and model or strategy comparison, never as a promotion-to-live control plane in the first slice.
 - Langfuse -> backend/JupyterHub for LLM-generated strategy explanation and traceability, not for autonomous order approval.
 - TimescaleDB -> trading services only after the watchlisted trading-data slice defines isolated schemas, retention, and read-only/paper credentials.
 - Redpanda -> trading services only for future market-data fan-out, not for order-routing commands in the first slice.
-- Grafana/Superset -> TimescaleDB/MLflow/MinIO for read-only dashboards over paper and historical runs.
+- Grafana/Superset -> TimescaleDB/MLflow/Silo for read-only dashboards over paper and historical runs.
 - n8n -> trading services only through a promotion workflow that is disabled by default and guarded by explicit operator approval.
 - Infisical or OpenBao -> trading services for scoped paper/sandbox secrets before any exchange credential is accepted.
 
@@ -66,14 +66,14 @@ Large. The container mechanics are not the hard part; the hard part is service a
 - **Wizard placement:** a trading safety step after the OpenBB/CCXT financial research kit and after secrets-manager setup. Prompt copy must say the service is paper/sandbox only, not financial advice, disabled by default, and cannot place live orders in the first Atlas integration.
 - **Ports and aliases:** allocate any UI/API ports through Atlas topology/category slot rules with custom `BASE_PORT` support. Candidate aliases are `hummingbot.localhost`, `freqtrade.localhost`, and `nautilustrader.localhost`, but order-execution APIs must stay internal-only or disabled until auth and risk controls exist.
 - **Kong route behavior:** no Kong route for order-execution APIs by default. If a read-only dashboard route exists, it must be separated from any API that can create, cancel, edit, transfer, withdraw, borrow, or submit orders.
-- **Required dependencies:** JupyterHub, MinIO, MLflow, and Langfuse for the first paper/backtest slice. Infisical or OpenBao, audit logs, read-only keys, and operator risk controls are prerequisites before any credentialed exchange connector exists.
+- **Required dependencies:** JupyterHub, Silo, MLflow, and Langfuse for the first paper/backtest slice. Infisical or OpenBao, audit logs, read-only keys, and operator risk controls are prerequisites before any credentialed exchange connector exists.
 - **Optional dependencies:** TimescaleDB for isolated market-history schemas, Redpanda for market-data streams, Grafana or Superset for read-only paper-run dashboards, and backend/n8n only for guarded orchestration.
 - **Downstream consumers:** JupyterHub notebooks, backend read-only summaries, n8n approval flows, Grafana/Superset dashboards, and MLflow experiment tracking. LLM/agent consumers must receive summaries and tool-limited analysis rather than direct order placement.
 - **Manifest and topology:** if reopened, each service needs an explicit `services/<name>/service.yml`, topology row, source validation, env assembly, generated docs, and `data_flow.calls` entries that distinguish market-data reads, paper orders, live-order-capable surfaces, audit writes, and secrets access.
 - **Init companion:** likely yes. An init companion should create paper profiles, seed safe example configs, validate that live trading is disabled, check credential scopes, create isolated log/audit directories, and refuse startup when live credentials appear without an explicit future approval flag.
 - **Volumes and secrets:** separate config, logs, strategy code, historical data, paper-run state, and audit volumes. Secrets must come from a secrets manager, not static `.env` values, once any credentialed connector exists.
 - **Tests required:** manifest validation, source validation, env-example assembly, track membership, disabled-default behavior, no-live route audit, Kong alias gating, custom `BASE_PORT`, compose/source permutations, docs drift, research schema, financial-helper private-method blocks, stale `.env` migration, localhost-mode endpoint validation, missing-secrets failures, init idempotency, and service-specific smoke tests that prove paper mode cannot submit live orders.
-- **Edge cases:** disabled JupyterHub, disabled MLflow, missing MinIO, missing secrets manager, stale live exchange keys in `.env`, paper-to-live config drift, exchange sandbox outages, wrong venue/account, clock skew, duplicate bot instances, queue backlogs, strategy code injection, leaked logs, disk growth, disabled track behavior, prod-profile restrictions, and generated-doc drift.
+- **Edge cases:** disabled JupyterHub, disabled MLflow, missing Silo, missing secrets manager, stale live exchange keys in `.env`, paper-to-live config drift, exchange sandbox outages, wrong venue/account, clock skew, duplicate bot instances, queue backlogs, strategy code injection, leaked logs, disk growth, disabled track behavior, prod-profile restrictions, and generated-doc drift.
 
 ## 8. Revisit criteria
 Reconsider Hummingbot, Freqtrade, or NautilusTrader only after all of these are true:

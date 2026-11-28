@@ -4,7 +4,7 @@
 
 Asset Baker is Atlas' containerized **Blender headless HP→LP bake worker**. It turns AI-generated high-poly meshes into clean low-poly GLBs with a baked BaseColor map and a tangent-space normal map. Raw img2mesh output has interpenetrating shells, texture distortion and no normal map. The pipeline is **voxel-remesh → decimate → fresh Smart-UV → selected-to-active bake** of color and normal from the original.
 
-It is a **separate service from the [Asset Worker](../asset-worker/README.md)**. Asset Worker (Node, glTF-Transform) welds, simplifies and compresses. It *cannot* voxel-remesh, regenerate UVs or bake textures and normals; those steps need Blender. Both use the same content-addressed MinIO artifact schema. Asset Baker serves its own `asset-baker.localhost` route; the Backend gateway has no bake route. The intended chain is `generate → image→3D → bake (this) → optimize (asset-worker)`.
+It is a **separate service from the [Asset Worker](../asset-worker/README.md)**. Asset Worker (Node, glTF-Transform) welds, simplifies and compresses. It *cannot* voxel-remesh, regenerate UVs or bake textures and normals; those steps need Blender. Both use the same content-addressed Silo artifact schema. Asset Baker serves its own `asset-baker.localhost` route; the Backend gateway has no bake route. The intended chain is `generate → image→3D → bake (this) → optimize (asset-worker)`.
 
 It is **disabled by default** (`ASSET_BAKER_SOURCE=disabled`); the supported enabled mode is `container-cpu`. Cycles bakes on **CPU** for determinism and portability (CI, Linux), and Docker on macOS cannot pass Metal into a container.
 
@@ -34,19 +34,19 @@ Every route except `GET /health` and `GET /metrics` requires `Authorization: Bea
 | `ASSET_BAKER_BLENDER_SHA256` | `23432b06...b10c11` | Published SHA-256 verified before the pinned Blender archive is extracted. |
 | `ASSET_BAKER_PORT` | computed | Host port assigned by Atlas' topology allocator. |
 | `ASSET_BAKER_API_TOKEN` | generated | Bearer token required by upload, reference-bake, and artifact-download routes. |
-| `ASSET_BAKER_ALLOWED_INPUT_BUCKETS` | _(blank)_ | Optional comma- or space-separated MinIO bucket allowlist. Blank follows `MINIO_BUCKET_ASSET_INPUTS`. |
+| `ASSET_BAKER_ALLOWED_INPUT_BUCKETS` | _(blank)_ | Optional comma- or space-separated Silo bucket allowlist. Blank follows `SILO_BUCKET_ASSET_INPUTS`. |
 | `ASSET_BAKER_ARTIFACT_DIR` | `/data/artifacts` | Local cache path for baked outputs and direct downloads. |
-| `ASSET_BAKER_MINIO_ENABLED` | `true` | Writes baked GLB + textures to MinIO when enabled. |
-| `ASSET_BAKER_MINIO_BUCKET` | `asset-baker` | Output bucket for content-addressed artifacts. |
-| `ASSET_BAKER_MINIO_ENDPOINT` | auto-managed | Internal MinIO S3 API endpoint. |
-| `ASSET_BAKER_MINIO_ACCESS_KEY` / `ASSET_BAKER_MINIO_SECRET_KEY` | empty | Optional credential override; compose otherwise uses the generated `MINIO_ASSET_BAKER_*` scoped account. |
+| `ASSET_BAKER_SILO_ENABLED` | `true` | Writes baked GLB + textures to Silo when enabled. |
+| `ASSET_BAKER_SILO_BUCKET` | `asset-baker` | Output bucket for content-addressed artifacts. |
+| `ASSET_BAKER_SILO_ENDPOINT` | auto-managed | Internal Silo S3 API endpoint. |
+| `ASSET_BAKER_SILO_ACCESS_KEY` / `ASSET_BAKER_SILO_SECRET_KEY` | empty | Optional credential override; compose otherwise uses the generated `SILO_ASSET_BAKER_*` scoped account. |
 | `ASSET_BAKER_TARGET_TRIS` | `39000` | Default low-poly triangle budget (overridable per request). |
 | `ASSET_BAKER_TEX_SIZE` | `2048` | Default baked texture resolution (square). |
 | `ASSET_BAKER_CANONICAL_SIZE` | `4.0` | Canonical max-dimension each mesh is scaled to before remesh. |
 | `ASSET_BAKER_BRIGHTNESS_MIN` | `0.05` | Mean-brightness QA gate; a baked color mean below this is refused. |
 | `ASSET_BAKER_UPLOAD_TIMEOUT_SECONDS` | `300` | Complete multipart reception deadline in seconds. Must be finite and positive; expiry returns `408`. Excludes conversion and reference requests. |
 | `ASSET_BAKER_TIMEOUT_SECONDS` | `600` | Hard wall-clock ceiling per bake subprocess. |
-| `ASSET_BAKER_MAX_UPLOAD_MB` | `200` | Maximum uploaded or MinIO-referenced GLB size in MiB. Raw multipart reception permits 2 MiB additional framing; oversized bodies return `413` before parsing. |
+| `ASSET_BAKER_MAX_UPLOAD_MB` | `200` | Maximum uploaded or Silo-referenced GLB size in MiB. Raw multipart reception permits 2 MiB additional framing; oversized bodies return `413` before parsing. |
 | `ASSET_BAKER_CONCURRENCY` | `1` | Maximum concurrent bakes; default 1 (one bake saturates CPU). |
 
 Enable from the CLI with:
@@ -128,7 +128,7 @@ curl -H "Authorization: Bearer ${ASSET_BAKER_API_TOKEN}" \
 
 Invalid numeric parameters, including NaN and infinity, return `422` before baking or object-store access. This applies to multipart and JSON requests.
 
-### 4.2. MinIO Referenced GLB
+### 4.2. Silo Referenced GLB
 
 `POST /assets/bake/ref` accepts JSON:
 
@@ -139,7 +139,7 @@ Invalid numeric parameters, including NaN and infinity, return `422` before baki
 }
 ```
 
-The bucket must be in `ASSET_BAKER_ALLOWED_INPUT_BUCKETS`; other buckets return `403` before MinIO is contacted. Write inputs to `raw-assets` with the ingest credentials described in [Asset Worker](../asset-worker/README.md) §4.2.
+The bucket must be in `ASSET_BAKER_ALLOWED_INPUT_BUCKETS`; other buckets return `403` before Silo is contacted. Write inputs to `raw-assets` with the ingest credentials described in [Asset Worker](../asset-worker/README.md) §4.2.
 
 ### 4.3. Response
 
@@ -150,22 +150,22 @@ Both endpoints return a content-addressed artifact envelope — the baked LP GLB
   "status": "succeeded",
   "sha256": "<lp-glb-sha256>",
   "artifact": {
-    "storage": "minio",
+    "storage": "silo",
     "bucket": "asset-baker",
     "key": "bake/<sha256>.glb",
     "uri": "s3://asset-baker/bake/<sha256>.glb",
     "content_type": "model/gltf-binary"
   },
   "textures": [
-    {"role": "basecolor", "storage": "minio", "bucket": "asset-baker", "key": "bake/<sha>.png", "content_type": "image/png"},
-    {"role": "normal",    "storage": "minio", "bucket": "asset-baker", "key": "bake/<sha>.png", "content_type": "image/png"}
+    {"role": "basecolor", "storage": "silo", "bucket": "asset-baker", "key": "bake/<sha>.png", "content_type": "image/png"},
+    {"role": "normal",    "storage": "silo", "bucket": "asset-baker", "key": "bake/<sha>.png", "content_type": "image/png"}
   ],
   "summary": {"mode": "bake", "faces_in": 98000, "tris_out": 15000, "shells_kept": 1, "color_mean": 0.34, "duration_s": 72.0},
   "download_url": null
 }
 ```
 
-When `ASSET_BAKER_MINIO_ENABLED=false`, artifacts are stored under `ASSET_BAKER_ARTIFACT_DIR/bake/<sha256>.{glb,png}` and `download_url=/assets/artifacts/<sha256>.glb`. A `skip` (foliage) bake emits `textures: []` and `color_mean: null`.
+When `ASSET_BAKER_SILO_ENABLED=false`, artifacts are stored under `ASSET_BAKER_ARTIFACT_DIR/bake/<sha256>.{glb,png}` and `download_url=/assets/artifacts/<sha256>.glb`. A `skip` (foliage) bake emits `textures: []` and `color_mean: null`.
 
 Each local artifact is published atomically after its temporary file is fully written and closed. A handled write or replacement failure preserves any previously published artifact and attempts to remove that attempt’s temporary file.
 
@@ -203,7 +203,7 @@ The worker runs one headless Blender subprocess (`blender -b -P bake.py`) per re
 - **Foliage bypass** (`mode=skip`) — thin leaf-shell meshes fragment into shards under remesh+decimate, so foliage is normalized and re-exported without remesh/bake. Rule: buildings/props → `bake`; foliage → `skip`.
 - **Per-source isolation + JSON summary** — one bad asset never aborts a batch; a machine-readable summary drives the gate and content-addressing.
 
-Outputs are SHA-256 content-addressed and written to MinIO (`bake/<sha256>.{glb,png}`) or the local artifact cache, with the Asset Worker schema. The service is separate from the media gateway. Image-to-3D flows send raw provider GLBs to this worker; adapters do not embed bake logic.
+Outputs are SHA-256 content-addressed and written to Silo (`bake/<sha256>.{glb,png}`) or the local artifact cache, with the Asset Worker schema. The service is separate from the media gateway. Image-to-3D flows send raw provider GLBs to this worker; adapters do not embed bake logic.
 
 ## 6. Capabilities & limitations
 
@@ -216,7 +216,7 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 |---|---|---|---|
 | Headless high-to-low-poly texture baking | supported | tested | Atlas runs the voxel-remesh, decimate, Smart-UV, color-bake, normal-bake, and black-output QA pipeline through pinned Blender on Cycles CPU. |
 | Bounded authenticated bake API | supported | tested | Data routes require the generated bearer token. Uploads enforce received-body size and reception deadlines; mutations enforce admission, final input-size, and subprocess-timeout bounds. Health and metrics remain public. |
-| Content-addressed bake artifacts | supported | tested | Successful GLBs and textures use SHA-256 keys in the scoped MinIO bucket by default, with an explicitly selected local-artifact fallback. |
+| Content-addressed bake artifacts | supported | tested | Successful GLBs and textures use SHA-256 keys in the scoped Silo bucket by default, with an explicitly selected local-artifact fallback. |
 | GPU and native ARM64 baking | not-supported | tested | The only source is the CPU container and its pinned Blender archive is linux/amd64-only; the dormant bake-script GPU path is not an Atlas source variant. |
 
 ## 7. Troubleshooting
@@ -229,8 +229,8 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 - `504` bake timeout: raise `ASSET_BAKER_TIMEOUT_SECONDS` or lower `tex_size`/`target_tris` for very heavy assets.
 - `401 Invalid Asset Baker bearer token`: pass `Authorization: Bearer ${ASSET_BAKER_API_TOKEN}`.
 - `403 Input bucket is not allowed`: add the bucket to `ASSET_BAKER_ALLOWED_INPUT_BUCKETS` (see [Asset Worker](../asset-worker/README.md) §7).
-- Dependency check fails with "Asset Baker requires MinIO": the container waits on `minio` and `minio-init`, and the `gen-ai-creative` track leaves MinIO off. Add `--minio-source container` (for example `./start.sh --track gen-ai-creative --asset-baker-source container-cpu --minio-source container`), declare `MINIO_SOURCE: container` in a consumer manifest, or disable Asset Baker.
-- MinIO upload failure: confirm `MINIO_SOURCE=container`, `ASSET_BAKER_MINIO_BUCKET`, and the generated `MINIO_ASSET_BAKER_*` credentials.
+- Dependency check fails with "Asset Baker requires Silo": the container waits on `silo` and `silo-init`, and the `gen-ai-creative` track leaves Silo off. Add `--silo-source container` (for example `./start.sh --track gen-ai-creative --asset-baker-source container-cpu --silo-source container`), declare `SILO_SOURCE: container` in a consumer manifest, or disable Asset Baker.
+- Silo upload failure: confirm `SILO_SOURCE=container`, `ASSET_BAKER_SILO_BUCKET`, and the generated `SILO_ASSET_BAKER_*` credentials.
 - Kong alias missing: confirm `ASSET_BAKER_SOURCE=container-cpu`, run `./start.sh --setup-hosts`, and regenerate routes through the normal startup flow.
 
 ## 8. Dependencies & Integrations
@@ -245,7 +245,7 @@ Support tier: **experimental** — Capability contract declared; no cited cold-s
 
 | Service | Category |
 |---|---|
-| minio | data |
+| silo | data |
 
 ### 8.2. Current — Downstream (services that call this)
 

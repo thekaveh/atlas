@@ -39,7 +39,7 @@ EXPECTED_DISCOVERED = frozenset({
     "Asset Worker",
     "Asset Baker",
     "Document Processor",
-    "MinIO Console",
+    "Silo Console",
     "n8n",
     "Neo4j Graph DB",
     "OpenClaw",
@@ -116,7 +116,7 @@ EXPECTED_DISCOVERED = frozenset({
     "Tempo",
     "Loki",
     # MLflow (added 2026-07-03) — disabled-by-default experiment tracking
-    # and MinIO-backed artifacts for the ML Engineering track.
+    # and Silo-backed artifacts for the ML Engineering track.
     "MLflow",
     # Label Studio (added 2026-07-03) — disabled-by-default annotation
     # review loop for ML/RAG datasets. Single-container app family wired via
@@ -147,7 +147,7 @@ EXPECTED_DISCOVERED = frozenset({
     # demo UI for the RAG track.
     "Verba",
     # Trino (added 2026-07-03) — disabled-by-default SQL query engine over
-    # the Iceberg REST + MinIO lakehouse path for the data-eng track.
+    # the Iceberg REST + Silo lakehouse path for the data-eng track.
     "Trino",
     # Redpanda (added 2026-07-03) — disabled-by-default Kafka API streaming
     # broker + console for the data-eng track. Single-row family wired via

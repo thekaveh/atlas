@@ -33,7 +33,7 @@ Future service shape, if a later secrets ticket promotes this:
 - Topology and port strategy: allocate one `infra` topology slot for the API/UI only if a manifest is added. Cluster/raft listener ports stay internal unless a production profile explicitly exposes them.
 - Kong route behavior: `openbao.localhost` only when enabled and protected; no public route by default.
 - Required dependencies: OpenBao storage, audit-device storage, bootstrap/unseal material, and backup path. Integrated storage is preferred for a first evaluation because it avoids another database but adds Raft/operator duties.
-- Optional dependencies: Infisical migration/bridge scripts, future Authentik/Keycloak OIDC, backup/MinIO for snapshots, and high-risk consumers such as trading, MCP servers, model-download credentials, or PKI clients.
+- Optional dependencies: Infisical migration/bridge scripts, future Authentik/Keycloak OIDC, backup/Silo for snapshots, and high-risk consumers such as trading, MCP servers, model-download credentials, or PKI clients.
 - Operator bootstrap gate: define initialization, root token handling, unseal key custody, bootstrap token lifetime, admin recovery, policy seeding, and whether Shamir unseal or auto-unseal is used.
 - Storage/backup gate: choose integrated storage versus external storage, backup/restore process, audit device retention, cold-start behavior, and disaster-recovery drills before storing critical secrets.
 - Consumer gate: no service receives OpenBao tokens until it has a narrow policy, auth method, lease/renewal behavior, and rotation story.

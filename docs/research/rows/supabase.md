@@ -69,11 +69,11 @@ sources_consulted:
 
 - **imgproxy** -> `../candidates/imgproxy.md`
   - Headline: Image transform/resize sidecar for Supabase Storage's `IMGPROXY_URL`.
-  - Other consumers: supabase-storage, minio, comfyui, open-webui, backend
+  - Other consumers: supabase-storage, silo, comfyui, open-webui, backend
 
 - **TimescaleDB** -> `../candidates/timescaledb.md`
   - Headline: Watchlisted time-series path for a later paper trading-data slice.
-  - Other consumers: jupyterhub, minio, redpanda, mlflow, grafana or superset.
+  - Other consumers: jupyterhub, silo, redpanda, mlflow, grafana or superset.
 
 ## 3. Per-service feature gaps
 

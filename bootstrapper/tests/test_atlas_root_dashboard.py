@@ -286,10 +286,10 @@ def test_the_access_page_names_exactly_the_hosts_kong_gates(tmp_path):
 def test_auth_note_combines_the_gate_with_the_services_own_credential():
     from utils.atlas_dashboard import _auth_note
 
-    gated = frozenset({"minio.localhost", "trino.localhost"})
+    gated = frozenset({"silo.localhost", "trino.localhost"})
     assert _auth_note("Trino", "trino.localhost", gated) == "Kong basic-auth"
-    assert _auth_note("MinIO", "minio.localhost", gated) == "Kong basic-auth + MinIO credentials"
-    assert _auth_note("MinIO", "minio.localhost") == "MinIO credentials"
+    assert _auth_note("Silo", "silo.localhost", gated) == "Kong basic-auth + Silo credentials"
+    assert _auth_note("Silo", "silo.localhost") == "Silo credentials"
     assert _auth_note("Weaviate", "weaviate.localhost", gated) == "Service-specific"
     assert _auth_note("Redis", None) == "Internal"
 
@@ -307,10 +307,10 @@ def test_a_slot_ordering_pin_is_not_reported_as_a_missing_dependency():
     assert not any("ray" in w for w in warnings), warnings
     assert any("verba" in w.lower() and "weaviate" in w for w in warnings), warnings
     # Real hard dependencies still warn (only runtime_deps lost these, cycle 63).
-    sources.update(MINIO_SOURCE="disabled", SPARK_SOURCE="container", ASSET_WORKER_SOURCE="container")
+    sources.update(SILO_SOURCE="disabled", SPARK_SOURCE="container", ASSET_WORKER_SOURCE="container")
     warnings = _dependency_warnings(get_topology().rows, sources, {})
-    assert any("spark" in w.lower() and "minio" in w for w in warnings), warnings
-    assert any("asset worker" in w.lower() and "minio" in w for w in warnings), warnings
+    assert any("spark" in w.lower() and "silo" in w for w in warnings), warnings
+    assert any("asset worker" in w.lower() and "silo" in w for w in warnings), warnings
 
 
 @pytest.mark.parametrize("sources", [
@@ -409,18 +409,18 @@ def backup_dashboard_warning(tmp_path):
     manifest = next(item for item in load_manifests(Path(__file__).resolve().parents[2] / "services")
                     if item.name == "backup")
 
-    def build(mode, backup_source="container", minio_source="disabled"):
+    def build(mode, backup_source="container", silo_source="disabled"):
         sources = {row.source_var: ("container" if row.locked or row.manifest == "supabase" else "disabled")
                    for row in get_topology().rows}
-        sources.update(BACKUP_SOURCE=backup_source, MINIO_SOURCE=minio_source)
+        sources.update(BACKUP_SOURCE=backup_source, SILO_SOURCE=silo_source)
         env = dict(sources)
         if mode is not None:
             env["BACKUP_S3_MODE"] = mode
         parser = _config_parser_for_env(tmp_path, "\n".join(f"{key}={value}" for key, value in env.items()))
         model = build_dashboard_model(parser, hosts_configured=True)
         manager = DependencyManager.__new__(DependencyManager)
-        manager.get_service_scale = lambda name: 0 if name == "minio" and minio_source == "disabled" else 1
-        manager._runs_off_compose = lambda name: minio_source == "localhost"
+        manager.get_service_scale = lambda name: 0 if name == "silo" and silo_source == "disabled" else 1
+        manager._runs_off_compose = lambda name: silo_source == "localhost"
         violations = manager._conditional_dependency_violations("backup", manifest.runtime_deps["backup"], env)
         warnings = [warning for warning in model.warnings
                     if warning.startswith(manifest.label + " has disabled required dependencies:")]
@@ -437,18 +437,18 @@ def test_dashboard_backup_dependency_warning_matches_actual_mode(backup_dashboar
     result = backup_dashboard_warning(mode)
     assert bool(result.violations) == expected
     assert bool(result.warnings) == expected
-    warning = result.label + " has disabled required dependencies: minio."
+    warning = result.label + " has disabled required dependencies: silo."
     assert (escape(warning) in result.html) == expected
     assert all(item == warning for item in result.warnings)
 
 
-@pytest.mark.parametrize(("backup_source", "minio_source"), [
+@pytest.mark.parametrize(("backup_source", "silo_source"), [
     ("disabled", "disabled"), ("container", "container"), ("container", "localhost"),
 ])
 def test_dashboard_backup_dependency_warning_keeps_source_controls(
-    backup_dashboard_warning, backup_source, minio_source,
+    backup_dashboard_warning, backup_source, silo_source,
 ):
-    result = backup_dashboard_warning("local", backup_source, minio_source)
+    result = backup_dashboard_warning("local", backup_source, silo_source)
     assert result.violations == []
     assert result.warnings == []
-    assert "has disabled required dependencies: minio." not in result.html
+    assert "has disabled required dependencies: silo." not in result.html

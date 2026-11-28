@@ -273,8 +273,8 @@ class Manifest:
     capabilities: list[Capability] = field(default_factory=list)
     support: Support = field(default_factory=Support)
     rows: list[Row] = field(default_factory=list)
-    # Extra *.localhost Kong hostnames beyond rows[].alias (e.g. minio's
-    # s3.minio.localhost -> minio:9000). Not wizard rows; may be multi-label.
+    # Extra *.localhost Kong hostnames beyond rows[].alias (e.g. silo's
+    # s3.silo.localhost -> silo:9000). Not wizard rows; may be multi-label.
     # Projected into Topology.aliases for --setup-hosts wiring.
     extra_kong_aliases: list[str] = field(default_factory=list)
     # Slices of the legacy bootstrapper/service-configs.yml structure, owned

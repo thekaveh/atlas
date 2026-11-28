@@ -34,15 +34,15 @@
 | ASSET_BAKER_PLATFORM | asset-baker | linux/amd64 | Platform the asset-baker image is built and run for. The Blender build is x86_64-only, so arm64 hosts (Apple Silicon) run it under emulation; keep linux/amd64. |
 | ASSET_BAKER_ENDPOINT | asset-baker |  | In-network URL for the asset-baker API. |
 | ASSET_BAKER_API_TOKEN | asset-baker |  | Auto-generated bearer token required by all Asset Baker data and processing routes; /health remains unauthenticated. |
-| ASSET_BAKER_ALLOWED_INPUT_BUCKETS | asset-baker |  | Optional comma- or space-separated reference-route bucket allowlist; blank follows MINIO_BUCKET_ASSET_INPUTS. |
+| ASSET_BAKER_ALLOWED_INPUT_BUCKETS | asset-baker |  | Optional comma- or space-separated reference-route bucket allowlist; blank follows SILO_BUCKET_ASSET_INPUTS. |
 | ASSET_BAKER_BLENDER_VERSION | asset-baker | 4.5.16 | Pinned headless Blender version (4.5 LTS line) downloaded into the asset-baker image. Blender bundles its own Python + numpy for the bake script. Its bundled certifi omits the distrusted emSign ECC Root CA - G3. |
 | ASSET_BAKER_BLENDER_SHA256 | asset-baker | 23432b064977908beb1ab4b7f32f024e7331105c875c187dce002aff84b10c11 | SHA-256 checksum verified before extracting the pinned Blender archive. Update it with ASSET_BAKER_BLENDER_VERSION from Blender's published checksum file. |
-| ASSET_BAKER_ARTIFACT_DIR | asset-baker | /data/artifacts | Local artifact cache used when MinIO upload is disabled or for direct downloads. |
-| ASSET_BAKER_MINIO_ENABLED | asset-baker | true | When true, baked LP GLBs + textures are written to MinIO using content-addressed keys. |
-| ASSET_BAKER_MINIO_BUCKET | asset-baker | asset-baker | MinIO bucket for baked LP GLB + texture outputs. |
-| ASSET_BAKER_MINIO_ENDPOINT | asset-baker |  | In-network MinIO S3 API endpoint used by the worker. |
-| ASSET_BAKER_MINIO_ACCESS_KEY | asset-baker |  | Optional MinIO access key override. Empty uses the generated asset-baker scoped MinIO account. |
-| ASSET_BAKER_MINIO_SECRET_KEY | asset-baker |  | Optional MinIO secret key override. Empty uses the generated asset-baker scoped MinIO account. |
+| ASSET_BAKER_ARTIFACT_DIR | asset-baker | /data/artifacts | Local artifact cache used when Silo upload is disabled or for direct downloads. |
+| ASSET_BAKER_SILO_ENABLED | asset-baker | true | When true, baked LP GLBs + textures are written to Silo using content-addressed keys. |
+| ASSET_BAKER_SILO_BUCKET | asset-baker | asset-baker | Silo bucket for baked LP GLB + texture outputs. |
+| ASSET_BAKER_SILO_ENDPOINT | asset-baker |  | In-network Silo S3 API endpoint used by the worker. |
+| ASSET_BAKER_SILO_ACCESS_KEY | asset-baker |  | Optional Silo access key override. Empty uses the generated asset-baker scoped Silo account. |
+| ASSET_BAKER_SILO_SECRET_KEY | asset-baker |  | Optional Silo secret key override. Empty uses the generated asset-baker scoped Silo account. |
 | ASSET_BAKER_TARGET_TRIS | asset-baker | 39000 | Default low-poly triangle budget the decimate stage targets (overridable per request). |
 | ASSET_BAKER_TEX_SIZE | asset-baker | 2048 | Default baked BaseColor/Normal texture resolution (square). Higher resolutions take longer on CPU; overridable per request. |
 | ASSET_BAKER_CANONICAL_SIZE | asset-baker | 4.0 | Canonical max-dimension (units) each mesh is scaled to before remesh so the relative voxel/ray heuristics are stable regardless of the raw GLB import scale. |
@@ -57,19 +57,19 @@
 | ASSET_WORKER_SCALE | asset-worker |  | Set by ./start.sh from ASSET_WORKER_SOURCE; do not edit. 1 runs asset-worker (container), 0 does not. |
 | ASSET_WORKER_ENDPOINT | asset-worker |  | In-network URL for the asset-worker API. |
 | ASSET_WORKER_API_TOKEN | asset-worker |  | Auto-generated bearer token required by all Asset Worker data and processing routes; /health remains unauthenticated. |
-| ASSET_WORKER_ALLOWED_INPUT_BUCKETS | asset-worker |  | Optional comma- or space-separated reference-route bucket allowlist; blank follows MINIO_BUCKET_ASSET_INPUTS. |
+| ASSET_WORKER_ALLOWED_INPUT_BUCKETS | asset-worker |  | Optional comma- or space-separated reference-route bucket allowlist; blank follows SILO_BUCKET_ASSET_INPUTS. |
 | ASSET_WORKER_GLTF_TRANSFORM_VERSION | asset-worker | 4.5.1 | Expected pinned @gltf-transform/cli lock version; overrides must match package.json and package-lock.json. |
-| ASSET_WORKER_MAX_UPLOAD_MB | asset-worker | 200 | Maximum GLB upload or MinIO reference size in MiB. Input is streamed and rejected before transformation when this limit is exceeded. |
+| ASSET_WORKER_MAX_UPLOAD_MB | asset-worker | 200 | Maximum GLB upload or Silo reference size in MiB. Input is streamed and rejected before transformation when this limit is exceeded. |
 | ASSET_WORKER_UPLOAD_TIMEOUT_SECONDS | asset-worker | 300 | Complete multipart upload reception deadline in seconds; finite and positive. Excludes conversion and reference requests; expired reception returns HTTP 408 and releases admission. |
 | ASSET_WORKER_MAX_NORMALIZATION_VERTICES | asset-worker | 250000 | Maximum decoded POSITION entries across distinct supported referenced accessor indices, including overlapping data. Must be a positive integer; exceeding it returns HTTP 422 before decoding. |
 | ASSET_WORKER_TIMEOUT_SECONDS | asset-worker | 300 | Per-command timeout for gltf-transform inspect, validate, and optimize subprocesses. |
 | ASSET_WORKER_CONCURRENCY | asset-worker | 1 | Maximum concurrent glTF mutation requests; saturated workers reject new work with HTTP 429 before request-body parsing or object-store fetch. |
-| ASSET_WORKER_ARTIFACT_DIR | asset-worker | /data/artifacts | Local artifact cache used when MinIO upload is disabled or for direct downloads. |
-| ASSET_WORKER_MINIO_ENABLED | asset-worker | true | When true, optimized GLBs are written to MinIO using content-addressed keys. |
-| ASSET_WORKER_MINIO_BUCKET | asset-worker | asset-worker | MinIO bucket for optimized GLB outputs. |
-| ASSET_WORKER_MINIO_ENDPOINT | asset-worker |  | In-network MinIO S3 API endpoint used by the worker. |
-| ASSET_WORKER_MINIO_ACCESS_KEY | asset-worker |  | Optional MinIO access key override. Empty uses the generated asset-worker scoped MinIO account. |
-| ASSET_WORKER_MINIO_SECRET_KEY | asset-worker |  | Optional MinIO secret key override. Empty uses the generated asset-worker scoped MinIO account. |
+| ASSET_WORKER_ARTIFACT_DIR | asset-worker | /data/artifacts | Local artifact cache used when Silo upload is disabled or for direct downloads. |
+| ASSET_WORKER_SILO_ENABLED | asset-worker | true | When true, optimized GLBs are written to Silo using content-addressed keys. |
+| ASSET_WORKER_SILO_BUCKET | asset-worker | asset-worker | Silo bucket for optimized GLB outputs. |
+| ASSET_WORKER_SILO_ENDPOINT | asset-worker |  | In-network Silo S3 API endpoint used by the worker. |
+| ASSET_WORKER_SILO_ACCESS_KEY | asset-worker |  | Optional Silo access key override. Empty uses the generated asset-worker scoped Silo account. |
+| ASSET_WORKER_SILO_SECRET_KEY | asset-worker |  | Optional Silo secret key override. Empty uses the generated asset-worker scoped Silo account. |
 | ASSET_WORKER_IMAGE | asset-worker | python:3.12.14-slim-bookworm@sha256:0f5b26b9518d002b6173fd61daad821fa340635ebfec5bba471013f9ca114579 | Container image for `asset-worker`. |
 | BACKEND_DB_USER | backend | atlas_backend | Scoped PostgreSQL login for Backend and its Celery worker. |
 | BACKEND_DB_PASSWORD | backend | atlas-db-password | Auto-generated password for the scoped Backend database role. |
@@ -82,9 +82,9 @@
 | COMFYUI_MAX_IMAGE_BYTES | backend | 20971520 | Maximum input or generated-image bytes accepted by the Backend's ComfyUI bridge before it aborts the transfer. |
 | COMFYUI_INIT_IMAGE_TRUSTED_ORIGINS | backend |  | Comma-separated exact HTTPS origins allowed for remote ComfyUI init-image URLs. Blank rejects all remote URLs; data URIs remain available. |
 | COMFYUI_COMPLETION_TIMEOUT_SECONDS | backend | 300 | End-to-end deadline in seconds for synchronous ComfyUI generation and workflow requests. The Backend poller and bundled Open WebUI tool share this default. |
-| RAG_INGESTION_MAX_FILE_BYTES | backend | 104857600 | Maximum bytes loaded from any single mounted or MinIO RAG corpus file. Oversize files fail ingestion before unbounded allocation. |
-| RAG_INGESTION_MAX_CORPUS_BYTES | backend | 1073741824 | Maximum aggregate bytes loaded by one RAG corpus discovery pass across mounted or MinIO files. |
-| RAG_INGESTION_MAX_FILES | backend | 10000 | Maximum number of files accepted in one mounted or MinIO RAG corpus discovery pass. |
+| RAG_INGESTION_MAX_FILE_BYTES | backend | 104857600 | Maximum bytes loaded from any single mounted or Silo RAG corpus file. Oversize files fail ingestion before unbounded allocation. |
+| RAG_INGESTION_MAX_CORPUS_BYTES | backend | 1073741824 | Maximum aggregate bytes loaded by one RAG corpus discovery pass across mounted or Silo files. |
+| RAG_INGESTION_MAX_FILES | backend | 10000 | Maximum number of files accepted in one mounted or Silo RAG corpus discovery pass. |
 | RAG_INGESTION_CORPUS_ROOT | backend | /app/corpus | Container path under which operator-provided read-only RAG corpus mounts are resolved. Mount the same path into Backend and Celery worker when asynchronous ingestion is enabled. |
 | CHONKIE_SEMANTIC_EMBEDDING_MODEL | backend | minishlab/potion-base-32M | Non-empty Chonkie embedding model reference used by semantic chunking. Blank values use the bundled default. Shared by Backend and Celery ingestion workers. |
 | LIGHTRAG_PIPELINE_STATUS_TIMEOUT_SECONDS | backend | 30 | Finite per-request timeout in seconds for LightRAG pipeline-status polling. Values must be greater than 0 and no greater than 3600; invalid values use 30 seconds. Shared by Backend and Celery ingestion workers. |
@@ -149,13 +149,13 @@
 | BACKEND_IMAGE | backend | python:3.12.14-bookworm@sha256:581429e3df12d76e6af4be5ab7d0e7fc2013eb57dc23d2de691411c8efdbb970 | Container image for `backend`. |
 | BACKUP_SOURCE | backup | disabled | Deployment mode: container (enable the runner) or disabled (default). |
 | BACKUP_BUCKET | backup | atlas-backups | Target bucket for backups. |
-| BACKUP_S3_MODE | backup | local | Credential/dependency mode: local uses on-stack MinIO and permits the documented `MINIO_ROOT_*` upgrade fallback; external requires dedicated `BACKUP_S3_*` credentials and has no MinIO runtime dependency. |
-| BACKUP_S3_ENDPOINT | backup | http://minio:9000 | S3 endpoint as a strict HTTP(S) origin: canonical DNS/IPv4 or bracketed IPv6, optional canonical port, and no userinfo/path/query/fragment. The default is on-stack MinIO. |
-| BACKUP_S3_ACCESS_KEY | backup |  | Dedicated S3 access key. Required for external endpoints; local MinIO may fall back to MINIO_ROOT_USER for upgrade compatibility. |
-| BACKUP_S3_SECRET_KEY | backup |  | Dedicated S3 secret key. Required for external endpoints; local MinIO may fall back to MINIO_ROOT_PASSWORD for upgrade compatibility. |
+| BACKUP_S3_MODE | backup | local | Credential/dependency mode: local uses on-stack Silo and permits the documented `SILO_ROOT_*` upgrade fallback; external requires dedicated `BACKUP_S3_*` credentials and has no Silo runtime dependency. |
+| BACKUP_S3_ENDPOINT | backup | http://silo:9000 | S3 endpoint as a strict HTTP(S) origin: canonical DNS/IPv4 or bracketed IPv6, optional canonical port, and no userinfo/path/query/fragment. The default is on-stack Silo. |
+| BACKUP_S3_ACCESS_KEY | backup |  | Dedicated S3 access key. Required for external endpoints; local Silo may fall back to SILO_ROOT_USER for upgrade compatibility. |
+| BACKUP_S3_SECRET_KEY | backup |  | Dedicated S3 secret key. Required for external endpoints; local Silo may fall back to SILO_ROOT_PASSWORD for upgrade compatibility. |
 | BACKUP_S3_REGION | backup | us-east-1 | S3 signing and bucket-creation region. |
 | BACKUP_S3_SESSION_TOKEN | backup |  | Optional S3 security token for temporary credentials. |
-| BACKUP_S3_TLS_VERIFY | backup | true | Verify HTTPS certificates. false is valid only with an https endpoint and explicitly enables the MinIO client's insecure certificate mode. |
+| BACKUP_S3_TLS_VERIFY | backup | true | Verify HTTPS certificates. false is valid only with an https endpoint and explicitly enables the Silo client's insecure certificate mode. |
 | BACKUP_S3_ALIAS_URL | backup |  | Deprecated pre-M11 endpoint variable accepted only as a migration fallback when BACKUP_S3_ENDPOINT remains at its local default. |
 | BACKUP_COMMAND_TIMEOUT_SECONDS | backup | 900 | Positive per-command deadline in seconds, at most 86400, for each database, archive, digest and S3 command. A whole orchestrated backup run gets three times this value, at least 900 s. |
 | BACKUP_RESTORE_GLOBAL_TIMEOUT_SECONDS | backup | 28800 | Finite active-restore deadline; must exceed BACKUP_COMMAND_TIMEOUT_SECONDS. Hard-kill grace covers three bounded commands plus 60 seconds for compensation and exact lock cleanup. |
@@ -323,7 +323,7 @@
 | PROD_ENV_COMFYUI_MEM_LIMIT | globals | 4g | Reserved ComfyUI memory cap. No compose fragment reads it; ComfyUI container sources use COMFYUI_MEMORY_LIMIT. |
 | LOG_MAX_SIZE | globals | 10m | Per-container json-file log max size (Docker logging option). |
 | LOG_MAX_FILE | globals | 3 | Per-container json-file log file count (Docker logging option). |
-| BOOTSTRAPPER_PORT_LAYOUT_VERSION | globals | 5 | Env-migration sentinel. A missing value or one below 5 runs the chained migrations up to v5. They cover port layout, URL to PORT, ComfyUI model set, stale Ollama model cleanup and Weaviate backup-filesystem. Fresh .env files are v5. |
+| BOOTSTRAPPER_PORT_LAYOUT_VERSION | globals | 6 | Env-migration sentinel. A missing value or one below 6 runs migrations up to v6: port layout, URL to PORT, ComfyUI model set, Ollama model cleanup, Weaviate backup module, and the MINIO_* to SILO_* rename. Fresh .env files are v6. |
 | GRAFANA_SOURCE | grafana | disabled | Deployment source for Grafana: container or disabled. |
 | GRAFANA_PORT | grafana | 63009 | Host port for Grafana's HTTP server (in-container 3000). |
 | GRAFANA_ADMIN_USERNAME | grafana | admin | Grafana admin login. Override in .env if needed. |
@@ -365,7 +365,7 @@
 | LIGHTRAG_INTERNAL_URL | hermes |  | Set by ./start.sh from LIGHTRAG_ENDPOINT; do not edit. hermes-init receives it, but config.yaml has no LightRAG block; Hermes reaches LightRAG through LiteLLM. |
 | HERMES_IMAGE | hermes | nousresearch/hermes-agent:v2026.6.19 | Container image for `hermes`. |
 | HERMES_INIT_IMAGE | hermes | alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf | Container image for `hermes-init`. |
-| ICEBERG_REST_SOURCE | iceberg-rest | disabled | Deployment source for the Iceberg REST catalog: container or disabled. The container source requires MINIO_SOURCE to be enabled. |
+| ICEBERG_REST_SOURCE | iceberg-rest | disabled | Deployment source for the Iceberg REST catalog: container or disabled. The container source requires SILO_SOURCE to be enabled. |
 | ICEBERG_REST_PORT | iceberg-rest | 63022 | Host port for the Iceberg REST Catalog API (in-container 8181). |
 | ICEBERG_DB_USER | iceberg-rest | iceberg | Scoped Postgres login for the catalog JDBC store (database iceberg). Supabase db-init (05-scoped-roles.sh) creates it. |
 | ICEBERG_DB_PASSWORD | iceberg-rest | atlas-db-password | Auto-generated by bootstrapper. Postgres role for the Iceberg JDBC catalog DB. |
@@ -375,14 +375,14 @@
 | ICEBERG_REST_INIT_SCALE | iceberg-rest |  | Set by ./start.sh from ICEBERG_REST_SOURCE; do not edit. 1 runs iceberg-rest-init, 0 does not. |
 | ICEBERG_REST_IMAGE | iceberg-rest | apache/iceberg-rest-fixture:1.10.1 | Base image for the local Atlas build. Atlas layers the PostgreSQL JDBC driver onto the Apache fixture image. |
 | ICEBERG_REST_INIT_IMAGE | iceberg-rest | postgres:15.19-alpine | Container image for `iceberg-rest-init`. |
-| JENKINS_SOURCE | jenkins | disabled | Deployment source for Jenkins: container or disabled. The container source requires MINIO_SOURCE to be enabled. |
+| JENKINS_SOURCE | jenkins | disabled | Deployment source for Jenkins: container or disabled. The container source requires SILO_SOURCE to be enabled. |
 | JENKINS_PORT | jenkins | 63090 | Host port for the Jenkins Web UI (in-container 8080). |
 | JENKINS_SCALE | jenkins |  | Set by ./start.sh from JENKINS_SOURCE; do not edit. 1 runs the Jenkins controller, 0 does not. |
 | JENKINS_ADMIN_USER | jenkins | admin | Jenkins admin login created by JCasC. |
 | JENKINS_ADMIN_PASSWORD | jenkins |  | Auto-generated on first bootstrap by KeyGenerator.generate_jenkins_admin_password(). |
 | JENKINS_MEMORY_LIMIT | jenkins | 3g | Container memory limit for Jenkins controller and local Maven builds. |
 | JENKINS_CPU_LIMIT | jenkins | 2.0 | Container CPU limit for Jenkins controller and local Maven builds. |
-| JENKINS_IMAGE | jenkins | jenkins/jenkins:lts-jdk21@sha256:c1e4c349365f6d16d88595b2c5f7e8ff39b8ae1d061f62420bac193b4b9616d0 | Jenkins LTS with JDK 21; Atlas builds a local derived image with Maven, MinIO mc, and plugins. The default pins `lts-jdk21` to a reviewed digest, because the bare tag moves on each new LTS line. To refresh, run `docker pull jenkins/jenkins:lts-jdk21` and set the new digest. |
+| JENKINS_IMAGE | jenkins | jenkins/jenkins:lts-jdk21@sha256:c1e4c349365f6d16d88595b2c5f7e8ff39b8ae1d061f62420bac193b4b9616d0 | Jenkins LTS with JDK 21; Atlas builds a local derived image with Maven, Silo mc, and plugins. The default pins `lts-jdk21` to a reviewed digest, because the bare tag moves on each new LTS line. To refresh, run `docker pull jenkins/jenkins:lts-jdk21` and set the new digest. |
 | JUPYTER_DB_USER | jupyterhub | atlas_jupyter | Read-only PostgreSQL login exposed to curated notebooks. |
 | JUPYTER_DB_PASSWORD | jupyterhub | atlas-db-password | Auto-generated password for JupyterHub's read-only database role. |
 | JUPYTER_DB_USER_URI | jupyterhub | atlas_jupyter | Bootstrapper-synchronized percent-encoded JUPYTER_DB_USER for DSN userinfo. |
@@ -401,9 +401,9 @@
 | KONG_CORS_EXTRA_ORIGINS | kong |  | Comma-separated exact browser origins (scheme://host[:port]) Kong allows cross-origin, beyond *.localhost, localhost and 127.0.0.1. Values are normalised; wildcards and paths are ignored with a warning. Read at Kong config generation. |
 | KONG_SUPABASE_EXTRA_HOSTS | kong |  | Comma-separated extra lowercase Host names (bare hostname or IPv4) the Supabase API routes answer on, beyond the local defaults. Use for a tunnel, LAN address or custom API_EXTERNAL_URL host. Other Hosts get 404. Read at Kong config generation. |
 | DASHBOARD_USERNAME | kong | kong_admin | Username of Kong's Basic-auth dashboard consumer, which gates Supabase Studio, /pg/ and other dashboard routes such as hermes.localhost. |
-| DASHBOARD_PASSWORD | kong | kong_password | Auto-generated on first ./start.sh when left at the placeholder (rotate-when-absent, like MINIO_ROOT_PASSWORD). Gates the Kong-routed Studio dashboard via basic-auth. |
+| DASHBOARD_PASSWORD | kong | kong_password | Auto-generated on first ./start.sh when left at the placeholder (rotate-when-absent, like SILO_ROOT_PASSWORD). Gates the Kong-routed Studio dashboard via basic-auth. |
 | KONG_API_GATEWAY_IMAGE | kong | kong:3.9.3 | Container image for `kong-api-gateway`. |
-| LABEL_STUDIO_SOURCE | label-studio | disabled | Deployment source for Label Studio: container or disabled. The container source requires MINIO_SOURCE to be enabled. |
+| LABEL_STUDIO_SOURCE | label-studio | disabled | Deployment source for Label Studio: container or disabled. The container source requires SILO_SOURCE to be enabled. |
 | LABEL_STUDIO_PORT | label-studio | 63091 | Host port for the Label Studio UI/API (in-container 8080). |
 | LABEL_STUDIO_ENDPOINT | label-studio |  | In-network URL for Atlas services and notebooks. |
 | LABEL_STUDIO_API_URL | label-studio |  | Notebook/backend API URL; empty when Label Studio is disabled. |
@@ -418,7 +418,7 @@
 | LABEL_STUDIO_SECRET_KEY | label-studio |  | Django SECRET_KEY used by the Label Studio container. |
 | LABEL_STUDIO_IMAGE | label-studio | heartexlabs/label-studio:1.23.0 | Container image for `label-studio`. |
 | LABEL_STUDIO_INIT_IMAGE | label-studio | alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf | Container image for `label-studio-init`. |
-| LANGFUSE_SOURCE | langfuse | disabled | Deployment source for Langfuse (web, worker and ClickHouse): container or disabled. The container source requires MINIO_SOURCE to be enabled. |
+| LANGFUSE_SOURCE | langfuse | disabled | Deployment source for Langfuse (web, worker and ClickHouse): container or disabled. The container source requires SILO_SOURCE to be enabled. |
 | LANGFUSE_PORT | langfuse | 63005 | Host port for the Langfuse web UI/API (in-container 3000). |
 | LANGFUSE_ENDPOINT | langfuse |  | In-network URL used by LiteLLM when Langfuse tracing is enabled. |
 | LANGFUSE_WEB_SCALE | langfuse |  | Set by ./start.sh from LANGFUSE_SOURCE; do not edit. 1 runs langfuse-web, 0 does not. |
@@ -593,64 +593,7 @@
 | MCP_SEARXNG_MAX_RESULTS | mcp-servers | 5 | Maximum SearXNG results returned by the web-search MCP tool. |
 | MCP_TOOL_TIMEOUT_SECONDS | mcp-servers | 15 | Timeout for upstream database/search calls made by MCP tools. |
 | MCP_SERVERS_IMAGE | mcp-servers | python:3.12.14-slim | Used as build-arg BASE_IMAGE in build/Dockerfile. |
-| MINIO_SOURCE | minio | container | MinIO deployment source: container or disabled. |
-| MINIO_PORT | minio | 63020 | Host port for the MinIO S3 API (in-container listen port is 9000). |
-| MINIO_CONSOLE_PORT | minio | 63021 | Host port for the MinIO admin console (in-container listen port is 9001). |
-| MINIO_ROOT_USER | minio | minioadmin | MinIO root username. minio-init, airflow, spark-init and backup also receive it; consumer services use their own scoped access keys. |
-| MINIO_ROOT_PASSWORD | minio |  | Auto-generated by bootstrapper KeyGenerator.generate_minio_root_password(). |
-| MINIO_REGION | minio | us-east-1 | S3 region MinIO reports. Clients such as iceberg-rest, jupyterhub, langfuse, label-studio and the asset services use it as their S3 region. |
-| MINIO_INIT_SOURCE | minio | container | Init-container selector listed in the SOURCE matrix (container or disabled). No code reads it: MINIO_INIT_SCALE follows MINIO_SOURCE. |
-| MINIO_SCALE | minio |  | Set by ./start.sh from MINIO_SOURCE; do not edit. 1 runs the minio container, 0 does not. |
-| MINIO_INIT_SCALE | minio |  | Set by ./start.sh from MINIO_SOURCE; do not edit. 1 runs the minio-init container, 0 does not. |
-| MINIO_ENDPOINT | minio |  | In-network URL (S3 API). |
-| MINIO_PUBLIC_ENDPOINT | minio |  | Host-side URL (for browser redirects). |
-| MINIO_PUBLIC_CONSOLE_ENDPOINT | minio |  | Derived by ./start.sh; do not set. Host URL of the MinIO console (http://localhost:${MINIO_CONSOLE_PORT}), empty when disabled. Passed to MinIO as MINIO_BROWSER_REDIRECT_URL. |
-| MINIO_EXTRA_CONSUMERS | minio |  | Optional space-separated parent-owned MinIO entries using CONSUMER:BUCKET_VAR:ACCESS_VAR:SECRET_VAR[:RW_BUCKET_VAR,...[:RO_BUCKET_VAR,...]] grammar for services/_user overlays. |
-| MINIO_BUCKET_ASSET_INPUTS | minio | raw-assets | Shared input bucket for the Asset Worker and Asset Baker scoped service accounts. |
-| MINIO_ASSET_INGEST_ACCESS_KEY | minio |  | Auto-generated scoped MinIO access key for writing shared raw asset inputs. |
-| MINIO_ASSET_INGEST_SECRET_KEY | minio |  | Auto-generated scoped MinIO secret key for writing shared raw asset inputs. |
-| MINIO_ASSET_WORKER_ACCESS_KEY | minio |  | Auto-generated scoped MinIO access key for Asset Worker input and output buckets. |
-| MINIO_ASSET_WORKER_SECRET_KEY | minio |  | Auto-generated scoped MinIO secret key for Asset Worker input and output buckets. |
-| MINIO_ASSET_BAKER_ACCESS_KEY | minio |  | Auto-generated scoped MinIO access key for Asset Baker input and output buckets. |
-| MINIO_ASSET_BAKER_SECRET_KEY | minio |  | Auto-generated scoped MinIO secret key for Asset Baker input and output buckets. |
-| MINIO_BUCKET_COMFYUI | minio | comfyui | Bucket minio-init creates for the comfyui service account. |
-| MINIO_COMFYUI_ACCESS_KEY | minio |  | Auto-generated scoped MinIO access key for the comfyui bucket. |
-| MINIO_COMFYUI_SECRET_KEY | minio |  | Auto-generated scoped MinIO secret key for the comfyui bucket. |
-| MINIO_BUCKET_BACKEND | minio | backend | Bucket minio-init creates for the backend service account. |
-| MINIO_BACKEND_ACCESS_KEY | minio |  | Auto-generated scoped MinIO access key for the backend bucket. |
-| MINIO_BACKEND_SECRET_KEY | minio |  | Auto-generated scoped MinIO secret key for the backend bucket. |
-| MINIO_BUCKET_N8N | minio | n8n | Bucket minio-init creates for the n8n service account. |
-| MINIO_N8N_ACCESS_KEY | minio |  | Auto-generated scoped MinIO access key for the n8n bucket. |
-| MINIO_N8N_SECRET_KEY | minio |  | Auto-generated scoped MinIO secret key for the n8n bucket. |
-| MINIO_BUCKET_JUPYTER | minio | jupyter | Bucket minio-init creates for the jupyter service account, which can also read the Iceberg lakehouse bucket. |
-| MINIO_JUPYTER_ACCESS_KEY | minio |  | Auto-generated scoped MinIO access key for the jupyter bucket. |
-| MINIO_JUPYTER_SECRET_KEY | minio |  | Auto-generated scoped MinIO secret key for the jupyter bucket. |
-| MINIO_BUCKET_SPARK_HISTORY | minio | spark-history | Spark event-log bucket used by Zeppelin and the Spark History Server. |
-| MINIO_SPARK_ACCESS_KEY | minio |  | Auto-generated scoped MinIO access key for Spark event logs and lakehouse workflow buckets. |
-| MINIO_SPARK_SECRET_KEY | minio |  | Auto-generated scoped MinIO secret key for Spark event logs and lakehouse workflow buckets. |
-| MINIO_BUCKET_DOCLING | minio | docling | Bucket minio-init creates for the docling service account. |
-| MINIO_DOCLING_ACCESS_KEY | minio |  | Auto-generated scoped MinIO access key for the docling bucket. |
-| MINIO_DOCLING_SECRET_KEY | minio |  | Auto-generated scoped MinIO secret key for the docling bucket. |
-| MINIO_BUCKET_LANGFUSE | minio | langfuse | Bucket minio-init creates for the langfuse service account. Langfuse uses it for event, media and batch-export uploads. |
-| MINIO_LANGFUSE_ACCESS_KEY | minio |  | Auto-generated scoped MinIO access key for the langfuse bucket. |
-| MINIO_LANGFUSE_SECRET_KEY | minio |  | Auto-generated scoped MinIO secret key for the langfuse bucket. |
-| MINIO_BUCKET_MLFLOW | minio | mlflow | Bucket minio-init creates for the mlflow service account. MLflow stores run artifacts in it. |
-| MINIO_MLFLOW_ACCESS_KEY | minio |  | Auto-generated scoped MinIO access key for the mlflow bucket. |
-| MINIO_MLFLOW_SECRET_KEY | minio |  | Auto-generated scoped MinIO secret key for the mlflow bucket. |
-| MINIO_BUCKET_LABEL_STUDIO | minio | label-studio | Bucket minio-init creates for the label-studio service account. Label Studio uses it as its storage bucket. |
-| MINIO_LABEL_STUDIO_ACCESS_KEY | minio |  | Auto-generated scoped MinIO access key for the label-studio bucket. |
-| MINIO_LABEL_STUDIO_SECRET_KEY | minio |  | Auto-generated scoped MinIO secret key for the label-studio bucket. |
-| MINIO_BUCKET_ICEBERG_LAKEHOUSE | minio | lakehouse | Iceberg warehouse bucket. The iceberg and spark service accounts can write it; the jupyter account can read it. |
-| MINIO_BUCKET_ICEBERG_JARS | minio | jars | Jar bucket for Spark jobs. The spark and iceberg service accounts can write it; Airflow and Jenkins receive its name. |
-| MINIO_BUCKET_ICEBERG_CHECKPOINTS | minio | checkpoints | Checkpoint bucket. The spark and iceberg service accounts can write it; Zeppelin and JupyterHub receive its name. |
-| MINIO_BUCKET_ICEBERG_LANDING | minio | landing | Landing bucket. The spark and iceberg service accounts can write it; Airflow, Zeppelin and JupyterHub receive its name. |
-| MINIO_ICEBERG_ACCESS_KEY | minio |  | Auto-generated scoped MinIO access key for the Iceberg lakehouse buckets. |
-| MINIO_ICEBERG_SECRET_KEY | minio |  | Auto-generated scoped MinIO secret key for the Iceberg lakehouse buckets. |
-| MINIO_JENKINS_ACCESS_KEY | minio |  | Auto-generated scoped MinIO access key for Jenkins. It can write the Iceberg JARs bucket only, so a job cannot rewrite lakehouse data. |
-| MINIO_JENKINS_SECRET_KEY | minio |  | Auto-generated scoped MinIO secret key for Jenkins. It can write the Iceberg JARs bucket only. |
-| MINIO_IMAGE | minio | pgsty/silo:RELEASE.2026-09-16T00-00-00Z@sha256:635197cb9f36d01bee221d34d1c7d7960f6a95c48b0b6c01d99cd13bdae51a46 | Silo, the Pigsty-maintained AGPL fork of the archived MinIO community server, pinned by tag and multi-arch digest. It keeps the `MINIO_*` environment, `/minio/*` routes, mc admin API and on-disk format. Its entrypoint maps `server` to `silo server`, so the compose command is unchanged. It carries the bounded S3 Select CSV reader fix for CVE-2026-39414. Review upstream security advisories before bumping. |
-| MINIO_INIT_IMAGE | minio | pgsty/mc:RELEASE.2026-09-16T00-00-00Z@sha256:cfc83108c3abb371f8fb84d99c1fdc88f8c237e022409b0081fb7c0a3be634dd | Container image for `minio-init`. |
-| MLFLOW_SOURCE | mlflow | disabled | MLflow deployment source: container or disabled. container requires MINIO_SOURCE=container for artifact storage. |
+| MLFLOW_SOURCE | mlflow | disabled | MLflow deployment source: container or disabled. container requires SILO_SOURCE=container for artifact storage. |
 | MLFLOW_PORT | mlflow | 63092 | Host port for the MLflow UI/API (in-container 5000). |
 | MLFLOW_ENDPOINT | mlflow |  | In-network URL for Atlas services and notebooks. |
 | MLFLOW_TRACKING_URI | mlflow |  | Tracking URI injected into JupyterHub when MLflow is enabled. |
@@ -841,6 +784,63 @@
 | SEARXNG_SECRET | searxng |  | Auto-generated by bootstrapper. |
 | SEARXNG_SCALE | searxng |  | Set by ./start.sh from SEARXNG_SOURCE; do not edit. 1 runs the searxng container, 0 does not. |
 | SEARXNG_IMAGE | searxng | searxng/searxng:2026.6.28-357662d86 | Container image for `searxng`. |
+| SILO_SOURCE | silo | container | Silo deployment source: container or disabled. |
+| SILO_PORT | silo | 63020 | Host port for the Silo S3 API (in-container listen port is 9000). |
+| SILO_CONSOLE_PORT | silo | 63021 | Host port for the Silo admin console (in-container listen port is 9001). |
+| SILO_ROOT_USER | silo | minioadmin | Silo root username. silo-init, airflow, spark-init and backup also receive it; consumer services use their own scoped access keys. |
+| SILO_ROOT_PASSWORD | silo |  | Auto-generated by bootstrapper KeyGenerator.generate_silo_root_password(). |
+| SILO_REGION | silo | us-east-1 | S3 region Silo reports. Clients such as iceberg-rest, jupyterhub, langfuse, label-studio and the asset services use it as their S3 region. |
+| SILO_INIT_SOURCE | silo | container | Init-container selector listed in the SOURCE matrix (container or disabled). No code reads it: SILO_INIT_SCALE follows SILO_SOURCE. |
+| SILO_SCALE | silo |  | Set by ./start.sh from SILO_SOURCE; do not edit. 1 runs the silo container, 0 does not. |
+| SILO_INIT_SCALE | silo |  | Set by ./start.sh from SILO_SOURCE; do not edit. 1 runs the silo-init container, 0 does not. |
+| SILO_ENDPOINT | silo |  | In-network URL (S3 API). |
+| SILO_PUBLIC_ENDPOINT | silo |  | Host-side URL (for browser redirects). |
+| SILO_PUBLIC_CONSOLE_ENDPOINT | silo |  | Derived by ./start.sh; do not set. Host URL of the Silo console (http://localhost:${SILO_CONSOLE_PORT}), empty when disabled. Passed to Silo as MINIO_BROWSER_REDIRECT_URL. |
+| SILO_EXTRA_CONSUMERS | silo |  | Optional space-separated parent-owned Silo entries using CONSUMER:BUCKET_VAR:ACCESS_VAR:SECRET_VAR[:RW_BUCKET_VAR,...[:RO_BUCKET_VAR,...]] grammar for services/_user overlays. |
+| SILO_BUCKET_ASSET_INPUTS | silo | raw-assets | Shared input bucket for the Asset Worker and Asset Baker scoped service accounts. |
+| SILO_ASSET_INGEST_ACCESS_KEY | silo |  | Auto-generated scoped Silo access key for writing shared raw asset inputs. |
+| SILO_ASSET_INGEST_SECRET_KEY | silo |  | Auto-generated scoped Silo secret key for writing shared raw asset inputs. |
+| SILO_ASSET_WORKER_ACCESS_KEY | silo |  | Auto-generated scoped Silo access key for Asset Worker input and output buckets. |
+| SILO_ASSET_WORKER_SECRET_KEY | silo |  | Auto-generated scoped Silo secret key for Asset Worker input and output buckets. |
+| SILO_ASSET_BAKER_ACCESS_KEY | silo |  | Auto-generated scoped Silo access key for Asset Baker input and output buckets. |
+| SILO_ASSET_BAKER_SECRET_KEY | silo |  | Auto-generated scoped Silo secret key for Asset Baker input and output buckets. |
+| SILO_BUCKET_COMFYUI | silo | comfyui | Bucket silo-init creates for the comfyui service account. |
+| SILO_COMFYUI_ACCESS_KEY | silo |  | Auto-generated scoped Silo access key for the comfyui bucket. |
+| SILO_COMFYUI_SECRET_KEY | silo |  | Auto-generated scoped Silo secret key for the comfyui bucket. |
+| SILO_BUCKET_BACKEND | silo | backend | Bucket silo-init creates for the backend service account. |
+| SILO_BACKEND_ACCESS_KEY | silo |  | Auto-generated scoped Silo access key for the backend bucket. |
+| SILO_BACKEND_SECRET_KEY | silo |  | Auto-generated scoped Silo secret key for the backend bucket. |
+| SILO_BUCKET_N8N | silo | n8n | Bucket silo-init creates for the n8n service account. |
+| SILO_N8N_ACCESS_KEY | silo |  | Auto-generated scoped Silo access key for the n8n bucket. |
+| SILO_N8N_SECRET_KEY | silo |  | Auto-generated scoped Silo secret key for the n8n bucket. |
+| SILO_BUCKET_JUPYTER | silo | jupyter | Bucket silo-init creates for the jupyter service account, which can also read the Iceberg lakehouse bucket. |
+| SILO_JUPYTER_ACCESS_KEY | silo |  | Auto-generated scoped Silo access key for the jupyter bucket. |
+| SILO_JUPYTER_SECRET_KEY | silo |  | Auto-generated scoped Silo secret key for the jupyter bucket. |
+| SILO_BUCKET_SPARK_HISTORY | silo | spark-history | Spark event-log bucket used by Zeppelin and the Spark History Server. |
+| SILO_SPARK_ACCESS_KEY | silo |  | Auto-generated scoped Silo access key for Spark event logs and lakehouse workflow buckets. |
+| SILO_SPARK_SECRET_KEY | silo |  | Auto-generated scoped Silo secret key for Spark event logs and lakehouse workflow buckets. |
+| SILO_BUCKET_DOCLING | silo | docling | Bucket silo-init creates for the docling service account. |
+| SILO_DOCLING_ACCESS_KEY | silo |  | Auto-generated scoped Silo access key for the docling bucket. |
+| SILO_DOCLING_SECRET_KEY | silo |  | Auto-generated scoped Silo secret key for the docling bucket. |
+| SILO_BUCKET_LANGFUSE | silo | langfuse | Bucket silo-init creates for the langfuse service account. Langfuse uses it for event, media and batch-export uploads. |
+| SILO_LANGFUSE_ACCESS_KEY | silo |  | Auto-generated scoped Silo access key for the langfuse bucket. |
+| SILO_LANGFUSE_SECRET_KEY | silo |  | Auto-generated scoped Silo secret key for the langfuse bucket. |
+| SILO_BUCKET_MLFLOW | silo | mlflow | Bucket silo-init creates for the mlflow service account. MLflow stores run artifacts in it. |
+| SILO_MLFLOW_ACCESS_KEY | silo |  | Auto-generated scoped Silo access key for the mlflow bucket. |
+| SILO_MLFLOW_SECRET_KEY | silo |  | Auto-generated scoped Silo secret key for the mlflow bucket. |
+| SILO_BUCKET_LABEL_STUDIO | silo | label-studio | Bucket silo-init creates for the label-studio service account. Label Studio uses it as its storage bucket. |
+| SILO_LABEL_STUDIO_ACCESS_KEY | silo |  | Auto-generated scoped Silo access key for the label-studio bucket. |
+| SILO_LABEL_STUDIO_SECRET_KEY | silo |  | Auto-generated scoped Silo secret key for the label-studio bucket. |
+| SILO_BUCKET_ICEBERG_LAKEHOUSE | silo | lakehouse | Iceberg warehouse bucket. The iceberg and spark service accounts can write it; the jupyter account can read it. |
+| SILO_BUCKET_ICEBERG_JARS | silo | jars | Jar bucket for Spark jobs. The spark and iceberg service accounts can write it; Airflow and Jenkins receive its name. |
+| SILO_BUCKET_ICEBERG_CHECKPOINTS | silo | checkpoints | Checkpoint bucket. The spark and iceberg service accounts can write it; Zeppelin and JupyterHub receive its name. |
+| SILO_BUCKET_ICEBERG_LANDING | silo | landing | Landing bucket. The spark and iceberg service accounts can write it; Airflow, Zeppelin and JupyterHub receive its name. |
+| SILO_ICEBERG_ACCESS_KEY | silo |  | Auto-generated scoped Silo access key for the Iceberg lakehouse buckets. |
+| SILO_ICEBERG_SECRET_KEY | silo |  | Auto-generated scoped Silo secret key for the Iceberg lakehouse buckets. |
+| SILO_JENKINS_ACCESS_KEY | silo |  | Auto-generated scoped Silo access key for Jenkins. It can write the Iceberg JARs bucket only, so a job cannot rewrite lakehouse data. |
+| SILO_JENKINS_SECRET_KEY | silo |  | Auto-generated scoped Silo secret key for Jenkins. It can write the Iceberg JARs bucket only. |
+| SILO_IMAGE | silo | pgsty/silo:RELEASE.2026-09-16T00-00-00Z@sha256:635197cb9f36d01bee221d34d1c7d7960f6a95c48b0b6c01d99cd13bdae51a46 | Silo, the Pigsty-maintained AGPL fork of the archived MinIO community server, pinned by tag and multi-arch digest. It keeps the `MINIO_*` server environment names, `/minio/*` routes, mc admin API and on-disk format; Atlas's own variables are `SILO_*`. Its entrypoint maps `server` to `silo server`, so the compose command is unchanged. It carries the bounded S3 Select CSV reader fix for CVE-2026-39414. Review upstream security advisories before bumping. |
+| SILO_INIT_IMAGE | silo | pgsty/mc:RELEASE.2026-09-16T00-00-00Z@sha256:cfc83108c3abb371f8fb84d99c1fdc88f8c237e022409b0081fb7c0a3be634dd | Container image for `silo-init`. |
 | SPARK_SOURCE | spark | disabled | Deployment source for the Spark standalone cluster (master, workers, history, Spark Connect, spark-init): container or disabled (default). |
 | SPARK_MASTER_UI_PORT | spark | 63027 | Host port for the Spark Master Web UI (in-container 8080). |
 | SPARK_HISTORY_PORT | spark | 63028 | Host port for the Spark History Server (in-container 18080). |
@@ -986,11 +986,11 @@
 | TIKA_SCALE | tika |  | Set by ./start.sh from TIKA_SOURCE; do not edit. 1 runs tika for container, 0 otherwise. |
 | TIKA_ENDPOINT | tika |  | Resolved per TIKA_SOURCE: http://tika:9998, the tika-localhost URL, or empty when disabled. Read by backend, celery and n8n. |
 | TIKA_IMAGE | tika | apache/tika:3.3.1.0 | Container image for `tika`. |
-| TRINO_SOURCE | trino | disabled | Deployment source for the Trino coordinator: container or disabled (default). container requires MinIO and the Iceberg REST catalog. |
+| TRINO_SOURCE | trino | disabled | Deployment source for the Trino coordinator: container or disabled (default). container requires Silo and the Iceberg REST catalog. |
 | TRINO_PORT | trino | 63029 | Host port for the Trino coordinator UI/API (in-container 8080). |
 | TRINO_SCALE | trino |  | Set by ./start.sh from TRINO_SOURCE; do not edit. 1 runs trino, 0 does not. |
 | TRINO_MEMORY_LIMIT | trino | 4g | Container memory limit for trino (deploy.resources.limits.memory). The image sizes its heap at 80% of available memory, so without a limit it took 80% of host RAM. |
-| TRINO_IMAGE | trino | trinodb/trino:482 | Pinned to the current Trino release tag validated against the Iceberg REST + MinIO catalog contract. |
+| TRINO_IMAGE | trino | trinodb/trino:482 | Pinned to the current Trino release tag validated against the Iceberg REST + Silo catalog contract. |
 | TRUEFORGE_SOURCE | trueforge | disabled | Deployment source for TrueForge (server, schedule controller and init): container or disabled (default). |
 | TRUEFORGE_PORT | trueforge | 63079 | Host port for the TrueForge server UI + API (in-container 8790). |
 | TRUEFORGE_ENDPOINT | trueforge |  | Resolved per TRUEFORGE_SOURCE — `http://trueforge:8790` for container, empty for disabled. |

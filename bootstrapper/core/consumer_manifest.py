@@ -57,13 +57,13 @@ class ConsumerManifestError(ValueError):
 
 @dataclass(frozen=True)
 class StorageStore:
-    """One consumer-declared object store: a scoped MinIO service account
+    """One consumer-declared object store: a scoped Silo service account
     over one primary bucket (plus optional extra buckets sharing the account).
 
     ``key`` is the sanitized, upper-snake identifier used for every generated
-    env var (``MINIO_BUCKET_<KEY>``, ``MINIO_<KEY>_ACCESS_KEY``, …).
+    env var (``SILO_BUCKET_<KEY>``, ``SILO_<KEY>_ACCESS_KEY``, …).
     ``consumer_id`` is the lower-hyphen id used as the first field of the
-    ``MINIO_EXTRA_CONSUMERS`` entry (init-minio.sh policy/log name).
+    ``SILO_EXTRA_CONSUMERS`` entry (init-silo.sh policy/log name).
     """
 
     consumer: str
@@ -75,25 +75,25 @@ class StorageStore:
 
     @property
     def bucket_var(self) -> str:
-        return f"MINIO_BUCKET_{self.key}"
+        return f"SILO_BUCKET_{self.key}"
 
     @property
     def access_var(self) -> str:
-        return f"MINIO_{self.key}_ACCESS_KEY"
+        return f"SILO_{self.key}_ACCESS_KEY"
 
     @property
     def secret_var(self) -> str:
-        return f"MINIO_{self.key}_SECRET_KEY"
+        return f"SILO_{self.key}_SECRET_KEY"
 
     def extra_bucket_var(self, index: int) -> str:
-        return f"MINIO_BUCKET_{self.key}_EXTRA_{index}"
+        return f"SILO_BUCKET_{self.key}_EXTRA_{index}"
 
     @property
     def all_buckets(self) -> tuple[str, ...]:
         return (self.bucket, *self.extra_buckets)
 
     def extra_consumer_entry(self) -> str:
-        """Render the init-minio.sh MINIO_EXTRA_CONSUMERS entry for this store."""
+        """Render the init-silo.sh SILO_EXTRA_CONSUMERS entry for this store."""
         entry = f"{self.consumer_id}:{self.bucket_var}:{self.access_var}:{self.secret_var}"
         if self.extra_buckets:
             extra_vars = ",".join(
@@ -106,7 +106,7 @@ class StorageStore:
 @dataclass(frozen=True)
 class StorageOverlay:
     """An Atlas-generated compose overlay wiring declared storage vars into
-    ``minio-init`` so the consumer never hand-writes a compose override."""
+    ``silo-init`` so the consumer never hand-writes a compose override."""
 
     path: Path
     content: str
@@ -238,14 +238,14 @@ class RagCorpus:
     Only two input modes are allowed — a consumer-mounted read-only directory
     (``mount``, a repo-relative path resolved under the backend's corpus root, so
     the ingestion API can never be pointed at an arbitrary host filesystem path)
-    or a MinIO bucket/prefix (``minio``). This is the security boundary in the
+    or a Silo bucket/prefix (``silo``). This is the security boundary in the
     Final feasibility triage: "the API must not accept arbitrary host paths".
     """
 
-    source: str  # "mount" | "minio"
+    source: str  # "mount" | "silo"
     path: str | None = None  # mount: repo/container-relative, no leading '/' or '..'
-    bucket: str | None = None  # minio
-    prefix: str | None = None  # minio
+    bucket: str | None = None  # silo
+    prefix: str | None = None  # silo
     access_key_var: str | None = None  # generated from matching consumer storage
     secret_key_var: str | None = None  # generated from matching consumer storage
 
@@ -939,18 +939,18 @@ def _load_manifest(path: Path) -> Mapping[str, Any]:
 # ─── Consumer object-storage contract (#404) ─────────────────────────
 #
 # A consumer declares object stores in its manifest; Atlas compiles each to
-# the existing #409 ``MINIO_EXTRA_CONSUMERS`` provisioning grammar (no init
+# the existing #409 ``SILO_EXTRA_CONSUMERS`` provisioning grammar (no init
 # logic is duplicated) and exports stable per-store endpoint/credential fields
 # for #345 to wire. The generated overlay injects the dynamic bucket/key vars
-# into ``minio-init`` so the consumer writes no compose override.
+# into ``silo-init`` so the consumer writes no compose override.
 
-# Generated minio-init storage overlay lives under the gitignored volumes/
+# Generated silo-init storage overlay lives under the gitignored volumes/
 # runtime-artifacts tree (never hand-edited; regenerated every start).
-MINIO_STORAGE_OVERLAY_PATH = Path("volumes/minio/consumer-storage.compose.yml")
+SILO_STORAGE_OVERLAY_PATH = Path("volumes/silo/consumer-storage.compose.yml")
 
 # Default bucket names Atlas provisions for its own built-in consumers. A
 # consumer store may not reuse one of these (they are operator-configurable
-# via MINIO_BUCKET_*, but the defaults are the safe collision set).
+# via SILO_BUCKET_*, but the defaults are the safe collision set).
 _BUILTIN_BUCKET_NAMES = frozenset(
     {
         "comfyui", "backend", "n8n", "jupyter", "docling", "langfuse",
@@ -960,12 +960,12 @@ _BUILTIN_BUCKET_NAMES = frozenset(
 )
 
 
-def _stack_minio_reservations(
+def _stack_silo_reservations(
     runtime_env: Mapping[str, str] | None = None,
 ) -> tuple[frozenset, frozenset]:
-    """(env var names, bucket defaults) the stack's own MinIO wiring uses.
+    """(env var names, bucket defaults) the stack's own Silo wiring uses.
 
-    A store's generated MINIO_BUCKET_<KEY> / MINIO_<KEY>_ACCESS_KEY must not
+    A store's generated SILO_BUCKET_<KEY> / SILO_<KEY>_ACCESS_KEY must not
     alias one (consumer "asset" + store "baker" took over asset-baker's
     credentials and policy). Read from .env.example so new stack buckets are
     covered; the static bucket list is the fallback. Reserve effective bucket
@@ -979,7 +979,7 @@ def _stack_minio_reservations(
     except OSError:
         return frozenset(), _BUILTIN_BUCKET_NAMES
     pattern = re.compile(
-        r"^((?:MINIO_BUCKET_\w+|ASSET_\w+_MINIO_BUCKET|MINIO_\w+_(?:ACCESS|SECRET)_KEY))=(.*)$",
+        r"^((?:SILO_BUCKET_\w+|ASSET_\w+_SILO_BUCKET|SILO_\w+_(?:ACCESS|SECRET)_KEY))=(.*)$",
         re.M,
     )
     names, buckets = set(), set(_BUILTIN_BUCKET_NAMES)
@@ -1001,21 +1001,21 @@ _IPV4_RE = __import__("re").compile(r"^\d{1,3}(\.\d{1,3}){3}$")
 
 
 def _sanitize_token(value: str) -> str:
-    """Upper-snake identifier for env-var names (MINIO_BUCKET_<TOKEN>)."""
+    """Upper-snake identifier for env-var names (SILO_BUCKET_<TOKEN>)."""
     import re
 
     return re.sub(r"[^A-Za-z0-9]+", "_", value).strip("_").upper()
 
 
 def _sanitize_consumer_id(value: str) -> str:
-    """Lower-hyphen id for the MINIO_EXTRA_CONSUMERS entry / policy name."""
+    """Lower-hyphen id for the SILO_EXTRA_CONSUMERS entry / policy name."""
     import re
 
     return re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
 
 
 def _validate_bucket_name(name: str, *, origin: str) -> None:
-    """Enforce S3-compatible bucket naming (MinIO path-style)."""
+    """Enforce S3-compatible bucket naming (Silo path-style)."""
     if not (3 <= len(name) <= 63):
         raise ConsumerManifestError(
             f"storage bucket {name!r} must be 3-63 characters ({origin})"
@@ -1025,7 +1025,7 @@ def _validate_bucket_name(name: str, *, origin: str) -> None:
             f"storage bucket {name!r} must be lowercase alphanumeric with "
             f"hyphens/dots, starting and ending alphanumeric ({origin})"
         )
-    # MinIO and S3 also reject '.-' and '-.'; accepting them made minio-init's
+    # Silo and S3 also reject '.-' and '-.'; accepting them made silo-init's
     # `mc mb` fail at start (2026-10-08 run, cycle 31).
     if any(seq in name for seq in ("..", ".-", "-.")) or _IPV4_RE.match(name):
         raise ConsumerManifestError(
@@ -1132,7 +1132,7 @@ def _validate_storage_collisions(
     bucket_owner: dict[str, str] = {}
     keys: set[str] = set()
     consumer_ids: set[str] = set()
-    stack_vars, stack_buckets = _stack_minio_reservations(runtime_env)
+    stack_vars, stack_buckets = _stack_silo_reservations(runtime_env)
     generated_vars: set[str] = set(stack_vars)
     for store in stores:
         if store.key in keys:
@@ -1160,7 +1160,7 @@ def _validate_storage_collisions(
 
 
 def compile_storage_provisioning(stores: Iterable[StorageStore]) -> dict[str, str]:
-    """Compile stores to #409 provisioning env: bucket vars + MINIO_EXTRA_CONSUMERS.
+    """Compile stores to #409 provisioning env: bucket vars + SILO_EXTRA_CONSUMERS.
 
     Credentials are intentionally NOT emitted here — they are generated once by
     KeyGenerator (blank-only) so restarts don't rotate scoped secrets.
@@ -1173,16 +1173,16 @@ def compile_storage_provisioning(stores: Iterable[StorageStore]) -> dict[str, st
             env[store.extra_bucket_var(i)] = extra
         entries.append(store.extra_consumer_entry())
     if entries:
-        env["MINIO_EXTRA_CONSUMERS"] = " ".join(entries)
+        env["SILO_EXTRA_CONSUMERS"] = " ".join(entries)
     return env
 
 
 def compile_storage_exports(
     stores: Iterable[StorageStore],
     *,
-    minio_endpoint: str,
-    minio_public_endpoint: str,
-    minio_region: str,
+    silo_endpoint: str,
+    silo_public_endpoint: str,
+    silo_region: str,
 ) -> dict[str, str]:
     """Stable per-store export fields consumed by #345 endpoint wiring.
 
@@ -1194,9 +1194,9 @@ def compile_storage_exports(
     for store in stores:
         prefix = f"ATLAS_STORE_{store.key}"
         env[f"{prefix}_BUCKET"] = store.bucket
-        env[f"{prefix}_INTERNAL_ENDPOINT"] = minio_endpoint
-        env[f"{prefix}_PUBLIC_ENDPOINT"] = minio_public_endpoint
-        env[f"{prefix}_REGION"] = minio_region
+        env[f"{prefix}_INTERNAL_ENDPOINT"] = silo_endpoint
+        env[f"{prefix}_PUBLIC_ENDPOINT"] = silo_public_endpoint
+        env[f"{prefix}_REGION"] = silo_region
         env[f"{prefix}_ACCESS_KEY_VAR"] = store.access_var
         env[f"{prefix}_SECRET_KEY_VAR"] = store.secret_var
         if store.extra_buckets:
@@ -1205,7 +1205,7 @@ def compile_storage_exports(
 
 
 def storage_credential_tokens(stores: Iterable[StorageStore]) -> list[str]:
-    """Return the ``<KEY>`` tokens whose MINIO_<KEY>_ACCESS/SECRET_KEY vars the
+    """Return the ``<KEY>`` tokens whose SILO_<KEY>_ACCESS/SECRET_KEY vars the
     KeyGenerator must backfill (blank-only)."""
     out: list[str] = []
     seen: set[str] = set()
@@ -1216,28 +1216,28 @@ def storage_credential_tokens(stores: Iterable[StorageStore]) -> list[str]:
     return out
 
 
-def render_minio_storage_overlay(stores: Iterable[StorageStore]) -> str:
+def render_silo_storage_overlay(stores: Iterable[StorageStore]) -> str:
     """Render a compose overlay that provisions the declared stores via
-    ``minio-init``. The overlay — NOT ``.env`` — is the single source of truth
+    ``silo-init``. The overlay — NOT ``.env`` — is the single source of truth
     for storage provisioning: bucket names are literal and the store's
-    ``MINIO_EXTRA_CONSUMERS`` entries are appended to any operator/``_user``
-    value via ``${MINIO_EXTRA_CONSUMERS:-}``. Because the overlay is regenerated
+    ``SILO_EXTRA_CONSUMERS`` entries are appended to any operator/``_user``
+    value via ``${SILO_EXTRA_CONSUMERS:-}``. Because the overlay is regenerated
     (or removed) from the current manifest every start, removing a store leaves
-    no dangling ``.env`` provisioning that would crash ``minio-init`` on a warm
+    no dangling ``.env`` provisioning that would crash ``silo-init`` on a warm
     restart. Only the scoped credentials are sourced from ``.env`` (generated
     once, blank-only, so they persist across restarts).
     """
     stores = list(stores)
     prov = compile_storage_provisioning(stores)
-    entries = prov.get("MINIO_EXTRA_CONSUMERS", "")
+    entries = prov.get("SILO_EXTRA_CONSUMERS", "")
     lines = [
         "# AUTO-GENERATED by Atlas consumer storage contract (#404) — do not edit.",
-        "# Provisions manifest-declared MinIO stores; regenerated every start.",
+        "# Provisions manifest-declared Silo stores; regenerated every start.",
         "services:",
-        "  minio-init:",
+        "  silo-init:",
         "    environment:",
-        # Merge with any operator/_user MINIO_EXTRA_CONSUMERS from .env.
-        f'      MINIO_EXTRA_CONSUMERS: "${{MINIO_EXTRA_CONSUMERS:-}} {entries}"',
+        # Merge with any operator/_user SILO_EXTRA_CONSUMERS from .env.
+        f'      SILO_EXTRA_CONSUMERS: "${{SILO_EXTRA_CONSUMERS:-}} {entries}"',
     ]
     for store in stores:
         # Bucket names are literal (source of truth is the manifest).
@@ -2109,7 +2109,7 @@ def render_n8n_seed_overlay(workflows: Iterable[N8nWorkflow]) -> str:
 # A consumer declares versioned ``rag_ingestion_profiles`` describing a
 # repeatable ingestion lifecycle (discover → parse → chunk → embed → vector
 # write → LightRAG upload → drain → finalize) over an Atlas-mounted corpus or a
-# MinIO prefix. Atlas validates + normalizes each profile, hashes it into a
+# Silo prefix. Atlas validates + normalizes each profile, hashes it into a
 # stable ``revision`` (the third field of the ingestion idempotency key), and
 # compiles a single JSON profiles file the backend reads at runtime plus a
 # compose overlay that bind-mounts it into the backend and points
@@ -2144,7 +2144,7 @@ def _weaviate_class_name(collection_prefix: str, profile_name: str) -> str:
     chars (`.`/`-`) are sanitized to `_` so collision detection here matches the
     class name the backend actually writes/reconciles."""
     return f"{collection_prefix}_{_RAG_CLASS_SANITIZE_RE.sub('_', profile_name)}"
-_RAG_CORPUS_SOURCES = frozenset({"mount", "minio"})
+_RAG_CORPUS_SOURCES = frozenset({"mount", "silo"})
 _RAG_PARSERS = frozenset({"docling", "tika", "plain_text"})
 _RAG_CHUNK_STRATEGIES = frozenset({"token", "recursive", "semantic"})
 _RAG_VECTOR_BACKENDS = frozenset({"weaviate"})
@@ -2531,10 +2531,10 @@ def _parse_rag_corpus(raw: Any, *, profile: str, origin: str) -> RagCorpus:
     prefix = str(raw.get("prefix") or "").strip()
     if not bucket or not prefix:
         raise ConsumerManifestError(
-            f"rag_ingestion_profiles[{profile!r}] corpus source=minio requires both bucket "
+            f"rag_ingestion_profiles[{profile!r}] corpus source=silo requires both bucket "
             f"and prefix ({origin})"
         )
-    return RagCorpus(source="minio", bucket=bucket, prefix=prefix)
+    return RagCorpus(source="silo", bucket=bucket, prefix=prefix)
 
 
 def _parse_rag_chunker(raw: Any, *, profile: str, origin: str) -> RagChunker:
@@ -2814,14 +2814,14 @@ def _validate_rag_ingestion_collisions(profiles: Iterable[RagIngestionProfile]) 
             collection_owner[collection] = profile.name
 
 
-def _bind_rag_minio_credentials(
+def _bind_rag_silo_credentials(
     profiles: Iterable[RagIngestionProfile],
     stores: Iterable[StorageStore],
 ) -> list[RagIngestionProfile]:
     stores = list(stores)
     bound: list[RagIngestionProfile] = []
     for profile in profiles:
-        if profile.corpus.source != "minio":
+        if profile.corpus.source != "silo":
             bound.append(profile)
             continue
         store = next(
@@ -2835,7 +2835,7 @@ def _bind_rag_minio_credentials(
         )
         if store is None:
             raise ConsumerManifestError(
-                f"rag_ingestion_profiles[{profile.name!r}] MinIO bucket "
+                f"rag_ingestion_profiles[{profile.name!r}] Silo bucket "
                 f"{profile.corpus.bucket!r} must be declared under storage.buckets "
                 f"by consumer {profile.consumer!r}"
             )
@@ -3620,15 +3620,15 @@ def load_consumer_config(
     storage_overlay: StorageOverlay | None = None
     if all_storage:
         _validate_storage_collisions(all_storage)
-        # Provisioning (bucket names + MINIO_EXTRA_CONSUMERS entries) lives ONLY
+        # Provisioning (bucket names + SILO_EXTRA_CONSUMERS entries) lives ONLY
         # in the generated overlay — never persisted to .env — so removing a
-        # store leaves no dangling entry to crash minio-init on a warm restart.
+        # store leaves no dangling entry to crash silo-init on a warm restart.
         # The overlay merges its entries onto any operator/_user
-        # MINIO_EXTRA_CONSUMERS via ${MINIO_EXTRA_CONSUMERS:-}. Only scoped
+        # SILO_EXTRA_CONSUMERS via ${SILO_EXTRA_CONSUMERS:-}. Only scoped
         # credentials persist in .env (generated blank-only).
         storage_overlay = StorageOverlay(
-            path=root / MINIO_STORAGE_OVERLAY_PATH,
-            content=render_minio_storage_overlay(all_storage),
+            path=root / SILO_STORAGE_OVERLAY_PATH,
+            content=render_silo_storage_overlay(all_storage),
         )
 
     litellm_models_file: LitellmArtifact | None = None
@@ -3661,7 +3661,7 @@ def load_consumer_config(
     rag_ingestion_file: GeneratedArtifact | None = None
     rag_ingestion_overlay: GeneratedArtifact | None = None
     if all_rag:
-        all_rag = _bind_rag_minio_credentials(all_rag, all_storage)
+        all_rag = _bind_rag_silo_credentials(all_rag, all_storage)
         # Profile names are globally unique + Weaviate collections non-colliding.
         _validate_rag_ingestion_collisions(all_rag)
         rag_ingestion_file = GeneratedArtifact(

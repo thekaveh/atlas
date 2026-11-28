@@ -26,17 +26,17 @@ services:
       # property (Airlift reads those as config) so the image's own
       # config.properties stays untouched.
       JAVA_TOOL_OPTIONS: -Dhttp-server.process-forwarded=true
-      MINIO_REGION: ${MINIO_REGION:-us-east-1}
-      # Same bucket iceberg-rest, Spark and minio-init use (catalog/lakehouse.properties).
-      MINIO_BUCKET_ICEBERG_LAKEHOUSE: ${MINIO_BUCKET_ICEBERG_LAKEHOUSE:-lakehouse}
-      MINIO_ICEBERG_ACCESS_KEY: ${MINIO_ICEBERG_ACCESS_KEY}
-      MINIO_ICEBERG_SECRET_KEY: ${MINIO_ICEBERG_SECRET_KEY}
+      SILO_REGION: ${SILO_REGION:-us-east-1}
+      # Same bucket iceberg-rest, Spark and silo-init use (catalog/lakehouse.properties).
+      SILO_BUCKET_ICEBERG_LAKEHOUSE: ${SILO_BUCKET_ICEBERG_LAKEHOUSE:-lakehouse}
+      SILO_ICEBERG_ACCESS_KEY: ${SILO_ICEBERG_ACCESS_KEY}
+      SILO_ICEBERG_SECRET_KEY: ${SILO_ICEBERG_SECRET_KEY}
     volumes:
       - ./catalog:/etc/trino/catalog:ro
     depends_on:
       iceberg-rest:
         condition: service_healthy
-      minio-init:
+      silo-init:
         condition: service_completed_successfully
     logging:
       driver: json-file

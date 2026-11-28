@@ -70,7 +70,7 @@ def _basic_auth_hosts(services: list[Dict[str, Any]]) -> frozenset[str]:
 
 
 # A path separator as Kong sees it: Kong keeps an encoded slash, and Go
-# upstreams (Prometheus, MinIO) decode it back to '/' before routing, so a
+# upstreams (Prometheus, Silo) decode it back to '/' before routing, so a
 # blocked path must match either form (#1386). '%' is written \x25 because
 # Kong rejects a raw '%' that is not valid percent-encoding in a route path.
 # No '~' prefix: this file is _format_version 2.1, where Kong recognises a
@@ -523,13 +523,13 @@ class KongConfigGenerator:
         if asset_baker_service:
             services.append(asset_baker_service)
 
-        minio_service = self.generate_minio_service()
-        if minio_service:
-            services.append(minio_service)
+        silo_service = self.generate_silo_service()
+        if silo_service:
+            services.append(silo_service)
 
-        minio_s3_service = self.generate_minio_s3_service()
-        if minio_s3_service:
-            services.append(minio_s3_service)
+        silo_s3_service = self.generate_silo_s3_service()
+        if silo_s3_service:
+            services.append(silo_s3_service)
 
         trino_service = self.generate_trino_service()
         if trino_service:
@@ -1115,7 +1115,7 @@ class KongConfigGenerator:
                     # the request Host header. Without preserve_host,
                     # Kong forwards Host=comfyui-gpu:18188 and the
                     # browser cannot resolve that internal Docker name.
-                    # Same pattern as n8n / LiteLLM / MinIO / Ray.
+                    # Same pattern as n8n / LiteLLM / Silo / Ray.
                     'preserve_host': True,
                     'hosts': ['comfyui.localhost']
                 }
@@ -1361,7 +1361,7 @@ class KongConfigGenerator:
                     # Hermes dashboard is an SPA that constructs API /
                     # asset URLs from the request Host header. Without
                     # preserve_host, Kong forwards Host=hermes:9119 and
-                    # the browser cannot resolve it. The MinIO route's
+                    # the browser cannot resolve it. The Silo route's
                     # comment already cites Hermes as an exemplar of
                     # this pattern — restore conformance here.
                     'preserve_host': True,
@@ -1534,78 +1534,78 @@ class KongConfigGenerator:
             "plugins": [{"name": "cors"}],
         }
 
-    def generate_minio_service(self) -> Optional[Dict[str, Any]]:
-        """Generate MinIO console Kong route.
+    def generate_silo_service(self) -> Optional[Dict[str, Any]]:
+        """Generate Silo console Kong route.
 
-        Routes ``minio.localhost:${KONG_HTTP_PORT}`` to the MinIO admin
-        console on internal port 9001 (host port ``MINIO_CONSOLE_PORT``,
-        default 63021; 63020 is the S3 API ``MINIO_PORT``). The S3 API at port 9000 is deliberately NOT
+        Routes ``silo.localhost:${KONG_HTTP_PORT}`` to the Silo admin
+        console on internal port 9001 (host port ``SILO_CONSOLE_PORT``,
+        default 63021; 63020 is the S3 API ``SILO_PORT``). The S3 API at port 9000 is deliberately NOT
         aliased — S3 clients use full URLs with explicit ports anyway
         and don't benefit from a friendly hostname.
 
-        Why ``preserve_host: True``: MinIO's React console SPA reads
+        Why ``preserve_host: True``: Silo's React console SPA reads
         the Host header to build login redirect / session cookie
         scopes. Without ``preserve_host``, Kong rewrites Host to
-        ``minio:9001`` (the upstream) and the browser then can't
+        ``silo:9001`` (the upstream) and the browser then can't
         resolve that hostname. Same pattern as n8n / LiteLLM / Hermes.
 
-        Gated on ``MINIO_SOURCE != disabled``. When disabled there's
-        no MinIO container to route to and the alias would 502.
+        Gated on ``SILO_SOURCE != disabled``. When disabled there's
+        no Silo container to route to and the alias would 502.
         """
-        source = self.get_env_value('MINIO_SOURCE')
+        source = self.get_env_value('SILO_SOURCE')
         if source == 'disabled':
             return None
 
         return {
-            'name': 'minio-console',
-            'url': 'http://minio:9001/',
+            'name': 'silo-console',
+            'url': 'http://silo:9001/',
             'routes': [
                 {
-                    'name': 'minio-console-all',
+                    'name': 'silo-console-all',
                     'strip_path': False,
                     'preserve_host': True,
-                    'hosts': ['minio.localhost']
+                    'hosts': ['silo.localhost']
                 }
             ],
             'plugins': [{'name': 'cors'}]
         }
 
-    def generate_minio_s3_service(self) -> Optional[Dict[str, Any]]:
-        """Generate the MinIO S3 API Kong route.
+    def generate_silo_s3_service(self) -> Optional[Dict[str, Any]]:
+        """Generate the Silo S3 API Kong route.
 
-        Routes ``s3.minio.localhost:${KONG_HTTP_PORT}`` to the MinIO S3 API
+        Routes ``s3.silo.localhost:${KONG_HTTP_PORT}`` to the Silo S3 API
         on internal port 9000 — a friendly, BASE_PORT-independent host for
         external S3-compatible tools (separate from the console route at
-        ``minio.localhost`` -> 9001). Declared as ``extra_kong_aliases`` in
-        ``services/minio/service.yml`` so ``--setup-hosts`` wires the host.
+        ``silo.localhost`` -> 9001). Declared as ``extra_kong_aliases`` in
+        ``services/silo/service.yml`` so ``--setup-hosts`` wires the host.
 
         ``preserve_host: True`` keeps the client's signed Host header intact
         so S3 SigV4 validates through the proxy (path-style addressing). The
-        host port (``MINIO_PORT``, default 63020) remains the direct,
+        host port (``SILO_PORT``, default 63020) remains the direct,
         proxy-free path and is the recommended one for heavy/upload traffic.
 
-        Gated on ``MINIO_SOURCE != disabled`` (no container to route to
+        Gated on ``SILO_SOURCE != disabled`` (no container to route to
         otherwise — the alias would 502).
         """
-        source = self.get_env_value('MINIO_SOURCE')
+        source = self.get_env_value('SILO_SOURCE')
         if source == 'disabled':
             return None
 
         return {
-            'name': 'minio-s3',
-            'url': 'http://minio:9000/',
+            'name': 'silo-s3',
+            'url': 'http://silo:9000/',
             'routes': [
                 {
-                    'name': 'minio-s3-all',
+                    'name': 'silo-s3-all',
                     'strip_path': False,
                     'preserve_host': True,
-                    'hosts': ['s3.minio.localhost']
+                    'hosts': ['s3.silo.localhost']
                 },
                 # MINIO_PROMETHEUS_AUTH_TYPE=public lets Prometheus scrape
-                # minio:9000 on the internal network; through Kong the same
+                # silo:9000 on the internal network; through Kong the same
                 # metrics would be open to any local page (#1386).
                 self._blocked_paths_route(
-                    'minio-s3-metrics-blocked', 's3.minio.localhost',
+                    'silo-s3-metrics-blocked', 's3.silo.localhost',
                     # v2 (/minio/v2/metrics/*), v3 (/minio/metrics/v3/*) and
                     # the legacy /minio/prometheus/metrics all honour it.
                     [rf'/minio{_ANY_SLASH}(?:v[23]{_ANY_SLASH}metrics|metrics{_ANY_SLASH}v3'
@@ -1674,7 +1674,7 @@ class KongConfigGenerator:
         redirect and asset URLs from the Host header. Without
         ``preserve_host``, Kong rewrites Host to ``ray-head:8265`` and
         the browser cannot resolve that internal Docker hostname. Same
-        pattern as n8n / LiteLLM / MinIO.
+        pattern as n8n / LiteLLM / Silo.
 
         Basic-auth is applied using the shared ``DASHBOARD_USERNAME`` /
         ``DASHBOARD_PASSWORD`` credentials (same consumer as the

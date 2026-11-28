@@ -255,16 +255,16 @@ EXPECTED_IN_TRACK: dict[str, set[str]] = {
     },
     "ml-eng": {
         "spark-master", "ray-head", "jupyterhub", "zeppelin",
-        "open-web-ui", "minio", "tei-reranker",
+        "open-web-ui", "silo", "tei-reranker",
         "llm-provider", "prometheus", "grafana",
     },
     "data-eng": {
         "spark-master", "airflow-webserver", "jupyterhub", "zeppelin",
-        "minio", "weaviate", "neo4j-graph-db",
+        "silo", "weaviate", "neo4j-graph-db",
         "llm-provider", "prometheus", "grafana",
     },
     "trading": {
-        "jupyterhub", "minio",
+        "jupyterhub", "silo",
         "llm-provider", "prometheus", "grafana",
     },
 }

@@ -540,7 +540,7 @@ The wizard discovers every configurable service from its `services/<name>/servic
 | Prometheus | container, disabled (with inline `PROMETHEUS_RETENTION_DAYS` input on `container`, default 7, range 1..365) |
 | Grafana | container, disabled |
 | Open WebUI | container, disabled |
-| MinIO Console | container, disabled |
+| Silo Console | container, disabled |
 | Local Deep Researcher | container, disabled |
 
 ### 16.1. Cloud LLM providers (not auto-discovered)
@@ -559,7 +559,7 @@ A new service appears in the wizard only after it completes the registration ste
 
 ## 17. Dependency Validation
 
-Dependencies are checked at launch, after the prompts. Trino requires MinIO and the Iceberg REST catalog. If either is disabled, Atlas reports the missing dependency and attempts to disable Trino. Launch stops if required dependencies remain unresolved. Check the launch log for the reported cause and action.
+Dependencies are checked at launch, after the prompts. Trino requires Silo and the Iceberg REST catalog. If either is disabled, Atlas reports the missing dependency and attempts to disable Trino. Launch stops if required dependencies remain unresolved. Check the launch log for the reported cause and action.
 
 Weaviate is optional for n8n and n8n-worker. When n8n is selected, both remain enabled with Weaviate disabled. Atlas leaves `WEAVIATE_URL` blank to mark the integration as not configured. The `gen-ai-eng` track includes n8n without Weaviate; no Weaviate override is needed to keep n8n enabled.
 

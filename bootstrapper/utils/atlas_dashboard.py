@@ -566,8 +566,8 @@ def _auth_note(
 
 
 def _own_credential_note(name_l: str, name: str) -> str | None:
-    if "minio" in name_l:
-        return "MinIO credentials"
+    if "silo" in name_l:
+        return "Silo credentials"
     if "neo4j" in name_l:
         return "Neo4j credentials"
     if "jupyter" in name_l:
@@ -587,7 +587,7 @@ def _hard_dependencies(manifest, env: dict[str, str]) -> set[str]:
     """depends_on.required entries the service actually calls, plus its
     selected runtime_deps requires. depends_on.required alone also holds slot-ordering
     pins (ray for prometheus/grafana/loki/tempo/langfuse), reported as missing
-    dependencies; runtime_deps alone lost real ones such as spark→minio."""
+    dependencies; runtime_deps alone lost real ones such as spark→silo."""
     from services.manifests import call_edges  # noqa: PLC0415
 
     called = {edge.target for edge in call_edges(manifest.data_flow)}
