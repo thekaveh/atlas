@@ -67,4 +67,4 @@ The start-order column comes from each manifest's `depends_on.required`. It orde
 | verba | weaviate, litellm, kong | docling, open-webui, jupyterhub | weaviate, litellm |
 | vllm-metal | litellm | - | - |
 | weaviate | supabase, litellm | - | litellm (optional: only collections whose text2vec-openai baseURL is LiteLLM, as the backend's are), multi2vec-clip |
-| zeppelin | spark, minio | supabase, iceberg-rest, redpanda, trino | spark, supabase, minio, iceberg-rest, redpanda (optional: Kafka jars not bundled (#1376); Atlas passes only SPARK_KAFKA_BOOTSTRAP_SERVERS), trino |
+| zeppelin | spark, minio | supabase, iceberg-rest, redpanda, trino | spark, supabase, minio, iceberg-rest, redpanda (optional: Kafka connector baked into the Spark runtime (#1376); Atlas passes only SPARK_KAFKA_BOOTSTRAP_SERVERS), trino |

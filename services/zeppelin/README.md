@@ -230,7 +230,7 @@ Set `PROJECT_NAME` in your shell to the value in `.env` (default `atlas`) before
 |---|---|---|
 | iceberg-rest | data | current |
 | minio | data | current |
-| redpanda | data | optional: Kafka jars not bundled (#1376); Atlas passes only SPARK_KAFKA_BOOTSTRAP_SERVERS |
+| redpanda | data | optional: Kafka connector baked into the Spark runtime (#1376); Atlas passes only SPARK_KAFKA_BOOTSTRAP_SERVERS |
 | spark | data | current |
 | supabase | data | current |
 | trino | data | current |
