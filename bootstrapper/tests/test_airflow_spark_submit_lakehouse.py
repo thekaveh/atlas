@@ -731,6 +731,28 @@ def _run_s3a_smoke(env: dict[str, str]) -> subprocess.CompletedProcess[str]:
     )
 
 
+def _assert_env_file_container(
+    lines: list[str], state: Path, prefix: str, variables: list[str]
+) -> None:
+    run_line = _docker_run_line(lines, prefix)
+    name = re.search(r"--name (\S+)", run_line).group(1)
+    assert "--env-file " in run_line
+    assert "--env " not in run_line
+    assert (state / f"envmode-{name}").read_text(encoding="utf-8") == "600"
+    received = (state / f"envfile-{name}").read_text(encoding="utf-8")
+    assert received.splitlines() == variables
+    assert not _env_file_path(run_line).exists()
+
+
+def _assert_no_secret_outside_spark_argv(lines: list[str], access: str, secret: str) -> None:
+    # The Spark round trip still passes its S3A keys as --conf argv; the strict
+    # xfail below pins that gap. Every other recorded docker argv must be clean.
+    for line in lines:
+        if "spark-submit" not in line:
+            assert access not in line, line
+            assert secret not in line, line
+
+
 def test_s3a_smoke_passes_secrets_by_env_file_not_argv(tmp_path: Path) -> None:
     access, secret = _smoke_credentials()
     env, log = _fake_docker_environment(tmp_path, "none")
@@ -746,21 +768,9 @@ def test_s3a_smoke_passes_secrets_by_env_file_not_argv(tmp_path: Path) -> None:
         "atlas-s3a-mc-": [f"MC_HOST_atlas=http://{access}:{secret}@minio:9000"],
     }
     for prefix, variables in expected_env.items():
-        run_line = _docker_run_line(lines, prefix)
-        name = re.search(r"--name (\S+)", run_line).group(1)
-        assert "--env-file " in run_line
-        assert "--env " not in run_line
-        assert (state / f"envmode-{name}").read_text(encoding="utf-8") == "600"
-        received = (state / f"envfile-{name}").read_text(encoding="utf-8")
-        assert received.splitlines() == variables
-        assert not _env_file_path(run_line).exists()
+        _assert_env_file_container(lines, state, prefix, variables)
 
-    # The Spark round trip still passes its S3A keys as --conf argv; the strict
-    # xfail below pins that gap. Every other recorded docker argv must be clean.
-    for line in lines:
-        if "spark-submit" not in line:
-            assert access not in line, line
-            assert secret not in line, line
+    _assert_no_secret_outside_spark_argv(lines, access, secret)
 
 
 def test_s3a_smoke_removes_secret_env_files_when_cleanup_fails(tmp_path: Path) -> None:
