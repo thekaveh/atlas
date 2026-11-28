@@ -764,7 +764,8 @@ def test_s3a_smoke_passes_secrets_by_env_file_not_argv(tmp_path: Path) -> None:
     state = tmp_path / "docker-state"
     # Each container still receives exactly the variables it received before.
     expected_env = {
-        "atlas-s3a-silo-": [f"SILO_ROOT_USER={access}", f"SILO_ROOT_PASSWORD={secret}"],
+        # The Silo server container reads its own MINIO_ROOT_* names.
+        "atlas-s3a-silo-": [f"MINIO_ROOT_USER={access}", f"MINIO_ROOT_PASSWORD={secret}"],
         "atlas-s3a-mc-": [f"MC_HOST_atlas=http://{access}:{secret}@silo:9000"],
     }
     for prefix, variables in expected_env.items():
